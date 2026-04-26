@@ -6,6 +6,7 @@
  */
 
 import type { RealtimeMessage } from './provider';
+import { normalizeRealtimeStreamEvent } from './stream-events';
 
 type RealtimeListener = (message: RealtimeMessage) => void;
 
@@ -60,9 +61,11 @@ export class TauriBridgeClient {
     for (const eventName of BRIDGE_EVENTS) {
       const unlistenFn = await listen<BridgePayload>(eventName, (event) => {
         const payload = event.payload;
+        const data = payload.data;
         const message: RealtimeMessage = {
           event: eventName,
-          data: payload.data,
+          data,
+          streamEvent: eventName === 'agent_response_chunk' ? normalizeRealtimeStreamEvent(data) : null,
         };
         this.listeners.forEach((listener) => listener(message));
       });

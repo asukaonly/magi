@@ -23,8 +23,7 @@ import {
 } from '@/api/modules/control';
 import { useControlEvents } from '@/realtime/useControlEvents';
 import { useConversationStore } from '@/stores';
-
-const OPEN_ASK_REQUEST_EVENT = 'magi-open-ask-request';
+import { OPEN_ASK_REQUEST_EVENT } from './ui-events';
 
 export interface AskDialogProps {
   sessionId: string | null | undefined;

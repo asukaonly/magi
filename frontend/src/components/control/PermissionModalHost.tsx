@@ -8,8 +8,7 @@ import { useEffect, useState } from 'react';
 import { useConversationStore } from '@/stores';
 import { PermissionModal } from './PermissionModal';
 import { usePendingPermissions } from './usePendingPermissions';
-
-const OPEN_PERMISSION_REQUEST_EVENT = 'magi-open-permission-request';
+import { OPEN_PERMISSION_REQUEST_EVENT } from './ui-events';
 
 export interface PermissionModalHostProps {
   sessionId: string | null | undefined;

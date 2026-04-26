@@ -49,7 +49,7 @@ const MainLayout: React.FC = () => {
       {/* Control-plane hosts are mounted app-wide so prompts from
           background subagents surface regardless of the active page. */}
       <PermissionModalHost sessionId={currentSessionId} intervalMs={0} />
-      <AskDialog sessionId={currentSessionId} intervalMs={0} />
+      <AskDialog sessionId={currentSessionId} intervalMs={5000} />
     </AppShellProviders>
   );
 };

@@ -328,6 +328,19 @@
     "bootstrapInit": {
       "preparing": "正在初始化 AI，并准备第一条消息..."
     },
+    "runtime": {
+      "label": "运行态详情",
+      "expand": "展开运行态详情",
+      "collapse": "收起运行态详情"
+    },
+    "toolCalls": {
+      "label": "{{count}} 个工具调用",
+      "expand": "展开工具调用详情",
+      "collapse": "收起工具调用详情",
+      "running": "执行中",
+      "completed": "已完成",
+      "arguments": "调用参数"
+    },
     "reconnectFailed": "重连失败，请刷新页面",
     "trace": {
       "title": "调用链路",

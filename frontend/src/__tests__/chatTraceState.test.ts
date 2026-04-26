@@ -1,8 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildReplyPreviewFromMessage,
+  getExecutionActionState,
+  getChatPresentationSurface,
+  projectControlStatusCardPresentation,
+  projectExecutionProgressPresentation,
+  projectChatTimelineMessage,
+} from '@/domain/chat/presentation';
+import {
   applyAgentResponse,
   applyTurnUxPlan,
   createPendingTurn,
+  type ChatTimelineMessage,
   flattenPlanningNodeForDisplay,
   normalizeHistoryMessages,
   normalizeTraceSnapshot,
@@ -19,7 +28,424 @@ describe('chat trace state helpers', () => {
     expect(messages[0].kind).toBe('user');
   });
 
-  it('adds a status card when trace activity begins', () => {
+  it('classifies control and runtime status surfaces explicitly', () => {
+    expect(getChatPresentationSurface({
+      id: 'msg-control',
+      role: 'assistant',
+      kind: 'status',
+      content: 'Need approval',
+      timestamp: 1000,
+      messageKind: 'permission_request',
+    })).toBe('control_status');
+
+    expect(getChatPresentationSurface({
+      id: 'msg-runtime',
+      role: 'assistant',
+      kind: 'status',
+      content: 'Running tools',
+      timestamp: 1001,
+      traceSummary: normalizeTraceSummary({
+        turn_id: 'turn-runtime',
+        mode: 'orchestration',
+        status: 'running',
+        headline: 'Running tools',
+        active_steps: 1,
+        completed_steps: 0,
+        failed_steps: 0,
+        duration_seconds: 0.2,
+        trace_available: true,
+      }),
+    })).toBe('runtime_status');
+
+    expect(getChatPresentationSurface({
+      id: 'msg-transcript',
+      role: 'assistant',
+      kind: 'assistant',
+      content: 'Done',
+      timestamp: 1002,
+      messageKind: 'assistant_final',
+    })).toBe('transcript');
+  });
+
+  it('projects transcript decorations for interim, final, and interrupted user turns', () => {
+    const interimAssistant = projectChatTimelineMessage({
+      id: 'msg-interim',
+      role: 'assistant',
+      kind: 'assistant',
+      content: 'Running tools',
+      timestamp: 1000,
+      messageKind: 'assistant_interim',
+    });
+
+    expect(interimAssistant.surface).toBe('transcript');
+    if (interimAssistant.surface === 'transcript') {
+      expect(interimAssistant.transcript.showExecutionBubbleFooter).toBe(true);
+      expect(interimAssistant.transcript.showHeaderTraceEntry).toBe(false);
+      expect(interimAssistant.transcript.bubbleTop.showReplyStrip).toBe(false);
+      expect(interimAssistant.transcript.bubbleTop.showAttachments).toBe(false);
+    }
+
+    const finalAssistant = projectChatTimelineMessage({
+      id: 'msg-final',
+      role: 'assistant',
+      kind: 'assistant',
+      content: 'Done',
+      timestamp: 1001,
+      messageKind: 'assistant_final',
+    });
+
+    expect(finalAssistant.surface).toBe('transcript');
+    if (finalAssistant.surface === 'transcript') {
+      expect(finalAssistant.transcript.showExecutionBubbleFooter).toBe(false);
+      expect(finalAssistant.transcript.showHeaderTraceEntry).toBe(true);
+      expect(finalAssistant.transcript.belowBubble.showMessageLabel).toBe(false);
+    }
+
+    const interruptedUser = projectChatTimelineMessage({
+      id: 'msg-user',
+      role: 'user',
+      kind: 'user',
+      content: 'Continue',
+      timestamp: 1002,
+      reaction: '👌',
+      replyTo: {
+        messageId: 'msg-origin',
+        role: 'assistant',
+        contentExcerpt: 'Earlier answer',
+      },
+      attachments: [
+        {
+          attachment_id: 'att-1',
+          kind: 'image',
+          original_name: 'diagram.png',
+          size_bytes: 1024,
+        },
+      ],
+      label: {
+        kind: 'custom',
+        text: 'Follow up',
+        appliedBy: 'local_user',
+        source: 'manual',
+        createdAtMs: 1003,
+      },
+      traceSummary: normalizeTraceSummary({
+        turn_id: 'turn-user',
+        mode: 'function_calling',
+        status: 'interrupted',
+        headline: 'Interrupted by newer turn',
+        active_steps: 0,
+        completed_steps: 1,
+        failed_steps: 0,
+        duration_seconds: 0.8,
+        trace_available: true,
+      }),
+    });
+
+    expect(interruptedUser.surface).toBe('transcript');
+    if (interruptedUser.surface === 'transcript') {
+      expect(interruptedUser.transcript.belowBubble.showReactionBadge).toBe(true);
+      expect(interruptedUser.transcript.bubbleTop.showReplyStrip).toBe(true);
+      expect(interruptedUser.transcript.bubbleTop.showAttachments).toBe(true);
+      expect(interruptedUser.transcript.belowBubble.showMessageLabel).toBe(true);
+      expect(interruptedUser.transcript.belowBubble.showUserTraceStatus).toBe(true);
+      expect(interruptedUser.transcript.actions.replyPreview).toBeNull();
+      expect(interruptedUser.transcript.actions.canQuickLabel).toBe(false);
+    }
+  });
+
+  it('builds a reply preview from a persisted timeline message', () => {
+    expect(buildReplyPreviewFromMessage({
+      id: 'msg-reply',
+      role: 'assistant',
+      kind: 'assistant',
+      content: 'Root assistant answer',
+      timestamp: 1000,
+      messageId: 'msg-assistant-root',
+      messageKind: 'assistant_final',
+    })).toEqual({
+      messageId: 'msg-assistant-root',
+      role: 'assistant',
+      messageKind: 'assistant_final',
+      contentExcerpt: 'Root assistant answer',
+    });
+  });
+
+  it('projects execution action state for running, cancelling, and detaching turns', () => {
+    const runningMessage: ChatTimelineMessage = {
+      id: 'msg-running',
+      role: 'assistant',
+      kind: 'assistant',
+      content: 'Running tools',
+      timestamp: 1000,
+      turnId: 'turn-running',
+      traceSummary: normalizeTraceSummary({
+        turn_id: 'turn-running',
+        mode: 'orchestration',
+        status: 'running',
+        headline: 'Running tools',
+        active_steps: 2,
+        completed_steps: 1,
+        failed_steps: 0,
+        duration_seconds: 1.2,
+        trace_available: true,
+      }),
+    };
+
+    expect(getExecutionActionState(runningMessage, {
+      executionControlByTurnId: {},
+      cancellingTurnIds: [],
+      detachingTurnIds: [],
+    })).toMatchObject({
+      turnId: 'turn-running',
+      executionState: 'running',
+      isCancelling: false,
+      isDetaching: false,
+      showCancelButton: true,
+      showDetachButton: true,
+    });
+
+    expect(getExecutionActionState(runningMessage, {
+      executionControlByTurnId: {
+        'turn-running': {
+          state: 'cancelling',
+          label: 'Cancelling run',
+        },
+      },
+      cancellingTurnIds: ['turn-running'],
+      detachingTurnIds: [],
+    })).toMatchObject({
+      turnId: 'turn-running',
+      executionState: 'cancelling',
+      isCancelling: true,
+      isDetaching: false,
+      showCancelButton: true,
+      showDetachButton: false,
+      executionControl: {
+        state: 'cancelling',
+        label: 'Cancelling run',
+      },
+    });
+
+    expect(getExecutionActionState(runningMessage, {
+      executionControlByTurnId: {},
+      cancellingTurnIds: [],
+      detachingTurnIds: ['turn-running'],
+    })).toMatchObject({
+      turnId: 'turn-running',
+      executionState: 'detaching',
+      isCancelling: false,
+      isDetaching: true,
+      showCancelButton: false,
+      showDetachButton: false,
+    });
+  });
+
+  it('projects execution progress descriptor including trace-entry state', () => {
+    const runningMessage: ChatTimelineMessage = {
+      id: 'msg-running-panel',
+      role: 'assistant',
+      kind: 'assistant',
+      content: 'Running tools',
+      timestamp: 1000,
+      turnId: 'turn-running-panel',
+      traceDisplayMode: 'prominent',
+      traceAvailable: true,
+      traceSummary: normalizeTraceSummary({
+        turn_id: 'turn-running-panel',
+        mode: 'orchestration',
+        status: 'running',
+        headline: 'Running tools',
+        active_steps: 2,
+        completed_steps: 1,
+        failed_steps: 0,
+        duration_seconds: 1.2,
+        trace_available: true,
+        plan_summary: {
+          planner: 'task_agent',
+          parallel_mode: 'parallel',
+          total_steps: 4,
+          remaining_steps: 1,
+          steps: [
+            {
+              subtask_id: 'subtask_1',
+              label: 'Inspect current docs',
+              status: 'completed',
+            },
+            {
+              subtask_id: 'subtask_2',
+              label: 'Map runtime structure',
+              status: 'running',
+            },
+          ],
+        },
+      }),
+    };
+
+    expect(projectExecutionProgressPresentation(runningMessage, {
+      executionControlByTurnId: {
+        'turn-running-panel': {
+          state: 'cancelling',
+          label: 'Cancelling run',
+        },
+      },
+      cancellingTurnIds: ['turn-running-panel'],
+      detachingTurnIds: [],
+      summary: { trace_available: true },
+      variant: 'bubble',
+    })).toMatchObject({
+      turnId: 'turn-running-panel',
+      executionControlLabel: 'Cancelling run',
+      executionState: 'cancelling',
+      isCancelling: true,
+      isDetaching: false,
+      showCancelButton: true,
+      showDetachButton: false,
+      showSubtitle: true,
+      statusTitle: 'Cancelling run',
+      statusTitleKey: 'chat.trace.execution.cancellingTitle',
+      subtitle: {
+        key: 'chat.trace.execution.cancellingBody',
+      },
+      planStage: {
+        key: 'chat.trace.plan.stage.cancelling',
+        values: { completed: 1, total: 4 },
+      },
+      footer: null,
+      showBubbleTitle: true,
+      indicator: 'loader',
+      showSpinningIndicator: true,
+      traceStats: {
+        activeSteps: 2,
+        completedSteps: 1,
+        failedSteps: 0,
+      },
+      planSummary: {
+        parallelMode: 'parallel',
+        totalSteps: 4,
+        remainingSteps: 1,
+        steps: [
+          { key: 'subtask_1', label: 'Inspect current docs', status: 'completed' },
+          { key: 'subtask_2', label: 'Map runtime structure', status: 'running' },
+        ],
+      },
+      traceEntry: {
+        turnId: 'turn-running-panel',
+        canOpen: true,
+        variant: 'prominent',
+      },
+    });
+  });
+
+  it('projects control status card descriptors from control payloads', () => {
+    expect(projectControlStatusCardPresentation({
+      id: 'permission:req-1',
+      role: 'assistant',
+      kind: 'status',
+      messageKind: 'permission_request',
+      content: 'git_push',
+      timestamp: 1000,
+      payload: {
+        permission_request_id: 'req-1',
+        tool: 'git_push',
+        risk_level: 'high',
+        origin: 'main_loop',
+        tool_args: { remote: 'origin' },
+      },
+    })).toMatchObject({
+      kind: 'permission_request',
+      requestId: 'req-1',
+      tool: 'git_push',
+      riskLevel: 'high',
+      riskTone: 'danger',
+      origin: 'main_loop',
+      argsPreview: '{\n  "remote": "origin"\n}',
+    });
+
+    expect(projectControlStatusCardPresentation({
+      id: 'ask:ask-1',
+      role: 'assistant',
+      kind: 'status',
+      messageKind: 'ask_request',
+      content: 'Which branch should I use?',
+      timestamp: 1001,
+      payload: {
+        ask_request_id: 'ask-1',
+        question: 'Which branch should I use?',
+        options: ['main', 'develop'],
+        allow_free_text: true,
+        background: true,
+      },
+    })).toMatchObject({
+      kind: 'ask_request',
+      question: 'Which branch should I use?',
+      options: ['main', 'develop'],
+      allowFreeText: true,
+      isBackground: true,
+    });
+
+    expect(projectControlStatusCardPresentation({
+      id: 'plan:turn-1',
+      role: 'assistant',
+      kind: 'status',
+      messageKind: 'plan_state',
+      content: '1. Inspect\n2. Fix',
+      timestamp: 1002,
+      payload: {
+        active: true,
+        plan_text: '1. Inspect\n2. Fix',
+      },
+    })).toMatchObject({
+      kind: 'plan_state',
+      active: true,
+      planText: '1. Inspect\n2. Fix',
+    });
+
+    expect(projectControlStatusCardPresentation({
+      id: 'todo:turn-1',
+      role: 'assistant',
+      kind: 'status',
+      messageKind: 'todo_state',
+      content: 'Inspect runtime drift\nPatch UI',
+      timestamp: 1003,
+      payload: {
+        items: [
+          { id: 'todo-1', content: 'Inspect runtime drift', status: 'in_progress' },
+          { content: 'Patch UI', status: 'done' },
+          { status: 'mystery' },
+        ],
+      },
+    })).toMatchObject({
+      kind: 'todo_state',
+      items: [
+        { id: 'todo-1', content: 'Inspect runtime drift', status: 'in_progress' },
+        { id: 'Patch UI', content: 'Patch UI', status: 'completed' },
+        { id: 'todo-2', content: '', status: 'not_started' },
+      ],
+    });
+
+    expect(projectControlStatusCardPresentation({
+      id: 'bg:task-1',
+      role: 'assistant',
+      kind: 'status',
+      messageKind: 'background_task_completion',
+      content: 'Repo sync\nFinished successfully',
+      timestamp: 1004,
+      payload: {
+        background_task_id: 'task-1',
+        background_task_status: 'succeeded',
+        background_task_title: 'Repo sync',
+      },
+    })).toMatchObject({
+      kind: 'background_task_completion',
+      taskId: 'task-1',
+      status: 'succeeded',
+      statusTone: 'success',
+      title: 'Repo sync',
+      bodyText: 'Finished successfully',
+    });
+  });
+
+  it('adds an interim assistant bubble when trace activity begins', () => {
     const initial = createPendingTurn('Analyze this repo', 'turn_1', 1000, 'Thinking');
     const summary = normalizeTraceSummary({
       turn_id: 'turn_1',
@@ -37,7 +463,8 @@ describe('chat trace state helpers', () => {
     const next = upsertTraceSummary(initial, 'turn_1', summary);
 
     expect(next).toHaveLength(2);
-    expect(next[1].kind).toBe('status');
+    expect(next[1].kind).toBe('assistant');
+    expect(next[1].messageKind).toBe('assistant_interim');
     expect(next[1].content).toBe('正在执行工具链');
     expect(next[1].traceAvailable).toBe(true);
   });
@@ -265,7 +692,7 @@ describe('chat trace state helpers', () => {
     expect(next[0].reaction).toBe('👌');
   });
 
-  it('adds a status card when thinking indicator asks for visible feedback', () => {
+  it('adds an interim assistant bubble when thinking indicator asks for visible feedback', () => {
     const initial = createPendingTurn('查一下最近状态', 'turn_3', 1000, 'Thinking');
     const next = applyTurnUxPlan(
       initial,
@@ -280,7 +707,8 @@ describe('chat trace state helpers', () => {
     );
 
     expect(next).toHaveLength(2);
-    expect(next[1].kind).toBe('status');
+    expect(next[1].kind).toBe('assistant');
+    expect(next[1].messageKind).toBe('assistant_interim');
     expect(next[1].content).toBe('正在思考');
   });
 
@@ -318,6 +746,46 @@ describe('chat trace state helpers', () => {
     expect(next[2].messageKind).toBe('assistant_final');
     expect(next[2].content).toContain('final answer');
     expect(next[2].traceAvailable).toBe(true);
+  });
+
+  it('preserves durable todo state cards when the final assistant answer arrives', () => {
+    const initial = [
+      ...createPendingTurn('Analyze this repo', 'turn_todo', 1000, 'Thinking'),
+      {
+        id: 'todo:turn_todo',
+        role: 'assistant' as const,
+        kind: 'status' as const,
+        messageKind: 'todo_state',
+        content: 'Inspect runtime drift\nPatch UI',
+        timestamp: 1500,
+        turnId: 'turn_todo',
+        payload: {
+          items: [
+            { id: 'todo-1', content: 'Inspect runtime drift', status: 'in_progress' },
+            { id: 'todo-2', content: 'Patch UI', status: 'completed' },
+          ],
+        },
+      },
+    ];
+
+    const next = applyAgentResponse(initial, {
+      content: 'Here is the final answer.',
+      timestamp: 2000,
+      turnId: 'turn_todo',
+    });
+
+    expect(next).toHaveLength(3);
+    expect(next[1]).toMatchObject({
+      kind: 'status',
+      messageKind: 'todo_state',
+      turnId: 'turn_todo',
+    });
+    expect(next[2]).toMatchObject({
+      kind: 'assistant',
+      messageKind: 'assistant_final',
+      turnId: 'turn_todo',
+      content: 'Here is the final answer.',
+    });
   });
 
   it('reuses the pending turn id when the final response arrives without turn metadata', () => {

@@ -1,14 +1,17 @@
 /**
  * Smoke tests for the control-plane components.
  */
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { PermissionModal } from '@/components/control/PermissionModal';
 import { AskDialog } from '@/components/control/AskDialog';
 import { PermissionModalHost } from '@/components/control/PermissionModalHost';
+import { RealtimeProvider } from '@/realtime/provider';
 import type { AskStateDTO, PendingPermissionDTO } from '@/api/modules/control';
 import { useConversationStore } from '@/stores';
+
+let bridgeListener: ((message: Record<string, unknown>) => void) | null = null;
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -49,6 +52,30 @@ vi.mock('@/api/modules/control', async () => {
       exited_at_ms: null,
     }),
   };
+});
+
+vi.mock('@/realtime/tauri-bridge', () => ({
+  TauriBridgeClient: class {
+    subscribe(listener: (message: Record<string, unknown>) => void) {
+      bridgeListener = listener;
+      return () => {
+        if (bridgeListener === listener) {
+          bridgeListener = null;
+        }
+      };
+    }
+
+    connect() {}
+
+    disconnect() {
+      bridgeListener = null;
+    }
+  },
+}));
+
+afterEach(() => {
+  bridgeListener = null;
+  vi.clearAllMocks();
 });
 
 const baseRequest: PendingPermissionDTO = {
@@ -183,5 +210,73 @@ describe('AskDialog', () => {
       expect(messages.some((message) => message.messageKind === 'ask_request')).toBe(true);
     });
     expect(screen.getByTestId('ask-dialog')).toBeInTheDocument();
+  });
+
+  it('recovers a pending ask through polling when the realtime wake-up is missed', async () => {
+    const controlApi = await import('@/api/modules/control');
+    vi.useFakeTimers();
+    vi.mocked(controlApi.getAskState)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(baseAsk);
+
+    try {
+      render(<AskDialog sessionId="sid-1" intervalMs={50} />);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60);
+      });
+
+      expect(vi.mocked(controlApi.getAskState)).toHaveBeenCalledTimes(2);
+      expect(screen.getByTestId('ask-dialog')).toBeInTheDocument();
+
+      const messages = useConversationStore.getState().messagesBySession['sid-1'] || [];
+      expect(messages.some((message) => message.messageKind === 'ask_request')).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('wakes a pending ask from ask_user_question tool-call chunks when the control wake-up is missed', async () => {
+    const controlApi = await import('@/api/modules/control');
+    vi.mocked(controlApi.getAskState)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(baseAsk);
+
+    render(
+      <RealtimeProvider>
+        <AskDialog sessionId="sid-1" intervalMs={0} />
+      </RealtimeProvider>,
+    );
+
+    await waitFor(() => {
+      expect(vi.mocked(controlApi.getAskState)).toHaveBeenCalledTimes(1);
+    });
+
+    act(() => {
+      bridgeListener?.({
+        event: 'agent_response_chunk',
+        data: {
+          session_id: 'sid-1',
+          turn_id: 'turn-ask-chunk',
+          event: {
+            kind: 'tool_call_end',
+            tool_name: 'ask_user_question',
+            tool_arguments: {
+              question: baseAsk.question,
+              options: baseAsk.options,
+              allow_free_text: baseAsk.allow_free_text,
+            },
+          },
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(vi.mocked(controlApi.getAskState)).toHaveBeenCalledTimes(2);
+      expect(screen.getByTestId('ask-dialog')).toBeInTheDocument();
+    });
+
+    const messages = useConversationStore.getState().messagesBySession['sid-1'] || [];
+    expect(messages.some((message) => message.messageKind === 'ask_request')).toBe(true);
   });
 });

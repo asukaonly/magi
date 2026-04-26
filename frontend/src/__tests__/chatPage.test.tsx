@@ -10,6 +10,7 @@ import { messagesApi } from '@/api';
 import { getPlanState, getTodos, updateSessionSettings } from '@/api/modules/control';
 import { configApi, DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
 import { personasApi } from '@/api/modules/personas';
+import { applyRealtimeStoreProjection } from '@/realtime/store-projection';
 
 let realtimeListener: ((message: Record<string, unknown>) => void) | null = null;
 const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -48,7 +49,10 @@ vi.mock('@/realtime/provider', async () => {
     ...actual,
     useRealtime: () => ({
       subscribe: (listener: (message: Record<string, unknown>) => void) => {
-        realtimeListener = listener;
+        realtimeListener = (message: Record<string, unknown>) => {
+          applyRealtimeStoreProjection(message);
+          listener(message);
+        };
         return () => {
           realtimeListener = null;
         };
@@ -188,6 +192,13 @@ describe('ChatPage', () => {
     toastWarningMock.mockReset();
     vi.mocked(personasApi.getGreeting).mockReset().mockResolvedValue({ success: true, data: { name: 'AI', greeting: '', needs_bootstrap: false } } as any);
     vi.mocked(personasApi.bootstrapInit).mockReset().mockResolvedValue({ success: true, data: { bootstrap_active: false, opening: null } } as any);
+    vi.mocked(messagesApi.getTrace).mockReset().mockResolvedValue({
+      success: true,
+      user_id: 'local_user',
+      session_id: 'session-1',
+      turn_id: 'turn-default',
+      trace: null,
+    } as any);
     vi.mocked(messagesApi.labelMessage).mockReset();
     vi.mocked(messagesApi.deleteMessage).mockReset();
     vi.mocked(updateSessionSettings).mockClear();
@@ -490,6 +501,61 @@ describe('ChatPage', () => {
       expect(personasApi.getGreeting).toHaveBeenCalled();
     });
     expect(personasApi.bootstrapInit).not.toHaveBeenCalled();
+  });
+
+  it('runs bootstrap init again when a later session also needs bootstrap', async () => {
+    vi.mocked(messagesApi.getHistory).mockResolvedValue({ messages: [] } as any);
+    vi.mocked(personasApi.getGreeting)
+      .mockResolvedValueOnce({
+        success: true,
+        data: { name: 'AI', greeting: '', needs_bootstrap: true },
+      } as any)
+      .mockResolvedValueOnce({
+        success: true,
+        data: { name: 'AI', greeting: '', needs_bootstrap: true },
+      } as any);
+    vi.mocked(personasApi.bootstrapInit).mockResolvedValue({
+      success: true,
+      data: { bootstrap_active: true, opening: 'hello' },
+    } as any);
+
+    useConversationStore.getState().hydrateSessions([
+      {
+        session_id: 'session-1',
+        title: 'Session 1',
+        last_message_preview: '',
+        last_user_message_preview: '',
+        title_overridden: false,
+        last_timestamp: 0,
+        message_count: 0,
+        workspace_path: null,
+      },
+      {
+        session_id: 'session-2',
+        title: 'Session 2',
+        last_message_preview: '',
+        last_user_message_preview: '',
+        title_overridden: false,
+        last_timestamp: 0,
+        message_count: 0,
+        workspace_path: null,
+      },
+    ], 'session-1');
+
+    render(<ChatPage />);
+
+    await waitFor(() => {
+      expect(personasApi.bootstrapInit).toHaveBeenCalledWith('session-1', 'local_user');
+    });
+
+    act(() => {
+      useConversationStore.getState().setCurrentSessionId('session-2');
+    });
+
+    await waitFor(() => {
+      expect(personasApi.bootstrapInit).toHaveBeenCalledWith('session-2', 'local_user');
+      expect(personasApi.bootstrapInit).toHaveBeenCalledTimes(2);
+    });
   });
 
   it('updates and clears the current session workspace from the status bar', async () => {
@@ -1329,6 +1395,161 @@ describe('ChatPage', () => {
     expect(screen.getByRole('button', { name: 'chat.trace.view' })).toBeInTheDocument();
   });
 
+  it('loads trace when opening a trace entry and refreshes it while the drawer stays open', async () => {
+    const user = userEvent.setup();
+    vi.mocked(messagesApi.getTrace).mockResolvedValue({
+      success: true,
+      user_id: 'local_user',
+      session_id: 'session-1',
+      turn_id: 'turn-trace-open',
+      trace: {
+        turn_id: 'turn-trace-open',
+        user_id: 'local_user',
+        session_id: 'session-1',
+        status: 'running',
+        mode: 'orchestration',
+        summary: {
+          turn_id: 'turn-trace-open',
+          mode: 'orchestration',
+          status: 'running',
+          headline: '正在分析项目',
+          active_steps: 2,
+          completed_steps: 1,
+          failed_steps: 0,
+          duration_seconds: 1.4,
+          trace_available: true,
+        },
+        root: {
+          id: 'root-turn-trace-open',
+          kind: 'task',
+          label: 'Inspect repository',
+          status: 'running',
+          metadata: {},
+          children: [],
+        },
+      },
+    } as any);
+
+    render(<ChatPage />);
+
+    act(() => {
+      realtimeListener?.({
+        event: 'agent_response',
+        data: {
+          session_id: 'session-1',
+          message_id: 'msg-final-trace-open',
+          message_kind: 'assistant_final',
+          content: 'Trace refresh target',
+          timestamp: Date.now() / 1000,
+          turn_id: 'turn-trace-open',
+          trace_available: true,
+          trace_summary: {
+            turn_id: 'turn-trace-open',
+            mode: 'orchestration',
+            status: 'running',
+            headline: '正在分析项目',
+            active_steps: 2,
+            completed_steps: 1,
+            failed_steps: 0,
+            duration_seconds: 1.4,
+            trace_available: true,
+          },
+        },
+      });
+    });
+
+    const messageText = await screen.findByText('Trace refresh target');
+    const messageRow = messageText.closest('div.items-start');
+    expect(messageRow).not.toBeNull();
+    if (!messageRow) {
+      throw new Error('Expected the assistant trace row to exist.');
+    }
+
+    const scopedRow = messageRow as HTMLElement;
+    await user.click(within(scopedRow).getByRole('button', { name: 'chat.trace.view' }));
+
+    await waitFor(() => {
+      expect(messagesApi.getTrace).toHaveBeenCalledWith('local_user', 'session-1', 'turn-trace-open');
+    });
+    await waitFor(() => {
+      expect(useChatTraceStore.getState().activeTurnId).toBe('turn-trace-open');
+      expect(useChatTraceStore.getState().drawerOpen).toBe(true);
+    });
+
+    act(() => {
+      realtimeListener?.({
+        event: 'execution_trace_update',
+        data: {
+          session_id: 'session-1',
+          turn_id: 'turn-trace-open',
+          trace_summary: {
+            turn_id: 'turn-trace-open',
+            mode: 'orchestration',
+            status: 'running',
+            headline: '正在分析项目',
+            active_steps: 2,
+            completed_steps: 1,
+            failed_steps: 0,
+            duration_seconds: 1.5,
+            trace_available: true,
+          },
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(messagesApi.getTrace).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('returns the composer to send mode after an agent response when interjection is disabled', async () => {
+    const user = userEvent.setup();
+    const config = buildConfigWithVision(true) as any;
+    config.data.preferences = {
+      ...(config.data.preferences || {}),
+      allow_interjection: false,
+    };
+    vi.mocked(configApi.get).mockResolvedValue(config);
+
+    render(<ChatPage />);
+
+    await waitFor(() => expect(configApi.get).toHaveBeenCalled());
+
+    await user.type(screen.getByPlaceholderText('chat.inputPlaceholder'), 'Please continue');
+    await user.click(screen.getByRole('button', { name: 'chat.send' }));
+
+    await waitFor(() => {
+      expect(messagesApi.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+        message: 'Please continue',
+      }));
+    });
+
+    const pendingTurnId = String(vi.mocked(messagesApi.sendMessage).mock.calls[0]?.[0]?.client_turn_id || '');
+    expect(pendingTurnId).not.toBe('');
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'chat.stop' })).toBeInTheDocument();
+    });
+
+    act(() => {
+      realtimeListener?.({
+        event: 'agent_response',
+        data: {
+          session_id: 'session-1',
+          turn_id: pendingTurnId,
+          message_id: 'msg-agent-response-stop-reset',
+          message_kind: 'assistant_final',
+          content: 'Handled',
+          timestamp: Date.now() / 1000,
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'chat.send' })).toBeInTheDocument();
+    });
+  });
+
   it('preserves millisecond timestamps from realtime agent responses', async () => {
     render(<ChatPage />);
 
@@ -1658,7 +1879,7 @@ describe('ChatPage', () => {
     ).toBe(false);
   });
 
-  it('renders a thinking status card when ux plan requests visible thinking feedback', async () => {
+  it('renders an interim assistant bubble when ux plan requests visible thinking feedback', async () => {
     render(<ChatPage />);
 
     act(() => {
@@ -1688,6 +1909,96 @@ describe('ChatPage', () => {
     await waitFor(() => {
       expect(screen.getByText('chat.trace.pending')).toBeInTheDocument();
     });
+  });
+
+  it('renders tool-call runtime details inside the assistant bubble', async () => {
+    useConversationStore.getState().hydrateSessions([
+      {
+        session_id: 'session-1',
+        title: 'New Chat',
+        last_message_preview: '',
+        last_user_message_preview: '',
+        title_overridden: false,
+        last_timestamp: 0,
+        message_count: 0,
+        workspace_path: null,
+      },
+    ], 'session-1');
+    useConversationStore.getState().upsertMessage('session-1', {
+      id: 'msg-tool-runtime',
+      role: 'assistant',
+      kind: 'assistant',
+      content: '',
+      timestamp: 1000,
+      turnId: 'turn-tool-runtime',
+      streaming: true,
+      toolCalls: [
+        {
+          toolCallId: 'call-1',
+          toolName: 'web-search',
+          status: 'running',
+          toolArgsText: '{"query":"magi memory architecture"}',
+        },
+      ],
+    });
+
+    render(<ChatPage />);
+
+    const panels = await screen.findAllByTestId('chat-assistant-runtime-panel');
+    const panel = panels.find((candidate) => within(candidate).queryByText('web-search'));
+    expect(panel).toBeDefined();
+    if (!panel) {
+      throw new Error('Expected a runtime panel containing the tool-call details.');
+    }
+    expect(within(panel).getByText('chat.runtime.label')).toBeInTheDocument();
+    expect(within(panel).getByText('chat.toolCalls.label')).toBeInTheDocument();
+    expect(within(panel).getByText('web-search')).toBeInTheDocument();
+    expect(within(panel).getByText('chat.toolCalls.running')).toBeInTheDocument();
+    expect(within(panel).getByText('{"query":"magi memory architecture"}')).toBeInTheDocument();
+  });
+
+  it('renders streamed reasoning details inside the assistant bubble', async () => {
+    useConversationStore.getState().hydrateSessions([
+      {
+        session_id: 'session-1',
+        title: 'New Chat',
+        last_message_preview: '',
+        last_user_message_preview: '',
+        title_overridden: false,
+        last_timestamp: 0,
+        message_count: 0,
+        workspace_path: null,
+      },
+    ], 'session-1');
+    useConversationStore.getState().upsertMessage('session-1', {
+      id: 'msg-reasoning-runtime',
+      role: 'assistant',
+      kind: 'assistant',
+      content: '先看一下代码路径。',
+      timestamp: 1001,
+      turnId: 'turn-reasoning-runtime',
+      streaming: true,
+      reasoning: [
+        {
+          source: 'planner',
+          stepLabel: 'Plan',
+          content: 'Inspecting the execution path',
+        },
+      ],
+    });
+
+    render(<ChatPage />);
+
+    const panels = await screen.findAllByTestId('chat-assistant-runtime-panel');
+    const panel = panels.find((candidate) => within(candidate).queryByText('Inspecting the execution path'));
+    expect(panel).toBeDefined();
+    if (!panel) {
+      throw new Error('Expected a runtime panel containing the reasoning details.');
+    }
+    expect(within(panel).getByText('chat.runtime.label')).toBeInTheDocument();
+    expect(within(panel).getByText('chat.thinking.label')).toBeInTheDocument();
+    expect(within(panel).getByText('Inspecting the execution path')).toBeInTheDocument();
+    expect(screen.getByText('先看一下代码路径。')).toBeInTheDocument();
   });
 
   it('requests fresh history when a turn completes without an agent response event', () => {
@@ -1758,7 +2069,7 @@ describe('ChatPage', () => {
     expect(screen.getAllByRole('button', { name: 'chat.trace.view' }).length).toBeGreaterThan(0);
   });
 
-  it('requests run cancellation from the running trace status card', async () => {
+  it('requests run cancellation from the running interim execution bubble', async () => {
     vi.mocked(messagesApi.cancelRun).mockResolvedValue({
       success: true,
       message: 'cancelled',
@@ -1797,8 +2108,8 @@ describe('ChatPage', () => {
       expect(screen.getByText('正在分析项目')).toBeInTheDocument();
     });
 
-    const runningCard = screen.getByTestId('chat-trace-status-card-turn-running');
-    await userEvent.click(within(runningCard).getByRole('button', { name: 'chat.trace.cancelRun' }));
+    const runningPanel = screen.getByTestId('chat-execution-panel-turn-running');
+    await userEvent.click(within(runningPanel).getByRole('button', { name: 'chat.trace.cancelRun' }));
 
     await waitFor(() => {
       expect(messagesApi.cancelRun).toHaveBeenCalledWith('local_user', 'session-1', {
@@ -1808,7 +2119,7 @@ describe('ChatPage', () => {
     });
   });
 
-  it('requests background handoff from the running trace status card', async () => {
+  it('requests background handoff from the running interim execution bubble', async () => {
     vi.mocked(messagesApi.detachRun).mockResolvedValue({
       success: true,
       message: 'detaching',
@@ -1847,8 +2158,8 @@ describe('ChatPage', () => {
       expect(screen.getByText('正在分析项目')).toBeInTheDocument();
     });
 
-    const runningCard = screen.getByTestId('chat-trace-status-card-turn-running');
-    await userEvent.click(within(runningCard).getByRole('button', { name: 'chat.trace.detachRun' }));
+    const runningPanel = screen.getByTestId('chat-execution-panel-turn-running');
+    await userEvent.click(within(runningPanel).getByRole('button', { name: 'chat.trace.detachRun' }));
 
     await waitFor(() => {
       expect(messagesApi.detachRun).toHaveBeenCalledWith('local_user', 'session-1', {
@@ -1858,7 +2169,75 @@ describe('ChatPage', () => {
     });
   });
 
-  it('updates the running trace status card from execution control websocket events', async () => {
+  it('shows execution actions on assistant interim messages and can cancel the run', async () => {
+    vi.mocked(messagesApi.cancelRun).mockResolvedValue({
+      success: true,
+      message: 'cancelled',
+      data: {
+        user_id: 'local_user',
+        session_id: 'session-1',
+        run_id: 'run-1',
+        status: 'cancelling',
+      },
+    });
+
+    render(<ChatPage />);
+
+    act(() => {
+      realtimeListener?.({
+        event: 'turn_ux_plan',
+        data: {
+          session_id: 'session-1',
+          turn_id: 'turn-interim-actions',
+          message_id: 'msg-interim-actions',
+          message_kind: 'assistant_interim',
+          ux_plan: {
+            assistant_surface_mode: 'interim_then_final',
+            interim_text: '让我仔细想想再回复你。',
+            trace_display_mode: 'prominent',
+            allow_trace_collapse: true,
+          },
+        },
+      });
+    });
+
+    act(() => {
+      realtimeListener?.({
+        event: 'execution_trace_update',
+        data: {
+          session_id: 'session-1',
+          turn_id: 'turn-interim-actions',
+          trace_summary: {
+            turn_id: 'turn-interim-actions',
+            mode: 'orchestration',
+            status: 'running',
+            headline: '正在分析项目',
+            active_steps: 2,
+            completed_steps: 1,
+            failed_steps: 0,
+            duration_seconds: 1.4,
+            trace_available: true,
+          },
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('让我仔细想想再回复你。')).toBeInTheDocument();
+    });
+
+    const runningPanel = screen.getByTestId('chat-execution-panel-turn-interim-actions');
+    await userEvent.click(within(runningPanel).getByRole('button', { name: 'chat.trace.cancelRun' }));
+
+    await waitFor(() => {
+      expect(messagesApi.cancelRun).toHaveBeenCalledWith('local_user', 'session-1', {
+        reason: 'user_cancel',
+        turnId: 'turn-interim-actions',
+      });
+    });
+  });
+
+  it('updates the running interim execution bubble from execution control websocket events', async () => {
     render(<ChatPage />);
 
     act(() => {
@@ -1883,8 +2262,8 @@ describe('ChatPage', () => {
     });
 
     await waitFor(() => {
-      const runningCard = screen.getByTestId('chat-trace-status-card-turn-running');
-      expect(within(runningCard).getByRole('button', { name: 'chat.trace.cancelRun' })).toBeEnabled();
+      const runningPanel = screen.getByTestId('chat-execution-panel-turn-running');
+      expect(within(runningPanel).getByRole('button', { name: 'chat.trace.cancelRun' })).toBeEnabled();
     });
 
     act(() => {
@@ -1901,10 +2280,10 @@ describe('ChatPage', () => {
     });
 
     await waitFor(() => {
-      const runningCard = screen.getByTestId('chat-trace-status-card-turn-running');
-      expect(within(runningCard).getByText('Cancelling run')).toBeInTheDocument();
-      expect(within(runningCard).getByText('chat.trace.execution.cancellingBody')).toBeInTheDocument();
-      expect(within(runningCard).getByRole('button', { name: 'chat.trace.cancelRun' })).toBeDisabled();
+      const runningPanel = screen.getByTestId('chat-execution-panel-turn-running');
+      expect(within(runningPanel).getByText('Cancelling run')).toBeInTheDocument();
+      expect(within(runningPanel).getByText('chat.trace.execution.cancellingBody')).toBeInTheDocument();
+      expect(within(runningPanel).getByRole('button', { name: 'chat.trace.cancelRun' })).toBeDisabled();
     });
 
     act(() => {
@@ -1921,16 +2300,16 @@ describe('ChatPage', () => {
     });
 
     await waitFor(() => {
-      const runningCard = screen.getByTestId('chat-trace-status-card-turn-running');
-      expect(within(runningCard).getByText('Run cancelled')).toBeInTheDocument();
-      expect(within(runningCard).getByText('chat.trace.execution.cancelledBody')).toBeInTheDocument();
-      expect(within(runningCard).getByText('chat.trace.execution.footerCancelled')).toBeInTheDocument();
-      expect(within(runningCard).queryByRole('button', { name: 'chat.trace.cancelRun' })).not.toBeInTheDocument();
+      const runningPanel = screen.getByTestId('chat-execution-panel-turn-running');
+      expect(within(runningPanel).getByText('Run cancelled')).toBeInTheDocument();
+      expect(within(runningPanel).getByText('chat.trace.execution.cancelledBody')).toBeInTheDocument();
+      expect(within(runningPanel).getByText('chat.trace.execution.footerCancelled')).toBeInTheDocument();
+      expect(within(runningPanel).queryByRole('button', { name: 'chat.trace.cancelRun' })).not.toBeInTheDocument();
       expect(messagesApi.getHistory).toHaveBeenCalledWith('local_user', 'session-1');
     });
   });
 
-  it('renders a richer orchestration plan preview on the running trace status card', async () => {
+  it('renders a richer orchestration plan preview on the running interim execution bubble', async () => {
     render(<ChatPage />);
 
     act(() => {
@@ -1978,17 +2357,19 @@ describe('ChatPage', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('梳理现有文档和范围')).toBeInTheDocument();
+      const runningPanel = screen.getByTestId('chat-execution-panel-turn-plan-preview');
+      expect(within(runningPanel).getByText('梳理现有文档和范围')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('盘点代码结构与运行方式')).toBeInTheDocument();
-    expect(screen.getByText('整理 MVP 验收清单')).toBeInTheDocument();
-    expect(screen.getByText('chat.trace.plan.stage.runningParallel')).toBeInTheDocument();
-    expect(screen.getByText('chat.trace.plan.parallel')).toBeInTheDocument();
-    expect(screen.getByText('chat.trace.plan.stepStatus.completed')).toBeInTheDocument();
-    expect(screen.getByText('chat.trace.plan.stepStatus.running')).toBeInTheDocument();
-    expect(screen.getByText('chat.trace.plan.stepStatus.pending')).toBeInTheDocument();
-    expect(screen.getByText('chat.trace.plan.moreSteps')).toBeInTheDocument();
+    const runningPanel = screen.getByTestId('chat-execution-panel-turn-plan-preview');
+    expect(within(runningPanel).getByText('盘点代码结构与运行方式')).toBeInTheDocument();
+    expect(within(runningPanel).getByText('整理 MVP 验收清单')).toBeInTheDocument();
+    expect(within(runningPanel).getByText('chat.trace.plan.stage.runningParallel')).toBeInTheDocument();
+    expect(within(runningPanel).getByText('chat.trace.plan.parallel')).toBeInTheDocument();
+    expect(within(runningPanel).getByText('chat.trace.plan.stepStatus.completed')).toBeInTheDocument();
+    expect(within(runningPanel).getByText('chat.trace.plan.stepStatus.running')).toBeInTheDocument();
+    expect(within(runningPanel).getByText('chat.trace.plan.stepStatus.pending')).toBeInTheDocument();
+    expect(within(runningPanel).getByText('chat.trace.plan.moreSteps')).toBeInTheDocument();
   });
 
   it('does not ask the backend for a current session after subscribe event', () => {

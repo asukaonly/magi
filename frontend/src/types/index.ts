@@ -13,33 +13,6 @@ export type {
 } from './api';
 export { isApiError, isApiClientError, isNetworkError } from './api';
 
-// Chat types
-export type {
-  ChatMessageKind,
-  ChatMessageRole,
-  ChatTimelineMessage,
-  NormalizedTraceSummary,
-  NormalizedTraceNode,
-  NormalizedTraceSnapshot,
-  ChatSession,
-  ChatSessionState,
-  AgentResponsePayload,
-  PendingTurnPayload,
-  ChatHistoryMessageRaw,
-  ExecutionTraceNodeRaw,
-  ExecutionTraceSnapshotRaw,
-} from './chat';
-
-// Event data types (used by Tauri events and API responses)
-export type {
-  TraceSummaryData,
-  ExecutionTraceUpdateData,
-  AgentResponseData,
-  TurnExecutionControlData,
-  ContextUsageData,
-  ChatHistoryMessageData,
-} from './chat';
-
 // Re-export API types for convenience
 export type { ExecutionTraceSummary } from './api';
 

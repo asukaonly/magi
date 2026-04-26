@@ -13,11 +13,12 @@ import {
   useRef,
   type PropsWithChildren,
 } from 'react';
-import { normalizeHistoryMessages, normalizeTraceSummary } from '@/domain/chat/state';
-import { normalizeChatTimestamp } from '@/domain/chat/timestamps';
+import { useTranslation } from 'react-i18next';
 import { useConversationStore } from '@/stores/conversation-store';
-import { useContextUsageStore } from '@/stores/context-usage';
-import { useBackgroundTaskStore } from '@/stores/background-tasks';
+import { OPEN_ASK_REQUEST_EVENT } from '@/components/control/ui-events';
+import type { RealtimeStreamEvent } from './stream-events';
+import { normalizeRealtimeStreamEvent } from './stream-events';
+import { applyRealtimeStoreProjection } from './store-projection';
 import { TauriBridgeClient } from './tauri-bridge';
 
 export interface RealtimeMessage {
@@ -27,6 +28,7 @@ export interface RealtimeMessage {
   channel?: string;
   sid?: string;
   message?: string;
+  streamEvent?: RealtimeStreamEvent | null;
   [key: string]: unknown;
 }
 
@@ -35,6 +37,22 @@ type RealtimeContextValue = {
 };
 
 export const RealtimeContext = createContext<RealtimeContextValue | null>(null);
+
+const shouldWakeAskDialogFromChunk = (streamEvent: RealtimeStreamEvent | null | undefined): boolean => {
+  if (streamEvent?.kind !== 'tool_call_end') {
+    return false;
+  }
+
+  if (streamEvent.toolName !== 'ask_user_question') {
+    return false;
+  }
+
+  if (!streamEvent.toolArguments) {
+    return false;
+  }
+
+  return Boolean(String(streamEvent.toolArguments.question || '').trim());
+};
 
 class RealtimeDispatcher {
   private listeners = new Set<(message: RealtimeMessage) => void>();
@@ -50,6 +68,7 @@ class RealtimeDispatcher {
 }
 
 export const RealtimeProvider = ({ children }: PropsWithChildren) => {
+  const { t } = useTranslation('app');
   const bridgeRef = useRef<TauriBridgeClient>();
   const dispatcherRef = useRef<RealtimeDispatcher>();
 
@@ -60,119 +79,47 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
   useEffect(() => {
     const dispatcher = dispatcherRef.current!;
 
-    // Provider-level handler: route store-level events directly
+    // Provider-level handler: keep only side effects here and let the
+    // shared store projection own all store mutations.
     const unsubscribeProviderHandler = dispatcher.subscribe((message) => {
       const eventName = String(message.event || message.type || '').trim();
       const conversationStore = useConversationStore.getState();
-
-      if (eventName === 'agent_response' && message.data && typeof message.data === 'object') {
-        const payload = message.data as Record<string, unknown>;
-        const sessionId = String(payload.session_id || conversationStore.currentSessionId || '').trim();
-        const summary = normalizeTraceSummary(payload.trace_summary);
-        if (sessionId) {
-          conversationStore.receiveAgentResponse({
-            sessionId,
-            content: String(payload.content || ''),
-            timestamp: normalizeChatTimestamp(payload.timestamp),
-            messageId: payload.message_id ? String(payload.message_id) : undefined,
-            messageKind: payload.message_kind ? String(payload.message_kind) : null,
-            turnId: String(payload.turn_id || '').trim() || undefined,
-            traceSummary: summary,
-            traceAvailable: Boolean(payload.trace_available || summary?.traceAvailable),
-          });
-        }
-        return;
-      }
 
       if (eventName === 'agent_response_chunk' && message.data && typeof message.data === 'object') {
         const payload = message.data as Record<string, unknown>;
         const sessionId = String(payload.session_id || conversationStore.currentSessionId || '').trim();
         const turnId = String(payload.turn_id || '').trim();
-        if (sessionId && turnId) {
-          const contentDelta = String(payload.content_delta || '');
-          if (contentDelta) {
-            conversationStore.appendStreamTextDelta({
+        const streamEvent = message.streamEvent ?? normalizeRealtimeStreamEvent(payload);
+        if (
+          sessionId
+          && sessionId === conversationStore.currentSessionId
+          && shouldWakeAskDialogFromChunk(streamEvent)
+        ) {
+          window.dispatchEvent(new CustomEvent(OPEN_ASK_REQUEST_EVENT, {
+            detail: {
               sessionId,
               turnId,
-              textDelta: contentDelta,
-            });
-          }
-          if (Boolean(payload.is_final)) {
-            conversationStore.appendStreamTextFlush({
-              sessionId,
-              turnId,
-            });
-          }
+              source: 'agent_response_chunk',
+            },
+          }));
         }
-        return;
       }
 
-      if (eventName === 'chat_message_upserted' && message.data && typeof message.data === 'object') {
-        const payload = message.data as Record<string, unknown>;
-        const sessionId = String(payload.session_id || conversationStore.currentSessionId || '').trim();
-        const rawMessage = payload.message;
-        if (sessionId && rawMessage && typeof rawMessage === 'object') {
-          const normalizedMessage = normalizeHistoryMessages([rawMessage as any])[0];
-          if (normalizedMessage) {
-            conversationStore.upsertMessage(sessionId, normalizedMessage);
-          }
-        }
-        if (payload.session_summary && typeof payload.session_summary === 'object') {
-          conversationStore.upsertSession(payload.session_summary as any);
-        }
-        return;
-      }
-
-      if (eventName === 'chat_message_hidden' && message.data && typeof message.data === 'object') {
-        const payload = message.data as Record<string, unknown>;
-        const sessionId = String(payload.session_id || conversationStore.currentSessionId || '').trim();
-        const messageId = String(payload.message_id || '').trim();
-        if (sessionId && messageId) {
-          conversationStore.removeMessage(sessionId, messageId);
-        }
-        if (payload.session_summary && typeof payload.session_summary === 'object') {
-          conversationStore.upsertSession(payload.session_summary as any);
-        }
-        return;
-      }
-
-      if (eventName === 'execution_trace_update' && message.data && typeof message.data === 'object') {
-        const payload = message.data as Record<string, unknown>;
-        const sessionId = String(payload.session_id || conversationStore.currentSessionId || '').trim();
-        const turnId = String(payload.turn_id || '').trim();
-        const summary = normalizeTraceSummary(payload.trace_summary);
-        if (sessionId && turnId && summary) {
-          conversationStore.upsertTraceSummary(sessionId, turnId, summary);
-        }
-        return;
-      }
-
-      if (eventName === 'context_usage' && message.data && typeof message.data === 'object') {
-        const payload = message.data as Record<string, unknown>;
-        const sessionId = String(payload.session_id || conversationStore.currentSessionId || '').trim();
-        if (sessionId && typeof payload.used_tokens === 'number' && typeof payload.window_size === 'number') {
-          useContextUsageStore.getState().update(sessionId, {
-            used_tokens: payload.used_tokens as number,
-            window_size: payload.window_size as number,
-            threshold: (payload.threshold as number) || 0,
-          });
-        }
-        return;
-      }
-
-      if (eventName === 'background_task_state_changed' && message.data && typeof message.data === 'object') {
-        const payload = message.data as Record<string, unknown>;
-        if (payload && typeof payload.task_id === 'string' && typeof payload.status === 'string') {
-          useBackgroundTaskStore.getState().upsert(payload as any);
-        }
-        return;
-      }
+      applyRealtimeStoreProjection(message, { pendingLabel: t('chat.trace.pending') });
     });
 
     // Start Tauri event bridge
     const bridge = new TauriBridgeClient();
     bridgeRef.current = bridge;
-    const unsubscribeBridge = bridge.subscribe((message) => dispatcher.dispatch(message));
+    const unsubscribeBridge = bridge.subscribe((message) => {
+      const normalizedData = message.data && typeof message.data === 'object'
+        ? message.data as Record<string, unknown>
+        : null;
+      dispatcher.dispatch({
+        ...message,
+        streamEvent: message.streamEvent ?? (normalizedData ? normalizeRealtimeStreamEvent(normalizedData) : null),
+      });
+    });
     bridge.connect();
 
     return () => {
@@ -181,7 +128,7 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
       bridgeRef.current?.disconnect();
       bridgeRef.current = undefined;
     };
-  }, []);
+  }, [t]);
 
   const value = useMemo<RealtimeContextValue>(() => ({
     subscribe: (listener) => dispatcherRef.current?.subscribe(listener) || (() => undefined),

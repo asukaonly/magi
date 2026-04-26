@@ -10,8 +10,10 @@ import {
   type NormalizedExecutionTraceSummary,
   type NormalizedTurnUxPlan,
   type ReasoningTrace,
+  type ToolCallTrace,
   upsertTraceSummary as applyTraceSummaryUpdate,
 } from '@/domain/chat/state';
+import { isTranscriptMessage } from '@/domain/chat/presentation';
 
 type AgentResponsePayload = {
   sessionId: string;
@@ -42,6 +44,16 @@ type StreamReasoningDeltaPayload = {
   source: string;
   stepLabel?: string | null;
   textDelta: string;
+};
+
+type StreamToolCallPayload = {
+  sessionId: string;
+  turnId: string;
+  toolCallId?: string | null;
+  toolName?: string | null;
+  toolArgsDelta?: string;
+  toolArguments?: Record<string, unknown> | null;
+  status: 'running' | 'completed';
 };
 
 type PendingTurnPayload = {
@@ -81,6 +93,7 @@ type ConversationState = {
   appendStreamTextDelta: (payload: StreamTextDeltaPayload) => void;
   appendStreamTextFlush: (payload: StreamTextFlushPayload) => void;
   appendStreamReasoningDelta: (payload: StreamReasoningDeltaPayload) => void;
+  appendStreamToolCall: (payload: StreamToolCallPayload) => void;
   applyMessageLabel: (sessionId: string, messageId: string, label: ChatTimelineMessageLabel) => void;
   removeMessage: (sessionId: string, messageId: string) => void;
   upsertTraceSummary: (sessionId: string, turnId: string, summary: NormalizedExecutionTraceSummary | null) => void;
@@ -113,6 +126,69 @@ const appendReasoning = (
   }
   list.push({ source, stepLabel: normalizedLabel, content: textDelta });
   return list;
+};
+
+const appendToolCall = (
+  prev: ToolCallTrace[] | undefined,
+  payload: StreamToolCallPayload,
+): ToolCallTrace[] => {
+  const list = prev ? [...prev] : [];
+  const normalizedToolName = String(payload.toolName || '').trim() || 'Tool';
+  const normalizedArgsDelta = typeof payload.toolArgsDelta === 'string' ? payload.toolArgsDelta : '';
+  const nextArguments = payload.toolArguments ?? undefined;
+  const index = list.findIndex((item) => {
+    if (payload.toolCallId && item.toolCallId) {
+      return item.toolCallId === payload.toolCallId;
+    }
+    return item.toolName === normalizedToolName;
+  });
+
+  if (index >= 0) {
+    const current = list[index];
+    list[index] = {
+      ...current,
+      toolCallId: payload.toolCallId ?? current.toolCallId,
+      toolName: payload.toolName ? normalizedToolName : current.toolName,
+      status: payload.status,
+      toolArgsText: normalizedArgsDelta
+        ? `${current.toolArgsText || ''}${normalizedArgsDelta}`
+        : current.toolArgsText,
+      toolArguments: nextArguments ?? current.toolArguments,
+    };
+    return list;
+  }
+
+  list.push({
+    toolCallId: payload.toolCallId ?? null,
+    toolName: normalizedToolName,
+    status: payload.status,
+    toolArgsText: normalizedArgsDelta || undefined,
+    toolArguments: nextArguments ?? null,
+  });
+  return list;
+};
+
+const findStreamingAssistantIndex = (
+  messages: ChatTimelineMessage[],
+  turnId: string,
+): number => {
+  let existingIndex = messages.findIndex(
+    (m) => m.role === 'assistant' && m.turnId === turnId && m.streaming,
+  );
+  if (existingIndex >= 0) {
+    return existingIndex;
+  }
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const candidate = messages[i];
+    if (
+      candidate.role === 'assistant'
+      && candidate.turnId === turnId
+      && !candidate.messageId
+    ) {
+      return i;
+    }
+  }
+  return -1;
 };
 
 const ensureSession = (
@@ -461,22 +537,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
     // replaced by a persisted message (no messageId) — this keeps multi-step
     // turns rendered as a single bubble even if a stray text_flush arrived
     // between LLM calls.
-    let existingIndex = previousMessages.findIndex(
-      (m) => m.role === 'assistant' && m.turnId === turnId && m.streaming,
-    );
-    if (existingIndex < 0) {
-      for (let i = previousMessages.length - 1; i >= 0; i -= 1) {
-        const candidate = previousMessages[i];
-        if (
-          candidate.role === 'assistant'
-          && candidate.turnId === turnId
-          && !candidate.messageId
-        ) {
-          existingIndex = i;
-          break;
-        }
-      }
-    }
+    const existingIndex = findStreamingAssistantIndex(previousMessages, turnId);
     if (existingIndex >= 0) {
       const existing = previousMessages[existingIndex];
       const nextMessages = [...previousMessages];
@@ -540,22 +601,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
       return state;
     }
     const previousMessages = state.messagesBySession[sessionId] || [];
-    let existingIndex = previousMessages.findIndex(
-      (m) => m.role === 'assistant' && m.turnId === turnId && m.streaming,
-    );
-    if (existingIndex < 0) {
-      for (let i = previousMessages.length - 1; i >= 0; i -= 1) {
-        const candidate = previousMessages[i];
-        if (
-          candidate.role === 'assistant'
-          && candidate.turnId === turnId
-          && !candidate.messageId
-        ) {
-          existingIndex = i;
-          break;
-        }
-      }
-    }
+    const existingIndex = findStreamingAssistantIndex(previousMessages, turnId);
     let messages = previousMessages;
     let targetIndex = existingIndex;
     if (existingIndex < 0) {
@@ -588,6 +634,69 @@ export const useConversationStore = create<ConversationState>((set) => ({
     const nextReasoning = appendReasoning(target.reasoning, source, stepLabel, textDelta);
     const nextMessages = [...previousMessages];
     nextMessages[targetIndex] = { ...target, reasoning: nextReasoning };
+    return {
+      messagesBySession: {
+        ...state.messagesBySession,
+        [sessionId]: nextMessages,
+      },
+    };
+  }),
+  appendStreamToolCall: ({ sessionId, turnId, toolCallId, toolName, toolArgsDelta, toolArguments, status }) => set((state) => {
+    if (!sessionId || !turnId) {
+      return state;
+    }
+    const previousMessages = state.messagesBySession[sessionId] || [];
+    const existingIndex = findStreamingAssistantIndex(previousMessages, turnId);
+    let messages = previousMessages;
+    let targetIndex = existingIndex;
+
+    if (existingIndex < 0) {
+      const ensured = ensureSession(state.sessionsById, state.orderedSessionIds, sessionId);
+      const placeholder: ChatTimelineMessage = {
+        id: `stream_${turnId}`,
+        role: 'assistant',
+        kind: 'assistant' as ChatTimelineMessage['kind'],
+        content: '',
+        timestamp: Date.now(),
+        turnId,
+        streaming: true,
+        toolCalls: [],
+      };
+      messages = [...previousMessages, placeholder];
+      targetIndex = messages.length - 1;
+      const target = messages[targetIndex];
+      const nextToolCalls = appendToolCall(target.toolCalls, {
+        sessionId,
+        turnId,
+        toolCallId,
+        toolName,
+        toolArgsDelta,
+        toolArguments,
+        status,
+      });
+      messages[targetIndex] = { ...target, toolCalls: nextToolCalls };
+      return {
+        sessionsById: ensured.sessionsById,
+        orderedSessionIds: ensured.orderedSessionIds,
+        messagesBySession: {
+          ...state.messagesBySession,
+          [sessionId]: messages,
+        },
+      };
+    }
+
+    const target = previousMessages[targetIndex];
+    const nextToolCalls = appendToolCall(target.toolCalls, {
+      sessionId,
+      turnId,
+      toolCallId,
+      toolName,
+      toolArgsDelta,
+      toolArguments,
+      status,
+    });
+    const nextMessages = [...previousMessages];
+    nextMessages[targetIndex] = { ...target, toolCalls: nextToolCalls };
     return {
       messagesBySession: {
         ...state.messagesBySession,
@@ -631,7 +740,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
       return state;
     }
     const currentSession = state.sessionsById[sessionId];
-    const visibleMessages = nextMessages.filter((message) => message.kind !== 'status');
+    const visibleMessages = nextMessages.filter(isTranscriptMessage);
     const lastVisibleMessage = [...visibleMessages].reverse().find((message) => Boolean(String(message.content || '').trim()));
     const lastVisibleUserMessage = [...visibleMessages]
       .reverse()

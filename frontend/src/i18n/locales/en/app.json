@@ -328,6 +328,20 @@
     "bootstrapInit": {
       "preparing": "Initializing the AI and preparing the first message..."
     },
+    "runtime": {
+      "label": "Runtime activity",
+      "expand": "Expand runtime activity",
+      "collapse": "Collapse runtime activity"
+    },
+    "toolCalls": {
+      "label_one": "{{count}} tool call",
+      "label_other": "{{count}} tool calls",
+      "expand": "Expand tool activity",
+      "collapse": "Collapse tool activity",
+      "running": "Running",
+      "completed": "Done",
+      "arguments": "Arguments"
+    },
     "reconnectFailed": "Reconnection failed, please refresh the page",
     "trace": {
       "title": "Call Trace",

@@ -45,33 +45,44 @@ describe('runtime config URL normalization', () => {
   it('waits for the backend ready probe after starting the desktop sidecar', async () => {
     vi.useFakeTimers();
     (window as Window & { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__ = {};
-    invokeMock.mockResolvedValue({
-      ok: true,
-      baseUrl: 'http://127.0.0.1:8000/api',
-      sessionToken: 'token-1',
-      apiPid: 4321,
-      runtimeWorkerPid: 5678,
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'start_backend') {
+        return {
+          ok: true,
+          baseUrl: 'http://127.0.0.1:8000/api',
+          sessionToken: 'token-1',
+          apiPid: 4321,
+          runtimeWorkerPid: 5678,
+        };
+      }
+
+      if (command === 'poll_backend_startup') {
+        return {
+          ready: true,
+          phase: 'ready',
+        };
+      }
+
+      throw new Error(`Unexpected invoke command: ${command}`);
     });
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({
         success: true,
-        data: { ready: false, status: 'starting' },
-      }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        success: true,
-        data: { ready: true, status: 'ready' },
-      }), { status: 200 }));
+        data: { ok: true },
+      }), { status: 200 })
+    );
     vi.stubGlobal('fetch', fetchMock);
 
     const runtimePromise = initializeRuntime();
-    await vi.advanceTimersByTimeAsync(250);
+    await vi.runAllTimersAsync();
     const runtime = await runtimePromise;
 
     expect(invokeMock).toHaveBeenCalledWith('start_backend');
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(invokeMock).toHaveBeenCalledWith('poll_backend_startup');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
-      'http://127.0.0.1:8000/api/ready',
+      'http://127.0.0.1:8000/api/health',
       expect.objectContaining({ method: 'GET' })
     );
     expect(runtime.isDesktop).toBe(true);

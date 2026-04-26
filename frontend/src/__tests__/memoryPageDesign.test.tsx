@@ -167,7 +167,7 @@ describe('memory page design', () => {
     } as any);
   });
 
-  it('renders the overview as a mixed dashboard with layer access and recent changes', () => {
+  it('renders the overview as a focused dashboard with search and attention surfaces', () => {
     render(
       <MemoryRouter>
         <MemoryOverviewPage />
@@ -177,12 +177,12 @@ describe('memory page design', () => {
     expect(screen.getByTestId('memory-theme-root').className).toContain('memory-theme-surface');
     expect(screen.queryByTestId('memory-page-hero')).not.toBeInTheDocument();
     expect(screen.getByTestId('memory-page-header')).toBeInTheDocument();
-    expect(screen.getByTestId('memory-overview-layer-grid')).toBeInTheDocument();
-    expect(screen.getByTestId('memory-overview-recent-changes')).toBeInTheDocument();
-    expect(screen.getByTestId('memory-overview-signal-strip')).toBeInTheDocument();
-    expect(screen.getByTestId('memory-overview-search-results')).toBeInTheDocument();
-    expect(screen.getByTestId('memory-overview-recommended-layers')).toBeInTheDocument();
-    expect(screen.getByText('app_usage:2026-03-27T10:00:00+08:00:com.apple.Safari')).toBeInTheDocument();
+    expect(screen.getByTestId('memory-overview-search')).toBeInTheDocument();
+    expect(screen.getByTestId('memory-overview-attention')).toBeInTheDocument();
+    expect(screen.queryByTestId('memory-overview-search-results')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.refresh' })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('memory.searchPlaceholder')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'memory.overview.openBreakers' })).toHaveAttribute('href', '/memory/skills');
   });
 
   it('renders the workbench page as an operational layout without the shared hero shell', () => {

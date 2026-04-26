@@ -1,0 +1,280 @@
+import type { ExecutionTraceSummary } from '@/api';
+import {
+  normalizeHistoryMessages,
+  normalizeTraceSummary,
+  normalizeTurnUxPlan,
+} from '@/domain/chat/state';
+import { normalizeChatTimestamp } from '@/domain/chat/timestamps';
+import { useBackgroundTaskStore } from '@/stores/background-tasks';
+import { useChatTraceStore } from '@/stores/chat-trace';
+import { useConversationStore } from '@/stores/conversation-store';
+import { useContextUsageStore } from '@/stores/context-usage';
+import type { RealtimeStreamEvent } from './stream-events';
+import { normalizeRealtimeStreamEvent } from './stream-events';
+
+export interface RealtimeStoreProjectionMessage {
+  type?: string;
+  data?: unknown;
+  event?: string;
+  streamEvent?: RealtimeStreamEvent | null;
+}
+
+export interface RealtimeStoreProjectionOptions {
+  pendingLabel?: string;
+}
+
+const toExecutionTraceSummary = (
+  summary: NonNullable<ReturnType<typeof normalizeTraceSummary>>,
+): ExecutionTraceSummary => ({
+  turn_id: summary.turnId,
+  mode: summary.mode,
+  status: summary.status,
+  headline: summary.headline,
+  active_steps: summary.activeSteps,
+  completed_steps: summary.completedSteps,
+  failed_steps: summary.failedSteps,
+  duration_seconds: summary.durationSeconds,
+  trace_available: summary.traceAvailable,
+  orchestration_id: summary.orchestrationId || null,
+  plan_summary: summary.planSummary
+    ? {
+      planner: summary.planSummary.planner || null,
+      parallel_mode: summary.planSummary.parallelMode,
+      total_steps: summary.planSummary.totalSteps,
+      remaining_steps: summary.planSummary.remainingSteps,
+      steps: summary.planSummary.steps.map((step) => ({
+        subtask_id: step.subtaskId || null,
+        label: step.label,
+        status: step.status,
+      })),
+    }
+    : null,
+  continued_from_turn_id: summary.continuedFromTurnId || null,
+  continued_from_trace_id: summary.continuedFromTraceId || null,
+  superseded_by_turn_id: summary.supersededByTurnId || null,
+  supersession_reason: summary.supersessionReason || null,
+  total_input_tokens: summary.totalInputTokens,
+  total_output_tokens: summary.totalOutputTokens,
+  total_reasoning_tokens: summary.totalReasoningTokens,
+});
+
+export const applyRealtimeStoreProjection = (
+  message: RealtimeStoreProjectionMessage,
+  options: RealtimeStoreProjectionOptions = {},
+): boolean => {
+  const eventName = String(message.event || message.type || '').trim();
+  const conversationStore = useConversationStore.getState();
+
+  if (eventName === 'agent_response' && message.data && typeof message.data === 'object') {
+    const payload = message.data as Record<string, unknown>;
+    const sessionId = String(payload.session_id || conversationStore.currentSessionId || '').trim();
+    const turnId = String(payload.turn_id || '').trim();
+    const timestamp = normalizeChatTimestamp(payload.timestamp);
+    const summary = normalizeTraceSummary(payload.trace_summary);
+    const uxPlan = normalizeTurnUxPlan(payload.ux_plan);
+
+    const projectTraceSummary = () => {
+      if (!summary) {
+        return false;
+      }
+      useChatTraceStore.getState().upsertSummary(toExecutionTraceSummary(summary));
+      if (sessionId) {
+        conversationStore.upsertTraceSummary(sessionId, summary.turnId, summary);
+      }
+      return true;
+    };
+
+    if (uxPlan?.assistantSurfaceMode === 'none') {
+      let projected = false;
+      if (sessionId && turnId) {
+        conversationStore.applyTurnUxPlan({
+          sessionId,
+          turnId,
+          uxPlan,
+          messageId: payload.message_id ? String(payload.message_id) : undefined,
+          messageKind: payload.message_kind ? String(payload.message_kind) : null,
+          timestamp,
+        });
+        projected = true;
+      }
+      return projectTraceSummary() || projected;
+    }
+
+    if (sessionId) {
+      conversationStore.receiveAgentResponse({
+        sessionId,
+        content: String(payload.content || ''),
+        timestamp,
+        messageId: payload.message_id ? String(payload.message_id) : undefined,
+        messageKind: payload.message_kind ? String(payload.message_kind) : null,
+        turnId: turnId || undefined,
+        traceSummary: summary,
+        traceAvailable: Boolean(payload.trace_available || summary?.traceAvailable),
+        uxPlan,
+      });
+    }
+
+    projectTraceSummary();
+    return true;
+  }
+
+  if (eventName === 'agent_response_chunk' && message.data && typeof message.data === 'object') {
+    const payload = message.data as Record<string, unknown>;
+    const sessionId = String(payload.session_id || conversationStore.currentSessionId || '').trim();
+    const turnId = String(payload.turn_id || '').trim();
+    const streamEvent = message.streamEvent ?? normalizeRealtimeStreamEvent(payload);
+
+    if (!sessionId || !turnId) {
+      return false;
+    }
+
+    if (
+      streamEvent
+      && ['tool_call_start', 'tool_call_args', 'tool_call_end'].includes(streamEvent.kind)
+    ) {
+      conversationStore.appendStreamToolCall({
+        sessionId,
+        turnId,
+        toolCallId: streamEvent.toolCallId,
+        toolName: streamEvent.toolName,
+        toolArgsDelta: streamEvent.toolArgsDelta,
+        toolArguments: streamEvent.toolArguments,
+        status: streamEvent.kind === 'tool_call_end' ? 'completed' : 'running',
+      });
+      return true;
+    }
+
+    if (streamEvent?.kind === 'text_delta' && streamEvent.text) {
+      conversationStore.appendStreamTextDelta({
+        sessionId,
+        turnId,
+        textDelta: streamEvent.text,
+      });
+      return true;
+    }
+
+    if (streamEvent?.kind === 'text_flush') {
+      conversationStore.appendStreamTextFlush({
+        sessionId,
+        turnId,
+      });
+      return true;
+    }
+
+    if (streamEvent?.kind === 'reasoning_delta' && streamEvent.text) {
+      conversationStore.appendStreamReasoningDelta({
+        sessionId,
+        turnId,
+        source: streamEvent.source || 'unknown',
+        stepLabel: streamEvent.stepLabel,
+        textDelta: streamEvent.text,
+      });
+      return true;
+    }
+
+    const contentDelta = String(payload.content_delta || '');
+    if (contentDelta) {
+      conversationStore.appendStreamTextDelta({
+        sessionId,
+        turnId,
+        textDelta: contentDelta,
+      });
+    }
+    if (Boolean(payload.is_final)) {
+      conversationStore.appendStreamTextFlush({
+        sessionId,
+        turnId,
+      });
+    }
+    return Boolean(contentDelta) || Boolean(payload.is_final);
+  }
+
+  if (eventName === 'chat_message_upserted' && message.data && typeof message.data === 'object') {
+    const payload = message.data as Record<string, unknown>;
+    const sessionId = String(payload.session_id || conversationStore.currentSessionId || '').trim();
+    const rawMessage = payload.message;
+    if (sessionId && rawMessage && typeof rawMessage === 'object') {
+      const normalizedMessage = normalizeHistoryMessages([rawMessage as any])[0];
+      if (normalizedMessage) {
+        conversationStore.upsertMessage(sessionId, normalizedMessage);
+      }
+    }
+    if (payload.session_summary && typeof payload.session_summary === 'object') {
+      conversationStore.upsertSession(payload.session_summary as any);
+    }
+    return true;
+  }
+
+  if (eventName === 'chat_message_hidden' && message.data && typeof message.data === 'object') {
+    const payload = message.data as Record<string, unknown>;
+    const sessionId = String(payload.session_id || conversationStore.currentSessionId || '').trim();
+    const messageId = String(payload.message_id || '').trim();
+    if (sessionId && messageId) {
+      conversationStore.removeMessage(sessionId, messageId);
+    }
+    if (payload.session_summary && typeof payload.session_summary === 'object') {
+      conversationStore.upsertSession(payload.session_summary as any);
+    }
+    return true;
+  }
+
+  if (eventName === 'turn_ux_plan' && message.data && typeof message.data === 'object') {
+    const payload = message.data as Record<string, unknown>;
+    const sessionId = String(payload.session_id || conversationStore.currentSessionId || '').trim();
+    const turnId = String(payload.turn_id || '').trim();
+    const uxPlan = normalizeTurnUxPlan(payload.ux_plan);
+
+    if (!sessionId || !turnId || !uxPlan) {
+      return false;
+    }
+
+    conversationStore.applyTurnUxPlan({
+      sessionId,
+      turnId,
+      uxPlan,
+      pendingLabel: options.pendingLabel || 'chat.trace.pending',
+      messageId: payload.message_id ? String(payload.message_id) : undefined,
+      messageKind: payload.message_kind ? String(payload.message_kind) : null,
+      timestamp: normalizeChatTimestamp(payload.timestamp),
+    });
+    return true;
+  }
+
+  if (eventName === 'execution_trace_update' && message.data && typeof message.data === 'object') {
+    const payload = message.data as Record<string, unknown>;
+    const sessionId = String(payload.session_id || conversationStore.currentSessionId || '').trim();
+    const turnId = String(payload.turn_id || '').trim();
+    const summary = normalizeTraceSummary(payload.trace_summary);
+    if (sessionId && turnId && summary) {
+      useChatTraceStore.getState().upsertSummary(toExecutionTraceSummary(summary));
+      conversationStore.upsertTraceSummary(sessionId, turnId, summary);
+      return true;
+    }
+    return false;
+  }
+
+  if (eventName === 'context_usage' && message.data && typeof message.data === 'object') {
+    const payload = message.data as Record<string, unknown>;
+    const sessionId = String(payload.session_id || conversationStore.currentSessionId || '').trim();
+    if (sessionId && typeof payload.used_tokens === 'number' && typeof payload.window_size === 'number') {
+      useContextUsageStore.getState().update(sessionId, {
+        used_tokens: payload.used_tokens as number,
+        window_size: payload.window_size as number,
+        threshold: (payload.threshold as number) || 0,
+      });
+      return true;
+    }
+    return false;
+  }
+
+  if (eventName === 'background_task_state_changed' && message.data && typeof message.data === 'object') {
+    const payload = message.data as Record<string, unknown>;
+    if (typeof payload.task_id === 'string' && typeof payload.status === 'string') {
+      useBackgroundTaskStore.getState().upsert(payload as any);
+      return true;
+    }
+    return false;
+  }
+
+  return false;
+};

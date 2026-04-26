@@ -1,0 +1,132 @@
+import type { ChatTimelineMessage, ChatTimelineReplyPreview } from './state';
+import type { ProjectedChatTimelineMessage } from './presentation.types';
+import { getChatPresentationSurface } from './presentation.control';
+import {
+  projectExecutionProgressPresentation,
+  projectTraceEntryPresentation,
+  type ChatTimelineExecutionProjectionInput,
+} from './presentation.execution';
+
+const shouldShowUserTraceStatus = (message: ChatTimelineMessage): boolean => {
+  if (message.role !== 'user' || !message.traceSummary) {
+    return false;
+  }
+
+  const traceStatus = String(message.traceSummary.status || '').trim();
+  return traceStatus === 'interrupted' || traceStatus === 'merged';
+};
+
+export const buildReplyPreviewFromMessage = (
+  message: ChatTimelineMessage,
+): ChatTimelineReplyPreview | null => {
+  const messageId = String(message.messageId || '').trim();
+  if (!messageId) {
+    return null;
+  }
+  const excerpt = String(message.content || '').trim();
+  return {
+    messageId,
+    role: message.role,
+    messageKind: message.messageKind || null,
+    contentExcerpt: excerpt.length > 140 ? `${excerpt.slice(0, 137)}...` : excerpt,
+  };
+};
+
+export const projectChatTimelineMessage = (
+  message: ChatTimelineMessage,
+): ProjectedChatTimelineMessage => {
+  const surface = getChatPresentationSurface(message);
+  if (surface === 'control_status') {
+    return {
+      message,
+      surface,
+    };
+  }
+  if (surface === 'runtime_status') {
+    return {
+      message,
+      surface,
+      executionProgress: null,
+    };
+  }
+
+  const isAssistantInterim = message.role === 'assistant' && message.messageKind === 'assistant_interim';
+  const replyPreview = buildReplyPreviewFromMessage(message);
+  const canQuickLabel = message.role === 'assistant' && Boolean(String(message.messageId || '').trim());
+  const showReactionBadge = message.role === 'user'
+    && Boolean(message.reaction)
+    && message.label?.text !== message.reaction;
+  const showReplyStrip = Boolean(message.replyTo);
+  const showAttachments = Array.isArray(message.attachments) && message.attachments.length > 0;
+  const showMessageLabel = Boolean(message.label);
+  const showUserTraceStatus = shouldShowUserTraceStatus(message);
+  const traceEntry = projectTraceEntryPresentation(message);
+
+  return {
+    message,
+    surface: 'transcript',
+    transcript: {
+      showHeaderTraceEntry: message.role === 'assistant' && !isAssistantInterim,
+      showExecutionBubbleFooter: isAssistantInterim,
+      bubbleTop: {
+        replyTo: message.replyTo ?? null,
+        attachments: message.attachments,
+        showReplyStrip,
+        showAttachments,
+      },
+      belowBubble: {
+        reactionText: message.reaction ?? null,
+        showReactionBadge,
+        label: message.label ?? null,
+        showMessageLabel,
+        showUserTraceStatus,
+      },
+      actions: {
+        replyPreview,
+        canQuickLabel,
+      },
+      traceEntry,
+      executionProgress: null,
+    },
+  };
+};
+
+export const projectChatTimelineRow = (
+  message: ChatTimelineMessage,
+  execution: ChatTimelineExecutionProjectionInput,
+): ProjectedChatTimelineMessage => {
+  const projected = projectChatTimelineMessage(message);
+  const turnId = String(message.turnId || '').trim();
+  const summary = turnId ? execution.summaries[turnId] : undefined;
+
+  if (projected.surface === 'runtime_status') {
+    return {
+      ...projected,
+      executionProgress: projectExecutionProgressPresentation(message, {
+        executionControlByTurnId: execution.executionControlByTurnId,
+        cancellingTurnIds: execution.cancellingTurnIds,
+        detachingTurnIds: execution.detachingTurnIds,
+        summary,
+        variant: 'card',
+      }),
+    };
+  }
+
+  if (projected.surface === 'transcript' && projected.transcript.showExecutionBubbleFooter) {
+    return {
+      ...projected,
+      transcript: {
+        ...projected.transcript,
+        executionProgress: projectExecutionProgressPresentation(message, {
+          executionControlByTurnId: execution.executionControlByTurnId,
+          cancellingTurnIds: execution.cancellingTurnIds,
+          detachingTurnIds: execution.detachingTurnIds,
+          summary,
+          variant: 'bubble',
+        }),
+      },
+    };
+  }
+
+  return projected;
+};

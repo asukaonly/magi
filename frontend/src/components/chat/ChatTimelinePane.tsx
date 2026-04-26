@@ -1,0 +1,151 @@
+import type { RefObject } from 'react';
+import type { ExecutionTraceSummary } from '@/api';
+import { projectChatTimelineRow, type TurnExecutionControlState } from '@/domain/chat/presentation';
+import type { ChatTimelineMessage, ChatTimelineReplyPreview } from '@/domain/chat/state';
+import type { LabelPopoverState, MessageContextMenuState } from '@/hooks/useChatMessageOverlays';
+import { ChatMessageContextMenuOverlay } from './ChatMessageContextMenuOverlay';
+import { StatusTimelineRow } from './StatusTimelineRow';
+import type {
+  TimelineAssistantIdentity,
+  TimelineExecutionBindings,
+  TranscriptTimelineInteractions,
+} from './TimelineRowShared';
+import { TranscriptTimelineRow } from './TranscriptTimelineRow';
+
+type ChatTimelinePaneProps = {
+  messages: ChatTimelineMessage[];
+  assistantName: string;
+  assistantAvatar: string;
+  currentSessionId: string | null;
+  shouldReduceMotion: boolean;
+  summaries: Record<string, ExecutionTraceSummary>;
+  executionControlByTurnId: Record<string, TurnExecutionControlState>;
+  cancellingTurnIds: string[];
+  detachingTurnIds: string[];
+  labelPopoverState: LabelPopoverState | null;
+  labelPopoverDraft: string;
+  labelPopoverRef: RefObject<HTMLDivElement>;
+  messageContextMenu: MessageContextMenuState | null;
+  messageContextMenuRef: RefObject<HTMLDivElement>;
+  messagesEndRef: RefObject<HTMLDivElement>;
+  onSetReplyTarget: (reply: ChatTimelineReplyPreview | null) => void;
+  onOpenImagePreview: (payload: { name: string; url: string }) => void;
+  onOpenTraceDrawer: (turnId: string) => void;
+  onRequestRunCancel: (turnId: string) => void;
+  onRequestRunDetach: (turnId: string) => void;
+  onCloseLabelPopover: () => void;
+  onCloseMessageContextMenu: () => void;
+  onOpenLabelPopover: (messageId: string, position: { x: number; y: number }) => void;
+  onOpenMessageContextMenu: (message: ChatTimelineMessage, position: { x: number; y: number }) => void;
+  onApplyLabelToMessage: (message: ChatTimelineMessage, nextLabel: { kind: string; text: string }) => void;
+  onLabelDraftChange: (value: string) => void;
+  onLabelDraftCompositionStart: () => void;
+  onLabelDraftCompositionEnd: (value: string) => void;
+  onCopyMessage: (message: ChatTimelineMessage, mode: 'markdown' | 'plain') => void;
+  onDeleteMessage: (message: ChatTimelineMessage) => void;
+};
+
+export const ChatTimelinePane = ({
+  messages,
+  assistantName,
+  assistantAvatar,
+  currentSessionId,
+  shouldReduceMotion,
+  summaries,
+  executionControlByTurnId,
+  cancellingTurnIds,
+  detachingTurnIds,
+  labelPopoverState,
+  labelPopoverDraft,
+  labelPopoverRef,
+  messageContextMenu,
+  messageContextMenuRef,
+  messagesEndRef,
+  onSetReplyTarget,
+  onOpenImagePreview,
+  onOpenTraceDrawer,
+  onRequestRunCancel,
+  onRequestRunDetach,
+  onCloseLabelPopover,
+  onCloseMessageContextMenu,
+  onOpenLabelPopover,
+  onOpenMessageContextMenu,
+  onApplyLabelToMessage,
+  onLabelDraftChange,
+  onLabelDraftCompositionStart,
+  onLabelDraftCompositionEnd,
+  onCopyMessage,
+  onDeleteMessage,
+}: ChatTimelinePaneProps) => {
+  const assistant: TimelineAssistantIdentity = {
+    name: assistantName,
+    avatar: assistantAvatar,
+  };
+  const execution: TimelineExecutionBindings = {
+    summaries,
+    executionControlByTurnId,
+    cancellingTurnIds,
+    detachingTurnIds,
+    onOpenTraceDrawer,
+    onRequestRunCancel,
+    onRequestRunDetach,
+  };
+  const transcriptInteractions: TranscriptTimelineInteractions = {
+    currentSessionId,
+    labelPopoverState,
+    labelPopoverDraft,
+    labelPopoverRef,
+    onSetReplyTarget,
+    onOpenImagePreview,
+    onCloseLabelPopover,
+    onCloseMessageContextMenu,
+    onOpenLabelPopover,
+    onOpenMessageContextMenu,
+    onApplyLabelToMessage,
+    onLabelDraftChange,
+    onLabelDraftCompositionStart,
+    onLabelDraftCompositionEnd,
+  };
+
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
+      <ChatMessageContextMenuOverlay
+        messageContextMenu={messageContextMenu}
+        messageContextMenuRef={messageContextMenuRef}
+        onSetReplyTarget={onSetReplyTarget}
+        onCloseMessageContextMenu={onCloseMessageContextMenu}
+        onCopyMessage={onCopyMessage}
+        onDeleteMessage={onDeleteMessage}
+      />
+      {messages.map((msg) => {
+        const projectedMessage = projectChatTimelineRow(msg, {
+          summaries,
+          executionControlByTurnId,
+          cancellingTurnIds,
+          detachingTurnIds,
+        });
+
+        return projectedMessage.surface !== 'transcript' ? (
+          <StatusTimelineRow
+            key={projectedMessage.message.id}
+            projectedMessage={projectedMessage}
+            assistant={assistant}
+            shouldReduceMotion={shouldReduceMotion}
+            execution={execution}
+          />
+        ) : (
+          <TranscriptTimelineRow
+            key={projectedMessage.message.id}
+            projectedMessage={projectedMessage}
+            assistant={assistant}
+            shouldReduceMotion={shouldReduceMotion}
+            execution={execution}
+            interactions={transcriptInteractions}
+          />
+        );
+      })}
+
+      <div ref={messagesEndRef} />
+    </div>
+  );
+};

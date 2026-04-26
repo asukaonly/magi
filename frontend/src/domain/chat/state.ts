@@ -37,6 +37,7 @@ export interface ChatTimelineMessage {
   traceAvailable?: boolean;
   streaming?: boolean;
   reasoning?: ReasoningTrace[];
+  toolCalls?: ToolCallTrace[];
   payload?: Record<string, unknown> | null;
 }
 
@@ -44,6 +45,14 @@ export interface ReasoningTrace {
   source: string;
   stepLabel?: string | null;
   content: string;
+}
+
+export interface ToolCallTrace {
+  toolCallId?: string | null;
+  toolName: string;
+  status: 'running' | 'completed';
+  toolArgsText?: string;
+  toolArguments?: Record<string, unknown> | null;
 }
 
 export interface ChatTimelineReplyPreview {
@@ -483,6 +492,18 @@ export const applyTurnUxPlan = (
   const resolvedTurnId = String(turnId || '').trim();
   if (!resolvedTurnId || !plan) return messages;
 
+  const buildSyntheticInterimMessage = (content: string): ChatTimelineMessage => ({
+    id: String(options.messageId || `${resolvedTurnId}-assistant`),
+    role: 'assistant',
+    kind: 'assistant',
+    content,
+    timestamp: normalizeChatTimestamp(options.timestamp),
+    messageId: options.messageId,
+    messageKind: options.messageKind || 'assistant_interim',
+    turnId: resolvedTurnId,
+    traceAvailable: false,
+  });
+
   if (plan.assistantSurfaceMode === 'reaction_only') {
     const reaction = REACTION_EMOJI_BY_STYLE[String(plan.reactionStyle || '').trim()] || '👌';
     const nextMessages = messages
@@ -499,17 +520,7 @@ export const applyTurnUxPlan = (
     const interimText = String(plan.interimText || '').trim();
     if (!interimText) return messages;
 
-    const interimMessage: ChatTimelineMessage = {
-      id: String(options.messageId || `${resolvedTurnId}-assistant`),
-      role: 'assistant',
-      kind: 'assistant',
-      content: interimText,
-      timestamp: normalizeChatTimestamp(options.timestamp),
-      messageId: options.messageId,
-      messageKind: options.messageKind || 'assistant_interim',
-      turnId: resolvedTurnId,
-      traceAvailable: false,
-    };
+    const interimMessage = buildSyntheticInterimMessage(interimText);
 
     let replaced = false;
     const nextMessages = messages.map((message) => {
@@ -541,15 +552,10 @@ export const applyTurnUxPlan = (
     }
     return [
       ...messages,
-      applyUxMetadata({
-        id: `${resolvedTurnId}-status`,
-        role: 'assistant',
-        kind: 'status',
-        content: String(options.pendingLabel || 'Thinking...'),
-        timestamp: Date.now(),
-        turnId: resolvedTurnId,
-        traceAvailable: false,
-      }, plan),
+      applyUxMetadata(
+        buildSyntheticInterimMessage(String(options.pendingLabel || 'Thinking...')),
+        plan,
+      ),
     ];
   }
 
@@ -565,7 +571,8 @@ export const upsertTraceSummary = (
 ): ChatTimelineMessage[] => {
   if (!turnId) return messages;
   const nextSummary = summary || undefined;
-  const traceDisplayMode = messages.find((message) => message.turnId === turnId)?.traceDisplayMode || null;
+  const anchorMessage = messages.find((message) => message.turnId === turnId);
+  const traceDisplayMode = anchorMessage?.traceDisplayMode || null;
   let updated = false;
   const nextMessages = messages.map((message) => {
     if (message.turnId !== turnId) return message;
@@ -577,7 +584,7 @@ export const upsertTraceSummary = (
         traceAvailable: Boolean(nextSummary?.traceAvailable),
       };
     }
-    if (message.kind === 'status') {
+    if (message.kind === 'status' && !String(message.messageKind || '').trim()) {
       updated = true;
       return {
         ...message,
@@ -609,16 +616,15 @@ export const upsertTraceSummary = (
   return [
     ...messages,
     {
-      id: `${turnId}-status`,
+      id: `${turnId}-assistant`,
       role: 'assistant',
-      kind: 'status',
+      kind: 'assistant',
       content: nextSummary?.headline || 'Thinking...',
       timestamp: Date.now(),
+      messageKind: 'assistant_interim',
       turnId,
       traceDisplayMode,
-      allowTraceCollapse: Boolean(
-        messages.find((message) => message.turnId === turnId)?.allowTraceCollapse
-      ),
+      allowTraceCollapse: Boolean(anchorMessage?.allowTraceCollapse),
       traceSummary: nextSummary || null,
       traceAvailable: Boolean(nextSummary?.traceAvailable),
     },
@@ -653,6 +659,10 @@ export const applyAgentResponse = (
     uxPlan?: NormalizedTurnUxPlan | null;
   },
 ): ChatTimelineMessage[] => {
+  const isTransientStatusMessage = (message: ChatTimelineMessage): boolean => (
+    message.kind === 'status' && !String(message.messageKind || '').trim()
+  );
+
   const turnId = String(payload.turnId || '').trim();
   const timestamp = normalizeChatTimestamp(payload.timestamp);
   const traceSummary = payload.traceSummary || null;
@@ -706,8 +716,12 @@ export const applyAgentResponse = (
     : false;
 
   if (!turnId) {
-    const lastStatusIndex = [...messages].map((message) => message.kind).lastIndexOf('status');
-    if (lastStatusIndex >= 0) {
+    const lastStatusIndex = [...messages]
+      .map((message, index) => ({ message, index }))
+      .reverse()
+      .find(({ message }) => isTransientStatusMessage(message))
+      ?.index;
+    if (lastStatusIndex !== undefined) {
       const fallbackTurnId = messages[lastStatusIndex]?.turnId;
       return messages.map((message, index) =>
         index === lastStatusIndex ? buildAssistantMessage(fallbackTurnId) : message
@@ -741,7 +755,7 @@ export const applyAgentResponse = (
 
   const nextMessages = messages.map((message) => {
     if (message.turnId !== turnId) return message;
-    if (message.kind === 'status' || message.kind === 'assistant') {
+    if (message.kind === 'assistant' || isTransientStatusMessage(message)) {
       replaced = true;
       return { ...buildAssistantMessage(turnId), turnId };
     }
@@ -753,7 +767,7 @@ export const applyAgentResponse = (
   const fallbackStatusIndex = [...messages]
     .map((message, index) => ({ message, index }))
     .reverse()
-    .find(({ message }) => message.kind === 'status')
+    .find(({ message }) => isTransientStatusMessage(message))
     ?.index;
 
   if (fallbackStatusIndex !== undefined) {

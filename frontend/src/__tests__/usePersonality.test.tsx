@@ -7,6 +7,9 @@ const tMock = (key: string, params?: Record<string, string>) => {
   if (key === 'personality.switchConfirm' && params) {
     return `switch:${params.from}->${params.to}`;
   }
+  if (key === 'personality.switchPromptFallback') {
+    return '先别急着走，再给我一次机会。';
+  }
   return key;
 };
 
@@ -164,7 +167,7 @@ describe('usePersonality', () => {
     await user.click(await screen.findByRole('button', { name: '惣流·明日香·兰格雷' }));
     await user.click(screen.getByRole('button', { name: 'personality.switch' }));
 
-    expect(await screen.findByText('别急着走，再给我一次机会。')).toBeInTheDocument();
+    expect(await screen.findByText('先别急着走，再给我一次机会。')).toBeInTheDocument();
     expect(screen.getByText('switch:七号->惣流·明日香·兰格雷')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'personality.confirmSwitch' }));

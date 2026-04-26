@@ -1,8 +1,12 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { useConversationStore } from '@/stores/conversation-store';
 
 describe('conversation store', () => {
   beforeEach(() => {
+    useConversationStore.getState().reset();
+  });
+
+  afterEach(() => {
     useConversationStore.getState().reset();
   });
 
@@ -170,6 +174,86 @@ describe('conversation store', () => {
     ]);
   });
 
+  it('keeps persisted interim, todo, and final messages together after history rehydration', () => {
+    const store = useConversationStore.getState();
+
+    store.receiveHistory('session-a', [
+      {
+        id: 'msg-user',
+        messageId: 'msg-user',
+        role: 'user',
+        kind: 'user',
+        messageKind: 'user_text',
+        content: '详细分析下',
+        timestamp: 1000,
+        turnId: 'turn-history',
+      },
+      {
+        id: 'msg-interim',
+        messageId: 'msg-interim',
+        role: 'assistant',
+        kind: 'assistant',
+        messageKind: 'assistant_interim',
+        content: '让我仔细想想再回复你。',
+        timestamp: 1010,
+        turnId: 'turn-history',
+      },
+      {
+        id: 'msg-todo',
+        messageId: 'msg-todo',
+        role: 'assistant',
+        kind: 'status',
+        messageKind: 'todo_state',
+        content: 'Inspect runtime drift\nPatch UI',
+        timestamp: 1020,
+        turnId: 'turn-history',
+        payload: {
+          items: [
+            { id: 'todo-1', content: 'Inspect runtime drift', status: 'in_progress' },
+            { id: 'todo-2', content: 'Patch UI', status: 'completed' },
+          ],
+        },
+      },
+      {
+        id: 'msg-final',
+        messageId: 'msg-final',
+        role: 'assistant',
+        kind: 'assistant',
+        messageKind: 'assistant_final',
+        content: '最终结论。',
+        timestamp: 1030,
+        turnId: 'turn-history',
+      },
+    ]);
+
+    const turnMessages = (useConversationStore.getState().messagesBySession['session-a'] || [])
+      .filter((message) => message.turnId === 'turn-history');
+
+    expect(turnMessages).toEqual([
+      expect.objectContaining({
+        id: 'msg-user',
+        messageKind: 'user_text',
+        turnId: 'turn-history',
+      }),
+      expect.objectContaining({
+        id: 'msg-interim',
+        messageKind: 'assistant_interim',
+        turnId: 'turn-history',
+      }),
+      expect.objectContaining({
+        id: 'msg-todo',
+        kind: 'status',
+        messageKind: 'todo_state',
+        turnId: 'turn-history',
+      }),
+      expect.objectContaining({
+        id: 'msg-final',
+        messageKind: 'assistant_final',
+        turnId: 'turn-history',
+      }),
+    ]);
+  });
+
   it('merges a durable user message into the local pending reply without dropping the quote', () => {
     const store = useConversationStore.getState();
 
@@ -218,6 +302,51 @@ describe('conversation store', () => {
         messageKind: 'assistant_final',
         contentExcerpt: 'Root answer',
       },
+    }));
+  });
+
+  it('tracks tool-call progress on the streaming assistant message for a turn', () => {
+    const store = useConversationStore.getState();
+
+    store.appendStreamToolCall({
+      sessionId: 'session-a',
+      turnId: 'turn-tools',
+      toolCallId: 'call-1',
+      toolName: 'web-search',
+      status: 'running',
+    });
+    store.appendStreamToolCall({
+      sessionId: 'session-a',
+      turnId: 'turn-tools',
+      toolCallId: 'call-1',
+      toolArgsDelta: '{"query":"magi"}',
+      status: 'running',
+    });
+    store.appendStreamToolCall({
+      sessionId: 'session-a',
+      turnId: 'turn-tools',
+      toolCallId: 'call-1',
+      toolName: 'web-search',
+      toolArguments: { query: 'magi' },
+      status: 'completed',
+    });
+
+    const toolMessage = (useConversationStore.getState().messagesBySession['session-a'] || [])
+      .find((message) => message.turnId === 'turn-tools' && message.role === 'assistant');
+
+    expect(toolMessage).toEqual(expect.objectContaining({
+      turnId: 'turn-tools',
+      role: 'assistant',
+      streaming: true,
+      toolCalls: [
+        expect.objectContaining({
+          toolCallId: 'call-1',
+          toolName: 'web-search',
+          status: 'completed',
+          toolArgsText: '{"query":"magi"}',
+          toolArguments: { query: 'magi' },
+        }),
+      ],
     }));
   });
 });
