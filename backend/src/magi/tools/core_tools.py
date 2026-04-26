@@ -7,6 +7,8 @@ from .builtin.bash_tool import BashTool
 from .builtin.capabilities_tool import CapabilitiesTool
 from .builtin.detach_to_background_tool import DetachToBackgroundTool
 from .builtin.file_edit_tool import FileEditTool
+from .builtin.file_info_tool import FileInfoTool
+from .builtin.file_list_tool import FileListTool
 from .builtin.file_read_tool import FileReadTool
 from .builtin.file_write_tool import FileWriteTool
 from .builtin.glob_tool import GlobTool
@@ -27,6 +29,8 @@ CORE_TOOL_CLASSES: tuple[type, ...] = (
     FileReadTool,
     FileWriteTool,
     FileEditTool,
+    FileListTool,
+    FileInfoTool,
     GrepTool,
     GlobTool,
     CapabilitiesTool,
