@@ -227,7 +227,7 @@ Responsibilities:
 
 - timeline read models (`TimelineEvent` is L12-internal, not exported)
 - scale-aware viewport and context-bundle read models
-- timeline adapter (`TimelineAdapter`) converts `SensorOutput` → `TimelineEvent`
+- timeline adapter (`TimelineAdapter`) stores host-rendered `TimelineEvent` objects
 - timeline normalization and insight extraction
 - scheduled source sync policy
 
@@ -238,7 +238,8 @@ Primary packages:
 Notes:
 
 - `TimelineEvent` is an L12-internal view model; sensors produce `SensorOutput` (L9)
-- `TimelineAdapter` is the sole entry point for sensor data into the timeline read model
+- host projection is the sole owner of timeline display rendering from `SensorOutput.activity` + `SensorOutput.narration`
+- `TimelineAdapter` is the sole entry point for rendered timeline events into the timeline read model
 
 ### L13. External Services
 

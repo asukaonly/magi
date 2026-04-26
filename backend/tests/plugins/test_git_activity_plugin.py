@@ -215,7 +215,8 @@ def test_sensor_build_output():
     output = asyncio.run(sensor.build_output(item))
 
     assert output.source_type == "git_activity"
-    assert "commit" in output.title
+    assert output.narration.title is not None
+    assert "commit" in output.narration.title
     assert len(output.content_blocks) > 0
     assert "git" in output.tags
     assert "commit" in output.tags

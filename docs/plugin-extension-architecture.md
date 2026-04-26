@@ -204,11 +204,12 @@ Channel contributions have their own settings surface in the frontend under "接
 Sensor outputs flow through the memory system via the following chain:
 
 ```
-SensorBase.build_output(item)     �?SensorOutput (content, provenance)
-SensorBase.extract_metadata(item) �?SensorOutputMetadata (entity hints, tags, relations)
-IngestionGateway.ingest()         �?MemoryEvent with metadata_json
-L1 EventStore                     �?persisted fact event
-L2 Pipeline                       �?cognition (graph, entities, assertions)
+SensorBase.build_output(item)     -> SensorOutput (activity, narration, provenance)
+SensorBase.extract_metadata(item) -> SensorOutputMetadata (entity hints, tags, relations)
+Host projection renderer          -> L1 content + timeline title/summary + embedding head
+IngestionGateway.ingest()         -> MemoryEvent with metadata_json
+L1 EventStore                     -> persisted fact event
+L2 Pipeline                       -> cognition (graph, entities, assertions)
 ```
 
 ### SensorOutput
@@ -216,10 +217,35 @@ L2 Pipeline                       �?cognition (graph, entities, assertions)
 `SensorOutput` is the domain-neutral output produced by all sensors:
 
 - `source_type` / `source_item_id`: identity
-- `title` / `summary` / `content_blocks`: content for display and L2 processing
+- `activity`: source-owned semantic truth (`source`, `action`, optional `object`, optional `qualifiers`)
+- `narration`: source-owned factual narration (`body`, optional `title`)
+- `content_blocks`: auxiliary content anchors for downstream processing
 - `tags` / `entities`: classification
 - `provenance`: source-specific metadata (sensor_id, domain, visit_id, etc.)
 - `domain_payload`: extra structured data for downstream consumers
+
+Important ownership split:
+
+- plugins own `activity` and `narration`
+- the host runtime owns final human-facing display text and retrieval-oriented embedding projections
+- `L1` does not treat plugin-authored display strings as the source of truth for external activity
+
+The host renders three projections from one `SensorOutput`:
+
+- `L1 content`: canonical persisted event text
+- `TimelineEvent.title` / `TimelineEvent.summary`: UI-facing timeline text
+- `projection.embedding_head`: compact dense-retrieval hint stored in `MemoryEvent.metadata_json.projection`
+
+The host persists only the minimum stable semantic envelope needed for later filtering and audit:
+
+- `activity.source_code`
+- `activity.action_code`
+- optional `activity.object_code`
+- optional `activity.qualifiers`
+- `plugin_id` / `sensor_id`
+- `projection.renderer_version`
+
+Static alias lists or multi-language label tables should stay in plugin i18n resources or the SDK contract, not be duplicated into every `L1` event row.
 
 ### SensorOutputMetadata
 

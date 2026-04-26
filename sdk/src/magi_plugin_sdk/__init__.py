@@ -56,12 +56,15 @@ from .i18n import (
 )
 from .logging import configure_basic_logging, get_logger
 from .sensors import (
+    ActivityFacet,
     ContentBlock,
     L2BatchPolicy,
     PluginRuntimePaths,
     PullSyncSensor,
+    SensorActivity,
     SensorBase,
     SensorMemoryPolicy,
+    SensorNarration,
     SensorOutput,
     SensorOutputMetadata,
     SensorSpec,
@@ -100,12 +103,15 @@ __all__ = [
     "PluginIngressEventRecord",
     "PluginIngressHandlerRegistration",
     # Sensor
+    "ActivityFacet",
     "ContentBlock",
     "L2BatchPolicy",
     "PluginRuntimePaths",
     "PullSyncSensor",
+    "SensorActivity",
     "SensorBase",
     "SensorMemoryPolicy",
+    "SensorNarration",
     "SensorOutput",
     "SensorOutputMetadata",
     "SensorSpec",

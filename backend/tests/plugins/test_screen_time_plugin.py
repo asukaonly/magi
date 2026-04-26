@@ -4,6 +4,7 @@ import asyncio
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -19,7 +20,25 @@ from screen_time.plugin import DEFAULT_SETTINGS, _fields, ScreenTimePlugin
 from screen_time.ingress import ScreenTimePluginIngressHandler
 from screen_time.sensor import ScreenTimeTimelineSensor
 from screen_time.state import ScreenTimeStateStore
-from magi.runtime_trace import PluginIngressEventRecord
+
+
+def _ingress_event(*, event_id: int, occurred_at_ms: int, event_type: str = "frontmost_app_activated"):
+    return SimpleNamespace(
+        event_id=event_id,
+        source_kind="desktop",
+        producer="frontmost_app_monitor",
+        plugin_target="screen_time",
+        event_type=event_type,
+        occurred_at_ms=occurred_at_ms,
+        payload_json="{}",
+        cursor_key=None,
+        status="pending",
+        claimed_by=None,
+        claimed_at_ms=None,
+        processed_at_ms=None,
+        last_error=None,
+        created_at_ms=0,
+    )
 
 
 def test_sensor_collect_items_emits_completed_hourly_bucket(tmp_path: Path) -> None:
@@ -53,15 +72,9 @@ def test_sensor_collect_items_emits_completed_hourly_bucket(tmp_path: Path) -> N
     handler = ScreenTimePluginIngressHandler(runtime_paths=runtime_paths)
     asyncio.run(
         handler.handle_event(
-            PluginIngressEventRecord(
+            _ingress_event(
                 event_id=1,
-                source_kind="desktop",
-                producer="frontmost_app_monitor",
-                plugin_target="screen_time",
-                event_type="frontmost_app_activated",
                 occurred_at_ms=int(datetime(2026, 3, 27, 11, 5, tzinfo=timezone.utc).timestamp() * 1000),
-                payload_json="{}",
-                created_at_ms=0,
             ),
             {"bundle_id": "com.apple.Safari", "app_name": "Safari"},
         )
@@ -87,30 +100,18 @@ def test_screen_time_ingress_handler_updates_activation_state(tmp_path: Path) ->
 
     asyncio.run(
         handler.handle_event(
-            PluginIngressEventRecord(
+            _ingress_event(
                 event_id=1,
-                source_kind="desktop",
-                producer="frontmost_app_monitor",
-                plugin_target="screen_time",
-                event_type="frontmost_app_activated",
                 occurred_at_ms=int(datetime(2026, 3, 27, 10, 15, tzinfo=timezone.utc).timestamp() * 1000),
-                payload_json="{}",
-                created_at_ms=0,
             ),
             {"bundle_id": "com.apple.Safari", "app_name": "Safari"},
         )
     )
     asyncio.run(
         handler.handle_event(
-            PluginIngressEventRecord(
+            _ingress_event(
                 event_id=2,
-                source_kind="desktop",
-                producer="frontmost_app_monitor",
-                plugin_target="screen_time",
-                event_type="frontmost_app_activated",
                 occurred_at_ms=int(datetime(2026, 3, 27, 10, 42, tzinfo=timezone.utc).timestamp() * 1000),
-                payload_json="{}",
-                created_at_ms=0,
             ),
             {"bundle_id": "com.apple.Terminal", "app_name": "Terminal"},
         )
@@ -150,45 +151,27 @@ def test_screen_time_state_reuses_session_for_consecutive_same_app_activations(t
 
     asyncio.run(
         handler.handle_event(
-            PluginIngressEventRecord(
+            _ingress_event(
                 event_id=1,
-                source_kind="desktop",
-                producer="frontmost_app_monitor",
-                plugin_target="screen_time",
-                event_type="frontmost_app_activated",
                 occurred_at_ms=int(datetime(2026, 3, 27, 10, 15, tzinfo=timezone.utc).timestamp() * 1000),
-                payload_json="{}",
-                created_at_ms=0,
             ),
             {"bundle_id": "com.apple.Safari", "app_name": "Safari"},
         )
     )
     asyncio.run(
         handler.handle_event(
-            PluginIngressEventRecord(
+            _ingress_event(
                 event_id=2,
-                source_kind="desktop",
-                producer="frontmost_app_monitor",
-                plugin_target="screen_time",
-                event_type="frontmost_app_activated",
                 occurred_at_ms=int(datetime(2026, 3, 27, 10, 20, tzinfo=timezone.utc).timestamp() * 1000),
-                payload_json="{}",
-                created_at_ms=0,
             ),
             {"bundle_id": "com.apple.Safari", "app_name": "Safari"},
         )
     )
     asyncio.run(
         handler.handle_event(
-            PluginIngressEventRecord(
+            _ingress_event(
                 event_id=3,
-                source_kind="desktop",
-                producer="frontmost_app_monitor",
-                plugin_target="screen_time",
-                event_type="frontmost_app_activated",
                 occurred_at_ms=int(datetime(2026, 3, 27, 10, 42, tzinfo=timezone.utc).timestamp() * 1000),
-                payload_json="{}",
-                created_at_ms=0,
             ),
             {"bundle_id": "com.apple.Terminal", "app_name": "Terminal"},
         )
@@ -246,7 +229,8 @@ def test_sensor_build_output() -> None:
     assert sensor.memory_event_type == "APP_USAGE_HOURLY"
     assert output.source_item_id == "app_usage:2026-03-27T10:00:00+08:00:com.apple.Safari"
     assert output.source_type == "screen_time"
-    assert "Safari" in output.title
+    assert output.narration.title is not None
+    assert "Safari" in output.narration.title
     assert output.domain_payload["duration_seconds"] == 2280
     assert output.domain_payload["session_count"] == 4
 

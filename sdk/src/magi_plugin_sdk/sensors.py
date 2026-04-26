@@ -43,6 +43,34 @@ class ContentBlock:
 
 
 @dataclass(slots=True, frozen=True)
+class ActivityFacet:
+    """One stable semantic facet used to describe a sensor event."""
+
+    code: str
+    i18n_key: str
+    fallback: str = ""
+    embedding_fallback: str | None = None
+
+
+@dataclass(slots=True, frozen=True)
+class SensorActivity:
+    """Structured source/action semantics emitted by a sensor event."""
+
+    source: ActivityFacet
+    action: ActivityFacet
+    object: ActivityFacet | None = None
+    qualifiers: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(slots=True, frozen=True)
+class SensorNarration:
+    """Human-authored factual narration emitted by a sensor event."""
+
+    body: str = ""
+    title: str | None = None
+
+
+@dataclass(slots=True, frozen=True)
 class SensorMemoryPolicy:
     """Declarative memory routing policy for a sensor's outputs."""
 
@@ -64,8 +92,8 @@ class SensorOutput:
     source_item_id: str
     occurred_at: float
     captured_at: float
-    title: str
-    summary: str
+    activity: SensorActivity
+    narration: SensorNarration
     content_blocks: list[ContentBlock] = field(default_factory=list)
     raw_payload_ref: str | None = None
     tags: list[str] = field(default_factory=list)
@@ -93,8 +121,27 @@ class SensorOutput:
             source_item_id=str(data["source_item_id"]),
             occurred_at=float(data["occurred_at"]),
             captured_at=float(data["captured_at"]),
-            title=str(data.get("title", "")),
-            summary=str(data.get("summary", "")),
+            activity=SensorActivity(
+                source=ActivityFacet(**dict(data.get("activity", {}).get("source", {}))),
+                action=ActivityFacet(**dict(data.get("activity", {}).get("action", {}))),
+                object=(
+                    ActivityFacet(**dict(data.get("activity", {}).get("object", {})))
+                    if data.get("activity", {}).get("object")
+                    else None
+                ),
+                qualifiers={
+                    str(key): str(value)
+                    for key, value in dict(data.get("activity", {}).get("qualifiers", {})).items()
+                },
+            ),
+            narration=SensorNarration(
+                body=str(data.get("narration", {}).get("body", "")),
+                title=(
+                    str(data.get("narration", {}).get("title", ""))
+                    if data.get("narration", {}).get("title") is not None
+                    else None
+                ),
+            ),
             content_blocks=blocks,
             raw_payload_ref=data.get("raw_payload_ref"),
             tags=list(data.get("tags", [])),
@@ -331,12 +378,66 @@ class SensorBase(ABC):
         value = str(output.source_item_id or "").strip()
         return value or None
 
+    def _build_activity_facet(
+        self,
+        *,
+        code: str,
+        i18n_key: str,
+        fallback: str,
+        embedding_fallback: str | None = None,
+    ) -> ActivityFacet:
+        """Return one activity facet for a sensor output."""
+        return ActivityFacet(
+            code=str(code).strip(),
+            i18n_key=str(i18n_key).strip(),
+            fallback=str(fallback).strip(),
+            embedding_fallback=(
+                str(embedding_fallback).strip()
+                if embedding_fallback is not None
+                else None
+            ),
+        )
+
+    def _build_activity(
+        self,
+        *,
+        source: ActivityFacet,
+        action: ActivityFacet,
+        object: ActivityFacet | None = None,
+        qualifiers: dict[str, Any] | None = None,
+    ) -> SensorActivity:
+        """Return the structured activity envelope for a sensor output."""
+        normalized_qualifiers = {
+            str(key): str(value)
+            for key, value in dict(qualifiers or {}).items()
+            if str(key).strip() and str(value).strip()
+        }
+        return SensorActivity(
+            source=source,
+            action=action,
+            object=object,
+            qualifiers=normalized_qualifiers,
+        )
+
+    def _build_narration(
+        self,
+        *,
+        body: str,
+        title: str | None = None,
+    ) -> SensorNarration:
+        """Return the factual narration envelope for a sensor output."""
+        normalized_title = str(title).strip() if title is not None else None
+        return SensorNarration(
+            body=str(body).strip(),
+            title=normalized_title or None,
+        )
+
     def _build_output(
         self,
         *,
         source_item_id: str,
-        title: str,
-        summary: str,
+        activity: SensorActivity,
+        narration: SensorNarration,
         occurred_at: float | None = None,
         raw_payload_ref: str | None = None,
         content_blocks: list[ContentBlock] | None = None,
@@ -351,8 +452,8 @@ class SensorBase(ABC):
             source_item_id=source_item_id,
             occurred_at=float(occurred_at or now),
             captured_at=now,
-            title=title,
-            summary=summary,
+            activity=activity,
+            narration=narration,
             raw_payload_ref=raw_payload_ref,
             content_blocks=list(content_blocks or []),
             tags=list(tags or []),
@@ -362,12 +463,15 @@ class SensorBase(ABC):
 
 
 __all__ = [
+    "ActivityFacet",
     "ContentBlock",
     "L2BatchPolicy",
     "PluginRuntimePaths",
     "PullSyncSensor",
     "SensorBase",
+    "SensorActivity",
     "SensorMemoryPolicy",
+    "SensorNarration",
     "SensorOutput",
     "SensorOutputMetadata",
     "SensorSpec",

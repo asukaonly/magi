@@ -411,6 +411,51 @@ Sensors inheriting `SensorBase` from `magi_plugin_sdk.sensors` have access to th
 - `collect_items(context)`: pull-sync entry point; returns `SensorSyncResult` with items, cursor, and stats
 - `fetch_item(item)`: optional pre-processing/enrichment before `build_output`
 
+`SensorOutput` is now a source-truth contract, not a final display-string contract.
+
+Required truth fields inside `SensorOutput`:
+
+- `activity.source` / `activity.action`: stable semantic facets with `code` and `i18n_key`
+- optional `activity.object`: optional semantic object facet when it materially changes retrieval or display
+- optional `activity.qualifiers`: stable low-cardinality qualifiers such as capture mode or session type
+- `narration.body`: factual event narration without host-owned source/action prefix
+- optional `narration.title`: short source-owned headline that the host may reuse in timeline titles
+
+Important ownership rule:
+
+- plugins own `activity` and `narration` truth
+- the host runtime owns final `L1` text, timeline title/summary, and embedding projection
+- plugins should not pre-compose final `{source} {action} ...` display strings inside `narration.body`
+
+Typical authoring pattern:
+
+```python
+return self._build_output(
+    source_item_id="track:123",
+    activity=self._build_activity(
+        source=self._build_activity_facet(
+            code="netease_music",
+            i18n_key="activity.source.netease_music",
+            fallback="NetEase Music",
+            embedding_fallback="网易云音乐",
+        ),
+        action=self._build_activity_facet(
+            code="listen_music",
+            i18n_key="activity.action.listen_music",
+            fallback="Listening",
+            embedding_fallback="听歌",
+        ),
+    ),
+    narration=self._build_narration(
+        title="Track Name - Artist",
+        body="在网易云音乐听了《Track Name》，播放了 3 分钟",
+    ),
+    occurred_at=occurred_at,
+)
+```
+
+Use `fallback` for resilient display when a translation file is missing. Use `embedding_fallback` sparingly for a short dense-retrieval head; do not dump large alias lists or schema text into the event body.
+
 **Dedup helpers:**
 
 - `source_item_identity(item)`: producer-side stable item identity for dedup

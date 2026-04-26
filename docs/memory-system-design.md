@@ -680,10 +680,24 @@ Chat truth is first written to `chat.db`. A subset is then projected as `L1` can
 
 Sensors run in the awareness layer and produce `SensorOutput`. The `SensorIngestionGateway` projects these outputs into memory.
 
+For external activity sources, `SensorOutput` is not the final `L1` string. It is a source-truth envelope with:
+
+- `activity`: structured source/action semantics owned by the plugin
+- `narration`: factual body/title owned by the plugin
+
+The host runtime then materializes that truth into durable memory projections:
+
+- `content`: canonical persisted `L1` text
+- `metadata_json.activity`: minimal stable retrieval facets (`source_code`, `action_code`, optional `object_code`, optional `qualifiers`)
+- `metadata_json.projection`: host-owned projection metadata such as `renderer_version` and optional `embedding_head`
+
+This keeps external activity memory consistent across plugins while avoiding per-plugin free-form `L1` sentence formats.
+
 Gateway-side normalization rules:
 
 - External sensor events are written as durable memory with a stable owner `user_id` taken from `SensorOutput.provenance`, then `domain_payload`, and finally `DEFAULT_USER_ID` as fallback.
 - External sensor events remain session-independent by default: `session_id` and `turn_id` are not inherited from the current chat runtime.
+- The host, not the plugin, decides the final `L1` sentence shape and embedding text shape for external activity events.
 
 This is the primary path for:
 

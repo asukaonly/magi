@@ -174,20 +174,17 @@ def test_reader_logs_when_eventkit_bridge_is_unavailable(monkeypatch):
         reader._ek_module = {}
         reader._foundation_module = {}
 
-    warning_calls: list[tuple[str, dict[str, object]]] = []
+    warning_calls: list[str] = []
 
-    def _fake_warning(message: str, **kwargs):  # type: ignore[no-untyped-def]
-        warning_calls.append((message, kwargs))
+    def _fake_warning(message: str):  # type: ignore[no-untyped-def]
+        warning_calls.append(message)
 
     monkeypatch.setattr(reader, "_import_frameworks", _fake_import_frameworks, raising=False)
     monkeypatch.setattr(reader_module.logger, "warning", _fake_warning)
 
     assert reader.is_available() is False
     assert warning_calls == [
-        (
-            "Calendar EventKit bridge unavailable",
-            {"reason": "missing_eventkit_bridge", "platform": "darwin"},
-        )
+        "Calendar EventKit bridge unavailable reason=missing_eventkit_bridge platform=darwin"
     ]
 
 
@@ -365,10 +362,10 @@ def test_sensor_collect_items_logs_when_authorization_is_unavailable(monkeypatch
         def get_authorization_status(self):
             return "unavailable"
 
-    warning_calls: list[tuple[str, dict[str, object]]] = []
+    warning_calls: list[str] = []
 
-    def _fake_warning(message: str, **kwargs):  # type: ignore[no-untyped-def]
-        warning_calls.append((message, kwargs))
+    def _fake_warning(message: str):  # type: ignore[no-untyped-def]
+        warning_calls.append(message)
 
     monkeypatch.setattr(sensor_module.logger, "warning", _fake_warning)
 
@@ -389,15 +386,8 @@ def test_sensor_collect_items_logs_when_authorization_is_unavailable(monkeypatch
     assert result.items == []
     assert result.stats["authorization_status"] == "unavailable"
     assert warning_calls == [
-        (
-            "Skipping calendar sync because calendar authorization is unavailable",
-            {
-                "authorization_status": "unavailable",
-                "source_type": "calendar",
-                "manual": True,
-                "initial_sync": True,
-            },
-        )
+        "Skipping calendar sync because calendar authorization is unavailable "
+        "authorization_status=unavailable source_type=calendar manual=True initial_sync=True"
     ]
 
 
@@ -774,7 +764,8 @@ def test_sensor_build_output():
 
     assert output.source_item_id == "calendar_integration-001"
     assert output.source_type == "calendar"
-    assert "Integration Test Meeting" in output.title
+    assert output.narration.title is not None
+    assert "Integration Test Meeting" in output.narration.title
     assert len(output.content_blocks) > 0
     assert "calendar" in output.tags
 

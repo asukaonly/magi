@@ -8,8 +8,11 @@ from typing import Any
 import pytest
 
 from magi.awareness.sensor_output import (
+    ActivityFacet,
     ContentBlock,
+    SensorActivity,
     SensorMemoryPolicy,
+    SensorNarration,
     SensorOutput,
     SensorOutputMetadata,
 )
@@ -26,8 +29,19 @@ class TestSensorOutput:
             source_item_id="item-1",
             occurred_at=1700000000.0,
             captured_at=1700000001.0,
-            title="Test Event",
-            summary="Something happened",
+            activity=SensorActivity(
+                source=ActivityFacet(
+                    code="test_sensor",
+                    i18n_key="activity.source.test_sensor",
+                    fallback="Test Sensor",
+                ),
+                action=ActivityFacet(
+                    code="observe",
+                    i18n_key="activity.action.observe",
+                    fallback="Observed",
+                ),
+            ),
+            narration=SensorNarration(body="Something happened", title="Test Event"),
             content_blocks=[ContentBlock(kind="text", value="hello")],
             tags=["tag1"],
             entities=[{"name": "test"}],
@@ -39,7 +53,8 @@ class TestSensorOutput:
         assert restored.source_type == "test_sensor"
         assert restored.source_item_id == "item-1"
         assert restored.occurred_at == 1700000000.0
-        assert restored.title == "Test Event"
+        assert restored.activity.source.code == "test_sensor"
+        assert restored.narration.title == "Test Event"
         assert len(restored.content_blocks) == 1
         assert restored.content_blocks[0].kind == "text"
         assert restored.tags == ["tag1"]
@@ -51,9 +66,26 @@ class TestSensorOutput:
             "source_item_id": "id1",
             "occurred_at": 100.0,
             "captured_at": 200.0,
+            "activity": {
+                "source": {
+                    "code": "test_source",
+                    "i18n_key": "activity.source.test_source",
+                    "fallback": "Test Source",
+                },
+                "action": {
+                    "code": "observe",
+                    "i18n_key": "activity.action.observe",
+                    "fallback": "Observed",
+                },
+            },
+            "narration": {
+                "body": "Observed event",
+            },
         }
         output = SensorOutput.from_dict(d)
         assert output.source_type == "s"
+        assert output.activity.action.code == "observe"
+        assert output.narration.body == "Observed event"
         assert output.content_blocks == []
         assert output.tags == []
 
@@ -103,8 +135,22 @@ class _ConcreteSensor(SensorBase):
     async def build_output(self, item: dict[str, Any]) -> SensorOutput:
         return self._build_output(
             source_item_id=str(item["id"]),
-            title=str(item.get("title", "")),
-            summary=str(item.get("summary", "")),
+            activity=self._build_activity(
+                source=self._build_activity_facet(
+                    code="test_source",
+                    i18n_key="activity.source.test_source",
+                    fallback="Test Source",
+                ),
+                action=self._build_activity_facet(
+                    code="observe",
+                    i18n_key="activity.action.observe",
+                    fallback="Observed",
+                ),
+            ),
+            narration=self._build_narration(
+                title=str(item.get("title", "")),
+                body=str(item.get("summary", "")),
+            ),
             occurred_at=item.get("occurred_at"),
             tags=item.get("tags", []),
         )
@@ -147,7 +193,8 @@ class TestSensorBase:
         output = await sensor.build_output(item)
         assert output.source_type == "test_source"
         assert output.source_item_id == "item-1"
-        assert output.title == "Test"
+        assert output.narration.title == "Test"
+        assert output.narration.body == "Sum"
 
     @pytest.mark.asyncio
     async def test_extract_metadata_default(self):

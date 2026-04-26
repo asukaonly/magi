@@ -17,8 +17,9 @@ from ..memory.event_contracts import (
     TomDepth,
 )
 from ..runtime_defaults import DEFAULT_USER_ID
-from ..timeline.contracts import TimelineContentBlock, TimelineEvent
+from ..timeline.contracts import TimelineEvent
 from .sensor_base import SensorBase
+from .sensor_projection import build_sensor_projection, build_sensor_timeline_event
 from .sensor_output import SensorOutput, SensorOutputMetadata
 from .sensor_state import SensorStateStore
 
@@ -66,14 +67,21 @@ class SensorIngestionGateway:
         policy = sensor.memory_policy
 
         # 1. Build MemoryEvent with sensor's policy
-        timeline_event = self._build_timeline_event(event_id, output, metadata)
+        projection = build_sensor_projection(sensor, output)
+        timeline_event = build_sensor_timeline_event(
+            event_id,
+            output,
+            projection,
+            metadata,
+        )
         memory_event = self._build_memory_event(
             sensor,
             event_id,
             output,
             policy,
-            timeline_event=timeline_event,
             metadata=metadata,
+            projection_metadata=projection.metadata,
+            timeline_event=timeline_event,
         )
         if output.source_type == "calendar":
             logger.info(
@@ -95,7 +103,8 @@ class SensorIngestionGateway:
 
         # 3. Notify timeline adapter (for viewport/query read model)
         if self._timeline_adapter is not None:
-            await self._timeline_adapter.on_sensor_output(stored_event_id, output, metadata)
+            timeline_event.event_id = stored_event_id
+            await self._timeline_adapter.on_timeline_event(timeline_event)
 
         # 4. Process knowledge graph relations
         relation_count = 0
@@ -122,21 +131,15 @@ class SensorIngestionGateway:
         output: SensorOutput,
         policy: Any,
         *,
+        metadata: SensorOutputMetadata | None,
+        projection_metadata: dict[str, Any],
         timeline_event: TimelineEvent,
-        metadata: SensorOutputMetadata | None = None,
     ) -> MemoryEvent:
         """Build a MemoryEvent from SensorOutput + SensorMemoryPolicy."""
-        content = output.summary or output.title or ""
-        if not content:
-            block_text = " ".join(
-                b.value.strip()
-                for b in output.content_blocks
-                if b.kind == "text" and b.value.strip()
-            )
-            if block_text:
-                content = block_text
+        content = timeline_event.summary
 
         metadata_json = dict(output.domain_payload) if output.domain_payload else {}
+        metadata_json.update(projection_metadata)
         l2_batch_policy = sensor.l2_batch_policy(output)
         if l2_batch_policy is not None:
             if l2_batch_policy.owner:
@@ -156,7 +159,6 @@ class SensorIngestionGateway:
             metadata_json["raw_payload_ref"] = timeline_event.raw_payload_ref
         if timeline_event.processing_status:
             metadata_json["processing_status"] = dict(timeline_event.processing_status)
-
         entity_hints = metadata.entities if metadata and metadata.entities else []
         if entity_hints:
             metadata_json["structured_entity_hints"] = entity_hints
@@ -203,43 +205,6 @@ class SensorIngestionGateway:
                 if raw_value:
                     return raw_value
         return DEFAULT_USER_ID
-
-    @staticmethod
-    def _build_timeline_event(
-        event_id: str,
-        output: SensorOutput,
-        metadata: SensorOutputMetadata | None = None,
-    ) -> TimelineEvent:
-        extra_entities = metadata.entities if metadata else []
-        extra_tags = metadata.tags if metadata else []
-
-        return TimelineEvent(
-            event_id=event_id,
-            source_type=output.source_type,
-            source_item_id=output.source_item_id,
-            occurred_at=output.occurred_at,
-            captured_at=output.captured_at,
-            title=output.title,
-            summary=output.summary,
-            retention_mode=output.domain_payload.get("retention_mode", "analyze_only"),
-            raw_payload_ref=output.raw_payload_ref,
-            content_blocks=[
-                TimelineContentBlock(
-                    kind=block.kind,
-                    value=block.value,
-                    mime_type=block.mime_type,
-                )
-                for block in output.content_blocks
-            ],
-            entities=output.entities + extra_entities,
-            tags=list(dict.fromkeys(output.tags + extra_tags)),
-            privacy_labels=output.domain_payload.get("privacy_labels", []),
-            processing_status={
-                "stored": True,
-                "analyzed": bool(metadata and (metadata.relation_candidates or metadata.fact_hints)),
-            },
-            provenance=output.provenance,
-        )
 
     async def _process_relations(
         self,
