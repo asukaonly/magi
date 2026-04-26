@@ -1,7 +1,6 @@
 """Execution handlers for chat task-agent modes."""
 from __future__ import annotations
 
-import json
 import time
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Optional
@@ -65,19 +64,6 @@ _BACKGROUND_TRIGGER_SOURCE_BY_DECISION: dict[
     BackgroundDecisionSource.LLM: BackgroundTaskTriggerSource.CLASSIFIER,
     BackgroundDecisionSource.FALLBACK: BackgroundTaskTriggerSource.RULE,
 }
-
-
-def _build_memory_query_guidance_block(routing_memory_hint: dict | None) -> str:
-    if not isinstance(routing_memory_hint, dict) or not routing_memory_hint:
-        return ""
-    hint_json = json.dumps(routing_memory_hint, ensure_ascii=False)
-    return "\n".join(
-        [
-            "# Memory Query Guidance",
-            "Use `memory_query` before answering. Prefer these parameters for the first recall attempt:",
-            hint_json,
-        ]
-    )
 
 
 def _build_attachment_preparation_guidance_block(selected_tools: list[str]) -> str:
@@ -268,9 +254,6 @@ class FunctionCallingHandler(BaseExecutionHandler):
         selected_tools = list(request.tool_selection.tools)
         if request.intent.memory_route == "explicit_query" and "memory_query" in selected_tools:
             selected_tools = ["memory_query"] + [tool for tool in selected_tools if tool != "memory_query"]
-            memory_guidance_block = _build_memory_query_guidance_block(request.intent.routing_memory_hint)
-            if memory_guidance_block:
-                prompt_package.system_prompt = f"{prompt_package.system_prompt}\n\n{memory_guidance_block}"
         attachment_guidance_block = _build_attachment_preparation_guidance_block(selected_tools)
         if attachment_guidance_block:
             prompt_package.system_prompt = f"{prompt_package.system_prompt}\n\n{attachment_guidance_block}"

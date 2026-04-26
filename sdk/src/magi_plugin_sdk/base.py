@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .channels import Channel
-from .contracts import ExtensionFieldSpec, PluginManifest, PluginSettingsResourceSpec
+from .contracts import ExtensionFieldSpec, PluginManifest, PluginSettingsResourceSpec, SummaryProfileSpec
 from .ingress import PluginIngressHandlerRegistration
 from .i18n import PluginI18n, get_current_language
 from .sensors import PluginRuntimePaths, SensorSpec
@@ -123,6 +123,15 @@ class Plugin(ABC):
         """Return optional source-specific features for L3 temporal summaries."""
         _ = source_type, events, summary_category, period_start, period_end
         return None
+
+    def get_summary_profiles(self) -> list[SummaryProfileSpec]:
+        """Return L3 activity summary profiles contributed by this plugin.
+
+        Each profile declares a stable summary category, the sensor sources
+        that populate it, the time windows the host should schedule, and the
+        intent verbs that route activity-summary queries to the category.
+        """
+        return []
 
     def get_plugin_ingress_registrations(
         self,

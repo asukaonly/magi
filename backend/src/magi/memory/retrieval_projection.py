@@ -171,6 +171,13 @@ def _build_findings(payload: RetrievalPayload, request: RetrievalQuery) -> list[
             return findings
         return _project_events(payload.l1_events)
 
+    # Activity-summary mode: prefer source-scoped L3, fall back to L1 events.
+    if query_mode == "activity_summary":
+        findings = _project_reflections(payload.l3_reflections)
+        if findings:
+            return findings
+        return _project_events(payload.l1_events)
+
     # Episode / cross-session / temporal / default: prefer events
     findings = _project_events(payload.l1_events)
     if findings:

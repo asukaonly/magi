@@ -53,11 +53,11 @@ def test_build_tools_parameter_includes_array_items_schema_for_openai_tools() ->
     tools = orchestrator._build_tools_parameter(["memory_query"])
 
     assert tools[0]["function"]["name"] == "memory_query"
-    assert tools[0]["function"]["parameters"]["properties"]["sources"] == {
-        "type": "array",
-        "description": "Optional source filters such as ['chat', 'timeline', 'worker'].",
-        "items": {"type": "string"},
-    }
+    sources_schema = tools[0]["function"]["parameters"]["properties"]["sources"]
+    assert sources_schema["type"] == "array"
+    assert sources_schema["items"] == {"type": "string"}
+    assert isinstance(sources_schema.get("description"), str)
+    assert sources_schema["description"]
 
 
 @pytest.mark.asyncio

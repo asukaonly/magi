@@ -312,7 +312,6 @@ async def test_function_calling_handler_passes_turn_workspace_into_context_servi
                 reasoning="tool use",
                 orchestration_plan=OrchestrationPlan(),
                 memory_route="none",
-                routing_memory_hint=None,
             ),
             tool_selection=ToolSelection(tools=["glob"], reasoning="search repo"),
         )
@@ -365,7 +364,6 @@ async def test_function_calling_handler_adds_photo_workflow_guidance_when_photo_
                 reasoning="tool use",
                 orchestration_plan=OrchestrationPlan(),
                 memory_route="none",
-                routing_memory_hint=None,
             ),
             tool_selection=ToolSelection(
                 tools=["photo_library_resolve_photo_refs", "prepare_chat_attachments"],

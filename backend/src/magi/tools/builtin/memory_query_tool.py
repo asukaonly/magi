@@ -11,12 +11,72 @@ from ...memory.retrieval_projection import project_historical_recall
 from ..schema import Tool, ToolExecutionContext, ToolParameter, ToolResult, ToolSchema, ParameterType
 
 
+_QUERY_MODE_DESCRIPTION = (
+    "The retrieval mode that best matches the user's intent. Pick exactly one. "
+    "Examples:\n"
+    "  - exact_fact: \"What's my default editor?\" / \"我喜欢什么音乐\" / \"我爸的电话\".\n"
+    "  - current_state: \"What am I working on right now?\" / \"我现在的项目是什么\".\n"
+    "  - episode_recall: \"What did I do at 3pm yesterday?\" / \"上周二的会议讨论了什么\".\n"
+    "  - cross_session: \"How many times did I talk about X?\" / \"列出所有讨论过 X 的会话\".\n"
+    "  - temporal_compare: \"How has my code style changed?\" / \"和上个月相比我看的网站有什么变化\".\n"
+    "  - summary: \"Recap what I did last week\" / \"总结一下我上周\" (broad period recap, multiple kinds of activity).\n"
+    "  - activity_summary: \"What did I browse yesterday?\" / \"我最近在 Chrome 上看什么\" / \"我这周听了什么音乐\" "
+    "(one specific kind of activity within a time window — pair with summary_categories).\n"
+    "  - strategy: \"How did I solve this kind of bug last time?\" / \"之前那套部署流程是怎么走的\"."
+)
+
+
+_DEFAULT_SUMMARY_CATEGORY_HINT = (
+    "browser_activity, media_listening, coding_activity"
+)
+
+
+def _build_summary_categories_description(plugin_manager: Optional[Any]) -> str:
+    """Compose the ``summary_categories`` parameter description.
+
+    When the host plugin manager is bound, prefer its merged summary profile
+    catalog so the LLM sees the categories that actually exist in this
+    deployment. Otherwise fall back to a static hint that lists the
+    categories shipped by the bundled plugins.
+    """
+
+    categories: list[str] = []
+    if plugin_manager is not None:
+        getter = getattr(plugin_manager, "iter_merged_summary_profiles", None)
+        if callable(getter):
+            try:
+                merged = list(getter())
+            except Exception:  # pragma: no cover - defensive
+                merged = []
+            for profile in merged:
+                category = getattr(profile, "summary_category", None)
+                if isinstance(category, str) and category and category not in categories:
+                    categories.append(category)
+    catalog = ", ".join(categories) if categories else _DEFAULT_SUMMARY_CATEGORY_HINT
+    return (
+        "Optional summary category filter for activity_summary or summary modes. "
+        f"Available categories in this deployment: {catalog}. "
+        "Pick the one that matches the user's activity (e.g. browser_activity for "
+        "browsing recall, media_listening for music/podcast recall)."
+    )
+
+
 class MemoryQueryTool(Tool):
     """Tool for querying memories across L0-L4."""
 
     def _init_schema(self) -> None:
-        """Initialize tool schema."""
-        self.schema = ToolSchema(
+        """Initialize tool schema with a static fallback description.
+
+        The schema is rebuilt lazily inside :meth:`get_schema` / :meth:`get_info`
+        once the plugin manager binding is available so the
+        ``summary_categories`` description reflects the live catalog.
+        """
+        self._schema_built_with_plugin_manager = False
+        self._service: Optional[Any] = None
+        self.schema = self._build_schema(plugin_manager=None)
+
+    def _build_schema(self, *, plugin_manager: Optional[Any]) -> ToolSchema:
+        return ToolSchema(
             name="memory_query",
             description=(
                 "Retrieve structured memory context from the lifecycle-based memory system. "
@@ -34,31 +94,40 @@ class MemoryQueryTool(Tool):
                 ToolParameter(
                     name="time_range",
                     type=ParameterType.OBJECT,
-                    description="Optional time range constraints for retrieval.",
+                    description=(
+                        "Optional time-range constraint. Either {\"relative\": \"<n>d|<n>h|<n>w\"} "
+                        "(e.g. {\"relative\": \"7d\"} for last week) or "
+                        "{\"start\": ISO8601, \"end\": ISO8601}. Omit when the user's intent is "
+                        "lifetime/profile lookup."
+                    ),
                     required=False,
                 ),
                 ToolParameter(
                     name="sources",
                     type=ParameterType.ARRAY,
                     array_item_type=ParameterType.STRING,
-                    description="Optional source filters such as ['chat', 'timeline', 'worker'].",
+                    description=(
+                        "Optional source filter. Common values: 'chat' (conversation), "
+                        "'timeline' (events from sensors like browsing/photos), 'profile' "
+                        "(user preferences and persona facts), 'settings' (configured defaults), "
+                        "'relationship' (people the user has talked about), 'worker' "
+                        "(autonomous agent work)."
+                    ),
                     required=False,
                 ),
                 ToolParameter(
                     name="query_mode",
                     type=ParameterType.STRING,
-                    description=(
-                        "The retrieval mode that best matches the user's intent. Choose one: "
-                        "exact_fact (specific facts, preferences, profile data), "
-                        "current_state (what is currently true, present status), "
-                        "episode_recall (what happened on a specific occasion), "
-                        "cross_session (aggregation across multiple sessions — how many, which ones, all), "
-                        "temporal_compare (before/after, changes over time), "
-                        "summary (summarize or recap a period), "
-                        "strategy (how-to, workflow, prior approach)."
-                    ),
+                    description=_QUERY_MODE_DESCRIPTION,
                     required=True,
-                    enum=["exact_fact", "current_state", "episode_recall", "cross_session", "temporal_compare", "summary", "strategy"],
+                    enum=["exact_fact", "current_state", "episode_recall", "cross_session", "temporal_compare", "summary", "activity_summary", "strategy"],
+                ),
+                ToolParameter(
+                    name="summary_categories",
+                    type=ParameterType.ARRAY,
+                    array_item_type=ParameterType.STRING,
+                    description=_build_summary_categories_description(plugin_manager),
+                    required=False,
                 ),
                 ToolParameter(
                     name="limit",
@@ -73,7 +142,30 @@ class MemoryQueryTool(Tool):
             tags=["memory", "search", "history"],
             timeout=30,
         )
-        self._service: Optional[Any] = None
+
+    def _maybe_refresh_schema(self) -> None:
+        """Rebuild the schema once the plugin manager is bound.
+
+        Called from :meth:`get_schema` / :meth:`get_info` so the description
+        text reflects the live ``summary_categories`` catalog. Idempotent and
+        cheap once refreshed.
+        """
+        if self._schema_built_with_plugin_manager:
+            return
+        try:
+            plugin_manager = require_plugin_manager()
+        except RuntimeError:
+            return
+        self.schema = self._build_schema(plugin_manager=plugin_manager)
+        self._schema_built_with_plugin_manager = True
+
+    def get_schema(self) -> ToolSchema:
+        self._maybe_refresh_schema()
+        return self.schema
+
+    def get_info(self) -> Dict[str, Any]:
+        self._maybe_refresh_schema()
+        return super().get_info()
 
     def _get_service(self):
         """Return an initialized retrieval service when runtime memory is available."""
@@ -99,6 +191,7 @@ class MemoryQueryTool(Tool):
                 query_mode=parameters.get("query_mode"),
                 source_filters=parameters.get("sources", []) or [],
                 domain_filters=parameters.get("domains", []) or [],
+                summary_categories=parameters.get("summary_categories", []) or [],
                 limit=parameters.get("limit", 20),
             )
             payload = await self._get_service().query(request)

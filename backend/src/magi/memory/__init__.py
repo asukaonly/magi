@@ -104,6 +104,9 @@ class UnifiedMemoryStore(L3InsightsMixin, MonitoringMixin):
         self._task_reflection_service = TaskReflectionService()
         self._state_change_service = StateChangeService()
         self._trend_shift_service = TrendShiftService()
+        # Cap concurrent L3 summary generations so a herd of activity-summary
+        # schedules cannot saturate the local LLM pool at integer hour boundaries.
+        self._summary_semaphore: asyncio.Semaphore = asyncio.Semaphore(3)
 
         if enable_l0:
             self.l0 = L0WorkingMemoryStore(
@@ -363,6 +366,9 @@ class UnifiedMemoryStore(L3InsightsMixin, MonitoringMixin):
         *,
         period_start: Optional[float] = None,
         period_end: Optional[float] = None,
+        summary_category: Optional[str] = None,
+        source_filter: Optional[list[str]] = None,
+        min_events: int = 1,
     ) -> Optional[Dict[str, Any]]:
         """Generate a temporal L3 summary for a time window."""
         if self.l1 is None or self.l3 is None:
@@ -373,11 +379,34 @@ class UnifiedMemoryStore(L3InsightsMixin, MonitoringMixin):
             period_end = now
         if period_start is None:
             period_start = period_end - self._period_seconds(period_type)
-        return await self.l3.generate_temporal_summary(
-            l1_store=self.l1,
-            summary_category=period_type,
+        async with self._summary_semaphore:
+            return await self.l3.generate_temporal_summary(
+                l1_store=self.l1,
+                summary_category=summary_category or period_type,
+                period_start=period_start,
+                period_end=period_end,
+                source_filter=source_filter,
+                min_events=min_events,
+            )
+
+    async def generate_source_activity_summary(
+        self,
+        *,
+        summary_category: str,
+        source_filter: list[str],
+        period_type: str = "day",
+        period_start: Optional[float] = None,
+        period_end: Optional[float] = None,
+        min_events: int = 4,
+    ) -> Optional[Dict[str, Any]]:
+        """Generate an L3 activity summary scoped to one or more sensor sources."""
+        return await self.generate_summary(
+            period_type=period_type,
             period_start=period_start,
             period_end=period_end,
+            summary_category=summary_category,
+            source_filter=source_filter,
+            min_events=min_events,
         )
 
     async def generate_thematic_summary(

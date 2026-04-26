@@ -22,6 +22,7 @@ class RetrievalQuery:
     query_mode: Optional[str] = None  # unified mode; None = auto-detect
     source_filters: List[str] = field(default_factory=list)
     domain_filters: List[str] = field(default_factory=list)
+    summary_categories: List[str] = field(default_factory=list)
     limit: int = 10
 
 
@@ -75,6 +76,7 @@ class IntentDeciderInput:
     raw_time_range: Optional[Dict[str, Any]] = None
     source_filters: List[str] = field(default_factory=list)
     domain_filters: List[str] = field(default_factory=list)
+    summary_categories: List[str] = field(default_factory=list)
     query_mode_hint: Optional[str] = None  # from RetrievalQuery.query_mode
     l1_limit: int = 10  # per-plan L1 event limit, forwarded from request
 

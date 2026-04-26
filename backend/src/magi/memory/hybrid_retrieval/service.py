@@ -139,6 +139,7 @@ class HybridRetrievalService:
             raw_time_range=request.time_range if request.time_range else None,
             source_filters=request.source_filters,
             domain_filters=request.domain_filters,
+            summary_categories=list(request.summary_categories or []),
             query_mode_hint=resolved_mode,
             l1_limit=request.limit,
         )
@@ -221,8 +222,49 @@ class HybridRetrievalService:
             decision, payload, l1=l1, request=request,
         )
 
+        # 4c. Activity summary supplement — fetch L3 by category directly.
+        if (mode_plan is not None and mode_plan.mode == "activity_summary"
+                and self._l3 is not None and request.summary_categories):
+            await self._supplement_activity_summary(
+                request=request,
+                payload=payload,
+                time_range=decision.time_range,
+            )
+
         # 5+6. Post-processing (fusion, manifest selection, evidence bundles)
         return await self._apply_post_processing(payload, request=request, mode_plan=mode_plan)
+
+    async def _supplement_activity_summary(
+        self,
+        *,
+        request: RetrievalQuery,
+        payload: RetrievalPayload,
+        time_range: Any,
+    ) -> None:
+        """Backfill L3 reflections by summary_category for activity_summary queries."""
+        l3_store = getattr(self._l3, "_store", None)
+        if l3_store is None:
+            return
+        period_start = getattr(time_range, "start", None) if time_range is not None else None
+        period_end = getattr(time_range, "end", None) if time_range is not None else None
+        try:
+            summaries = await l3_store.list_summaries_by_category(
+                summary_categories=list(request.summary_categories),
+                period_start=period_start,
+                period_end=period_end,
+                limit=request.limit,
+            )
+        except Exception as exc:
+            logger.warning("Activity summary supplement failed: %s", exc)
+            return
+        if not summaries:
+            return
+        existing_ids = {str(item.get("summary_id") or "") for item in payload.l3_reflections}
+        for summary in summaries:
+            sid = str(summary.get("summary_id") or "")
+            if sid and sid in existing_ids:
+                continue
+            payload.l3_reflections.append(summary)
 
     async def _execute_and_merge_plans(
         self,

@@ -390,6 +390,7 @@ class RuleBasedIntentDecider:
         elif layer == "L3":
             conditions = L3Conditions(
                 content_query=inp.query,
+                summary_categories=list(inp.summary_categories) if inp.summary_categories else None,
                 limit=5,
             )
         elif layer == "L4":
@@ -605,58 +606,77 @@ def _infer_query_family(predicate_family: str) -> str:
 # ---------------------------------------------------------------------------
 
 _LLM_SYSTEM_PROMPT = """\
-You are a fast memory-retrieval planning agent.
+You are a fast memory-retrieval refinement agent.
 
-Analyze the user's query, decide which memory layers to query, and produce a concise retrieval phrase for each layer.
+The host has already chosen which memory layers to query (L1/L2/L3/L4) based on the
+caller's ``query_mode``. Your job is to **refine** the retrieval inputs that will be
+applied to those layers, not to re-decide the routing.
 
-Memory layers:
-- L1 (Event Stream): specific past events, chat logs, browser history, activities.
-- L2 (Knowledge Graph): entity attributes, relationships, user profile facts, personal preferences.
-- L3 (Reflection Summaries): period summaries, topic reviews, high-level insights.
-- L4 (Procedural Memory): tool usage experience, workflows, strategies, best practices.
+You produce a single refinement object that is applied to every routed plan:
+
+- ``content_query``: the answer-oriented retrieval phrase. Must match the user's
+  query language. Do not hallucinate, do not expand with invented details, do not
+  replace quoted titles with broad topics. Keep it tight.
+- ``entities`` (optional, L2): proper-noun mentions in the query.
+- ``subject_hint`` (optional, L2): "self" when the user is asking about themselves,
+  "explicit" when an entity is mentioned, "none" otherwise.
+- ``predicate_family`` (optional, L2): one of ``preference``, ``profile_fact``,
+  ``relationship``, ``activity``, ``unknown``.
+- ``semantic_frame`` (optional, L2): structured query semantics with the schema:
+    {
+      "query_family": "affinity" | "relationship" | "profile" | "activity" | "lookup",
+      "subject_scope": "self" | "explicit" | "none",
+      "answer_kind": "creator" | "place" | "topic" | "person" | "software" | "unknown",
+      "answer_unit": "identity" | "presence" | "place" | "topic" | "mixed",
+      "entity_mentions": [string, ...],
+      "constraints": [{"scope": "target"|"interaction",
+                       "facet": "platform"|"located_in"|"category",
+                       "raw_value": string,
+                       "resolved_entity_id": string?,
+                       "resolved_facet_value": string?}],
+      "ranking_mode": "confidence" | string
+    }
+- ``reasoning``: brief one-sentence explanation.
 
 Rules:
-- content_query language must match the user's query language.
-- Do not hallucinate or expand the query with invented details.
-- Keep content_query tight and answer-oriented.
 - Time range parsing is handled elsewhere. Do not output time ranges.
-- You may return multiple layer plans. Plans with is_fallback=true run only when primary retrieval is insufficient.
-- Keep quoted titles verbatim. Do not replace a quoted title with a broad topic.
-- For comparison questions, keep both candidate events explicit; produce separate L1 plans per candidate.
-
-Routing guidance:
-- Questions about preferences, profile facts, relationships, or long-lived personal attributes should prefer L2.
-- Questions about specific events, order, attendance, browsing, or chat history should prefer L1.
-- Questions asking for summaries, recaps, or reflections should prefer L3.
-- Questions asking how something was done before should prefer L4.
-- If the user asks about event order, duration, or "how many days/weeks before/after", prefer L1.
-- When L2 is the primary layer, ALWAYS include an L1 plan as well (is_fallback=false). Knowledge graph entries may be incomplete; the original conversation in L1 provides essential supporting context for answering.
-
-L2 plan fields:
-- For L2 plans about the user's own preferences/facts, set subject_hint to "self".
-- Allowed predicate_family values: preference, profile_fact, relationship, unknown.
-- Include a "semantic_frame" object with structured query semantics:
-  - "query_family": affinity | relationship | profile | activity | lookup
-  - "answer_kind": creator | place | topic | person | software | unknown
-  - "answer_unit": identity | presence | place | topic | mixed
-  - "constraints": array of {scope, facet, raw_value, resolved_entity_id?, resolved_facet_value?}
+- Layer routing is handled elsewhere. Do not output a ``layers`` array.
+- For comparison questions ("X 还是 Y"), keep both candidates explicit in
+  ``content_query``.
+- Keep quoted titles verbatim.
 
 Return JSON only:
 {
-  "layers": [
-    {
-      "layer": "L1" | "L2" | "L3" | "L4",
-      "is_fallback": false | true,
-      "content_query": "string"
-    }
-  ],
-  "reasoning": "brief explanation"
+  "content_query": "string",
+  "entities": ["string", ...],
+  "subject_hint": "self" | "explicit" | "none",
+  "predicate_family": "preference" | "profile_fact" | "relationship" | "activity" | "unknown",
+  "semantic_frame": { ... } | null,
+  "reasoning": "string"
 }"""
 
 _VALID_LAYERS = {"L1", "L2", "L3", "L4"}
 
 _VALID_CONSTRAINT_SCOPES = {"target", "interaction"}
 _VALID_CONSTRAINT_FACETS = {"platform", "located_in", "category"}
+
+
+@dataclass
+class LLMRefinement:
+    """Flat retrieval-refinement object produced by :class:`LLMIntentDecider`.
+
+    The host's rule engine owns layer routing — this object only refines
+    *how* each routed layer is queried. Fields are optional and applied
+    selectively per layer (e.g. ``entities`` and ``semantic_frame`` only
+    affect L2 plans).
+    """
+
+    content_query: str = ""
+    entities: Optional[list[str]] = None
+    subject_hint: Optional[str] = None
+    predicate_family: Optional[str] = None
+    semantic_frame: Optional[L2SemanticFrame] = None
+    reasoning: str = ""
 
 
 def _parse_semantic_frame(raw: dict | None) -> L2SemanticFrame | None:
@@ -693,14 +713,21 @@ def _parse_semantic_frame(raw: dict | None) -> L2SemanticFrame | None:
 
 
 class LLMIntentDecider:
-    """LLM-based intent decider using CONTEXT_DECIDER scenario."""
+    """LLM-based retrieval refinement.
+
+    The rule engine owns layer routing (driven by the caller's
+    ``query_mode``); this decider contributes *retrieval refinements*
+    (``content_query``, ``entities``, ``subject_hint``,
+    ``predicate_family``, ``semantic_frame``) that are applied onto the
+    rule-routed plans.
+    """
 
     def __init__(self, provider_bridge: Any, *, timeout_seconds: float = 3.0):
         self._bridge = provider_bridge
         self._timeout = timeout_seconds
 
-    async def evaluate(self, inp: IntentDeciderInput) -> IntentDecision | None:
-        """Call LLM for intent analysis. Returns None on any failure."""
+    async def evaluate(self, inp: IntentDeciderInput) -> LLMRefinement | None:
+        """Call the LLM for retrieval refinements. Returns ``None`` on any failure."""
         prompt_lines = [f"user query: {inp.query}"]
         if inp.query_mode_hint:
             prompt_lines.append(f"query_mode_hint: {inp.query_mode_hint}")
@@ -727,10 +754,7 @@ class LLMIntentDecider:
                 "LLM intent decider completed model=%s base_url=%s elapsed_ms=%.1f timeout=%s prompt_len=%d",
                 model, base_url, elapsed_ms, self._timeout, len(user_prompt),
             )
-            decision = self._parse_response(raw)
-            if decision is None:
-                return None
-            return self._validate_decision(inp.query, decision)
+            return self._parse_response(raw)
         except Exception:
             elapsed_ms = (time.monotonic() - t0) * 1000
             logger.warning(
@@ -744,72 +768,106 @@ class LLMIntentDecider:
             )
             return None
 
-    def _parse_response(self, raw: str) -> IntentDecision | None:
-        """Parse LLM JSON response into IntentDecision."""
+    def _parse_response(self, raw: str) -> LLMRefinement | None:
+        """Parse the LLM JSON response into a :class:`LLMRefinement`."""
         try:
             data = json.loads(raw)
         except (json.JSONDecodeError, TypeError):
             logger.warning("LLM intent decider returned invalid JSON")
             return None
-
-        layers_data = data.get("layers")
-        if not isinstance(layers_data, list) or not layers_data:
+        if not isinstance(data, dict):
             return None
 
-        plans: list[LayerQueryPlan] = []
-        for item in layers_data:
-            layer = item.get("layer", "")
-            if layer not in _VALID_LAYERS:
-                continue
+        content_query = str(data.get("content_query") or "").strip()
+        entities_raw = data.get("entities")
+        entities: Optional[list[str]] = None
+        if isinstance(entities_raw, list):
+            entities = [str(e) for e in entities_raw if isinstance(e, (str, int, float))]
+            entities = [e for e in entities if e]
+            if not entities:
+                entities = None
 
-            content_query = item.get("content_query", "")
-            is_fallback = bool(item.get("is_fallback", False))
+        subject_hint_raw = data.get("subject_hint")
+        subject_hint = (
+            str(subject_hint_raw)
+            if isinstance(subject_hint_raw, str) and subject_hint_raw in _VALID_SUBJECT_HINTS
+            else None
+        )
 
-            if layer == "L1":
-                conditions = L1Conditions(
-                    content_query=content_query,
-                )
-            elif layer == "L2":
-                conditions = L2Conditions(
-                    content_query=content_query,
-                    entities=item.get("entities") or None,
-                    subject_hint=item.get("subject_hint") or None,
-                    predicate_family=item.get("predicate_family") or None,
-                    semantic_frame=_parse_semantic_frame(item.get("semantic_frame")),
-                    include_tom_snapshot=True,
-                    include_relationships=True,
-                    include_assertions=True,
-                )
-            elif layer == "L3":
-                conditions = L3Conditions(content_query=content_query)
-            elif layer == "L4":
-                conditions = L4Conditions(content_query=content_query)
-            else:
-                continue
+        predicate_family_raw = data.get("predicate_family")
+        predicate_family = (
+            str(predicate_family_raw)
+            if isinstance(predicate_family_raw, str) and predicate_family_raw in _VALID_PREDICATE_FAMILIES
+            else None
+        )
 
-            plans.append(LayerQueryPlan(layer=layer, conditions=conditions, is_fallback=is_fallback))
+        semantic_frame = _parse_semantic_frame(data.get("semantic_frame"))
+        reasoning = str(data.get("reasoning") or "")
 
-        if not plans:
+        if not content_query and entities is None and semantic_frame is None:
+            # Nothing useful came back; let caller fall through to rule output.
             return None
 
-        reasoning = data.get("reasoning", "")
-        return IntentDecision(plans=plans, reasoning=reasoning, source="llm")
+        return LLMRefinement(
+            content_query=content_query,
+            entities=entities,
+            subject_hint=subject_hint,
+            predicate_family=predicate_family,
+            semantic_frame=semantic_frame,
+            reasoning=reasoning,
+        )
 
-    def _validate_decision(
+    def apply(
         self,
+        *,
         original_query: str,
-        decision: IntentDecision,
+        rule_decision: IntentDecision,
+        refinement: LLMRefinement,
     ) -> IntentDecision:
-        """Post-process LLM decision: validate L1 queries and enrich L2 conditions."""
-        for plan in decision.plans:
-            if plan.layer == "L1" and isinstance(plan.conditions, L1Conditions):
-                plan.conditions.content_query = self._validate_l1_content_query(
+        """Apply ``refinement`` onto the rule-routed plans.
+
+        - ``content_query`` is overlaid on every plan, after L1 validation.
+        - ``entities`` / ``subject_hint`` / ``predicate_family`` /
+          ``semantic_frame`` only affect L2 plans.
+        - The decision's ``reasoning`` is augmented with the LLM's reasoning.
+        """
+        refined_query = (refinement.content_query or "").strip()
+        for plan in rule_decision.plans:
+            conditions = plan.conditions
+            if plan.layer == "L1" and isinstance(conditions, L1Conditions):
+                conditions.content_query = self._validate_l1_content_query(
                     original_query=original_query,
-                    content_query=plan.conditions.content_query,
+                    content_query=refined_query or conditions.content_query,
                 )
-            elif plan.layer == "L2" and isinstance(plan.conditions, L2Conditions):
-                enrich_l2_conditions(plan.conditions, original_query)
-        return decision
+            elif plan.layer == "L2" and isinstance(conditions, L2Conditions):
+                if refined_query:
+                    conditions.content_query = refined_query
+                if refinement.entities is not None:
+                    conditions.entities = refinement.entities
+                if refinement.subject_hint is not None:
+                    conditions.subject_hint = refinement.subject_hint
+                if refinement.predicate_family is not None:
+                    conditions.predicate_family = refinement.predicate_family
+                if refinement.semantic_frame is not None:
+                    conditions.semantic_frame = refinement.semantic_frame
+                enrich_l2_conditions(conditions, original_query)
+            elif plan.layer == "L3" and isinstance(conditions, L3Conditions):
+                if refined_query:
+                    conditions.content_query = refined_query
+            elif plan.layer == "L4" and isinstance(conditions, L4Conditions):
+                if refined_query:
+                    conditions.content_query = refined_query
+
+        merged_reasoning = rule_decision.reasoning
+        if refinement.reasoning:
+            merged_reasoning = (
+                f"{merged_reasoning}; llm: {refinement.reasoning}"
+                if merged_reasoning
+                else f"llm: {refinement.reasoning}"
+            )
+        rule_decision.reasoning = merged_reasoning
+        rule_decision.source = "llm"
+        return rule_decision
 
     @staticmethod
     def _validate_l1_content_query(*, original_query: str, content_query: str) -> str:
@@ -876,30 +934,44 @@ class EvaluationRecord:
     user_id: Optional[str]
     session_id: Optional[str]
     rule_decision: IntentDecision
-    llm_decision: Optional[IntentDecision]
+    llm_refinement: Optional[LLMRefinement]
     final_decision: IntentDecision
     decision_source: str
     llm_latency_ms: Optional[float]
     llm_error: Optional[str]
-    layers_match: bool
+    refinement_applied: bool
     diff_summary: str
 
 
 def compute_diff(
     rule_decision: IntentDecision,
-    llm_decision: Optional[IntentDecision],
+    llm_refinement: Optional[LLMRefinement],
 ) -> tuple[bool, str]:
-    """Compare rule and LLM decisions. Returns (match, diff_summary)."""
-    if llm_decision is None:
+    """Summarise whether the LLM produced a usable refinement.
+
+    Layer routing is rule-canonical (driven by ``query_mode``); only
+    retrieval refinements come from the LLM. The returned bool indicates
+    whether refinements were applied.
+    """
+    if llm_refinement is None:
         return False, "llm_failed"
 
-    rule_layers = sorted({p.layer for p in rule_decision.plans if not p.is_fallback})
-    llm_layers = sorted({p.layer for p in llm_decision.plans if not p.is_fallback})
-
-    if rule_layers == llm_layers:
-        return True, "match"
-
-    return False, f"rule={'+'.join(rule_layers)}, llm={'+'.join(llm_layers)}"
+    parts: list[str] = []
+    rule_content_query = (
+        rule_decision.plans[0].conditions.content_query if rule_decision.plans else ""
+    )
+    if llm_refinement.content_query and llm_refinement.content_query != rule_content_query:
+        parts.append("content_query")
+    if llm_refinement.entities is not None:
+        parts.append("entities")
+    if llm_refinement.subject_hint is not None:
+        parts.append("subject_hint")
+    if llm_refinement.predicate_family is not None:
+        parts.append("predicate_family")
+    if llm_refinement.semantic_frame is not None:
+        parts.append("semantic_frame")
+    summary = "applied: " + ",".join(parts) if parts else "applied: empty"
+    return True, summary
 
 
 class IntentDecider:
@@ -922,29 +994,31 @@ class IntentDecider:
         self._background_tasks: set[asyncio.Task[None]] = set()
 
     async def decide(self, inp: IntentDeciderInput) -> IntentDecision:
-        """Produce final intent decision using LLM primary + rule shadow."""
-        # 1. Rule layer always runs (sync) — time parsing + shadow baseline
+        """Produce final intent decision: rule-canonical routing + LLM refinements."""
+        # 1. Rule layer always runs (sync) — owns layer routing + time parsing.
         rule_decision = self._rule_engine.evaluate(inp)
-        time_range = rule_decision.time_range
 
-        # 2. LLM decision (primary path)
-        llm_decision: Optional[IntentDecision] = None
+        # 2. LLM refinement (best-effort).
+        llm_refinement: Optional[LLMRefinement] = None
         llm_latency_ms: Optional[float] = None
         llm_error: Optional[str] = None
 
         if self._llm_enabled and self._llm_decider is not None:
             t0 = time.monotonic()
             try:
-                llm_decision = await self._llm_decider.evaluate(inp)
+                llm_refinement = await self._llm_decider.evaluate(inp)
             except Exception as exc:
                 llm_error = str(exc)
                 logger.warning("LLM intent decider error: %s", exc)
             llm_latency_ms = (time.monotonic() - t0) * 1000
 
-        # 3. Determine final decision
-        if llm_decision is not None:
-            # LLM succeeded: use LLM routing + rule time range
-            final_decision = self._merge_decisions(llm_decision, time_range)
+        # 3. Determine final decision.
+        if llm_refinement is not None and self._llm_decider is not None:
+            final_decision = self._llm_decider.apply(
+                original_query=inp.query,
+                rule_decision=rule_decision,
+                refinement=llm_refinement,
+            )
             decision_source = "llm"
         else:
             final_decision = rule_decision
@@ -954,18 +1028,18 @@ class IntentDecider:
 
         # 4. Shadow evaluation (async, non-blocking)
         if self._shadow_eval_enabled and self._eval_callback is not None:
-            layers_match, diff_summary = compute_diff(rule_decision, llm_decision)
+            refinement_applied, diff_summary = compute_diff(rule_decision, llm_refinement)
             record = EvaluationRecord(
                 query=inp.query,
                 user_id=inp.user_id,
                 session_id=inp.session_id,
                 rule_decision=rule_decision,
-                llm_decision=llm_decision,
+                llm_refinement=llm_refinement,
                 final_decision=final_decision,
                 decision_source=decision_source,
                 llm_latency_ms=llm_latency_ms,
                 llm_error=llm_error,
-                layers_match=layers_match,
+                refinement_applied=refinement_applied,
                 diff_summary=diff_summary,
             )
             task = asyncio.create_task(self._safe_log(record))
@@ -973,17 +1047,6 @@ class IntentDecider:
             task.add_done_callback(self._background_tasks.discard)
 
         return final_decision
-
-    def _merge_decisions(
-        self,
-        llm_routing: IntentDecision,
-        rule_time_range: Optional[TimeRange],
-    ) -> IntentDecision:
-        """Merge LLM routing with rule-derived time range."""
-        for plan in llm_routing.plans:
-            plan.time_range = rule_time_range
-        llm_routing.time_range = rule_time_range
-        return llm_routing
 
     async def _safe_log(self, record: EvaluationRecord) -> None:
         """Log evaluation, swallowing errors."""

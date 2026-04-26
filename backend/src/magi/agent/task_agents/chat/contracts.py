@@ -106,7 +106,6 @@ class IntentDecision(BaseIntentDecision):
     llm_trace: dict[str, Any] = field(default_factory=dict)
     thinking_depth: ThinkingDepth = ThinkingDepth.NONE
     memory_route: str = "none"
-    routing_memory_hint: dict[str, Any] | None = None
 
     @property
     def deep_thinking(self) -> bool:

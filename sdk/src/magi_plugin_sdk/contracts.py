@@ -165,3 +165,25 @@ class PluginRegistryIndex(BaseModel):
     plugins: list[PluginRegistryEntry] = Field(default_factory=list)
     registry_version: str = "1"
     repo_url: str = ""
+
+
+class SummaryProfileSpec(BaseModel):
+    """Declarative L3 activity summary profile contributed by a plugin.
+
+    A profile tells the host runtime that the plugin wants periodic activity
+    summaries built from L1 events of one or more sensor sources, scoped to
+    a stable summary category (used as the L3 ``summary_category`` column).
+
+    The host scheduler turns each profile + window into a periodic job that
+    queries the matching L1 events and feeds them through the standard
+    temporal summary pipeline. Plugins do not write L3 rows directly.
+    """
+
+    profile_id: str
+    summary_category: str
+    source_types: list[str] = Field(default_factory=list)
+    windows: list[Literal["hour", "day", "week"]] = Field(default_factory=lambda: ["day"])
+    settle_window_seconds: int = 300
+    min_events: int = 4
+    intent_verbs: list[str] = Field(default_factory=list)
+    prompt_hints: dict[str, Any] = Field(default_factory=dict)

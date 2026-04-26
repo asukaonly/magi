@@ -31,6 +31,7 @@ from .contracts import (
     PluginManifest,
     PluginPackageState,
     PluginSettingsResourcePayload,
+    SummaryProfileSpec,
 )
 from .sensors import SensorRegistry, SensorSpec
 
@@ -41,6 +42,26 @@ logger = logging.getLogger(__name__)
 class PluginRuntimeBindings:
     plugin_manager: "PluginManager"
     sensor_registry: SensorRegistry
+
+
+@dataclass(frozen=True)
+class MergedSummaryProfile:
+    """Summary profile after merging plugins that share a ``summary_category``.
+
+    The L3 schedule registers one entry per (category, window). When several
+    plugins (e.g. Chrome + Edge browsing history) declare the same category,
+    their ``source_types`` and ``intent_verbs`` are unioned and the strictest
+    cadence wins.
+    """
+
+    summary_category: str
+    source_types: tuple[str, ...]
+    windows: tuple[str, ...]
+    settle_window_seconds: float
+    min_events: int
+    intent_verbs: tuple[str, ...]
+    contributing_profile_ids: tuple[str, ...]
+    prompt_hints: dict[str, Any]
 
 
 def _resolve_search_paths() -> list[Path]:
@@ -350,14 +371,18 @@ class PluginManager:
         summary_category: str,
         period_start: float,
         period_end: float,
+        source_filter: list[str] | None = None,
     ) -> dict[str, Any]:
         """Collect plugin-provided temporal summary features for the current event window."""
 
         features_by_source: dict[str, Any] = {}
         events_by_source: dict[str, list[dict[str, Any]]] = {}
+        normalized_filter = {str(s).strip() for s in source_filter or [] if str(s).strip()}
         for event in events:
             source_type = str(event.get("source") or "").strip()
             if not source_type:
+                continue
+            if normalized_filter and source_type not in normalized_filter:
                 continue
             events_by_source.setdefault(source_type, []).append(event)
 
@@ -385,6 +410,91 @@ class PluginManager:
                 if features:
                     features_by_source[source_type] = features
         return features_by_source
+
+    def iter_summary_profiles(self) -> list[SummaryProfileSpec]:
+        """Aggregate ``SummaryProfileSpec`` entries from all loaded plugins."""
+
+        profiles: list[SummaryProfileSpec] = []
+        seen: set[str] = set()
+        for plugin in self.iter_loaded_plugins():
+            getter = getattr(plugin, "get_summary_profiles", None)
+            if not callable(getter):
+                continue
+            try:
+                items = getter() or []
+            except Exception as exc:
+                logger.warning(
+                    "Plugin get_summary_profiles failed",
+                    extra={"plugin_id": plugin.plugin_id, "error": str(exc)},
+                )
+                continue
+            for spec in items:
+                if not isinstance(spec, SummaryProfileSpec):
+                    continue
+                if spec.profile_id in seen:
+                    continue
+                seen.add(spec.profile_id)
+                profiles.append(spec)
+        return profiles
+
+    def iter_merged_summary_profiles(self) -> list[MergedSummaryProfile]:
+        """Aggregate per-plugin profiles into one entry per ``summary_category``.
+
+        - ``source_types`` and ``intent_verbs`` are unioned across contributors.
+        - ``windows`` is the union of declared windows.
+        - ``min_events`` takes the maximum (more strict).
+        - ``settle_window_seconds`` takes the minimum (faster settling wins).
+        - ``prompt_hints`` are shallow-merged (later contributors do not
+          overwrite earlier keys; collisions are silently kept from the first).
+        """
+
+        merged: dict[str, dict[str, Any]] = {}
+        order: list[str] = []
+        for spec in self.iter_summary_profiles():
+            entry = merged.get(spec.summary_category)
+            if entry is None:
+                entry = {
+                    "source_types": list(spec.source_types or []),
+                    "windows": list(spec.windows or []),
+                    "settle_window_seconds": float(spec.settle_window_seconds),
+                    "min_events": int(spec.min_events),
+                    "intent_verbs": list(spec.intent_verbs or []),
+                    "contributing_profile_ids": [spec.profile_id],
+                    "prompt_hints": dict(spec.prompt_hints or {}),
+                }
+                merged[spec.summary_category] = entry
+                order.append(spec.summary_category)
+                continue
+            for source_type in spec.source_types or []:
+                if source_type not in entry["source_types"]:
+                    entry["source_types"].append(source_type)
+            for window in spec.windows or []:
+                if window not in entry["windows"]:
+                    entry["windows"].append(window)
+            for verb in spec.intent_verbs or []:
+                if verb not in entry["intent_verbs"]:
+                    entry["intent_verbs"].append(verb)
+            entry["min_events"] = max(entry["min_events"], int(spec.min_events))
+            entry["settle_window_seconds"] = min(
+                entry["settle_window_seconds"], float(spec.settle_window_seconds),
+            )
+            entry["contributing_profile_ids"].append(spec.profile_id)
+            for key, value in (spec.prompt_hints or {}).items():
+                entry["prompt_hints"].setdefault(key, value)
+
+        return [
+            MergedSummaryProfile(
+                summary_category=category,
+                source_types=tuple(merged[category]["source_types"]),
+                windows=tuple(merged[category]["windows"] or ["day"]),
+                settle_window_seconds=merged[category]["settle_window_seconds"],
+                min_events=merged[category]["min_events"],
+                intent_verbs=tuple(merged[category]["intent_verbs"]),
+                contributing_profile_ids=tuple(merged[category]["contributing_profile_ids"]),
+                prompt_hints=dict(merged[category]["prompt_hints"]),
+            )
+            for category in order
+        ]
 
     def build_recall_artifacts(
         self,

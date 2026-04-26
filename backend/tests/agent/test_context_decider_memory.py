@@ -95,12 +95,6 @@ class TestContextDeciderMemoryGuidance:
 
         assert "memory_query" in decision.tools
         assert decision.memory_route == "explicit_query"
-        assert decision.routing_memory_hint == {
-            "query": "What did I browse yesterday?",
-            "query_mode": "episode_recall",
-            "sources": ["timeline"],
-            "time_range": {"relative": "1d"},
-        }
 
     @pytest.mark.asyncio
     async def test_decide_does_not_route_workflow_reuse_to_memory_query(self):
@@ -140,7 +134,6 @@ class TestContextDeciderMemoryGuidance:
 
         assert "memory_query" not in decision.tools
         assert decision.memory_route == "none"
-        assert decision.routing_memory_hint is None
 
     @pytest.mark.asyncio
     async def test_decide_keeps_memory_route_none_when_memory_query_tool_is_unavailable(self):
@@ -180,7 +173,6 @@ class TestContextDeciderMemoryGuidance:
 
         assert "memory_query" not in decision.tools
         assert decision.memory_route == "none"
-        assert decision.routing_memory_hint is None
 
     @pytest.mark.asyncio
     async def test_decide_routes_preference_recall_to_memory_query(self):
@@ -220,11 +212,6 @@ class TestContextDeciderMemoryGuidance:
 
         assert "memory_query" in decision.tools
         assert decision.memory_route == "explicit_query"
-        assert decision.routing_memory_hint == {
-            "query": "我喜欢什么天气",
-            "query_mode": "exact_fact",
-            "sources": ["profile", "chat"],
-        }
 
     @pytest.mark.asyncio
     async def test_decide_routes_profile_fact_recall_to_memory_query(self):
@@ -264,11 +251,6 @@ class TestContextDeciderMemoryGuidance:
 
         assert "memory_query" in decision.tools
         assert decision.memory_route == "explicit_query"
-        assert decision.routing_memory_hint == {
-            "query": "我的默认工作目录是什么",
-            "query_mode": "exact_fact",
-            "sources": ["profile", "settings"],
-        }
 
     @pytest.mark.asyncio
     async def test_decide_routes_relationship_recall_to_memory_query(self):
@@ -308,11 +290,6 @@ class TestContextDeciderMemoryGuidance:
 
         assert "memory_query" in decision.tools
         assert decision.memory_route == "explicit_query"
-        assert decision.routing_memory_hint == {
-            "query": "你记得我们之前约定了什么",
-            "query_mode": "exact_fact",
-            "sources": ["chat", "relationship"],
-        }
 
     @pytest.mark.asyncio
     async def test_decide_routes_photo_asset_recall_to_memory_query(self):
@@ -353,8 +330,3 @@ class TestContextDeciderMemoryGuidance:
 
         assert decision.tools == ["memory_query"]
         assert decision.memory_route == "explicit_query"
-        assert decision.routing_memory_hint == {
-            "query": "2022年9月我在哪里拍了照片",
-            "query_mode": "episode_recall",
-            "sources": ["timeline"],
-        }
