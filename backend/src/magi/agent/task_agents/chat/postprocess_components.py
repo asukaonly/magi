@@ -7,7 +7,7 @@ import uuid
 from typing import Any, Callable
 
 from ....agent.trace import now_wall_ms
-from ....chat import ChatMessageRecord, ChatProjector, ChatStore, ChatTurnRecord
+from ....chat import ChatMessageRecord, ChatProjector, ChatStore, ChatTurnRecord, get_chat_read_service
 from ....runtime_trace import RuntimeNotificationRecord, RuntimeTraceStore
 
 REACTION_EMOJI_BY_STYLE = {
@@ -406,6 +406,50 @@ class ChatRuntimeNotifier:
                 session_id=session_id,
                 turn_id=turn_id,
                 payload_json=json.dumps(payload, ensure_ascii=False),
+                created_at_ms=now_wall_ms(),
+            )
+        )
+
+    async def emit_chat_message_upsert(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        message_id: str,
+    ) -> None:
+        if self._runtime_trace_store is None:
+            return
+        normalized_user_id = str(user_id or "").strip()
+        normalized_session_id = str(session_id or "").strip()
+        normalized_message_id = str(message_id or "").strip()
+        if not normalized_user_id or not normalized_session_id or not normalized_message_id:
+            return
+        read_service = get_chat_read_service()
+        message = await read_service.aget_display_message(
+            normalized_user_id,
+            normalized_session_id,
+            normalized_message_id,
+        )
+        if message is None:
+            return
+        session_summary = await read_service.aget_session_summary(
+            normalized_user_id,
+            normalized_session_id,
+        )
+        payload = {
+            "user_id": normalized_user_id,
+            "session_id": normalized_session_id,
+            "message_id": normalized_message_id,
+            "message": message.to_dict(),
+            "session_summary": session_summary.to_dict() if session_summary is not None else None,
+        }
+        await self._runtime_trace_store.append_notification(
+            RuntimeNotificationRecord(
+                notification_id=0,
+                channel="chat_message_upserted",
+                user_id=normalized_user_id,
+                session_id=normalized_session_id,
+                payload_json=json.dumps(payload, default=str),
                 created_at_ms=now_wall_ms(),
             )
         )

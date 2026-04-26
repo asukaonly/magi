@@ -366,26 +366,27 @@ class ChatHistoryService:
     @staticmethod
     def _extract_reusable_handles(result_data: dict[str, Any]) -> list[str]:
         handles: list[str] = []
-        for key in _TOOL_STATE_HANDLE_FIELDS:
-            value = result_data.get(key)
-            if value is None:
-                continue
-            text = str(value).strip()
-            if text:
-                handles.append(f"{key}:{text}")
-        for _, value in result_data.items():
-            if not isinstance(value, list):
-                continue
-            for item in value[:3]:
-                if not isinstance(item, dict):
-                    continue
+
+        def _visit(value: Any, *, depth: int) -> None:
+            if depth > 3:
+                return
+            if isinstance(value, dict):
                 for field_name in _TOOL_STATE_HANDLE_FIELDS:
-                    nested_value = item.get(field_name)
+                    nested_value = value.get(field_name)
                     if nested_value is None:
                         continue
                     text = str(nested_value).strip()
                     if text:
                         handles.append(f"{field_name}:{text}")
+                for nested in value.values():
+                    _visit(nested, depth=depth + 1)
+                return
+            if isinstance(value, list):
+                for item in value[:3]:
+                    _visit(item, depth=depth + 1)
+
+        _visit(result_data, depth=0)
+
         deduped: list[str] = []
         seen: set[str] = set()
         for handle in handles:

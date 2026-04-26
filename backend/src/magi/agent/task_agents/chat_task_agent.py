@@ -452,6 +452,13 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         )
         reply_context = await self._resolve_reply_context(run_decision.latest_payload)
         streaming_chat_enabled = bool(get_user_preference("streaming_chat_enabled", False))
+        allow_media_grounding_for_conversation = bool(
+            get_user_preference("allow_media_grounding_for_conversation", False)
+        )
+        core_selection = get_config().llm.selections.get("core")
+        core_model_supports_vision = bool(
+            getattr(getattr(core_selection, "capabilities", None), "vision", False)
+        )
         return ChatRuntimeContext(
             latest_fact=latest_fact if isinstance(latest_fact, FactRecord) else None,
             recent_facts=list(base_context.recent_facts if isinstance(base_context, TaskAgentRuntimeContext) else []),
@@ -480,6 +487,8 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             pending_turns=list(run_decision.checkpoint_pending_turns),
             reply_context=reply_context,
             streaming_chat_enabled=streaming_chat_enabled,
+            allow_media_grounding_for_conversation=allow_media_grounding_for_conversation,
+            core_model_supports_vision=core_model_supports_vision,
         )
 
     async def match_intent(self, context: ChatRuntimeContext):

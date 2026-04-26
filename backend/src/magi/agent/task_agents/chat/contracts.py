@@ -80,6 +80,8 @@ class ChatRuntimeContext(BaseRuntimeContext):
     pending_turns: list[PendingTurn] = field(default_factory=list)
     reply_context: "ChatReplyContext | None" = None
     streaming_chat_enabled: bool = False
+    allow_media_grounding_for_conversation: bool = False
+    core_model_supports_vision: bool = False
 
 
 @dataclass(slots=True)

@@ -199,6 +199,9 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
   const renderSectionContent = () => {
     const embeddingSelection = draftConfig.llm?.selections?.embedding;
     const hasEmbeddingModel = !!(embeddingSelection?.provider_id && embeddingSelection?.model);
+    const coreModelSupportsVision = Boolean(draftConfig.llm?.selections?.core?.capabilities?.vision);
+    const mediaGroundingEnabled = Boolean(draftConfig.preferences.allow_media_grounding_for_conversation);
+    const mediaGroundingSwitchDisabled = !coreModelSupportsVision && !mediaGroundingEnabled;
     const defaultChatWorkspacePath = draftConfig.preferences.default_chat_workspace_path;
 
     const handlePickWorkspace = async () => {
@@ -407,6 +410,30 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                     draft.preferences.streaming_chat_enabled = checked;
                   })}
                 />
+              </div>
+            </SettingsGroup>
+
+            <SettingsGroup
+              title={t('settings.fields.mediaGrounding')}
+              description={t('settings.mediaGroundingDesc')}
+            >
+              <div className="border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-sm">{t('settings.mediaGroundingLabel')}</span>
+                  <Switch
+                    aria-label={t('settings.fields.mediaGrounding')}
+                    checked={draftConfig.preferences.allow_media_grounding_for_conversation}
+                    disabled={mediaGroundingSwitchDisabled}
+                    onCheckedChange={(checked) => patchDraftConfig((draft) => {
+                      draft.preferences.allow_media_grounding_for_conversation = checked;
+                    })}
+                  />
+                </div>
+                {!coreModelSupportsVision ? (
+                  <p className="mt-2 text-xs leading-6 text-muted-foreground">
+                    {t('settings.mediaGroundingUnavailable')}
+                  </p>
+                ) : null}
               </div>
             </SettingsGroup>
 

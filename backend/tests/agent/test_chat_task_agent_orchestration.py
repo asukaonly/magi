@@ -168,12 +168,14 @@ async def test_chat_history_service_retries_reload_after_transient_read_failure(
 def test_chat_history_service_extracts_asset_ref_handles_from_tool_state() -> None:
     handles = ChatHistoryService._extract_reusable_handles(
         {
-            "asset_refs": [
-                {
-                    "asset_ref_id": "asset-1",
-                    "event_id": "evt-1",
-                }
-            ]
+            "historical_recall": {
+                "asset_refs": [
+                    {
+                        "asset_ref_id": "asset-1",
+                        "event_id": "evt-1",
+                    }
+                ]
+            }
         }
     )
 

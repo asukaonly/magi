@@ -130,6 +130,7 @@ Current product expectations:
 - desktop chat history thumbnails should open a larger local preview when clicked
 - parsed text and PDF attachments should be injected into the chat prompt as active attachment context for the current turn
 - image attachments on vision-capable core models should be delivered as multimodal message blocks and routed through direct LLM execution
+- conversation preferences should allow users to decide whether the assistant may inspect prepared media attachments for grounded replies; media grounding must remain disabled unless the selected core model exposes vision capability
 
 ## Conversation Settings
 

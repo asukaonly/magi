@@ -226,6 +226,7 @@ plugins:
 # =============================================================================
 preferences:
   default_chat_workspace_path: "~/.magi/chat-workspace"
+  allow_media_grounding_for_conversation: false
 
 debug: false
 log_level: "INFO"

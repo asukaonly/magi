@@ -377,6 +377,8 @@ async def test_function_calling_handler_adds_photo_workflow_guidance_when_photo_
     assert "# Attachment Preparation Guidance" in request.system_prompt
     assert "source resolver tool" in request.system_prompt
     assert "prepare_chat_attachments" in request.system_prompt
+    assert "structured message metadata" in request.system_prompt
+    assert "Do not emit attachment JSON" in request.system_prompt
 
 
 @pytest.mark.asyncio

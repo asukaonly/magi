@@ -206,6 +206,7 @@ class FunctionCallingOrchestrator:
         system_prompt: str,
         selected_tools: List[str],
         conversation_history: List[Dict[str, Any]] | None = None,
+        allow_attachment_grounding: bool = False,
     ) -> FunctionCallingStepState:
         """Build the initial loop state for step-wise function calling."""
         messages = append_latest_user_message(
@@ -217,6 +218,32 @@ class FunctionCallingOrchestrator:
             messages=messages,
             effective_system_prompt=self._augment_system_prompt(system_prompt),
             tools=self._build_tools_parameter(selected_tools),
+            allow_attachment_grounding=allow_attachment_grounding,
+        )
+
+    def inject_prepared_attachment_grounding_message(
+        self,
+        *,
+        messages: List[Dict[str, Any]],
+        attachments: List[Dict[str, Any]],
+        user_id: str | None,
+        session_id: str | None,
+    ) -> List[Dict[str, Any]]:
+        if not attachments:
+            return messages
+        reminder = (
+            "These prepared attachments will be sent with your response. "
+            "Keep the text reply brief and confirmation-focused unless the user explicitly asks for commentary. "
+            "If you mention them, use only details that are directly visible in the attached images "
+            "or already confirmed by tool results. Do not guess location, identity, or scene details."
+        )
+        return append_latest_user_message(
+            messages,
+            reminder,
+            history_limit=max(len(messages), 1) + 1,
+            attachments=attachments,
+            user_id=user_id,
+            session_id=session_id,
         )
 
     def _resolve_llm(self) -> LLMAdapter:
@@ -1952,6 +1979,13 @@ class FunctionCallingOrchestrator:
                 direct_payload["asset_refs"] = [
                     dict(item) for item in asset_refs if isinstance(item, dict)
                 ]
+            historical_recall = result.data.get("historical_recall")
+            if isinstance(historical_recall, dict):
+                recall_asset_refs = historical_recall.get("asset_refs")
+                if isinstance(recall_asset_refs, list):
+                    direct_payload["asset_refs"] = [
+                        dict(item) for item in recall_asset_refs if isinstance(item, dict)
+                    ]
             payload = self._merge_assistant_message_payload(payload, direct_payload)
 
             nested_payload = result.data.get("assistant_payload")

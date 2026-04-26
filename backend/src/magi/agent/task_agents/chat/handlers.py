@@ -90,6 +90,8 @@ def _build_attachment_preparation_guidance_block(selected_tools: list[str]) -> s
         "Only prepare chat attachments after the relevant entities or assets have already been identified by recall results or reusable reply context.",
         "If the user wants matched local assets sent in chat, first use the appropriate source resolver tool to obtain concrete `file_paths`, then call `prepare_chat_attachments`.",
         "Do not pass raw local file paths to the user. Use `prepare_chat_attachments` to import resolved `file_paths` into managed chat attachments.",
+        "After `prepare_chat_attachments` succeeds, the backend attaches the returned `chat_attachments` to the assistant turn as structured message metadata.",
+        "Return normal assistant text only. Do not emit attachment JSON, `attachment_id` values, raw `file_paths`, or any other transport markup in the assistant message.",
     ]
     return "\n".join(lines)
 
@@ -421,6 +423,10 @@ class FunctionCallingHandler(BaseExecutionHandler):
             system_prompt=request.system_prompt,
             selected_tools=request.selected_tools,
             conversation_history=request.context.history,
+            allow_attachment_grounding=(
+                bool(getattr(request.context, "allow_media_grounding_for_conversation", False))
+                and bool(getattr(request.context, "core_model_supports_vision", False))
+            ),
         )
         max_iterations = int(getattr(orchestrator, "MAX_ITERATIONS", 10) or 10)
 
@@ -533,6 +539,10 @@ class FunctionCallingHandler(BaseExecutionHandler):
                         system_prompt=request.system_prompt,
                         selected_tools=request.selected_tools,
                         conversation_history=request.context.history,
+                        allow_attachment_grounding=(
+                            bool(getattr(request.context, "allow_media_grounding_for_conversation", False))
+                            and bool(getattr(request.context, "core_model_supports_vision", False))
+                        ),
                     )
                     if steer_inbox is not None:
                         # Pending STEER turns from the prior revision are no
@@ -550,6 +560,10 @@ class FunctionCallingHandler(BaseExecutionHandler):
                         system_prompt=request.system_prompt,
                         selected_tools=request.selected_tools,
                         conversation_history=request.context.history,
+                        allow_attachment_grounding=(
+                            bool(getattr(request.context, "allow_media_grounding_for_conversation", False))
+                            and bool(getattr(request.context, "core_model_supports_vision", False))
+                        ),
                     )
                     continue
 
