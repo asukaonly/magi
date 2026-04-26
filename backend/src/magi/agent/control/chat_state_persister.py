@@ -141,6 +141,9 @@ async def _persist_status_message(
             normalized_turn_id,
             message_kind=message_kind,
         )
+    if previous_message is not None and previous_message.is_visible:
+        if _payload_json_matches(previous_message.payload_json, payload) and _normalize_optional_text(previous_message.content_text) == _normalize_optional_text(content_text):
+            return previous_message.message_id
 
     next_message = ChatMessageRecord(
         message_id=f"msg_{uuid.uuid4().hex[:16]}",
@@ -229,6 +232,22 @@ def _now_ms() -> int:
     import time
 
     return int(time.time() * 1000)
+
+
+def _payload_json_matches(existing_payload_json: str | None, payload: dict[str, Any]) -> bool:
+    raw = str(existing_payload_json or "").strip()
+    if not raw:
+        return False
+    try:
+        existing_payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return False
+    return existing_payload == payload
+
+
+def _normalize_optional_text(value: str | None) -> str | None:
+    normalized = str(value or "").strip()
+    return normalized or None
 
 
 __all__ = [

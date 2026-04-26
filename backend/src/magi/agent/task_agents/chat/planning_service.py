@@ -89,6 +89,7 @@ class ChatPlanningService:
                 history=history,
                 orchestration_plan=orchestration_plan,
                 request_profile=request_profile,
+                workspace_root=workspace_root,
             )
         if raw_plan is None:
             raw_plan = SubtaskPlan(
@@ -115,7 +116,8 @@ class ChatPlanningService:
             session_id=state.session_id,
             user_message=state.root_user_message,
             task_category="chat",
-            scenario=Scenario.CHAT,
+            scenario=Scenario.ANALYSIS,
+            include_tool_catalog=False,
         )
         system_prompt = self._prompt_service.build_aggregation_system_prompt(
             base_system_prompt=system_prompt,
@@ -170,6 +172,7 @@ class ChatPlanningService:
         history: list[dict[str, Any]],
         orchestration_plan: OrchestrationPlan,
         request_profile: str,
+        workspace_root: str | None = None,
     ) -> Optional[SubtaskPlan]:
         recent_history = [
             {
@@ -199,10 +202,13 @@ class ChatPlanningService:
                     "Decompose into bounded, independent research subtasks that a generic worker can complete without reading sibling outputs.",
                     "Favor parallel subtasks that split by source family, verification responsibility, or retrieval angle.",
                     "Only include web-fetch when the user requests details, verification, full text, or when source summaries are likely insufficient.",
-                    "Do not create a final synthesis worker that depends on sibling worker outputs; the parent task agent will aggregate.",
+                    "The parent task agent owns cross-source synthesis. Do not create a final synthesis worker that depends on sibling worker outputs.",
                     "Each research subtask should collect evidence that preserves title, date, source, link, and a short summary when available.",
                 ],
             }
+            workspace_context = self._build_workspace_context(workspace_root)
+            if workspace_context is not None:
+                planning_prompt["workspace_context"] = workspace_context
             system_prompt = (
                 "You are a parent task agent planning bounded generic research subtasks. "
                 "Return ONLY valid JSON with this schema: "
@@ -227,23 +233,33 @@ class ChatPlanningService:
                 "requirements": [
                     "Decompose into bounded leaf subtasks owned by the parent task agent.",
                     "Favor parallel subtasks when there are no strong dependencies.",
+                    "Workers gather evidence; the parent task agent synthesizes and writes the final answer.",
+                    "If the request spans current-workspace evidence and targets or sources that are not guaranteed to exist locally, split the plan by evidence source.",
+                    "Use Explore for repo-local inspection and general-purpose for external or mixed-source evidence gathering when needed.",
+                    "Do not create a leaf worker whose job is to compare sibling outputs, merge sibling findings, or write the final answer.",
                     "For codebase architecture analysis, prefer separate subtasks for directory structure, tech stack, frontend, backend, and project progress when relevant.",
                 ],
             }
+            workspace_context = self._build_workspace_context(workspace_root)
+            if workspace_context is not None:
+                planning_prompt["workspace_context"] = workspace_context
             system_prompt = (
                 "You are a parent task agent planning bounded leaf subtasks. "
                 "Return ONLY valid JSON with this schema: "
                 '{"summary":"string","subtasks":[{"description":"string","subagent_type":"Explore|general-purpose","prompt":"string","parallel_group":"string"}]}. '
                 "Do not answer the user request directly. Produce execution-ready leaf tasks only. "
+                "Workers gather evidence; the parent task agent performs cross-subtask synthesis. "
+                "If the request mixes local repository analysis with external targets or sources, split those evidence paths into separate leaf tasks. "
                 "When task_hints are present, use them to bias the plan toward efficient bounded search sequences."
             )
         try:
+            planning_message = self._render_planning_prompt_markdown(planning_prompt)
             if get_stream_sink() is not None:
                 chunks: list[str] = []
                 async with stream_source("planner"):
                     async for event in self._prompt_service.call_llm_stream(
                         system_prompt=system_prompt,
-                        messages=[{"role": "user", "content": json.dumps(planning_prompt, ensure_ascii=False)}],
+                        messages=[{"role": "user", "content": planning_message}],
                         disable_thinking=False,
                         json_mode=True,
                         timeout_seconds=STRUCTURED_PLANNING_TIMEOUT_SECONDS,
@@ -254,7 +270,7 @@ class ChatPlanningService:
             else:
                 response = await self._prompt_service.call_llm(
                     system_prompt=system_prompt,
-                    messages=[{"role": "user", "content": json.dumps(planning_prompt, ensure_ascii=False)}],
+                    messages=[{"role": "user", "content": planning_message}],
                     disable_thinking=False,
                     json_mode=True,
                     timeout_seconds=STRUCTURED_PLANNING_TIMEOUT_SECONDS,
@@ -313,6 +329,9 @@ class ChatPlanningService:
                     "Decompose the parent task into bounded leaf workers. "
                     "Start from the most concrete likely anchor or owning code path, then split only by neighboring responsibilities that are actually needed. "
                     "Prefer execution-ready subtasks around concrete modules, interfaces, or validation checks. "
+                    "Workers gather evidence; the parent task agent handles synthesis and the final answer. "
+                    "If the request mixes local workspace evidence with external or public evidence, split those into separate leaf workers instead of forcing everything into repo exploration. "
+                    "Do not create a final synthesis or compare-the-findings worker that depends on sibling outputs. "
                     "Avoid generic subtasks that only gather context or summarize risks unless ambiguity remains unresolved. "
                     "Return JSON with summary, findings, evidence, gaps, next_steps, and subtasks only. "
                     f"Parent task: {user_message}"
@@ -383,11 +402,20 @@ class ChatPlanningService:
         for item in raw_subtasks:
             description = item.description
             subtask_prompt = item.prompt
-            subagent_type = str(item.subagent_type or default_leaf_type).strip()
-            if subagent_type not in {"Explore", "general-purpose"}:
-                subagent_type = default_leaf_type if default_leaf_type in {"Explore", "general-purpose"} else "Explore"
-            if request_profile == "research":
-                subagent_type = "general-purpose"
+            if self._is_synthesis_only_subtask(description, subtask_prompt):
+                logger.info(
+                    "chat_planning.drop_synthesis_subtask",
+                    description=description,
+                    request_profile=request_profile,
+                )
+                continue
+            subagent_type = self._normalize_leaf_subagent_type(
+                requested_subagent_type=item.subagent_type,
+                default_leaf_type=default_leaf_type,
+                request_profile=request_profile,
+                description=description,
+                subtask_prompt=subtask_prompt,
+            )
             normalized_subtasks.append(
                 PlannedSubtask(
                     description=description,
@@ -402,6 +430,26 @@ class ChatPlanningService:
                     parallel_group=item.parallel_group,
                 )
             )
+        if not normalized_subtasks:
+            normalized_subtasks = [
+                PlannedSubtask(
+                    description=item.description,
+                    subagent_type=item.subagent_type,
+                    prompt=self._build_leaf_worker_prompt(
+                        root_user_message=user_message,
+                        subtask_description=item.description,
+                        subtask_prompt=item.prompt,
+                        request_profile=request_profile,
+                        subagent_type=item.subagent_type,
+                    ),
+                    parallel_group=item.parallel_group,
+                )
+                for item in self._fallback_subtask_plan(
+                    user_message,
+                    default_leaf_type,
+                    request_profile=request_profile,
+                )
+            ]
         return SubtaskPlan(
             summary=raw_plan.summary,
             subtasks=normalized_subtasks,
@@ -525,6 +573,7 @@ class ChatPlanningService:
                 "- Preserve concrete evidence for each usable result: title, date, source, canonical link, and a short summary when available.",
                 "- In findings, use `title` for the headline, `detail` for `DATE | SOURCE | SUMMARY`, and `path` for the canonical article URL.",
                 "- If the available evidence is thin or conflicting, record it in gaps instead of guessing.",
+                "- Gather evidence directly from your own sources; do not depend on sibling worker outputs or produce the final cross-source synthesis.",
                 "- Do not fabricate publication dates, links, or sources.",
             ]
             if date_range_hint:
@@ -533,6 +582,25 @@ class ChatPlanningService:
                     f"Normalized date range: {date_range_hint['start_date']} to {date_range_hint['end_date']} (inclusive).",
                 )
             return "\n".join(lines)
+        if str(subagent_type or "").strip() == "general-purpose":
+            return "\n".join(
+                [
+                    f"Parent user request: {root_user_message}",
+                    f"Assigned subtask: {subtask_description}",
+                    "Task-specific instructions:",
+                    subtask_prompt,
+                    *([tool_guidance] if tool_guidance else []),
+                    "Success criteria:",
+                    "- Stay strictly within this subtask scope.",
+                    "- Choose the evidence sources that fit the task: current workspace, official docs, public sources, or a bounded combination.",
+                    "- If the target is not guaranteed to exist in the current workspace, do not assume local files exist; use external discovery first.",
+                    "- When you reference repo-local code, verify the exact file or symbol before relying on it.",
+                    "- When you reference external evidence, preserve title, date, source, and canonical link when available.",
+                    "- Gather evidence directly; do not depend on sibling worker outputs or write the final cross-worker synthesis.",
+                    "- Prefer validated findings over speculation.",
+                    "- If information is missing, put it into gaps instead of guessing.",
+                ]
+            )
         return "\n".join(
             [
                 f"Parent user request: {root_user_message}",
@@ -580,6 +648,8 @@ class ChatPlanningService:
     ) -> dict[str, Any]:
         if request_profile == "research":
             available_tools = list(self._WEB_TOOL_HINT_CANDIDATES)
+        elif str(subagent_type or "").strip() == "general-purpose":
+            available_tools = list(self._WEB_TOOL_HINT_CANDIDATES)
         elif str(subagent_type or "").strip() == "Explore" or self._looks_like_code_or_repo_request(root_user_message, subtask_prompt):
             available_tools = list(self._FILE_TOOL_HINT_CANDIDATES)
         else:
@@ -594,6 +664,244 @@ class ChatPlanningService:
         if default_leaf_type == "Explore" or self._looks_like_code_or_repo_request(user_message, ""):
             return list(self._FILE_TOOL_HINT_CANDIDATES)
         return []
+
+    def _build_workspace_context(self, workspace_root: str | None) -> dict[str, str] | None:
+        normalized = str(workspace_root or "").strip()
+        if not normalized:
+            return None
+        workspace_name = re.sub(r"[^A-Za-z0-9._-]+", " ", normalized.rstrip("/").split("/")[-1]).strip()
+        return {
+            "workspace_root": normalized,
+            "workspace_name": workspace_name or normalized,
+        }
+
+    def _render_planning_prompt_markdown(self, planning_prompt: dict[str, Any]) -> str:
+        lines: list[str] = ["# Planning Brief", ""]
+
+        planning_profile = str(planning_prompt.get("planning_profile") or "generic").strip()
+        default_leaf_type = str(planning_prompt.get("default_leaf_type") or "Explore").strip()
+        allow_parallel = bool(planning_prompt.get("allow_parallel", True))
+
+        lines.extend([
+            "## Planning Context",
+            f"- Planning profile: {planning_profile}",
+            f"- Default leaf type: {default_leaf_type}",
+            f"- Parallel execution allowed: {'yes' if allow_parallel else 'no'}",
+            "",
+        ])
+
+        user_request = str(planning_prompt.get("user_request") or "").strip()
+        if user_request:
+            lines.extend([
+                "## User Request",
+                user_request,
+                "",
+            ])
+
+        recent_history = planning_prompt.get("recent_history") if isinstance(planning_prompt.get("recent_history"), list) else []
+        if recent_history:
+            lines.append("## Recent History")
+            for item in recent_history:
+                if not isinstance(item, dict):
+                    continue
+                role = str(item.get("role") or "unknown").strip() or "unknown"
+                content = str(item.get("content") or "").strip()
+                if content:
+                    lines.append(f"- {role}: {content}")
+            lines.append("")
+
+        workspace_context = planning_prompt.get("workspace_context") if isinstance(planning_prompt.get("workspace_context"), dict) else None
+        if workspace_context:
+            lines.extend([
+                "## Workspace Context",
+                f"- Workspace root: {str(workspace_context.get('workspace_root') or '').strip()}",
+                f"- Workspace name: {str(workspace_context.get('workspace_name') or '').strip()}",
+                "",
+            ])
+
+        date_range_hint = planning_prompt.get("date_range_hint") if isinstance(planning_prompt.get("date_range_hint"), dict) else None
+        if date_range_hint:
+            lines.extend([
+                "## Date Range Hint",
+                f"- Start date: {str(date_range_hint.get('start_date') or '').strip()}",
+                f"- End date: {str(date_range_hint.get('end_date') or '').strip()}",
+                "",
+            ])
+
+        task_hint_lines = self._render_planning_task_hint_markdown(planning_prompt.get("task_hints"))
+        if task_hint_lines:
+            lines.append("## Task Hints")
+            lines.extend(task_hint_lines)
+            lines.append("")
+
+        seed_subtasks = planning_prompt.get("seed_subtasks") if isinstance(planning_prompt.get("seed_subtasks"), list) else []
+        if seed_subtasks:
+            lines.append("## Seed Subtasks")
+            for index, item in enumerate(seed_subtasks, start=1):
+                if not isinstance(item, dict):
+                    continue
+                description = str(item.get("description") or f"Seed subtask {index}").strip()
+                subagent_type = str(item.get("subagent_type") or "").strip()
+                parallel_group = str(item.get("parallel_group") or "").strip()
+                prompt = str(item.get("prompt") or "").strip()
+                summary_parts = [description]
+                if subagent_type:
+                    summary_parts.append(f"type={subagent_type}")
+                if parallel_group:
+                    summary_parts.append(f"parallel_group={parallel_group}")
+                lines.append(f"- {' | '.join(summary_parts)}")
+                if prompt:
+                    lines.append(f"  Prompt: {prompt}")
+            lines.append("")
+
+        requirements = planning_prompt.get("requirements") if isinstance(planning_prompt.get("requirements"), list) else []
+        if requirements:
+            lines.append("## Requirements")
+            for item in requirements:
+                requirement = str(item or "").strip()
+                if requirement:
+                    lines.append(f"- {requirement}")
+            lines.append("")
+
+        lines.extend([
+            "## Output Contract",
+            "- Return ONLY valid JSON that matches the system prompt schema.",
+            "- Produce execution-ready leaf tasks rather than answering the user directly.",
+        ])
+        return "\n".join(lines).strip()
+
+    @staticmethod
+    def _render_planning_task_hint_markdown(task_hint: Any) -> list[str]:
+        if not isinstance(task_hint, dict):
+            return []
+
+        lines: list[str] = []
+        field_labels = [
+            ("task_intent", "Task intent"),
+            ("domain", "Domain"),
+            ("operation", "Operation"),
+            ("target_locality", "Target locality"),
+            ("preferred_resolution_order", "Preferred resolution order"),
+        ]
+        for field_name, label in field_labels:
+            value = str(task_hint.get(field_name) or "").strip()
+            if value:
+                lines.append(f"- {label}: {value}")
+
+        if "requires_clarification" in task_hint:
+            lines.append(f"- Requires clarification: {'yes' if bool(task_hint.get('requires_clarification')) else 'no'}")
+
+        tool_hints = task_hint.get("tool_hints") if isinstance(task_hint.get("tool_hints"), list) else []
+        if tool_hints:
+            lines.append("- Preferred tools:")
+            for item in tool_hints:
+                if not isinstance(item, dict):
+                    continue
+                tool_name = str(item.get("tool") or "unknown").strip()
+                priority = item.get("priority")
+                reason = str(item.get("reason") or "").strip()
+                tool_line = f"  - {tool_name}"
+                if priority not in (None, ""):
+                    tool_line += f" (priority {priority})"
+                if reason:
+                    tool_line += f": {reason}"
+                lines.append(tool_line)
+        return lines
+
+    def _normalize_leaf_subagent_type(
+        self,
+        *,
+        requested_subagent_type: str | None,
+        default_leaf_type: str,
+        request_profile: str,
+        description: str,
+        subtask_prompt: str,
+    ) -> str:
+        subagent_type = str(requested_subagent_type or default_leaf_type).strip()
+        if subagent_type not in {"Explore", "general-purpose"}:
+            subagent_type = default_leaf_type if default_leaf_type in {"Explore", "general-purpose"} else "Explore"
+        if request_profile == "research":
+            return "general-purpose"
+        if subagent_type == "Explore" and self._looks_like_external_evidence_subtask(description, subtask_prompt):
+            return "general-purpose"
+        return subagent_type
+
+    def _looks_like_external_evidence_subtask(self, description: str, subtask_prompt: str) -> bool:
+        combined = f"{description}\n{subtask_prompt}".lower()
+        return any(
+            token in combined
+            for token in [
+                "web-search",
+                "web search",
+                "web-fetch",
+                "external",
+                "public source",
+                "official doc",
+                "official source",
+                "public documentation",
+                "article",
+                "source",
+                "link",
+                "verify",
+                "官网",
+                "官方文档",
+                "公开资料",
+                "来源",
+                "链接",
+                "核实",
+                "外部",
+                "http://",
+                "https://",
+            ]
+        )
+
+    def _is_synthesis_only_subtask(self, description: str, subtask_prompt: str) -> bool:
+        combined = f"{description}\n{subtask_prompt}".lower()
+        has_synthesis_verb = any(
+            token in combined
+            for token in [
+                "synthes",
+                "aggregate",
+                "combine",
+                "merge",
+                "final answer",
+                "final response",
+                "write the answer",
+                "write the final",
+                "summarize the results",
+                "compare the findings",
+                "compare the results",
+                "汇总",
+                "整合",
+                "综合",
+                "最终回答",
+                "最终回复",
+                "总结结果",
+                "对比结果",
+            ]
+        )
+        if not has_synthesis_verb:
+            return False
+        return any(
+            token in combined
+            for token in [
+                "sibling",
+                "other subtasks",
+                "other subtask",
+                "worker outputs",
+                "worker results",
+                "subtask outputs",
+                "subtask results",
+                "findings from",
+                "results from",
+                "previous tasks",
+                "above results",
+                "以上结果",
+                "前面",
+                "其他子任务",
+                "worker",
+            ]
+        )
 
     @staticmethod
     def _looks_like_code_or_repo_request(user_message: str, subtask_prompt: str) -> bool:

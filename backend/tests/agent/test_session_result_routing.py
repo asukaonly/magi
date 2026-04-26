@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 from types import SimpleNamespace
 
@@ -9,6 +10,7 @@ from magi.agent.execution.function_calling import FunctionCallingOrchestrator, T
 from magi.agent.task_agents.chat.contracts import ChatRuntimeContext, IntentDecision
 from magi.agent.task_agents.chat.handlers import ChatHandlerDependencies, _start_explore_task_agent
 from magi.agent.task_agents.chat.planning_service import ChatPlanningService
+from magi.agent.task_agents.chat.prompt_service import ChatPromptService
 from magi.agent.task_agents.common import (
     ExecutionMode,
     ExecutionRequest,
@@ -22,6 +24,7 @@ from magi.agent.task_agents.explore.contracts import ExploreRuntimeContext
 from magi.agent.task_agents.explore.postprocess_service import ExplorePostProcessService
 from magi.agent.task_orchestrator import TaskOrchestrator
 from magi.agent.runtime.contracts import FactRecord
+from magi.agent.orchestration import PlannedSubtask, SubtaskPlan
 from magi.agent.workers.worker_manager import WORKER_AGENT_COMPLETED, WorkerAgentManager, WorkerRunState
 from magi.tools.registry import ToolRegistry
 from magi.tools.schema import ToolResult
@@ -311,6 +314,85 @@ def test_chat_planning_service_generic_fallback_and_leaf_prompt_emphasize_anchor
     assert "verify it exists in the current code before relying on it" in prompt
     assert "Prefer focused glob/grep/read steps over broad repository scans" in prompt
     assert "# Tool Guidance" in prompt
+
+
+@pytest.mark.asyncio
+async def test_chat_planning_service_mixed_evidence_prompt_preserves_external_leaf_and_drops_synthesis() -> None:
+    captured: dict[str, object] = {}
+
+    class _FakePromptService:
+        async def call_llm(self, **kwargs):  # type: ignore[no-untyped-def]
+            captured.update(kwargs)
+            return (
+                '{"summary":"Mixed evidence plan","subtasks":['
+                '{"description":"Inspect Magi memory modules","subagent_type":"Explore","prompt":"Inspect backend/src/magi/memory module boundaries and storage paths","parallel_group":"g1"},'
+                '{"description":"Research Hindsight public docs","subagent_type":"general-purpose","prompt":"Search official documentation and public sources for Hindsight memory architecture. Collect source links and dates.","parallel_group":"g1"},'
+                '{"description":"Synthesize sibling findings","subagent_type":"Explore","prompt":"Compare the findings from other subtasks and write the final answer for the user","parallel_group":"g2"}'
+                ']}'
+            )
+
+    service = ChatPlanningService(
+        agent_id="user-1",
+        runtime_key="chat:user-1",
+        context_service=SimpleNamespace(),
+        prompt_service=_FakePromptService(),
+        history_service=SimpleNamespace(),
+        tool_registry=ToolRegistry(),
+        parent_task_agent_type="chat",
+    )
+
+    plan = await service.generate_subtask_plan(
+        user_message="详细对比一下 magi 和 Hindsight 的 memory architecture",
+        history=[],
+        orchestration_plan={"mode": "decompose", "default_leaf_type": "Explore", "allow_parallel": True},
+        user_id="user-1",
+        session_id="session-1",
+        workspace_root="/Users/asuka/code/magi",
+    )
+
+    planning_message = str(captured["messages"][0]["content"])
+    assert planning_message.startswith("# Planning Brief")
+    assert "## Workspace Context" in planning_message
+    assert "- Workspace root: /Users/asuka/code/magi" in planning_message
+    assert "- Workspace name: magi" in planning_message
+    assert "## Requirements" in planning_message
+    assert "split the plan by evidence source" in planning_message
+    assert "## Task Hints" in planning_message
+    assert [item.description for item in plan.subtasks] == [
+        "Inspect Magi memory modules",
+        "Research Hindsight public docs",
+    ]
+    assert [item.subagent_type for item in plan.subtasks] == ["Explore", "general-purpose"]
+    assert "do not assume local files exist; use external discovery first" in plan.subtasks[1].prompt
+    assert "do not depend on sibling worker outputs" in plan.subtasks[1].prompt
+
+
+def test_chat_prompt_service_aggregation_prompt_uses_request_shaped_axes() -> None:
+    service = ChatPromptService()
+
+    prompt = service.build_aggregation_system_prompt(
+        base_system_prompt="BASE SYSTEM PROMPT",
+        state=SimpleNamespace(root_user_message="Compare Magi and Hindsight memory architecture"),
+        payload={
+            "user_request": "Compare Magi and Hindsight memory architecture",
+            "planner": "task_agent",
+            "completed_subtasks": [{"description": "Inspect Magi memory modules", "result": {}}],
+            "failed_subtasks": [{"description": "Research Hindsight public docs", "failure_reason": "FAILED"}],
+        },
+    )
+
+    assert "# Aggregation Task" in prompt
+    assert "This is the final analysis synthesis step, not a casual back-and-forth chat turn." in prompt
+    assert "## Internal Evidence Dossier" in prompt
+    assert "### Completed Analyses" in prompt
+    assert "First infer the main analysis axes from the user's request and the completed evidence" in prompt
+    assert "For comparison requests, prefer the strongest dimensions of difference" in prompt
+    assert "explicitly absorb the key findings, evidence, and trade-offs from the completed subtasks" in prompt
+    assert "usually cover multiple evidence-backed dimensions" in prompt
+    assert "make their correspondence and evidence asymmetry explicit" in prompt
+    assert "Do not let failed subtasks erase or outweigh richer completed findings" in prompt
+    assert "do not force a fixed template" in prompt
+    assert "Internal results (JSON)" not in prompt
 
 
 @pytest.mark.asyncio

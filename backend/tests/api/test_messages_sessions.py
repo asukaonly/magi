@@ -1142,6 +1142,80 @@ def test_get_display_history_includes_turn_ux_trace_preferences(tmp_path, monkey
     assert messages[1].allow_trace_collapse is False
 
 
+def test_get_display_history_keeps_replaced_interim_message_for_reload(tmp_path):
+    service = _build_service(tmp_path)
+    _init_chat_session_store(service._chat_db_path)
+    _insert_session(
+        service._chat_db_path,
+        session_id="s-chat",
+        user_id="u1",
+        title="Chat",
+        created_at=1000,
+        updated_at=1030,
+        message_count=3,
+    )
+    _insert_chat_turn(
+        service._chat_db_path,
+        turn_id="turn-1",
+        session_id="s-chat",
+        user_id="u1",
+        status="completed",
+        response_mode="final_only",
+        created_at_ms=1000,
+        updated_at_ms=1030,
+        completed_at_ms=1030,
+    )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-user",
+        session_id="s-chat",
+        turn_id="turn-1",
+        user_id="u1",
+        role="user",
+        message_kind="user_text",
+        content_text="chat-store user",
+        created_at_ms=1000,
+        sequence_no=1,
+    )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-interim",
+        session_id="s-chat",
+        turn_id="turn-1",
+        user_id="u1",
+        role="assistant",
+        message_kind="assistant_interim",
+        content_text="让我仔细想想再回复你。",
+        is_final=False,
+        created_at_ms=1010,
+        sequence_no=2,
+        replaced_by_message_id="msg-final",
+    )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-final",
+        session_id="s-chat",
+        turn_id="turn-1",
+        user_id="u1",
+        role="assistant",
+        message_kind="assistant_final",
+        content_text="chat-store reply",
+        created_at_ms=1030,
+        sequence_no=3,
+        replaces_message_id="msg-interim",
+    )
+
+    messages = service.get_display_history("u1", "s-chat", limit=20)
+
+    assert [item.kind for item in messages] == ["user", "assistant", "assistant"]
+    assert [item.message_kind for item in messages] == ["user_text", "assistant_interim", "assistant_final"]
+    assert [item.content for item in messages] == [
+        "chat-store user",
+        "让我仔细想想再回复你。",
+        "chat-store reply",
+    ]
+
+
 def test_list_sessions_router_response(monkeypatch):
     class _FakeReadService:
         async def alist_sessions(self, user_id: str, limit: int = 30):

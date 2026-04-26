@@ -595,9 +595,26 @@ class ChatReadService:
                 visible_only=True,
                 exclude_replaced=True,
             )
+            replaced_interim_rows = [
+                row
+                for row in self._query_chat_message_rows(
+                    user_id=user_id,
+                    session_id=session_id,
+                    message_kinds=("assistant_interim",),
+                    visible_only=True,
+                    exclude_replaced=False,
+                )
+                if row["replaced_by_message_id"] is not None
+            ]
         except Exception as exc:
             logger.exception(f"Failed to query display history: {exc}")
             return []
+
+        if replaced_interim_rows:
+            message_rows = sorted(
+                [*message_rows, *replaced_interim_rows],
+                key=lambda row: (int(row["created_at_ms"] or 0), int(row["sequence_no"] or 0)),
+            )
 
         trace_service = get_chat_trace_read_service()
         trace_activity = trace_service.get_turn_activity_map(user_id=user_id, session_id=session_id)

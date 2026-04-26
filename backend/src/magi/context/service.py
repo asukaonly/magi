@@ -47,6 +47,7 @@ class ContextAssemblyService:
         scenario: str = Scenario.CHAT,
         recent_tool_errors: list[dict[str, Any]] | None = None,
         workspace_path: str | None = None,
+        include_tool_catalog: bool = True,
     ) -> PromptPackage:
         policy = self._policy.decide(
             user_message=user_message,
@@ -81,7 +82,10 @@ class ContextAssemblyService:
             workspace_path=resolved_workspace_path,
             attachments=list(attachments or []),
         )
-        system_prompt = self._prompt_context_renderer.render_system_prompt(prompt_context)
+        system_prompt = self._prompt_context_renderer.render_system_prompt(
+            prompt_context,
+            include_tool_catalog=include_tool_catalog,
+        )
         recent_tool_errors_block = self.build_recent_tool_errors_block(recent_tool_errors or [])
         if recent_tool_errors_block:
             system_prompt = f"{system_prompt}\n\n{recent_tool_errors_block}"
@@ -103,6 +107,7 @@ class ContextAssemblyService:
         scenario: str = Scenario.CHAT,
         recent_tool_errors: list[dict[str, Any]] | None = None,
         workspace_path: str | None = None,
+        include_tool_catalog: bool = True,
     ):
         package = await self.build_prompt_package(
             user_id=user_id,
@@ -114,6 +119,7 @@ class ContextAssemblyService:
             scenario=scenario,
             recent_tool_errors=recent_tool_errors,
             workspace_path=workspace_path,
+            include_tool_catalog=include_tool_catalog,
         )
         return package.prompt_context
 
@@ -129,6 +135,7 @@ class ContextAssemblyService:
         scenario: str = Scenario.CHAT,
         recent_tool_errors: list[dict[str, Any]] | None = None,
         workspace_path: str | None = None,
+        include_tool_catalog: bool = True,
     ) -> str:
         package = await self.build_prompt_package(
             user_id=user_id,
@@ -140,6 +147,7 @@ class ContextAssemblyService:
             scenario=scenario,
             recent_tool_errors=recent_tool_errors,
             workspace_path=workspace_path,
+            include_tool_catalog=include_tool_catalog,
         )
         return package.system_prompt
 

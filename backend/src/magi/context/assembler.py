@@ -423,7 +423,7 @@ class PromptContextAssembler:
 class PromptContextRenderer:
     """Renders modular prompt contexts into final system prompt text."""
 
-    def render_system_prompt(self, context: PromptAssemblyContext) -> str:
+    def render_system_prompt(self, context: PromptAssemblyContext, *, include_tool_catalog: bool = True) -> str:
         lines: List[str] = []
 
         lines.extend([
@@ -449,7 +449,8 @@ class PromptContextRenderer:
         lines.extend(self._render_profile_memory(context.profile_memory))
         lines.extend(self._render_runtime_system(context.runtime_system))
         lines.extend(self._render_active_attachments(context.runtime_system.active_attachments))
-        lines.extend(self._render_tool_catalog(context.tool_catalog))
+        if include_tool_catalog:
+            lines.extend(self._render_tool_catalog(context.tool_catalog))
 
         return "\n".join(lines).strip()
 

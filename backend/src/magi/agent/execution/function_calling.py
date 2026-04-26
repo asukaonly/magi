@@ -1142,6 +1142,9 @@ class FunctionCallingOrchestrator:
             )
         elif tool_name == "ask_user_question":
             guidance_parts.append(
+                "Write the question and any options in the same language as the latest user message."
+            )
+            guidance_parts.append(
                 "Use this when the target location is ambiguous and leaving the current workspace would otherwise require guessing."
             )
 

@@ -141,3 +141,42 @@ def test_build_tools_parameter_renders_non_search_tool_guidance_from_metadata() 
     assert "Typical operations: probe, inspect." in description
     assert "Query shape: shell_command, one_off_check." in description
     assert "Avoid for task types: explore_codebase, research_external." in description
+
+
+def test_build_tools_parameter_adds_same_language_guidance_for_ask_user_question() -> None:
+    tools_registry = {
+        "ask_user_question": {
+            "description": (
+                "Ask the user a clarifying question in the same language as the latest "
+                "user message and wait for their reply."
+            ),
+            "metadata": {
+                "tool_hint": (
+                    "Use only when a missing user decision blocks safe progress or would likely "
+                    "cause rework. Write the question and options in the same language as the "
+                    "latest user message."
+                ),
+                "task_intents": ["clarify_requirement"],
+                "domains": ["user"],
+                "operations": ["clarify"],
+                "query_shapes": ["blocking_decision"],
+                "blocks_on_user": True,
+            },
+            "parameters": [
+                {
+                    "name": "question",
+                    "type": "string",
+                    "required": True,
+                    "description": "The question to ask the user. Write it in the same language as the latest user message.",
+                },
+            ],
+        },
+    }
+    orchestrator = _make_orchestrator_with_tools(tools_registry)
+
+    payload = orchestrator._build_tools_parameter(["ask_user_question"])
+    description = payload[0]["function"]["description"]
+    question_description = payload[0]["function"]["parameters"]["properties"]["question"]["description"]
+
+    assert "same language as the latest user message" in description
+    assert "same language as the latest user message" in question_description

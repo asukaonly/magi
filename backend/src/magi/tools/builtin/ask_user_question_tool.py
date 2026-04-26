@@ -43,26 +43,34 @@ class AskUserQuestionTool(Tool):
         self.schema = ToolSchema(
             name="ask_user_question",
             description=(
-                "Ask the user a clarifying question and wait for their "
-                "reply. Use sparingly — only when proceeding without "
-                "the answer would cause rework. Provide optional "
-                "multiple-choice ``options``; the user can still "
-                "answer freely unless ``allow_free_text`` is false. "
-                "The call returns the user's reply as a string."
+                "Ask the user a clarifying question in the same "
+                "language as the latest user message and wait for "
+                "their reply. Use sparingly — only when proceeding "
+                "without the answer would cause rework. Provide "
+                "optional multiple-choice ``options``; the user can "
+                "still answer freely unless ``allow_free_text`` is "
+                "false. The call returns the user's reply as a string."
             ),
             category="control",
             parameters=[
                 ToolParameter(
                     name="question",
                     type=ParameterType.STRING,
-                    description="The question to ask the user.",
+                    description=(
+                        "The question to ask the user. Write it in the "
+                        "same language as the latest user message."
+                    ),
                     required=True,
                 ),
                 ToolParameter(
                     name="options",
                     type=ParameterType.ARRAY,
                     array_item_type=ParameterType.STRING,
-                    description="Optional list of suggested answers.",
+                    description=(
+                        "Optional list of suggested answers. Keep them "
+                        "in the same language as the question unless the "
+                        "user explicitly requested otherwise."
+                    ),
                     required=False,
                 ),
                 ToolParameter(
@@ -98,7 +106,12 @@ class AskUserQuestionTool(Tool):
                 "avoid_task_intents": ["explore_codebase", "trace_implementation", "verify_source_claim", "research_external", "debug_runtime", "apply_change", "recall_context"],
                 "blocks_on_user": True,
                 "cost": "high",
-                "tool_hint": "Use only when a missing user decision blocks safe progress or would likely cause rework.",
+                "tool_hint": (
+                    "Use only when a missing user decision blocks safe "
+                    "progress or would likely cause rework. Write the "
+                    "question and options in the same language as the "
+                    "latest user message."
+                ),
             },
         )
 

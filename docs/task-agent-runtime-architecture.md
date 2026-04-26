@@ -559,6 +559,15 @@ available, ``turn_id`` derived from ``ToolExecutionContext.env_vars``.
 
 Frontend composition:
 
+- Running execution progress is surfaced on the assistant lane as an
+  ``assistant_interim`` bubble. Chat-only runtime progress (trace
+  headline, execution-control state, plan preview, cancel/detach
+  affordances) no longer uses the generic chat status-card path.
+- Durable control-plane projections remain status messages. ``ask`` /
+  ``permission`` stay prompt-style surfaces, while ``plan_state`` /
+  ``todo_state`` remain chat-backed status rows because they represent
+  control state rather than assistant utterances.
+
 - ``PermissionModalHost`` and ``AskDialog`` are mounted once at the
   ``MainLayout`` root so prompts stay visible while the user navigates
   between Chat, Tasks, and Settings. They are keyed by the currently

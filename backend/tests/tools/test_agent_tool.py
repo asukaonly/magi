@@ -48,6 +48,7 @@ class _FakeFunctionCallingOrchestrator:
         self._tool_result_callback = tool_result_callback
         self._loop_event_callback = loop_event_callback
         self._runtime_trace_store = runtime_trace_store
+        self.last_max_iterations = None
 
     async def execute_with_tools(
         self,
@@ -75,7 +76,6 @@ class _FakeFunctionCallingOrchestrator:
             session_id,
             turn_id,
             conversation_history,
-            max_iterations,
             disable_thinking,
             intent,
             execution_agent_id,
@@ -85,6 +85,7 @@ class _FakeFunctionCallingOrchestrator:
             final_response_json_mode,
             thinking_depth,
         )
+        self.last_max_iterations = max_iterations
         if self._tool_result_callback:
             await self._tool_result_callback(
                 {
@@ -177,6 +178,47 @@ async def test_agent_tool_launch_foreground(monkeypatch):
     assert result.data["result"]["summary"] == "worker finished"
     assert WORKER_AGENT_PROGRESS in published_events
     assert WORKER_AGENT_COMPLETED in published_events
+
+
+@pytest.mark.asyncio
+async def test_agent_tool_uses_30_iteration_default_for_workers(monkeypatch):
+    from magi.agent.workers import worker_manager as worker_manager_module
+
+    fake_orchestrators = []
+
+    class _RecordingFunctionCallingOrchestrator(_FakeFunctionCallingOrchestrator):
+        def __init__(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            super().__init__(*args, **kwargs)
+            fake_orchestrators.append(self)
+
+    monkeypatch.setattr(worker_manager_module, "FunctionCallingOrchestrator", _RecordingFunctionCallingOrchestrator)
+    tool = AgentTool()
+    tool.configure(llm_adapter=_FakeLLMAdapter(), tool_registry_instance=_FakeToolRegistry())
+
+    async def _fake_publish(run_state, event_type, internal_payload, public_payload=None):
+        _ = (run_state, event_type, internal_payload, public_payload)
+
+    monkeypatch.setattr(tool._manager, "_publish_worker_fact", _fake_publish)
+
+    result = await tool.execute(
+        parameters={
+            "action": "launch",
+            "subagent_type": "Explore",
+            "description": "scan auth flow",
+            "prompt": "Locate token generation points",
+            "run_in_background": False,
+        },
+        context=ToolExecutionContext(
+            agent_id="chat:u-chat",
+            workspace="/tmp",
+            env_vars={"user_id": "u-chat", "session_id": "s-chat"},
+            permissions=["authenticated"],
+        ),
+    )
+
+    assert result.success is True
+    assert fake_orchestrators
+    assert fake_orchestrators[0].last_max_iterations == 30
 
 
 @pytest.mark.asyncio

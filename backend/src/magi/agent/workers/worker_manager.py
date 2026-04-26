@@ -43,6 +43,7 @@ logger = get_logger(__name__)
 WORKER_AGENT_PROGRESS = "WORKER_AGENT_PROGRESS"
 WORKER_AGENT_COMPLETED = "WORKER_AGENT_COMPLETED"
 WORKER_AGENT_FAILED = "WORKER_AGENT_FAILED"
+DEFAULT_WORKER_MAX_ITERATIONS = 30
 
 
 @dataclass
@@ -441,7 +442,7 @@ class WorkerAgentManager(Tool):
 
         description = str(parameters.get("description", "")).strip()
         prompt = str(parameters.get("prompt", "")).strip()
-        max_iterations = int(parameters.get("max_iterations", 20))
+        max_iterations = int(parameters.get("max_iterations", DEFAULT_WORKER_MAX_ITERATIONS))
         orchestration_id = _optional_string(parameters.get("orchestration_id"))
         subtask_id = _optional_string(parameters.get("subtask_id"))
         retry_count = int(parameters.get("retry_count", 0))
@@ -544,7 +545,7 @@ class WorkerAgentManager(Tool):
 
         run_in_background = bool(parameters.get("run_in_background", False))
         parallel = bool(parameters.get("parallel", True))
-        default_max_iterations = int(parameters.get("max_iterations", 20))
+        default_max_iterations = int(parameters.get("max_iterations", DEFAULT_WORKER_MAX_ITERATIONS))
 
         run_states: List[WorkerRunState] = []
         for worker in workers:

@@ -180,3 +180,69 @@ async def test_persist_todo_state_message_hides_message_when_list_clears(
     assert hidden == [message_id]
 
     await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_persist_todo_state_message_noops_when_payload_unchanged(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from magi.agent.control.chat_state_persister import persist_todo_state_message
+
+    store = ChatStore(db_path=str(tmp_path / "chat.db"))
+    await store.initialize()
+    await _seed_turn(store)
+    upserts: list[str] = []
+    hidden: list[str] = []
+
+    async def _noop_upsert(**kwargs):
+        upserts.append(str(kwargs["message_id"]))
+
+    async def _noop_hidden(**kwargs):
+        hidden.append(str(kwargs["message_id"]))
+
+    monkeypatch.setattr(
+        "magi.agent.control.chat_state_persister.broadcast_chat_message_upsert",
+        _noop_upsert,
+    )
+    monkeypatch.setattr(
+        "magi.agent.control.chat_state_persister.broadcast_chat_message_hidden",
+        _noop_hidden,
+    )
+
+    items = [
+        {
+            "id": "todo-1",
+            "content": "Inspect runtime drift",
+            "status": "in_progress",
+            "created_at_ms": 1,
+            "updated_at_ms": 2,
+        }
+    ]
+
+    with _override(chat_store=store):
+        first_id = await persist_todo_state_message(
+            session_id="session-1",
+            user_id="user-1",
+            turn_id="turn-1",
+            items=items,
+            orchestration_id="orch-1",
+        )
+        second_id = await persist_todo_state_message(
+            session_id="session-1",
+            user_id="user-1",
+            turn_id="turn-1",
+            items=items,
+            orchestration_id="orch-1",
+        )
+
+    messages = await store.list_messages(session_id="session-1")
+    assert first_id is not None
+    assert second_id == first_id
+    assert len(messages) == 1
+    assert messages[0].message_kind == "todo_state"
+    assert messages[0].is_visible is True
+    assert upserts == [first_id]
+    assert hidden == []
+
+    await store.shutdown()

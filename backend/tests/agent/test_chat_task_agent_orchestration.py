@@ -397,7 +397,7 @@ async def test_chat_task_agent_completes_orchestration_after_worker_fact(tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_aggregate_orchestration_uses_standard_chat_prompt(monkeypatch) -> None:
+async def test_aggregate_orchestration_uses_analysis_prompt_without_tool_catalog(monkeypatch) -> None:
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
     history_key = "u-chat::s-chat"
     agent._history_service.append_user_message(history_key, "看下代码架构")
@@ -415,6 +415,7 @@ async def test_aggregate_orchestration_uses_standard_chat_prompt(monkeypatch) ->
         scenario="chat",
         tools=None,
         recent_tool_errors=None,
+        include_tool_catalog=True,
     ):
         calls["build_system_prompt"] = {
             "user_id": user_id,
@@ -422,6 +423,7 @@ async def test_aggregate_orchestration_uses_standard_chat_prompt(monkeypatch) ->
             "user_message": user_message,
             "task_category": task_category,
             "scenario": scenario,
+            "include_tool_catalog": include_tool_catalog,
         }
         return "persona-system-prompt"
 
@@ -481,15 +483,19 @@ async def test_aggregate_orchestration_uses_standard_chat_prompt(monkeypatch) ->
         "session_id": "s-chat",
         "user_message": "看下~/code/magi下的代码，分析下代码架构",
         "task_category": "chat",
-        "scenario": "chat",
+        "scenario": "analysis",
+        "include_tool_catalog": False,
     }
 
     llm_call = calls["call_llm"]
     assert isinstance(llm_call, dict)
     assert "persona-system-prompt" in llm_call["system_prompt"]
-    assert "直接面向用户回答原始请求" in llm_call["system_prompt"]
-    assert "不要暴露子任务、worker、编排、JSON" in llm_call["system_prompt"]
-    assert '"completed_subtasks"' in llm_call["system_prompt"]
+    assert "# Aggregation Task" in llm_call["system_prompt"]
+    assert "## Internal Evidence Dossier" in llm_call["system_prompt"]
+    assert "### Completed Analyses" in llm_call["system_prompt"]
+    assert "You must explicitly absorb the key findings, evidence, and trade-offs" in llm_call["system_prompt"]
+    assert '"completed_subtasks"' not in llm_call["system_prompt"]
+    assert "# Tool Information" not in llm_call["system_prompt"]
     assert llm_call["disable_thinking"] is False
     messages = llm_call["messages"]
     assert isinstance(messages, list)
@@ -635,6 +641,8 @@ async def test_chat_planning_service_uses_json_mode_and_extended_timeout(monkeyp
     assert captured["json_mode"] is True
     assert captured["timeout_seconds"] == 180.0
     assert captured["disable_thinking"] is False
+    assert str(captured["messages"][0]["content"]).startswith("# Planning Brief")
+    assert "## Date Range Hint" in str(captured["messages"][0]["content"])
 
 
 @pytest.mark.asyncio
