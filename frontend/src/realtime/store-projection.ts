@@ -180,7 +180,7 @@ export const applyRealtimeStoreProjection = (
         textDelta: contentDelta,
       });
     }
-    if (Boolean(payload.is_final)) {
+    if (payload.is_final) {
       conversationStore.appendStreamTextFlush({
         sessionId,
         turnId,

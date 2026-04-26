@@ -172,7 +172,7 @@ const findStreamingAssistantIndex = (
   messages: ChatTimelineMessage[],
   turnId: string,
 ): number => {
-  let existingIndex = messages.findIndex(
+  const existingIndex = messages.findIndex(
     (m) => m.role === 'assistant' && m.turnId === turnId && m.streaming,
   );
   if (existingIndex >= 0) {

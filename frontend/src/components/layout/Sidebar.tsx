@@ -324,6 +324,8 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
     });
   }, [conversationSearch, sessionRows]);
 
+  const tasksActiveCount = useBackgroundTaskStore((state) => state.activeCount);
+
   if (collapsed) {
     return null;
   }
@@ -333,7 +335,6 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const memoryActive = activePanel === 'memory' || isMemoryRoute;
   const settingsActive = activePanel === 'settings' || location.pathname === '/settings';
   const tasksActive = activePanel === 'tasks' || location.pathname === '/tasks';
-  const tasksActiveCount = useBackgroundTaskStore((state) => state.activeCount);
   const conversationExpanded = expandedSection === 'conversation';
   const memoryExpanded = expandedSection === 'memory';
   const sessionMenuSession = sessionMenu ? sessionsById[sessionMenu.sessionId] : null;
