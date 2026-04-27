@@ -25,7 +25,11 @@ class SensorProjection:
     metadata: dict[str, Any]
 
 
-def build_sensor_projection(sensor: SensorBase, output: SensorOutput) -> SensorProjection:
+def build_sensor_projection(
+    sensor: SensorBase,
+    output: SensorOutput,
+    metadata: SensorOutputMetadata | None = None,
+) -> SensorProjection:
     """Render canonical display and embedding projections for one sensor output."""
     _validate_output_contract(output)
 
@@ -53,7 +57,7 @@ def build_sensor_projection(sensor: SensorBase, output: SensorOutput) -> SensorP
     elif narration_body:
         summary = narration_body
 
-    metadata: dict[str, Any] = {
+    projection_metadata: dict[str, Any] = {
         "plugin_id": sensor.plugin_id,
         "sensor_id": sensor.sensor_id,
         "activity": {
@@ -65,18 +69,21 @@ def build_sensor_projection(sensor: SensorBase, output: SensorOutput) -> SensorP
         },
     }
     if output.activity.object is not None:
-        metadata["activity"]["object_code"] = output.activity.object.code
+        projection_metadata["activity"]["object_code"] = output.activity.object.code
     if output.activity.qualifiers:
-        metadata["activity"]["qualifiers"] = dict(output.activity.qualifiers)
+        projection_metadata["activity"]["qualifiers"] = dict(output.activity.qualifiers)
     if embedding_head and embedding_head != summary:
-        metadata["projection"]["embedding_head"] = embedding_head
+        projection_metadata["projection"]["embedding_head"] = embedding_head
+    retrieval_terms = _normalize_retrieval_terms(metadata.tags if metadata else [])
+    if retrieval_terms:
+        projection_metadata["projection"]["retrieval_terms"] = retrieval_terms
 
     return SensorProjection(
         title=title,
         summary=summary,
         content=summary,
         embedding_head=embedding_head,
-        metadata=metadata,
+        metadata=projection_metadata,
     )
 
 
@@ -176,6 +183,23 @@ def _join_embedding_head(*parts: str) -> str:
     if any(_ASCII_RE.search(part) for part in normalized):
         return " ".join(normalized)
     return "".join(normalized)
+
+
+def _normalize_retrieval_terms(values: list[str] | None) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in values or []:
+        term = str(value or "").strip()
+        if not term:
+            continue
+        key = term.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(term)
+        if len(normalized) >= 8:
+            break
+    return normalized
 
 
 __all__ = [

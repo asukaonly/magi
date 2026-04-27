@@ -19,7 +19,7 @@ from ...runtime_defaults import DEFAULT_USER_ID
 from ..embedding.chunking import ChunkedText, chunk_sentences, chunk_text
 from ..embedding.embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
 from ..embedding.embedding_service import EmbeddingProfile, MemoryEmbeddingService
-from ..embedding.embedding_text_builders import build_l1_embedding_text
+from ..embedding.embedding_text_builders import build_l1_embedding_text, build_l1_retrieval_terms_text
 from ..event_contracts import IngestTarget, MemoryDomain, MemoryEvent, RetentionClass, TomDepth, normalize_runtime_event
 from ..hybrid_retrieval.fts_utils import build_exact_fts_query, build_or_fts_query, build_stemmed_fts_query, escape_fts_query, tokenize_for_fts
 from .chat_sessions import ensure_chat_sessions_schema_async, project_chat_event_to_session
@@ -28,7 +28,7 @@ from ..embedding.sqlite_vec_index import SqliteVecIndex, VectorSearchHit
 FACT_EVENTS_TABLE = "fact_events"
 EMBEDDING_PROFILES_TABLE = "embedding_profiles"
 EVENT_CHUNKS_TABLE = "l1_event_chunks"
-EMBEDDING_TEXT_BUILDER_VERSION = "l1_content_v1"
+EMBEDDING_TEXT_BUILDER_VERSION = "l1_content_v2"
 EMBEDDING_STATUS_PENDING = "pending"
 EMBEDDING_STATUS_READY = "ready"
 EMBEDDING_STATUS_FAILED = "failed"
@@ -1516,7 +1516,11 @@ class L1EventStore:
         return ranked
 
     def get_search_text(self, event: MemoryEvent) -> str:
-        return self._compose_search_text(event.content, event.author_type, event.content_type)
+        text = str(event.content or "").strip()
+        retrieval_terms = build_l1_retrieval_terms_text(event)
+        if retrieval_terms and retrieval_terms.lower() not in text.lower():
+            text = f"{text} {retrieval_terms}".strip()
+        return self._compose_search_text(text, event.author_type, event.content_type)
 
     def get_embedding_text(self, event: MemoryEvent) -> str:
         return build_l1_embedding_text(event)

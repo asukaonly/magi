@@ -178,6 +178,23 @@ class TestSensorIngestionGateway:
         assert timeline_event.summary == "Fake Source Observed Something happened"
 
     @pytest.mark.asyncio
+    async def test_ingest_stores_metadata_tags_as_projection_retrieval_terms(self):
+        memory = MagicMock()
+        memory.ingest_event = AsyncMock(return_value={"event_id": "evt-stored-3", "l1_written": True})
+        gateway = SensorIngestionGateway(unified_memory=memory)
+        sensor = _FakeSensor()
+        output = _make_output()
+        metadata = SensorOutputMetadata(tags=["j-pop", "electropop", "J-POP", ""])
+
+        await gateway.ingest(sensor, output, metadata)
+
+        call_args = memory.ingest_event.call_args[0][0]
+        assert isinstance(call_args, MemoryEvent)
+        assert call_args.content == "Fake Source Observed Something happened"
+        assert call_args.metadata_json is not None
+        assert call_args.metadata_json["projection"]["retrieval_terms"] == ["j-pop", "electropop"]
+
+    @pytest.mark.asyncio
     async def test_ingest_no_adapter_is_ok(self):
         """Gateway works fine without a timeline adapter."""
         memory = MagicMock()
