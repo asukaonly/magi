@@ -3,11 +3,11 @@
  */
 
 import i18n from '@/i18n';
-import type { LanguageCode } from '@/api/modules/config';
+import type { LanguageCode, SystemConfig } from '@/api/modules/config';
 import { buildPluginFieldValueMap, type PluginPackageState } from '@/api/modules/plugins';
 import type { SensorSourceStatusItem } from '@/api/modules/sensors';
 import type { ToolConfig } from '@/api/modules/tools';
-import type { PluginDraftMap, ToolDraftMap } from '@/types/settings';
+import type { MemoryToggleFieldId, PluginDraftMap, ToolDraftMap } from '@/types/settings';
 import { LANGUAGE_STORAGE_KEY } from '@/constants/settings';
 
 // ============================================================================
@@ -114,6 +114,45 @@ export const buildToolDraftSnapshot = (tools: ToolConfig[]): ToolDraftMap =>
       },
     ])
   );
+
+// ============================================================================
+// Memory Draft Helpers
+// ============================================================================
+
+export const applyMemoryToggle = (
+  memory: SystemConfig['memory'],
+  field: MemoryToggleFieldId,
+  checked: boolean
+): void => {
+  if (field === 'l1' && !checked) {
+    memory.l1.enabled = false;
+    memory.l2.enabled = false;
+    memory.l3.enabled = false;
+    memory.l4.enabled = false;
+    memory.l2.vectors_enabled = false;
+    memory.l3.llm_summary_enabled = false;
+    return;
+  }
+
+  if (field === 'l2' && !checked) {
+    memory.l2.enabled = false;
+    memory.l2.vectors_enabled = false;
+    return;
+  }
+
+  if (field === 'l3' && !checked) {
+    memory.l3.enabled = false;
+    memory.l3.llm_summary_enabled = false;
+    return;
+  }
+
+  if (field === 'l4' && !checked) {
+    memory.l4.enabled = false;
+    return;
+  }
+
+  memory[field].enabled = checked;
+};
 
 // ============================================================================
 // Diff Helpers

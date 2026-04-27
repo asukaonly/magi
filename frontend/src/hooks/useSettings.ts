@@ -25,6 +25,7 @@ import {
   buildPluginDraftSnapshotFromPackages,
   buildPluginDraftSnapshotFromSensors,
   buildToolDraftSnapshot,
+  applyMemoryToggle,
   diffFlatMaps,
   mergeDraftMaps,
   persistLanguageSelection,
@@ -624,34 +625,7 @@ export function useSettings(): UseSettingsReturn {
 
   const updateMemoryToggle = useCallback((field: MemoryToggleFieldId, checked: boolean) => {
     patchDraftConfig((draft) => {
-      if (field === 'l1' && !checked) {
-        draft.memory.l1.enabled = false;
-        draft.memory.l2.enabled = false;
-        draft.memory.l3.enabled = false;
-        draft.memory.l4.enabled = false;
-        draft.memory.l2.vectors_enabled = false;
-        draft.memory.l3.llm_summary_enabled = false;
-        return;
-      }
-
-      if (field === 'l2' && !checked) {
-        draft.memory.l2.enabled = false;
-        draft.memory.l2.vectors_enabled = false;
-        return;
-      }
-
-      if (field === 'l3' && !checked) {
-        draft.memory.l3.enabled = false;
-        draft.memory.l3.llm_summary_enabled = false;
-        return;
-      }
-
-      if (field === 'l4' && !checked) {
-        draft.memory.l4.enabled = false;
-        return;
-      }
-
-      draft.memory[field].enabled = checked;
+      applyMemoryToggle(draft.memory, field, checked);
     });
   }, [patchDraftConfig]);
 
