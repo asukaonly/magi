@@ -225,6 +225,8 @@
       "apiFormat": "API 格式",
       "enabled": "启用",
       "modelKind": "模型类型",
+      "modelManualEntryChat": "添加聊天模型",
+      "modelManualEntryEmbedding": "添加向量模型",
       "modelManualEntryEmbeddingPlaceholder": "输入向量模型 ID"
     },
     "modelKinds": {

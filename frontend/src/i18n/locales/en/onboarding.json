@@ -224,6 +224,8 @@
       "apiFormat": "API Format",
       "enabled": "Enabled",
       "modelKind": "Model Type",
+      "modelManualEntryChat": "Add Chat Model",
+      "modelManualEntryEmbedding": "Add Embedding Model",
       "modelManualEntryEmbeddingPlaceholder": "Enter embedding model ID"
     },
     "modelKinds": {

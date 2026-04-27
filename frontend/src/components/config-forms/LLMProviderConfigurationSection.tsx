@@ -804,77 +804,82 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                 >
                   <div className="text-sm font-medium text-foreground">{t('llm.providerConfiguration.availableModels')}</div>
 
-                  <div className="flex flex-col gap-3">
-                    <div
-                      role="tablist"
-                      aria-label={t('llm.fields.modelKind')}
-                      className="inline-flex w-fit items-center gap-1 rounded-lg bg-muted/55 p-1"
-                    >
-                      {([
-                        ['chat', t('llm.modelKinds.chat')],
-                        ['embedding', t('llm.modelKinds.embedding')],
-                      ] as const).map(([kindValue, kindLabel]) => (
-                        <button
-                          key={kindValue}
-                          type="button"
-                          role="tab"
-                          aria-selected={modelDraftKind === kindValue}
-                          onClick={() => setModelDraftKind(kindValue)}
-                          className={cn(
-                            'inline-flex h-8 items-center justify-center rounded-md px-3 text-xs font-medium transition',
-                            modelDraftKind === kindValue
-                              ? 'bg-background text-foreground shadow-[0_1px_2px_rgba(15,23,42,0.06)]'
-                              : 'text-muted-foreground hover:text-foreground'
-                          )}
-                        >
-                          {kindLabel}
-                        </button>
-                      ))}
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                    <div className="space-y-2 sm:w-fit">
+                      <span className="text-sm font-medium">{t('llm.fields.modelKind')}</span>
+                      <div
+                        role="tablist"
+                        aria-label={t('llm.fields.modelKind')}
+                        className="inline-flex h-11 items-center gap-1 rounded-lg bg-muted/55 p-1"
+                      >
+                        {([
+                          ['chat', t('llm.modelKinds.chat')],
+                          ['embedding', t('llm.modelKinds.embedding')],
+                        ] as const).map(([kindValue, kindLabel]) => (
+                          <button
+                            key={kindValue}
+                            type="button"
+                            role="tab"
+                            aria-selected={modelDraftKind === kindValue}
+                            onClick={() => setModelDraftKind(kindValue)}
+                            className={cn(
+                              'inline-flex h-9 items-center justify-center rounded-md px-3 text-sm font-medium transition',
+                              modelDraftKind === kindValue
+                                ? 'bg-background text-foreground shadow-[0_1px_2px_rgba(15,23,42,0.06)]'
+                                : 'text-muted-foreground hover:text-foreground'
+                            )}
+                          >
+                            {kindLabel}
+                          </button>
+                        ))}
+                      </div>
                     </div>
 
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                      <label className="flex-1 space-y-2">
-                        <span className="text-sm font-medium">{t('llm.fields.modelManualEntry')}</span>
-                        <input
-                          aria-label={t('llm.fields.modelManualEntry')}
-                          className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
-                          placeholder={
-                            modelDraftKind === 'embedding'
-                              ? t('llm.fields.modelManualEntryEmbeddingPlaceholder')
-                              : t('llm.fields.modelManualEntryPlaceholder')
-                          }
-                          value={modelDraft}
-                          onChange={(event) => setModelDraft(event.target.value)}
-                        />
-                      </label>
+                    <label className="flex-1 space-y-2">
+                      <span className="text-sm font-medium">
+                        {modelDraftKind === 'embedding'
+                          ? t('llm.fields.modelManualEntryEmbedding')
+                          : t('llm.fields.modelManualEntryChat')}
+                      </span>
+                      <input
+                        aria-label={t('llm.fields.modelManualEntry')}
+                        className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
+                        placeholder={
+                          modelDraftKind === 'embedding'
+                            ? t('llm.fields.modelManualEntryEmbeddingPlaceholder')
+                            : t('llm.fields.modelManualEntryPlaceholder')
+                        }
+                        value={modelDraft}
+                        onChange={(event) => setModelDraft(event.target.value)}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onAddProviderModel(activeProviderId, modelDraft, modelDraftKind);
+                        setModelDraft('');
+                      }}
+                      className={cn(
+                        'inline-flex h-11 min-w-fit items-center justify-center whitespace-nowrap rounded-lg bg-background px-4 text-sm font-medium text-foreground transition hover:bg-accent',
+                        isSettingsSurface && 'rounded-md border border-[hsl(var(--settings-subnav-border)/0.8)] bg-transparent hover:bg-[hsl(var(--settings-shell-elevated)/0.42)]'
+                      )}
+                    >
+                      {t('llm.actions.addModel')}
+                    </button>
+                    {activeProvider.provider_type === 'custom' ? (
                       <button
                         type="button"
-                        onClick={() => {
-                          onAddProviderModel(activeProviderId, modelDraft, modelDraftKind);
-                          setModelDraft('');
-                        }}
+                        onClick={() => onDiscoverProviderModels(activeProviderId)}
+                        disabled={activeDiscoveryState.loading}
                         className={cn(
-                          'inline-flex h-11 min-w-fit items-center justify-center whitespace-nowrap rounded-lg bg-background px-4 text-sm font-medium text-foreground transition hover:bg-accent',
+                          'inline-flex h-11 min-w-fit items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-background px-4 text-sm font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60',
                           isSettingsSurface && 'rounded-md border border-[hsl(var(--settings-subnav-border)/0.8)] bg-transparent hover:bg-[hsl(var(--settings-shell-elevated)/0.42)]'
                         )}
                       >
-                        {t('llm.actions.addModel')}
+                        {activeDiscoveryState.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                        <span>{t('llm.actions.fetchModels')}</span>
                       </button>
-                      {activeProvider.provider_type === 'custom' ? (
-                        <button
-                          type="button"
-                          onClick={() => onDiscoverProviderModels(activeProviderId)}
-                          disabled={activeDiscoveryState.loading}
-                          className={cn(
-                            'inline-flex h-11 min-w-fit items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-background px-4 text-sm font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60',
-                            isSettingsSurface && 'rounded-md border border-[hsl(var(--settings-subnav-border)/0.8)] bg-transparent hover:bg-[hsl(var(--settings-shell-elevated)/0.42)]'
-                          )}
-                        >
-                          {activeDiscoveryState.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                          <span>{t('llm.actions.fetchModels')}</span>
-                        </button>
-                      ) : null}
-                    </div>
+                    ) : null}
                   </div>
 
                   {activeDiscoveryState.error ? (
