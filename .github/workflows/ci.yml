@@ -70,6 +70,9 @@ jobs:
       - name: Run backend type gate
         run: ./scripts/run-backend-type-gate.sh
 
+      - name: Check gateway API contract
+        run: python scripts/check-api-contract.py
+
   gateway:
     name: Gateway validation
     runs-on: ubuntu-latest

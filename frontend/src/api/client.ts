@@ -2,6 +2,7 @@
  * Axios API client.
  */
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
+import type { AxiosRequestConfig, AxiosResponse } from 'axios';
 import { getRuntimeConfig } from '@/runtime/config';
 
 // API response types
@@ -19,6 +20,19 @@ export interface ApiError {
   details?: any;
 }
 
+export type ApiClientErrorKind = 'http' | 'network' | 'backend-not-ready' | 'cancelled' | 'request';
+
+export interface ApiClientError {
+  message: string;
+  code: string;
+  kind: ApiClientErrorKind;
+  status?: number;
+  details?: unknown;
+  isCancelled?: boolean;
+}
+
+export type ApiRequestConfig = AxiosRequestConfig;
+
 export interface PaginatedResponse<T> {
   success: boolean;
   data: T[];
@@ -30,6 +44,166 @@ export interface PaginatedResponse<T> {
 
 // Create axios instance
 let desktopSessionToken: string | undefined;
+
+const AXIOS_CONFIG_KEYS = new Set([
+  'adapter',
+  'auth',
+  'baseURL',
+  'cancelToken',
+  'data',
+  'headers',
+  'maxBodyLength',
+  'maxContentLength',
+  'method',
+  'onDownloadProgress',
+  'onUploadProgress',
+  'params',
+  'paramsSerializer',
+  'responseType',
+  'signal',
+  'timeout',
+  'transformRequest',
+  'transformResponse',
+  'url',
+  'validateStatus',
+  'withCredentials',
+]);
+
+const BACKEND_NOT_READY_CODES = new Set([
+  'BACKEND_NOT_READY',
+  'GATEWAY_TIMEOUT',
+  'IPC_UNAVAILABLE',
+  'RUNTIME_NOT_READY',
+  'SERVICE_UNAVAILABLE',
+]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function looksLikeAxiosConfig(value: unknown): value is ApiRequestConfig {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return Object.keys(value).some((key) => AXIOS_CONFIG_KEYS.has(key));
+}
+
+function normalizeGetConfig(paramsOrConfig?: unknown): ApiRequestConfig | undefined {
+  if (paramsOrConfig == null) {
+    return undefined;
+  }
+  if (looksLikeAxiosConfig(paramsOrConfig)) {
+    return paramsOrConfig;
+  }
+  return { params: paramsOrConfig };
+}
+
+function extractDetailMessage(detail: unknown): string | undefined {
+  if (typeof detail === 'string') {
+    return detail;
+  }
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => (isRecord(item) && typeof item.msg === 'string' ? item.msg : undefined))
+      .filter((message): message is string => Boolean(message));
+    return messages.length > 0 ? messages.join('; ') : undefined;
+  }
+  return undefined;
+}
+
+function extractResponseMessage(data: unknown, fallback: string): string {
+  if (typeof data === 'string') {
+    return data;
+  }
+  if (!isRecord(data)) {
+    return fallback;
+  }
+  if (typeof data.message === 'string') {
+    return data.message;
+  }
+  const detailMessage = extractDetailMessage(data.detail);
+  if (detailMessage) {
+    return detailMessage;
+  }
+  if (typeof data.error === 'string') {
+    return data.error;
+  }
+  return fallback;
+}
+
+function extractErrorCode(data: unknown): string | undefined {
+  if (!isRecord(data)) {
+    return undefined;
+  }
+  if (typeof data.error_code === 'string') {
+    return data.error_code;
+  }
+  if (typeof data.code === 'string') {
+    return data.code;
+  }
+  return undefined;
+}
+
+function extractErrorDetails(data: unknown): unknown {
+  if (!isRecord(data)) {
+    return undefined;
+  }
+  return data.details ?? data.detail;
+}
+
+function classifyHttpError(status: number, code: string): ApiClientErrorKind {
+  if (status === 502 || status === 503 || status === 504 || BACKEND_NOT_READY_CODES.has(code)) {
+    return 'backend-not-ready';
+  }
+  return 'http';
+}
+
+export function toApiClientError(error: unknown): ApiClientError {
+  if (axios.isCancel(error) || (isRecord(error) && error.code === 'ERR_CANCELED')) {
+    return {
+      message: 'Request cancelled',
+      code: 'REQUEST_CANCELLED',
+      kind: 'cancelled',
+      isCancelled: true,
+    };
+  }
+
+  if (axios.isAxiosError<ApiError>(error)) {
+    if (error.response) {
+      const errorData = error.response.data;
+      const code = extractErrorCode(errorData) || 'UNKNOWN_ERROR';
+      return {
+        message: extractResponseMessage(errorData, error.message || 'Request failed'),
+        code,
+        kind: classifyHttpError(error.response.status, code),
+        status: error.response.status,
+        details: extractErrorDetails(errorData),
+      };
+    }
+    if (error.request) {
+      return {
+        message: 'No response from server',
+        code: 'NETWORK_ERROR',
+        kind: 'network',
+      };
+    }
+    return {
+      message: error.message || 'Request failed',
+      code: 'REQUEST_ERROR',
+      kind: 'request',
+    };
+  }
+
+  return {
+    message: error instanceof Error ? error.message : 'Request failed',
+    code: 'REQUEST_ERROR',
+    kind: 'request',
+  };
+}
+
+function unwrapApiResponse<T>(response: AxiosResponse<ApiResponse<T>>): ApiResponse<T> {
+  return response.data;
+}
 
 const createApiClient = (): AxiosInstance => {
   const runtime = getRuntimeConfig();
@@ -72,40 +246,13 @@ const createApiClient = (): AxiosInstance => {
       return response;
     },
     (error: AxiosError<ApiError>) => {
-      // Centralized error handling
-      if (error.response) {
-        // Server returned error response
-        const errorData = error.response.data;
-        const resolvedMessage =
-          errorData?.message ||
-          (typeof errorData?.detail === 'string' ? errorData.detail : undefined) ||
-          'An error occurred';
-
-        // Handle 401 Unauthorized
-        if (error.response.status === 401) {
-          localStorage.removeItem('auth_token');
+      if (error.response?.status === 401) {
+        localStorage.removeItem('auth_token');
+        if (typeof window !== 'undefined') {
           window.location.href = '/login';
         }
-
-        return Promise.reject({
-          message: resolvedMessage,
-          code: errorData?.error_code || 'UNKNOWN_ERROR',
-          status: error.response.status,
-          details: errorData?.details,
-        });
-      } else if (error.request) {
-        // Request sent but no response received
-        return Promise.reject({
-          message: 'No response from server',
-          code: 'NETWORK_ERROR',
-        });
-      } else {
-        // Request config error
-        return Promise.reject({
-          message: error.message || 'Request failed',
-          code: 'REQUEST_ERROR',
-        });
       }
+      return Promise.reject(toApiClientError(error));
     }
   );
 
@@ -131,27 +278,22 @@ export const configureApiClient = (options: {
 
 // Generic API helpers
 export const api = {
-  get: <T = any>(url: string, paramsOrConfig?: any) => {
-    const config =
-      paramsOrConfig && typeof paramsOrConfig === 'object' && 'params' in paramsOrConfig
-        ? paramsOrConfig
-        : paramsOrConfig
-          ? { params: paramsOrConfig }
-          : undefined;
-    return apiClient.get<ApiResponse<T>>(url, config).then((res) => res.data);
+  get: <T = any>(url: string, paramsOrConfig?: Record<string, unknown> | ApiRequestConfig) => {
+    const config = normalizeGetConfig(paramsOrConfig);
+    return apiClient.get<ApiResponse<T>>(url, config).then(unwrapApiResponse);
   },
 
-  post: <T = any>(url: string, data?: any, config?: any) =>
-    apiClient.post<ApiResponse<T>>(url, data, config).then((res) => res.data),
+  post: <T = any>(url: string, data?: any, config?: ApiRequestConfig) =>
+    apiClient.post<ApiResponse<T>>(url, data, config).then(unwrapApiResponse),
 
-  put: <T = any>(url: string, data?: any, config?: any) =>
-    apiClient.put<ApiResponse<T>>(url, data, config).then((res) => res.data),
+  put: <T = any>(url: string, data?: any, config?: ApiRequestConfig) =>
+    apiClient.put<ApiResponse<T>>(url, data, config).then(unwrapApiResponse),
 
-  delete: <T = any>(url: string, config?: any) =>
-    apiClient.delete<ApiResponse<T>>(url, config).then((res) => res.data),
+  delete: <T = any>(url: string, config?: ApiRequestConfig) =>
+    apiClient.delete<ApiResponse<T>>(url, config).then(unwrapApiResponse),
 
-  patch: <T = any>(url: string, data?: any, config?: any) =>
-    apiClient.patch<ApiResponse<T>>(url, data, config).then((res) => res.data),
+  patch: <T = any>(url: string, data?: any, config?: ApiRequestConfig) =>
+    apiClient.patch<ApiResponse<T>>(url, data, config).then(unwrapApiResponse),
 };
 
 export default apiClient;

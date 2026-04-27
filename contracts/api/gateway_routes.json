@@ -1,0 +1,478 @@
+{
+  "version": 1,
+  "description": "Gateway-visible API route ownership manifest for the desktop Rust gateway and Python IPC app.",
+  "router_source": "crates/magi-gateway/src/api/mod.rs",
+  "python_app_source": "backend/src/magi/transport/http_app.py",
+  "native_routes": [
+    {
+      "path": "/api/health",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/health.rs",
+      "response_envelope": "native-json",
+      "python_parity": {
+        "owner_file": "backend/src/magi/transport/http_app.py"
+      }
+    },
+    {
+      "path": "/api/ready",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/ready.rs",
+      "response_envelope": "native-json",
+      "python_parity": {
+        "owner_file": "backend/src/magi/transport/http_app.py"
+      }
+    },
+    {
+      "path": "/api/messages/sessions",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/sessions.rs",
+      "response_envelope": "native-json",
+      "python_parity": {
+        "owner_file": "backend/src/magi/api/routers/messages.py"
+      }
+    },
+    {
+      "path": "/api/messages/history",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/messages.rs",
+      "response_envelope": "native-json",
+      "python_parity": {
+        "owner_file": "backend/src/magi/api/routers/messages.py"
+      }
+    },
+    {
+      "path": "/api/messages/session/{session_id}/attachments/{attachment_id}/content",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/messages.rs",
+      "response_envelope": "binary-or-json-error",
+      "python_parity": {
+        "owner_file": "backend/src/magi/api/routers/messages.py"
+      }
+    },
+    {
+      "path": "/api/messages/session/new",
+      "methods": ["POST"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/sessions.rs",
+      "response_envelope": "native-json",
+      "python_parity": {
+        "owner_file": "backend/src/magi/api/routers/messages.py"
+      }
+    },
+    {
+      "path": "/api/messages/session/{session_id}/workspace",
+      "methods": ["PATCH"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/sessions.rs",
+      "response_envelope": "native-json",
+      "python_parity": {
+        "owner_file": "backend/src/magi/api/routers/messages.py"
+      }
+    },
+    {
+      "path": "/api/messages/session/{session_id}/message/{message_id}/label",
+      "methods": ["POST"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/messages.rs",
+      "response_envelope": "native-json",
+      "python_parity": {
+        "owner_file": "backend/src/magi/api/routers/messages.py"
+      }
+    },
+    {
+      "path": "/api/messages/session/{session_id}/message/{message_id}",
+      "methods": ["DELETE"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/messages.rs",
+      "response_envelope": "native-json",
+      "python_parity": {
+        "owner_file": "backend/src/magi/api/routers/messages.py"
+      }
+    },
+    {
+      "path": "/api/messages/session/{session_id}",
+      "methods": ["PATCH"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/sessions.rs",
+      "response_envelope": "native-json",
+      "python_parity": {
+        "owner_file": "backend/src/magi/api/routers/messages.py"
+      }
+    },
+    {
+      "path": "/api/messages/trace",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/trace.rs",
+      "response_envelope": "native-json",
+      "python_parity": {
+        "owner_file": "backend/src/magi/api/routers/messages.py"
+      }
+    },
+    {
+      "path": "/api/tasks/orchestration/{orchestration_id}",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/tasks.rs",
+      "response_envelope": "native-json"
+    },
+    {
+      "path": "/api/tasks/{task_id}",
+      "methods": ["DELETE", "GET", "PATCH"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/tasks.rs",
+      "response_envelope": "native-json"
+    },
+    {
+      "path": "/api/tasks",
+      "methods": ["GET", "POST"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/tasks.rs",
+      "response_envelope": "native-json"
+    },
+    {
+      "path": "/api/schedules/executions/recent",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/schedules.rs",
+      "response_envelope": "native-json"
+    },
+    {
+      "path": "/api/schedules/{schedule_id}/executions",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/schedules.rs",
+      "response_envelope": "native-json"
+    },
+    {
+      "path": "/api/schedules/{schedule_id}",
+      "methods": ["DELETE", "GET", "PATCH"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/schedules.rs",
+      "response_envelope": "native-json"
+    },
+    {
+      "path": "/api/schedules",
+      "methods": ["GET", "POST"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/schedules.rs",
+      "response_envelope": "native-json"
+    },
+    {
+      "path": "/api/metrics/llm/usage/summary",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/metrics.rs",
+      "response_envelope": "native-json"
+    },
+    {
+      "path": "/api/metrics/llm/usage/timeseries",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/metrics.rs",
+      "response_envelope": "native-json"
+    },
+    {
+      "path": "/api/metrics/runtime/overview",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/metrics.rs",
+      "response_envelope": "native-json"
+    },
+    {
+      "path": "/api/memory/statistics",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/memory.rs",
+      "response_envelope": "native-json",
+      "python_parity": {
+        "owner_file": "backend/src/magi/api/routers/memory.py"
+      }
+    },
+    {
+      "path": "/api/memory/l2/statistics",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/memory.rs",
+      "response_envelope": "native-json",
+      "python_parity": {
+        "owner_file": "backend/src/magi/api/routers/memory.py"
+      }
+    },
+    {
+      "path": "/api/memory/identity/links",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/memory.rs",
+      "response_envelope": "native-json",
+      "python_parity": {
+        "owner_file": "backend/src/magi/api/routers/memory.py"
+      }
+    },
+    {
+      "path": "/api/memory/l1/events",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/memory.rs",
+      "response_envelope": "paginated-native-json",
+      "python_parity": {
+        "owner_file": "backend/src/magi/api/routers/memory.py"
+      }
+    },
+    {
+      "path": "/api/memory/l2/relations",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/memory.rs",
+      "response_envelope": "paginated-native-json",
+      "python_parity": {
+        "owner_file": "backend/src/magi/api/routers/memory.py"
+      }
+    },
+    {
+      "path": "/api/memory/l2/assertions",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/memory.rs",
+      "response_envelope": "paginated-native-json",
+      "python_parity": {
+        "owner_file": "backend/src/magi/api/routers/memory.py"
+      }
+    },
+    {
+      "path": "/api/memory/l2/entities",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/memory.rs",
+      "response_envelope": "paginated-native-json",
+      "python_parity": {
+        "owner_file": "backend/src/magi/api/routers/memory.py"
+      }
+    },
+    {
+      "path": "/api/memory/l2/mentions",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/memory.rs",
+      "response_envelope": "paginated-native-json",
+      "python_parity": {
+        "owner_file": "backend/src/magi/api/routers/memory.py"
+      }
+    },
+    {
+      "path": "/api/memory/l2/snapshots",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/memory.rs",
+      "response_envelope": "paginated-native-json",
+      "python_parity": {
+        "owner_file": "backend/src/magi/api/routers/memory.py"
+      }
+    },
+    {
+      "path": "/api/memory/l2/conflict-rules",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/memory.rs",
+      "response_envelope": "native-json",
+      "python_parity": {
+        "owner_file": "backend/src/magi/api/routers/memory.py"
+      }
+    },
+    {
+      "path": "/api/memory/l3/summaries",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/memory.rs",
+      "response_envelope": "paginated-native-json",
+      "python_parity": {
+        "owner_file": "backend/src/magi/api/routers/memory.py"
+      }
+    },
+    {
+      "path": "/api/memory/l0/sessions",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/memory.rs",
+      "response_envelope": "paginated-native-json",
+      "python_parity": {
+        "owner_file": "backend/src/magi/api/routers/memory.py"
+      }
+    },
+    {
+      "path": "/api/memory/l0/workbench/{session_id}",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/memory.rs",
+      "response_envelope": "native-json",
+      "python_parity": {
+        "owner_file": "backend/src/magi/api/routers/memory.py"
+      }
+    },
+    {
+      "path": "/api/memory/l2/pending",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/memory.rs",
+      "response_envelope": "native-json"
+    },
+    {
+      "path": "/api/memory/background/pending",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/memory.rs",
+      "response_envelope": "native-json",
+      "python_parity": {
+        "owner_file": "backend/src/magi/api/routers/memory.py"
+      }
+    },
+    {
+      "path": "/api/memory/procedures",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/memory.rs",
+      "response_envelope": "paginated-native-json",
+      "python_parity": {
+        "owner_file": "backend/src/magi/api/routers/memory.py"
+      }
+    },
+    {
+      "path": "/api/memory/tom/{entity_id}",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/memory.rs",
+      "response_envelope": "native-json",
+      "python_parity": {
+        "owner_file": "backend/src/magi/api/routers/memory.py"
+      }
+    },
+    {
+      "path": "/api/llm/providers/custom-template",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/llm.rs",
+      "response_envelope": "native-json",
+      "python_parity": {
+        "owner_file": "backend/src/magi/api/routers/llm.py"
+      }
+    },
+    {
+      "path": "/api/local-embedding/discovered",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/local_embedding.rs",
+      "response_envelope": "native-json",
+      "python_parity": {
+        "owner_file": "backend/src/magi/api/routers/local_embedding.py"
+      }
+    }
+  ],
+  "static_mounts": [
+    {
+      "path": "/static/avatars",
+      "owner": "rust-static",
+      "owner_file": "crates/magi-gateway/src/api/mod.rs"
+    },
+    {
+      "path": "/static/user-avatars",
+      "owner": "rust-static",
+      "owner_file": "crates/magi-gateway/src/api/mod.rs"
+    }
+  ],
+  "proxied_prefixes": [
+    {
+      "prefix": "/api/background-tasks",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/background_tasks.py"
+    },
+    {
+      "prefix": "/api/config",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/config.py"
+    },
+    {
+      "prefix": "/api/control",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/control.py"
+    },
+    {
+      "prefix": "/api/llm",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/llm.py"
+    },
+    {
+      "prefix": "/api/local-embedding",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/local_embedding.py"
+    },
+    {
+      "prefix": "/api/local-reranker",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/local_reranker.py"
+    },
+    {
+      "prefix": "/api/memory",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/memory.py"
+    },
+    {
+      "prefix": "/api/messages",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/messages.py"
+    },
+    {
+      "prefix": "/api/personality",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/personality_config.py"
+    },
+    {
+      "prefix": "/api/personalities",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/personality_presets.py"
+    },
+    {
+      "prefix": "/api/personas",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/personas.py"
+    },
+    {
+      "prefix": "/api/plugins",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/plugins.py"
+    },
+    {
+      "prefix": "/api/runtime",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/transport/http_app.py"
+    },
+    {
+      "prefix": "/api/sensors",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/sensors.py"
+    },
+    {
+      "prefix": "/api/skills",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/skills.py"
+    },
+    {
+      "prefix": "/api/timeline",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/timeline.py"
+    },
+    {
+      "prefix": "/api/tools",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/tools.py"
+    }
+  ],
+  "ignored_python_routes": [
+    "/api/docs",
+    "/api/openapi.json"
+  ]
+}
