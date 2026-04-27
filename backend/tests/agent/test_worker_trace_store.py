@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 import sys
 from pathlib import Path
@@ -94,6 +95,11 @@ async def test_worker_trace_store_persists_llm_and_tool_rows(
                 "output_tokens": 12,
                 "duration_ms": 510,
             },
+            "context_usage": {
+                "used_tokens": 30,
+                "window_size": 128000,
+                "threshold": 96000,
+            },
         },
     )
     await manager._handle_tool_result(
@@ -125,6 +131,18 @@ async def test_worker_trace_store_persists_llm_and_tool_rows(
     assert tool_call is not None
     assert tool_call.tool_name == "glob"
     assert tool_call.success is True
+    notifications = await runtime_trace_store.list_notifications(after_id=0, limit=10)
+    context_usage_notification = next(
+        (item for item in notifications if item.channel == "context_usage"),
+        None,
+    )
+    assert context_usage_notification is not None
+    assert context_usage_notification.session_id == "s-chat"
+    assert context_usage_notification.turn_id == "turn-1"
+    payload = json.loads(context_usage_notification.payload_json)
+    assert payload["used_tokens"] == 30
+    assert payload["window_size"] == 128000
+    assert payload["threshold"] == 96000
 
 
 @pytest.mark.asyncio

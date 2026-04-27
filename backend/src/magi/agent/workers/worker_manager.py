@@ -851,12 +851,46 @@ class WorkerAgentManager(Tool):
                 response_preview=str(payload.get("response_preview") or "")[:240] or None,
             )
         )
+        context_usage = payload.get("context_usage")
+        if isinstance(context_usage, dict):
+            await self._publish_context_usage_notification(run_state, context_usage)
         # Broadcast trace_update so frontend sees real-time worker progress.
         await self._publish_trace_update_notification({
             "user_id": run_state.user_id,
             "session_id": run_state.session_id,
             "turn_id": run_state.turn_id,
         })
+
+    async def _publish_context_usage_notification(
+        self,
+        run_state: WorkerRunState,
+        context_usage: Dict[str, Any],
+    ) -> None:
+        if self._runtime_trace_store is None:
+            return
+        turn_id = str(run_state.turn_id or "").strip()
+        if not run_state.user_id or not run_state.session_id or not turn_id:
+            return
+        payload = {
+            "user_id": run_state.user_id,
+            "session_id": run_state.session_id,
+            "turn_id": turn_id,
+            "used_tokens": int(context_usage.get("used_tokens") or 0),
+            "window_size": int(context_usage.get("window_size") or 0),
+            "threshold": int(context_usage.get("threshold") or 0),
+            "timestamp": time.time(),
+        }
+        await self._runtime_trace_store.append_notification(
+            RuntimeNotificationRecord(
+                notification_id=0,
+                channel="context_usage",
+                user_id=run_state.user_id,
+                session_id=run_state.session_id,
+                turn_id=turn_id,
+                payload_json=json.dumps(payload, ensure_ascii=False),
+                created_at_ms=now_wall_ms(),
+            )
+        )
 
     def _build_trace_emitter(self) -> TraceEventEmitter | None:
         if self._message_bus is None:
