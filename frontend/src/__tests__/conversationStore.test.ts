@@ -390,4 +390,50 @@ describe('conversation store', () => {
       ],
     }));
   });
+
+  it('does not merge streaming runtime placeholders into todo state messages', () => {
+    const store = useConversationStore.getState();
+
+    store.appendStreamToolCall({
+      sessionId: 'session-a',
+      turnId: 'turn-tools',
+      toolCallId: 'call-1',
+      toolName: 'web-search',
+      status: 'running',
+    });
+
+    store.receiveHistory('session-a', [
+      {
+        id: 'msg-todo',
+        messageId: 'msg-todo',
+        role: 'assistant',
+        kind: 'status',
+        messageKind: 'todo_state',
+        content: 'Search official sources',
+        timestamp: 2000,
+        turnId: 'turn-tools',
+        payload: {
+          items: [
+            { id: 'task-1', content: 'Search official sources', status: 'in_progress' },
+          ],
+        },
+      },
+    ]);
+
+    const messages = useConversationStore.getState().messagesBySession['session-a'] || [];
+    const runtimeMessage = messages.find(
+      (message) => message.turnId === 'turn-tools' && message.kind === 'assistant' && !message.messageId,
+    );
+    const todoMessage = messages.find((message) => message.messageKind === 'todo_state');
+
+    expect(runtimeMessage).toEqual(expect.objectContaining({
+      streaming: true,
+      toolCalls: [expect.objectContaining({ toolName: 'web-search' })],
+    }));
+    expect(todoMessage).toEqual(expect.objectContaining({
+      messageId: 'msg-todo',
+      kind: 'status',
+      messageKind: 'todo_state',
+    }));
+  });
 });

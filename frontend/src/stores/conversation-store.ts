@@ -266,14 +266,18 @@ const canMergeTimelineMessage = (
     return false;
   }
 
-  // A streaming assistant message is always mergeable with later messages for the same turn.
-  if (existing.streaming && incoming.role === 'assistant') {
+  const incomingIsAssistantTranscript = incoming.role === 'assistant' && incoming.kind === 'assistant';
+
+  // A streaming assistant transcript is mergeable with later persisted
+  // assistant transcript rows for the same turn, but not with control/status
+  // rows such as todo_state.
+  if (existing.streaming && incomingIsAssistantTranscript) {
     return true;
   }
 
   // A completed-streaming placeholder (no persisted messageId) is mergeable with
-  // the persisted message for the same turn so the duplicate is replaced.
-  if (!existingMessageId && incomingMessageId && incoming.role === 'assistant') {
+  // the persisted assistant transcript for the same turn so the duplicate is replaced.
+  if (!existingMessageId && incomingMessageId && incomingIsAssistantTranscript) {
     return true;
   }
 

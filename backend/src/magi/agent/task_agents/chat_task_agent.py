@@ -544,7 +544,8 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
                 error=str(exc),
                 exc_info=True,
             )
-            await self._emit_llm_error(context, exc)
+            if sink is not None:
+                await self._emit_llm_error(context, exc)
             correlation_id = (
                 str(context.latest_fact.correlation_id or "").strip()
                 if isinstance(context.latest_fact, FactRecord)
@@ -560,12 +561,11 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
                 streamed=sink is not None,
             )
 
-    def _streaming_enabled(self, user_id: str) -> bool:
+    def _streaming_enabled(self, _user_id: str) -> bool:
         try:
-            pref = get_user_preference(user_id)
-            return bool(getattr(pref, "streaming_chat_enabled", True))
+            return bool(get_user_preference("streaming_chat_enabled", False))
         except Exception:
-            return True
+            return False
 
     async def _emit_llm_error(self, context: ChatRuntimeContext, exc: Exception) -> None:
         """Emit a user-visible error message when LLM call fails."""

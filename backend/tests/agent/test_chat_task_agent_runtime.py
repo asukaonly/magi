@@ -7,6 +7,7 @@ import pytest
 
 from magi.agent.runtime.contracts import FactRecord
 from magi.agent.task_agents.chat.postprocess_service import CHAT_TOOL_LOOP_STEP_EVENT_TYPE
+from magi.agent.task_agents import chat_task_agent as chat_task_agent_module
 from magi.agent.task_agents.chat_task_agent import ChatTaskAgent, _format_llm_error
 from magi.agent.task_agents.common import ExecutionMode, IncomingFactKind
 from magi.chat import ChatStore
@@ -67,6 +68,20 @@ def _tool_loop_fact(*, revision: int = 0) -> FactRecord:
         agent_instance_id="u-chat",
         correlation_id=f"tool-{revision}",
     )
+
+
+def test_chat_task_agent_streaming_enabled_reads_streaming_preference(monkeypatch) -> None:
+    calls: list[tuple[str, object]] = []
+
+    def fake_get_user_preference(key: str, default: object = None) -> object:
+        calls.append((key, default))
+        return False
+
+    monkeypatch.setattr(chat_task_agent_module, "get_user_preference", fake_get_user_preference)
+    agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
+
+    assert agent._streaming_enabled("u-chat") is False
+    assert calls == [("streaming_chat_enabled", False)]
 
 
 @pytest.mark.asyncio
@@ -271,6 +286,11 @@ async def test_call_llm_emits_error_chunk_on_failure(monkeypatch) -> None:
     be finalized instead of leaving the turn stuck in `running`.
     """
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
+    monkeypatch.setattr(
+        chat_task_agent_module,
+        "get_user_preference",
+        lambda key, default=None: key == "streaming_chat_enabled",
+    )
 
     emitted: list[dict] = []
 
@@ -314,6 +334,56 @@ async def test_call_llm_emits_error_chunk_on_failure(monkeypatch) -> None:
     assert emitted[1]["kind"] == "text_flush"
     assert result.response_text == emitted[0]["text"]
     assert result.streamed is True
+
+
+@pytest.mark.asyncio
+async def test_call_llm_does_not_emit_error_chunk_when_streaming_disabled(monkeypatch) -> None:
+    agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
+    monkeypatch.setattr(
+        chat_task_agent_module,
+        "get_user_preference",
+        lambda key, default=None: False,
+    )
+
+    emitted: list[dict] = []
+
+    async def _fake_emit(**kwargs):
+        emitted.append(kwargs)
+
+    monkeypatch.setattr(agent, "_emit_stream_event", _fake_emit)
+
+    class _FakeCoordinator:
+        async def execute(self, _params):
+            raise _FakeRateLimitError()
+
+    agent._coordinator = _FakeCoordinator()
+
+    from magi.agent.task_agents.chat.contracts import ChatRuntimeContext
+    from magi.agent.task_agents.common.contracts import IncomingFactKind
+
+    ctx = ChatRuntimeContext(
+        latest_fact=None,
+        recent_facts=[],
+        batch_facts=[],
+        agent_id="u-chat",
+        agent_type="chat",
+        runtime_key="chat:u-chat",
+        user_id="u-chat",
+        session_id="s-test",
+        history_key="u-chat:s-test",
+        history=[],
+        latest_user_message="hello",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=SimpleNamespace(turn_id="turn-x"),
+        conversation_history=[],
+        active_orchestrations=[],
+    )
+
+    result = await agent.call_llm(ctx, SimpleNamespace(mode=ExecutionMode.DIRECT_LLM))
+
+    assert emitted == []
+    assert "rate" in result.response_text.lower()
+    assert result.streamed is False
 
 
 @pytest.mark.asyncio
