@@ -14,7 +14,7 @@ import {
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
-import { messagesApi, type ChatSessionListItem } from '@/api';
+import { configApi, messagesApi, type ChatSessionListItem } from '@/api';
 import { CHAT_SESSION_KEY, DEFAULT_USER_ID } from '@/constants';
 import { Button } from '@/components/ui/button';
 import {
@@ -44,6 +44,8 @@ const MEMORY_DESTINATIONS = [
   { key: 'reflection', path: '/memory/reflection' },
   { key: 'skills', path: '/memory/skills' },
 ] as const;
+
+const QUICK_MODE_MEMORY_DESTINATIONS = MEMORY_DESTINATIONS.filter((item) => item.key === 'overview');
 
 const formatSessionTime = (timestamp: number, locale: string): string => {
   return formatChatClockTime(timestamp, locale);
@@ -99,6 +101,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const [deleteTargetSession, setDeleteTargetSession] = useState<ChatSessionListItem | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [actionPending, setActionPending] = useState(false);
+  const [userMode, setUserMode] = useState<'quick' | 'expert' | null>(null);
   const sessionMenuRef = useRef<HTMLDivElement>(null);
   const sessionCreatingRef = useRef(false);
 
@@ -193,6 +196,28 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [refreshSessions, shouldRefreshSessions]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadUserMode = async () => {
+      try {
+        const response = await configApi.get();
+        if (!cancelled) {
+          setUserMode(response.data?.preferences?.user_mode ?? null);
+        }
+      } catch {
+        if (!cancelled) {
+          setUserMode(null);
+        }
+      }
+    };
+
+    void loadUserMode();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (isMemoryRoute) {
@@ -323,6 +348,10 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
       return getSessionSearchText(session).includes(normalizedQuery);
     });
   }, [conversationSearch, sessionRows]);
+
+  const visibleMemoryDestinations = userMode === 'quick'
+    ? QUICK_MODE_MEMORY_DESTINATIONS
+    : MEMORY_DESTINATIONS;
 
   const tasksActiveCount = useBackgroundTaskStore((state) => state.activeCount);
 
@@ -604,7 +633,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
               >
                 <div className="min-h-0 flex-1 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
                   <div className="space-y-1">
-                  {MEMORY_DESTINATIONS.map((item) => {
+                  {visibleMemoryDestinations.map((item) => {
                     const destinationActive =
                       location.pathname === item.path ||
                       (item.path === '/memory/overview' && location.pathname === '/events');

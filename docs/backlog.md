@@ -22,6 +22,7 @@ Current focus areas:
 - Make explicit memory recall in chat reliable and evidence-backed.
 - Keep ordinary memory views user-facing, with layer-specific L0-L4 workbench surfaces reserved for expert/operator mode.
 - Quick-mode settings now keep memory configuration to the general section; L0-L4 tuning remains available in expert mode.
+- Quick-mode sidebar memory navigation now points users to the overview instead of layer-specific workbench pages.
 - Preserve timeline browsing, plugin management, and advanced runtime inspection, but do not make them Alpha polish blockers.
 
 Deferred unless profiling or product validation says otherwise:

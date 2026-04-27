@@ -2,11 +2,20 @@ import { MemoryRouter, useLocation } from 'react-router-dom';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { messagesApi } from '@/api';
+import { configApi, messagesApi } from '@/api';
 import Sidebar from '@/components/layout/Sidebar';
 import { useChatShellStore, useConversationStore } from '@/stores';
 
 vi.mock('@/api', () => ({
+  configApi: {
+    get: vi.fn().mockResolvedValue({
+      data: {
+        preferences: {
+          user_mode: null,
+        },
+      },
+    }),
+  },
   messagesApi: {
     listSessions: vi.fn().mockResolvedValue({
       sessions: [],
@@ -51,6 +60,13 @@ describe('sidebar navigation', () => {
       activePanel: 'none',
     });
     useConversationStore.getState().reset();
+    vi.mocked(configApi.get).mockResolvedValue({
+      data: {
+        preferences: {
+          user_mode: null,
+        },
+      },
+    } as any);
   });
 
   it('renders conversation, timeline, memory, and settings actions without a personality button', async () => {
@@ -513,6 +529,34 @@ describe('sidebar navigation', () => {
     expect(screen.getByRole('button', { name: 'memory.nav.skills' })).toBeInTheDocument();
     expect(screen.getByTestId('location')).toHaveTextContent('/memory/knowledge');
     expect(useChatShellStore.getState().activePanel).toBe('memory');
+  });
+
+  it('keeps quick-mode memory navigation focused on the overview destination', async () => {
+    const user = userEvent.setup();
+    vi.mocked(configApi.get).mockResolvedValue({
+      data: {
+        preferences: {
+          user_mode: 'quick',
+        },
+      },
+    } as any);
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <Sidebar />
+        <LocationProbe />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(configApi.get).toHaveBeenCalled());
+    await user.click(await screen.findByRole('button', { name: 'shell.memory' }));
+
+    expect(screen.getByRole('button', { name: 'memory.nav.overview' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'memory.nav.workbench' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'memory.nav.events' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'memory.nav.knowledge' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'memory.nav.reflection' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'memory.nav.skills' })).not.toBeInTheDocument();
   });
 
   it('renders unread badges for inactive chat sessions', async () => {
