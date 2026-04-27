@@ -21,6 +21,7 @@ Current focus areas:
 - Quick onboarding now separates provider/API-key setup from a recommended model confirmation step before completion.
 - Make explicit memory recall in chat reliable and evidence-backed.
 - Keep ordinary memory views user-facing, with layer-specific L0-L4 workbench surfaces reserved for expert/operator mode.
+- Quick-mode settings now keep memory configuration to the general section; L0-L4 tuning remains available in expert mode.
 - Preserve timeline browsing, plugin management, and advanced runtime inspection, but do not make them Alpha polish blockers.
 
 Deferred unless profiling or product validation says otherwise:

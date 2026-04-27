@@ -899,6 +899,32 @@ describe('settings page draft saving', () => {
     expect(screen.queryByRole('button', { name: 'settings.tabs.memoryGeneral' })).not.toBeInTheDocument();
   });
 
+  it('keeps quick-mode memory settings focused on the general section', async () => {
+    const user = userEvent.setup();
+    vi.mocked(configApi.get).mockResolvedValue({
+      data: {
+        ...structuredClone(DEFAULT_SYSTEM_CONFIG),
+        preferences: {
+          ...DEFAULT_SYSTEM_CONFIG.preferences,
+          user_mode: 'quick',
+        },
+      },
+    } as any);
+
+    render(<SettingsPage />);
+
+    const memoryGroupButton = await screen.findByRole('button', { name: 'settings.tabs.memory' });
+    await user.click(memoryGroupButton);
+
+    expect(screen.getByRole('button', { name: 'settings.tabs.memoryGeneral' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'settings.tabs.memoryWorkbench' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'settings.tabs.memoryEvents' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'settings.tabs.memoryKnowledge' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'settings.tabs.memoryReflection' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'settings.tabs.memorySkills' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'settings.tabs.memoryGeneral' })).toBeInTheDocument();
+  });
+
   it('saves memory storage path from the general memory section alongside knowledge settings', async () => {
     const user = userEvent.setup();
     pickDirectoryMock.mockResolvedValue('/Users/asuka/.magi/data/custom-memories');

@@ -74,6 +74,14 @@ function SettingsGroup({
   );
 }
 
+const ADVANCED_MEMORY_SECTION_IDS = new Set([
+  'memoryWorkbench',
+  'memoryEvents',
+  'memoryKnowledge',
+  'memoryReflection',
+  'memorySkills',
+]);
+
 function SettingsSwitchRow({
   title,
   description,
@@ -186,11 +194,29 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     [plugins]
   );
 
+  const quickMode = draftConfig.preferences.user_mode === 'quick';
+  const visibleNavItems = useMemo(
+    () =>
+      NAV_ITEMS.map((item) => {
+        if (item.id !== 'memory' || !isNavGroup(item) || !quickMode) {
+          return item;
+        }
+        return {
+          ...item,
+          children: item.children.filter((child) => !ADVANCED_MEMORY_SECTION_IDS.has(child.id)),
+        };
+      }),
+    [quickMode]
+  );
+  const effectiveActiveSection = quickMode && ADVANCED_MEMORY_SECTION_IDS.has(activeSection)
+    ? 'memoryGeneral'
+    : activeSection;
+
   const isNavGroupActive = (item: NavItem) => {
     if (!isNavGroup(item)) {
-      return activeSection === item.id;
+      return effectiveActiveSection === item.id;
     }
-    return item.children!.some((child) => child.id === activeSection);
+    return item.children!.some((child) => child.id === effectiveActiveSection);
   };
 
   const handleStateMemoryToggle = (checked: boolean) => {
@@ -296,7 +322,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
       }
     };
 
-    switch (activeSection) {
+    switch (effectiveActiveSection) {
       case 'preferences':
         return (
           <SettingsSectionShell>
@@ -865,7 +891,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             </p>
           </div>
           <div className="flex-1 space-y-1 overflow-y-auto px-4 py-4">
-            {NAV_ITEMS.map((item) => {
+            {visibleNavItems.map((item) => {
               const Icon = item.icon;
               const isActive = isNavGroupActive(item);
               const isExpandable = isNavGroup(item) || item.id === 'timeline' || item.id === 'channels';
@@ -920,7 +946,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                   {isNavGroup(item) && isExpanded ? (
                     <div className="ml-3 space-y-0.5 border-l border-[hsl(var(--settings-subnav-border)/0.78)] pl-4">
                       {item.children.map((child) => {
-                        const isChildActive = activeSection === child.id;
+                        const isChildActive = effectiveActiveSection === child.id;
                         return (
                           <button
                             key={child.id}
