@@ -145,7 +145,7 @@ class TestStpOnDemandFiltering:
             active_stp_state_name=state_name,
         )
 
-    async def _assemble(self, trigger: str, state_name: str):
+    async def _assemble(self, trigger: str, state_name: str, scenario: str = "chat"):
         from unittest.mock import AsyncMock
         from magi.context.assembler import PromptContextAssembler
 
@@ -163,7 +163,7 @@ class TestStpOnDemandFiltering:
             task_category="chat",
             retrieved_memory_payload=None,
             state_transition_override=None,
-            scenario="chat",
+            scenario=scenario,
             persona_name="test",
         )
         return ctx
@@ -188,3 +188,10 @@ class TestStpOnDemandFiltering:
         # No absurdity rule in config — nothing injected.
         assert len(ctx.state_transition_rules) == 0
         assert ctx.state_transition_override == "Comedy Mode"
+
+    @pytest.mark.asyncio
+    async def test_non_chat_scenario_suppresses_stp_context(self):
+        ctx = await self._assemble("crisis", "Emergency Mode", scenario="analysis")
+        assert ctx.state_transition_rules == []
+        assert ctx.state_transition_override is None
+        assert ctx.state_transition_behavior_shift is None

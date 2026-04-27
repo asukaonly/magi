@@ -276,11 +276,12 @@ class SelfMemory:
         analysis: InteractionAnalysis,
         stp_rules: list | None = None,
         milestone_conditions: dict[str, str] | None = None,
+        allow_state_transition: bool = True,
     ) -> bool:
         """Consolidate all per-turn personality updates behind the facade.
 
         Performs: record_interaction, update_after_interaction,
-        record_task_outcome, update_stp_trigger, and milestone recording.
+        record_task_outcome, optional update_stp_trigger, and milestone recording.
         Returns True if any update succeeded.
         """
         updated = False
@@ -309,19 +310,27 @@ class SelfMemory:
         except Exception as exc:
             logger.warning("Failed to update self memory: %s", exc)
 
-        # Persist detected STP trigger into emotional state.
-        try:
-            trigger = analysis.trigger_type or ""
-            state_name = ""
-            if trigger and stp_rules:
-                config = await self.get_core_personality()
-                for item in getattr(config, "state_transition_protocol", []):
-                    if getattr(item, "trigger_type", "") == trigger:
-                        state_name = getattr(item, "target_state_name", "")
-                        break
-            await self.update_stp_trigger(trigger, state_name)
-        except Exception as exc:
-            logger.warning("Failed to update STP trigger: %s", exc)
+        if allow_state_transition:
+            try:
+                trigger = analysis.trigger_type or ""
+                state_name = ""
+                if trigger and stp_rules:
+                    config = await self.get_core_personality()
+                    for item in getattr(config, "state_transition_protocol", []):
+                        if getattr(item, "trigger_type", "") == trigger:
+                            state_name = getattr(item, "target_state_name", "")
+                            break
+                logger.info(
+                    "STP trigger update user_id=%s trigger_type=%s state_name=%s",
+                    user_id,
+                    trigger or None,
+                    state_name or None,
+                )
+                await self.update_stp_trigger(trigger, state_name)
+            except Exception as exc:
+                logger.warning("Failed to update STP trigger: %s", exc)
+        else:
+            logger.info("STP trigger update skipped user_id=%s reason=non_chat_scope", user_id)
 
         # Record detected persona-layer milestones.
         if analysis.milestone_keys:

@@ -197,6 +197,7 @@ Design expectations:
 
 - presets should be loaded from the backend rather than hardcoded into the frontend
 - personality content should remain language-aware
+- state-transition behavior should apply only to direct chat turns; analysis, worker, and tool-result rendering should not trigger or inherit temporary persona state changes
 - quick mode should stay simpler than expert mode
 
 ## Memory System

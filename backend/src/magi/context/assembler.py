@@ -128,6 +128,7 @@ class PromptContextAssembler:
         active_stp_trigger = ""
         active_stp_state_name = ""
         features = get_personality_feature_flags()
+        state_transition_scope_enabled = str(scenario or "").strip() == "chat"
 
         if self_memory is not None:
             config = await self_memory.get_core_personality()
@@ -147,7 +148,7 @@ class PromptContextAssembler:
                     "energy_level": float(getattr(emotion, "energy_level", 0.7)),
                     "stress_level": float(getattr(emotion, "stress_level", 0.2)),
                 }
-                if features.state_transition_enabled:
+                if features.state_transition_enabled and state_transition_scope_enabled:
                     active_stp_trigger = getattr(emotion, "active_stp_trigger", "") or ""
                     active_stp_state_name = getattr(emotion, "active_stp_state_name", "") or ""
 
@@ -186,8 +187,8 @@ class PromptContextAssembler:
         # Load state transition protocol rules — only inject the active trigger's
         # rule (if any) to save tokens and reduce prompt noise.
         stp_rules: List[Dict[str, str]] = []
-        resolved_override = state_transition_override
-        if self_memory is not None and features.state_transition_enabled:
+        resolved_override = state_transition_override if state_transition_scope_enabled else None
+        if self_memory is not None and features.state_transition_enabled and state_transition_scope_enabled:
             config = await self_memory.get_core_personality()
             if hasattr(config, "state_transition_protocol") and config.state_transition_protocol:
                 for item in config.state_transition_protocol:

@@ -26,7 +26,7 @@ from ....runtime_trace import (
     TraceSpanRecord,
     TraceTurnRecord,
 )
-from ..common import ExecutionResult, FunctionCallingExecutionResult, IncomingFactKind
+from ..common import ExecutionMode, ExecutionResult, FunctionCallingExecutionResult, IncomingFactKind
 from ..explore.constants import EXPLORE_TASK_COMPLETED
 from .contracts import ChatParseOutcome, ChatRuntimeContext
 from .fact_classifier import WORKER_AGENT_EVENT_TYPES
@@ -938,9 +938,9 @@ class ChatPostProcessService:
         """Run memory/reflection updates off the AI_RESPONSE critical path.
 
         These updates persist relationship profile, emotional state, persona
-        milestones, STP triggers, and (for worker/explore turns) task
-        reflection summaries. None of them influence the response that is
-        about to be emitted; they only shape future turns, so they are safe
+        milestones, direct-chat STP triggers, and (for worker/explore turns)
+        task reflection summaries. None of them influence the response that
+        is about to be emitted; they only shape future turns, so they are safe
         to run after AI_RESPONSE is published.
         """
 
@@ -952,6 +952,11 @@ class ChatPostProcessService:
                         user_id=user_id,
                         user_message=user_message,
                         response_text=response_text,
+                        allow_state_transition=self._allows_state_transition(context=context, result=result),
+                        incoming_fact_kind=self._enum_value(context.incoming_fact_kind),
+                        execution_mode=self._enum_value(result.mode),
+                        session_id=context.session_id,
+                        turn_id=result.turn_id,
                     )
                 await self._record_task_reflection(
                     context=context,
@@ -979,7 +984,16 @@ class ChatPostProcessService:
         task.add_done_callback(self._background_tasks.discard)
 
     async def _record_memory_updates(
-        self, *, user_id: str, user_message: str, response_text: str = "",
+        self,
+        *,
+        user_id: str,
+        user_message: str,
+        response_text: str = "",
+        allow_state_transition: bool = True,
+        incoming_fact_kind: str | None = None,
+        execution_mode: str | None = None,
+        session_id: str | None = None,
+        turn_id: str | None = None,
     ) -> bool:
         features = get_personality_feature_flags()
         if not (
@@ -989,6 +1003,18 @@ class ChatPostProcessService:
         ):
             return False
 
+        effective_state_transition = bool(allow_state_transition and features.state_transition_enabled)
+        logger.info(
+            "[chat.memory] interaction analysis scope user_id=%s session_id=%s turn_id=%s "
+            "incoming_fact_kind=%s execution_mode=%s state_transition_enabled=%s",
+            user_id,
+            session_id,
+            turn_id,
+            incoming_fact_kind,
+            execution_mode,
+            effective_state_transition,
+        )
+
         # Collect STP rules so the analyzer can detect behavioral triggers.
         stp_rules: list[dict[str, str]] | None = None
         milestone_conditions: dict[str, str] | None = None
@@ -996,7 +1022,7 @@ class ChatPostProcessService:
             try:
                 config = await self._memory.get_core_personality()
                 if (
-                    features.state_transition_enabled
+                    effective_state_transition
                     and hasattr(config, "state_transition_protocol")
                     and config.state_transition_protocol
                 ):
@@ -1030,11 +1056,27 @@ class ChatPostProcessService:
                     analysis=analysis,
                     stp_rules=stp_rules,
                     milestone_conditions=milestone_conditions,
+                    allow_state_transition=effective_state_transition,
                 )
             except Exception as exc:
                 logger.warning("Failed to process turn outcome: %s", exc)
 
         return updated
+
+    @staticmethod
+    def _allows_state_transition(
+        *,
+        context: ChatRuntimeContext,
+        result: ExecutionResult,
+    ) -> bool:
+        return (
+            context.incoming_fact_kind == IncomingFactKind.USER_MESSAGE
+            and result.mode == ExecutionMode.DIRECT_LLM
+        )
+
+    @staticmethod
+    def _enum_value(value: Any) -> str:
+        return str(getattr(value, "value", value) or "")
 
     def _resolve_turn_id(self, context: ChatRuntimeContext, payload: dict[str, Any]) -> str | None:
         latest_payload = context.latest_payload

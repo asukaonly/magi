@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import pytest
+from types import SimpleNamespace
 
 from magi.chat import ChatStore
 from magi.agent.task_agents.chat.contracts import ChatRuntimeContext
@@ -15,6 +16,7 @@ from magi.agent.task_agents.chat.session_run_coordinator import TurnSupersession
 from magi.agent.task_agents.common import ExecutionMode, ExecutionResult, IncomingFactKind, UserMessagePayload
 from magi.agent.runtime.contracts import FactRecord
 from magi.events.events import EventTypes
+from magi.personality.interaction_analyzer import DEFAULT_ANALYSIS
 from magi.runtime_trace.store import RuntimeTraceStore
 
 
@@ -167,12 +169,127 @@ class _FakeUnifiedMemory:
         return {"summary_id": "summary-1", "summary_category": "task_reflection"}
 
 
+class _FakeStateTransitionItem:
+    trigger_type = "absurdity"
+    trigger_condition = "User makes a clearly absurd joke"
+    target_state_name = "Comedy Mode"
+
+
+class _RecordingPersonalityMemory:
+    def __init__(self) -> None:
+        self.process_calls: list[dict[str, object]] = []
+
+    async def get_core_personality(self):  # type: ignore[no-untyped-def]
+        return SimpleNamespace(
+            state_transition_protocol=[_FakeStateTransitionItem()],
+            milestone_conditions={},
+        )
+
+    async def process_turn_outcome(self, **kwargs):  # type: ignore[no-untyped-def]
+        self.process_calls.append(dict(kwargs))
+        return True
+
+
 class _FakeChatProjector:
     def __init__(self) -> None:
         self.assistant_messages: list[dict[str, object]] = []
 
     async def project_assistant_message(self, **kwargs):  # type: ignore[no-untyped-def]
         self.assistant_messages.append(dict(kwargs))
+
+
+@pytest.mark.asyncio
+async def test_memory_updates_pass_stp_rules_for_direct_chat_scope(monkeypatch) -> None:
+    import magi.agent.task_agents.chat.postprocess_service as postprocess_module
+
+    analysis_calls: list[dict[str, object]] = []
+
+    async def _fake_analyze_interaction(*args, **kwargs):  # type: ignore[no-untyped-def]
+        _ = args
+        analysis_calls.append(dict(kwargs))
+        return DEFAULT_ANALYSIS
+
+    monkeypatch.setattr(
+        postprocess_module,
+        "get_personality_feature_flags",
+        lambda: SimpleNamespace(
+            state_memory_enabled=True,
+            state_transition_enabled=True,
+            deep_persona_enabled=False,
+        ),
+    )
+    monkeypatch.setattr(postprocess_module, "analyze_interaction", _fake_analyze_interaction)
+    memory = _RecordingPersonalityMemory()
+    service = ChatPostProcessService(
+        agent_id="chat:local_user",
+        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        get_event_emitter=lambda: _FakeEventEmitter(),
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        memory=memory,
+    )
+
+    await service._record_memory_updates(
+        user_id="local_user",
+        user_message="say something funny",
+        response_text="funny response",
+        allow_state_transition=True,
+        incoming_fact_kind="user_message",
+        execution_mode="direct_llm",
+        session_id="session-1",
+        turn_id="turn-1",
+    )
+
+    assert analysis_calls[-1]["stp_rules"] == [
+        {"trigger_type": "absurdity", "trigger_condition": "User makes a clearly absurd joke"}
+    ]
+    assert memory.process_calls[-1]["allow_state_transition"] is True
+
+
+@pytest.mark.asyncio
+async def test_memory_updates_skip_stp_rules_outside_direct_chat_scope(monkeypatch) -> None:
+    import magi.agent.task_agents.chat.postprocess_service as postprocess_module
+
+    analysis_calls: list[dict[str, object]] = []
+
+    async def _fake_analyze_interaction(*args, **kwargs):  # type: ignore[no-untyped-def]
+        _ = args
+        analysis_calls.append(dict(kwargs))
+        return DEFAULT_ANALYSIS
+
+    monkeypatch.setattr(
+        postprocess_module,
+        "get_personality_feature_flags",
+        lambda: SimpleNamespace(
+            state_memory_enabled=True,
+            state_transition_enabled=True,
+            deep_persona_enabled=False,
+        ),
+    )
+    monkeypatch.setattr(postprocess_module, "analyze_interaction", _fake_analyze_interaction)
+    memory = _RecordingPersonalityMemory()
+    service = ChatPostProcessService(
+        agent_id="chat:local_user",
+        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        get_event_emitter=lambda: _FakeEventEmitter(),
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        memory=memory,
+    )
+
+    await service._record_memory_updates(
+        user_id="local_user",
+        user_message="analyze apple stock",
+        response_text="analysis report",
+        allow_state_transition=False,
+        incoming_fact_kind="explore_task_completed",
+        execution_mode="explore_task_render",
+        session_id="session-1",
+        turn_id="turn-1",
+    )
+
+    assert analysis_calls[-1]["stp_rules"] is None
+    assert memory.process_calls[-1]["allow_state_transition"] is False
 
 
 @pytest.mark.asyncio

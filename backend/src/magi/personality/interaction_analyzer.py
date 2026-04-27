@@ -135,6 +135,18 @@ def _build_system_prompt(
     return _SYSTEM_PROMPT + extra
 
 
+def _preview(text: str, limit: int = 240) -> str:
+    return " ".join(str(text or "").split())[:limit]
+
+
+def _stp_rule_types(stp_rules: List[Dict[str, str]] | None) -> list[str]:
+    return [
+        str(rule.get("trigger_type") or "").strip()
+        for rule in (stp_rules or [])
+        if str(rule.get("trigger_type") or "").strip()
+    ]
+
+
 async def analyze_interaction(
     user_message: str,
     assistant_response: str,
@@ -173,9 +185,10 @@ async def analyze_interaction(
 
     t0 = time.monotonic()
     logger.debug(
-        "[analyze_interaction] LLM call start user_chars=%d response_chars=%d",
+        "[analyze_interaction] LLM call start user_chars=%d response_chars=%d stp_rule_types=%s",
         len(user_message),
         len(assistant_response),
+        _stp_rule_types(stp_rules),
     )
     try:
         raw = await bridge.chat(
@@ -187,8 +200,22 @@ async def analyze_interaction(
             disable_thinking=True,
         )
         elapsed_ms = (time.monotonic() - t0) * 1000
-        logger.debug("[analyze_interaction] LLM call completed elapsed_ms=%.1f", elapsed_ms)
-        return parse_analysis(raw, stp_rules=stp_rules)
+        analysis = parse_analysis(raw, stp_rules=stp_rules)
+        logger.info(
+            "[analyze_interaction] result elapsed_ms=%.1f trigger_type=%s outcome=%s "
+            "satisfaction=%s milestone_keys=%s stp_rule_types=%s raw_preview=%s "
+            "user_preview=%s response_preview=%s",
+            elapsed_ms,
+            analysis.trigger_type,
+            analysis.outcome_str,
+            analysis.satisfaction.value,
+            analysis.milestone_keys,
+            _stp_rule_types(stp_rules),
+            _preview(raw),
+            _preview(user_message),
+            _preview(assistant_response),
+        )
+        return analysis
     except Exception:
         elapsed_ms = (time.monotonic() - t0) * 1000
         logger.warning(
