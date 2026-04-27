@@ -941,7 +941,12 @@ const LLMForm: React.FC<LLMFormProps> = ({
     setActiveProviderId('openai');
   };
 
-  const handleAddProviderModel = (providerId: string, model: string, kind: 'chat' | 'embedding' = 'chat') => {
+  const handleAddProviderModel = (providerId: string, model: string, kind: 'chat' | 'embedding' | 'image' = 'chat') => {
+    if (kind === 'image') {
+      // Image generation models are predefined by the provider registry and not
+      // user-extensible from the workbench yet, so ignore the request.
+      return;
+    }
     const trimmedModel = model.trim();
     if (!trimmedModel) {
       return;

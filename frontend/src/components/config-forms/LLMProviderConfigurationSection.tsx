@@ -28,7 +28,7 @@ interface LLMProviderConfigurationSectionProps {
   onProviderChange: (providerId: string, updater: (provider: LLMProviderConfig) => void) => void;
   onAddCustomProvider: () => void;
   onRemoveCustomProvider: (providerId: string) => void;
-  onAddProviderModel: (providerId: string, model: string, kind: 'chat' | 'embedding') => void;
+  onAddProviderModel: (providerId: string, model: string, kind: 'chat' | 'embedding' | 'image') => void;
   onRemoveProviderModel: (providerId: string, model: string) => void;
   onProviderDefaultModelChange: (providerId: string, model: string) => void;
   onDiscoverProviderModels: (providerId: string) => void;
@@ -66,7 +66,7 @@ interface ProviderWorkbenchModelItem {
     max_output_tokens?: number | null;
     max_concurrency?: number | null;
   };
-  kinds: Array<'chat' | 'embedding'>;
+  kinds: Array<'chat' | 'embedding' | 'image'>;
   dimensions: number[];
 }
 
@@ -118,6 +118,30 @@ const buildProviderWorkbenchModels = (
       limits: model.limits || {},
       kinds: ['embedding'],
       dimensions: [...(model.dimensions || [])],
+    });
+  }
+
+  const providerMeta = registry.providers.find((item) => item.id === providerId);
+  for (const model of providerMeta?.image_generation_models || []) {
+    const existing = models.get(model.id);
+    if (existing) {
+      existing.kinds = Array.from(new Set([...existing.kinds, 'image']));
+      continue;
+    }
+    models.set(model.id, {
+      id: model.id,
+      label: model.label || model.id,
+      source: 'builtin',
+      capabilities: {
+        vision: false,
+        image_output: true,
+        tool_calling: false,
+        reasoning: false,
+        embedding: false,
+      },
+      limits: {},
+      kinds: ['image'],
+      dimensions: [],
     });
   }
 
@@ -184,7 +208,9 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
   const { t } = useTranslation('onboarding');
   const { t: appT } = useTranslation('app');
   const [modelDraft, setModelDraft] = useState('');
-  const [modelDraftKind, setModelDraftKind] = useState<'chat' | 'embedding'>('chat');
+  const [modelDraftKind, setModelDraftKind] = useState<'chat' | 'embedding' | 'image'>('chat');
+  const [modelKindMenuOpen, setModelKindMenuOpen] = useState(false);
+  const modelKindMenuRef = useRef<HTMLDivElement | null>(null);
   const [selectedModelId, setSelectedModelId] = useState('');
   const [providerTestModels, setProviderTestModels] = useState<Record<string, string>>({});
   const [providerTestMenuOpen, setProviderTestMenuOpen] = useState(false);
@@ -278,6 +304,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
   useEffect(() => {
     setModelDraft('');
     setModelDraftKind('chat');
+    setModelKindMenuOpen(false);
     setSelectedModelId('');
     setProviderTestMenuOpen(false);
     setProviderTestQuery('');
@@ -350,6 +377,30 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
       window.removeEventListener('keydown', handleEscape);
     };
   }, [providerTestMenuOpen]);
+
+  useEffect(() => {
+    if (!modelKindMenuOpen) {
+      return undefined;
+    }
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!modelKindMenuRef.current?.contains(event.target as Node)) {
+        setModelKindMenuOpen(false);
+      }
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setModelKindMenuOpen(false);
+      }
+    };
+
+    window.addEventListener('mousedown', handlePointerDown);
+    window.addEventListener('keydown', handleEscape);
+    return () => {
+      window.removeEventListener('mousedown', handlePointerDown);
+      window.removeEventListener('keydown', handleEscape);
+    };
+  }, [modelKindMenuOpen]);
 
   const updateModelOverride = (modelId: string, updater: (draft: LLMModelMetadataOverride) => void) => {
     onProviderChange(activeProviderId, (provider) => {
@@ -810,61 +861,100 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                   <div className="text-sm font-medium text-foreground">{t('llm.providerConfiguration.availableModels')}</div>
 
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                    <label className="space-y-2 sm:w-44">
+                    <div className="space-y-2 sm:w-fit">
                       <span className="text-sm font-medium">{t('llm.fields.modelKind')}</span>
-                      <div className="relative">
-                        <select
-                          aria-label={t('llm.fields.modelKind')}
-                          value={modelDraftKind}
-                          onChange={(event) => setModelDraftKind(event.target.value as 'chat' | 'embedding')}
+                      <div className="relative" ref={modelKindMenuRef}>
+                        <button
+                          type="button"
+                          aria-haspopup="listbox"
+                          aria-expanded={modelKindMenuOpen}
+                          onClick={() => setModelKindMenuOpen((current) => !current)}
                           className={cn(
-                            fieldClassName,
-                            'appearance-none pr-9',
-                            isSettingsSurface && 'rounded-lg'
+                            'inline-flex h-11 min-w-[160px] items-center justify-between gap-2 whitespace-nowrap rounded-md bg-[hsl(var(--settings-shell-elevated)/0.58)] px-3.5 text-sm font-medium text-foreground transition hover:bg-[hsl(var(--settings-shell-elevated)/0.82)]',
+                            isSettingsSurface && 'border border-[hsl(var(--settings-subnav-border)/0.8)] bg-transparent hover:bg-[hsl(var(--settings-shell-elevated)/0.42)]'
                           )}
                         >
-                          <option value="chat">{t('llm.modelKinds.chat')}</option>
-                          <option value="embedding">{t('llm.modelKinds.embedding')}</option>
-                        </select>
-                        <ChevronDown
-                          aria-hidden="true"
-                          className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-                        />
-                      </div>
-                    </label>
+                          <span>{t(`llm.modelKinds.${modelDraftKind}`)}</span>
+                          <ChevronDown className={cn('h-4 w-4 opacity-65 transition', modelKindMenuOpen && 'rotate-180')} />
+                        </button>
 
-                    <label className="flex-1 space-y-2">
-                      <span className="text-sm font-medium">
-                        {modelDraftKind === 'embedding'
-                          ? t('llm.fields.modelManualEntryEmbedding')
-                          : t('llm.fields.modelManualEntryChat')}
-                      </span>
-                      <input
-                        aria-label={t('llm.fields.modelManualEntry')}
-                        className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
-                        placeholder={
-                          modelDraftKind === 'embedding'
-                            ? t('llm.fields.modelManualEntryEmbeddingPlaceholder')
-                            : t('llm.fields.modelManualEntryPlaceholder')
-                        }
-                        value={modelDraft}
-                        onChange={(event) => setModelDraft(event.target.value)}
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onAddProviderModel(activeProviderId, modelDraft, modelDraftKind);
-                        setModelDraft('');
-                      }}
-                      className={cn(
-                        'inline-flex h-11 min-w-fit items-center justify-center whitespace-nowrap rounded-lg bg-background px-4 text-sm font-medium text-foreground transition hover:bg-accent',
-                        isSettingsSurface && 'rounded-md border border-[hsl(var(--settings-subnav-border)/0.8)] bg-transparent hover:bg-[hsl(var(--settings-shell-elevated)/0.42)]'
-                      )}
-                    >
-                      {t('llm.actions.addModel')}
-                    </button>
-                    {activeProvider.provider_type === 'custom' ? (
+                        {modelKindMenuOpen ? (
+                          <div
+                            role="listbox"
+                            className="absolute left-0 top-full z-20 mt-2 w-[min(220px,calc(100vw-2rem))] overflow-hidden rounded-[16px] border border-border/70 bg-background py-1.5 shadow-[0_18px_42px_rgba(15,23,42,0.16)]"
+                          >
+                            {(['chat', 'embedding', 'image'] as const).map((kindValue) => {
+                              const isSelected = modelDraftKind === kindValue;
+                              return (
+                                <button
+                                  key={kindValue}
+                                  type="button"
+                                  role="option"
+                                  aria-selected={isSelected}
+                                  onClick={() => {
+                                    setModelDraftKind(kindValue);
+                                    setModelKindMenuOpen(false);
+                                  }}
+                                  className={cn(
+                                    'flex w-full items-center justify-between px-3 py-2.5 text-left text-sm text-foreground transition',
+                                    isSelected ? 'bg-muted/80' : 'hover:bg-muted/50'
+                                  )}
+                                >
+                                  <span>{t(`llm.modelKinds.${kindValue}`)}</span>
+                                  {isSelected ? <CheckCircle2 className="h-4 w-4 text-primary" /> : null}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    {modelDraftKind !== 'image' ? (
+                      <label className="flex-1 space-y-2">
+                        <span className="text-sm font-medium">
+                          {modelDraftKind === 'embedding'
+                            ? t('llm.fields.modelManualEntryEmbedding')
+                            : t('llm.fields.modelManualEntryChat')}
+                        </span>
+                        <input
+                          aria-label={t('llm.fields.modelManualEntry')}
+                          className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
+                          placeholder={
+                            modelDraftKind === 'embedding'
+                              ? t('llm.fields.modelManualEntryEmbeddingPlaceholder')
+                              : t('llm.fields.modelManualEntryPlaceholder')
+                          }
+                          value={modelDraft}
+                          onChange={(event) => setModelDraft(event.target.value)}
+                        />
+                      </label>
+                    ) : (
+                      <div className="flex-1 space-y-2 self-stretch">
+                        <span className="text-sm font-medium opacity-0 select-none" aria-hidden="true">
+                          {t('llm.fields.modelManualEntryChat')}
+                        </span>
+                        <p className="rounded-lg bg-muted/40 px-3 py-2.5 text-xs text-muted-foreground">
+                          {t('llm.fields.imageModelsManagedByRegistry')}
+                        </p>
+                      </div>
+                    )}
+                    {modelDraftKind !== 'image' ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onAddProviderModel(activeProviderId, modelDraft, modelDraftKind);
+                          setModelDraft('');
+                        }}
+                        className={cn(
+                          'inline-flex h-11 min-w-fit items-center justify-center whitespace-nowrap rounded-lg bg-background px-4 text-sm font-medium text-foreground transition hover:bg-accent',
+                          isSettingsSurface && 'rounded-md border border-[hsl(var(--settings-subnav-border)/0.8)] bg-transparent hover:bg-[hsl(var(--settings-shell-elevated)/0.42)]'
+                        )}
+                      >
+                        {t('llm.actions.addModel')}
+                      </button>
+                    ) : null}
+                    {activeProvider.provider_type === 'custom' && modelDraftKind !== 'image' ? (
                       <button
                         type="button"
                         onClick={() => onDiscoverProviderModels(activeProviderId)}
@@ -930,6 +1020,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                               <div className="flex shrink-0 items-center gap-1.5">
                                 {model.kinds.includes('chat') ? <span className={badgeClassName}>{t('llm.badges.chat')}</span> : null}
                                 {model.kinds.includes('embedding') ? <span className={badgeClassName}>{t('llm.badges.embedding')}</span> : null}
+                                {model.kinds.includes('image') ? <span className={badgeClassName}>{t('llm.badges.image')}</span> : null}
                               </div>
                             </div>
                           </button>
@@ -949,9 +1040,13 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       )}
                     >
                       {activeWorkbenchModel ? (() => {
-                        const activeKind: 'chat' | 'embedding' =
-                          activeWorkbenchModel.kinds.includes('embedding') &&
-                          !activeWorkbenchModel.kinds.includes('chat')
+                        const activeKind: 'chat' | 'embedding' | 'image' =
+                          activeWorkbenchModel.kinds.includes('image') &&
+                          !activeWorkbenchModel.kinds.includes('chat') &&
+                          !activeWorkbenchModel.kinds.includes('embedding')
+                            ? 'image'
+                            : activeWorkbenchModel.kinds.includes('embedding') &&
+                              !activeWorkbenchModel.kinds.includes('chat')
                             ? 'embedding'
                             : 'chat';
                         const dimensionsValue =
@@ -985,6 +1080,8 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                                 <span className={badgeClassName}>
                                   {activeKind === 'embedding'
                                     ? t('llm.modelKinds.embedding')
+                                    : activeKind === 'image'
+                                    ? t('llm.modelKinds.image')
                                     : t('llm.modelKinds.chat')}
                                 </span>
                                 <span className={badgeClassName}>
@@ -1053,8 +1150,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                                     ['tool_calling', t('llm.modelFields.toolCalling')],
                                     ['reasoning', t('llm.modelFields.reasoning')],
                                     ['image_output', t('llm.modelFields.imageOutput')],
-                                  ] as const).map(([field, label]) => {
-                                    const checked = Boolean(
+                                  ] as const).map(([field, label]) => {                                    const checked = Boolean(
                                       activeModelOverride?.capabilities?.[field] ?? activeWorkbenchModel.capabilities[field]
                                     );
 
@@ -1143,7 +1239,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                                   </label>
                                 </div>
                               </>
-                            ) : (
+                            ) : activeKind === 'embedding' ? (
                               <div className={cn('grid gap-4', !isSettingsSurface && 'lg:grid-cols-2')}>
                                 <label className="space-y-2">
                                   <span className="text-sm font-medium">{t('llm.modelFields.dimensions')}</span>
@@ -1197,6 +1293,22 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                                     }
                                   />
                                 </label>
+                              </div>
+                            ) : (
+                              <div className="space-y-3">
+                                <p className="rounded-xl bg-background/80 px-3 py-3 text-sm text-muted-foreground">
+                                  {t('llm.modelFields.imageRuntimeHint')}
+                                </p>
+                                <ul className="grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">
+                                  <li className="rounded-lg bg-background/60 px-3 py-2">
+                                    <span className="block text-xs font-medium text-foreground">{t('llm.modelFields.imageSizes')}</span>
+                                    <span>1024×1024 / 1024×1536 / 1536×1024 / auto</span>
+                                  </li>
+                                  <li className="rounded-lg bg-background/60 px-3 py-2">
+                                    <span className="block text-xs font-medium text-foreground">{t('llm.modelFields.imageQuality')}</span>
+                                    <span>auto / high / medium / low</span>
+                                  </li>
+                                </ul>
                               </div>
                             )}
                           </>

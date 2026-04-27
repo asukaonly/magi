@@ -227,11 +227,13 @@
       "modelKind": "模型类型",
       "modelManualEntryChat": "添加聊天模型",
       "modelManualEntryEmbedding": "添加向量模型",
-      "modelManualEntryEmbeddingPlaceholder": "输入向量模型 ID"
+      "modelManualEntryEmbeddingPlaceholder": "输入向量模型 ID",
+      "imageModelsManagedByRegistry": "生图模型由服务商预置，暂不支持手动添加。"
     },
     "modelKinds": {
       "chat": "聊天模型",
-      "embedding": "向量模型"
+      "embedding": "向量模型",
+      "image": "生图模型"
     },
     "modelFields": {
       "modelId": "模型 ID",
@@ -249,7 +251,10 @@
       "maxConcurrency": "最大并发",
       "dimensions": "向量维度",
       "dimensionsPlaceholder": "例如：1536, 1024",
-      "dimensionsHint": "支持的输出维度，用逗号分隔。空值表示使用模型默认维度。"
+      "dimensionsHint": "支持的输出维度，用逗号分隔。空值表示使用模型默认维度。",
+      "imageRuntimeHint": "生图模型的尺寸、质量等参数由调用时动态传入，这里仅需选择启用哪些生图模型。",
+      "imageSizes": "常用尺寸",
+      "imageQuality": "质量选项"
     },
     "actions": {
       "addCustomProvider": "添加自定义供应商",
@@ -265,7 +270,8 @@
       "enabled": "已启用",
       "disabled": "未启用",
       "chat": "聊天",
-      "embedding": "向量"
+      "embedding": "向量",
+      "image": "生图"
     },
     "warnings": {
       "coreVisionMissing": "当前核心模型不支持图片输入。如果聊天中上传图片，会在运行时返回明确错误提示。"
