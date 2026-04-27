@@ -28,10 +28,13 @@ class TestStateTransitionRulesRendering:
         text = "\n".join(lines)
 
         assert "# Contextual Behavior Protocol" in text
-        assert "## Crisis: Emergency Mode" in text
+        assert "## Crisis" in text
+        assert "Emergency Mode" not in text
         assert "* When: User faces an urgent emergency" in text
         assert "* Behavior: Drop all small talk, output numbered action list." in text
-        assert "## Intimacy: Inner Circle" in text
+        assert "## Intimacy" in text
+        assert "Inner Circle" not in text
+        assert "Do not announce, name, or narrate state transitions" in text
 
     def test_render_empty_stp(self):
         renderer = PromptContextRenderer()
@@ -42,14 +45,16 @@ class TestStateTransitionRulesRendering:
         renderer = PromptContextRenderer()
         lines = renderer._render_state_override("Emergency Mode", "Focus and give numbered steps.")
         text = "\n".join(lines)
-        assert "Active State: Emergency Mode" in text
+        assert "Emergency Mode" not in text
         assert "Behavioral Directive: Focus and give numbered steps." in text
+        assert "never mention the state name" in text
 
     def test_render_state_override_without_behavior_shift(self):
         renderer = PromptContextRenderer()
         lines = renderer._render_state_override("Emergency Mode")
         text = "\n".join(lines)
-        assert "Active State: Emergency Mode" in text
+        assert "Emergency Mode" not in text
+        assert "Internal State: active" in text
         assert "Behavioral Directive" not in text
 
     def test_render_state_override_no_override(self):
@@ -101,7 +106,8 @@ class TestStateTransitionRulesRendering:
         prompt = renderer.render_system_prompt(ctx)
 
         assert "# Contextual Behavior Protocol" in prompt
-        assert "## Hostility: Boundary Setting" in prompt
+        assert "## Hostility" in prompt
+        assert "Boundary Setting" not in prompt
         assert "Stay calm and set boundaries." in prompt
 
 

@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm';
 import { motion } from 'framer-motion';
 import { AssistantRuntimePanel } from './AssistantRuntimePanel';
 import type { ChatTimelineMessage } from '@/domain/chat/state';
+import { normalizeAssistantMarkdownContent } from '@/domain/chat/markdown';
 
 type TranscriptTimelineMessageProps = {
   message: ChatTimelineMessage;
@@ -118,7 +119,7 @@ export const TranscriptTimelineMessage = ({
             <div className="max-w-none text-current">
               <AssistantRuntimePanel reasoning={message.reasoning} toolCalls={message.toolCalls} streaming={message.streaming} />
               <ReactMarkdown remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
-                {message.content}
+                {normalizeAssistantMarkdownContent(message.content)}
               </ReactMarkdown>
               {message.streaming && (
                 <span className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-current opacity-70" />

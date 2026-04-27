@@ -905,6 +905,22 @@ def test_chat_prompt_service_formats_dense_explore_render_text() -> None:
     assert "\n- React" in formatted
 
 
+def test_chat_prompt_service_unwraps_markdown_fenced_explore_response() -> None:
+    from magi.agent.task_agents.chat.prompt_service import ChatPromptService
+
+    service = ChatPromptService(
+        llm_adapter=_FakeLLMAdapter(),
+    )
+
+    raw = "```markdown\n# 苹果股价分析报告\n\n| 指标 | 数据 |\n|---|---|\n| 股价 | $192 |\n```\n\n补充说明"
+    formatted = service.format_explore_render_response(raw)
+
+    assert formatted.startswith("# 苹果股价分析报告")
+    assert "```markdown" not in formatted
+    assert "| 股价 | $192 |" in formatted
+    assert formatted.endswith("补充说明")
+
+
 @pytest.mark.asyncio
 async def test_plan_with_task_agent_logs_empty_response(monkeypatch) -> None:
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())

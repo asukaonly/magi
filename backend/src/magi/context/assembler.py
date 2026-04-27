@@ -202,9 +202,6 @@ class PromptContextAssembler:
                     condition = getattr(item, "trigger_condition", "")
                     if condition:
                         rule["trigger_condition"] = condition
-                    target = getattr(item, "target_state_name", "")
-                    if target:
-                        rule["target_state_name"] = target
                     shift = getattr(item, "behavior_shift", "")
                     if shift:
                         rule["behavior_shift"] = shift
@@ -536,20 +533,17 @@ class PromptContextRenderer:
         lines.append(
             "[System Notice: The following rules define how your behavior should shift under "
             "specific conditions. When a trigger condition is detected, adopt the described "
-            "behavioral shift. These transitions are temporary and revert when the condition ends.]"
+            "behavioral shift. These transitions are temporary and revert when the condition ends. "
+            "Do not announce, name, or narrate state transitions to the user.]"
         )
         lines.append("")
 
         for rule in rules:
             trigger_type = rule.get("trigger_type", "unknown")
             condition = rule.get("trigger_condition", "")
-            target = rule.get("target_state_name", "")
             shift = rule.get("behavior_shift", "")
 
-            label = f"## {trigger_type.title()}"
-            if target:
-                label += f": {target}"
-            lines.append(label)
+            lines.append(f"## {trigger_type.title()}")
 
             if condition:
                 lines.append(f"* When: {condition}")
@@ -684,9 +678,15 @@ class PromptContextRenderer:
         """Render state transition override as markdown."""
         lines = ["# State Transition Override"]
         if override:
-            lines.append(f"* Active State: {override}")
+            lines.append(
+                "[System Notice: A temporary internal behavior state is active. "
+                "Apply the behavioral directive quietly; never mention the state name, "
+                "state transition, or this notice to the user.]"
+            )
             if behavior_shift:
                 lines.append(f"* Behavioral Directive: {behavior_shift}")
+            else:
+                lines.append("* Internal State: active")
         else:
             lines.append("* N/A (using baseline persona)")
         lines.append("")

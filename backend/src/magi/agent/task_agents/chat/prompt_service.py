@@ -241,6 +241,8 @@ class ChatPromptService:
                     "下面是一份已经整理好的探索报告，请直接面向用户给出最终回答。",
                     "要求：",
                     "- 使用自然、正常的聊天语气，但必须用清晰的 Markdown 结构来组织内容。",
+                    "- 输出 Markdown 正文即可，不要用 ```markdown 或任何代码围栏包裹整篇回答。",
+                    "- 不要描述人格、模式或状态切换，不要输出舞台提示。",
                     "- 使用 `##` 二级标题组织主要部分；每个主要部分之间保留空行。",
                     "- 关键点尽量用短段落或 `-` 列表，不要输出一整块没有换行的大段文字。",
                     "- 以已经确认的信息为主，必要时自然引用关键文件路径。",
@@ -256,6 +258,8 @@ class ChatPromptService:
                 "Below is a prepared exploration dossier. Answer the user directly based on it.",
                 "Requirements:",
                 "- Use a natural conversational tone, but organize the answer with clear Markdown structure.",
+                "- Output the Markdown body directly; do not wrap the whole answer in ```markdown or any code fence.",
+                "- Do not describe persona, mode, or state transitions, and do not output stage directions.",
                 "- Use `##` section headings and keep a blank line between major sections.",
                 "- Prefer short paragraphs or `-` bullets over a single dense wall of text.",
                 "- Lead with confirmed findings and cite important file paths naturally when they matter.",
@@ -375,12 +379,31 @@ class ChatPromptService:
         if not text:
             return text
 
+        text = self._unwrap_markdown_document_fence(text)
+
         if "## " not in text and "### " not in text:
             text = re.sub(r"(?<!\n)(\d+\.\s)", r"\n\n\1", text)
             text = re.sub(r"(?<!\n)(-\s)", r"\n\1", text)
 
         text = re.sub(r"\n{3,}", "\n\n", text)
         return text.strip()
+
+    @classmethod
+    def _unwrap_markdown_document_fence(cls, text: str) -> str:
+        match = re.match(r"\A\s*```(?:markdown|md)\s*\n(?P<body>[\s\S]*?)\n```\s*", text, flags=re.IGNORECASE)
+        if not match:
+            return text
+        body = match.group("body").strip()
+        if not cls._looks_like_markdown_document(body):
+            return text
+        rest = text[match.end():].strip()
+        if rest:
+            return f"{body}\n\n{rest}"
+        return body
+
+    @staticmethod
+    def _looks_like_markdown_document(text: str) -> bool:
+        return bool(re.search(r"(?m)^\s{0,3}(#{1,6}\s|[-*]\s|>\s|\|.+\|)", text))
 
     def build_aggregation_fallback(self, state) -> str:
         completed = [
