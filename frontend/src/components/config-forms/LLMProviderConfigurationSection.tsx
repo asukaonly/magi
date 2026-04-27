@@ -226,6 +226,10 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
     () => buildProviderWorkbenchModels(registry, activeProviderId, activeProvider),
     [activeProvider, activeProviderId, registry]
   );
+  const filteredWorkbenchModels = useMemo(
+    () => activeWorkbenchModels.filter((model) => model.kinds.includes(modelDraftKind)),
+    [activeWorkbenchModels, modelDraftKind]
+  );
   const activeTestableModels = useMemo(
     () =>
       activeWorkbenchModels.filter(
@@ -233,7 +237,8 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
       ),
     [activeWorkbenchModels]
   );
-  const activeWorkbenchModel = activeWorkbenchModels.find((model) => model.id === selectedModelId) || activeWorkbenchModels[0];
+  const activeWorkbenchModel =
+    filteredWorkbenchModels.find((model) => model.id === selectedModelId) || filteredWorkbenchModels[0];
   const resolveDefaultTestModel = (providerId: string, models: ProviderWorkbenchModelItem[]): string => {
     if (!models.length) {
       return '';
@@ -286,17 +291,17 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
   }, [providerTestMenuOpen, providerTestQuery]);
 
   useEffect(() => {
-    if (!activeWorkbenchModels.length) {
+    if (!filteredWorkbenchModels.length) {
       if (selectedModelId) {
         setSelectedModelId('');
       }
       return;
     }
 
-    if (!activeWorkbenchModels.some((model) => model.id === selectedModelId)) {
-      setSelectedModelId(activeWorkbenchModels[0].id);
+    if (!filteredWorkbenchModels.some((model) => model.id === selectedModelId)) {
+      setSelectedModelId(filteredWorkbenchModels[0].id);
     }
-  }, [activeWorkbenchModels, selectedModelId]);
+  }, [filteredWorkbenchModels, selectedModelId]);
 
   useEffect(() => {
     if (!activeProviderId) {
@@ -805,35 +810,28 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                   <div className="text-sm font-medium text-foreground">{t('llm.providerConfiguration.availableModels')}</div>
 
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                    <div className="space-y-2 sm:w-fit">
+                    <label className="space-y-2 sm:w-44">
                       <span className="text-sm font-medium">{t('llm.fields.modelKind')}</span>
-                      <div
-                        role="tablist"
-                        aria-label={t('llm.fields.modelKind')}
-                        className="inline-flex h-11 items-center gap-1 rounded-lg bg-muted/55 p-1"
-                      >
-                        {([
-                          ['chat', t('llm.modelKinds.chat')],
-                          ['embedding', t('llm.modelKinds.embedding')],
-                        ] as const).map(([kindValue, kindLabel]) => (
-                          <button
-                            key={kindValue}
-                            type="button"
-                            role="tab"
-                            aria-selected={modelDraftKind === kindValue}
-                            onClick={() => setModelDraftKind(kindValue)}
-                            className={cn(
-                              'inline-flex h-9 items-center justify-center rounded-md px-3 text-sm font-medium transition',
-                              modelDraftKind === kindValue
-                                ? 'bg-background text-foreground shadow-[0_1px_2px_rgba(15,23,42,0.06)]'
-                                : 'text-muted-foreground hover:text-foreground'
-                            )}
-                          >
-                            {kindLabel}
-                          </button>
-                        ))}
+                      <div className="relative">
+                        <select
+                          aria-label={t('llm.fields.modelKind')}
+                          value={modelDraftKind}
+                          onChange={(event) => setModelDraftKind(event.target.value as 'chat' | 'embedding')}
+                          className={cn(
+                            fieldClassName,
+                            'appearance-none pr-9',
+                            isSettingsSurface && 'rounded-lg'
+                          )}
+                        >
+                          <option value="chat">{t('llm.modelKinds.chat')}</option>
+                          <option value="embedding">{t('llm.modelKinds.embedding')}</option>
+                        </select>
+                        <ChevronDown
+                          aria-hidden="true"
+                          className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+                        />
                       </div>
-                    </div>
+                    </label>
 
                     <label className="flex-1 space-y-2">
                       <span className="text-sm font-medium">
@@ -900,8 +898,8 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                         isSettingsSurface && 'rounded-lg bg-[hsl(var(--settings-shell-elevated)/0.35)] p-2.5'
                       )}
                     >
-                      {activeWorkbenchModels.length ? (
-                        activeWorkbenchModels.map((model) => (
+                      {filteredWorkbenchModels.length ? (
+                        filteredWorkbenchModels.map((model) => (
                           <button
                             key={model.id}
                             type="button"
