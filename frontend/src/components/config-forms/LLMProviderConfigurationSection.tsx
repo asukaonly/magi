@@ -1051,21 +1051,6 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                             : 'chat';
                         const dimensionsValue =
                           activeModelOverride?.dimensions ?? activeWorkbenchModel.dimensions;
-                        const dimensionsText = (dimensionsValue || []).join(', ');
-                        const parseDimensions = (raw: string): number[] | undefined => {
-                          const trimmed = raw.trim();
-                          if (!trimmed) {
-                            return undefined;
-                          }
-                          const parts = trimmed
-                            .split(/[\s,]+/)
-                            .map((part) => part.trim())
-                            .filter(Boolean)
-                            .map((part) => Number(part))
-                            .filter((value) => Number.isFinite(value) && value > 0)
-                            .map((value) => Math.floor(value));
-                          return parts.length ? parts : undefined;
-                        };
 
                         return (
                           <>
@@ -1240,34 +1225,106 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                                 </div>
                               </>
                             ) : activeKind === 'embedding' ? (
-                              <div className={cn('grid gap-4', !isSettingsSurface && 'lg:grid-cols-2')}>
-                                <label className="space-y-2">
+                              <div className="space-y-4">
+                                <div className="space-y-2">
                                   <span className="text-sm font-medium">{t('llm.modelFields.dimensions')}</span>
-                                  <input
-                                    aria-label={t('llm.modelFields.dimensions')}
-                                    className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
-                                    placeholder={t('llm.modelFields.dimensionsPlaceholder')}
-                                    defaultValue={dimensionsText}
-                                    key={`${activeWorkbenchModel.id}-${dimensionsText}`}
-                                    onBlur={(event) =>
-                                      updateModelOverride(activeWorkbenchModel.id, (draft) => {
-                                        // Preserve embedding kind for manual models when persisting overrides.
-                                        if (activeKind === 'embedding') {
+                                  <div
+                                    className={cn(
+                                      'flex flex-wrap items-center gap-2 rounded-xl bg-background/80 p-2 ring-1 ring-inset ring-border/55 shadow-[0_1px_2px_rgba(15,23,42,0.04)]',
+                                      isSettingsSurface && 'rounded-lg'
+                                    )}
+                                  >
+                                    {(dimensionsValue || []).map((dimension, index) => (
+                                      <span
+                                        key={`${dimension}-${index}`}
+                                        className="inline-flex items-center gap-1.5 rounded-full bg-muted/80 py-1 pl-3 pr-1 text-sm text-foreground"
+                                      >
+                                        <span className="tabular-nums">{dimension}</span>
+                                        <button
+                                          type="button"
+                                          aria-label={t('llm.modelFields.dimensionsRemove', { value: dimension })}
+                                          onClick={() =>
+                                            updateModelOverride(activeWorkbenchModel.id, (draft) => {
+                                              draft.capabilities = {
+                                                ...(draft.capabilities || {}),
+                                                embedding: true,
+                                              };
+                                              const next = (dimensionsValue || []).filter(
+                                                (_value, position) => position !== index
+                                              );
+                                              draft.dimensions = next.length ? next : null;
+                                            })
+                                          }
+                                          className="inline-flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground transition hover:bg-background hover:text-foreground"
+                                        >
+                                          <XCircle className="h-3.5 w-3.5" />
+                                        </button>
+                                      </span>
+                                    ))}
+                                    <input
+                                      aria-label={t('llm.modelFields.dimensionsAdd')}
+                                      type="number"
+                                      min={1}
+                                      step={1}
+                                      placeholder={t('llm.modelFields.dimensionsAddPlaceholder')}
+                                      className="h-8 min-w-[120px] flex-1 bg-transparent px-2 text-sm focus-visible:outline-none"
+                                      onKeyDown={(event) => {
+                                        if (event.key !== 'Enter' && event.key !== ',') {
+                                          return;
+                                        }
+                                        event.preventDefault();
+                                        const target = event.currentTarget;
+                                        const raw = target.value.trim();
+                                        if (!raw) {
+                                          return;
+                                        }
+                                        const parsed = Math.floor(Number(raw));
+                                        if (!Number.isFinite(parsed) || parsed <= 0) {
+                                          return;
+                                        }
+                                        updateModelOverride(activeWorkbenchModel.id, (draft) => {
                                           draft.capabilities = {
                                             ...(draft.capabilities || {}),
                                             embedding: true,
                                           };
+                                          const current = dimensionsValue || [];
+                                          if (current.includes(parsed)) {
+                                            return;
+                                          }
+                                          draft.dimensions = [...current, parsed];
+                                        });
+                                        target.value = '';
+                                      }}
+                                      onBlur={(event) => {
+                                        const raw = event.target.value.trim();
+                                        if (!raw) {
+                                          return;
                                         }
-                                        draft.dimensions = parseDimensions(event.target.value);
-                                      })
-                                    }
-                                  />
+                                        const parsed = Math.floor(Number(raw));
+                                        if (!Number.isFinite(parsed) || parsed <= 0) {
+                                          event.target.value = '';
+                                          return;
+                                        }
+                                        updateModelOverride(activeWorkbenchModel.id, (draft) => {
+                                          draft.capabilities = {
+                                            ...(draft.capabilities || {}),
+                                            embedding: true,
+                                          };
+                                          const current = dimensionsValue || [];
+                                          if (!current.includes(parsed)) {
+                                            draft.dimensions = [...current, parsed];
+                                          }
+                                        });
+                                        event.target.value = '';
+                                      }}
+                                    />
+                                  </div>
                                   <span className="block text-xs text-muted-foreground">
-                                    {t('llm.modelFields.dimensionsHint')}
+                                    {t('llm.modelFields.dimensionsChipHint')}
                                   </span>
-                                </label>
+                                </div>
 
-                                <label className="space-y-2">
+                                <label className="block space-y-2 sm:max-w-xs">
                                   <span className="text-sm font-medium">{t('llm.modelFields.maxConcurrency')}</span>
                                   <input
                                     aria-label={t('llm.modelFields.maxConcurrency')}

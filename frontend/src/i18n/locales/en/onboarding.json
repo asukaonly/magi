@@ -251,6 +251,10 @@
       "dimensions": "Dimensions",
       "dimensionsPlaceholder": "e.g. 1536, 1024",
       "dimensionsHint": "Supported output dimensions, comma-separated. Leave empty to use the model defaults.",
+      "dimensionsAdd": "Add dimension",
+      "dimensionsAddPlaceholder": "Type a value, then Enter",
+      "dimensionsRemove": "Remove dimension {{value}}",
+      "dimensionsChipHint": "Type a number then press Enter or comma. An empty list means the model defaults are used.",
       "imageRuntimeHint": "Size and quality for image generation are passed at call time, so this view only enables/disables which image models are available.",
       "imageSizes": "Common sizes",
       "imageQuality": "Quality presets"

@@ -252,6 +252,10 @@
       "dimensions": "向量维度",
       "dimensionsPlaceholder": "例如：1536, 1024",
       "dimensionsHint": "支持的输出维度，用逗号分隔。空值表示使用模型默认维度。",
+      "dimensionsAdd": "添加维度",
+      "dimensionsAddPlaceholder": "输入维度后回车",
+      "dimensionsRemove": "移除维度 {{value}}",
+      "dimensionsChipHint": "输入维度数后按回车或逗号添加，空列表表示使用模型默认维度。",
       "imageRuntimeHint": "生图模型的尺寸、质量等参数由调用时动态传入，这里仅需选择启用哪些生图模型。",
       "imageSizes": "常用尺寸",
       "imageQuality": "质量选项"
