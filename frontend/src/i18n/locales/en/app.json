@@ -1007,6 +1007,18 @@
       "notConfigured": "Not Configured"
     },
     "toolProviders": "Providers",
+    "pluginSections": {
+      "general": "General",
+      "sync": "Sync",
+      "storage": "Storage",
+      "analysis": "Analysis",
+      "notifications": "Notifications",
+      "delivery": "Delivery",
+      "privacy": "Privacy",
+      "retention": "Retention",
+      "activation": "Activation",
+      "filters": "Filters"
+    },
     "selectPlaceholder": "Please select",
     "browseFolder": "Browse folder",
     "loadingTools": "Loading tools...",
@@ -1516,25 +1528,79 @@
       "git-activity": {
         "name": "Git Activity",
         "description": "Git repository activity ingestion for the timeline",
+        "fields": {
+          "sensors.git_activity.repos": {
+            "label": "Repository Folders",
+            "description": "Select one or more Git repository folders to monitor."
+          },
+          "sensors.git_activity.sync_interval_minutes": {
+            "label": "Sync Interval (minutes)",
+            "description": "How often to check for new Git activity."
+          },
+          "sensors.git_activity.initial_sync_policy": {
+            "label": "Initial Sync Scope",
+            "description": "How much history to import the first time this source runs."
+          },
+          "sensors.git_activity.initial_sync_lookback_days": {
+            "label": "Lookback Days",
+            "description": "Used when the initial sync scope is set to recent days."
+          },
+          "sensors.git_activity.sensitive_mode": {
+            "label": "Sensitive Content Handling",
+            "description": "How to handle commit messages containing sensitive content."
+          },
+          "sensors.git_activity.sensitive_keywords": {
+            "label": "Additional Sensitive Keywords",
+            "description": "Commit messages matching these keywords use the sensitive-content rule above."
+          }
+        },
         "options": {
           "enabled": { "true": "Enabled", "false": "Disabled" },
-          "default_retention_mode": { "analyze_only": "Analyze Only", "full": "Full Retention" },
           "initial_sync_policy": {
             "full": "Sync full history",
             "lookback_days": "Sync recent days",
-            "from_now": "Only new commits from now"
+            "from_now": "Only new records from now on"
           },
           "sensitive_mode": {
             "redact": "Redact sensitive content",
-            "skip": "Skip commits with sensitive content",
-            "include": "Include all content"
+            "block": "Skip the whole commit"
           }
         },
-        "sections": { "general": "General", "retention": "Retention", "privacy": "Privacy" }
+        "sections": { "general": "General", "sync": "Sync", "privacy": "Privacy" }
       },
       "netease-music": {
         "name": "NetEase Cloud Music",
         "description": "Sync NetEase Cloud Music play history to timeline (Windows & macOS)",
+        "fields": {
+          "sensors.netease_music.sync_mode": {
+            "label": "Sync Mode",
+            "description": "How NetEase Cloud Music history should be synchronized."
+          },
+          "sensors.netease_music.sync_interval_minutes": {
+            "label": "Sync Interval (minutes)",
+            "description": "Polling interval used for interval-based sync."
+          },
+          "sensors.netease_music.min_play_duration": {
+            "label": "Minimum Play Duration (seconds)",
+            "description": "Tracks played for less than this are ignored so quick skips do not become timeline items."
+          },
+          "sensors.netease_music.db_path": {
+            "label": "Database Path",
+            "description": "Path to the NetEase Cloud Music local.db playback database."
+          },
+          "sensors.netease_music.initial_sync_policy": {
+            "label": "Initial Sync Scope",
+            "description": "How much history to seed into the timeline on the first sync."
+          },
+          "sensors.netease_music.tag_strategy": {
+            "label": "Genre Tag Source",
+            "description": "How genre or style tags are added to listened tracks."
+          },
+          "sensors.netease_music.lastfm_api_key": {
+            "label": "Last.fm API Key",
+            "description": "Required when Genre Tag Source is set to Last.fm. Apply for a free key at last.fm/api/account/create."
+          }
+        },
         "options": {
           "enabled": { "true": "Enabled", "false": "Disabled" },
           "sync_mode": { "manual": "Manual", "interval": "Interval", "watch": "Watch" },
@@ -1544,9 +1610,14 @@
             "full": "Sync full history",
             "lookback_days": "Sync recent days",
             "from_now": "Only new tracks from now"
+          },
+          "tag_strategy": {
+            "off": "Off",
+            "builtin": "Built-in (local alias data, limited coverage)",
+            "lastfm": "Last.fm"
           }
         },
-        "sections": { "general": "General", "storage": "Storage" }
+        "sections": { "general": "General", "analysis": "Analysis", "activation": "Activation" }
       },
       "screen-time": {
         "name": "App Usage",
@@ -1573,11 +1644,11 @@
       },
       "system-media": {
         "name": "Media Playback",
-        "description": "Automatically record what music and videos you play across all players",
+        "description": "Automatically record music and video playback exposed through system media controls",
         "fields": {
           "enabled": {
             "label": "Enable Media Recording",
-            "description": "Automatically detect and record music and videos playing on your device, including Spotify, browsers, and other players."
+            "description": "Automatically detect and record music and videos exposed through system media sessions. Browser tabs and Spotify usually work; NetEase Cloud Music is not currently guaranteed to surface here."
           },
           "sync_interval_minutes": {
             "label": "Recording Frequency",
@@ -1585,12 +1656,15 @@
           },
           "min_session_seconds": {
             "label": "Minimum Play Duration (seconds)",
-            "description": "Tracks played shorter than this are ignored (skipped songs won't be recorded)."
+            "description": "Playback shorter than this is ignored, mainly to filter out songs or videos you opened and skipped right away."
           },
           "pause_timeout_seconds": {
             "label": "Pause Before Ending Record (seconds)",
-            "description": "When playback is paused for longer than this, the current record is saved. For example, 300 means a 5-minute pause ends the record."
+            "description": "If playback stays paused longer than this, the current playback record is considered finished. For example, 300 means a 5-minute pause ends the record."
           }
+        },
+        "section_notes": {
+          "sync": "These two thresholds decide when a playback record is valid and when it ends: minimum play duration filters out quick skips, while pause-before-ending decides when one listening or watching session should be closed."
         },
         "options": {
           "sync_interval_minutes": {

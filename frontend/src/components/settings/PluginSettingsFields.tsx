@@ -6,6 +6,11 @@ import type { ExtensionFieldSpec } from '@/api/modules/plugins';
 
 type TFunction = (key: string) => string;
 
+const getOptionalTranslation = (t: TFunction, key: string): string | undefined => {
+  const translated = t(key);
+  return translated === key ? undefined : translated;
+};
+
 /**
  * Helper function to get plugin-specific translation with fallback
  */
@@ -39,10 +44,24 @@ const getSectionTitle = (
   t: TFunction,
   pluginId: string | undefined
 ): string => {
-  if (!pluginId) {
-    return section.replace(/_/g, ' ');
+  if (pluginId) {
+    const pluginTitle = getOptionalTranslation(t, `settings.plugins.${pluginId}.sections.${section}`);
+    if (pluginTitle) {
+      return pluginTitle;
+    }
   }
-  return getPluginTranslation(t, pluginId, `sections.${section}`, section.replace(/_/g, ' '));
+  return getOptionalTranslation(t, `settings.pluginSections.${section}`) ?? section.replace(/_/g, ' ');
+};
+
+const getSectionNote = (
+  section: string,
+  t: TFunction,
+  pluginId: string | undefined
+): string | undefined => {
+  if (!pluginId) {
+    return undefined;
+  }
+  return getOptionalTranslation(t, `settings.plugins.${pluginId}.section_notes.${section}`);
 };
 
 /**
@@ -146,6 +165,11 @@ export const PluginSettingsFields: React.FC<PluginSettingsFieldsProps> = ({
             <h4 className="text-sm font-medium capitalize text-foreground">
               {getSectionTitle(section, t, pluginId)}
             </h4>
+            {getSectionNote(section, t, pluginId) ? (
+              <p className="mt-1 max-w-3xl text-xs leading-6 text-muted-foreground">
+                {getSectionNote(section, t, pluginId)}
+              </p>
+            ) : null}
           </div>
           <div className="grid gap-4 md:grid-cols-2">
             {sectionFields.map((field) => (
