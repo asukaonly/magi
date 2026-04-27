@@ -22,10 +22,11 @@ pub async fn list_tasks(Query(params): Query<ListTasksQuery>) -> Json<Value> {
     let limit = params.limit.unwrap_or(50).clamp(1, 200);
     let offset = params.offset.unwrap_or(0).max(0);
 
-    let result =
-        tokio::task::spawn_blocking(move || query_tasks(&user_id, status.as_deref(), limit, offset))
-            .await
-            .unwrap_or_else(|_| json!({"tasks": []}));
+    let result = tokio::task::spawn_blocking(move || {
+        query_tasks(&user_id, status.as_deref(), limit, offset)
+    })
+    .await
+    .unwrap_or_else(|_| json!({"tasks": []}));
     Json(result)
 }
 
@@ -44,9 +45,7 @@ pub async fn get_task(Path(task_id): Path<String>) -> (StatusCode, Json<Value>) 
 }
 
 /// Native GET /api/tasks/orchestration/:orchestration_id handler.
-pub async fn list_tasks_by_orchestration(
-    Path(orchestration_id): Path<String>,
-) -> Json<Value> {
+pub async fn list_tasks_by_orchestration(Path(orchestration_id): Path<String>) -> Json<Value> {
     let result =
         tokio::task::spawn_blocking(move || query_tasks_by_orchestration(&orchestration_id))
             .await
@@ -67,7 +66,9 @@ fn open_tasks_db_rw() -> Option<Connection> {
 }
 
 fn row_to_task(row: &rusqlite::Row) -> rusqlite::Result<Value> {
-    let tags_json: String = row.get::<_, Option<String>>(5)?.unwrap_or_else(|| "[]".into());
+    let tags_json: String = row
+        .get::<_, Option<String>>(5)?
+        .unwrap_or_else(|| "[]".into());
     let tags: Value = serde_json::from_str(&tags_json).unwrap_or(json!([]));
     Ok(json!({
         "task_id": row.get::<_, String>(0)?,
@@ -190,11 +191,9 @@ pub async fn create_task(
     Query(q): Query<CreateTaskQuery>,
     Json(body): Json<TaskCreateBody>,
 ) -> (StatusCode, Json<Value>) {
-    let result = tokio::task::spawn_blocking(move || {
-        insert_task(&q.user_id, body)
-    })
-    .await
-    .unwrap_or(None);
+    let result = tokio::task::spawn_blocking(move || insert_task(&q.user_id, body))
+        .await
+        .unwrap_or(None);
     match result {
         Some(task) => (StatusCode::CREATED, Json(json!({"task": task}))),
         None => (
@@ -255,11 +254,9 @@ pub async fn update_task(
     Path(task_id): Path<String>,
     Json(body): Json<TaskUpdateBody>,
 ) -> (StatusCode, Json<Value>) {
-    let result = tokio::task::spawn_blocking(move || {
-        patch_task(&task_id, body)
-    })
-    .await
-    .unwrap_or(None);
+    let result = tokio::task::spawn_blocking(move || patch_task(&task_id, body))
+        .await
+        .unwrap_or(None);
     match result {
         Some(task) => (StatusCode::OK, Json(json!({"task": task}))),
         None => (
@@ -342,7 +339,10 @@ fn remove_task(task_id: &str) -> bool {
         Some(c) => c,
         None => return false,
     };
-    conn.execute("DELETE FROM tasks WHERE task_id = ?1", rusqlite::params![task_id])
-        .map(|n| n > 0)
-        .unwrap_or(false)
+    conn.execute(
+        "DELETE FROM tasks WHERE task_id = ?1",
+        rusqlite::params![task_id],
+    )
+    .map(|n| n > 0)
+    .unwrap_or(false)
 }

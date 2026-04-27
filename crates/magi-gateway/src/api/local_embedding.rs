@@ -19,7 +19,11 @@ fn load_preset_model_ids() -> HashSet<String> {
         .and_then(|m| m.as_array())
         .map(|arr| {
             arr.iter()
-                .filter_map(|item| item.get("id").and_then(|id| id.as_str()).map(|s| s.to_string()))
+                .filter_map(|item| {
+                    item.get("id")
+                        .and_then(|id| id.as_str())
+                        .map(|s| s.to_string())
+                })
                 .collect()
         })
         .unwrap_or_default()
@@ -32,12 +36,7 @@ fn has_onnx_files(dir: &std::path::Path) -> bool {
             .into_iter()
             .flatten()
             .filter_map(|e| e.ok())
-            .any(|e| {
-                e.path()
-                    .extension()
-                    .and_then(|ext| ext.to_str())
-                    == Some("onnx")
-            })
+            .any(|e| e.path().extension().and_then(|ext| ext.to_str()) == Some("onnx"))
     };
     if check_dir(dir) {
         return true;

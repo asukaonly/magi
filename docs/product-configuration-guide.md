@@ -26,6 +26,35 @@ Magi currently exposes these major configuration areas:
 
 These areas are closely related. Onboarding determines the first-run experience, while the settings page is the long-term place where users revisit the same configuration families.
 
+## Alpha Product Focus
+
+The current Alpha product path is **Chat with Memory + Evidence Trace**.
+
+This means the most important first-run and everyday workflow is:
+
+- complete onboarding quickly enough to reach chat
+- configure an LLM provider and a usable default model
+- choose or create a persona without needing file-system knowledge
+- send messages and receive reliable replies
+- ask explicit memory-recall questions
+- see enough evidence to understand which memories informed an answer
+
+Core surfaces for this path:
+
+- chat conversation flow
+- memory recall and answer evidence
+- onboarding quick setup
+- settings for LLM, conversation, memory, and persona basics
+
+Surfaces that remain supported but are not the Alpha polish target:
+
+- timeline browsing
+- plugin marketplace and plugin package management
+- advanced memory/operator panels
+- detailed runtime inspection surfaces
+
+Expert and operator surfaces should stay available when they help development or diagnosis, but they should not be pushed into quick onboarding or the ordinary chat path. Deep personality evolution, memory worker process isolation, and all-package backend typing strictness are follow-up work unless profiling or product validation shows they are required for the Alpha path.
+
 ## Language And Localization
 
 Magi currently supports:
@@ -196,6 +225,7 @@ The product should also support a configurable tone layer, such as:
 Design expectations:
 
 - presets should be loaded from the backend rather than hardcoded into the frontend
+- persona identity should flow through the persona registry APIs instead of filename-based UI state
 - personality content should remain language-aware
 - state-transition behavior should apply only to direct chat turns; analysis, worker, and tool-result rendering should not trigger or inherit temporary persona state changes
 - quick mode should stay simpler than expert mode
@@ -224,7 +254,9 @@ The current conceptual model is:
 Product expectations:
 
 - users can understand the lifecycle of memory at a high level
+- ordinary users should see memory through natural-language recall, evidence, and correction workflows before seeing layer-specific internals
 - advanced memory configuration remains expert-oriented
+- L0-L4 workbench and inspector surfaces should be treated as expert/operator tooling, not as the default user memory experience
 - quick onboarding should not force detailed memory tuning
 - settings should expose the main lifecycle toggles and key pipeline switches
 - general memory settings should expose the managed local storage directory used for memory databases

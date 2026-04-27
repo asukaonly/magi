@@ -3996,10 +3996,11 @@ class TestExtractionInstructions:
         assert "INTERESTED_IN" in profile.extraction_instructions
         assert "VIEWED" in profile.extraction_instructions
 
-    def test_chat_profile_has_no_extraction_instructions(self):
+    def test_chat_profile_has_extraction_instructions(self):
         from magi.memory.l2.extraction_profiles import get_extraction_profiles
         profile = get_extraction_profiles()["chat.user_message"]
-        assert profile.extraction_instructions is None
+        assert profile.extraction_instructions is not None
+        assert "direct user-authored chat messages" in profile.extraction_instructions
 
     def test_prompt_includes_extraction_instructions(self):
         from magi.memory.l2.prompts import render_phase1_extract_prompt

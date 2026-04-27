@@ -10,7 +10,7 @@
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
-    "test:ci": "vitest run src/__tests__/conversationStore.test.ts src/__tests__/chatTraceState.test.ts src/__tests__/chatPage.test.tsx src/__tests__/configForms.test.tsx src/__tests__/sidebarNavigation.test.tsx src/__tests__/memoryEventsPageSearch.test.tsx src/__tests__/onboardingFlow.test.tsx src/__tests__/appShellRouting.test.tsx src/__tests__/personalityForm.test.tsx",
+    "test:ci": "vitest run src/__tests__",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"

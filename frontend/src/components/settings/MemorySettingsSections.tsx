@@ -494,9 +494,8 @@ export function MemoryReflectionSettingsSection({
 
 export function MemorySkillsSettingsSection({
   draftConfig,
-  patchDraftConfig,
   updateMemoryToggle,
-}: Pick<MemorySettingsSectionProps, 'draftConfig' | 'patchDraftConfig' | 'updateMemoryToggle'>) {
+}: Pick<MemorySettingsSectionProps, 'draftConfig' | 'updateMemoryToggle'>) {
   const { t } = useTranslation('app');
 
   return (

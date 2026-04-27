@@ -46,10 +46,9 @@ pub async fn list_schedule_executions(
     Query(params): Query<ExecutionsQuery>,
 ) -> Json<Value> {
     let limit = params.limit.unwrap_or(20).clamp(1, 100);
-    let result =
-        tokio::task::spawn_blocking(move || query_executions(Some(&schedule_id), limit))
-            .await
-            .unwrap_or_else(|_| json!({"executions": []}));
+    let result = tokio::task::spawn_blocking(move || query_executions(Some(&schedule_id), limit))
+        .await
+        .unwrap_or_else(|_| json!({"executions": []}));
     Json(result)
 }
 
@@ -75,9 +74,15 @@ fn open_scheduler_db_rw() -> Option<Connection> {
 }
 
 fn serialize_schedule(row: &rusqlite::Row) -> rusqlite::Result<Value> {
-    let trigger_config: String = row.get::<_, Option<String>>(4)?.unwrap_or_else(|| "{}".into());
-    let target_payload: String = row.get::<_, Option<String>>(5)?.unwrap_or_else(|| "{}".into());
-    let metadata: String = row.get::<_, Option<String>>(6)?.unwrap_or_else(|| "{}".into());
+    let trigger_config: String = row
+        .get::<_, Option<String>>(4)?
+        .unwrap_or_else(|| "{}".into());
+    let target_payload: String = row
+        .get::<_, Option<String>>(5)?
+        .unwrap_or_else(|| "{}".into());
+    let metadata: String = row
+        .get::<_, Option<String>>(6)?
+        .unwrap_or_else(|| "{}".into());
     Ok(json!({
         "schedule_id": row.get::<_, String>(0)?,
         "target_type": row.get::<_, String>(1)?,
@@ -166,7 +171,9 @@ fn query_target_state(conn: &Connection, target_type: &str, target_key: &str) ->
         }
     };
     match stmt.query_row(rusqlite::params![target_type, target_key], |row| {
-        let stats_json: String = row.get::<_, Option<String>>(8)?.unwrap_or_else(|| "{}".into());
+        let stats_json: String = row
+            .get::<_, Option<String>>(8)?
+            .unwrap_or_else(|| "{}".into());
         Ok(json!({
             "target_type": target_type,
             "target_key": target_key,
@@ -224,24 +231,25 @@ fn query_executions(schedule_id: Option<&str>, limit: i64) -> Value {
         Some(c) => c,
         None => return json!({"executions": []}),
     };
-    let (query, params): (String, Vec<Box<dyn rusqlite::types::ToSql>>) =
-        if let Some(sid) = schedule_id {
-            (
+    let (query, params): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = if let Some(sid) =
+        schedule_id
+    {
+        (
                 format!(
                     "SELECT {} FROM schedule_executions WHERE schedule_id = ?1 ORDER BY started_at DESC LIMIT ?2",
                     EXECUTION_COLUMNS
                 ),
                 vec![Box::new(sid.to_string()), Box::new(limit)],
             )
-        } else {
-            (
-                format!(
-                    "SELECT {} FROM schedule_executions ORDER BY started_at DESC LIMIT ?1",
-                    EXECUTION_COLUMNS
-                ),
-                vec![Box::new(limit)],
-            )
-        };
+    } else {
+        (
+            format!(
+                "SELECT {} FROM schedule_executions ORDER BY started_at DESC LIMIT ?1",
+                EXECUTION_COLUMNS
+            ),
+            vec![Box::new(limit)],
+        )
+    };
     let mut stmt = match conn.prepare(&query) {
         Ok(s) => s,
         Err(_) => return json!({"executions": []}),
@@ -276,9 +284,7 @@ pub struct ScheduleCreateBody {
     pub metadata: Option<Value>,
 }
 
-pub async fn create_schedule(
-    Json(body): Json<ScheduleCreateBody>,
-) -> (StatusCode, Json<Value>) {
+pub async fn create_schedule(Json(body): Json<ScheduleCreateBody>) -> (StatusCode, Json<Value>) {
     let result = tokio::task::spawn_blocking(move || upsert_schedule(body))
         .await
         .unwrap_or(None);
@@ -297,9 +303,12 @@ fn upsert_schedule(body: ScheduleCreateBody) -> Option<Value> {
         .duration_since(std::time::UNIX_EPOCH)
         .ok()?
         .as_secs_f64();
-    let trigger_config = serde_json::to_string(&body.trigger.config).unwrap_or_else(|_| "{}".to_string());
-    let target_payload = serde_json::to_string(&body.target_payload.unwrap_or(json!({}))).unwrap_or_else(|_| "{}".to_string());
-    let metadata = serde_json::to_string(&body.metadata.unwrap_or(json!({}))).unwrap_or_else(|_| "{}".to_string());
+    let trigger_config =
+        serde_json::to_string(&body.trigger.config).unwrap_or_else(|_| "{}".to_string());
+    let target_payload = serde_json::to_string(&body.target_payload.unwrap_or(json!({})))
+        .unwrap_or_else(|_| "{}".to_string());
+    let metadata = serde_json::to_string(&body.metadata.unwrap_or(json!({})))
+        .unwrap_or_else(|_| "{}".to_string());
     let enabled: i64 = if body.enabled.unwrap_or(true) { 1 } else { 0 };
 
     conn.execute(
@@ -383,7 +392,8 @@ fn patch_schedule(schedule_id: &str, body: ScheduleUpdateBody) -> Option<Value> 
         sets.push(format!("trigger_type = ?{}", idx));
         params.push(Box::new(trigger.trigger_type));
         idx += 1;
-        let config_str = serde_json::to_string(&trigger.config).unwrap_or_else(|_| "{}".to_string());
+        let config_str =
+            serde_json::to_string(&trigger.config).unwrap_or_else(|_| "{}".to_string());
         sets.push(format!("trigger_config = ?{}", idx));
         params.push(Box::new(config_str));
         idx += 1;

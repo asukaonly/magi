@@ -270,10 +270,12 @@ pub async fn list_l1_events(Query(params): Query<L1EventsQuery>) -> Json<Value> 
 }
 
 fn build_l1_events_response(params: &L1EventsQuery) -> Value {
+    let limit = clamp_limit(params.limit, DEFAULT_LIMIT);
+    let offset = clamp_offset(params.offset);
     let path = db::l1_events_db_path();
     let conn = match db::open_readonly(&path) {
         Some(c) => c,
-        None => return json!({"items": [], "total": 0, "limit": 50, "offset": 0}),
+        None => return json!({"items": [], "total": 0, "limit": limit, "offset": offset}),
     };
 
     let mut where_parts = vec!["deleted_at IS NULL".to_string()];
@@ -331,8 +333,6 @@ fn build_l1_events_response(params: &L1EventsQuery) -> Value {
         .collect();
     let total = db::count_rows(&conn, &count_sql, &count_refs);
 
-    let limit = clamp_limit(params.limit, DEFAULT_LIMIT);
-    let offset = clamp_offset(params.offset);
     bind.push(rusqlite::types::Value::Integer(limit));
     bind.push(rusqlite::types::Value::Integer(offset));
 

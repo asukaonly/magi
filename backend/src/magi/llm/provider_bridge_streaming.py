@@ -1,0 +1,71 @@
+"""Streaming helpers for provider bridge responses."""
+
+from __future__ import annotations
+
+
+class ThinkTagScrubber:
+    """Strip ``<think>...</think>`` blocks from streaming text content."""
+
+    OPEN = "<think>"
+    CLOSE = "</think>"
+
+    def __init__(self) -> None:
+        self._inside = False
+        self._pending = ""
+
+    def feed(self, chunk: str) -> tuple[str, str]:
+        """Process ``chunk`` and return ``(visible_text, reasoning_text)``."""
+        if not chunk:
+            return "", ""
+        text = self._pending + chunk
+        self._pending = ""
+        visible: list[str] = []
+        reasoning: list[str] = []
+        i = 0
+        n = len(text)
+        while i < n:
+            if self._inside:
+                close_idx = text.find(self.CLOSE, i)
+                if close_idx == -1:
+                    tail = len(self.CLOSE) - 1
+                    if n - i <= tail:
+                        self._pending = text[i:]
+                        i = n
+                    else:
+                        safe_end = n - tail
+                        reasoning.append(text[i:safe_end])
+                        self._pending = text[safe_end:]
+                        i = n
+                    break
+                if close_idx > i:
+                    reasoning.append(text[i:close_idx])
+                i = close_idx + len(self.CLOSE)
+                self._inside = False
+            else:
+                open_idx = text.find(self.OPEN, i)
+                if open_idx == -1:
+                    tail = len(self.OPEN) - 1
+                    if n - i <= tail:
+                        self._pending = text[i:]
+                        i = n
+                    else:
+                        safe_end = n - tail
+                        visible.append(text[i:safe_end])
+                        self._pending = text[safe_end:]
+                        i = n
+                    break
+                if open_idx > i:
+                    visible.append(text[i:open_idx])
+                i = open_idx + len(self.OPEN)
+                self._inside = True
+        return "".join(visible), "".join(reasoning)
+
+    def flush(self) -> tuple[str, str]:
+        """Return any leftover buffered text when the stream ends."""
+        if not self._pending:
+            return "", ""
+        leftover = self._pending
+        self._pending = ""
+        if self._inside:
+            return "", leftover
+        return leftover, ""

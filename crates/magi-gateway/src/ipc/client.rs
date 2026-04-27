@@ -41,9 +41,7 @@ impl IpcClient {
     /// Connect to the IPC socket at `path` (Unix) and spawn the read/write loops.
     /// Returns the client handle and an event receiver for unsolicited events.
     #[cfg(unix)]
-    pub async fn connect(
-        path: &str,
-    ) -> Result<(Self, mpsc::Receiver<(String, Value)>), String> {
+    pub async fn connect(path: &str) -> Result<(Self, mpsc::Receiver<(String, Value)>), String> {
         let stream = tokio::net::UnixStream::connect(path)
             .await
             .map_err(|e| format!("IPC connect failed: {e}"))?;
@@ -53,9 +51,7 @@ impl IpcClient {
 
     /// Connect to the IPC socket via TCP loopback (Windows fallback).
     #[cfg(not(unix))]
-    pub async fn connect(
-        addr: &str,
-    ) -> Result<(Self, mpsc::Receiver<(String, Value)>), String> {
+    pub async fn connect(addr: &str) -> Result<(Self, mpsc::Receiver<(String, Value)>), String> {
         let stream = tokio::net::TcpStream::connect(addr)
             .await
             .map_err(|e| format!("IPC connect failed: {e}"))?;
@@ -63,7 +59,10 @@ impl IpcClient {
         Self::start(BufReader::new(reader), writer)
     }
 
-    fn start<R, W>(reader: BufReader<R>, writer: W) -> Result<(Self, mpsc::Receiver<(String, Value)>), String>
+    fn start<R, W>(
+        reader: BufReader<R>,
+        writer: W,
+    ) -> Result<(Self, mpsc::Receiver<(String, Value)>), String>
     where
         R: tokio::io::AsyncRead + Unpin + Send + 'static,
         W: tokio::io::AsyncWrite + Unpin + Send + 'static,
@@ -105,11 +104,7 @@ impl IpcClient {
     }
 
     /// Send a request and wait for the response.
-    pub async fn request(
-        &self,
-        method: &str,
-        params: Option<Value>,
-    ) -> Result<Value, IpcError> {
+    pub async fn request(&self, method: &str, params: Option<Value>) -> Result<Value, IpcError> {
         let id = uuid::Uuid::new_v4().to_string();
         let (tx, rx) = oneshot::channel();
 

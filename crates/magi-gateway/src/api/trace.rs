@@ -16,9 +16,7 @@ pub struct TraceQuery {
 
 /// Native GET /api/messages/trace handler — reads runtime_trace.db directly.
 pub async fn get_trace(Query(params): Query<TraceQuery>) -> Json<Value> {
-    let user_id = params
-        .user_id
-        .unwrap_or_else(|| "default_user".to_string());
+    let user_id = params.user_id.unwrap_or_else(|| "default_user".to_string());
     let session_id = match &params.session_id {
         Some(s) if !s.is_empty() => s.clone(),
         _ => return Json(json!({"success": false, "trace": null})),
@@ -42,13 +40,17 @@ pub(super) fn build_trace_snapshot(user_id: &str, session_id: &str, turn_id: &st
     }
     let conn = match Connection::open_with_flags(&trace_path, OpenFlags::SQLITE_OPEN_READ_ONLY) {
         Ok(c) => c,
-        Err(_) => return json!({"success": false, "user_id": user_id, "session_id": session_id, "turn_id": turn_id, "trace": null}),
+        Err(_) => {
+            return json!({"success": false, "user_id": user_id, "session_id": session_id, "turn_id": turn_id, "trace": null})
+        }
     };
 
     // Load trace_turn
     let turn = match load_trace_turn(&conn, user_id, session_id, turn_id) {
         Some(t) => t,
-        None => return json!({"success": true, "user_id": user_id, "session_id": session_id, "turn_id": turn_id, "trace": null}),
+        None => {
+            return json!({"success": true, "user_id": user_id, "session_id": session_id, "turn_id": turn_id, "trace": null})
+        }
     };
 
     let trace_id = turn
@@ -89,11 +91,7 @@ fn load_trace_turn(
              LIMIT 1",
         )
         .ok()?;
-    let names: Vec<String> = stmt
-        .column_names()
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
+    let names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
     let row = stmt
         .query_row(rusqlite::params![user_id, session_id, turn_id], |row| {
             let mut map = HashMap::new();
@@ -121,11 +119,7 @@ fn load_trace_spans(conn: &Connection, trace_id: &str) -> Vec<HashMap<String, Va
     )
 }
 
-fn load_detail_rows(
-    conn: &Connection,
-    table: &str,
-    trace_id: &str,
-) -> Vec<HashMap<String, Value>> {
+fn load_detail_rows(conn: &Connection, table: &str, trace_id: &str) -> Vec<HashMap<String, Value>> {
     if trace_id.is_empty() {
         return vec![];
     }
@@ -142,11 +136,7 @@ fn load_rows(
         Ok(s) => s,
         Err(_) => return vec![],
     };
-    let names: Vec<String> = stmt
-        .column_names()
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
+    let names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
     stmt.query_map(params, |row| {
         let mut map = HashMap::new();
         for (i, name) in names.iter().enumerate() {
@@ -282,14 +272,10 @@ fn build_trace_node(
     if let Some(lc) = llm_call {
         metadata["provider"] = lc.get("provider").cloned().unwrap_or(Value::Null);
         metadata["model"] = lc.get("model").cloned().unwrap_or(Value::Null);
-        metadata["input_tokens"] = json!(safe_int(
-            lc.get("input_tokens").unwrap_or(&Value::Null),
-            0
-        ));
-        metadata["output_tokens"] = json!(safe_int(
-            lc.get("output_tokens").unwrap_or(&Value::Null),
-            0
-        ));
+        metadata["input_tokens"] =
+            json!(safe_int(lc.get("input_tokens").unwrap_or(&Value::Null), 0));
+        metadata["output_tokens"] =
+            json!(safe_int(lc.get("output_tokens").unwrap_or(&Value::Null), 0));
         metadata["reasoning_tokens"] = json!(safe_int(
             lc.get("reasoning_tokens").unwrap_or(&Value::Null),
             0
@@ -302,11 +288,12 @@ fn build_trace_node(
             lc.get("cache_write_tokens").unwrap_or(&Value::Null),
             0
         ));
-        metadata["thinking_enabled"] = json!(lc
-            .get("thinking_enabled")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0)
-            != 0);
+        metadata["thinking_enabled"] = json!(
+            lc.get("thinking_enabled")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0)
+                != 0
+        );
     }
 
     if let Some(tc) = tool_call {
@@ -358,14 +345,8 @@ fn assemble_snapshot(
     llm_calls: &[HashMap<String, Value>],
     tool_calls: &[HashMap<String, Value>],
 ) -> Value {
-    let turn_id = turn
-        .get("turn_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    let trace_id = turn
-        .get("trace_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let turn_id = turn.get("turn_id").and_then(|v| v.as_str()).unwrap_or("");
+    let trace_id = turn.get("trace_id").and_then(|v| v.as_str()).unwrap_or("");
     let status_raw = turn
         .get("status")
         .and_then(|v| v.as_str())
@@ -413,7 +394,11 @@ fn assemble_snapshot(
         if span_id.is_empty() {
             continue;
         }
-        let node = build_trace_node(span, llm_by_span.get(span_id.as_str()).copied(), tool_by_span.get(span_id.as_str()).copied());
+        let node = build_trace_node(
+            span,
+            llm_by_span.get(span_id.as_str()).copied(),
+            tool_by_span.get(span_id.as_str()).copied(),
+        );
         node_by_id.insert(span_id.clone(), node);
 
         let parent = span
@@ -421,10 +406,7 @@ fn assemble_snapshot(
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string());
-        children_by_parent
-            .entry(parent)
-            .or_default()
-            .push(span_id);
+        children_by_parent.entry(parent).or_default().push(span_id);
     }
 
     // Attach children to parents
@@ -434,12 +416,11 @@ fn assemble_snapshot(
                 .iter()
                 .filter_map(|cid| node_by_id.remove(cid))
                 .collect();
-            sorted_children
-                .sort_by(|a, b| {
-                    let sa = a.get("started_at").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                    let sb = b.get("started_at").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                    sa.partial_cmp(&sb).unwrap_or(std::cmp::Ordering::Equal)
-                });
+            sorted_children.sort_by(|a, b| {
+                let sa = a.get("started_at").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let sb = b.get("started_at").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                sa.partial_cmp(&sb).unwrap_or(std::cmp::Ordering::Equal)
+            });
             if let Some(parent) = node_by_id.get_mut(pid) {
                 if let Some(arr) = parent.get_mut("children").and_then(|v| v.as_array_mut()) {
                     arr.extend(sorted_children);
@@ -447,7 +428,11 @@ fn assemble_snapshot(
             } else {
                 // Parent not found, re-insert children for top-level collection
                 for child in sorted_children {
-                    let cid = child.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let cid = child
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     if !cid.is_empty() {
                         node_by_id.insert(cid, child);
                     }
@@ -458,10 +443,7 @@ fn assemble_snapshot(
 
     // Collect top-level nodes (those with parent=None or parent=turn_span_id)
     let turn_span_id = format!("{}:turn", turn_id);
-    let mut top_ids: Vec<String> = children_by_parent
-        .get(&None)
-        .cloned()
-        .unwrap_or_default();
+    let mut top_ids: Vec<String> = children_by_parent.get(&None).cloned().unwrap_or_default();
     // If turn node exists, its children are also top-level
     let turn_node = node_by_id.remove(&turn_span_id);
     if turn_node.is_none() {
@@ -577,7 +559,11 @@ fn build_headline(mode: &str, status: &str, active: i64, completed: i64) -> Stri
     match status {
         "completed" => {
             if completed > 0 {
-                format!("Completed {} step{}", completed, if completed != 1 { "s" } else { "" })
+                format!(
+                    "Completed {} step{}",
+                    completed,
+                    if completed != 1 { "s" } else { "" }
+                )
             } else {
                 "Completed".to_string()
             }
@@ -587,7 +573,11 @@ fn build_headline(mode: &str, status: &str, active: i64, completed: i64) -> Stri
         _ => {
             if active > 0 {
                 if mode == "orchestration" {
-                    format!("Running {} step{}", active, if active != 1 { "s" } else { "" })
+                    format!(
+                        "Running {} step{}",
+                        active,
+                        if active != 1 { "s" } else { "" }
+                    )
                 } else {
                     "Executing tools".to_string()
                 }

@@ -6,17 +6,26 @@ This module centralizes API differences between OpenAI-compatible models
 """
 import json
 import time
-import uuid
 from functools import lru_cache
-from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional
 
 from .base import LLMAdapter
 from .anthropic import AnthropicAdapter
 from .concurrency_limiter import LLMConcurrencyLimiter, get_llm_concurrency_limiter
-from .parsers import parse_legacy_tool_calls, sanitize_llm_text
 from .streaming_events import LLMStreamEvent, emit_stream_event
-from .usage_events import LLMCallEventPayload, LLMUsageEventPublisher, publish_llm_call_event
+from .usage_events import LLMUsageEventPublisher, publish_llm_call_event
+from .provider_bridge_logging import (
+    build_provider_test_log_context as _build_provider_test_log_context,
+    extract_provider_error_details as _extract_provider_error_details,
+    is_provider_test_event as _is_provider_test_event,
+    sanitize_log_value as _sanitize_log_value,
+    summarize_raw_provider_response as _summarize_raw_provider_response,
+    truncate_log_value as _truncate_log_value,
+    truncate_provider_response as _truncate_provider_response,
+)
+from .provider_bridge_models import ProviderResponse, ProviderToolCall, ProviderUsage, ToolStreamResult
+from .provider_bridge_responses import ProviderBridgeResponseMixin
+from .provider_bridge_streaming import ThinkTagScrubber as _ThinkTagScrubber
 from ..config import get_config
 from ..config.loader import get_llm_provider_registry_file
 from ..config.llm_registry import (
@@ -30,129 +39,6 @@ from ..core.logger import get_logger
 
 
 logger = get_logger(__name__)
-
-
-_SENSITIVE_LOG_FIELD_PATTERNS = (
-    "api_key",
-    "apikey",
-    "secret",
-    "password",
-    "token",
-    "credential",
-    "private",
-    "authorization",
-)
-
-
-def _is_sensitive_log_field(field_name: str) -> bool:
-    field_lower = field_name.lower()
-    return any(pattern in field_lower for pattern in _SENSITIVE_LOG_FIELD_PATTERNS)
-
-
-def _sanitize_log_value(value: Any) -> Any:
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, list):
-        return [_sanitize_log_value(item) for item in value]
-    if isinstance(value, dict):
-        return {
-            key: ("***MASKED***" if _is_sensitive_log_field(str(key)) else _sanitize_log_value(item))
-            for key, item in value.items()
-        }
-    if hasattr(value, "model_dump"):
-        return _sanitize_log_value(value.model_dump())
-    if hasattr(value, "__dict__"):
-        return _sanitize_log_value(vars(value))
-    return str(value)
-
-
-def _is_provider_test_event(event_context: Optional[Dict[str, Any]]) -> bool:
-    return (event_context or {}).get("surface") == "config_provider_test"
-
-
-def _build_provider_test_log_context(
-    llm_adapter: LLMAdapter,
-    event_context: Optional[Dict[str, Any]],
-    **extra: Any,
-) -> Dict[str, Any]:
-    context: Dict[str, Any] = {
-        "provider_name": str(getattr(llm_adapter, "provider_name", "unknown")),
-        "model": str(getattr(llm_adapter, "model_name", "unknown")),
-        "base_url": getattr(llm_adapter, "base_url", None),
-    }
-    if event_context:
-        context["event_context"] = _sanitize_log_value(event_context)
-    for key, value in extra.items():
-        context[key] = _sanitize_log_value(value)
-    return context
-
-
-def _extract_provider_error_details(exc: Exception) -> Dict[str, Any]:
-    details: Dict[str, Any] = {
-        "error_type": exc.__class__.__name__,
-        "error": str(exc),
-    }
-    for attr_name in ("status_code", "request_id", "body", "code", "param", "type"):
-        attr_value = getattr(exc, attr_name, None)
-        if attr_value is not None:
-            details[attr_name] = _sanitize_log_value(attr_value)
-    response = getattr(exc, "response", None)
-    if response is not None:
-        headers = getattr(response, "headers", None)
-        if headers is not None:
-            details["response_headers"] = _sanitize_log_value(dict(headers))
-    request = getattr(exc, "request", None)
-    if request is not None:
-        details["request_method"] = getattr(request, "method", None)
-        details["request_url"] = str(getattr(request, "url", "")) or None
-    return details
-
-
-def _truncate_provider_response(provider_response: "ProviderResponse") -> Dict[str, Any]:
-    return {
-        "content": provider_response.content[:200],
-        "tool_calls": [
-            {
-                "id": tool_call.id,
-                "name": tool_call.name,
-                "arguments": _sanitize_log_value(tool_call.arguments),
-            }
-            for tool_call in provider_response.tool_calls
-        ],
-        "assistant_message": _sanitize_log_value(provider_response.assistant_message),
-        "metadata": _sanitize_log_value(provider_response.metadata),
-        "usage": _sanitize_log_value(provider_response.usage),
-    }
-
-
-def _truncate_log_value(value: Any, *, max_string_length: int = 500, max_items: int = 20) -> Any:
-    if value is None or isinstance(value, (int, float, bool)):
-        return value
-    if isinstance(value, str):
-        return value[:max_string_length]
-    if isinstance(value, list):
-        return [_truncate_log_value(item, max_string_length=max_string_length, max_items=max_items) for item in value[:max_items]]
-    if isinstance(value, dict):
-        truncated: Dict[str, Any] = {}
-        for index, (key, item) in enumerate(value.items()):
-            if index >= max_items:
-                truncated["__truncated_items__"] = len(value) - max_items
-                break
-            truncated[str(key)] = _truncate_log_value(item, max_string_length=max_string_length, max_items=max_items)
-        return truncated
-    if hasattr(value, "model_dump"):
-        try:
-            return _truncate_log_value(value.model_dump(), max_string_length=max_string_length, max_items=max_items)
-        except Exception:
-            return repr(value)[:max_string_length]
-    return repr(value)[:max_string_length]
-
-
-def _summarize_raw_provider_response(response: Any) -> Dict[str, Any]:
-    return {
-        "response_type": type(response).__name__,
-        "raw_response": _truncate_log_value(_sanitize_log_value(response)),
-    }
 
 
 def _coerce_thinking_depth(
@@ -172,133 +58,7 @@ def _coerce_thinking_depth(
     return ThinkingDepth.MEDIUM
 
 
-@dataclass
-class ProviderToolCall:
-    """Normalized tool call returned by a provider."""
-    id: str
-    name: str
-    arguments: Dict[str, Any]
-
-
-@dataclass
-class ProviderResponse:
-    """Normalized response returned by a provider."""
-    content: str = ""
-    tool_calls: List[ProviderToolCall] = None
-    assistant_message: Dict[str, Any] | None = None
-    metadata: Dict[str, Any] | None = None
-    usage: "ProviderUsage | None" = None
-
-    def __post_init__(self):
-        if self.tool_calls is None:
-            self.tool_calls = []
-        if self.metadata is None:
-            self.metadata = {}
-
-
-@dataclass
-class ProviderUsage:
-    """Normalized token usage returned by a provider."""
-
-    prompt_tokens: int = 0
-    completion_tokens: int = 0
-    total_tokens: int = 0
-    reasoning_tokens: int = 0
-    cache_read_tokens: int = 0
-    cache_write_tokens: int = 0
-
-
-@dataclass
-class ToolStreamResult:
-    """Result of a streaming tool-call LLM invocation.
-
-    Collects text chunks emitted so far and any tool_calls detected.
-    The caller inspects ``has_tool_calls`` after iteration to decide
-    whether to proceed with tool execution or treat the streamed text
-    as the final response.
-    """
-
-    provider_response: ProviderResponse
-    text_chunks_emitted: int = 0
-    has_tool_calls: bool = False
-
-
 DEFAULT_CHAT_CONCURRENCY_FALLBACK = 4
-
-
-class _ThinkTagScrubber:
-    """Strip ``<think>...</think>`` blocks from streaming text content.
-
-    Some OpenAI-compatible providers occasionally embed reasoning into
-    ``delta.content`` rather than the dedicated ``reasoning_content``
-    channel, which causes the thinking text to leak into the assistant
-    bubble. Tags can span chunk boundaries, so this helper keeps a
-    small carry-over buffer between ``feed`` calls.
-    """
-
-    OPEN = "<think>"
-    CLOSE = "</think>"
-
-    def __init__(self) -> None:
-        self._inside = False
-        self._pending = ""
-
-    def feed(self, chunk: str) -> tuple[str, str]:
-        """Process ``chunk`` and return ``(visible_text, reasoning_text)``."""
-        if not chunk:
-            return "", ""
-        text = self._pending + chunk
-        self._pending = ""
-        visible: list[str] = []
-        reasoning: list[str] = []
-        i = 0
-        n = len(text)
-        while i < n:
-            if self._inside:
-                close_idx = text.find(self.CLOSE, i)
-                if close_idx == -1:
-                    tail = len(self.CLOSE) - 1
-                    if n - i <= tail:
-                        self._pending = text[i:]
-                        i = n
-                    else:
-                        safe_end = n - tail
-                        reasoning.append(text[i:safe_end])
-                        self._pending = text[safe_end:]
-                        i = n
-                    break
-                if close_idx > i:
-                    reasoning.append(text[i:close_idx])
-                i = close_idx + len(self.CLOSE)
-                self._inside = False
-            else:
-                open_idx = text.find(self.OPEN, i)
-                if open_idx == -1:
-                    tail = len(self.OPEN) - 1
-                    if n - i <= tail:
-                        self._pending = text[i:]
-                        i = n
-                    else:
-                        safe_end = n - tail
-                        visible.append(text[i:safe_end])
-                        self._pending = text[safe_end:]
-                        i = n
-                    break
-                if open_idx > i:
-                    visible.append(text[i:open_idx])
-                i = open_idx + len(self.OPEN)
-                self._inside = True
-        return "".join(visible), "".join(reasoning)
-
-    def flush(self) -> tuple[str, str]:
-        """Return any leftover buffered text when the stream ends."""
-        if not self._pending:
-            return "", ""
-        leftover = self._pending
-        self._pending = ""
-        if self._inside:
-            return "", leftover
-        return leftover, ""
 
 
 @lru_cache(maxsize=1)
@@ -310,7 +70,7 @@ def _load_provider_registry() -> LLMProviderRegistryModel:
     )
 
 
-class LLMProviderBridge:
+class LLMProviderBridge(ProviderBridgeResponseMixin):
     """Unified entrypoint for provider-specific LLM calls."""
 
     def __init__(
@@ -451,7 +211,6 @@ class LLMProviderBridge:
             request_family=request_family,
             base_url=base_url,
         )
-
     def _resolve_chat_concurrency_limit(self) -> int:
         """Resolve the effective concurrency cap for chat requests."""
         key = self._build_concurrency_key("chat")
@@ -724,29 +483,6 @@ class LLMProviderBridge:
         done_ev = LLMStreamEvent(kind="done")
         await emit_stream_event(done_ev)
         yield done_ev
-
-    @staticmethod
-    def _openai_usage_to_wire(usage_data: Any) -> Optional[Dict[str, int]]:
-        if usage_data is None:
-            return None
-        return {
-            "prompt_tokens": int(getattr(usage_data, "prompt_tokens", 0) or 0),
-            "completion_tokens": int(getattr(usage_data, "completion_tokens", 0) or 0),
-            "total_tokens": int(getattr(usage_data, "total_tokens", 0) or 0),
-            "reasoning_tokens": int(getattr(usage_data, "reasoning_tokens", 0) or 0),
-        }
-
-    @staticmethod
-    def _anthropic_usage_to_wire(usage_data: Any) -> Optional[Dict[str, int]]:
-        if usage_data is None:
-            return None
-        prompt_tokens = int(getattr(usage_data, "input_tokens", 0) or 0)
-        completion_tokens = int(getattr(usage_data, "output_tokens", 0) or 0)
-        return {
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "total_tokens": prompt_tokens + completion_tokens,
-        }
 
     async def chat_with_tools(
         self,
@@ -1283,22 +1019,6 @@ class LLMProviderBridge:
             text_chunks_emitted=chunks_emitted,
             has_tool_calls=has_tool_calls,
         )
-
-    def _extract_anthropic_stream_usage(self, stream: Any, usage_data: Any) -> ProviderUsage | None:
-        """Extract usage from Anthropic streaming events."""
-        final_message = getattr(stream, "final_message", None) if hasattr(stream, "final_message") else None
-        if final_message is not None:
-            return self._extract_anthropic_usage(final_message)
-        if usage_data is None:
-            return None
-        prompt_tokens = int(getattr(usage_data, "input_tokens", 0) or 0)
-        completion_tokens = int(getattr(usage_data, "output_tokens", 0) or 0)
-        return ProviderUsage(
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            total_tokens=prompt_tokens + completion_tokens,
-        )
-
     async def _stream_openai_with_tools(
         self,
         *,
@@ -1491,319 +1211,3 @@ class LLMProviderBridge:
             text_chunks_emitted=chunks_emitted,
             has_tool_calls=has_tool_calls,
         )
-
-    @staticmethod
-    def _extract_openai_stream_usage(usage_data: Any) -> ProviderUsage | None:
-        if usage_data is None:
-            return None
-        return ProviderUsage(
-            prompt_tokens=int(getattr(usage_data, "prompt_tokens", 0) or 0),
-            completion_tokens=int(getattr(usage_data, "completion_tokens", 0) or 0),
-            total_tokens=int(getattr(usage_data, "total_tokens", 0) or 0),
-            reasoning_tokens=int(getattr(usage_data, "reasoning_tokens", 0) or 0),
-            cache_read_tokens=int(getattr(usage_data, "cache_read_tokens", 0) or 0),
-            cache_write_tokens=int(getattr(usage_data, "cache_write_tokens", 0) or 0),
-        )
-
-    def _convert_messages_to_anthropic(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        converted = []
-        for msg in messages:
-            if msg.get("role") == "tool":
-                converted.append({
-                    "role": "user",
-                    "content": [{
-                        "type": "tool_result",
-                        "tool_use_id": msg.get("tool_call_id"),
-                        "content": msg.get("content", ""),
-                    }],
-                })
-            elif msg.get("role") == "user" and isinstance(msg.get("content"), list):
-                converted.append({
-                    "role": "user",
-                    "content": self._convert_content_blocks_to_anthropic(msg["content"]),
-                })
-            elif msg.get("role") == "assistant" and isinstance(msg.get("content"), list):
-                converted.append({"role": "assistant", "content": msg["content"]})
-            else:
-                converted.append({
-                    "role": msg.get("role"),
-                    "content": msg.get("content", ""),
-                })
-        return converted
-
-    def _convert_messages_to_openai(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        converted: List[Dict[str, Any]] = []
-        for msg in messages:
-            if msg.get("role") == "user" and isinstance(msg.get("content"), list):
-                converted.append({
-                    "role": "user",
-                    "content": self._convert_content_blocks_to_openai(msg["content"]),
-                })
-                continue
-            converted.append(dict(msg))
-        return converted
-
-    @staticmethod
-    def _convert_content_blocks_to_openai(blocks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        converted: List[Dict[str, Any]] = []
-        for block in blocks:
-            block_type = str(block.get("type") or "").strip()
-            if block_type == "text":
-                converted.append({"type": "text", "text": str(block.get("text") or "")})
-                continue
-            if block_type == "image":
-                mime_type = str(block.get("mime_type") or "image/png").strip() or "image/png"
-                data = str(block.get("data") or "").strip()
-                converted.append(
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:{mime_type};base64,{data}",
-                        },
-                    }
-                )
-                continue
-            converted.append(dict(block))
-        return converted
-
-    @staticmethod
-    def _convert_content_blocks_to_anthropic(blocks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        converted: List[Dict[str, Any]] = []
-        for block in blocks:
-            block_type = str(block.get("type") or "").strip()
-            if block_type == "text":
-                converted.append({"type": "text", "text": str(block.get("text") or "")})
-                continue
-            if block_type == "image":
-                mime_type = str(block.get("mime_type") or "image/png").strip() or "image/png"
-                data = str(block.get("data") or "").strip()
-                converted.append(
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": mime_type,
-                            "data": data,
-                        },
-                    }
-                )
-                continue
-            converted.append(dict(block))
-        return converted
-
-    def _parse_anthropic_response(self, response: Any) -> ProviderResponse:
-        tool_calls: List[ProviderToolCall] = []
-        content_text_parts: List[str] = []
-        assistant_blocks: List[Dict[str, Any]] = []
-
-        for block in response.content:
-            if block.type == "text":
-                text_value = block.text or ""
-                content_text_parts.append(text_value)
-                assistant_blocks.append({"type": "text", "text": text_value})
-            elif block.type == "tool_use":
-                tool_calls.append(ProviderToolCall(
-                    id=block.id,
-                    name=block.name,
-                    arguments=block.input,
-                ))
-                assistant_blocks.append({
-                    "type": "tool_use",
-                    "id": block.id,
-                    "name": block.name,
-                    "input": block.input,
-                })
-
-        if tool_calls:
-            return ProviderResponse(
-                tool_calls=tool_calls,
-                assistant_message={"role": "assistant", "content": assistant_blocks},
-                usage=self._extract_anthropic_usage(response),
-            )
-        provider_response = self._build_content_response("".join(content_text_parts))
-        provider_response.usage = self._extract_anthropic_usage(response)
-        return provider_response
-
-    def _parse_openai_response(self, response: Any) -> ProviderResponse:
-        choice = response.choices[0]
-        message = choice.message
-
-        tool_calls: List[ProviderToolCall] = []
-        raw_tool_calls: List[Dict[str, Any]] = []
-        if hasattr(message, "tool_calls") and message.tool_calls:
-            for tc in message.tool_calls:
-                arguments: Dict[str, Any] = {}
-                if tc.function.arguments:
-                    try:
-                        arguments = json.loads(tc.function.arguments)
-                    except json.JSONDecodeError:
-                        arguments = {"raw": tc.function.arguments}
-
-                tool_calls.append(ProviderToolCall(
-                    id=tc.id,
-                    name=tc.function.name,
-                    arguments=arguments,
-                ))
-                raw_tool_calls.append({
-                    "id": tc.id,
-                    "type": "function",
-                    "function": {
-                        "name": tc.function.name,
-                        "arguments": tc.function.arguments or "{}",
-                    },
-                })
-
-        if tool_calls:
-            return ProviderResponse(
-                tool_calls=tool_calls,
-                assistant_message={
-                    "role": "assistant",
-                    "content": message.content or "",
-                    "tool_calls": raw_tool_calls,
-                },
-                metadata=self._build_openai_metadata(choice, message, raw_tool_calls),
-                usage=self._extract_openai_usage(response),
-            )
-
-        provider_response = self._build_content_response(message.content or "")
-        provider_response.metadata = self._build_openai_metadata(choice, message, raw_tool_calls)
-        provider_response.usage = self._extract_openai_usage(response)
-        return provider_response
-
-    def _build_openai_metadata(
-        self,
-        choice: Any,
-        message: Any,
-        raw_tool_calls: List[Dict[str, Any]],
-    ) -> Dict[str, Any]:
-        metadata: Dict[str, Any] = {
-            "provider": self._provider_name() or type(self.llm).__name__,
-            "model": getattr(self.llm, "model_name", "unknown"),
-            "finish_reason": getattr(choice, "finish_reason", None),
-            "tool_call_count": len(raw_tool_calls),
-            "has_content": bool(getattr(message, "content", None)),
-        }
-        if hasattr(message, "model_dump"):
-            try:
-                dumped = message.model_dump()
-                metadata["raw_message"] = dumped
-            except Exception:
-                pass
-        else:
-            metadata["raw_message"] = {
-                "role": getattr(message, "role", None),
-                "content": getattr(message, "content", None),
-                "tool_calls": raw_tool_calls or None,
-            }
-        return metadata
-
-    def normalize_content_response(self, content: Any) -> ProviderResponse:
-        """Normalize plain text content into ProviderResponse with legacy parsing fallback."""
-        return self._build_content_response(content)
-
-    def _build_content_response(self, content: Any) -> ProviderResponse:
-        """Build provider response from plain text content with legacy tool-call fallback."""
-        raw_content = content if isinstance(content, str) else str(content or "")
-        normalized_content = sanitize_llm_text(raw_content)
-        parsed_tool_calls = [
-            ProviderToolCall(
-                id=parsed_call.id,
-                name=parsed_call.name,
-                arguments=parsed_call.arguments,
-            )
-            for parsed_call in parse_legacy_tool_calls(raw_content)
-        ]
-        if parsed_tool_calls:
-            return ProviderResponse(
-                content=normalized_content,
-                tool_calls=parsed_tool_calls,
-                assistant_message={
-                    "role": "assistant",
-                    "content": normalized_content,
-                },
-            )
-        return ProviderResponse(content=normalized_content)
-
-    @staticmethod
-    def _extract_openai_usage(response: Any) -> ProviderUsage | None:
-        usage = getattr(response, "usage", None)
-        if usage is None:
-            return None
-        return ProviderUsage(
-            prompt_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
-            completion_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
-            total_tokens=int(getattr(usage, "total_tokens", 0) or 0),
-            reasoning_tokens=int(getattr(usage, "reasoning_tokens", 0) or 0),
-            cache_read_tokens=int(getattr(usage, "cache_read_tokens", 0) or 0),
-            cache_write_tokens=int(getattr(usage, "cache_write_tokens", 0) or 0),
-        )
-
-    @staticmethod
-    def _extract_anthropic_usage(response: Any) -> ProviderUsage | None:
-        usage = getattr(response, "usage", None)
-        if usage is None:
-            return None
-        prompt_tokens = int(getattr(usage, "input_tokens", 0) or 0)
-        completion_tokens = int(getattr(usage, "output_tokens", 0) or 0)
-        return ProviderUsage(
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            total_tokens=prompt_tokens + completion_tokens,
-            reasoning_tokens=int(getattr(usage, "reasoning_tokens", 0) or 0),
-            cache_read_tokens=int(getattr(usage, "cache_read_tokens", 0) or 0),
-            cache_write_tokens=int(getattr(usage, "cache_write_tokens", 0) or 0),
-        )
-
-    def _attach_trace_metrics(
-        self,
-        *,
-        provider_response: ProviderResponse,
-        usage: ProviderUsage | None,
-        latency_ms: int,
-        thinking_depth: ThinkingDepth,
-        disable_thinking: Optional[bool] = None,
-    ) -> None:
-        metadata = dict(provider_response.metadata or {})
-        metadata["trace_metrics"] = {
-            "provider": self._provider_name() or type(self.llm).__name__,
-            "model": str(getattr(self.llm, "model_name", "unknown")),
-            "input_tokens": int(usage.prompt_tokens if usage else 0),
-            "output_tokens": int(usage.completion_tokens if usage else 0),
-            "total_tokens": int(usage.total_tokens if usage else 0),
-            "reasoning_tokens": int(usage.reasoning_tokens if usage else 0),
-            "cache_read_tokens": int(usage.cache_read_tokens if usage else 0),
-            "cache_write_tokens": int(usage.cache_write_tokens if usage else 0),
-            "thinking_enabled": thinking_depth != ThinkingDepth.NONE,
-            "thinking_depth": thinking_depth.value,
-            "duration_ms": int(latency_ms),
-        }
-        provider_response.metadata = metadata
-
-    async def _emit_usage_event(
-        self,
-        *,
-        success: bool,
-        latency_ms: int,
-        usage: ProviderUsage | None,
-        event_context: Optional[Dict[str, Any]],
-        error: str | None = None,
-    ) -> None:
-        context = dict(event_context or {})
-        payload = LLMCallEventPayload(
-            request_id=str(context.get("request_id") or uuid.uuid4().hex[:8]),
-            provider=self._provider_name() or type(self.llm).__name__,
-            model=str(getattr(self.llm, "model_name", "unknown")),
-            request_kind=str(context.get("request_kind") or "chat"),
-            prompt_tokens=int(usage.prompt_tokens if usage else 0),
-            completion_tokens=int(usage.completion_tokens if usage else 0),
-            total_tokens=int(usage.total_tokens if usage else 0),
-            usage_available=usage is not None,
-            latency_ms=int(latency_ms),
-            success=success,
-            error=error,
-            correlation_id=context.get("correlation_id"),
-            session_id=context.get("session_id"),
-            turn_id=context.get("turn_id"),
-            agent_id=context.get("agent_id"),
-        )
-        await publish_llm_call_event(payload, publisher=self._usage_event_publisher)

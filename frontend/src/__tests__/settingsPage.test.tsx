@@ -46,13 +46,6 @@ const translationMap: Record<string, string> = {
   'settings.plugins.chrome-history.fields.sensors.chrome_history.sync_interval_minutes.label': '定时间隔',
 };
 
-const translate = (key: string, params?: Record<string, any>) => {
-  if (params?.message) {
-    return `${key}:${params.message}`;
-  }
-  return translationMap[key] ?? key;
-};
-
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: translateMock,

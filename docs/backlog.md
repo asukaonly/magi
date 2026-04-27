@@ -6,24 +6,45 @@ It is intentionally separate from the stable design docs.
 
 ## Active Development
 
-### 1. Persona registry migration and frontend integration
+### 1. Alpha product focus: Chat with Memory + Evidence Trace
+
+Status: active
+
+Why it matters now:
+
+- The Alpha product path should make the desktop app useful quickly: finish onboarding, configure an LLM, chat, recall memory explicitly, and inspect the evidence behind memory-informed answers.
+- Product work that does not improve this path should stay supported but lower-priority until the core flow is reliable.
+
+Current focus areas:
+
+- Keep quick onboarding short and centered on language, LLM setup, and persona selection.
+- Make explicit memory recall in chat reliable and evidence-backed.
+- Keep ordinary memory views user-facing, with layer-specific L0-L4 workbench surfaces reserved for expert/operator mode.
+- Preserve timeline browsing, plugin management, and advanced runtime inspection, but do not make them Alpha polish blockers.
+
+Deferred unless profiling or product validation says otherwise:
+
+- Deep personality evolution engine investment.
+- Memory pipeline process isolation.
+- Repository-wide backend typing strictness.
+
+### 2. Persona registry migration and frontend integration
 
 Status: active
 
 Why it is still open:
 
 - The persona registry backend (PersonaRepository, seed service, evolution engine persona_id scoping, `/api/personas/*` routes) is implemented and tested.
-- The frontend still uses filename-based persona identity via the old `/api/personality/*` routes.
-- Onboarding flow needs to call the seed endpoint and select a persona from the registry instead of copying preset files.
+- The main frontend personality surface and onboarding flow now use the persona registry path.
+- Some legacy personality/config routes and the in-memory `current_state.py` bridge still exist while older call sites are retired.
 
 Remaining work:
 
-- Wire onboarding frontend to call `POST /api/personas/seed` and `PUT /api/personas/active` instead of file-copy approach.
-- Migrate `PersonalityModern.tsx` and `personalityApi` to use `/api/personas/*` routes with persona_id.
+- Replace hardcoded default seed selection with registry-provided default/recommended metadata so quick onboarding behaves correctly across locales.
 - Add data migration script to import existing file-based personas into the registry for existing installs.
-- Retire `current_state.py` filesystem approach once frontend is fully migrated.
+- Retire `current_state.py` once remaining in-tree callers use registry-backed active persona state directly or a thin runtime cache.
 
-### 2. Finish the lifecycle-based memory implementation
+### 3. Finish the lifecycle-based memory implementation
 
 Status: active
 
@@ -38,7 +59,7 @@ Current focus areas:
 - finish retrieval and prompt integration against the lifecycle model
 - remove superseded legacy memory modules once the new path fully owns production behavior
 
-### 3. Continue runtime boundary cleanup
+### 4. Continue runtime boundary cleanup
 
 Status: active
 
@@ -48,7 +69,7 @@ Open items:
 - replace the remaining module-scoped shared instances in `api/services/chat_read_service.py` and `api/services/chat_trace_read_service.py` with clearer lifecycle ownership when practical
 - review legacy packages such as `processing/` and other dormant runtime leftovers, then either integrate them into the current layered model or delete them
 
-### 4. Keep service and transport boundaries thin
+### 5. Keep service and transport boundaries thin
 
 Status: active
 
@@ -58,7 +79,7 @@ Open items:
 - keep routers and websocket handlers transport-thin as new product behavior is added
 - avoid reintroducing direct runtime-domain lookups in transport code
 
-### 5. Retire legacy ``task_id`` alias from permission payload
+### 6. Retire legacy ``task_id`` alias from permission payload
 
 Status: active
 

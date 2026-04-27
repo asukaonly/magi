@@ -249,6 +249,57 @@ async def test_chat_store_bumps_history_version_when_creating_user_turn(tmp_path
 
 
 @pytest.mark.asyncio
+async def test_chat_store_history_survives_reinitialization(tmp_path: Path) -> None:
+    from magi.chat import ChatMessageRecord, ChatStore
+
+    db_path = tmp_path / "chat.db"
+    store = ChatStore(db_path=str(db_path))
+    await store.initialize()
+
+    try:
+        user_message = await store.create_user_turn(
+            session_id="session-1",
+            user_id="user-1",
+            turn_id="turn-1",
+            message_text="What did I say about sushi?",
+            created_at_ms=100,
+        )
+        await store.append_message(
+            ChatMessageRecord(
+                message_id="msg-assistant-1",
+                session_id="session-1",
+                turn_id="turn-1",
+                user_id="user-1",
+                role="assistant",
+                message_kind="assistant_final",
+                content_text="You said sushi is your favorite.",
+                payload_json="{}",
+                is_final=True,
+                is_visible=True,
+                created_at_ms=200,
+                sequence_no=2,
+                replaces_message_id=None,
+                replaced_by_message_id=None,
+            )
+        )
+    finally:
+        await store.shutdown()
+
+    reloaded = ChatStore(db_path=str(db_path))
+    await reloaded.initialize()
+    try:
+        messages = await reloaded.list_messages(session_id="session-1")
+        assert [message.message_id for message in messages] == [user_message.message_id, "msg-assistant-1"]
+        assert [message.content_text for message in messages] == [
+            "What did I say about sushi?",
+            "You said sushi is your favorite.",
+        ]
+        assert await reloaded.get_history_version("session-1") == 1
+    finally:
+        await reloaded.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_chat_store_persists_attachment_metadata_on_user_turn(tmp_path: Path) -> None:
     from magi.chat import ChatStore
 

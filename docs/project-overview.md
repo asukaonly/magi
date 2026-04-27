@@ -174,6 +174,34 @@ Chat ownership is now intentionally separated by domain:
 
 - the frontend still owns which session is currently selected and always sends an explicit `session_id`
 
+## SQLite Ownership Matrix
+
+The Rust gateway is allowed to write SQLite only for product or transport surfaces it owns natively. Python remains the owner for runtime-heavy behavior, memory cognition, plugin execution, and any operation that needs live runtime services.
+
+When adding a new SQLite write path, update this matrix and the gateway ownership test in the same change. A Rust native write is acceptable only when the table and operation are listed here or the write is delegated to Python over IPC.
+
+| Database | Tables / state | Source of truth | Rust gateway access | Python access | Migration owner |
+|---|---|---|---|---|---|
+| `chat.db` | `chat_sessions`, `chat_turns`, `chat_messages`, `chat_attachments` metadata | Chat domain transcript and presentation state | Reads history/session/attachment views; writes lightweight session presentation mutations such as create, rename, workspace, labels, soft-delete, and history version bumps | Writes user/assistant turn and message records produced by runtime execution; owns chat-domain store invariants | Python chat store schema; Rust route tests must track response/write expectations |
+| `data/resources/chat/` | attachment files and derived artifacts | Managed chat attachment content | Reads attachment content for desktop HTTP routes | Writes managed attachment files and parsed artifacts during upload/runtime preparation | Python chat attachment services |
+| `runtime_trace.db` | trace turns, spans, tool calls, LLM calls, runtime notifications, plugin ingress events | Execution observability and best-effort live fan-out | Reads trace snapshots and readiness metrics; inserts `runtime_notifications` only for gateway-owned mutations that need frontend fan-out | Writes trace/notification/plugin ingress records produced by runtime services | Python runtime trace store schema; Rust notification bridge contract tests |
+| `message_queue.db` | `runtime_commands` | Durable runtime command queue | No direct writes except through IPC-facing command enqueue flows if explicitly implemented | Owns queue schema, claiming, retry, ack, and recovery semantics | Python runtime command queue |
+| `tasks.db` | `tasks` | User-facing task records | Reads task views; writes product task CRUD fields exposed by native task routes | May write runtime-linked task rows and orchestration linkage through task-domain services | Shared task-domain schema; native route mutations must stay field-scoped |
+| `scheduler.db` | `schedules`, `target_state`, execution history | Unified scheduler configuration and execution bookkeeping | Reads schedules/executions; writes product schedule CRUD and target-state reset fields exposed by native schedule routes | Owns scheduler execution, job registration, run history, and recovery | Python scheduler repository schema; Rust route tests cover native mutation fields |
+| `llm_usage.db` | `llm_usage` | LLM usage metrics | Reads usage dashboards; may insert gateway-originated metric rows when no Python runtime call owns the event | Writes provider/runtime usage records for Python LLM execution | Python LLM usage store schema; Rust metrics tests cover read/write shape |
+| `l1_events.db` | `fact_events`, L1 vector/index tables | Canonical lossy memory projection | Read-only for native memory list/stat endpoints; startup may create idempotent performance indexes | Owns all semantic writes, retention, archival, projection, and vector writes | Python memory L1 store schema; Rust may only add documented idempotent indexes |
+| `memory.db` | L0/L2/L3/L4 tables, graph, assertions, summaries, procedures | Lifecycle memory state beyond L1 | Read-only for native memory inspection endpoints; startup may create idempotent performance indexes | Owns all memory writes, cognition, reflection, procedural extraction, conflict resolution, and vector writes | Python memory stores/schema; Rust may only add documented idempotent indexes |
+| `scenario_prompts.db` | scenario prompt policy and metadata | Prompt policy registry | Read-only if surfaced through gateway in the future | Owns scenario prompt CRUD and prompt assembly inputs | Python context/scenario prompt store |
+| `persona_registry.db` | personas and active persona state | Persona registry identity and active selection | No direct native writes currently; proxied to Python persona APIs | Owns persona CRUD, seed import, active persona selection, and runtime cache synchronization | Python persona repository |
+| plugin cache DB/files | plugin-owned cursors and rebuildable state | Owning plugin or sensor contribution | No direct access | Plugin/sensor runtime owns reads and writes through contribution APIs | Owning plugin/sensor package |
+
+Important rules:
+
+- Rust native writes must stay narrow, product-facing, and table-scoped. If a write requires runtime services, LLM calls, memory cognition, plugin execution, or scheduler execution semantics, it belongs in Python behind IPC.
+- Runtime notifications are not transcript truth. They are live fan-out of already committed state and may be replayed or compacted independently.
+- Startup index creation from Rust is allowed only for idempotent performance indexes documented above. It must not create or migrate source-of-truth table schemas.
+- Memory writes, vector writes, persona registry writes, plugin state writes, and runtime command claiming remain Python-owned unless this document is updated with a new explicit owner.
+
 ## Repository Structure
 
 ```text

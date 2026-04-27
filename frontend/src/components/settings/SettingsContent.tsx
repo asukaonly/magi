@@ -275,7 +275,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     const mediaGroundingEnabled = Boolean(draftConfig.preferences.allow_media_grounding_for_conversation);
     const mediaGroundingSwitchDisabled = !coreModelSupportsVision && !mediaGroundingEnabled;
     const defaultChatWorkspacePath = draftConfig.preferences.default_chat_workspace_path;
-    const effectiveDefaultChatWorkspacePath = defaultChatWorkspacePath ?? defaultChatWorkspaceFallback;
+    const effectiveDefaultChatWorkspacePath = defaultChatWorkspacePath ?? defaultChatWorkspaceFallback ?? '';
     const canRestoreDefaultChatWorkspace = defaultChatWorkspacePath !== defaultChatWorkspaceFallback;
 
     const handlePickWorkspace = async () => {
@@ -682,7 +682,6 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
         return (
           <MemorySkillsSettingsSection
             draftConfig={draftConfig}
-            patchDraftConfig={patchDraftConfig}
             updateMemoryToggle={updateMemoryToggle}
           />
         );
