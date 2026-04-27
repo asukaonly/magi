@@ -6,7 +6,6 @@ import {
   configApi,
   DEFAULT_LLM_CAPABILITIES,
   DEFAULT_LLM_LIMITS,
-  type DiscoverLLMProviderModelsResponse,
   type LLMCapabilities,
   type LLMConcurrencyOverrideConfig,
   type LLMConfig,
@@ -600,16 +599,16 @@ const LLMForm: React.FC<LLMFormProps> = ({
       try {
         setLoading(true);
         setError(null);
-        const [catalogResponse, templateResponse] = await Promise.all([
+        const [catalog, template] = await Promise.all([
           configApi.resolveLLMProviderCatalog({
             providers: initialProvidersRef.current,
           }),
           configApi.getLLMCustomProviderTemplate(),
         ]);
-        if (catalogResponse.data && templateResponse.data) {
-          setCustomProviderTemplate(templateResponse.data);
-          setCustomProviderDefaults(cloneProvider(templateResponse.data.defaults));
-          setRegistry(buildRegistryFromCatalog(catalogResponse.data, templateResponse.data));
+        if (catalog && template) {
+          setCustomProviderTemplate(template);
+          setCustomProviderDefaults(cloneProvider(template.defaults));
+          setRegistry(buildRegistryFromCatalog(catalog, template));
         } else {
           setError(t('llm.loadFailed'));
         }
@@ -633,13 +632,13 @@ const LLMForm: React.FC<LLMFormProps> = ({
     const timeoutId = window.setTimeout(() => {
       void (async () => {
         try {
-          const response = await configApi.resolveLLMProviderCatalog({
+          const catalog = await configApi.resolveLLMProviderCatalog({
             providers: currentValue.providers,
           });
-          if (registryPreviewRequestRef.current !== requestId || !response.data) {
+          if (registryPreviewRequestRef.current !== requestId || !catalog) {
             return;
           }
-          setRegistry(buildRegistryFromCatalog(response.data, customProviderTemplate));
+          setRegistry(buildRegistryFromCatalog(catalog, customProviderTemplate));
         } catch {
           // Preserve the last successful catalog snapshot while the user edits draft values.
         }
@@ -988,13 +987,12 @@ const LLMForm: React.FC<LLMFormProps> = ({
     }));
 
     try {
-      const response = await configApi.discoverLLMProviderModels({
+      const payload = await configApi.discoverLLMProviderModels({
         provider_type: provider.provider_type,
         base_url: provider.base_url || '',
         api_key: provider.api_key,
         api_format: provider.api_format,
       });
-      const payload = response.data as DiscoverLLMProviderModelsResponse | undefined;
       const nextModels = payload?.models || [];
 
       updateValue((draft) => {
@@ -1048,7 +1046,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
         ...provider,
         base_url: resolveProviderActionBaseUrl(registry, providerId, provider),
       };
-      const response = await configApi.testLLMProviderConnection({
+      const result = await configApi.testLLMProviderConnection({
         provider_id: providerId,
         provider: effectiveProvider,
         model,
@@ -1059,7 +1057,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
         [providerId]: {
           loading: false,
           error: null,
-          result: response.data || null,
+          result: result || null,
         },
       }));
     } catch (error: any) {

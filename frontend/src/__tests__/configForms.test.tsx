@@ -521,30 +521,22 @@ vi.mock('../api/modules/config', async () => {
     ...actual,
     configApi: {
       ...actual.configApi,
-      getLLMProviderCatalog: vi.fn().mockResolvedValue({
-        data: buildCatalog(),
-      }),
-      resolveLLMProviderCatalog: vi.fn().mockImplementation(async (payload?: { providers?: Record<string, any> }) => ({
-        data: buildCatalog(payload?.providers || {}),
-      })),
+      getLLMProviderCatalog: vi.fn().mockResolvedValue(buildCatalog()),
+      resolveLLMProviderCatalog: vi.fn().mockImplementation(async (payload?: { providers?: Record<string, any> }) =>
+        buildCatalog(payload?.providers || {})
+      ),
       getLLMCustomProviderTemplate: vi.fn().mockResolvedValue({
-        data: {
-          template: providerRegistry.custom_provider,
-          defaults: defaultCustomProvider,
-        },
+        template: providerRegistry.custom_provider,
+        defaults: defaultCustomProvider,
       }),
       discoverLLMProviderModels: vi.fn().mockResolvedValue({
-        data: {
-          models: ['fetched-model-1', 'fetched-model-2'],
-          default_model: 'fetched-model-1',
-        },
+        models: ['fetched-model-1', 'fetched-model-2'],
+        default_model: 'fetched-model-1',
       }),
       testLLMProviderConnection: vi.fn().mockResolvedValue({
-        data: {
-          model: 'gpt-5.2',
-          latency_ms: 42,
-          preview: 'hello',
-        },
+        model: 'gpt-5.2',
+        latency_ms: 42,
+        preview: 'hello',
       }),
     },
   };
@@ -905,29 +897,25 @@ describe('config forms', () => {
     }));
 
     const manyModelCatalog = {
-      success: true,
-      message: '',
-      data: {
-        providers: [
-          {
-            id: 'openai',
-            provider_type: 'openai',
-            source: 'builtin',
-            display_name: 'OpenAI',
-            description: 'General purpose',
-            icon: 'openai',
-            default_model: 'alpha-model',
-            default_classify_model: 'alpha-model',
-            default_base_url: 'https://api.openai.com/v1',
-            resolved_chat_models: manyModels,
-            resolved_embedding_models: [],
-            fields: {
-              api_key: { visible: true, required: true },
-              base_url: { visible: true, required: false },
-            },
+      providers: [
+        {
+          id: 'openai',
+          provider_type: 'openai',
+          source: 'builtin',
+          display_name: 'OpenAI',
+          description: 'General purpose',
+          icon: 'openai',
+          default_model: 'alpha-model',
+          default_classify_model: 'alpha-model',
+          default_base_url: 'https://api.openai.com/v1',
+          resolved_chat_models: manyModels,
+          resolved_embedding_models: [],
+          fields: {
+            api_key: { visible: true, required: true },
+            base_url: { visible: true, required: false },
           },
-        ],
-      },
+        },
+      ],
     };
     const resolveCatalogMock = vi.mocked(configApi.resolveLLMProviderCatalog);
     const templateMock = vi.mocked(configApi.getLLMCustomProviderTemplate);
@@ -935,43 +923,39 @@ describe('config forms', () => {
     const defaultTemplateImplementation = templateMock.getMockImplementation();
     resolveCatalogMock.mockImplementation(async () => manyModelCatalog as any);
     templateMock.mockImplementation(async () => ({
-      success: true,
-      message: '',
-      data: {
-        template: {
-          enabled: true,
-          display_name: 'Custom Provider',
-          fields: {
-            custom_name: { visible: true, required: true },
-            api_format: { visible: true, required: true, options: ['openai', 'anthropic'] },
-            model: { visible: true, required: true },
-            api_key: { visible: true, required: true },
-            base_url: { visible: true, required: false },
-          },
-          capabilities: {
-            vision: false,
-            image_output: false,
-            tool_calling: true,
-            reasoning: true,
-            embedding: false,
-          },
-          limits: {
-            context_window: null,
-            max_output_tokens: null,
-          },
-          provider_options_example: {},
+      template: {
+        enabled: true,
+        display_name: 'Custom Provider',
+        fields: {
+          custom_name: { visible: true, required: true },
+          api_format: { visible: true, required: true, options: ['openai', 'anthropic'] },
+          model: { visible: true, required: true },
+          api_key: { visible: true, required: true },
+          base_url: { visible: true, required: false },
         },
-        defaults: {
-          enabled: true,
-          provider_type: 'custom',
-          display_name: '',
-          api_key: '',
-          base_url: '',
-          api_format: 'openai',
-          custom_models: [],
-          custom_default_model: '',
-          model_metadata_overrides: {},
+        capabilities: {
+          vision: false,
+          image_output: false,
+          tool_calling: true,
+          reasoning: true,
+          embedding: false,
         },
+        limits: {
+          context_window: null,
+          max_output_tokens: null,
+        },
+        provider_options_example: {},
+      },
+      defaults: {
+        enabled: true,
+        provider_type: 'custom',
+        display_name: '',
+        api_key: '',
+        base_url: '',
+        api_format: 'openai',
+        custom_models: [],
+        custom_default_model: '',
+        model_metadata_overrides: {},
       },
     }) as any);
 
@@ -1112,9 +1096,10 @@ describe('config forms', () => {
     await user.click(screen.getByRole('button', { name: '512' }));
     await user.click(screen.getByRole('button', { name: 'llm.embeddingDimensionConfirm.confirm' }));
 
-    expect(onChange).toHaveBeenCalled();
-    const latest = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0];
-    expect(latest.selections.embedding.embedding_dimension).toBe(512);
+    await waitFor(() => {
+      const latest = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0];
+      expect(latest.selections.embedding.embedding_dimension).toBe(512);
+    });
   });
 
   it('includes override-promoted embedding models in the embedding selection list', async () => {

@@ -1,7 +1,7 @@
 /**
  * Config management API and type definitions.
  */
-import { api } from '../client';
+import { api, unwrapGatewayPayload, type GatewayResponse } from '../client';
 import type { PersonalityConfig } from './personas';
 import { DEFAULT_PERSONALITY_CONFIG } from './personas';
 
@@ -460,6 +460,8 @@ export const resolveProviderModels = (
   };
 };
 
+const unwrapConfigResponse = <T>(response: GatewayResponse<T>): T => unwrapGatewayPayload<T>(response);
+
 export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   agent: { name: 'magi-agent', description: 'Magi AI Agent Framework' },
   llm: {
@@ -611,14 +613,16 @@ export const configApi = {
   update: (config: Partial<SystemConfig>) => api.put<SystemConfig>('/config', config),
   getTemplate: () => api.get<SystemConfig>('/config/template'),
   test: (config: Partial<SystemConfig>) => api.post<SystemConfig>('/config/test', config),
-  getLLMProviderCatalog: () => api.get<LLMProviderCatalog>('/llm/providers/catalog'),
-  resolveLLMProviderCatalog: (payload: LLMProviderCatalogResolveRequest) =>
-    api.post<LLMProviderCatalog>('/llm/providers/catalog', payload),
-  getLLMCustomProviderTemplate: () => api.get<LLMCustomProviderTemplateData>('/llm/providers/custom-template'),
-  discoverLLMProviderModels: (payload: DiscoverLLMProviderModelsRequest) =>
-    api.post<DiscoverLLMProviderModelsResponse>('/llm/providers/discover-models', payload),
-  testLLMProviderConnection: (payload: TestLLMProviderConnectionRequest) =>
-    api.post<TestLLMProviderConnectionResponse>('/llm/providers/test', payload),
+  getLLMProviderCatalog: async (): Promise<LLMProviderCatalog> =>
+    unwrapConfigResponse(await api.get<LLMProviderCatalog>('/llm/providers/catalog')),
+  resolveLLMProviderCatalog: async (payload: LLMProviderCatalogResolveRequest): Promise<LLMProviderCatalog> =>
+    unwrapConfigResponse(await api.post<LLMProviderCatalog>('/llm/providers/catalog', payload)),
+  getLLMCustomProviderTemplate: async (): Promise<LLMCustomProviderTemplateData> =>
+    unwrapConfigResponse(await api.get<LLMCustomProviderTemplateData>('/llm/providers/custom-template')),
+  discoverLLMProviderModels: async (payload: DiscoverLLMProviderModelsRequest): Promise<DiscoverLLMProviderModelsResponse> =>
+    unwrapConfigResponse(await api.post<DiscoverLLMProviderModelsResponse>('/llm/providers/discover-models', payload)),
+  testLLMProviderConnection: async (payload: TestLLMProviderConnectionRequest): Promise<TestLLMProviderConnectionResponse> =>
+    unwrapConfigResponse(await api.post<TestLLMProviderConnectionResponse>('/llm/providers/test', payload)),
   getOnboardingTemplate: () => api.get<OnboardingTemplateData>('/config/onboarding-template'),
   completeOnboarding: (config: SystemConfig) => api.post<SystemConfig>('/config/onboarding-complete', config),
   testTelegramConnection: (payload: { bot_token: string; proxy?: string }) =>
