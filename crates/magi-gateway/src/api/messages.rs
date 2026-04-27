@@ -6,6 +6,7 @@ use axum::Json;
 use rusqlite::{Connection, OpenFlags};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::collections::{HashMap, HashSet};
 
 use crate::db;
 
@@ -153,6 +154,8 @@ pub(super) fn query_history(user_id: &str, session_id: &str) -> Value {
 
     // Load turns for trace availability lookup
     let turn_ids_with_trace = load_turns_with_trace(user_id, session_id);
+    let trace_summaries = load_trace_summaries(user_id, session_id, &turn_ids_with_trace);
+    let turn_ux_preferences = load_turn_ux_preferences(&conn, user_id, session_id);
 
     // Load messages
     let mut stmt = match conn.prepare(
@@ -162,7 +165,8 @@ pub(super) fn query_history(user_id: &str, session_id: &str) -> Value {
                 label_json \
          FROM chat_messages \
          WHERE user_id = ?1 AND session_id = ?2 \
-           AND is_visible = 1 AND replaced_by_message_id IS NULL \
+                     AND is_visible = 1 \
+                     AND (replaced_by_message_id IS NULL OR message_kind = 'assistant_interim') \
          ORDER BY created_at_ms ASC, sequence_no ASC",
     ) {
         Ok(s) => s,
@@ -235,7 +239,13 @@ pub(super) fn query_history(user_id: &str, session_id: &str) -> Value {
                 "assistant_final" | "assistant_interim" | "assistant_reaction" => {
                     ("assistant", row.role.as_str())
                 }
-                "status_note" | "system_notice" => ("status", row.role.as_str()),
+                "todo_state"
+                | "plan_state"
+                | "permission_request"
+                | "ask_request"
+                | "background_task_completion"
+                | "status_note"
+                | "system_notice" => ("status", row.role.as_str()),
                 _ => return None,
             };
 
@@ -274,6 +284,32 @@ pub(super) fn query_history(user_id: &str, session_id: &str) -> Value {
                 "trace_available": trace_available && kind == "assistant",
             });
 
+            if !payload_is_empty(&payload) {
+                msg["payload"] = payload.clone();
+            }
+            if let Some(tid) = turn_id {
+                if let Some(prefs) = turn_ux_preferences.get(tid) {
+                    if let Some(mode) = prefs.get("trace_display_mode").and_then(|v| v.as_str()) {
+                        if !mode.is_empty() {
+                            msg["trace_display_mode"] = json!(mode);
+                        }
+                    }
+                    if let Some(allow) = prefs.get("allow_trace_collapse").and_then(|v| v.as_bool())
+                    {
+                        msg["allow_trace_collapse"] = json!(allow);
+                    }
+                }
+                if kind == "assistant" {
+                    if let Some(summary) = trace_summaries.get(tid) {
+                        msg["trace_summary"] = summary.clone();
+                        msg["trace_available"] = json!(summary
+                            .get("trace_available")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(trace_available));
+                    }
+                }
+            }
+
             if !attachments.is_empty() {
                 msg["attachments"] = json!(attachments);
             }
@@ -298,14 +334,14 @@ pub(super) fn query_history(user_id: &str, session_id: &str) -> Value {
 }
 
 /// Load turn_ids that have trace data in runtime_trace.db.
-fn load_turns_with_trace(user_id: &str, session_id: &str) -> std::collections::HashSet<String> {
+fn load_turns_with_trace(user_id: &str, session_id: &str) -> HashSet<String> {
     let trace_path = db::runtime_trace_db_path();
     if !trace_path.exists() {
-        return std::collections::HashSet::new();
+        return HashSet::new();
     }
     let conn = match Connection::open_with_flags(&trace_path, OpenFlags::SQLITE_OPEN_READ_ONLY) {
         Ok(c) => c,
-        Err(_) => return std::collections::HashSet::new(),
+        Err(_) => return HashSet::new(),
     };
     let mut stmt = match conn.prepare(
         "SELECT DISTINCT turn_id FROM trace_turns \
@@ -320,6 +356,58 @@ fn load_turns_with_trace(user_id: &str, session_id: &str) -> std::collections::H
     .ok()
     .map(|iter| iter.filter_map(|r| r.ok()).collect())
     .unwrap_or_default()
+}
+
+fn load_trace_summaries(
+    user_id: &str,
+    session_id: &str,
+    turn_ids: &HashSet<String>,
+) -> HashMap<String, Value> {
+    turn_ids
+        .iter()
+        .filter_map(|turn_id| {
+            let snapshot = super::trace::build_trace_snapshot(user_id, session_id, turn_id);
+            let summary = snapshot
+                .get("trace")
+                .and_then(|trace| trace.get("summary"))
+                .cloned()?;
+            Some((turn_id.clone(), summary))
+        })
+        .collect()
+}
+
+fn load_turn_ux_preferences(
+    conn: &Connection,
+    user_id: &str,
+    session_id: &str,
+) -> HashMap<String, Value> {
+    let mut stmt = match conn.prepare(
+        "SELECT turn_id, ux_plan_json FROM chat_turns \
+         WHERE user_id = ?1 AND session_id = ?2",
+    ) {
+        Ok(s) => s,
+        Err(_) => return HashMap::new(),
+    };
+    stmt.query_map(rusqlite::params![user_id, session_id], |row| {
+        let turn_id: String = row.get(0)?;
+        let raw: Option<String> = row.get(1)?;
+        let parsed = raw
+            .as_deref()
+            .and_then(|value| serde_json::from_str::<Value>(value).ok())
+            .unwrap_or_else(|| json!({}));
+        Ok((turn_id, parsed))
+    })
+    .ok()
+    .map(|iter| iter.filter_map(|r| r.ok()).collect())
+    .unwrap_or_default()
+}
+
+fn payload_is_empty(payload: &Value) -> bool {
+    match payload {
+        Value::Null => true,
+        Value::Object(map) => map.is_empty(),
+        _ => false,
+    }
 }
 
 fn parse_label(raw: &Option<String>) -> Option<Value> {

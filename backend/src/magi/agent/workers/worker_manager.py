@@ -27,6 +27,7 @@ from ...runtime_trace import (
     TraceSpanRecord,
     TraceToolRecord,
 )
+from ...llm.streaming_events import stream_source
 from ...tools.registry import ToolRegistry, tool_registry
 from ...tools.schema import (
     ParameterType,
@@ -633,22 +634,23 @@ class WorkerAgentManager(Tool):
                 runtime_trace_store=self._runtime_trace_store,
                 scenario_llm_pool=self._scenario_llm_pool,
             )
-            outcome = await executor.execute_with_tools(
-                user_message=run_state.prompt,
-                system_prompt=effective_system_prompt,
-                selected_tools=selected_tools,
-                user_id=run_state.user_id,
-                session_id=run_state.session_id or run_state.worker_id,
-                turn_id=run_state.turn_id,
-                conversation_history=[],
-                max_iterations=max_iterations,
-                thinking_depth=ThinkingDepth.HIGH if run_state.subagent_type == self.TYPE_PLAN else ThinkingDepth.NONE,
-                intent=f"worker_{run_state.subagent_type.lower()}",
-                execution_agent_id=run_state.worker_id,
-                execution_workspace=execution_workspace,
-                llm_timeout_seconds=180.0 if run_state.subagent_type == self.TYPE_PLAN else None,
-                final_response_json_mode=True,
-            )
+            async with stream_source("worker"):
+                outcome = await executor.execute_with_tools(
+                    user_message=run_state.prompt,
+                    system_prompt=effective_system_prompt,
+                    selected_tools=selected_tools,
+                    user_id=run_state.user_id,
+                    session_id=run_state.session_id or run_state.worker_id,
+                    turn_id=run_state.turn_id,
+                    conversation_history=[],
+                    max_iterations=max_iterations,
+                    thinking_depth=ThinkingDepth.HIGH if run_state.subagent_type == self.TYPE_PLAN else ThinkingDepth.NONE,
+                    intent=f"worker_{run_state.subagent_type.lower()}",
+                    execution_agent_id=run_state.worker_id,
+                    execution_workspace=execution_workspace,
+                    llm_timeout_seconds=180.0 if run_state.subagent_type == self.TYPE_PLAN else None,
+                    final_response_json_mode=True,
+                )
             run_state.completed_at = time.time()
             run_state.updated_at = run_state.completed_at
             run_state.failure_reason = outcome.failure_reason

@@ -35,7 +35,7 @@ pub async fn get_trace(Query(params): Query<TraceQuery>) -> Json<Value> {
     Json(result)
 }
 
-fn build_trace_snapshot(user_id: &str, session_id: &str, turn_id: &str) -> Value {
+pub(super) fn build_trace_snapshot(user_id: &str, session_id: &str, turn_id: &str) -> Value {
     let trace_path = db::runtime_trace_db_path();
     if !trace_path.exists() {
         return json!({"success": false, "user_id": user_id, "session_id": session_id, "turn_id": turn_id, "trace": null});

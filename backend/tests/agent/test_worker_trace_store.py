@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import time
+import sys
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
+from magi.agent.execution.function_calling import ExecutionOutcome
+from magi.llm.streaming_events import LLMStreamEvent, emit_stream_event, stream_scope
 from magi.runtime_trace.store import RuntimeTraceStore
 from magi.tools.builtin.agent_tool import AgentTool, WorkerRunState
 
@@ -121,3 +125,62 @@ async def test_worker_trace_store_persists_llm_and_tool_rows(
     assert tool_call is not None
     assert tool_call.tool_name == "glob"
     assert tool_call.success is True
+
+
+@pytest.mark.asyncio
+async def test_worker_run_marks_stream_events_as_worker_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: list[LLMStreamEvent] = []
+
+    async def sink(event: LLMStreamEvent) -> None:
+        captured.append(event)
+
+    class FakeFunctionCallingOrchestrator:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def execute_with_tools(self, **kwargs) -> ExecutionOutcome:
+            await emit_stream_event(LLMStreamEvent(kind="text_delta", text="worker json leak"))
+            await emit_stream_event(
+                LLMStreamEvent(
+                    kind="tool_call_start",
+                    tool_call_id="call-worker",
+                    tool_name="web-search",
+                )
+            )
+            return ExecutionOutcome(
+                status="completed",
+                content=(
+                    '{"result_status":"success","summary":"done",'
+                    '"findings":[],"evidence":[],"gaps":[],"next_steps":[],'
+                    '"failure_reason":null}'
+                ),
+            )
+
+    manager = AgentTool()._manager
+    manager.configure(llm_adapter=object())
+    manager._publish_worker_fact = AsyncMock()
+    manager._emit_worker_completed_trace = AsyncMock()
+    manager._emit_worker_failed_trace = AsyncMock()
+    manager._orchestration_store.save_worker_result = AsyncMock()
+    worker_manager_module = sys.modules[manager.__class__.__module__]
+    monkeypatch.setattr(
+        worker_manager_module,
+        "FunctionCallingOrchestrator",
+        FakeFunctionCallingOrchestrator,
+    )
+
+    run_state = _run_state()
+    run_state.subagent_type = "general-purpose"
+
+    async with stream_scope(sink, source="chat"):
+        await manager._run_worker(
+            run_state=run_state,
+            worker_system_prompt="worker prompt",
+            selected_tools=[],
+            max_iterations=1,
+            execution_workspace="/tmp",
+        )
+
+    assert run_state.status == "completed"
+    assert [event.kind for event in captured] == ["tool_call_start"]
+    assert captured[0].source == "worker"
