@@ -73,6 +73,9 @@ jobs:
       - name: Check gateway API contract
         run: python scripts/check-api-contract.py
 
+      - name: Export Python OpenAPI contract
+        run: python scripts/export-python-openapi.py --output /tmp/magi-python-openapi.json
+
   gateway:
     name: Gateway validation
     runs-on: ubuntu-latest

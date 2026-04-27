@@ -151,6 +151,10 @@ jobs:
         shell: bash
         run: python scripts/check-api-contract.py
 
+      - name: Export Python OpenAPI contract
+        shell: bash
+        run: python scripts/export-python-openapi.py --output /tmp/magi-python-openapi.json
+
       - name: Run gateway validation
         shell: bash
         run: cargo test -p magi-gateway
