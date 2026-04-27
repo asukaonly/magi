@@ -4,6 +4,7 @@
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
 import type { AxiosRequestConfig, AxiosResponse } from 'axios';
 import { getRuntimeConfig } from '@/runtime/config';
+import { useBackendHealthStore } from '@/stores/backend-health';
 
 // API response types
 export interface ApiResponse<T = any> {
@@ -203,6 +204,34 @@ export function toApiClientError(error: unknown): ApiClientError {
   };
 }
 
+function getBooleanDetail(details: Record<string, unknown> | undefined, key: string): boolean | null {
+  return typeof details?.[key] === 'boolean' ? details[key] : null;
+}
+
+function getStringDetail(details: Record<string, unknown> | undefined, key: string): string | null {
+  return typeof details?.[key] === 'string' ? details[key] : null;
+}
+
+export function syncBackendHealthFromApiError(error: ApiClientError): void {
+  if (error.kind !== 'backend-not-ready' && error.kind !== 'network') {
+    return;
+  }
+
+  const details = isRecord(error.details) ? error.details : undefined;
+  if (error.kind === 'backend-not-ready') {
+    useBackendHealthStore.getState().setHealth('degraded', {
+      runtimeStatus: getStringDetail(details, 'runtime_status') ?? error.code,
+      startupState: getStringDetail(details, 'startup_state'),
+      deferredReason: getStringDetail(details, 'deferred_reason') ?? error.message,
+      llmReady: getBooleanDetail(details, 'llm_ready'),
+      agentRuntimeReady: getBooleanDetail(details, 'agent_runtime_ready'),
+    });
+    return;
+  }
+
+  useBackendHealthStore.getState().setHealth('offline');
+}
+
 function unwrapApiResponse<T>(response: AxiosResponse<ApiResponse<T>>): ApiResponse<T> {
   return response.data;
 }
@@ -261,7 +290,9 @@ const createApiClient = (): AxiosInstance => {
           window.location.href = '/login';
         }
       }
-      return Promise.reject(toApiClientError(error));
+      const clientError = toApiClientError(error);
+      syncBackendHealthFromApiError(clientError);
+      return Promise.reject(clientError);
     }
   );
 

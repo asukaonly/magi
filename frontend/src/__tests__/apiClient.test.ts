@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { api, apiClient, toApiClientError, unwrapGatewayPayload } from '@/api/client';
+import { api, apiClient, syncBackendHealthFromApiError, toApiClientError, unwrapGatewayPayload } from '@/api/client';
+import { useBackendHealthStore } from '@/stores/backend-health';
 
 describe('api client helpers', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    useBackendHealthStore.getState().setHealth('healthy');
   });
 
   it('passes AbortSignal through get config instead of serializing it as query params', async () => {
@@ -76,5 +78,40 @@ describe('api client helpers', () => {
       limit: 50,
       offset: 0,
     });
+  });
+
+  it('syncs backend readiness errors into the health store', () => {
+    syncBackendHealthFromApiError({
+      message: 'Runtime is still starting',
+      code: 'RUNTIME_NOT_READY',
+      kind: 'backend-not-ready',
+      status: 503,
+      details: {
+        runtime_status: 'starting',
+        startup_state: 'deferred',
+        deferred_reason: 'selection_pending',
+        llm_ready: false,
+        agent_runtime_ready: false,
+      },
+    });
+
+    expect(useBackendHealthStore.getState()).toMatchObject({
+      status: 'degraded',
+      runtimeStatus: 'starting',
+      startupState: 'deferred',
+      deferredReason: 'selection_pending',
+      llmReady: false,
+      agentRuntimeReady: false,
+    });
+  });
+
+  it('syncs network errors into offline health state', () => {
+    syncBackendHealthFromApiError({
+      message: 'No response from server',
+      code: 'NETWORK_ERROR',
+      kind: 'network',
+    });
+
+    expect(useBackendHealthStore.getState().status).toBe('offline');
   });
 });
