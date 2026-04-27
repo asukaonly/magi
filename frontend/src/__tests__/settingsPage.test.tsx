@@ -741,7 +741,7 @@ describe('settings page draft saving', () => {
     );
   });
 
-  it('allows clearing the default chat workspace path before saving', async () => {
+  it('restores the default chat workspace path before saving', async () => {
     const user = userEvent.setup();
     vi.mocked(configApi.get).mockResolvedValue({
       data: {
@@ -759,8 +759,8 @@ describe('settings page draft saving', () => {
     const workspaceInput = await screen.findByLabelText('settings.fields.defaultChatWorkspace');
     expect(workspaceInput).toHaveValue('/Users/asuka/code/magi');
 
-    await user.click(screen.getByRole('button', { name: 'settings.actions.clearDirectory' }));
-    expect(workspaceInput).toHaveValue('');
+    await user.click(screen.getByRole('button', { name: 'settings.actions.restoreDefaultDirectory' }));
+    expect(workspaceInput).toHaveValue('~/.magi/chat-workspace');
 
     await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
 
@@ -768,11 +768,20 @@ describe('settings page draft saving', () => {
       expect(configApi.update).toHaveBeenCalledWith(
         expect.objectContaining({
           preferences: expect.objectContaining({
-            default_chat_workspace_path: null,
+            default_chat_workspace_path: '~/.magi/chat-workspace',
           }),
         })
       )
     );
+  });
+
+  it('disables restoring the default chat workspace when already using the default path', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.conversation' }));
+
+    expect(screen.getByRole('button', { name: 'settings.actions.restoreDefaultDirectory' })).toBeDisabled();
   });
 
   it('shows control settings inside conversation and saves the global permission mode there', async () => {

@@ -47,9 +47,10 @@ class _FakeUnifiedMemoryStore:
 
 
 class _FakeHybridRetrievalService:
-    def __init__(self, unified_memory, llm_provider_bridge) -> None:  # type: ignore[no-untyped-def]
+    def __init__(self, unified_memory, llm_provider_bridge, **kwargs) -> None:  # type: ignore[no-untyped-def]
         self.unified_memory = unified_memory
         self.llm_provider_bridge = llm_provider_bridge
+        self.kwargs = kwargs
 
 
 @pytest.mark.asyncio
@@ -74,24 +75,22 @@ async def test_memory_store_module_passes_l2_batch_flush_interval(monkeypatch: p
     context.core.config = SimpleNamespace(
         agent=SimpleNamespace(
             memory=SimpleNamespace(
+                retention_days=90,
+                history_behavior="delete",
                 embedding=SimpleNamespace(backend=EmbeddingBackend.OPENAI),
                 async_embeddings=True,
                 l0=SimpleNamespace(
                     enabled=True,
                     checkpoint_interval_seconds=60,
-                    runtime_replay_include_l0_only=False,
                 ),
                 l1=SimpleNamespace(
                     enabled=True,
-                    retention_days=7,
-                    t1_importance_enabled=True,
                     vectors_enabled=True,
                 ),
                 l2=SimpleNamespace(
                     enabled=True,
                     vectors_enabled=True,
                     batch_flush_interval_seconds=90,
-                    llm_extraction_enabled=True,
                     auto_extract_relations=True,
                     conflict_arbitration_enabled=True,
                     conflict_arbitration_min_confidence=0.85,
@@ -107,7 +106,6 @@ async def test_memory_store_module_passes_l2_batch_flush_interval(monkeypatch: p
                 l4=SimpleNamespace(
                     enabled=True,
                     vectors_enabled=True,
-                    skill_extraction_enabled=True,
                 ),
             )
         )

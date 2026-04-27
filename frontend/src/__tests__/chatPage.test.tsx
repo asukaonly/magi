@@ -664,13 +664,16 @@ describe('ChatPage', () => {
     const composerInput = await screen.findByTestId('chat-composer-input');
     const composerRoot = composerInput.parentElement;
     const toolbar = screen.getByTestId('chat-composer-toolbar');
+    const primaryAction = screen.getByTestId('chat-composer-primary-action');
     const sendButton = screen.getByRole('button', { name: 'chat.send' });
     const textarea = screen.getByPlaceholderText('chat.inputPlaceholder') as HTMLTextAreaElement;
 
     expect(composerRoot).toHaveClass('rounded-2xl');
     expect(composerRoot).not.toHaveClass('rounded-[28px]');
     expect(toolbar).not.toHaveClass('border-t');
-    expect(sendButton).toHaveClass('h-10', 'w-10');
+    expect(toolbar).toHaveClass('px-2', 'pb-0');
+    expect(primaryAction).toHaveClass('pb-2');
+    expect(sendButton).toHaveClass('h-8.5', 'w-8.5', 'bg-foreground/88');
     expect(textarea.style.height).toBe('88px');
   });
 

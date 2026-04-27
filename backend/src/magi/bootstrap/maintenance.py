@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ..config import get_config
 from .lifecycle import LifecycleModule
 from .context import RuntimeBootstrapContext, require_initialized
 from ..core.maintenance import MaintenanceConfig, MaintenanceDaemon, set_maintenance_daemon
@@ -16,12 +17,20 @@ class OtherDependenciesModule(LifecycleModule):
     def __init__(self, context: RuntimeBootstrapContext):
         super().__init__(
             name="runtime_other_dependencies",
-            dependencies=("runtime_scheduler", "runtime_configuration"),
+            dependencies=("runtime_scheduler", "runtime_configuration", "runtime_memory"),
         )
         self._context = context
 
     async def init(self) -> None:
         config = require_initialized(self._context.core.config, "runtime config")
+        unified_memory = require_initialized(self._context.memory.unified_memory, "unified memory")
+
+        async def _run_memory_maintenance() -> dict[str, int]:
+            memory_settings = get_config().agent.memory
+            return await unified_memory.run_maintenance(
+                retention_days=memory_settings.retention_days,
+                history_behavior=getattr(memory_settings.history_behavior, "value", str(memory_settings.history_behavior)),
+            )
 
         maintenance_config = MaintenanceConfig(
             enabled=config.agent.maintenance.enabled,
@@ -31,6 +40,7 @@ class OtherDependenciesModule(LifecycleModule):
         )
         self._context.maintenance.maintenance_daemon = MaintenanceDaemon(
             config=maintenance_config,
+            maintenance_callback=_run_memory_maintenance,
         )
         await self._context.maintenance.maintenance_daemon.start()
         set_maintenance_daemon(self._context.maintenance.maintenance_daemon)

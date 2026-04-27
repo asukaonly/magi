@@ -272,20 +272,24 @@ class LocalEmbeddingSettings(BaseModel):
     idle_timeout_seconds: int = Field(default=1800, ge=60)
 
 
+class MemoryHistoryBehavior(str, Enum):
+    """Retention behavior for historical memory once it ages out of the hot path."""
+
+    DELETE = "delete"
+    ARCHIVE = "archive"
+
+
 class MemoryL0Settings(BaseModel):
     """L0 working-memory settings."""
 
     enabled: bool = Field(default=True)
     checkpoint_interval_seconds: int = Field(default=30, ge=1)
-    runtime_replay_include_l0_only: bool = Field(default=False)
 
 
 class MemoryL1Settings(BaseModel):
     """L1 long-term event memory settings."""
 
     enabled: bool = Field(default=True)
-    retention_days: int = Field(default=7, ge=1)
-    t1_importance_enabled: bool = Field(default=True)
     vectors_enabled: bool = Field(default=True)
 
 
@@ -295,7 +299,6 @@ class MemoryL2Settings(BaseModel):
     enabled: bool = Field(default=True)
     vectors_enabled: bool = Field(default=True)
     batch_flush_interval_seconds: int = Field(default=60, ge=30)
-    llm_extraction_enabled: bool = Field(default=True)
     auto_extract_relations: bool = Field(default=True)
     conflict_arbitration_enabled: bool = Field(default=True)
     conflict_arbitration_min_confidence: float = Field(default=0.85, ge=0.0, le=1.0)
@@ -333,7 +336,6 @@ class MemoryL4Settings(BaseModel):
 
     enabled: bool = Field(default=True)
     vectors_enabled: bool = Field(default=True)
-    skill_extraction_enabled: bool = Field(default=True)
     strategy_extraction_threshold: int = Field(
         default=5,
         description="Number of new traces before triggering LLM strategy extraction.",
@@ -380,6 +382,8 @@ class EntitySemanticEdgeSettings(BaseModel):
 class MemorySettings(BaseModel):
     """Memory configuration."""
     db_path: str = Field(default="~/.magi/data/memory")
+    retention_days: int = Field(default=90, ge=1)
+    history_behavior: MemoryHistoryBehavior = Field(default=MemoryHistoryBehavior.DELETE)
     async_embeddings: bool = Field(default=True)
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     reranker: MemoryRerankerSettings = Field(default_factory=MemoryRerankerSettings)

@@ -1649,12 +1649,13 @@ describe('config forms', () => {
       <Form
         initialValues={{
           memory: {
-            l0: { enabled: true, checkpoint_interval_seconds: 30, runtime_replay_include_l0_only: false },
-            l1: { enabled: true, retention_days: 7, t1_importance_enabled: true, vectors_enabled: true },
+            retention_days: 90,
+            history_behavior: 'delete',
+            l0: { enabled: true, checkpoint_interval_seconds: 30 },
+            l1: { enabled: true, vectors_enabled: true },
             l2: {
               enabled: true,
               batch_flush_interval_seconds: 60,
-              llm_extraction_enabled: true,
               auto_extract_relations: true,
               conflict_arbitration_enabled: true,
               conflict_arbitration_min_confidence: 0.85,
@@ -1667,7 +1668,7 @@ describe('config forms', () => {
               temporal_llm_min_event_count: 2,
               summary_interval_minutes: 60,
             },
-            l4: { enabled: true, vectors_enabled: true, skill_extraction_enabled: true },
+            l4: { enabled: true, vectors_enabled: true },
           },
         }}
       >

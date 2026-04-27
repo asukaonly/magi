@@ -17,6 +17,8 @@ agent:
 
   memory:
     db_path: "~/.magi/data/memory"
+    retention_days: 90
+    history_behavior: "delete" # "delete" or "archive"
     embedding:
       mode: "remote" # "remote" or "local"
       local:
@@ -60,18 +62,14 @@ agent:
     l0:
       enabled: true
       checkpoint_interval_seconds: 30
-      runtime_replay_include_l0_only: false
 
     l1:
       enabled: true
-      retention_days: 7
-      t1_importance_enabled: true
       vectors_enabled: true
 
     l2:
       enabled: true
       batch_flush_interval_seconds: 60
-      llm_extraction_enabled: true
       auto_extract_relations: true
       conflict_arbitration_enabled: true
       conflict_arbitration_min_confidence: 0.85
@@ -91,7 +89,6 @@ agent:
     l4:
       enabled: true
       vectors_enabled: true
-      skill_extraction_enabled: true
 
   personality:
     name: "default"

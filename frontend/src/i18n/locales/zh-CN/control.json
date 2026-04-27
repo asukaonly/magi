@@ -64,7 +64,7 @@
   "settings": {
     "title": "安全与执行",
     "session_trigger": "会话安全",
-    "permission_mode": "权限模式",
+    "permission_mode": "工具权限模式",
     "permission_mode_description": "控制什么时候需要你确认。",
     "mode": {
       "all": "全部审批",

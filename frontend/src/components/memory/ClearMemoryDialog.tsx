@@ -57,14 +57,14 @@ export const ClearMemoryDialog: React.FC<ClearMemoryDialogProps> = ({
         </DialogHeader>
         <div data-testid="clear-memory-dialog-body" className="space-y-4 px-6 pb-2">
           <div className="rounded-xl border border-border/70 bg-muted/35 px-4 py-3">
-            <ul className="space-y-1 text-sm text-foreground/88">
-              <li>{t('memory.clearConfirm.l0')}</li>
-              <li>{t('memory.clearConfirm.l1')}</li>
-              <li>{t('memory.clearConfirm.l2')}</li>
-              <li>{t('memory.clearConfirm.l3')}</li>
-              <li>{t('memory.clearConfirm.l4')}</li>
-              <li>{t('memory.clearConfirm.chatContext')}</li>
-            </ul>
+            <ol className="list-decimal space-y-1 pl-5 text-sm text-foreground/88">
+              <li>{t('memory.clearConfirm.conversations')}</li>
+              <li>{t('memory.clearConfirm.events')}</li>
+              <li>{t('memory.clearConfirm.relationships')}</li>
+              <li>{t('memory.clearConfirm.summaries')}</li>
+              <li>{t('memory.clearConfirm.learnedSkills')}</li>
+              <li>{t('memory.clearConfirm.currentContext')}</li>
+            </ol>
           </div>
           <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-muted-foreground">
             {countdown > 0

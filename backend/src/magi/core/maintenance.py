@@ -47,9 +47,11 @@ class MaintenanceDaemon:
         self,
         config: Optional[MaintenanceConfig] = None,
         health_check_callback: Optional[Callable[[], dict[str, Any]]] = None,
+        maintenance_callback: Optional[Callable[[], Any]] = None,
     ) -> None:
         self.config = config or MaintenanceConfig()
         self.health_check_callback = health_check_callback
+        self.maintenance_callback = maintenance_callback
         self._running = False
         self._task: Optional[asyncio.Task] = None
         self._stats = MaintenanceStats()
@@ -99,6 +101,12 @@ class MaintenanceDaemon:
                 await self._run_health_checks()
             if self.config.log_rotation_check:
                 await self._check_log_rotation()
+            if self.maintenance_callback is not None:
+                maintenance_result = self.maintenance_callback()
+                if asyncio.iscoroutine(maintenance_result):
+                    maintenance_result = await maintenance_result
+                if isinstance(maintenance_result, dict):
+                    self._stats.messages_cleaned += int(maintenance_result.get("deleted_events", 0) or 0)
 
             self._stats.runs_completed += 1
             self._stats.last_run_time = start_time

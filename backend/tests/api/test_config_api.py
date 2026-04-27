@@ -57,14 +57,14 @@ def test_system_config_defaults_include_memory_lifecycle_settings():
     assert config.memory.query_expansion.enabled is True
     assert config.memory.l0.enabled is True
     assert config.memory.l4.enabled is True
+    assert config.memory.retention_days == 90
+    assert config.memory.history_behavior == "delete"
     assert config.memory.l0.checkpoint_interval_seconds == 30
     assert config.memory.l2.batch_flush_interval_seconds == 60
     assert config.memory.l2.conflict_arbitration_enabled is True
     assert config.memory.l2.conflict_arbitration_min_confidence == 0.85
-    assert config.memory.l2.llm_extraction_enabled is True
     assert config.memory.l3.temporal_llm_timeout_seconds == 3.0
     assert config.memory.l3.temporal_llm_min_event_count == 2
-    assert config.memory.l4.skill_extraction_enabled is True
     assert config.memory.l1.vectors_enabled is True
     assert config.memory.l3.vectors_enabled is True
     assert "async_embeddings" not in config.memory.model_dump(mode="json")

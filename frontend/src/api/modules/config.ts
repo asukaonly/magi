@@ -304,13 +304,10 @@ export interface ToolsConfig {
 export interface MemoryL0Config {
   enabled: boolean;
   checkpoint_interval_seconds: number;
-  runtime_replay_include_l0_only: boolean;
 }
 
 export interface MemoryL1Config {
   enabled: boolean;
-  retention_days: number;
-  t1_importance_enabled: boolean;
   vectors_enabled: boolean;
 }
 
@@ -318,7 +315,6 @@ export interface MemoryL2Config {
   enabled: boolean;
   vectors_enabled: boolean;
   batch_flush_interval_seconds: number;
-  llm_extraction_enabled: boolean;
   auto_extract_relations: boolean;
   conflict_arbitration_enabled: boolean;
   conflict_arbitration_min_confidence: number;
@@ -336,7 +332,6 @@ export interface MemoryL3Config {
 export interface MemoryL4Config {
   enabled: boolean;
   vectors_enabled: boolean;
-  skill_extraction_enabled: boolean;
 }
 
 export interface CrossEncoderConfig {
@@ -366,6 +361,8 @@ export interface EmbeddingConfig {
 
 export interface MemoryConfig {
   db_path?: string;
+  retention_days: number;
+  history_behavior: 'delete' | 'archive';
   embedding: EmbeddingConfig;
   reranker: MemoryRerankerConfig;
   l0: MemoryL0Config;
@@ -533,22 +530,20 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
         managed_model_id: null,
       },
     },
+    retention_days: 90,
+    history_behavior: 'delete',
     l0: {
       enabled: true,
       checkpoint_interval_seconds: 30,
-      runtime_replay_include_l0_only: false,
     },
     l1: {
       enabled: true,
-      retention_days: 7,
-      t1_importance_enabled: true,
       vectors_enabled: true,
     },
     l2: {
       enabled: true,
       vectors_enabled: true,
       batch_flush_interval_seconds: 60,
-      llm_extraction_enabled: true,
       auto_extract_relations: true,
       conflict_arbitration_enabled: true,
       conflict_arbitration_min_confidence: 0.85,
@@ -564,7 +559,6 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     l4: {
       enabled: true,
       vectors_enabled: true,
-      skill_extraction_enabled: true,
     },
   },
   preferences: {

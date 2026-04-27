@@ -542,7 +542,7 @@
     "autoStartLabel": "Launch at login",
     "startMinimizedLabel": "Start minimized to tray",
     "proxyOff": "Direct (proxy off)",
-    "defaultChatWorkspaceDesc": "Set the default working directory mounted into new desktop chat sessions. You can still override it inside an individual conversation.",
+    "defaultChatWorkspaceDesc": "Set the default working directory for new desktop conversations. You can still choose a different directory inside a specific conversation.",
     "control": {
       "title": "Safety and execution",
       "description": "Set the default approval mode and whether execution waits for plan approval."
@@ -551,11 +551,11 @@
     "defaultChatWorkspacePickFailed": "Failed to choose a default chat directory: {{message}}",
     "streamingChatLabel": "Streaming output",
     "streamingChatDesc": "When enabled, messages appear word by word. When disabled, the full reply is shown at once.",
-    "mediaGroundingLabel": "Let the assistant inspect prepared media when needed",
-    "mediaGroundingDesc": "When enabled, the assistant may inspect prepared image attachments to improve grounded replies. Media is only sent when the selected core model supports vision.",
-    "mediaGroundingUnavailable": "The current core model does not support vision, so this option cannot be enabled until you switch to a vision-capable core model.",
+    "mediaGroundingLabel": "Let the assistant view image attachments when needed",
+    "mediaGroundingDesc": "When enabled, the assistant can read image attachments you already added to help understand the conversation. Images are only sent when the current primary model supports vision.",
+    "mediaGroundingUnavailable": "The current primary model does not support vision, so this option stays unavailable until you switch to a vision-capable model.",
     "allowInterjectionLabel": "Allow interjection",
-    "allowInterjectionDesc": "When enabled, you can send messages while the AI is replying. When disabled, the input is locked until the current reply finishes.",
+    "allowInterjectionDesc": "When enabled, you can keep sending messages while the AI is replying, whether to add context, attach new evidence, or ask a follow-up. When disabled, the input stays locked until the current reply finishes.",
     "allowAskInBackgroundLabel": "Let background tasks ask questions",
     "allowAskInBackgroundDesc": "When enabled, a task running in the background may open a question dialog and wait for your answer. When disabled, background tasks may not block on user input and will error out if they try.",
 
@@ -702,6 +702,7 @@
       "close": "Close",
       "chooseDirectory": "Choose Directory",
       "clearDirectory": "Clear Directory",
+      "restoreDefaultDirectory": "Restore Default",
       "discard": "Discard Changes",
       "save": "Save"
     },
@@ -785,6 +786,7 @@
         "db_path": {
           "label": "Memory data storage location",
           "description": "Set the local directory that stores memory databases and vector indexes. Vector writes always use the async sqlite path.",
+          "runtimeHint": "In the current build, saving this only updates config. Existing memory is not migrated automatically, and the running backend does not switch to the new directory immediately.",
           "placeholder": "~/.magi/data/memories",
           "summary_hint": "Includes the L1 event store and the shared memory database."
         },
@@ -927,24 +929,17 @@
           "label": "Auto-save interval (seconds)"
         },
         "retention_days": {
-          "label": "History retention (days)"
+          "label": "Global memory retention (days)",
+          "description": "Historical memory older than this will be deleted or archived using the policy below. Default is 90 days."
         },
-        "runtime_replay_include_l0_only": {
-          "label": "Replay temporary events on recovery",
-          "description": "After crash recovery, also replay internal events that only existed in temporary memory."
-        },
-        "enable_t1_importance": {
-          "label": "Enable importance scoring",
-          "description": "Score how important each conversation event is before deciding its processing priority."
+        "history_behavior": {
+          "label": "Historical memory behavior",
+          "description": "Delete removes expired history immediately. Archive moves it into a separate archive database for later cold storage flows."
         },
         "enable_l1_vectorization": {
           "label": "Enable semantic search",
           "description": "Convert conversation records into vectors to enable searching history by meaning.",
           "description_disabled": "Requires an embedding model to be configured first."
-        },
-        "enable_l2_llm_extraction": {
-          "label": "Enable AI knowledge extraction",
-          "description": "Use AI to extract people, preferences, facts, and other structured knowledge from conversations."
         },
         "enable_l2_vectorization": {
           "label": "Enable semantic search",
@@ -971,13 +966,13 @@
           "label": "Enable semantic search",
           "description": "Convert summaries and reviews into vectors for semantic similarity search.",
           "description_disabled": "Requires an embedding model to be configured first."
-        },
-        "enable_l4_skill_extraction": {
-          "label": "Enable experience extraction",
-          "description": "Identify recurring success patterns and failure lessons to produce reusable action recommendations."
         }
       },
       "options": {
+        "history_behavior": {
+          "delete": "Delete",
+          "archive": "Archive"
+        },
         "reranker_backend": {
           "heuristic": "Heuristic",
           "llm": "LLM"
@@ -2007,13 +2002,13 @@
     },
     "clearConfirm": {
       "title": "Clear All Memory",
-      "description": "This will permanently delete all memory data from all layers.",
-      "l0": "L0 working context (sessions, goals)",
-      "l1": "L1 event stream",
-      "l2": "L2 cognition (knowledge graph, ToM)",
-      "l3": "L3 reflection summaries",
-      "l4": "L4 procedural skills",
-      "chatContext": "Chat context history",
+      "description": "This will permanently delete all memory data stored for this instance.",
+      "conversations": "Conversation history and session goals",
+      "events": "Recorded events and activity traces",
+      "relationships": "Extracted relationships, knowledge, and long-term understanding",
+      "summaries": "Generated summaries and reflection notes",
+      "learnedSkills": "Learned experience and procedural skills",
+      "currentContext": "Cached context from the current conversation",
       "countdownHint": "Please wait {{seconds}} seconds before confirming.",
       "readyHint": "You can confirm the clear action now.",
       "confirmCountdown": "Confirm in {{seconds}}s",

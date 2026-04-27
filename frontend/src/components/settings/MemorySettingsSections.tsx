@@ -7,7 +7,7 @@ import type { SystemConfig } from '@/api/modules/config';
 import { DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
 import memoryApi from '@/api/modules/memory';
 import { ClearMemoryDialog } from '@/components/memory/ClearMemoryDialog';
-import { NumberField } from '@/components/settings/form-fields';
+import { LabeledSelectField, NumberField } from '@/components/settings/form-fields';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
@@ -22,11 +22,13 @@ interface MemorySettingsSectionProps {
 }
 
 function MemorySectionShell({
+  className,
   children,
 }: {
+  className?: string;
   children: React.ReactNode;
 }) {
-  return <div className="space-y-8">{children}</div>;
+  return <div className={className ?? 'space-y-8'}>{children}</div>;
 }
 
 function MemoryGroup({
@@ -47,15 +49,20 @@ function MemorySwitchRow({
   checked,
   onCheckedChange,
   disabled = false,
+  bordered = true,
 }: {
   label: string;
   description: string;
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
   disabled?: boolean;
+  bordered?: boolean;
 }) {
   return (
-    <label className="grid gap-3 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+    <label className={[
+      'grid gap-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start',
+      bordered ? 'border-b border-[hsl(var(--settings-subnav-border)/0.6)]' : '',
+    ].join(' ').trim()}>
       <div className="space-y-1">
         <div className="text-sm font-medium text-foreground">{label}</div>
         <div className="text-xs leading-6 text-muted-foreground">{description}</div>
@@ -98,6 +105,10 @@ export function MemoryGeneralSettingsSection({
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const [clearing, setClearing] = useState(false);
   const memoryStoragePath = draftConfig.memory.db_path ?? '';
+  const historyBehaviorOptions = [
+    { value: 'delete', label: t('settings.memory.options.history_behavior.delete') },
+    { value: 'archive', label: t('settings.memory.options.history_behavior.archive') },
+  ];
   const rerankerConfig = {
     ...DEFAULT_SYSTEM_CONFIG.memory.reranker,
     ...draftConfig.memory.reranker,
@@ -136,9 +147,9 @@ export function MemoryGeneralSettingsSection({
   }, [t]);
 
   return (
-    <MemorySectionShell>
+    <MemorySectionShell className="space-y-0">
       <MemoryGroup>
-        <div className="border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
+        <div className="py-2">
           <div className="space-y-2">
             <label className="space-y-2" htmlFor="memory-storage-path">
               <span className="text-sm font-medium text-foreground">
@@ -166,16 +177,52 @@ export function MemoryGeneralSettingsSection({
               </Button>
             </div>
           </div>
-          <p className="mt-2 text-xs leading-6 text-muted-foreground">{t('settings.memory.fields.db_path.description')}</p>
+          <div className="mt-2 space-y-1">
+            <p className="text-xs leading-6 text-muted-foreground">{t('settings.memory.fields.db_path.description')}</p>
+            <p className="text-xs leading-6 text-amber-600 dark:text-amber-300">{t('settings.memory.fields.db_path.runtimeHint')}</p>
+          </div>
         </div>
       </MemoryGroup>
 
       <MemoryGroup>
-        <div className="border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
+        <div className="grid gap-6 py-2 lg:grid-cols-2">
+          <div>
+            <NumberField
+              label={t('settings.memory.fields.retention_days.label')}
+              value={draftConfig.memory.retention_days}
+              min={1}
+              onChange={(value) => patchDraftConfig((draft) => {
+                draft.memory.retention_days = value;
+              })}
+            />
+            <p className="mt-2 text-xs leading-6 text-muted-foreground">
+              {t('settings.memory.fields.retention_days.description')}
+            </p>
+          </div>
+          <div>
+            <LabeledSelectField
+              label={t('settings.memory.fields.history_behavior.label')}
+              ariaLabel={t('settings.memory.fields.history_behavior.label')}
+              value={draftConfig.memory.history_behavior}
+              options={historyBehaviorOptions}
+              onChange={(value) => patchDraftConfig((draft) => {
+                draft.memory.history_behavior = value as 'delete' | 'archive';
+              })}
+            />
+            <p className="mt-2 text-xs leading-6 text-muted-foreground">
+              {t('settings.memory.fields.history_behavior.description')}
+            </p>
+          </div>
+        </div>
+      </MemoryGroup>
+
+      <MemoryGroup>
+        <div className="py-2">
           <MemorySwitchRow
             label={t('settings.memory.fields.cross_encoder_enabled.label')}
             description={t('settings.memory.fields.cross_encoder_enabled.description')}
             checked={rerankerConfig.cross_encoder.enabled}
+            bordered={false}
             onCheckedChange={(checked) => patchDraftConfig((draft) => {
               draft.memory.reranker.cross_encoder ??= { ...DEFAULT_SYSTEM_CONFIG.memory.reranker.cross_encoder };
               draft.memory.reranker.cross_encoder.enabled = checked;
@@ -183,7 +230,7 @@ export function MemoryGeneralSettingsSection({
           />
 
           {rerankerConfig.cross_encoder.enabled ? (
-            <div className="py-4">
+            <div className="pt-3 pb-2">
               <NumberField
                 label={t('settings.memory.fields.reranker_top_k.label')}
                 value={rerankerConfig.top_k}
@@ -202,7 +249,7 @@ export function MemoryGeneralSettingsSection({
 
       {/* Danger zone — clear all memory */}
       <MemoryGroup>
-        <div className="py-3">
+        <div className="py-2">
           <div className="space-y-1">
             <div className="text-sm font-medium text-destructive">
               {t('settings.memory.dangerZone.title')}
@@ -260,15 +307,6 @@ export function MemoryWorkbenchSettingsSection({
             })}
           />
         </div>
-        <MemorySwitchRow
-          label={t('settings.memory.fields.runtime_replay_include_l0_only.label')}
-          description={t('settings.memory.fields.runtime_replay_include_l0_only.description')}
-          checked={draftConfig.memory.l0.runtime_replay_include_l0_only ?? false}
-          disabled={!draftConfig.memory.l0.enabled}
-          onCheckedChange={(checked) => patchDraftConfig((draft) => {
-            draft.memory.l0.runtime_replay_include_l0_only = checked;
-          })}
-        />
       </MemoryGroup>
     </MemorySectionShell>
   );
@@ -291,28 +329,9 @@ export function MemoryEventsSettingsSection({
           checked={draftConfig.memory.l1.enabled}
           onCheckedChange={(checked) => updateMemoryToggle('l1', checked)}
         />
-        <div className="grid gap-6 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3 lg:grid-cols-2">
-          <NumberField
-            label={t('settings.memory.fields.retention_days.label')}
-            value={draftConfig.memory.l1.retention_days}
-            min={1}
-            onChange={(value) => patchDraftConfig((draft) => {
-              draft.memory.l1.retention_days = value;
-            })}
-          />
-        </div>
       </MemoryGroup>
 
       <MemoryGroup>
-        <MemorySwitchRow
-          label={t('settings.memory.fields.enable_t1_importance.label')}
-          description={t('settings.memory.fields.enable_t1_importance.description')}
-          checked={draftConfig.memory.l1.t1_importance_enabled ?? false}
-          disabled={!draftConfig.memory.l1.enabled}
-          onCheckedChange={(checked) => patchDraftConfig((draft) => {
-            draft.memory.l1.t1_importance_enabled = checked;
-          })}
-        />
         <MemorySwitchRow
           label={t('settings.memory.fields.enable_l1_vectorization.label')}
           description={
@@ -357,15 +376,6 @@ export function MemoryKnowledgeSettingsSection({
           checked={draftConfig.memory.l2.enabled}
           disabled={!draftConfig.memory.l1.enabled}
           onCheckedChange={(checked) => updateMemoryToggle('l2', checked)}
-        />
-        <MemorySwitchRow
-          label={t('settings.memory.fields.enable_l2_llm_extraction.label')}
-          description={t('settings.memory.fields.enable_l2_llm_extraction.description')}
-          checked={draftConfig.memory.l2.llm_extraction_enabled ?? false}
-          disabled={!draftConfig.memory.l2.enabled}
-          onCheckedChange={(checked) => patchDraftConfig((draft) => {
-            draft.memory.l2.llm_extraction_enabled = checked;
-          })}
         />
         <MemorySwitchRow
           label={t('settings.memory.fields.enable_l2_vectorization.label')}
@@ -507,15 +517,6 @@ export function MemorySkillsSettingsSection({
           checked={draftConfig.memory.l4.enabled}
           disabled={!draftConfig.memory.l1.enabled}
           onCheckedChange={(checked) => updateMemoryToggle('l4', checked)}
-        />
-        <MemorySwitchRow
-          label={t('settings.memory.fields.enable_l4_skill_extraction.label')}
-          description={t('settings.memory.fields.enable_l4_skill_extraction.description')}
-          checked={draftConfig.memory.l4.skill_extraction_enabled ?? false}
-          disabled={!draftConfig.memory.l4.enabled}
-          onCheckedChange={(checked) => patchDraftConfig((draft) => {
-            draft.memory.l4.skill_extraction_enabled = checked;
-          })}
         />
       </MemoryGroup>
     </MemorySectionShell>

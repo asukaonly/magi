@@ -629,17 +629,13 @@ export function useSettings(): UseSettingsReturn {
         draft.memory.l2.enabled = false;
         draft.memory.l3.enabled = false;
         draft.memory.l4.enabled = false;
-        draft.memory.l1.t1_importance_enabled = false;
-        draft.memory.l2.llm_extraction_enabled = false;
         draft.memory.l2.vectors_enabled = false;
         draft.memory.l3.llm_summary_enabled = false;
-        draft.memory.l4.skill_extraction_enabled = false;
         return;
       }
 
       if (field === 'l2' && !checked) {
         draft.memory.l2.enabled = false;
-        draft.memory.l2.llm_extraction_enabled = false;
         draft.memory.l2.vectors_enabled = false;
         return;
       }
@@ -652,7 +648,6 @@ export function useSettings(): UseSettingsReturn {
 
       if (field === 'l4' && !checked) {
         draft.memory.l4.enabled = false;
-        draft.memory.l4.skill_extraction_enabled = false;
         return;
       }
 

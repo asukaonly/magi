@@ -541,7 +541,7 @@
     "autoStartLabel": "开机自动启动",
     "startMinimizedLabel": "启动后最小化到托盘",
     "proxyOff": "直连（关闭代理）",
-    "defaultChatWorkspaceDesc": "设置桌面端新对话默认挂载的工作目录。进入具体会话后，仍然可以单独覆盖这个目录。",
+    "defaultChatWorkspaceDesc": "设置桌面端新对话默认使用的工作目录。进入具体会话后，仍然可以单独改成别的目录。",
     "control": {
       "title": "安全与执行",
       "description": "设置默认审批方式，以及执行前是否先给出计划。"
@@ -550,11 +550,11 @@
     "defaultChatWorkspacePickFailed": "选择默认对话目录失败：{{message}}",
     "streamingChatLabel": "流式输出",
     "streamingChatDesc": "开启后消息将逐字显示，关闭则等待完整回复后一次性呈现。",
-    "mediaGroundingLabel": "在需要时允许助手查看已准备的媒体内容",
-    "mediaGroundingDesc": "开启后，助手可在需要时查看已准备的图片附件来提升回复依据性。仅当当前 core 模型支持视觉能力时才会发送媒体内容。",
-    "mediaGroundingUnavailable": "当前 core 模型不支持视觉能力，切换到支持视觉的 core 模型前无法开启此选项。",
+    "mediaGroundingLabel": "在需要时允许助手查看图片附件",
+    "mediaGroundingDesc": "开启后，助手在回答问题时可以读取你已添加的图片附件，用图片内容辅助理解上下文。只有当前核心模型支持视觉能力时，图片才会发送给模型。",
+    "mediaGroundingUnavailable": "当前核心模型不支持视觉能力，切换到支持视觉的核心模型后才能开启。",
     "allowInterjectionLabel": "允许插话",
-    "allowInterjectionDesc": "开启后可在 AI 回复过程中发送新消息打断当前回复。关闭后需等待回复完成才能发送下一条消息。",
+    "allowInterjectionDesc": "开启后可在 AI 回复过程中继续发送消息，补充说明、追加证据或直接跟进问题。关闭后需等待当前回复完成才能发送下一条消息。",
     "allowAskInBackgroundLabel": "允许后台任务向我提问",
     "allowAskInBackgroundDesc": "开启后，在后台运行的任务可以弹出问题对话框并等待你的回复。关闭时，后台任务尝试提问会直接报错，不会阻塞等待。",
 
@@ -700,6 +700,7 @@
       "close": "关闭",
       "chooseDirectory": "选择目录",
       "clearDirectory": "清空目录",
+      "restoreDefaultDirectory": "还原默认",
       "discard": "放弃更改",
       "save": "保存"
     },
@@ -783,6 +784,7 @@
         "db_path": {
           "label": "记忆数据存储位置",
           "description": "设置记忆数据库与向量索引所在的本地目录。向量写入固定走异步 sqlite 存储。",
+          "runtimeHint": "当前版本保存后只会更新配置，不会自动迁移已有记忆；后端运行时也不会立刻切换到新目录。",
           "placeholder": "~/.magi/data/memories",
           "summary_hint": "包含 L1 事件库与共享记忆数据库。"
         },
@@ -925,24 +927,17 @@
           "label": "自动存档间隔（秒）"
         },
         "retention_days": {
-          "label": "对话记录保留天数"
+          "label": "全局记忆保留天数",
+          "description": "超过该天数的旧历史记忆会按下方策略删除或归档，默认 90 天。"
         },
-        "runtime_replay_include_l0_only": {
-          "label": "恢复时回放临时事件",
-          "description": "异常恢复后，是否也回放仅存在于临时记忆中的内部事件。"
-        },
-        "enable_t1_importance": {
-          "label": "启用重要度评分",
-          "description": "在记录对话事件时，先评估其重要程度再决定后续处理优先级。"
+        "history_behavior": {
+          "label": "历史记忆行为",
+          "description": "删除会直接清理过期历史；归档会将过期历史写入单独归档库，便于后续做冷数据。"
         },
         "enable_l1_vectorization": {
           "label": "启用语义搜索",
           "description": "将对话记录转为向量，支持按语义相似度搜索历史对话。",
           "description_disabled": "需要先在模型配置中选择向量模型。"
-        },
-        "enable_l2_llm_extraction": {
-          "label": "启用 AI 知识提炼",
-          "description": "使用 AI 模型从对话中提取人物、偏好、事实等结构化知识。"
         },
         "enable_l2_vectorization": {
           "label": "启用语义搜索",
@@ -969,13 +964,13 @@
           "label": "启用语义搜索",
           "description": "将总结回顾转为向量，支持按语义相似度搜索。",
           "description_disabled": "需要先在模型配置中选择向量模型。"
-        },
-        "enable_l4_skill_extraction": {
-          "label": "启用经验提炼",
-          "description": "从反复出现的成功模式和失败教训中，总结出可复用的行动建议。"
         }
       },
       "options": {
+        "history_behavior": {
+          "delete": "删除",
+          "archive": "归档"
+        },
         "reranker_backend": {
           "heuristic": "Heuristic",
           "llm": "LLM"
@@ -2075,13 +2070,13 @@
     },
     "clearConfirm": {
       "title": "清除所有记忆",
-      "description": "此操作将永久删除所有层级的记忆数据。",
-      "l0": "L0 工作上下文（会话、目标）",
-      "l1": "L1 事件流",
-      "l2": "L2 认知（知识图谱、心智理论）",
-      "l3": "L3 反思摘要",
-      "l4": "L4 程序性技能",
-      "chatContext": "对话上下文历史",
+      "description": "此操作将永久删除当前实例中的所有记忆数据。",
+      "conversations": "历史对话与会话目标",
+      "events": "记录下来的事件与行为轨迹",
+      "relationships": "整理出的关系、知识和长期认知",
+      "summaries": "阶段总结与反思摘要",
+      "learnedSkills": "从历史中沉淀出的经验和技能",
+      "currentContext": "当前会话里的上下文缓存",
       "countdownHint": "请等待 {{seconds}} 秒后确认清除。",
       "readyHint": "现在可以确认清除了。",
       "confirmCountdown": "{{seconds}} 秒后可确认",

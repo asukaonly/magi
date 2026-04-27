@@ -9,6 +9,7 @@ import {
   Save,
 } from 'lucide-react';
 
+import { DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
 import { useSettings } from '@/hooks/useSettings';
 import { NAV_ITEMS, isNavGroup } from '@/constants/settings';
 import type { NavItem, SettingsPageHandle, SettingsPageProps } from '@/types/settings';
@@ -54,10 +55,12 @@ function SettingsSectionShell({
 function SettingsGroup({
   title,
   description,
+  contentClassName,
   children,
 }: {
   title: string;
   description?: string;
+  contentClassName?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -66,7 +69,45 @@ function SettingsGroup({
         <h3 className="text-sm font-semibold tracking-[0.01em] text-foreground">{title}</h3>
         {description ? <p className="max-w-3xl text-xs leading-6 text-muted-foreground">{description}</p> : null}
       </div>
-      <div className="space-y-3">{children}</div>
+      <div className={cn('space-y-3', contentClassName)}>{children}</div>
+    </section>
+  );
+}
+
+function SettingsSwitchRow({
+  title,
+  description,
+  checked,
+  onCheckedChange,
+  ariaLabel,
+  disabled = false,
+  hint,
+  hintClassName,
+}: {
+  title: string;
+  description: string;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+  ariaLabel: string;
+  disabled?: boolean;
+  hint?: string;
+  hintClassName?: string;
+}) {
+  return (
+    <section className="grid gap-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+      <div className="space-y-1">
+        <div className="text-sm font-medium text-foreground">{title}</div>
+        <div className="text-xs leading-6 text-muted-foreground">{description}</div>
+        {hint ? <p className={cn('text-xs leading-6 text-muted-foreground', hintClassName)}>{hint}</p> : null}
+      </div>
+      <div className="flex justify-start sm:justify-end">
+        <Switch
+          aria-label={ariaLabel}
+          checked={checked}
+          disabled={disabled}
+          onCheckedChange={onCheckedChange}
+        />
+      </div>
     </section>
   );
 }
@@ -227,17 +268,20 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
   }
 
   const renderSectionContent = () => {
+    const defaultChatWorkspaceFallback = DEFAULT_SYSTEM_CONFIG.preferences.default_chat_workspace_path;
     const embeddingSelection = draftConfig.llm?.selections?.embedding;
     const hasEmbeddingModel = !!(embeddingSelection?.provider_id && embeddingSelection?.model);
     const coreModelSupportsVision = Boolean(draftConfig.llm?.selections?.core?.capabilities?.vision);
     const mediaGroundingEnabled = Boolean(draftConfig.preferences.allow_media_grounding_for_conversation);
     const mediaGroundingSwitchDisabled = !coreModelSupportsVision && !mediaGroundingEnabled;
     const defaultChatWorkspacePath = draftConfig.preferences.default_chat_workspace_path;
+    const effectiveDefaultChatWorkspacePath = defaultChatWorkspacePath ?? defaultChatWorkspaceFallback;
+    const canRestoreDefaultChatWorkspace = defaultChatWorkspacePath !== defaultChatWorkspaceFallback;
 
     const handlePickWorkspace = async () => {
       setPickingWorkspace(true);
       try {
-        const selectedPath = await pickDirectory(defaultChatWorkspacePath);
+        const selectedPath = await pickDirectory(effectiveDefaultChatWorkspacePath);
         if (!selectedPath) {
           return;
         }
@@ -389,18 +433,19 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             <SettingsGroup
               title={t('settings.fields.defaultChatWorkspace')}
               description={t('settings.defaultChatWorkspaceDesc')}
+              contentClassName="space-y-0"
             >
-              <div className="grid gap-3 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
-                <label className="space-y-2" htmlFor="default-chat-workspace">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <label className="min-w-0 flex-1" htmlFor="default-chat-workspace">
                   <Input
                     id="default-chat-workspace"
                     aria-label={t('settings.fields.defaultChatWorkspace')}
                     readOnly
-                    value={defaultChatWorkspacePath ?? ''}
+                    value={effectiveDefaultChatWorkspacePath}
                     placeholder={t('settings.defaultChatWorkspacePlaceholder')}
                   />
                 </label>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2 sm:flex-none">
                   <Button
                     type="button"
                     variant="outline"
@@ -416,103 +461,69 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                     type="button"
                     variant="ghost"
                     onClick={() => patchDraftConfig((draft) => {
-                      draft.preferences.default_chat_workspace_path = null;
+                      draft.preferences.default_chat_workspace_path = defaultChatWorkspaceFallback;
                     })}
-                    disabled={!defaultChatWorkspacePath}
+                    disabled={!canRestoreDefaultChatWorkspace}
                   >
-                    <X className="mr-2 h-4 w-4" />
-                    {t('settings.actions.clearDirectory')}
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                    {t('settings.actions.restoreDefaultDirectory')}
                   </Button>
                 </div>
               </div>
             </SettingsGroup>
 
-            <SettingsGroup
-              title={t('settings.fields.streamingChat')}
+            <SettingsSwitchRow
+              title={t('settings.streamingChatLabel')}
               description={t('settings.streamingChatDesc')}
-            >
-              <div className="flex items-center justify-between border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
-                <span className="text-sm">{t('settings.streamingChatLabel')}</span>
-                <Switch
-                  aria-label={t('settings.fields.streamingChat')}
-                  checked={draftConfig.preferences.streaming_chat_enabled}
-                  onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                    draft.preferences.streaming_chat_enabled = checked;
-                  })}
-                />
-              </div>
-            </SettingsGroup>
+              ariaLabel={t('settings.fields.streamingChat')}
+              checked={draftConfig.preferences.streaming_chat_enabled}
+              onCheckedChange={(checked) => patchDraftConfig((draft) => {
+                draft.preferences.streaming_chat_enabled = checked;
+              })}
+            />
 
-            <SettingsGroup
-              title={t('settings.fields.mediaGrounding')}
+            <SettingsSwitchRow
+              title={t('settings.mediaGroundingLabel')}
               description={t('settings.mediaGroundingDesc')}
-            >
-              <div className="border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-sm">{t('settings.mediaGroundingLabel')}</span>
-                  <Switch
-                    aria-label={t('settings.fields.mediaGrounding')}
-                    checked={draftConfig.preferences.allow_media_grounding_for_conversation}
-                    disabled={mediaGroundingSwitchDisabled}
-                    onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                      draft.preferences.allow_media_grounding_for_conversation = checked;
-                    })}
-                  />
-                </div>
-                {!coreModelSupportsVision ? (
-                  <p className="mt-2 text-xs leading-6 text-muted-foreground">
-                    {t('settings.mediaGroundingUnavailable')}
-                  </p>
-                ) : null}
-              </div>
-            </SettingsGroup>
+              hint={!coreModelSupportsVision ? t('settings.mediaGroundingUnavailable') : undefined}
+              hintClassName={!coreModelSupportsVision ? 'text-amber-600 dark:text-amber-300' : undefined}
+              ariaLabel={t('settings.fields.mediaGrounding')}
+              checked={draftConfig.preferences.allow_media_grounding_for_conversation}
+              disabled={mediaGroundingSwitchDisabled}
+              onCheckedChange={(checked) => patchDraftConfig((draft) => {
+                draft.preferences.allow_media_grounding_for_conversation = checked;
+              })}
+            />
 
-            <SettingsGroup
-              title={t('settings.fields.allowInterjection')}
+            <SettingsSwitchRow
+              title={t('settings.allowInterjectionLabel')}
               description={t('settings.allowInterjectionDesc')}
-            >
-              <div className="flex items-center justify-between border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
-                <span className="text-sm">{t('settings.allowInterjectionLabel')}</span>
-                <Switch
-                  aria-label={t('settings.fields.allowInterjection')}
-                  checked={draftConfig.preferences.allow_interjection}
-                  onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                    draft.preferences.allow_interjection = checked;
-                  })}
-                />
-              </div>
-            </SettingsGroup>
+              ariaLabel={t('settings.fields.allowInterjection')}
+              checked={draftConfig.preferences.allow_interjection}
+              onCheckedChange={(checked) => patchDraftConfig((draft) => {
+                draft.preferences.allow_interjection = checked;
+              })}
+            />
 
-            <SettingsGroup
-              title={t('settings.fields.allowAskInBackground')}
+            <SettingsSwitchRow
+              title={t('settings.allowAskInBackgroundLabel')}
               description={t('settings.allowAskInBackgroundDesc')}
-            >
-              <div className="flex items-center justify-between border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
-                <span className="text-sm">{t('settings.allowAskInBackgroundLabel')}</span>
-                <Switch
-                  aria-label={t('settings.fields.allowAskInBackground')}
-                  checked={draftConfig.preferences.allow_ask_in_background}
-                  onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                    draft.preferences.allow_ask_in_background = checked;
-                  })}
-                />
-              </div>
-            </SettingsGroup>
+              ariaLabel={t('settings.fields.allowAskInBackground')}
+              checked={draftConfig.preferences.allow_ask_in_background}
+              onCheckedChange={(checked) => patchDraftConfig((draft) => {
+                draft.preferences.allow_ask_in_background = checked;
+              })}
+            />
 
-            <SettingsGroup
-              title={t('settings.control.title')}
-              description={t('settings.control.description')}
-            >
-              {draftControlSettings ? (
-                <ControlSettingsPanel
-                  value={draftControlSettings}
-                  onChange={(next) => patchDraftControlSettings((draft) => {
-                    draft.permission_mode = next.permission_mode;
-                    draft.plan_approval_required = next.plan_approval_required;
-                  })}
-                />
-              ) : null}
-            </SettingsGroup>
+            {draftControlSettings ? (
+              <ControlSettingsPanel
+                value={draftControlSettings}
+                onChange={(next) => patchDraftControlSettings((draft) => {
+                  draft.permission_mode = next.permission_mode;
+                  draft.plan_approval_required = next.plan_approval_required;
+                })}
+              />
+            ) : null}
           </SettingsSectionShell>
         );
 

@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Any, Callable, Dict, Optional
 
+from ..core.sqlite import sqlite_transaction_async
 from ..events.events import Event, EventLevel, EventTypes
 from .embedding.embedding_service import MemoryEmbeddingService
 from .event_contracts import MemoryEvent, normalize_runtime_event
@@ -91,6 +94,8 @@ class UnifiedMemoryStore(L3InsightsMixin, MonitoringMixin):
             if memory_db_path
             else (memory_dir / "memory.db")
         )
+        archive_dir = memory_dir / "archive"
+        archive_dir.mkdir(parents=True, exist_ok=True)
 
         self.l0: Optional[L0WorkingMemoryStore] = None
         self.l1: Optional[L1EventStore] = None
@@ -104,6 +109,7 @@ class UnifiedMemoryStore(L3InsightsMixin, MonitoringMixin):
         self._task_reflection_service = TaskReflectionService()
         self._state_change_service = StateChangeService()
         self._trend_shift_service = TrendShiftService()
+        self._archive_dir = archive_dir
         # Cap concurrent L3 summary generations so a herd of activity-summary
         # schedules cannot saturate the local LLM pool at integer hour boundaries.
         self._summary_semaphore: asyncio.Semaphore = asyncio.Semaphore(3)
@@ -440,9 +446,65 @@ class UnifiedMemoryStore(L3InsightsMixin, MonitoringMixin):
             return await self.l2.get_relationships(limit=limit)
         return []
 
-    async def cleanup_old_data(self, older_than_days: int = 30) -> Dict[str, int]:
+    def _archive_db_path_for_date(self, archive_date: str) -> Path:
+        return self._archive_dir / f"{archive_date}.db"
+
+    async def _archive_l1_event(self, event: Dict[str, Any], *, archived_at: float) -> None:
+        archive_date = datetime.fromtimestamp(archived_at, tz=timezone.utc).strftime("%Y-%m-%d")
+        archive_db_path = self._archive_db_path_for_date(archive_date)
+        payload_json = json.dumps(event, ensure_ascii=False, separators=(",", ":"))
+        async with sqlite_transaction_async(archive_db_path, profile="mixed") as db:
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS archived_l1_events (
+                    event_id TEXT PRIMARY KEY,
+                    archived_date TEXT NOT NULL,
+                    archived_at REAL NOT NULL,
+                    event_timestamp REAL NOT NULL,
+                    event_type TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    session_id TEXT,
+                    user_id TEXT,
+                    payload_json TEXT NOT NULL
+                )
+                """
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_archived_l1_events_date ON archived_l1_events(archived_date, event_timestamp)"
+            )
+            await db.execute(
+                """
+                INSERT OR REPLACE INTO archived_l1_events (
+                    event_id, archived_date, archived_at, event_timestamp,
+                    event_type, source, session_id, user_id, payload_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    event["event_id"],
+                    archive_date,
+                    float(archived_at),
+                    float(event.get("timestamp") or archived_at),
+                    str(event.get("event_type") or "unknown"),
+                    str(event.get("source") or "unknown"),
+                    event.get("session_id"),
+                    event.get("user_id"),
+                    payload_json,
+                ),
+            )
+
+    async def cleanup_old_data(
+        self,
+        older_than_days: int = 30,
+        *,
+        history_behavior: str = "delete",
+    ) -> Dict[str, int]:
         """Run lightweight cleanup jobs."""
-        removed: Dict[str, int] = {"expired_sessions": 0, "deleted_events": 0, "deleted_summaries": 0}
+        removed: Dict[str, int] = {
+            "expired_sessions": 0,
+            "deleted_events": 0,
+            "archived_events": 0,
+            "deleted_summaries": 0,
+        }
         if self.l0 is not None:
             removed["expired_sessions"] = len(await self.l0.expire_idle_sessions())
             await self.l0.checkpoint_all()
@@ -453,14 +515,30 @@ class UnifiedMemoryStore(L3InsightsMixin, MonitoringMixin):
                 limit=10_000,
             )
             linked_event_ids = await self.l3.filter_linked_event_ids(candidate_event_ids)
+            should_archive = str(history_behavior).lower() == "archive"
+            archived_at = time.time()
             for event_id in linked_event_ids:
+                if should_archive:
+                    event = await self.l1.get_event(event_id)
+                    if event is None:
+                        continue
+                    await self._archive_l1_event(event, archived_at=archived_at)
+                    removed["archived_events"] += 1
                 if await self.l1.mark_deleted(event_id):
                     removed["deleted_events"] += 1
         return removed
 
-    async def run_maintenance(self, retention_days: int = 30) -> Dict[str, int]:
+    async def run_maintenance(
+        self,
+        retention_days: int = 30,
+        *,
+        history_behavior: str = "delete",
+    ) -> Dict[str, int]:
         """Run periodic maintenance."""
-        return await self.cleanup_old_data(older_than_days=retention_days)
+        return await self.cleanup_old_data(
+            older_than_days=retention_days,
+            history_behavior=history_behavior,
+        )
 
     async def shutdown(self) -> None:
         """Drain asynchronous workers and close store resources."""

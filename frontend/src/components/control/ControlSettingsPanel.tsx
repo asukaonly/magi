@@ -36,7 +36,7 @@ export function ControlSettingsPanel({
       className={cn('space-y-0', className)}
       data-testid="control-settings-panel"
     >
-      <div className="grid gap-3 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3 sm:grid-cols-[minmax(0,1fr)_260px] sm:items-center">
+      <div className="grid gap-3 py-3 sm:grid-cols-[minmax(0,1fr)_260px] sm:items-center">
         <div className="space-y-1">
           <div className="text-sm font-medium text-foreground">
             {t('settings.permission_mode')}

@@ -944,6 +944,56 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(linked_compressible_event_id, remaining_event_ids)
         self.assertIn(uncovered_compressible_event_id, remaining_event_ids)
 
+    async def test_cleanup_old_data_can_archive_linked_events(self) -> None:
+        old_timestamp = time.time() - (45 * 86400)
+        linked_compressible_event_id = await self.store.add_event(
+            Event(
+                type=EventTypes.TASK_COMPLETED,
+                data={
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "task_id": "task-archive-history",
+                    "success": True,
+                    "content": "Archived a completed historical task.",
+                },
+                source="worker",
+                level=EventLevel.INFO,
+                correlation_id="evt-archive-1",
+                timestamp=old_timestamp,
+            )
+        )
+
+        await self.store.l3.upsert_candidate(
+            candidate=L3Candidate(
+                summary_type="insight",
+                summary_category="state_change",
+                content="A compressed reflection covers the archived external action.",
+                source_event_ids=[linked_compressible_event_id],
+            )
+        )
+
+        removed = await self.store.cleanup_old_data(older_than_days=30, history_behavior="archive")
+
+        self.assertEqual(removed["archived_events"], 1)
+        self.assertEqual(removed["deleted_events"], 1)
+
+        archive_db_path = self.base / "memories" / "archive" / time.strftime("%Y-%m-%d", time.gmtime())
+        archive_db_path = archive_db_path.with_suffix(".db")
+        self.assertTrue(archive_db_path.exists())
+
+        async with aiosqlite.connect(archive_db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT event_id, payload_json FROM archived_l1_events WHERE event_id = ?",
+                (linked_compressible_event_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+
+        self.assertIsNotNone(row)
+        payload = json.loads(str(row["payload_json"]))
+        self.assertEqual(payload["event_id"], linked_compressible_event_id)
+        self.assertEqual(payload["source"], "worker")
+
 
 class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:

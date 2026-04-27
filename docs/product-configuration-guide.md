@@ -228,6 +228,7 @@ Product expectations:
 - quick onboarding should not force detailed memory tuning
 - settings should expose the main lifecycle toggles and key pipeline switches
 - general memory settings should expose the managed local storage directory used for memory databases
+- general memory settings should expose a global hot-memory retention window and whether aged history is deleted or archived
 - general memory settings should also expose retrieval reranker controls, including whether LLM reranking is enabled, whether it runs locally or remotely, and where managed local reranker models are stored
 - vector writes should always stay on the async sqlite path rather than being user-configurable
 - the Knowledge Memory workspace should let operators manually trigger immediate L2 microbatch generation for all currently staged batches
@@ -236,16 +237,13 @@ The current settings surface should support at least:
 
 - enable or disable `L0` through `L4`
 - configure L0 checkpoint interval
-- configure L1 retention window
+- configure a global memory retention window
+- choose whether aged history is deleted or archived into date-partitioned archive databases
 - enable or disable memory retrieval reranking
 - choose reranker execution mode (`local` or `remote`)
 - configure reranker candidate count and timeout budget
 - configure local reranker model reference (`managed` cache ID or external file path)
-- enable or disable T1 importance scoring
-- enable or disable L2 LLM extraction
 - enable or disable L3 LLM reflection
-- enable or disable L4 procedural skill extraction
-- expose whether short-lived L0-only runtime events participate in replay
 
 Important behavioral rules:
 
@@ -262,6 +260,7 @@ Current storage implementation notes:
 - `chat.db` is the product-domain source of truth for chat sessions, turn state, and visible transcript rows.
 - L1 is stored in `data/memory/l1_events.db`.
 - `data/memory/l1_events.db` is now a lossy canonical projection target for `user_text` and `assistant_final` only; it is not the transcript source of truth.
+- when history behavior is `archive`, aged-out hot-path events are copied into `data/memory/archive/YYYY-MM-DD.db` before being removed from the active L1 projection.
 - L0/L2/L3/L4 are consolidated into `data/memory/memory.db` (multi-table layout).
 - Layer vectors are stored per layer (`L1/L3/L4` vector tables) instead of a shared `embeddings.db`.
 - The vector backend is fixed to sqlite and vector writes stay async; Settings no longer exposes backend or scheduling switches.

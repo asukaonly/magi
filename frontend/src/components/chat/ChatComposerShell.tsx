@@ -100,7 +100,7 @@ export const ChatComposerShell = ({
       </div>
       <div
         data-testid="chat-composer-toolbar"
-        className="flex items-center justify-between px-4 pb-3 pt-1"
+        className="flex items-center justify-between px-2 pb-0 pt-1"
       >
         <div className="flex items-center gap-1">
           <ComposerAttachmentMenu
@@ -115,22 +115,24 @@ export const ChatComposerShell = ({
           </div>
           <ContextUsageRing sessionId={sessionId} />
         </div>
-        <button
-          type="button"
-          onClick={onPrimaryAction}
-          disabled={sendingMessage}
-          className="flex h-10 w-10 items-center justify-center rounded-xl bg-foreground text-background transition-colors hover:bg-foreground/92 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
-          aria-label={waitingForReply ? t('chat.stop') : t('chat.send')}
-          title={waitingForReply ? t('chat.stop') : t('chat.send')}
-        >
-          {sendingMessage ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : waitingForReply ? (
-            <Square className="h-4 w-4" />
-          ) : (
-            <ArrowUp className="h-4 w-4" />
-          )}
-        </button>
+        <div data-testid="chat-composer-primary-action" className="self-end pb-2">
+          <button
+            type="button"
+            onClick={onPrimaryAction}
+            disabled={sendingMessage}
+            className="flex h-8.5 w-8.5 items-center justify-center rounded-lg bg-foreground/88 text-background transition-colors hover:bg-foreground/96 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
+            aria-label={waitingForReply ? t('chat.stop') : t('chat.send')}
+            title={waitingForReply ? t('chat.stop') : t('chat.send')}
+          >
+            {sendingMessage ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : waitingForReply ? (
+              <Square className="h-3.5 w-3.5" />
+            ) : (
+              <ArrowUp className="h-3.5 w-3.5" />
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );

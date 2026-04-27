@@ -93,20 +93,16 @@ class LLMConfigModel(BaseModel):
 class MemoryL0ConfigModel(BaseModel):
     enabled: bool = Field(default=True)
     checkpoint_interval_seconds: int = Field(default=30, ge=1)
-    runtime_replay_include_l0_only: bool = Field(default=False)
 
 
 class MemoryL1ConfigModel(BaseModel):
     enabled: bool = Field(default=True)
-    retention_days: int = Field(default=7, ge=1)
-    t1_importance_enabled: bool = Field(default=True)
     vectors_enabled: bool = Field(default=True)
 
 
 class MemoryL2ConfigModel(BaseModel):
     enabled: bool = Field(default=True)
     batch_flush_interval_seconds: int = Field(default=60, ge=30)
-    llm_extraction_enabled: bool = Field(default=True)
     auto_extract_relations: bool = Field(default=True)
     conflict_arbitration_enabled: bool = Field(default=True)
     conflict_arbitration_min_confidence: float = Field(default=0.85, ge=0.0, le=1.0)
@@ -126,7 +122,6 @@ class MemoryL3ConfigModel(BaseModel):
 class MemoryL4ConfigModel(BaseModel):
     enabled: bool = Field(default=True)
     vectors_enabled: bool = Field(default=True)
-    skill_extraction_enabled: bool = Field(default=True)
 
 
 class CrossEncoderConfigModel(BaseModel):
@@ -165,6 +160,8 @@ class EntitySemanticEdgeConfigModel(BaseModel):
 
 class MemoryConfigModel(BaseModel):
     db_path: Optional[str] = Field(default="~/.magi/data/memory")
+    retention_days: int = Field(default=90, ge=1)
+    history_behavior: str = Field(default="delete")
     embedding: EmbeddingConfigModel = Field(default_factory=EmbeddingConfigModel)
     reranker: MemoryRerankerConfigModel = Field(default_factory=MemoryRerankerConfigModel)
     query_expansion: QueryExpansionConfigModel = Field(default_factory=QueryExpansionConfigModel)
@@ -335,6 +332,8 @@ def _build_memory_config(raw: Dict[str, Any], runtime_config: Any) -> MemoryConf
     memory_cfg = runtime_config.agent.memory
     return MemoryConfigModel(
         db_path=memory_cfg.db_path,
+        retention_days=memory_cfg.retention_days,
+        history_behavior=getattr(memory_cfg.history_behavior, "value", str(memory_cfg.history_behavior)),
         embedding=EmbeddingConfigModel(
             mode=getattr(memory_cfg.embedding.mode, "value", str(memory_cfg.embedding.mode)),
             local=EmbeddingLocalConfigModel(
@@ -363,18 +362,14 @@ def _build_memory_config(raw: Dict[str, Any], runtime_config: Any) -> MemoryConf
         l0=MemoryL0ConfigModel(
             enabled=memory_cfg.l0.enabled,
             checkpoint_interval_seconds=memory_cfg.l0.checkpoint_interval_seconds,
-            runtime_replay_include_l0_only=memory_cfg.l0.runtime_replay_include_l0_only,
         ),
         l1=MemoryL1ConfigModel(
             enabled=memory_cfg.l1.enabled,
-            retention_days=memory_cfg.l1.retention_days,
-            t1_importance_enabled=memory_cfg.l1.t1_importance_enabled,
             vectors_enabled=memory_cfg.l1.vectors_enabled,
         ),
         l2=MemoryL2ConfigModel(
             enabled=memory_cfg.l2.enabled,
             batch_flush_interval_seconds=memory_cfg.l2.batch_flush_interval_seconds,
-            llm_extraction_enabled=memory_cfg.l2.llm_extraction_enabled,
             auto_extract_relations=memory_cfg.l2.auto_extract_relations,
             conflict_arbitration_enabled=memory_cfg.l2.conflict_arbitration_enabled,
             conflict_arbitration_min_confidence=memory_cfg.l2.conflict_arbitration_min_confidence,
@@ -392,7 +387,6 @@ def _build_memory_config(raw: Dict[str, Any], runtime_config: Any) -> MemoryConf
         l4=MemoryL4ConfigModel(
             enabled=memory_cfg.l4.enabled,
             vectors_enabled=memory_cfg.l4.vectors_enabled,
-            skill_extraction_enabled=memory_cfg.l4.skill_extraction_enabled,
         ),
     )
 
@@ -762,6 +756,8 @@ def _build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "agent.memory.embedding.local.managed_model_id": config.memory.embedding.local.managed_model_id,
         "agent.memory.embedding.local.model_dir_path": config.memory.embedding.local.model_dir_path,
         "agent.memory.embedding.local.idle_timeout_seconds": config.memory.embedding.local.idle_timeout_seconds,
+        "agent.memory.retention_days": config.memory.retention_days,
+        "agent.memory.history_behavior": config.memory.history_behavior,
         "agent.memory.reranker.top_k": config.memory.reranker.top_k,
         "agent.memory.reranker.cross_encoder.enabled": config.memory.reranker.cross_encoder.enabled,
         "agent.memory.reranker.cross_encoder.managed_model_id": config.memory.reranker.cross_encoder.managed_model_id,
@@ -770,14 +766,10 @@ def _build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "agent.memory.entity_semantic_edges.enabled": config.memory.entity_semantic_edges.enabled,
         "agent.memory.l0.enabled": config.memory.l0.enabled,
         "agent.memory.l0.checkpoint_interval_seconds": config.memory.l0.checkpoint_interval_seconds,
-        "agent.memory.l0.runtime_replay_include_l0_only": config.memory.l0.runtime_replay_include_l0_only,
         "agent.memory.l1.enabled": config.memory.l1.enabled,
-        "agent.memory.l1.retention_days": config.memory.l1.retention_days,
-        "agent.memory.l1.t1_importance_enabled": config.memory.l1.t1_importance_enabled,
         "agent.memory.l1.vectors_enabled": config.memory.l1.vectors_enabled,
         "agent.memory.l2.enabled": config.memory.l2.enabled,
         "agent.memory.l2.batch_flush_interval_seconds": config.memory.l2.batch_flush_interval_seconds,
-        "agent.memory.l2.llm_extraction_enabled": config.memory.l2.llm_extraction_enabled,
         "agent.memory.l2.auto_extract_relations": config.memory.l2.auto_extract_relations,
         "agent.memory.l2.conflict_arbitration_enabled": config.memory.l2.conflict_arbitration_enabled,
         "agent.memory.l2.conflict_arbitration_min_confidence": config.memory.l2.conflict_arbitration_min_confidence,
@@ -789,7 +781,6 @@ def _build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "agent.memory.l3.summary_interval_minutes": config.memory.l3.summary_interval_minutes,
         "agent.memory.l4.enabled": config.memory.l4.enabled,
         "agent.memory.l4.vectors_enabled": config.memory.l4.vectors_enabled,
-        "agent.memory.l4.skill_extraction_enabled": config.memory.l4.skill_extraction_enabled,
         "preferences": _prune_sparse_value(config.preferences.model_dump(exclude_none=True)),
         "network": config.network.model_dump(),
         "agent.personality.name": config.personality.persona_entity.basic_profile.name if config.personality.persona_entity.basic_profile.name else "default",

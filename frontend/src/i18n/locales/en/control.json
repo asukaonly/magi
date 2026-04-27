@@ -64,7 +64,7 @@
   "settings": {
     "title": "Safety and execution",
     "session_trigger": "Session safety",
-    "permission_mode": "Permission mode",
+    "permission_mode": "Tool permission mode",
     "permission_mode_description": "Choose when the agent should ask before acting.",
     "mode": {
       "all": "Ask every time",
