@@ -6,6 +6,7 @@ import {
   projectControlStatusCardPresentation,
   projectExecutionProgressPresentation,
   projectChatTimelineMessage,
+  projectChatTimelineRow,
 } from '@/domain/chat/presentation';
 import {
   applyAgentResponse,
@@ -150,6 +151,52 @@ describe('chat trace state helpers', () => {
       expect(interruptedUser.transcript.belowBubble.showUserTraceStatus).toBe(true);
       expect(interruptedUser.transcript.actions.replyPreview).toBeNull();
       expect(interruptedUser.transcript.actions.canQuickLabel).toBe(false);
+    }
+  });
+
+  it('hides the interim execution panel once the turn has a final assistant message', () => {
+    const interimMessage: ChatTimelineMessage = {
+      id: 'msg-interim',
+      role: 'assistant',
+      kind: 'assistant',
+      content: 'Let me think...',
+      timestamp: 1000,
+      turnId: 'turn-1',
+      messageKind: 'assistant_interim',
+      traceSummary: normalizeTraceSummary({
+        turn_id: 'turn-1',
+        mode: 'plan',
+        status: 'completed',
+        headline: 'Planned',
+        active_steps: 0,
+        completed_steps: 3,
+        failed_steps: 0,
+        duration_seconds: 5,
+        trace_available: true,
+      }),
+    };
+    const baseProjection = projectChatTimelineRow(interimMessage, {
+      summaries: {},
+      executionControlByTurnId: {},
+      cancellingTurnIds: [],
+      detachingTurnIds: [],
+    });
+    expect(baseProjection.surface).toBe('transcript');
+    if (baseProjection.surface === 'transcript') {
+      expect(baseProjection.transcript.executionProgress).not.toBeNull();
+    }
+
+    const finalizedProjection = projectChatTimelineRow(interimMessage, {
+      summaries: {},
+      executionControlByTurnId: {},
+      cancellingTurnIds: [],
+      detachingTurnIds: [],
+      finalizedTurnIds: new Set(['turn-1']),
+    });
+    expect(finalizedProjection.surface).toBe('transcript');
+    if (finalizedProjection.surface === 'transcript') {
+      expect(finalizedProjection.transcript.showExecutionBubbleFooter).toBe(true);
+      expect(finalizedProjection.transcript.executionProgress).toBeNull();
     }
   });
 

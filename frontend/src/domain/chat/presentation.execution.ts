@@ -16,6 +16,7 @@ type ExecutionActionProjectionInput = {
 
 export type ChatTimelineExecutionProjectionInput = ExecutionActionProjectionInput & {
   summaries: Record<string, { trace_available?: boolean }>;
+  finalizedTurnIds?: ReadonlySet<string>;
 };
 
 type ProjectedExecutionTranslationValues = Record<string, string | number>;

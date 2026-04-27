@@ -113,6 +113,12 @@ export const projectChatTimelineRow = (
   }
 
   if (projected.surface === 'transcript' && projected.transcript.showExecutionBubbleFooter) {
+    const isInterimFinalized = Boolean(
+      turnId && execution.finalizedTurnIds && execution.finalizedTurnIds.has(turnId),
+    );
+    if (isInterimFinalized) {
+      return projected;
+    }
     return {
       ...projected,
       transcript: {

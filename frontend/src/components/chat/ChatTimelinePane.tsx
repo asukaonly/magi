@@ -1,4 +1,5 @@
 import type { RefObject } from 'react';
+import { useMemo } from 'react';
 import type { ExecutionTraceSummary } from '@/api';
 import { projectChatTimelineRow, type TurnExecutionControlState } from '@/domain/chat/presentation';
 import type { ChatTimelineMessage, ChatTimelineReplyPreview } from '@/domain/chat/state';
@@ -90,6 +91,24 @@ export const ChatTimelinePane = ({
     onRequestRunCancel,
     onRequestRunDetach,
   };
+  const finalizedTurnIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const message of messages) {
+      if (message.role !== 'assistant') {
+        continue;
+      }
+      const turnId = String(message.turnId || '').trim();
+      if (!turnId) {
+        continue;
+      }
+      const messageKind = String(message.messageKind || '').trim();
+      if (messageKind === 'assistant_interim') {
+        continue;
+      }
+      ids.add(turnId);
+    }
+    return ids;
+  }, [messages]);
   const transcriptInteractions: TranscriptTimelineInteractions = {
     currentSessionId,
     labelPopoverState,
@@ -123,6 +142,7 @@ export const ChatTimelinePane = ({
           executionControlByTurnId,
           cancellingTurnIds,
           detachingTurnIds,
+          finalizedTurnIds,
         });
 
         return projectedMessage.surface !== 'transcript' ? (
