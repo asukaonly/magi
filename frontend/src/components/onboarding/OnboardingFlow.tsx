@@ -189,14 +189,14 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     }
   }, [i18n, initialConfig.preferences?.language]);
 
-  // Quick mode steps: Scenario → [Sensors] → Provider → Complete
+  // Quick mode steps: Scenario → [Sensors] → Provider → Models → Complete
   // Expert mode steps: Provider → Models → Personality → Memory → Sensors → Tools → Complete
   const needsSensors = scenario ? SCENARIO_NEEDS_SENSORS[scenario] : false;
   const steps = useMemo(() => {
     if (mode === 'quick') {
       const base = [t('steps.scenario')];
       if (needsSensors) base.push(t('steps.sensors'));
-      base.push(t('steps.llmProviders'), t('steps.complete'));
+      base.push(t('steps.llmProviders'), t('steps.llmModels'), t('steps.complete'));
       return base;
     }
     return [
@@ -469,15 +469,15 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   /** Get the provider config step index for the current mode. */
   const getProviderStepIndex = (): number => (isQuickMode ? (needsSensors ? 2 : 1) : 0);
 
-  /** Get the model selection step index (expert only). */
-  const getModelStepIndex = (): number => 1;
+  /** Get the model selection step index for the current mode. */
+  const getModelStepIndex = (): number => (isQuickMode ? getProviderStepIndex() + 1 : 1);
 
   const handleNext = async () => {
     try {
       setSaving(true);
       await form.validateFields();
 
-      // Quick mode: step 0 = scenario, then sensors (if needed), then providers, then complete
+      // Quick mode: step 0 = scenario, then sensors (if needed), then providers, then models, then complete
       if (isQuickMode && current === 0) {
         if (!scenario) {
           toast.warning(t('scenario.description'));
@@ -503,8 +503,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
         }
       }
 
-      // Expert mode: model selection validation
-      if (!isQuickMode && current === getModelStepIndex()) {
+      if (current === getModelStepIndex()) {
         if (!hasValidSelections()) {
           toast.warning(t('llm.completeSelections'));
           return;
@@ -540,11 +539,39 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     if (!mode) return null;
 
     const language = form.getFieldValue(['preferences', 'language']) || 'zh';
+    const renderLLMModelStep = (quickModeForStep: boolean) => (
+      <LLMForm
+        quickMode={quickModeForStep}
+        view="models"
+        embeddingConfig={embeddingConfig}
+        onEmbeddingConfigChange={(updater) => {
+          setEmbeddingConfig((prev) => {
+            const base = prev ?? (form.getFieldValue(['memory', 'embedding']) as EmbeddingConfig);
+            const draft = { ...base, local: { ...base.local } };
+            updater(draft);
+            form.setFieldValue(['memory', 'embedding'], draft);
+            saveProgress(form.getFieldsValue(true));
+            return draft;
+          });
+        }}
+        crossEncoderConfig={crossEncoderConfig}
+        onCrossEncoderConfigChange={(updater) => {
+          setCrossEncoderConfig((prev) => {
+            const base = prev ?? { enabled: false, managed_model_id: null };
+            const draft = { ...base };
+            updater(draft);
+            form.setFieldValue(['memory', 'reranker', 'cross_encoder'], draft);
+            saveProgress(form.getFieldsValue(true));
+            return draft;
+          });
+        }}
+      />
+    );
 
     if (isQuickMode) {
-      // Quick: 0=Scenario, [1=Sensors if needed], N-1=Providers, N=Complete
       const providerIdx = needsSensors ? 2 : 1;
-      const completeIdx = needsSensors ? 3 : 2;
+      const modelIdx = providerIdx + 1;
+      const completeIdx = modelIdx + 1;
 
       if (current === 0) {
         return (
@@ -562,40 +589,12 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
         return <SensorSelection scenario={scenario!} />;
       }
       if (current === providerIdx) return <LLMForm quickMode view="providers" />;
+      if (current === modelIdx) return renderLLMModelStep(true);
       if (current === completeIdx) return <CompletionScreen onFinish={handleFinish} />;
     } else {
       // Expert: 0=Providers, 1=Models, 2=Personality, 3=Memory, 4=Sensors, 5=Tools, 6=Complete
       if (current === 0) return <LLMForm quickMode={false} view="providers" />;
-      if (current === 1) {
-        return (
-          <LLMForm
-            quickMode={false}
-            view="models"
-            embeddingConfig={embeddingConfig}
-            onEmbeddingConfigChange={(updater) => {
-              setEmbeddingConfig((prev) => {
-                const base = prev ?? (form.getFieldValue(['memory', 'embedding']) as EmbeddingConfig);
-                const draft = { ...base, local: { ...base.local } };
-                updater(draft);
-                form.setFieldValue(['memory', 'embedding'], draft);
-                saveProgress(form.getFieldsValue(true));
-                return draft;
-              });
-            }}
-            crossEncoderConfig={crossEncoderConfig}
-            onCrossEncoderConfigChange={(updater) => {
-              setCrossEncoderConfig((prev) => {
-                const base = prev ?? { enabled: false, managed_model_id: null };
-                const draft = { ...base };
-                updater(draft);
-                form.setFieldValue(['memory', 'reranker', 'cross_encoder'], draft);
-                saveProgress(form.getFieldsValue(true));
-                return draft;
-              });
-            }}
-          />
-        );
-      }
+      if (current === 1) return renderLLMModelStep(false);
       if (current === 2) return <PersonalityForm quickMode={false} language={language} />;
       if (current === 3) return <MemoryForm />;
       if (current === 4) return <SensorSelection />;

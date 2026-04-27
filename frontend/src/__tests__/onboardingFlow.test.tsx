@@ -46,7 +46,7 @@ describe('OnboardingFlow', () => {
     localStorageMock.removeItem.mockClear();
   });
 
-  it('shows the welcome entrypoint first and keeps quick mode focused on scenario and provider setup', async () => {
+  it('shows the welcome entrypoint first and keeps quick mode focused on scenario and LLM setup', async () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
 
@@ -70,8 +70,8 @@ describe('OnboardingFlow', () => {
 
     expect(await screen.findByText('steps.scenario')).toBeInTheDocument();
     expect(screen.getByText('steps.llmProviders')).toBeInTheDocument();
+    expect(screen.getByText('steps.llmModels')).toBeInTheDocument();
     expect(screen.queryByText('steps.personality')).not.toBeInTheDocument();
-    expect(screen.queryByText('steps.llmModels')).not.toBeInTheDocument();
   });
 
   it('includes a dedicated model-selection step after entering expert mode', async () => {
@@ -135,7 +135,7 @@ describe('OnboardingFlow', () => {
         return JSON.stringify({
           phase: 'guided',
           mode: 'quick',
-          current: 2,
+          current: 3,
           scenario: 'chat_assistant',
           values: initialConfig,
         });

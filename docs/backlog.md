@@ -18,6 +18,7 @@ Why it matters now:
 Current focus areas:
 
 - Keep quick onboarding short and centered on language, LLM setup, and persona selection.
+- Quick onboarding now separates provider/API-key setup from a recommended model confirmation step before completion.
 - Make explicit memory recall in chat reliable and evidence-backed.
 - Keep ordinary memory views user-facing, with layer-specific L0-L4 workbench surfaces reserved for expert/operator mode.
 - Preserve timeline browsing, plugin management, and advanced runtime inspection, but do not make them Alpha polish blockers.
