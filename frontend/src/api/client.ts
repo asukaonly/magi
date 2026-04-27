@@ -12,6 +12,8 @@ export interface ApiResponse<T = any> {
   data?: T;
 }
 
+export type GatewayResponse<T> = ApiResponse<T> | T;
+
 export interface ApiError {
   success: false;
   message: string;
@@ -203,6 +205,13 @@ export function toApiClientError(error: unknown): ApiClientError {
 
 function unwrapApiResponse<T>(response: AxiosResponse<ApiResponse<T>>): ApiResponse<T> {
   return response.data;
+}
+
+export function unwrapGatewayPayload<T>(response: GatewayResponse<T>): T {
+  if (isRecord(response) && 'success' in response && 'data' in response) {
+    return response.data as T;
+  }
+  return response as T;
 }
 
 const createApiClient = (): AxiosInstance => {

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { api, apiClient, toApiClientError } from '@/api/client';
+import { api, apiClient, toApiClientError, unwrapGatewayPayload } from '@/api/client';
 
 describe('api client helpers', () => {
   afterEach(() => {
@@ -65,6 +65,16 @@ describe('api client helpers', () => {
       code: 'REQUEST_CANCELLED',
       kind: 'cancelled',
       isCancelled: true,
+    });
+  });
+
+  it('unwraps Python envelopes while preserving Rust-native payloads', () => {
+    expect(unwrapGatewayPayload({ success: true, message: 'ok', data: { count: 3 } })).toEqual({ count: 3 });
+    expect(unwrapGatewayPayload({ items: [], total: 0, limit: 50, offset: 0 })).toEqual({
+      items: [],
+      total: 0,
+      limit: 50,
+      offset: 0,
     });
   });
 });

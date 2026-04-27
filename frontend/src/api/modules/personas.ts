@@ -4,7 +4,7 @@
  * All persona CRUD, active-persona management, seed previews, and seeding
  * are routed through UUID-keyed persona registry.
  */
-import { api } from '../client';
+import { api, unwrapGatewayPayload } from '../client';
 import type { LLMConfig } from './config';
 import { getRuntimeConfig } from '@/runtime/config';
 
@@ -165,6 +165,11 @@ export interface SeedResponse {
   created_ids: string[];
 }
 
+export interface ActivePersonaResponse {
+  success: boolean;
+  persona_id: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // API
 // ---------------------------------------------------------------------------
@@ -196,12 +201,12 @@ export const personasApi = {
   delete: (personaId: string) => api.delete('/personas/' + personaId),
 
   /** Get the active persona ID. Returns persona_id at the top level. */
-  getActive: () =>
-    api.get('/personas/active') as unknown as Promise<{ success: boolean; persona_id: string | null }>,
+  getActive: async (): Promise<ActivePersonaResponse> =>
+    unwrapGatewayPayload(await api.get<ActivePersonaResponse>('/personas/active')),
 
   /** Switch the active persona. Returns persona_id at the top level. */
-  setActive: (personaId: string) =>
-    api.put('/personas/active', { persona_id: personaId }) as unknown as Promise<{ success: boolean; persona_id: string | null }>,
+  setActive: async (personaId: string): Promise<ActivePersonaResponse> =>
+    unwrapGatewayPayload(await api.put<ActivePersonaResponse>('/personas/active', { persona_id: personaId })),
 
   /** Get lightweight seed previews (for onboarding). */
   seedPreviews: (locale: string = 'en') =>

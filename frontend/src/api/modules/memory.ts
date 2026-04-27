@@ -1,4 +1,5 @@
-import { api } from '../client';
+import { api, unwrapGatewayPayload } from '../client';
+import type { GatewayResponse } from '../client';
 
 export interface ModelDownloadStatus {
   model: string;
@@ -310,73 +311,78 @@ export interface MemorySearchResultPayload {
   trace: Record<string, unknown>;
 }
 
+type L0SessionsResponse = PaginatedResponse<L0Session> & { stats: L0Stats };
+type L3SummariesParams = PaginationParams & { summary_type?: string; summary_category?: string };
+
+const unwrapMemoryResponse = <T>(response: GatewayResponse<T>): T => unwrapGatewayPayload<T>(response);
+
 // Legacy API object for backward compatibility
 export const memoryApi = {
   // L0 Working Memory
-  getL0Sessions: (params?: PaginationParams & { status?: string; query?: string }) =>
-    api.get<PaginatedResponse<L0Session> & { stats: L0Stats }>('/memory/l0/sessions', { params }) as unknown as Promise<PaginatedResponse<L0Session> & { stats: L0Stats }>,
-  getL0Workbench: (sessionId: string) =>
-    api.get<L0Workbench>(`/memory/l0/workbench/${sessionId}`) as unknown as Promise<L0Workbench>,
+  getL0Sessions: async (params?: PaginationParams & { status?: string; query?: string }): Promise<L0SessionsResponse> =>
+    unwrapMemoryResponse(await api.get<L0SessionsResponse>('/memory/l0/sessions', { params })),
+  getL0Workbench: async (sessionId: string): Promise<L0Workbench> =>
+    unwrapMemoryResponse(await api.get<L0Workbench>(`/memory/l0/workbench/${sessionId}`)),
 
   // L1 Event Stream
-  getL1Events: (params?: L1EventQueryParams) =>
-    api.get<PaginatedResponse<L1Event>>('/memory/l1/events', { params }) as unknown as Promise<PaginatedResponse<L1Event>>,
+  getL1Events: async (params?: L1EventQueryParams): Promise<PaginatedResponse<L1Event>> =>
+    unwrapMemoryResponse(await api.get<PaginatedResponse<L1Event>>('/memory/l1/events', { params })),
 
   // L2 Cognition
-  getL2Statistics: () =>
-    api.get<L2Statistics>('/memory/l2/statistics') as unknown as Promise<L2Statistics>,
-  getIdentityLinks: () =>
-    api.get<MemoryIdentityLinksResponse>('/memory/identity/links') as unknown as Promise<MemoryIdentityLinksResponse>,
-  getL2Relations: (params?: PaginationParams) =>
-    api.get<PaginatedResponse<L2Relation>>('/memory/l2/relations', { params }) as unknown as Promise<PaginatedResponse<L2Relation>>,
-  getL2Assertions: (params?: PaginationParams) =>
-    api.get<PaginatedResponse<L2Assertion>>('/memory/l2/assertions', { params }) as unknown as Promise<PaginatedResponse<L2Assertion>>,
-  submitAssertionFeedback: (assertionId: string, feedback: 'confirmed' | 'rejected') =>
-    api.patch<L2Assertion>(`/memory/l2/assertions/${assertionId}/feedback`, { feedback }) as unknown as Promise<L2Assertion>,
-  getL2Entities: (params?: PaginationParams) =>
-    api.get<PaginatedResponse<L2Entity>>('/memory/l2/entities', { params }) as unknown as Promise<PaginatedResponse<L2Entity>>,
-  getL2Mentions: (params?: PaginationParams) =>
-    api.get<PaginatedResponse<L2Mention>>('/memory/l2/mentions', { params }) as unknown as Promise<PaginatedResponse<L2Mention>>,
-  getL2Snapshots: (params?: PaginationParams) =>
-    api.get<PaginatedResponse<L2Snapshot>>('/memory/l2/snapshots', { params }) as unknown as Promise<PaginatedResponse<L2Snapshot>>,
-  getL2ConflictRules: () =>
-    api.get<L2GraphConflictRule[]>('/memory/l2/conflict-rules') as unknown as Promise<L2GraphConflictRule[]>,
-  createManualL2Event: (payload: ManualL2EventPayload) =>
-    api.post<L2QueuedActionResponse>('/memory/l2/manual-event', payload) as unknown as Promise<L2QueuedActionResponse>,
-  replayL2Extraction: (eventId: string) =>
-    api.post<L2QueuedActionResponse>(`/memory/l2/extract/${eventId}`) as unknown as Promise<L2QueuedActionResponse>,
-  flushL2Microbatches: () =>
-    api.post<L2QueuedActionResponse>('/memory/l2/microbatch-flush') as unknown as Promise<L2QueuedActionResponse>,
-  reconcileL2Entities: (entityIds: string[]) =>
-    api.post<L2QueuedActionResponse>('/memory/l2/reconcile', { entity_ids: entityIds }) as unknown as Promise<L2QueuedActionResponse>,
-  refreshL2Snapshots: (entityIds: string[]) =>
-    api.post<L2QueuedActionResponse>('/memory/l2/snapshot-refresh', { entity_ids: entityIds }) as unknown as Promise<L2QueuedActionResponse>,
-  upsertL2ConflictRule: (payload: L2GraphConflictRulePayload) =>
-    api.put<L2GraphConflictRule>(`/memory/l2/conflict-rules/${payload.predicate}`, {
+  getL2Statistics: async (): Promise<L2Statistics> =>
+    unwrapMemoryResponse(await api.get<L2Statistics>('/memory/l2/statistics')),
+  getIdentityLinks: async (): Promise<MemoryIdentityLinksResponse> =>
+    unwrapMemoryResponse(await api.get<MemoryIdentityLinksResponse>('/memory/identity/links')),
+  getL2Relations: async (params?: PaginationParams): Promise<PaginatedResponse<L2Relation>> =>
+    unwrapMemoryResponse(await api.get<PaginatedResponse<L2Relation>>('/memory/l2/relations', { params })),
+  getL2Assertions: async (params?: PaginationParams): Promise<PaginatedResponse<L2Assertion>> =>
+    unwrapMemoryResponse(await api.get<PaginatedResponse<L2Assertion>>('/memory/l2/assertions', { params })),
+  submitAssertionFeedback: async (assertionId: string, feedback: 'confirmed' | 'rejected'): Promise<L2Assertion> =>
+    unwrapMemoryResponse(await api.patch<L2Assertion>(`/memory/l2/assertions/${assertionId}/feedback`, { feedback })),
+  getL2Entities: async (params?: PaginationParams): Promise<PaginatedResponse<L2Entity>> =>
+    unwrapMemoryResponse(await api.get<PaginatedResponse<L2Entity>>('/memory/l2/entities', { params })),
+  getL2Mentions: async (params?: PaginationParams): Promise<PaginatedResponse<L2Mention>> =>
+    unwrapMemoryResponse(await api.get<PaginatedResponse<L2Mention>>('/memory/l2/mentions', { params })),
+  getL2Snapshots: async (params?: PaginationParams): Promise<PaginatedResponse<L2Snapshot>> =>
+    unwrapMemoryResponse(await api.get<PaginatedResponse<L2Snapshot>>('/memory/l2/snapshots', { params })),
+  getL2ConflictRules: async (): Promise<L2GraphConflictRule[]> =>
+    unwrapMemoryResponse(await api.get<L2GraphConflictRule[]>('/memory/l2/conflict-rules')),
+  createManualL2Event: async (payload: ManualL2EventPayload): Promise<L2QueuedActionResponse> =>
+    unwrapMemoryResponse(await api.post<L2QueuedActionResponse>('/memory/l2/manual-event', payload)),
+  replayL2Extraction: async (eventId: string): Promise<L2QueuedActionResponse> =>
+    unwrapMemoryResponse(await api.post<L2QueuedActionResponse>(`/memory/l2/extract/${eventId}`)),
+  flushL2Microbatches: async (): Promise<L2QueuedActionResponse> =>
+    unwrapMemoryResponse(await api.post<L2QueuedActionResponse>('/memory/l2/microbatch-flush')),
+  reconcileL2Entities: async (entityIds: string[]): Promise<L2QueuedActionResponse> =>
+    unwrapMemoryResponse(await api.post<L2QueuedActionResponse>('/memory/l2/reconcile', { entity_ids: entityIds })),
+  refreshL2Snapshots: async (entityIds: string[]): Promise<L2QueuedActionResponse> =>
+    unwrapMemoryResponse(await api.post<L2QueuedActionResponse>('/memory/l2/snapshot-refresh', { entity_ids: entityIds })),
+  upsertL2ConflictRule: async (payload: L2GraphConflictRulePayload): Promise<L2GraphConflictRule> =>
+    unwrapMemoryResponse(await api.put<L2GraphConflictRule>(`/memory/l2/conflict-rules/${payload.predicate}`, {
       opposite_predicates: payload.opposite_predicates,
       opposite_resolution: payload.opposite_resolution,
       exclusive_group: payload.exclusive_group ?? null,
       exclusive_scope: payload.exclusive_scope ?? 'same_subject',
       exclusive_resolution: payload.exclusive_resolution,
-    }) as unknown as Promise<L2GraphConflictRule>,
+    })),
 
   // L3 Reflection
-  getL3Summaries: (params?: { limit?: number; offset?: number; summary_type?: string; summary_category?: string }) =>
-    api.get<PaginatedResponse<L3Summary>>('/memory/l3/summaries', { params }) as unknown as Promise<PaginatedResponse<L3Summary>>,
+  getL3Summaries: async (params?: L3SummariesParams): Promise<PaginatedResponse<L3Summary>> =>
+    unwrapMemoryResponse(await api.get<PaginatedResponse<L3Summary>>('/memory/l3/summaries', { params })),
 
   // L4 Procedural
-  getL4Skills: (params?: PaginationParams) =>
-    api.get<PaginatedResponse<L4Skill>>('/memory/procedures', { params }) as unknown as Promise<PaginatedResponse<L4Skill>>,
+  getL4Skills: async (params?: PaginationParams): Promise<PaginatedResponse<L4Skill>> =>
+    unwrapMemoryResponse(await api.get<PaginatedResponse<L4Skill>>('/memory/procedures', { params })),
 
   // Statistics & Search
-  getStatistics: () =>
-    api.get<MemoryStatistics>('/memory/statistics') as unknown as Promise<MemoryStatistics>,
-  search: (query: string, options?: { limit?: number; query_mode?: string }) =>
-    api.post<MemorySearchResultPayload>('/memory/search', { query, limit: options?.limit ?? 20, query_mode: options?.query_mode ?? 'detail' }) as unknown as Promise<MemorySearchResultPayload>,
+  getStatistics: async (): Promise<MemoryStatistics> =>
+    unwrapMemoryResponse(await api.get<MemoryStatistics>('/memory/statistics')),
+  search: async (query: string, options?: { limit?: number; query_mode?: string }): Promise<MemorySearchResultPayload> =>
+    unwrapMemoryResponse(await api.post<MemorySearchResultPayload>('/memory/search', { query, limit: options?.limit ?? 20, query_mode: options?.query_mode ?? 'detail' })),
 
   // Clear
-  clearAll: () =>
-    api.delete<ClearMemoryResponse>('/memory/clear') as unknown as Promise<ClearMemoryResponse>,
+  clearAll: async (): Promise<ClearMemoryResponse> =>
+    unwrapMemoryResponse(await api.delete<ClearMemoryResponse>('/memory/clear')),
 };
 
 export default memoryApi;

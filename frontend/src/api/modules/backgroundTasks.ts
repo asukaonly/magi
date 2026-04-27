@@ -1,4 +1,4 @@
-import { api } from '../client';
+import { api, unwrapGatewayPayload } from '../client';
 
 /** Lifecycle status for a single background task. */
 export type BackgroundTaskStatus =
@@ -108,14 +108,14 @@ export const backgroundTasksApi = {
     const response = await api.get<ListBackgroundTasksResponse>(
       `/background-tasks${query ? `?${query}` : ''}`,
     );
-    return (response.data || response) as ListBackgroundTasksResponse;
+    return unwrapGatewayPayload(response);
   },
 
   async get(taskId: string): Promise<GetBackgroundTaskResponse> {
     const response = await api.get<GetBackgroundTaskResponse>(
       `/background-tasks/${encodeURIComponent(taskId)}`,
     );
-    return (response.data || response) as GetBackgroundTaskResponse;
+    return unwrapGatewayPayload(response);
   },
 
   async cancel(taskId: string, reason?: string): Promise<CancelBackgroundTaskResponse> {
@@ -123,20 +123,20 @@ export const backgroundTasksApi = {
       `/background-tasks/${encodeURIComponent(taskId)}/cancel`,
       reason ? { reason } : {},
     );
-    return (response.data || response) as CancelBackgroundTaskResponse;
+    return unwrapGatewayPayload(response);
   },
 
   async retry(taskId: string): Promise<RetryBackgroundTaskResponse> {
     const response = await api.post<RetryBackgroundTaskResponse>(
       `/background-tasks/${encodeURIComponent(taskId)}/retry`,
     );
-    return (response.data || response) as RetryBackgroundTaskResponse;
+    return unwrapGatewayPayload(response);
   },
 
   async dismiss(taskId: string): Promise<DismissBackgroundTaskResponse> {
     const response = await api.post<DismissBackgroundTaskResponse>(
       `/background-tasks/${encodeURIComponent(taskId)}/dismiss`,
     );
-    return (response.data || response) as DismissBackgroundTaskResponse;
+    return unwrapGatewayPayload(response);
   },
 };

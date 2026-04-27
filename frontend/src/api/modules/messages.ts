@@ -1,7 +1,7 @@
 /**
  * Messages API.
  */
-import { api } from '../client';
+import { api, unwrapGatewayPayload } from '../client';
 import { DEFAULT_USER_ID } from '@/constants';
 
 export interface ChatAttachment {
@@ -182,6 +182,25 @@ export interface ExecutionTraceSnapshot {
   root: ExecutionTraceNode;
 }
 
+type ClearHistoryResponse = { success: boolean; message: string; user_id: string; session_id?: string };
+type CreateSessionResponse = {
+  success: boolean;
+  user_id: string;
+  session_id: string | null;
+  workspace_path?: string | null;
+};
+type RenameSessionResponse = { success: boolean; user_id: string; session: { session_id: string; title: string } };
+type UpdateSessionWorkspaceResponse = { success: boolean; user_id: string; session: ChatSessionListItem };
+type DeleteMessageResponse = { success: boolean; user_id: string; session_id: string; deleted_message_id: string };
+type DeleteSessionResponse = { success: boolean; user_id: string; deleted_session_id: string };
+type TraceResponse = {
+  success: boolean;
+  user_id: string;
+  session_id: string;
+  turn_id: string;
+  trace: ExecutionTraceSnapshot | null;
+};
+
 export const messagesApi = {
   /** Send user message */
   sendMessage: async (request: UserMessageRequest): Promise<{ success: boolean; message: string; data?: MessageData }> => {
@@ -194,55 +213,55 @@ export const messagesApi = {
     const response = await api.get<ConversationHistory>('/messages/history', {
       params: { user_id: userId, session_id: sessionId },
     });
-    return (response.data || response) as ConversationHistory;
+    return unwrapGatewayPayload(response);
   },
 
   /** Clear conversation history */
   clearHistory: async (
     userId: string = DEFAULT_USER_ID,
     sessionId: string
-  ): Promise<{ success: boolean; message: string; user_id: string; session_id?: string }> => {
+  ): Promise<ClearHistoryResponse> => {
     const response = await api.post<{ success: boolean; message: string; user_id: string }>('/messages/history/clear', null, {
       params: { user_id: userId, session_id: sessionId },
     });
-    return (response.data || response) as { success: boolean; message: string; user_id: string; session_id?: string };
+    return unwrapGatewayPayload<ClearHistoryResponse>(response);
   },
 
-  createNewSession: async (userId: string = DEFAULT_USER_ID): Promise<{ success: boolean; user_id: string; session_id: string | null; workspace_path?: string | null }> => {
-    const response = await api.post<{ success: boolean; user_id: string; session_id: string | null; workspace_path?: string | null }>('/messages/session/new', null, {
+  createNewSession: async (userId: string = DEFAULT_USER_ID): Promise<CreateSessionResponse> => {
+    const response = await api.post<CreateSessionResponse>('/messages/session/new', null, {
       params: { user_id: userId },
     });
-    return (response.data || response) as { success: boolean; user_id: string; session_id: string | null; workspace_path?: string | null };
+    return unwrapGatewayPayload(response);
   },
 
   renameSession: async (
     userId: string = DEFAULT_USER_ID,
     sessionId: string,
     title: string
-  ): Promise<{ success: boolean; user_id: string; session: { session_id: string; title: string } }> => {
-    const response = await api.patch<{ success: boolean; user_id: string; session: { session_id: string; title: string } }>(
+  ): Promise<RenameSessionResponse> => {
+    const response = await api.patch<RenameSessionResponse>(
       `/messages/session/${encodeURIComponent(sessionId)}`,
       {
         user_id: userId,
         title,
       }
     );
-    return (response.data || response) as { success: boolean; user_id: string; session: { session_id: string; title: string } };
+    return unwrapGatewayPayload(response);
   },
 
   updateSessionWorkspace: async (
     userId: string = DEFAULT_USER_ID,
     sessionId: string,
     workspacePath: string | null,
-  ): Promise<{ success: boolean; user_id: string; session: ChatSessionListItem }> => {
-    const response = await api.patch<{ success: boolean; user_id: string; session: ChatSessionListItem }>(
+  ): Promise<UpdateSessionWorkspaceResponse> => {
+    const response = await api.patch<UpdateSessionWorkspaceResponse>(
       `/messages/session/${encodeURIComponent(sessionId)}/workspace`,
       {
         user_id: userId,
         workspace_path: workspacePath,
       }
     );
-    return (response.data || response) as { success: boolean; user_id: string; session: ChatSessionListItem };
+    return unwrapGatewayPayload(response);
   },
 
   cancelRun: async (
@@ -307,14 +326,14 @@ export const messagesApi = {
     userId: string = DEFAULT_USER_ID,
     sessionId: string,
     messageId: string,
-  ): Promise<{ success: boolean; user_id: string; session_id: string; deleted_message_id: string }> => {
-    const response = await api.delete<{ success: boolean; user_id: string; session_id: string; deleted_message_id: string }>(
+  ): Promise<DeleteMessageResponse> => {
+    const response = await api.delete<DeleteMessageResponse>(
       `/messages/session/${encodeURIComponent(sessionId)}/message/${encodeURIComponent(messageId)}`,
       {
         params: { user_id: userId },
       }
     );
-    return (response.data || response) as { success: boolean; user_id: string; session_id: string; deleted_message_id: string };
+    return unwrapGatewayPayload(response);
   },
 
   uploadAttachment: async (
@@ -334,20 +353,20 @@ export const messagesApi = {
         headers: { 'Content-Type': 'multipart/form-data' },
       }
     );
-    return ((response.data || response) as { attachment: ChatAttachment }).attachment;
+    return unwrapGatewayPayload<{ attachment: ChatAttachment }>(response).attachment;
   },
 
   deleteSession: async (
     userId: string = DEFAULT_USER_ID,
     sessionId: string
-  ): Promise<{ success: boolean; user_id: string; deleted_session_id: string }> => {
-    const response = await api.delete<{ success: boolean; user_id: string; deleted_session_id: string }>(
+  ): Promise<DeleteSessionResponse> => {
+    const response = await api.delete<DeleteSessionResponse>(
       `/messages/session/${encodeURIComponent(sessionId)}`,
       {
         params: { user_id: userId },
       }
     );
-    return (response.data || response) as { success: boolean; user_id: string; deleted_session_id: string };
+    return unwrapGatewayPayload(response);
   },
 
   listSessions: async (
@@ -357,17 +376,17 @@ export const messagesApi = {
     const response = await api.get<SessionListResponse>('/messages/sessions', {
       params: { user_id: userId, limit },
     });
-    return (response.data || response) as SessionListResponse;
+    return unwrapGatewayPayload(response);
   },
 
   getTrace: async (
     userId: string = DEFAULT_USER_ID,
     sessionId: string,
     turnId: string
-  ): Promise<{ success: boolean; user_id: string; session_id: string; turn_id: string; trace: ExecutionTraceSnapshot | null }> => {
-    const response = await api.get<{ success: boolean; user_id: string; session_id: string; turn_id: string; trace: ExecutionTraceSnapshot | null }>('/messages/trace', {
+  ): Promise<TraceResponse> => {
+    const response = await api.get<TraceResponse>('/messages/trace', {
       params: { user_id: userId, session_id: sessionId, turn_id: turnId },
     });
-    return (response.data || response) as { success: boolean; user_id: string; session_id: string; turn_id: string; trace: ExecutionTraceSnapshot | null };
+    return unwrapGatewayPayload(response);
   },
 };

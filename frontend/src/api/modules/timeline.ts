@@ -1,4 +1,4 @@
-import { api } from '../client';
+import { api, unwrapGatewayPayload } from '../client';
 
 export interface TimelineStateBand {
   band_id: string;
@@ -137,12 +137,12 @@ export const timelineApi = {
         focus: options.focus ?? 'self',
       },
     });
-    return (response.data || response) as TimelineViewportResponse;
+    return unwrapGatewayPayload(response);
   },
 
   getContext: async (anchorId: string): Promise<TimelineContextBundle> => {
     const response = await api.get<TimelineContextBundle>(`/timeline/context/${anchorId}`);
-    return (response.data || response) as TimelineContextBundle;
+    return unwrapGatewayPayload(response);
   },
 
   getDigests: async (options?: {
@@ -155,7 +155,7 @@ export const timelineApi = {
         category: options?.category ?? 'day',
       },
     });
-    return (response.data || response) as TimelineDigestSummary[];
+    return unwrapGatewayPayload(response);
   },
 
   triggerDigest: async (category: string = 'day'): Promise<{ status: string; summary: TimelineDigestSummary | null }> => {
@@ -164,6 +164,6 @@ export const timelineApi = {
       null,
       { params: { category } },
     );
-    return (response.data || response) as { status: string; summary: TimelineDigestSummary | null };
+    return unwrapGatewayPayload(response);
   },
 };

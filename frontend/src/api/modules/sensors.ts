@@ -1,4 +1,4 @@
-import { api } from '../client';
+import { api, unwrapGatewayPayload } from '../client';
 import type { ActivationFlowSpec, ExtensionFieldSpec, PluginSettingsUiBlockSpec } from './plugins';
 
 export interface SensorSourceStatusItem {
@@ -48,17 +48,17 @@ export interface SensorSourceAuthorizationResponse {
 export const sensorsApi = {
   getStatus: async (): Promise<SensorSourceStatusResponse> => {
     const response = await api.get<SensorSourceStatusResponse>('/sensors/status');
-    return (response.data || response) as SensorSourceStatusResponse;
+    return unwrapGatewayPayload(response);
   },
 
   requestSync: async (sourceName: string): Promise<{ queued: boolean; source_name: string }> => {
     const response = await api.post<{ queued: boolean; source_name: string }>(`/sensors/${sourceName}/sync`, {});
-    return (response.data || response) as { queued: boolean; source_name: string };
+    return unwrapGatewayPayload(response);
   },
 
   requestStateFlush: async (sourceName: string): Promise<{ queued: boolean; source_name: string }> => {
     const response = await api.post<{ queued: boolean; source_name: string }>(`/sensors/${sourceName}/flush-state`, {});
-    return (response.data || response) as { queued: boolean; source_name: string };
+    return unwrapGatewayPayload(response);
   },
 
   requestAuthorization: async (
@@ -69,6 +69,6 @@ export const sensorsApi = {
       `/sensors/${sourceName}/authorize`,
       { field_values: fieldValues }
     );
-    return (response.data || response) as SensorSourceAuthorizationResponse;
+    return unwrapGatewayPayload(response);
   },
 };
