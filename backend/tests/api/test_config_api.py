@@ -1,7 +1,5 @@
 """Tests for config router extensions."""
 
-from unittest.mock import AsyncMock
-
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -854,10 +852,6 @@ def test_complete_onboarding_reloads_config_and_refreshes_runtime_llm_cache(
         "magi.api.routers.config._enqueue_runtime_llm_refresh_command",
         _fake_enqueue_runtime_llm_refresh_command,
     )
-    monkeypatch.setattr(
-        "magi.api.routers.config._save_personality_to_user",
-        AsyncMock(return_value=True),
-    )
     monkeypatch.setattr("magi.core.runtime_bindings.require_agent_runtime", lambda: object())
 
     response = client.post("/config/onboarding-complete", json=payload.model_dump(mode="json"))
@@ -866,7 +860,7 @@ def test_complete_onboarding_reloads_config_and_refreshes_runtime_llm_cache(
     assert calls == ["save", "reload", "refresh", "enqueue"]
 
 
-def test_complete_onboarding_quick_mode_forces_echo_01_personality(
+def test_complete_onboarding_quick_mode_uses_locale_seed_personality(
     monkeypatch: pytest.MonkeyPatch,
 ):
     app = FastAPI()
@@ -880,21 +874,47 @@ def test_complete_onboarding_quick_mode_forces_echo_01_personality(
 
     captured: dict[str, str] = {}
 
+    def _capture_update_paths(config: SystemConfigModel) -> dict:
+        captured["name"] = config.personality.persona_entity.basic_profile.name
+        return {}
+
+    monkeypatch.setattr("magi.api.routers.config._build_update_paths", _capture_update_paths)
     monkeypatch.setattr("magi.api.routers.config.save_config", lambda _: True)
     monkeypatch.setattr("magi.api.routers.config.reload_config", lambda: get_config())
     monkeypatch.setattr("magi.api.routers.config.refresh_runtime_llm_config", lambda _: None)
     monkeypatch.setattr("magi.core.runtime_bindings.require_agent_runtime", lambda: object())
 
-    async def _fake_save_personality(personality) -> bool:
-        captured["name"] = personality.persona_entity.basic_profile.name
-        return True
-
-    monkeypatch.setattr(
-        "magi.api.routers.config._save_personality_to_user",
-        _fake_save_personality,
-    )
-
     response = client.post("/config/onboarding-complete", json=payload.model_dump(mode="json"))
 
     assert response.status_code == 200
     assert captured["name"] == "Echo-01"
+
+
+def test_complete_onboarding_quick_mode_uses_english_seed_without_zh_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    app = FastAPI()
+    app.include_router(config_router, prefix="/config")
+    client = TestClient(app)
+
+    payload = SystemConfigModel()
+    payload.preferences.user_mode = "quick"
+    payload.preferences.language = "en"
+    payload.personality.persona_entity.basic_profile.name = "Custom Persona"
+
+    captured: dict[str, str] = {}
+
+    def _capture_update_paths(config: SystemConfigModel) -> dict:
+        captured["name"] = config.personality.persona_entity.basic_profile.name
+        return {}
+
+    monkeypatch.setattr("magi.api.routers.config._build_update_paths", _capture_update_paths)
+    monkeypatch.setattr("magi.api.routers.config.save_config", lambda _: True)
+    monkeypatch.setattr("magi.api.routers.config.reload_config", lambda: get_config())
+    monkeypatch.setattr("magi.api.routers.config.refresh_runtime_llm_config", lambda _: None)
+    monkeypatch.setattr("magi.core.runtime_bindings.require_agent_runtime", lambda: object())
+
+    response = client.post("/config/onboarding-complete", json=payload.model_dump(mode="json"))
+
+    assert response.status_code == 200
+    assert captured["name"] == "Nova"

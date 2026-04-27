@@ -36,11 +36,11 @@ Why it is still open:
 
 - The persona registry backend (PersonaRepository, seed service, evolution engine persona_id scoping, `/api/personas/*` routes) is implemented and tested.
 - The main frontend personality surface and onboarding flow now use the persona registry path.
+- Quick onboarding now selects the default persona from locale-aware seed metadata instead of a hardcoded seed slug.
 - Some legacy personality/config routes and the in-memory `current_state.py` bridge still exist while older call sites are retired.
 
 Remaining work:
 
-- Replace hardcoded default seed selection with registry-provided default/recommended metadata so quick onboarding behaves correctly across locales.
 - Add data migration script to import existing file-based personas into the registry for existing installs.
 - Retire `current_state.py` once remaining in-tree callers use registry-backed active persona state directly or a thin runtime cache.
 
