@@ -1349,11 +1349,11 @@ describe('config forms', () => {
 
     const modelList = await screen.findByTestId('llm-provider-model-list-pane');
     await user.click(within(modelList).getByText('GPT-5.2'));
-    await user.click(screen.getByRole('switch', { name: 'llm.modelFields.embedding' }));
+    await user.click(screen.getByRole('switch', { name: 'llm.modelFields.imageOutput' }));
 
     expect(onChange).toHaveBeenCalled();
     const overrideCall = onChange.mock.calls.find(
-      (args: any[]) => args[0]?.providers?.openai?.model_metadata_overrides?.['gpt-5.2']?.capabilities?.embedding === true
+      (args: any[]) => args[0]?.providers?.openai?.model_metadata_overrides?.['gpt-5.2']?.capabilities?.image_output === true
     );
     expect(overrideCall).toBeTruthy();
   });

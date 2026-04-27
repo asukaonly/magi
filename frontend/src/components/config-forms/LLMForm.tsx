@@ -97,6 +97,12 @@ const cloneProvider = (value?: Partial<LLMProviderConfig>): LLMProviderConfig =>
             : override?.input_modalities
               ? [...override.input_modalities]
               : undefined,
+        dimensions:
+          override?.dimensions === null
+            ? null
+            : override?.dimensions
+              ? [...override.dimensions]
+              : undefined,
         output_modalities:
           override?.output_modalities === null
             ? null
@@ -935,17 +941,49 @@ const LLMForm: React.FC<LLMFormProps> = ({
     setActiveProviderId('openai');
   };
 
-  const handleAddProviderModel = (providerId: string, model: string) => {
+  const handleAddProviderModel = (providerId: string, model: string, kind: 'chat' | 'embedding' = 'chat') => {
     const trimmedModel = model.trim();
     if (!trimmedModel) {
       return;
     }
     updateValue((draft) => {
       const provider = cloneProvider(draft.providers[providerId]);
-      const nextModels = Array.from(new Set([...(provider.custom_models || []), trimmedModel]));
-      provider.custom_models = nextModels;
-      if (!provider.custom_default_model) {
-        provider.custom_default_model = trimmedModel;
+      if (kind === 'embedding') {
+        // Manual embedding models live solely in the override map so the resolver routes
+        // them to embedding_models without flagging the chat list.
+        const overrides = { ...(provider.model_metadata_overrides || {}) };
+        const existing = overrides[trimmedModel];
+        const alreadyChat = (provider.custom_models || []).includes(trimmedModel);
+        if (alreadyChat) {
+          provider.custom_models = (provider.custom_models || []).filter((item) => item !== trimmedModel);
+          if (provider.custom_default_model === trimmedModel) {
+            provider.custom_default_model = (provider.custom_models || [])[0] || '';
+          }
+        }
+        overrides[trimmedModel] = {
+          ...(existing || {}),
+          capabilities: { ...(existing?.capabilities || {}), embedding: true },
+          limits: { ...(existing?.limits || {}) },
+        };
+        provider.model_metadata_overrides = overrides;
+      } else {
+        const nextModels = Array.from(new Set([...(provider.custom_models || []), trimmedModel]));
+        provider.custom_models = nextModels;
+        if (!provider.custom_default_model) {
+          provider.custom_default_model = trimmedModel;
+        }
+        // Drop any embedding-kind override left over from a previous embedding-kind add.
+        if (provider.model_metadata_overrides?.[trimmedModel]?.capabilities?.embedding === true) {
+          const overrides = { ...(provider.model_metadata_overrides || {}) };
+          const existing = overrides[trimmedModel];
+          const nextCapabilities = { ...(existing?.capabilities || {}) };
+          delete nextCapabilities.embedding;
+          overrides[trimmedModel] = {
+            ...(existing || {}),
+            capabilities: nextCapabilities,
+          };
+          provider.model_metadata_overrides = overrides;
+        }
       }
       draft.providers[providerId] = provider;
     });

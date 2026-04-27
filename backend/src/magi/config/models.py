@@ -75,6 +75,7 @@ class LLMModelMetadataOverrideSettings(BaseModel):
     hidden: Optional[bool] = Field(default=None)
     preferred: Optional[bool] = Field(default=None)
     source_note: Optional[str] = Field(default=None)
+    dimensions: Optional[List[int]] = Field(default=None)
 
 
 class LLMSelectionLimitsSettings(BaseModel):

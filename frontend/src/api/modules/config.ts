@@ -129,6 +129,7 @@ export interface LLMModelMetadataOverride {
   hidden?: boolean | null;
   preferred?: boolean | null;
   source_note?: string | null;
+  dimensions?: number[] | null;
 }
 
 export interface LLMConcurrencyOverrideConfig {

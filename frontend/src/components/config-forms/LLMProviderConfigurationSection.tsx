@@ -28,7 +28,7 @@ interface LLMProviderConfigurationSectionProps {
   onProviderChange: (providerId: string, updater: (provider: LLMProviderConfig) => void) => void;
   onAddCustomProvider: () => void;
   onRemoveCustomProvider: (providerId: string) => void;
-  onAddProviderModel: (providerId: string, model: string) => void;
+  onAddProviderModel: (providerId: string, model: string, kind: 'chat' | 'embedding') => void;
   onRemoveProviderModel: (providerId: string, model: string) => void;
   onProviderDefaultModelChange: (providerId: string, model: string) => void;
   onDiscoverProviderModels: (providerId: string) => void;
@@ -67,6 +67,7 @@ interface ProviderWorkbenchModelItem {
     max_concurrency?: number | null;
   };
   kinds: Array<'chat' | 'embedding'>;
+  dimensions: number[];
 }
 
 const buildProviderWorkbenchModels = (
@@ -95,6 +96,7 @@ const buildProviderWorkbenchModels = (
       },
       limits: model.limits || {},
       kinds: ['chat'],
+      dimensions: [],
     });
   }
 
@@ -104,6 +106,7 @@ const buildProviderWorkbenchModels = (
       existing.kinds = Array.from(new Set([...existing.kinds, 'embedding']));
       existing.capabilities = model.capabilities;
       existing.limits = model.limits || {};
+      existing.dimensions = [...(model.dimensions || [])];
       continue;
     }
 
@@ -114,6 +117,7 @@ const buildProviderWorkbenchModels = (
       capabilities: model.capabilities,
       limits: model.limits || {},
       kinds: ['embedding'],
+      dimensions: [...(model.dimensions || [])],
     });
   }
 
@@ -139,6 +143,8 @@ const cloneModelOverride = (value?: LLMModelMetadataOverride): LLMModelMetadataO
       : value?.provider_options_example
         ? { ...value.provider_options_example }
         : undefined,
+  dimensions:
+    value?.dimensions === null ? null : value?.dimensions ? [...value.dimensions] : undefined,
 });
 
 const isModelOverrideEmpty = (value: LLMModelMetadataOverride): boolean => {
@@ -151,6 +157,7 @@ const isModelOverrideEmpty = (value: LLMModelMetadataOverride): boolean => {
     (value.input_modalities === undefined || value.input_modalities === null) &&
     (value.output_modalities === undefined || value.output_modalities === null) &&
     (value.provider_options_example === undefined || value.provider_options_example === null) &&
+    (value.dimensions === undefined || value.dimensions === null) &&
     !value.source_note;
 };
 
@@ -177,6 +184,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
   const { t } = useTranslation('onboarding');
   const { t: appT } = useTranslation('app');
   const [modelDraft, setModelDraft] = useState('');
+  const [modelDraftKind, setModelDraftKind] = useState<'chat' | 'embedding'>('chat');
   const [selectedModelId, setSelectedModelId] = useState('');
   const [providerTestModels, setProviderTestModels] = useState<Record<string, string>>({});
   const [providerTestMenuOpen, setProviderTestMenuOpen] = useState(false);
@@ -264,6 +272,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
 
   useEffect(() => {
     setModelDraft('');
+    setModelDraftKind('chat');
     setSelectedModelId('');
     setProviderTestMenuOpen(false);
     setProviderTestQuery('');
@@ -795,44 +804,77 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                 >
                   <div className="text-sm font-medium text-foreground">{t('llm.providerConfiguration.availableModels')}</div>
 
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                    <label className="flex-1 space-y-2">
-                      <span className="text-sm font-medium">{t('llm.fields.modelManualEntry')}</span>
-                      <input
-                        aria-label={t('llm.fields.modelManualEntry')}
-                        className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
-                        placeholder={t('llm.fields.modelManualEntryPlaceholder')}
-                        value={modelDraft}
-                        onChange={(event) => setModelDraft(event.target.value)}
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onAddProviderModel(activeProviderId, modelDraft);
-                        setModelDraft('');
-                      }}
-                      className={cn(
-                        'inline-flex h-11 min-w-fit items-center justify-center whitespace-nowrap rounded-lg bg-background px-4 text-sm font-medium text-foreground transition hover:bg-accent',
-                        isSettingsSurface && 'rounded-md border border-[hsl(var(--settings-subnav-border)/0.8)] bg-transparent hover:bg-[hsl(var(--settings-shell-elevated)/0.42)]'
-                      )}
+                  <div className="flex flex-col gap-3">
+                    <div
+                      role="tablist"
+                      aria-label={t('llm.fields.modelKind')}
+                      className="inline-flex w-fit items-center gap-1 rounded-lg bg-muted/55 p-1"
                     >
-                      {t('llm.actions.addModel')}
-                    </button>
-                    {activeProvider.provider_type === 'custom' ? (
+                      {([
+                        ['chat', t('llm.modelKinds.chat')],
+                        ['embedding', t('llm.modelKinds.embedding')],
+                      ] as const).map(([kindValue, kindLabel]) => (
+                        <button
+                          key={kindValue}
+                          type="button"
+                          role="tab"
+                          aria-selected={modelDraftKind === kindValue}
+                          onClick={() => setModelDraftKind(kindValue)}
+                          className={cn(
+                            'inline-flex h-8 items-center justify-center rounded-md px-3 text-xs font-medium transition',
+                            modelDraftKind === kindValue
+                              ? 'bg-background text-foreground shadow-[0_1px_2px_rgba(15,23,42,0.06)]'
+                              : 'text-muted-foreground hover:text-foreground'
+                          )}
+                        >
+                          {kindLabel}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                      <label className="flex-1 space-y-2">
+                        <span className="text-sm font-medium">{t('llm.fields.modelManualEntry')}</span>
+                        <input
+                          aria-label={t('llm.fields.modelManualEntry')}
+                          className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
+                          placeholder={
+                            modelDraftKind === 'embedding'
+                              ? t('llm.fields.modelManualEntryEmbeddingPlaceholder')
+                              : t('llm.fields.modelManualEntryPlaceholder')
+                          }
+                          value={modelDraft}
+                          onChange={(event) => setModelDraft(event.target.value)}
+                        />
+                      </label>
                       <button
                         type="button"
-                        onClick={() => onDiscoverProviderModels(activeProviderId)}
-                        disabled={activeDiscoveryState.loading}
+                        onClick={() => {
+                          onAddProviderModel(activeProviderId, modelDraft, modelDraftKind);
+                          setModelDraft('');
+                        }}
                         className={cn(
-                          'inline-flex h-11 min-w-fit items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-background px-4 text-sm font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60',
+                          'inline-flex h-11 min-w-fit items-center justify-center whitespace-nowrap rounded-lg bg-background px-4 text-sm font-medium text-foreground transition hover:bg-accent',
                           isSettingsSurface && 'rounded-md border border-[hsl(var(--settings-subnav-border)/0.8)] bg-transparent hover:bg-[hsl(var(--settings-shell-elevated)/0.42)]'
                         )}
                       >
-                        {activeDiscoveryState.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                        <span>{t('llm.actions.fetchModels')}</span>
+                        {t('llm.actions.addModel')}
                       </button>
-                    ) : null}
+                      {activeProvider.provider_type === 'custom' ? (
+                        <button
+                          type="button"
+                          onClick={() => onDiscoverProviderModels(activeProviderId)}
+                          disabled={activeDiscoveryState.loading}
+                          className={cn(
+                            'inline-flex h-11 min-w-fit items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-background px-4 text-sm font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60',
+                            isSettingsSurface && 'rounded-md border border-[hsl(var(--settings-subnav-border)/0.8)] bg-transparent hover:bg-[hsl(var(--settings-shell-elevated)/0.42)]'
+                          )}
+                        >
+                          {activeDiscoveryState.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                          <span>{t('llm.actions.fetchModels')}</span>
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
 
                   {activeDiscoveryState.error ? (
@@ -903,160 +945,260 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                         isSettingsSurface && 'rounded-lg bg-[hsl(var(--settings-shell-elevated)/0.22)]'
                       )}
                     >
-                      {activeWorkbenchModel ? (
-                        <>
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div className="space-y-1">
-                              <div className="text-base font-semibold text-foreground">{activeWorkbenchModel.label}</div>
-                              <div className="text-xs text-muted-foreground">
-                                {t('llm.modelFields.modelId')}: {activeWorkbenchModel.id}
+                      {activeWorkbenchModel ? (() => {
+                        const activeKind: 'chat' | 'embedding' =
+                          activeWorkbenchModel.kinds.includes('embedding') &&
+                          !activeWorkbenchModel.kinds.includes('chat')
+                            ? 'embedding'
+                            : 'chat';
+                        const dimensionsValue =
+                          activeModelOverride?.dimensions ?? activeWorkbenchModel.dimensions;
+                        const dimensionsText = (dimensionsValue || []).join(', ');
+                        const parseDimensions = (raw: string): number[] | undefined => {
+                          const trimmed = raw.trim();
+                          if (!trimmed) {
+                            return undefined;
+                          }
+                          const parts = trimmed
+                            .split(/[\s,]+/)
+                            .map((part) => part.trim())
+                            .filter(Boolean)
+                            .map((part) => Number(part))
+                            .filter((value) => Number.isFinite(value) && value > 0)
+                            .map((value) => Math.floor(value));
+                          return parts.length ? parts : undefined;
+                        };
+
+                        return (
+                          <>
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div className="space-y-1">
+                                <div className="text-base font-semibold text-foreground">{activeWorkbenchModel.label}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  {t('llm.modelFields.modelId')}: {activeWorkbenchModel.id}
+                                </div>
                               </div>
-                            </div>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className={badgeClassName}>
-                                {activeWorkbenchModel.source === 'manual'
-                                  ? t('llm.providerConfiguration.providerKinds.custom')
-                                  : t('llm.providerConfiguration.providerKinds.builtin')}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  onProviderChange(activeProviderId, (provider) => {
-                                    const overrides = { ...(provider.model_metadata_overrides || {}) };
-                                    delete overrides[activeWorkbenchModel.id];
-                                    provider.model_metadata_overrides = overrides;
-                                  })
-                                }
-                                className="inline-flex h-9 items-center justify-center rounded-md border border-border/70 px-3 text-sm text-foreground transition hover:bg-background/70"
-                              >
-                                {t('llm.actions.restoreModelDefaults')}
-                              </button>
-                              {activeWorkbenchModel.source === 'manual' ? (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className={badgeClassName}>
+                                  {activeKind === 'embedding'
+                                    ? t('llm.modelKinds.embedding')
+                                    : t('llm.modelKinds.chat')}
+                                </span>
+                                <span className={badgeClassName}>
+                                  {activeWorkbenchModel.source === 'manual'
+                                    ? t('llm.providerConfiguration.providerKinds.custom')
+                                    : t('llm.providerConfiguration.providerKinds.builtin')}
+                                </span>
                                 <button
                                   type="button"
-                                  onClick={() => onRemoveProviderModel(activeProviderId, activeWorkbenchModel.id)}
-                                  className="inline-flex h-9 items-center justify-center rounded-md border border-destructive/25 px-3 text-sm text-destructive transition hover:bg-destructive/6"
+                                  onClick={() =>
+                                    onProviderChange(activeProviderId, (provider) => {
+                                      const overrides = { ...(provider.model_metadata_overrides || {}) };
+                                      const previous = overrides[activeWorkbenchModel.id];
+                                      delete overrides[activeWorkbenchModel.id];
+                                      // Preserve embedding-kind marker for manual embedding-only models so they don't
+                                      // disappear (manual embedding models live solely in the override map).
+                                      if (
+                                        previous?.capabilities?.embedding === true &&
+                                        activeWorkbenchModel.source === 'manual' &&
+                                        !(provider.custom_models || []).includes(activeWorkbenchModel.id)
+                                      ) {
+                                        overrides[activeWorkbenchModel.id] = {
+                                          capabilities: { embedding: true },
+                                        };
+                                      }
+                                      provider.model_metadata_overrides = overrides;
+                                    })
+                                  }
+                                  className="inline-flex h-9 items-center justify-center rounded-md border border-border/70 px-3 text-sm text-foreground transition hover:bg-background/70"
                                 >
-                                  {t('llm.actions.removeModel')}
+                                  {t('llm.actions.restoreModelDefaults')}
                                 </button>
-                              ) : null}
+                                {activeWorkbenchModel.source === 'manual' ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => onRemoveProviderModel(activeProviderId, activeWorkbenchModel.id)}
+                                    className="inline-flex h-9 items-center justify-center rounded-md border border-destructive/25 px-3 text-sm text-destructive transition hover:bg-destructive/6"
+                                  >
+                                    {t('llm.actions.removeModel')}
+                                  </button>
+                                ) : null}
+                              </div>
                             </div>
-                          </div>
 
-                          <div className="grid gap-4">
-                            <label className="space-y-2">
-                              <span className="text-sm font-medium">{t('llm.fields.displayName')}</span>
-                              <input
-                                aria-label={t('llm.fields.displayName')}
-                                className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
-                                value={activeModelOverride?.label ?? activeWorkbenchModel.label}
-                                onChange={(event) =>
-                                  updateModelOverride(activeWorkbenchModel.id, (draft) => {
-                                    draft.label = event.target.value.trim() || undefined;
-                                  })
-                                }
-                              />
-                            </label>
-                          </div>
+                            <div className="grid gap-4">
+                              <label className="space-y-2">
+                                <span className="text-sm font-medium">{t('llm.fields.displayName')}</span>
+                                <input
+                                  aria-label={t('llm.fields.displayName')}
+                                  className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
+                                  value={activeModelOverride?.label ?? activeWorkbenchModel.label}
+                                  onChange={(event) =>
+                                    updateModelOverride(activeWorkbenchModel.id, (draft) => {
+                                      draft.label = event.target.value.trim() || undefined;
+                                    })
+                                  }
+                                />
+                              </label>
+                            </div>
 
-                          <div className={cn('grid gap-3', !isSettingsSurface && 'md:grid-cols-2 xl:grid-cols-3')}>
-                            {([
-                              ['vision', t('llm.modelFields.vision')],
-                              ['embedding', t('llm.modelFields.embedding')],
-                              ['tool_calling', t('llm.modelFields.toolCalling')],
-                              ['reasoning', t('llm.modelFields.reasoning')],
-                              ['image_output', t('llm.modelFields.imageOutput')],
-                            ] as const).map(([field, label]) => {
-                              const checked = Boolean(
-                                activeModelOverride?.capabilities?.[field] ?? activeWorkbenchModel.capabilities[field]
-                              );
+                            {activeKind === 'chat' ? (
+                              <>
+                                <div className={cn('grid gap-3', !isSettingsSurface && 'md:grid-cols-2 xl:grid-cols-3')}>
+                                  {([
+                                    ['vision', t('llm.modelFields.vision')],
+                                    ['tool_calling', t('llm.modelFields.toolCalling')],
+                                    ['reasoning', t('llm.modelFields.reasoning')],
+                                    ['image_output', t('llm.modelFields.imageOutput')],
+                                  ] as const).map(([field, label]) => {
+                                    const checked = Boolean(
+                                      activeModelOverride?.capabilities?.[field] ?? activeWorkbenchModel.capabilities[field]
+                                    );
 
-                              return (
-                                <div
-                                  key={field}
-                                  className="flex items-center justify-between rounded-xl bg-background/80 px-3 py-2.5"
-                                >
-                                  <span className="text-sm text-foreground">{label}</span>
-                                  <Switch
-                                    aria-label={label}
-                                    checked={checked}
-                                    onCheckedChange={(nextValue) =>
+                                    return (
+                                      <div
+                                        key={field}
+                                        className="flex items-center justify-between rounded-xl bg-background/80 px-3 py-2.5"
+                                      >
+                                        <span className="text-sm text-foreground">{label}</span>
+                                        <Switch
+                                          aria-label={label}
+                                          checked={checked}
+                                          onCheckedChange={(nextValue) =>
+                                            updateModelOverride(activeWorkbenchModel.id, (draft) => {
+                                              draft.capabilities = { ...(draft.capabilities || {}), [field]: nextValue };
+                                            })
+                                          }
+                                        />
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+
+                                <div className={cn('grid gap-4', !isSettingsSurface && 'lg:grid-cols-3')}>
+                                  <label className="space-y-2">
+                                    <span className="text-sm font-medium">{t('llm.modelFields.contextWindow')}</span>
+                                    <div className="relative">
+                                      <input
+                                        aria-label={t('llm.modelFields.contextWindow')}
+                                        className={cn(fieldClassName, 'pr-8', isSettingsSurface && 'rounded-lg')}
+                                        type="number"
+                                        min={1}
+                                        step={1}
+                                        value={((activeModelOverride?.limits?.context_window ?? activeWorkbenchModel.limits.context_window) ?? 0) / 1000 || ''}
+                                        onChange={(event) =>
+                                          updateModelOverride(activeWorkbenchModel.id, (draft) => {
+                                            const v = event.target.value.trim();
+                                            draft.limits = { ...(draft.limits || {}), context_window: v ? Number(v) * 1000 : undefined };
+                                          })
+                                        }
+                                      />
+                                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">K</span>
+                                    </div>
+                                  </label>
+
+                                  <label className="space-y-2">
+                                    <span className="text-sm font-medium">{t('llm.modelFields.maxOutputTokens')}</span>
+                                    <div className="relative">
+                                      <input
+                                        aria-label={t('llm.modelFields.maxOutputTokens')}
+                                        className={cn(fieldClassName, 'pr-8', isSettingsSurface && 'rounded-lg')}
+                                        type="number"
+                                        min={1}
+                                        step={1}
+                                        value={((activeModelOverride?.limits?.max_output_tokens ?? activeWorkbenchModel.limits.max_output_tokens) ?? 0) / 1000 || ''}
+                                        onChange={(event) =>
+                                          updateModelOverride(activeWorkbenchModel.id, (draft) => {
+                                            const v = event.target.value.trim();
+                                            draft.limits = { ...(draft.limits || {}), max_output_tokens: v ? Number(v) * 1000 : undefined };
+                                          })
+                                        }
+                                      />
+                                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">K</span>
+                                    </div>
+                                  </label>
+
+                                  <label className="space-y-2">
+                                    <span className="text-sm font-medium">{t('llm.modelFields.maxConcurrency')}</span>
+                                    <input
+                                      aria-label={t('llm.modelFields.maxConcurrency')}
+                                      className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
+                                      type="number"
+                                      min={1}
+                                      step={1}
+                                      value={activeModelOverride?.limits?.max_concurrency ?? activeWorkbenchModel.limits.max_concurrency ?? ''}
+                                      onChange={(event) =>
+                                        updateModelOverride(activeWorkbenchModel.id, (draft) => {
+                                          const nextValue = event.target.value.trim();
+                                          draft.limits = {
+                                            ...(draft.limits || {}),
+                                            max_concurrency: nextValue ? Number(nextValue) : undefined,
+                                          };
+                                        })
+                                      }
+                                    />
+                                  </label>
+                                </div>
+                              </>
+                            ) : (
+                              <div className={cn('grid gap-4', !isSettingsSurface && 'lg:grid-cols-2')}>
+                                <label className="space-y-2">
+                                  <span className="text-sm font-medium">{t('llm.modelFields.dimensions')}</span>
+                                  <input
+                                    aria-label={t('llm.modelFields.dimensions')}
+                                    className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
+                                    placeholder={t('llm.modelFields.dimensionsPlaceholder')}
+                                    defaultValue={dimensionsText}
+                                    key={`${activeWorkbenchModel.id}-${dimensionsText}`}
+                                    onBlur={(event) =>
                                       updateModelOverride(activeWorkbenchModel.id, (draft) => {
-                                        draft.capabilities = { ...(draft.capabilities || {}), [field]: nextValue };
+                                        // Preserve embedding kind for manual models when persisting overrides.
+                                        if (activeKind === 'embedding') {
+                                          draft.capabilities = {
+                                            ...(draft.capabilities || {}),
+                                            embedding: true,
+                                          };
+                                        }
+                                        draft.dimensions = parseDimensions(event.target.value);
                                       })
                                     }
                                   />
-                                </div>
-                              );
-                            })}
-                          </div>
+                                  <span className="block text-xs text-muted-foreground">
+                                    {t('llm.modelFields.dimensionsHint')}
+                                  </span>
+                                </label>
 
-                          <div className={cn('grid gap-4', !isSettingsSurface && 'lg:grid-cols-3')}>
-                            <label className="space-y-2">
-                              <span className="text-sm font-medium">{t('llm.modelFields.contextWindow')}</span>
-                              <div className="relative">
-                                <input
-                                  aria-label={t('llm.modelFields.contextWindow')}
-                                  className={cn(fieldClassName, 'pr-8', isSettingsSurface && 'rounded-lg')}
-                                  type="number"
-                                  min={1}
-                                  step={1}
-                                  value={((activeModelOverride?.limits?.context_window ?? activeWorkbenchModel.limits.context_window) ?? 0) / 1000 || ''}
-                                  onChange={(event) =>
-                                    updateModelOverride(activeWorkbenchModel.id, (draft) => {
-                                      const v = event.target.value.trim();
-                                      draft.limits = { ...(draft.limits || {}), context_window: v ? Number(v) * 1000 : undefined };
-                                    })
-                                  }
-                                />
-                                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">K</span>
+                                <label className="space-y-2">
+                                  <span className="text-sm font-medium">{t('llm.modelFields.maxConcurrency')}</span>
+                                  <input
+                                    aria-label={t('llm.modelFields.maxConcurrency')}
+                                    className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
+                                    type="number"
+                                    min={1}
+                                    step={1}
+                                    value={activeModelOverride?.limits?.max_concurrency ?? activeWorkbenchModel.limits.max_concurrency ?? ''}
+                                    onChange={(event) =>
+                                      updateModelOverride(activeWorkbenchModel.id, (draft) => {
+                                        const nextValue = event.target.value.trim();
+                                        if (activeKind === 'embedding') {
+                                          draft.capabilities = {
+                                            ...(draft.capabilities || {}),
+                                            embedding: true,
+                                          };
+                                        }
+                                        draft.limits = {
+                                          ...(draft.limits || {}),
+                                          max_concurrency: nextValue ? Number(nextValue) : undefined,
+                                        };
+                                      })
+                                    }
+                                  />
+                                </label>
                               </div>
-                            </label>
-
-                            <label className="space-y-2">
-                              <span className="text-sm font-medium">{t('llm.modelFields.maxOutputTokens')}</span>
-                              <div className="relative">
-                                <input
-                                  aria-label={t('llm.modelFields.maxOutputTokens')}
-                                  className={cn(fieldClassName, 'pr-8', isSettingsSurface && 'rounded-lg')}
-                                  type="number"
-                                  min={1}
-                                  step={1}
-                                  value={((activeModelOverride?.limits?.max_output_tokens ?? activeWorkbenchModel.limits.max_output_tokens) ?? 0) / 1000 || ''}
-                                  onChange={(event) =>
-                                    updateModelOverride(activeWorkbenchModel.id, (draft) => {
-                                      const v = event.target.value.trim();
-                                      draft.limits = { ...(draft.limits || {}), max_output_tokens: v ? Number(v) * 1000 : undefined };
-                                    })
-                                  }
-                                />
-                                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">K</span>
-                              </div>
-                            </label>
-
-                            <label className="space-y-2">
-                              <span className="text-sm font-medium">{t('llm.modelFields.maxConcurrency')}</span>
-                              <input
-                                aria-label={t('llm.modelFields.maxConcurrency')}
-                                className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
-                                type="number"
-                                min={1}
-                                step={1}
-                                value={activeModelOverride?.limits?.max_concurrency ?? activeWorkbenchModel.limits.max_concurrency ?? ''}
-                                onChange={(event) =>
-                                  updateModelOverride(activeWorkbenchModel.id, (draft) => {
-                                    const nextValue = event.target.value.trim();
-                                    draft.limits = {
-                                      ...(draft.limits || {}),
-                                      max_concurrency: nextValue ? Number(nextValue) : undefined,
-                                    };
-                                  })
-                                }
-                              />
-                            </label>
-                          </div>
-                        </>
-                      ) : (
+                            )}
+                          </>
+                        );
+                      })() : (
                         <div className="rounded-lg bg-background/80 px-3 py-3 text-sm text-muted-foreground">
                           {t('llm.providerConfiguration.noModelSelected')}
                         </div>

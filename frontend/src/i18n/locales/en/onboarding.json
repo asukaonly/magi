@@ -222,7 +222,13 @@
       "baseUrl": "Base URL",
       "displayName": "Display Name",
       "apiFormat": "API Format",
-      "enabled": "Enabled"
+      "enabled": "Enabled",
+      "modelKind": "Model Type",
+      "modelManualEntryEmbeddingPlaceholder": "Enter embedding model ID"
+    },
+    "modelKinds": {
+      "chat": "Chat",
+      "embedding": "Embedding"
     },
     "modelFields": {
       "modelId": "Model ID",
@@ -237,7 +243,10 @@
       "preferred": "Preferred",
       "contextWindow": "Context Window",
       "maxOutputTokens": "Max Output",
-      "maxConcurrency": "Max Concurrency"
+      "maxConcurrency": "Max Concurrency",
+      "dimensions": "Dimensions",
+      "dimensionsPlaceholder": "e.g. 1536, 1024",
+      "dimensionsHint": "Supported output dimensions, comma-separated. Leave empty to use the model defaults."
     },
     "actions": {
       "addCustomProvider": "Add Custom Provider",
