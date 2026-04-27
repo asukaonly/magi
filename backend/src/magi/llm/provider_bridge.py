@@ -226,6 +226,81 @@ class ToolStreamResult:
 DEFAULT_CHAT_CONCURRENCY_FALLBACK = 4
 
 
+class _ThinkTagScrubber:
+    """Strip ``<think>...</think>`` blocks from streaming text content.
+
+    Some OpenAI-compatible providers occasionally embed reasoning into
+    ``delta.content`` rather than the dedicated ``reasoning_content``
+    channel, which causes the thinking text to leak into the assistant
+    bubble. Tags can span chunk boundaries, so this helper keeps a
+    small carry-over buffer between ``feed`` calls.
+    """
+
+    OPEN = "<think>"
+    CLOSE = "</think>"
+
+    def __init__(self) -> None:
+        self._inside = False
+        self._pending = ""
+
+    def feed(self, chunk: str) -> tuple[str, str]:
+        """Process ``chunk`` and return ``(visible_text, reasoning_text)``."""
+        if not chunk:
+            return "", ""
+        text = self._pending + chunk
+        self._pending = ""
+        visible: list[str] = []
+        reasoning: list[str] = []
+        i = 0
+        n = len(text)
+        while i < n:
+            if self._inside:
+                close_idx = text.find(self.CLOSE, i)
+                if close_idx == -1:
+                    tail = len(self.CLOSE) - 1
+                    if n - i <= tail:
+                        self._pending = text[i:]
+                        i = n
+                    else:
+                        safe_end = n - tail
+                        reasoning.append(text[i:safe_end])
+                        self._pending = text[safe_end:]
+                        i = n
+                    break
+                if close_idx > i:
+                    reasoning.append(text[i:close_idx])
+                i = close_idx + len(self.CLOSE)
+                self._inside = False
+            else:
+                open_idx = text.find(self.OPEN, i)
+                if open_idx == -1:
+                    tail = len(self.OPEN) - 1
+                    if n - i <= tail:
+                        self._pending = text[i:]
+                        i = n
+                    else:
+                        safe_end = n - tail
+                        visible.append(text[i:safe_end])
+                        self._pending = text[safe_end:]
+                        i = n
+                    break
+                if open_idx > i:
+                    visible.append(text[i:open_idx])
+                i = open_idx + len(self.OPEN)
+                self._inside = True
+        return "".join(visible), "".join(reasoning)
+
+    def flush(self) -> tuple[str, str]:
+        """Return any leftover buffered text when the stream ends."""
+        if not self._pending:
+            return "", ""
+        leftover = self._pending
+        self._pending = ""
+        if self._inside:
+            return "", leftover
+        return leftover, ""
+
+
 @lru_cache(maxsize=1)
 def _load_provider_registry() -> LLMProviderRegistryModel:
     """Load the packaged LLM provider registry once per process."""
@@ -585,6 +660,7 @@ class LLMProviderBridge:
                 chat_kwargs["model"] = self.llm.model_name
                 stream = await self.llm._client.chat.completions.create(**chat_kwargs)
                 usage_data: Any = None
+                scrubber = _ThinkTagScrubber()
                 async for chunk in stream:
                     if not getattr(chunk, "choices", None):
                         if hasattr(chunk, "usage") and chunk.usage is not None:
@@ -604,11 +680,26 @@ class LLMProviderBridge:
                         yield ev
                     content = getattr(delta, "content", None)
                     if content:
-                        ev = LLMStreamEvent(kind="text_delta", text=content)
-                        await emit_stream_event(ev)
-                        yield ev
+                        visible, reasoning_leak = scrubber.feed(content)
+                        if reasoning_leak:
+                            ev = LLMStreamEvent(kind="reasoning_delta", text=reasoning_leak)
+                            await emit_stream_event(ev)
+                            yield ev
+                        if visible:
+                            ev = LLMStreamEvent(kind="text_delta", text=visible)
+                            await emit_stream_event(ev)
+                            yield ev
                     if hasattr(chunk, "usage") and chunk.usage is not None:
                         usage_data = chunk.usage
+                tail_visible, tail_reasoning = scrubber.flush()
+                if tail_reasoning:
+                    ev = LLMStreamEvent(kind="reasoning_delta", text=tail_reasoning)
+                    await emit_stream_event(ev)
+                    yield ev
+                if tail_visible:
+                    ev = LLMStreamEvent(kind="text_delta", text=tail_visible)
+                    await emit_stream_event(ev)
+                    yield ev
                 usage_payload = self._openai_usage_to_wire(usage_data)
                 if usage_payload is not None:
                     usage_ev = LLMStreamEvent(kind="usage", usage=usage_payload)
@@ -617,9 +708,19 @@ class LLMProviderBridge:
             else:
                 content = await self.llm.chat(**chat_kwargs)
                 if content:
-                    ev = LLMStreamEvent(kind="text_delta", text=content)
-                    await emit_stream_event(ev)
-                    yield ev
+                    scrubber = _ThinkTagScrubber()
+                    visible, reasoning_leak = scrubber.feed(content)
+                    tail_visible, tail_reasoning = scrubber.flush()
+                    visible = visible + tail_visible
+                    reasoning_leak = reasoning_leak + tail_reasoning
+                    if reasoning_leak:
+                        ev = LLMStreamEvent(kind="reasoning_delta", text=reasoning_leak)
+                        await emit_stream_event(ev)
+                        yield ev
+                    if visible:
+                        ev = LLMStreamEvent(kind="text_delta", text=visible)
+                        await emit_stream_event(ev)
+                        yield ev
         done_ev = LLMStreamEvent(kind="done")
         await emit_stream_event(done_ev)
         yield done_ev
@@ -1230,6 +1331,7 @@ class LLMProviderBridge:
         has_tool_calls = False
         chunks_emitted = 0
         usage_data: Any = None
+        scrubber = _ThinkTagScrubber()
 
         async for chunk in stream:
             if not chunk.choices:
@@ -1298,16 +1400,40 @@ class LLMProviderBridge:
 
             # Visible text
             if hasattr(delta, "content") and delta.content:
-                content_parts.append(delta.content)
                 if not has_tool_calls:
-                    await emit_stream_event(LLMStreamEvent(
-                        kind="text_delta",
-                        text=delta.content,
-                    ))
-                    chunks_emitted += 1
+                    visible, reasoning_leak = scrubber.feed(delta.content)
+                    if reasoning_leak:
+                        await emit_stream_event(LLMStreamEvent(
+                            kind="reasoning_delta",
+                            text=reasoning_leak,
+                        ))
+                    if visible:
+                        content_parts.append(visible)
+                        await emit_stream_event(LLMStreamEvent(
+                            kind="text_delta",
+                            text=visible,
+                        ))
+                        chunks_emitted += 1
+                else:
+                    # Tool-call branch already collects post-tool text raw.
+                    content_parts.append(delta.content)
 
             if hasattr(chunk, "usage") and chunk.usage is not None:
                 usage_data = chunk.usage
+
+        tail_visible, tail_reasoning = scrubber.flush()
+        if tail_reasoning:
+            await emit_stream_event(LLMStreamEvent(
+                kind="reasoning_delta",
+                text=tail_reasoning,
+            ))
+        if tail_visible and not has_tool_calls:
+            content_parts.append(tail_visible)
+            await emit_stream_event(LLMStreamEvent(
+                kind="text_delta",
+                text=tail_visible,
+            ))
+            chunks_emitted += 1
 
         content_text = "".join(content_parts)
 
