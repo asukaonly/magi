@@ -1134,7 +1134,6 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                                     ['vision', t('llm.modelFields.vision')],
                                     ['tool_calling', t('llm.modelFields.toolCalling')],
                                     ['reasoning', t('llm.modelFields.reasoning')],
-                                    ['image_output', t('llm.modelFields.imageOutput')],
                                   ] as const).map(([field, label]) => {                                    const checked = Boolean(
                                       activeModelOverride?.capabilities?.[field] ?? activeWorkbenchModel.capabilities[field]
                                     );
