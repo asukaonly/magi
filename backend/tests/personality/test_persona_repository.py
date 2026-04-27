@@ -10,6 +10,7 @@ import pytest
 import pytest_asyncio
 
 from magi.personality.persona_repository import PersonaRepository, PersonaSummary, PersonaRecord
+from magi.personality import persona_seed
 
 
 _SAMPLE_CONFIG = json.dumps({
@@ -143,3 +144,46 @@ class TestPersonaRepository:
         assert record.config.name == "Test Persona"
         roundtrip = record.config.to_dict()
         assert roundtrip["persona_entity"]["basic_profile"]["name"] == "Test Persona"
+
+
+@pytest.mark.asyncio
+async def test_list_seed_previews_exposes_default_metadata(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    seed_dir = tmp_path / "en"
+    seed_dir.mkdir()
+    (seed_dir / "nova_assistant.json").write_text(
+        json.dumps(
+            {
+                "meta": {"group": "general", "order": 1, "default": True},
+                "persona_entity": {
+                    "basic_profile": {
+                        "name": "Nova",
+                        "description": "English default",
+                        "avatar": "nova.png",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (seed_dir / "echo_ai_ssistant.json").write_text(
+        json.dumps(
+            {
+                "meta": {"group": "general", "order": 2, "recommended": True},
+                "persona_entity": {
+                    "basic_profile": {
+                        "name": "Echo-01",
+                        "description": "Chinese default",
+                        "avatar": "echo.png",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(persona_seed, "_seed_dir", lambda _locale: seed_dir)
+
+    previews = await persona_seed.list_seed_previews("en")
+
+    assert previews[0]["seed_slug"] == "nova_assistant"
+    assert previews[0]["is_default"] is True
+    assert previews[1]["is_recommended"] is True

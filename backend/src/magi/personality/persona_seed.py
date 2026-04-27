@@ -105,6 +105,8 @@ async def list_seed_previews(locale: str) -> list[dict]:
                 "avatar": bp.get("avatar", ""),
                 "group": meta.get("group", "general"),
                 "order": meta.get("order", 0),
+                "is_default": bool(meta.get("default") or meta.get("is_default")),
+                "is_recommended": bool(meta.get("recommended") or meta.get("is_recommended")),
             }
         )
 

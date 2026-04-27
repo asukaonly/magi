@@ -153,6 +153,10 @@ export interface SeedPreview {
   avatar: string;
   group: string;
   order: number;
+  default?: boolean;
+  recommended?: boolean;
+  is_default?: boolean;
+  is_recommended?: boolean;
 }
 
 export interface SeedPreviewResponse {
@@ -169,6 +173,19 @@ export interface ActivePersonaResponse {
   success: boolean;
   persona_id: string | null;
 }
+
+export const selectDefaultSeedPreview = (previews: SeedPreview[]): SeedPreview | undefined =>
+  [...previews].sort((left, right) => {
+    const leftMarked = left.default || left.recommended || left.is_default || left.is_recommended;
+    const rightMarked = right.default || right.recommended || right.is_default || right.is_recommended;
+    if (Boolean(leftMarked) !== Boolean(rightMarked)) {
+      return leftMarked ? -1 : 1;
+    }
+    if (left.order !== right.order) {
+      return left.order - right.order;
+    }
+    return left.name.localeCompare(right.name);
+  })[0];
 
 // ---------------------------------------------------------------------------
 // API

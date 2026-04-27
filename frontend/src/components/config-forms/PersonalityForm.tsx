@@ -12,6 +12,7 @@ import type { LLMConfig } from '../../api/modules/config';
 import {
   personasApi,
   DEFAULT_PERSONALITY_CONFIG,
+  selectDefaultSeedPreview,
   type PersonalityConfig,
   type SeedPreview,
   type StateTransitionProtocolItem,
@@ -24,7 +25,6 @@ interface PersonalityFormProps {
 
 // Group display order
 const GROUP_ORDER = ['magi', 'general'];
-const DEFAULT_PRESET_SLUG = 'echo_ai_ssistant';
 
 const normalizeTransition = (item: Partial<StateTransitionProtocolItem>): StateTransitionProtocolItem => ({
   trigger_type: item.trigger_type || '',
@@ -93,11 +93,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
       return;
     }
 
-    const defaultPreset =
-      presets.find((item) => item.seed_slug === DEFAULT_PRESET_SLUG) ??
-      presets.find((item) => item.name.toLowerCase() === 'echo-01') ??
-      presets.find((item) => item.group === 'general') ??
-      presets[0];
+    const defaultPreset = selectDefaultSeedPreview(presets);
     if (!defaultPreset) {
       return;
     }

@@ -7,7 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { apiClient } from '@/api/client';
 import { configApi } from '../../api/modules/config';
 import type { SystemConfig, EmbeddingConfig, CrossEncoderConfig } from '../../api/modules/config';
-import { personasApi } from '../../api/modules/personas';
+import { personasApi, selectDefaultSeedPreview } from '../../api/modules/personas';
 import LLMForm from '../config-forms/LLMForm';
 import PersonalityForm from '../config-forms/PersonalityForm';
 import MemoryForm from '../config-forms/MemoryForm';
@@ -319,16 +319,23 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     // Seed builtin personas into the registry and set the selected one active
     const locale = (values.preferences?.language || 'en').startsWith('zh') ? 'zh' : 'en';
     try {
+      const quickSeedPreviewsPromise = mode === 'quick' ? personasApi.seedPreviews(locale) : Promise.resolve(null);
       await personasApi.seed(locale);
-      const listResult = await personasApi.list();
+      const [listResult, quickSeedPreviews] = await Promise.all([
+        personasApi.list(),
+        quickSeedPreviewsPromise,
+      ]);
       const personas = listResult.data || [];
+      const quickDefaultSeedSlug = quickSeedPreviews
+        ? selectDefaultSeedPreview(quickSeedPreviews.data || [])?.seed_slug
+        : undefined;
 
       // Determine which persona to activate:
-      // - Quick mode: use the default preset slug
+      // - Quick mode: use the locale-aware default seed preview
       // - Expert mode with preset: use the seed_slug saved by PersonalityForm
       // - Expert mode with custom: create a new persona entry
       const seedSlug: string | undefined =
-        mode === 'quick' ? 'echo_ai_ssistant' : values.personalitySeedSlug;
+        mode === 'quick' ? quickDefaultSeedSlug : values.personalitySeedSlug;
 
       let activatedPersonaId: string | undefined;
 
