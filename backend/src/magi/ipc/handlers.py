@@ -2,12 +2,25 @@
 
 from __future__ import annotations
 
+import base64
 import json
 from typing import Any
 
 import structlog
 
 logger = structlog.get_logger(__name__)
+
+
+def _is_json_content_type(content_type: str) -> bool:
+    normalized = str(content_type or "").lower()
+    return "application/json" in normalized or normalized.endswith("+json")
+
+
+def _is_text_content_type(content_type: str) -> bool:
+    normalized = str(content_type or "").lower()
+    if normalized.startswith("text/"):
+        return True
+    return any(token in normalized for token in ("application/xml", "application/javascript", "image/svg+xml"))
 
 
 async def handle_ping(params: dict[str, Any] | None) -> dict[str, str]:
@@ -57,16 +70,27 @@ class ApiForwardHandler:
 
         try:
             resp = await self._client.request(method, url, **kwargs)
-            # Try to return JSON body
-            try:
-                resp_body = resp.json()
-            except Exception:
-                resp_body = resp.text
-            return {
+            result = {
                 "status": resp.status_code,
                 "headers": dict(resp.headers),
-                "body": resp_body,
             }
+            content_type = str(resp.headers.get("content-type") or "")
+
+            if _is_json_content_type(content_type):
+                try:
+                    result["body"] = resp.json()
+                except Exception:
+                    result["body"] = resp.text
+                return result
+
+            if _is_text_content_type(content_type):
+                result["body"] = resp.text
+                return result
+
+            body_bytes = resp.content or b""
+            result["body_base64"] = base64.b64encode(body_bytes).decode("ascii")
+            result["body_encoding"] = "base64"
+            return result
         except Exception as exc:
             logger.exception("api_forward_error", path=path, method=method)
             return {"status": 500, "body": {"detail": str(exc)}}

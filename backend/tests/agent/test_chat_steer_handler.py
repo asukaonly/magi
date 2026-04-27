@@ -78,8 +78,9 @@ class _FakeOrchestrator:
         system_prompt: str,
         selected_tools: list[str],
         conversation_history: Any = None,
+        allow_attachment_grounding: bool = False,
     ) -> FunctionCallingStepState:
-        _ = (system_prompt, selected_tools, conversation_history)
+        _ = (system_prompt, selected_tools, conversation_history, allow_attachment_grounding)
         self.build_step_state_calls.append(user_message)
         return FunctionCallingStepState(
             messages=[{"role": "user", "content": user_message}],

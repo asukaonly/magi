@@ -1,22 +1,30 @@
-"""Unified plugin runtime exports."""
+"""Unified plugin runtime exports.
 
-from .base import Plugin
-from .contracts import (
+Public API for both internal backend code and plugin authors.
+All contract types originate from ``magi-plugin-sdk``.
+"""
+
+from magi_plugin_sdk import (  # noqa: F401
     ActivationFlowSpec,
     ContributionType,
     ExtensionFieldOption,
     ExtensionFieldSpec,
+    Plugin,
     PluginContribution,
+    PluginI18n,
     PluginManifest,
     PluginPackageState,
     PluginRegistryEntry,
     PluginRegistryIndex,
     PluginSettingsResourcePayload,
     PluginSettingsResourceSpec,
+    SensorSpec,
     SettingsUIBlockSpec,
+    configure_basic_logging,
+    get_logger,
 )
 from .manager import PluginManager
-from .sensors import SensorRegistry, SensorSpec
+from .sensors import SensorRegistry
 
 __all__ = [
     "ActivationFlowSpec",
@@ -25,6 +33,7 @@ __all__ = [
     "ExtensionFieldSpec",
     "Plugin",
     "PluginContribution",
+    "PluginI18n",
     "PluginManifest",
     "PluginManager",
     "PluginPackageState",
@@ -35,4 +44,6 @@ __all__ = [
     "SensorRegistry",
     "SensorSpec",
     "SettingsUIBlockSpec",
+    "configure_basic_logging",
+    "get_logger",
 ]

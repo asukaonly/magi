@@ -2,32 +2,45 @@
 
 This runbook is the shortest path for running LongMemEval against a real Magi backend runtime.
 
-## 1. Start the Backend
+## 1. Start Magi Runtime
 
 From the repository root:
 
 ```bash
-cd /Users/asuka/code/magi/backend
-pip install -r requirements.txt
+./scripts/dev-tauri-hot.sh
+```
+
+On Windows, use:
+
+```powershell
+.\scripts\dev-tauri-hot.ps1
+```
+
+For headless benchmark/CI runs, start the Python IPC worker and Rust gateway separately from the repository root:
+
+```bash
+cd backend
+pip install -e ".[dev]"
 python run_server.py
 ```
 
-If you want the desktop shell during development, start it from the repository root:
+In another terminal:
 
 ```bash
-cd /Users/asuka/code/magi
-./scripts/dev-tauri-hot.sh
+cargo run -p magi-gateway-cli
 ```
+
+The desktop app and gateway CLI write the active gateway port to `~/.magi/runtime/gateway.port`, which the benchmark scripts can auto-discover.
 
 ## 2. Confirm the Backend Is Reachable
 
 In a new terminal:
 
 ```bash
-curl http://127.0.0.1:8000/api/metrics/health
+curl http://127.0.0.1:<gateway-port>/api/metrics/health
 ```
 
-You should get a JSON response instead of a connection error.
+Use the port printed by the desktop app/gateway logs, or read `~/.magi/runtime/gateway.port`. You should get a JSON response instead of a connection error.
 
 ## 3. Prepare the Dataset Path
 
@@ -35,29 +48,31 @@ Example:
 
 ```bash
 export LONGMEM_DATA=/absolute/path/to/longmemeval_oracle.json
-export LONGMEM_OUT=/Users/asuka/code/magi/benchmark/outputs
+export LONGMEM_OUT=benchmark/outputs
 export LONGMEM_RUN=oracle-backend
-export MAGI_BACKEND=http://127.0.0.1:8000
+export LONGMEMEVAL_ROOT=/absolute/path/to/LongMemEval
 ```
+
+The scripts auto-discover the Magi gateway from `~/.magi/runtime/gateway.port`. If you need to override it, also set `MAGI_BACKEND=http://127.0.0.1:<gateway-port>` and pass `--backend-url "$MAGI_BACKEND"`.
 
 ## 4. Shortest Path: Run Everything In One Command
 
 ```bash
-python /Users/asuka/code/magi/benchmark/longmemeval/run_all.py \
+python benchmark/longmemeval/run_all.py \
   --dataset "$LONGMEM_DATA" \
   --output-root "$LONGMEM_OUT"
 ```
 
 This command:
 
-- uses backend `http://127.0.0.1:8000`
+- uses the auto-discovered Magi gateway unless `--backend-url` is provided
 - generates a readable run id from current local time
 - runs replay
 - runs query
 - runs official QA evaluation
 - prints a final JSON summary to stdout
 
-If LongMemEval is not checked out at `/Users/asuka/code/LongMemEval`, set:
+If LongMemEval is not in the expected local checkout path, set:
 
 ```bash
 export LONGMEMEVAL_ROOT=/absolute/path/to/LongMemEval
@@ -66,11 +81,10 @@ export LONGMEMEVAL_ROOT=/absolute/path/to/LongMemEval
 ## 5. Replay LongMemEval History Into Memory
 
 ```bash
-python /Users/asuka/code/magi/benchmark/longmemeval/replay_dataset.py \
+python benchmark/longmemeval/replay_dataset.py \
   --dataset "$LONGMEM_DATA" \
   --output-root "$LONGMEM_OUT" \
-  --run-id "$LONGMEM_RUN" \
-  --backend-url "$MAGI_BACKEND"
+  --run-id "$LONGMEM_RUN"
 ```
 
 Expected output:
@@ -84,11 +98,10 @@ Expected output:
 ## 6. Run Memory Query Evaluation
 
 ```bash
-python /Users/asuka/code/magi/benchmark/longmemeval/query_dataset.py \
+python benchmark/longmemeval/query_dataset.py \
   --dataset "$LONGMEM_DATA" \
   --output-root "$LONGMEM_OUT" \
-  --run-id "$LONGMEM_RUN" \
-  --backend-url "$MAGI_BACKEND"
+  --run-id "$LONGMEM_RUN"
 ```
 
 Expected output files under `benchmark/outputs/longmemeval/<run-id>/`:
@@ -129,7 +142,7 @@ head "$LONGMEM_OUT/longmemeval/$LONGMEM_RUN/predictions_with_trace.jsonl"
 If you want to inspect one replayed question without rerunning the whole dataset:
 
 ```bash
-python /Users/asuka/code/magi/benchmark/longmemeval/query_one.py \
+python benchmark/longmemeval/query_one.py \
   --dataset "$LONGMEM_DATA" \
   --run-id "$LONGMEM_RUN" \
   --question-id "gpt4_2655b836"
@@ -170,7 +183,7 @@ If you want the CLI to fail faster instead of waiting quietly for a slow backend
 ## 8. Run Official LongMemEval QA Scoring
 
 ```bash
-python /Users/asuka/code/magi/benchmark/longmemeval/evaluate_official.py \
+python benchmark/longmemeval/evaluate_official.py \
   --longmemeval-root /absolute/path/to/LongMemEval \
   --dataset "$LONGMEM_DATA" \
   --output-root "$LONGMEM_OUT" \
@@ -188,7 +201,7 @@ Expected output files under `benchmark/outputs/longmemeval/<run-id>/`:
 If you changed retrieval or query logic and want to reuse previously replayed memory, run:
 
 ```bash
-python /Users/asuka/code/magi/benchmark/longmemeval/rerun_query_and_score.py \
+python benchmark/longmemeval/rerun_query_and_score.py \
   --dataset "$LONGMEM_DATA" \
   --output-root "$LONGMEM_OUT" \
   --run-id "$LONGMEM_RUN"
@@ -210,19 +223,17 @@ To enable retrieval + answer-model mode on reruns, add:
 ## 9. Optional: Run a Small Smoke Sample First
 
 ```bash
-python /Users/asuka/code/magi/benchmark/longmemeval/replay_dataset.py \
+python benchmark/longmemeval/replay_dataset.py \
   --dataset "$LONGMEM_DATA" \
   --output-root "$LONGMEM_OUT" \
   --run-id "$LONGMEM_RUN-smoke" \
-  --limit 5 \
-  --backend-url "$MAGI_BACKEND"
+  --limit 5
 
-python /Users/asuka/code/magi/benchmark/longmemeval/query_dataset.py \
+python benchmark/longmemeval/query_dataset.py \
   --dataset "$LONGMEM_DATA" \
   --output-root "$LONGMEM_OUT" \
   --run-id "$LONGMEM_RUN-smoke" \
-  --limit 5 \
-  --backend-url "$MAGI_BACKEND"
+  --limit 5
 ```
 
 ## Notes

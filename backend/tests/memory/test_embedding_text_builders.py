@@ -1,6 +1,44 @@
 """Tests for embedding text builders."""
 
-from magi.memory.embedding.embedding_text_builders import build_l2_edge_embedding_text
+from magi.memory.embedding.embedding_text_builders import (
+    build_l1_embedding_text,
+    build_l2_edge_embedding_text,
+)
+from magi.memory.event_contracts import IngestTarget, MemoryDomain, MemoryEvent, RetentionClass, TomDepth
+
+
+class TestBuildL1EmbeddingText:
+    def test_uses_embedding_head_when_present(self):
+        event = MemoryEvent(
+            event_id="evt-1",
+            correlation_id="evt-1",
+            timestamp=1700000000.0,
+            created_at=1700000001.0,
+            event_type="SENSOR_EVENT",
+            source="photos",
+            source_item_id="item-1",
+            memory_domain=MemoryDomain.EXTERNAL_ACTIVITY,
+            ingest_target=IngestTarget.L1_ONLY,
+            cognition_eligible=True,
+            tom_depth=TomDepth.NONE,
+            retention_class=RetentionClass.COMPRESSIBLE,
+            session_id=None,
+            turn_id=None,
+            user_id="local_user",
+            task_id=None,
+            content="照片 拍摄 2022-11-27 在湖州拍摄了 1 张照片",
+            author_type="external",
+            content_type="observation",
+            importance_score=0.5,
+            level=20,
+            metadata_json={
+                "projection": {
+                    "embedding_head": "照片拍摄",
+                }
+            },
+        )
+
+        assert build_l1_embedding_text(event) == "照片拍摄\n照片 拍摄 2022-11-27 在湖州拍摄了 1 张照片"
 
 
 class TestBuildL2EdgeEmbeddingText:

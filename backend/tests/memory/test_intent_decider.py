@@ -174,6 +174,15 @@ class TestTimeParsingWeekday:
 
 
 class TestTimeParsingSpecificDate:
+    def test_chinese_year_month_range(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="2022年9月我在哪里拍了照片")
+        result = decider.evaluate(inp)
+        assert result.time_range is not None
+        expected_start = datetime(2022, 9, 1, tzinfo=timezone.utc).timestamp()
+        expected_end = datetime(2022, 9, 30, 23, 59, 59, 999999, tzinfo=timezone.utc).timestamp()
+        assert abs(result.time_range.start - expected_start) < 2
+        assert abs(result.time_range.end - expected_end) < 2
+
     def test_chinese_date(self, decider: RuleBasedIntentDecider):
         inp = IntentDeciderInput(query="3月10号发生了什么")
         result = decider.evaluate(inp)

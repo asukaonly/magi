@@ -16,7 +16,7 @@ agent:
   enable_monitoring: true
 
   memory:
-    db_path: "~/.magi/data/memories"
+    db_path: "~/.magi/data/memory"
     embedding:
       mode: "remote" # "remote" or "local"
       local:
@@ -182,50 +182,12 @@ plugins:
       trusted: true
       source: "builtin"
       settings: {}
-    core-timeline:
-      enabled: true
-      trusted: true
-      source: "builtin"
-      settings:
-        sensors:
-          chat:
-            enabled: true
-            sync_mode: "watch"
-            sync_interval_minutes: 1
-            default_retention_mode: "analyze_only"
-            storage_mode: "managed"
-            edge_whitelist: ["MENTIONED", "CARES_ABOUT", "LIKES", "DISLIKES", "INTERACTED_WITH"]
-          manual_journal:
-            enabled: true
-            sync_mode: "manual"
-            sync_interval_minutes: 1
-            default_retention_mode: "retain_raw"
-            storage_mode: "managed"
-            edge_whitelist:
-              ["MENTIONED", "CARES_ABOUT", "LIKES", "DISLIKES", "CREATED", "RELATED_TO"]
-          browser_history:
-            enabled: true
-            sync_mode: "interval"
-            sync_interval_minutes: 30
-            default_retention_mode: "analyze_only"
-            storage_mode: "managed"
-            source_path: ""
-            fetch_page_content: false
-            edge_whitelist: ["VIEWED", "VISITED", "CARES_ABOUT", "LIKES"]
-          photo_library:
-            enabled: true
-            sync_mode: "interval"
-            sync_interval_minutes: 60
-            default_retention_mode: "retain_raw"
-            storage_mode: "external_reference"
-            source_path: ""
-            edge_whitelist: ["CAPTURED", "RELATED_TO", "INTERACTED_WITH", "CREATED"]
-
 # =============================================================================
 # Global Settings
 # =============================================================================
 preferences:
   default_chat_workspace_path: "~/.magi/chat-workspace"
+  allow_media_grounding_for_conversation: false
 
 debug: false
 log_level: "INFO"

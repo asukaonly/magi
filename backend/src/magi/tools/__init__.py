@@ -37,6 +37,7 @@ from .builtin.weather_tool import WeatherTool
 from .builtin.system_settings_tool import SystemSettingsTool
 from .builtin.agent_tool import AgentTool
 from .builtin.memory_query_tool import MemoryQueryTool
+from .builtin.prepare_chat_attachments_tool import PrepareChatAttachmentsTool
 
 # Import skills module
 from ..skills.indexer import SkillIndexer
@@ -98,6 +99,7 @@ __all__ = [
     "SystemSettingsTool",
     "AgentTool",
     "MemoryQueryTool",
+    "PrepareChatAttachmentsTool",
 
     # Skills
     "SkillIndexer",

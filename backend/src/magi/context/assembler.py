@@ -851,14 +851,7 @@ class PromptContextRenderer:
 
     @staticmethod
     def _load_attachment_text(attachment: Dict[str, Any], *, max_chars: int = 24_000) -> str:
-        derived_text_path = str(attachment.get("derived_text_path") or "").strip()
-        text = ""
-        if derived_text_path:
-            path = Path(derived_text_path)
-            if path.is_file():
-                text = path.read_text(encoding="utf-8", errors="ignore")
-        if not text:
-            text = str(attachment.get("derived_text_excerpt") or "").strip()
+        text = str(attachment.get("derived_text_excerpt") or "").strip()
         normalized = text.strip()
         if len(normalized) <= max_chars:
             return normalized

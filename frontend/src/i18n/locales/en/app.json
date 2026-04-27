@@ -525,9 +525,9 @@
       "memoryReflection": "Reflection Memory",
       "memorySkills": "Skill Memory",
       "timeline": "Sensors",
-      "extensions": "Extensions",
-      "extensionsInstalled": "Installed",
-      "extensionsMarketplace": "Marketplace",
+      "plugins": "Plugins",
+      "pluginsInstalled": "Installed",
+      "pluginsMarketplace": "Marketplace",
       "tools": "Tools",
       "actions": "Actions",
       "channels": "Channels",
@@ -551,6 +551,9 @@
     "defaultChatWorkspacePickFailed": "Failed to choose a default chat directory: {{message}}",
     "streamingChatLabel": "Streaming output",
     "streamingChatDesc": "When enabled, messages appear word by word. When disabled, the full reply is shown at once.",
+    "mediaGroundingLabel": "Let the assistant inspect prepared media when needed",
+    "mediaGroundingDesc": "When enabled, the assistant may inspect prepared image attachments to improve grounded replies. Media is only sent when the selected core model supports vision.",
+    "mediaGroundingUnavailable": "The current core model does not support vision, so this option cannot be enabled until you switch to a vision-capable core model.",
     "allowInterjectionLabel": "Allow interjection",
     "allowInterjectionDesc": "When enabled, you can send messages while the AI is replying. When disabled, the input is locked until the current reply finishes.",
     "allowAskInBackgroundLabel": "Let background tasks ask questions",
@@ -568,9 +571,9 @@
     "personalitySettingsDesc": "Control global runtime capabilities such as persona state memory, state transitions, and deep persona behavior.",
     "memoryDesc": "Control the L0-L4 memory lifecycle, replay posture, and extraction pipelines.",
     "timelineDesc": "Configure timeline ingestion defaults and tune each source independently",
-    "extensionsDesc": "Inspect, enable, disable, and reload plugin packages from one place.",
-    "extensionsInstalledDesc": "Manage installed plugin packages — enable, disable, and reload.",
-    "extensionsMarketplaceDesc": "Browse and download available plugin extensions.",
+    "pluginsDesc": "Inspect, enable, disable, and reload plugin packages from one place.",
+    "pluginsInstalledDesc": "Manage installed plugin packages — enable, disable, and reload.",
+    "pluginsMarketplaceDesc": "Browse and download available plugins.",
     "toolsDesc": "Configure built-in tools and skills",
     "actionsDesc": "Configure outbound action capabilities and their declarative settings.",
     "channelsDesc": "Connect external messaging platforms (e.g. Telegram) to chat with AI via the existing pipeline.",
@@ -651,6 +654,7 @@
       "proxyPort": "Proxy Port",
       "defaultChatWorkspace": "Default chat workspace",
       "streamingChat": "Streaming output",
+      "mediaGrounding": "Media grounding",
       "allowInterjection": "Allow interjection",
       "allowAskInBackground": "Let background tasks ask questions",
       "userMode": "User Mode",
@@ -1273,11 +1277,11 @@
         "resourceLoadFailed": "Failed to load resource: {{message}}"
       }
     },
-    "extensions": {
-      "loading": "Loading extensions...",
+    "pluginPackages": {
+      "loading": "Loading plugins...",
       "summary": "{{count}} plugin packages discovered",
       "emptyDescription": "This plugin did not provide extra description text.",
-      "emptySettings": "This plugin does not expose declarative settings on the extensions surface.",
+      "emptySettings": "This plugin does not expose declarative settings on the Plugins page.",
       "emptyState": "No plugin packages have been discovered yet.",
       "actions": {
         "rescan": "Rescan",
@@ -1398,6 +1402,10 @@
             "label": "Max Items Per Sync",
             "description": "Maximum number of photos to process per sync run."
           },
+          "settle_window_hours": {
+            "label": "Session Settle Window (hours)",
+            "description": "How long a burst of continuous shooting must stay quiet before it is treated as a finished session and written to the timeline. Lower values surface results sooner; higher values keep outings grouped more reliably."
+          },
           "analysis_features": {
             "label": "Analysis Features",
             "description": "Metadata extraction capabilities to apply."
@@ -1473,6 +1481,10 @@
             "label": "Sync Interval",
             "description": "How often Chrome history should be synced on an interval schedule."
           },
+          "sensors.chrome_history.merge_window_minutes": {
+            "label": "Merge Window (minutes)",
+            "description": "Visits to the same page within this window are merged into one timeline item."
+          },
           "sensors.chrome_history.lookback_hours": {
             "label": "Lookback Hours",
             "description": "How many hours to backfill before a cursor exists."
@@ -1480,10 +1492,6 @@
           "sensors.chrome_history.max_items_per_sync": {
             "label": "Max Items Per Sync",
             "description": "Maximum number of history records to ingest in one run."
-          },
-          "sensors.chrome_history.fetch_page_content": {
-            "label": "Fetch Page Content",
-            "description": "Reserved for future page-content capture and currently stays disabled."
           }
         },
         "options": {

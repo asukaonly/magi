@@ -9,7 +9,16 @@ from ..event_contracts import MemoryEvent
 
 def build_l1_embedding_text(event: MemoryEvent) -> str:
     """Return the canonical L1 text used for embedding."""
-    return str(event.content or "").strip()
+    content = str(event.content or "").strip()
+    projection = {}
+    if isinstance(event.metadata_json, dict):
+        projection = dict(event.metadata_json.get("projection") or {})
+    embedding_head = str(projection.get("embedding_head") or "").strip()
+    if embedding_head and content and embedding_head != content:
+        return "\n".join((embedding_head, content))
+    if embedding_head:
+        return embedding_head
+    return content
 
 
 def build_l3_embedding_text(summary: dict[str, Any]) -> str:

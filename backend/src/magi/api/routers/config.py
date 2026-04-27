@@ -187,6 +187,7 @@ class UserPreferencesModel(BaseModel):
     start_minimized: bool = Field(default=False)
     default_chat_workspace_path: Optional[str] = Field(default="~/.magi/chat-workspace")
     streaming_chat_enabled: bool = Field(default=False)
+    allow_media_grounding_for_conversation: bool = Field(default=False)
     allow_interjection: bool = Field(default=True)
     allow_ask_in_background: bool = Field(default=False)
 

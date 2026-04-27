@@ -11,8 +11,11 @@ import pytest
 from magi.awareness.ingestion_gateway import SensorIngestionGateway
 from magi.awareness.sensor_base import L2BatchPolicy, SensorBase
 from magi.awareness.sensor_output import (
+    ActivityFacet,
     ContentBlock,
+    SensorActivity,
     SensorMemoryPolicy,
+    SensorNarration,
     SensorOutput,
     SensorOutputMetadata,
 )
@@ -39,8 +42,19 @@ class _FakeSensor(SensorBase):
     async def build_output(self, item: dict[str, Any]) -> SensorOutput:
         return self._build_output(
             source_item_id=str(item["id"]),
-            title="Fake title",
-            summary="Fake summary",
+            activity=self._build_activity(
+                source=self._build_activity_facet(
+                    code="fake_source",
+                    i18n_key="activity.source.fake_source",
+                    fallback="Fake Source",
+                ),
+                action=self._build_activity_facet(
+                    code="observe",
+                    i18n_key="activity.action.observe",
+                    fallback="Observed",
+                ),
+            ),
+            narration=self._build_narration(title="Fake title", body="Fake summary"),
         )
 
 
@@ -60,8 +74,19 @@ def _make_output(**overrides: Any) -> SensorOutput:
         source_item_id="item-1",
         occurred_at=1700000000.0,
         captured_at=1700000001.0,
-        title="Test Event",
-        summary="Something happened",
+        activity=SensorActivity(
+            source=ActivityFacet(
+                code="fake_source",
+                i18n_key="activity.source.fake_source",
+                fallback="Fake Source",
+            ),
+            action=ActivityFacet(
+                code="observe",
+                i18n_key="activity.action.observe",
+                fallback="Observed",
+            ),
+        ),
+        narration=SensorNarration(body="Something happened", title="Test Event"),
         content_blocks=[ContentBlock(kind="text", value="hello")],
         tags=["tag1"],
     )
@@ -92,6 +117,7 @@ class TestSensorIngestionGateway:
         assert call_args.event_type == "FAKE_EVENT"
         assert call_args.source == "fake_source"
         assert call_args.idempotency_key == "item-1"
+        assert call_args.content == "Fake Source Observed Something happened"
 
     @pytest.mark.asyncio
     async def test_ingest_applies_memory_policy(self):
@@ -110,6 +136,23 @@ class TestSensorIngestionGateway:
         assert call_args.ingest_target == IngestTarget.L1_ONLY
         assert call_args.retention_class == RetentionClass.PERMANENT
         assert call_args.importance_score == 0.7
+        assert call_args.user_id == "local_user"
+
+    @pytest.mark.asyncio
+    async def test_ingest_uses_owner_from_output_provenance(self):
+        memory = MagicMock()
+        memory.ingest_event = AsyncMock()
+        gateway = SensorIngestionGateway(unified_memory=memory)
+        sensor = _FakeSensor()
+        output = _make_output(provenance={"user_id": "owner-42"})
+
+        await gateway.ingest(sensor, output)
+
+        call_args = memory.ingest_event.call_args[0][0]
+        assert isinstance(call_args, MemoryEvent)
+        assert call_args.user_id == "owner-42"
+        assert call_args.metadata_json is not None
+        assert call_args.metadata_json["memory_owner_user_id"] == "owner-42"
 
     @pytest.mark.asyncio
     async def test_ingest_with_timeline_adapter(self):
@@ -117,7 +160,7 @@ class TestSensorIngestionGateway:
         memory.ingest_event = AsyncMock(return_value={"event_id": "evt-stored-2", "l1_written": True})
         memory.upsert_user_graph_edge = AsyncMock()
         adapter = MagicMock()
-        adapter.on_sensor_output = AsyncMock()
+        adapter.on_timeline_event = AsyncMock()
         gateway = SensorIngestionGateway(
             unified_memory=memory,
             timeline_adapter=adapter,
@@ -128,9 +171,11 @@ class TestSensorIngestionGateway:
 
         await gateway.ingest(sensor, output, metadata)
 
-        adapter.on_sensor_output.assert_awaited_once_with(
-            "evt-stored-2", output, metadata,
-        )
+        adapter.on_timeline_event.assert_awaited_once()
+        timeline_event = adapter.on_timeline_event.await_args.args[0]
+        assert timeline_event.event_id == "evt-stored-2"
+        assert timeline_event.title == "Fake Source Observed · Test Event"
+        assert timeline_event.summary == "Fake Source Observed Something happened"
 
     @pytest.mark.asyncio
     async def test_ingest_no_adapter_is_ok(self):
@@ -216,13 +261,16 @@ class TestSensorIngestionGateway:
         memory.ingest_event = AsyncMock()
         gateway = SensorIngestionGateway(unified_memory=memory)
         sensor = _FakeSensor()
-        output = _make_output(title="", summary="", content_blocks=[ContentBlock(kind="text", value="block text")])
+        output = _make_output(
+            narration=SensorNarration(body="", title=None),
+            content_blocks=[ContentBlock(kind="text", value="block text")],
+        )
 
         await gateway.ingest(sensor, output)
 
         call_args = memory.ingest_event.call_args[0][0]
         assert isinstance(call_args, MemoryEvent)
-        assert call_args.content == "block text"
+        assert call_args.content == "Fake Source Observed block text"
 
     @pytest.mark.asyncio
     async def test_ingest_copies_domain_payload_to_memory_metadata(self):
@@ -246,14 +294,22 @@ class TestSensorIngestionGateway:
         assert call_args.metadata_json["bucket_start"] == "2026-03-27T10:00:00+08:00"
         assert call_args.metadata_json["bundle_id"] == "com.apple.Safari"
         assert call_args.metadata_json["duration_seconds"] == 2280
+        assert call_args.metadata_json["plugin_id"] == sensor.plugin_id
+        assert call_args.metadata_json["sensor_id"] == "test.fake"
+        assert call_args.metadata_json["activity"] == {
+            "source_code": "fake_source",
+            "action_code": "observe",
+        }
+        assert call_args.metadata_json["projection"]["renderer_version"] == "sensor_activity_v1"
+        assert call_args.metadata_json["projection"]["embedding_head"] == "Fake Source Observed"
         assert call_args.metadata_json["timeline"] == {
             "event_id": call_args.event_id,
             "source_type": "fake_source",
             "source_item_id": "item-1",
             "occurred_at": 1700000000.0,
             "captured_at": 1700000001.0,
-            "title": "Test Event",
-            "summary": "Something happened",
+            "title": "Fake Source Observed · Test Event",
+            "summary": "Fake Source Observed Something happened",
             "retention_mode": "analyze_only",
             "raw_payload_ref": None,
             "content_blocks": [

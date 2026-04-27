@@ -6,9 +6,26 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from magi.awareness.sensor_output import ContentBlock, SensorOutput, SensorOutputMetadata
+from magi.awareness.sensor_base import SensorBase
+from magi.awareness.sensor_output import (
+    ActivityFacet,
+    ContentBlock,
+    SensorActivity,
+    SensorNarration,
+    SensorOutput,
+    SensorOutputMetadata,
+)
+from magi.awareness.sensor_projection import build_sensor_projection, build_sensor_timeline_event
 from magi.timeline.adapter import TimelineAdapter
 from magi.timeline.contracts import TimelineEvent
+
+
+class _TimelineTestSensor(SensorBase):
+    sensor_id = "test.timeline"
+    source_type = "test_source"
+
+    async def build_output(self, item):  # pragma: no cover - test helper only
+        raise NotImplementedError
 
 
 def _make_output(**overrides) -> SensorOutput:
@@ -17,8 +34,19 @@ def _make_output(**overrides) -> SensorOutput:
         source_item_id="item-1",
         occurred_at=1700000000.0,
         captured_at=1700000001.0,
-        title="Test Title",
-        summary="Test Summary",
+        activity=SensorActivity(
+            source=ActivityFacet(
+                code="test_source",
+                i18n_key="activity.source.test_source",
+                fallback="Test Source",
+            ),
+            action=ActivityFacet(
+                code="observe",
+                i18n_key="activity.action.observe",
+                fallback="Observed",
+            ),
+        ),
+        narration=SensorNarration(body="Test Summary", title="Test Title"),
         content_blocks=[ContentBlock(kind="text", value="content")],
         tags=["tag1"],
         entities=[{"name": "entity1"}],
@@ -31,22 +59,26 @@ def _make_output(**overrides) -> SensorOutput:
 
 class TestTimelineAdapter:
     @pytest.mark.asyncio
-    async def test_on_sensor_output_calls_upsert(self):
+    async def test_on_timeline_event_calls_upsert(self):
         service = MagicMock()
         service.upsert_event = AsyncMock(return_value="evt_adapter_1")
         adapter = TimelineAdapter(service)
+        sensor = _TimelineTestSensor()
 
         output = _make_output()
-        await adapter.on_sensor_output("evt_adapter_1", output)
+        projection = build_sensor_projection(sensor, output)
+        event = build_sensor_timeline_event("evt_adapter_1", output, projection)
+        await adapter.on_timeline_event(event)
 
         service.upsert_event.assert_awaited_once()
         event = service.upsert_event.call_args[0][0]
         assert isinstance(event, TimelineEvent)
         assert event.event_id == "evt_adapter_1"
         assert event.source_item_id == "item-1"
-        assert event.title == "Test Title"
+        assert event.title == "Test Source Observed · Test Title"
 
     def test_build_timeline_event_maps_fields(self):
+        sensor = _TimelineTestSensor()
         output = _make_output()
         metadata = SensorOutputMetadata(
             entities=[{"name": "extra"}],
@@ -54,15 +86,16 @@ class TestTimelineAdapter:
             relation_candidates=[{"predicate": "LIKES"}],
         )
 
-        event = TimelineAdapter._build_timeline_event("evt_adapter_2", output, metadata)
+        projection = build_sensor_projection(sensor, output)
+        event = build_sensor_timeline_event("evt_adapter_2", output, projection, metadata)
 
         assert event.event_id == "evt_adapter_2"
         assert event.source_type == "test_source"
         assert event.source_item_id == "item-1"
         assert event.occurred_at == 1700000000.0
         assert event.captured_at == 1700000001.0
-        assert event.title == "Test Title"
-        assert event.summary == "Test Summary"
+        assert event.title == "Test Source Observed · Test Title"
+        assert event.summary == "Test Source Observed Test Summary"
         assert event.retention_mode == "retain_raw"
         assert event.privacy_labels == ["pii"]
         assert len(event.content_blocks) == 1
@@ -77,8 +110,10 @@ class TestTimelineAdapter:
         assert event.processing_status["analyzed"] is True
 
     def test_build_timeline_event_no_metadata(self):
+        sensor = _TimelineTestSensor()
         output = _make_output()
-        event = TimelineAdapter._build_timeline_event("evt_adapter_3", output, None)
+        projection = build_sensor_projection(sensor, output)
+        event = build_sensor_timeline_event("evt_adapter_3", output, projection, None)
         assert event.event_id == "evt_adapter_3"
         assert event.source_item_id == "item-1"
         assert event.entities == [{"name": "entity1"}]
@@ -86,6 +121,8 @@ class TestTimelineAdapter:
         assert event.processing_status["analyzed"] is False
 
     def test_build_timeline_event_default_retention(self):
+        sensor = _TimelineTestSensor()
         output = _make_output(domain_payload={})
-        event = TimelineAdapter._build_timeline_event("x:1", output, None)
+        projection = build_sensor_projection(sensor, output)
+        event = build_sensor_timeline_event("x:1", output, projection, None)
         assert event.retention_mode == "analyze_only"

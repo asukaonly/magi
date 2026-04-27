@@ -4,7 +4,7 @@
 
 This document describes the timeline domain (L12) — a reactive read-model layer that projects sensor outputs into scale-aware temporal views for the frontend.
 
-Read together with [Layered Agent Architecture](./layered-agent-architecture.md), [Unified Plugin Extension Architecture](./plugin-extension-architecture.md), and [Memory System Design](./memory-system-design.md).
+Read together with [Layered Agent Architecture](./layered-agent-architecture.md), [Unified Plugin Architecture](./plugin-extension-architecture.md), and [Memory System Design](./memory-system-design.md).
 
 ## Scope
 
@@ -59,7 +59,7 @@ GET /timeline/context/{anchor_id}
 
 ### TimelineEvent
 
-The canonical timeline fact. Created by `TimelineAdapter` from `SensorOutput`:
+The canonical timeline fact. Created by the host projection pipeline from `SensorOutput` truth:
 
 - `event_id`, `source_type`, `source_item_id`
 - `occurred_at`, `captured_at` — when the event happened vs. when it was captured
@@ -70,7 +70,7 @@ The canonical timeline fact. Created by `TimelineAdapter` from `SensorOutput`:
 - `raw_payload_ref` — reference to the original sensor payload
 - `processing_status`, `provenance` — metadata and audit trail
 
-`TimelineEvent` is L12-internal. Sensors produce `SensorOutput` (L9), and the adapter performs the mapping.
+`TimelineEvent` is L12-internal. Sensors produce `SensorOutput` truth (L9), the host renders timeline display text, and `TimelineAdapter` stores the resulting `TimelineEvent`.
 
 ### Viewport Response
 
@@ -119,7 +119,7 @@ Assembled by `TimelineContextBundleBuilder` for UI detail panels:
 
 ### `adapter.py` — TimelineAdapter
 
-Bridges `SensorOutput` → `TimelineEvent`. Called post-ingestion by the timeline handler. Maps sensor output fields, adds entity/tag metadata, and stores in the timeline read model. Does not re-ingest into memory (idempotent).
+Stores pre-rendered `TimelineEvent` objects. Called post-ingestion by the timeline handler after the host projection layer has rendered title/summary from `SensorOutput.activity` and `SensorOutput.narration`. Does not re-ingest into memory.
 
 ### `service.py` — TimelineService
 

@@ -22,6 +22,7 @@ class RetrievalQuery:
     query_mode: Optional[str] = None  # unified mode; None = auto-detect
     source_filters: List[str] = field(default_factory=list)
     domain_filters: List[str] = field(default_factory=list)
+    summary_categories: List[str] = field(default_factory=list)
     limit: int = 10
 
 
@@ -53,6 +54,8 @@ class HistoricalRecallPayload:
     query_mode: Optional[str]
     summary: str
     findings: List[Dict[str, Any]] = field(default_factory=list)
+    entity_refs: List[Dict[str, Any]] = field(default_factory=list)
+    asset_refs: List[Dict[str, Any]] = field(default_factory=list)
     insufficient_evidence: bool = False
     answering_hints: Dict[str, Any] = field(default_factory=dict)
     provenance: Dict[str, Any] = field(default_factory=dict)
@@ -73,6 +76,7 @@ class IntentDeciderInput:
     raw_time_range: Optional[Dict[str, Any]] = None
     source_filters: List[str] = field(default_factory=list)
     domain_filters: List[str] = field(default_factory=list)
+    summary_categories: List[str] = field(default_factory=list)
     query_mode_hint: Optional[str] = None  # from RetrievalQuery.query_mode
     l1_limit: int = 10  # per-plan L1 event limit, forwarded from request
 

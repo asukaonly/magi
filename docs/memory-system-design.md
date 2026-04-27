@@ -12,7 +12,7 @@ Related root documents:
 - [Project Overview](./project-overview.md)
 - [Layered Agent Architecture](./layered-agent-architecture.md)
 - [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md)
-- [Unified Plugin Extension Architecture](./plugin-extension-architecture.md)
+- [Unified Plugin Architecture](./plugin-extension-architecture.md)
 
 If this document conflicts with the above, they should be revised together. This document refines the memory subsystem; it does not redefine project-level boundaries.
 
@@ -101,6 +101,8 @@ Holds:
 - Append-only plugin ingress events
 
 Read here when you need execution replay, debugging, traces, or raw plugin ingress events.
+
+Important rule: runtime observations can feed lightweight prompt-time continuity summaries, but those summaries are lossy and session-scoped. They do not promote execution telemetry into durable memory and do not replace trace inspection tools.
 
 ### Persistent Memory
 
@@ -194,6 +196,13 @@ Counter-examples:
 - Complete chat transcript truth
 - Heartbeat noise
 - Step-by-step execution traces
+- Exact tool arguments, latencies, and raw tool outputs from a specific turn
+
+Prompt continuity note:
+
+- The chat runtime may carry a compact `Recent Tool State` summary across nearby turns so the LLM can reuse recent tool outcomes or handles without replaying full tool transcripts.
+- This summary is not itself an `L1` fact, `L2` cognition artifact, or durable memory record.
+- If the user asks for exact execution details, the system should read `runtime_trace.db` through trace read APIs or the builtin `trace_query` tool instead of searching memory layers.
 
 ### L2 — Structured Cognition
 
@@ -434,6 +443,7 @@ Controlled facets: `platform`, `located_in`, `category`. Parsed constraints are 
 - `L2` handles stable structural constraints and long-term affinity
 - `L1` handles strong time windows, single experiences, sequence, and count-based evidence
 - Hybrid queries combine L2 candidates with L1 time-sliced evidence
+- For `exact_fact` recall, answer-facing results should retain direct `L1` evidence for non-enumeration fact questions when available; time-anchored queries should preserve the strongest `L1` evidence first. `L2` may summarize or disambiguate, but should not replace the underlying fact text outright
 
 **Observability**: Execution traces include the generated `SemanticFrame`, `ResolvedFrame`, selected strategy key, active providers/collectors, matched constraints, and top-contributing evidence items.
 
@@ -670,6 +680,25 @@ Chat truth is first written to `chat.db`. A subset is then projected as `L1` can
 
 Sensors run in the awareness layer and produce `SensorOutput`. The `SensorIngestionGateway` projects these outputs into memory.
 
+For external activity sources, `SensorOutput` is not the final `L1` string. It is a source-truth envelope with:
+
+- `activity`: structured source/action semantics owned by the plugin
+- `narration`: factual body/title owned by the plugin
+
+The host runtime then materializes that truth into durable memory projections:
+
+- `content`: canonical persisted `L1` text
+- `metadata_json.activity`: minimal stable retrieval facets (`source_code`, `action_code`, optional `object_code`, optional `qualifiers`)
+- `metadata_json.projection`: host-owned projection metadata such as `renderer_version` and optional `embedding_head`
+
+This keeps external activity memory consistent across plugins while avoiding per-plugin free-form `L1` sentence formats.
+
+Gateway-side normalization rules:
+
+- External sensor events are written as durable memory with a stable owner `user_id` taken from `SensorOutput.provenance`, then `domain_payload`, and finally `DEFAULT_USER_ID` as fallback.
+- External sensor events remain session-independent by default: `session_id` and `turn_id` are not inherited from the current chat runtime.
+- The host, not the plugin, decides the final `L1` sentence shape and embedding text shape for external activity events.
+
 This is the primary path for:
 
 - Browser history
@@ -702,6 +731,11 @@ The `HybridRetrievalService` orchestrates cross-layer retrieval with mode-aware 
 - Mode-adaptive RRF adjusts per-layer weights based on the query mode
 - Evidence assemblers shape raw retrieval results into per-mode evidence formats (fact cards, state cards, episode bundles, comparison frames, grouped lists)
 - Reducers produce final answering material (span selection, latest version, narrative, anchor comparison, enumeration)
+- `memory_query` does not inherit the current chat session unless the caller explicitly provides `session_id`
+- Unconstrained `L2` lookups must not degrade into a global "recent relationships" / "recent assertions" scan
+- LLM-facing memory tool payloads should keep human-readable findings only; opaque ids stay in debug/observability channels rather than prompt context
+- the answer-facing `historical_recall` contract may additionally expose compact `entity_refs` and `asset_refs` for reply-turn continuity and source-owned follow-up resolution, but raw local paths remain outside prompt context
+- plugins may optionally enrich these refs through a recall-artifact projection hook keyed by `source_type`; memory still owns the final query contract and chat still owns attachment import/display
 
 Layer contributions:
 

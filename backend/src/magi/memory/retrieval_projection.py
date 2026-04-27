@@ -25,12 +25,29 @@ def project_historical_recall(
     *,
     payload: RetrievalPayload | dict[str, Any],
     request: RetrievalQuery | dict[str, Any],
+    plugin_manager: Any | None = None,
 ) -> HistoricalRecallPayload:
     """Project a raw retrieval payload into an answer-facing recall contract."""
     normalized_payload = _coerce_payload(payload)
     normalized_request = _coerce_request(request)
+    plugin_recall_artifacts = _build_plugin_recall_artifacts(
+        payload=normalized_payload,
+        query=normalized_request.query,
+        query_mode=normalized_request.query_mode,
+        plugin_manager=plugin_manager,
+    )
 
     findings = _build_findings(normalized_payload, normalized_request)
+    entity_refs = _build_entity_refs(
+        normalized_payload,
+        plugin_entity_refs=plugin_recall_artifacts.get("entity_refs", []),
+    )
+    asset_refs = _build_asset_refs(
+        normalized_payload,
+        query=normalized_request.query,
+        query_mode=normalized_request.query_mode,
+        plugin_asset_refs=plugin_recall_artifacts.get("asset_refs", []),
+    )
     source_layers = _unique_in_order(item["source_layer"] for item in findings)
 
     status = _derive_status(findings)
@@ -47,6 +64,8 @@ def project_historical_recall(
         query_mode=normalized_request.query_mode or str(normalized_payload.trace.get("query_mode") or "") or None,
         summary=summary,
         findings=findings,
+        entity_refs=entity_refs,
+        asset_refs=asset_refs,
         insufficient_evidence=insufficient_evidence,
         answering_hints={
             "must_not_guess_when_empty": True,
@@ -105,15 +124,35 @@ def _build_findings(payload: RetrievalPayload, request: RetrievalQuery) -> list[
 
     # Fact-oriented modes: prefer L2 semantic data
     if query_mode in {"exact_fact", "current_state"}:
-        findings = _project_relationships(payload.l2_relationships)
-        if findings:
+        event_findings = _project_events(payload.l1_events)
+        relationship_findings = _project_relationships(payload.l2_relationships)
+        if relationship_findings:
             if query_mode == "exact_fact":
-                return _sort_preference_relationship_findings(findings, payload=payload, request=request)
-            return findings
-        findings = _project_assertions(payload.l2_assertions)
-        if findings:
-            return findings
-        return _project_events(payload.l1_events)
+                sorted_relationships = _sort_preference_relationship_findings(
+                    relationship_findings, payload=payload, request=request,
+                )
+                preserve_count = _preserved_l1_event_count(request=request, event_findings=event_findings)
+                if preserve_count > 0:
+                    return _merge_exact_fact_findings(
+                        event_findings,
+                        sorted_relationships,
+                        limit=request.limit,
+                        preserved_event_count=preserve_count,
+                    )
+                return sorted_relationships
+            return relationship_findings
+        assertion_findings = _project_assertions(payload.l2_assertions)
+        if assertion_findings:
+            preserve_count = _preserved_l1_event_count(request=request, event_findings=event_findings)
+            if query_mode == "exact_fact" and preserve_count > 0:
+                return _merge_exact_fact_findings(
+                    event_findings,
+                    assertion_findings,
+                    limit=request.limit,
+                    preserved_event_count=preserve_count,
+                )
+            return assertion_findings
+        return event_findings
 
     # Strategy mode: prefer L4
     if query_mode == "strategy":
@@ -132,6 +171,13 @@ def _build_findings(payload: RetrievalPayload, request: RetrievalQuery) -> list[
             return findings
         return _project_events(payload.l1_events)
 
+    # Activity-summary mode: prefer source-scoped L3, fall back to L1 events.
+    if query_mode == "activity_summary":
+        findings = _project_reflections(payload.l3_reflections)
+        if findings:
+            return findings
+        return _project_events(payload.l1_events)
+
     # Episode / cross-session / temporal / default: prefer events
     findings = _project_events(payload.l1_events)
     if findings:
@@ -140,6 +186,221 @@ def _build_findings(payload: RetrievalPayload, request: RetrievalQuery) -> list[
     if findings:
         return findings
     return _project_assertions(payload.l2_assertions)
+
+
+def _build_entity_refs(
+    payload: RetrievalPayload,
+    *,
+    plugin_entity_refs: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    trace = payload.trace if isinstance(payload.trace, dict) else {}
+    l2_trace = trace.get("l2_query_trace") if isinstance(trace.get("l2_query_trace"), dict) else {}
+    resolved_entities = l2_trace.get("resolved_entities") if isinstance(l2_trace.get("resolved_entities"), list) else []
+
+    for item in [*resolved_entities, *payload.l2_entity_cards]:
+        normalized = _normalize_entity_ref(item)
+        if normalized is not None:
+            refs.append(normalized)
+
+    if isinstance(plugin_entity_refs, list):
+        refs.extend(item for item in plugin_entity_refs if isinstance(item, dict))
+
+    return _dedupe_records(refs, primary_key="entity_id")
+
+
+def _build_asset_refs(
+    payload: RetrievalPayload,
+    *,
+    query: str,
+    query_mode: str | None,
+    plugin_asset_refs: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    for event in payload.l1_events:
+        normalized = _normalize_asset_ref(event)
+        if normalized is not None:
+            refs.append(normalized)
+
+    if isinstance(plugin_asset_refs, list):
+        refs.extend(item for item in plugin_asset_refs if isinstance(item, dict))
+
+    return _dedupe_records(refs, primary_key="asset_ref_id")
+
+
+def _build_plugin_recall_artifacts(
+    *,
+    payload: RetrievalPayload,
+    query: str,
+    query_mode: str | None,
+    plugin_manager: Any | None,
+) -> dict[str, list[dict[str, Any]]]:
+    if plugin_manager is None:
+        return {"entity_refs": [], "asset_refs": []}
+    artifacts = plugin_manager.build_recall_artifacts(
+        events=payload.l1_events,
+        query=query,
+        query_mode=query_mode,
+    )
+    if not isinstance(artifacts, dict):
+        return {"entity_refs": [], "asset_refs": []}
+    return {
+        "entity_refs": [item for item in artifacts.get("entity_refs", []) if isinstance(item, dict)],
+        "asset_refs": [item for item in artifacts.get("asset_refs", []) if isinstance(item, dict)],
+    }
+
+
+def _normalize_entity_ref(item: Any) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+    entity_id = str(item.get("entity_id") or item.get("resolved_entity_id") or "").strip()
+    if not entity_id:
+        return None
+    entity_type = str(item.get("entity_type") or _type_from_entity_id(entity_id) or "").strip() or None
+    canonical_name = str(item.get("canonical_name") or item.get("name") or item.get("label") or "").strip() or None
+    match_source = str(item.get("match_source") or "").strip() or None
+    normalized: dict[str, Any] = {"entity_id": entity_id}
+    if entity_type is not None:
+        normalized["entity_type"] = entity_type
+    if canonical_name is not None:
+        normalized["canonical_name"] = canonical_name
+    if match_source is not None:
+        normalized["match_source"] = match_source
+    return normalized
+
+
+def _normalize_asset_ref(item: Any) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+    metadata = item.get("metadata_json") if isinstance(item.get("metadata_json"), dict) else {}
+    timeline = metadata.get("timeline") if isinstance(metadata.get("timeline"), dict) else {}
+    provenance = timeline.get("provenance") if isinstance(timeline.get("provenance"), dict) else {}
+
+    source_type = str(timeline.get("source_type") or item.get("source") or "").strip()
+    source_item_id = str(timeline.get("source_item_id") or item.get("source_item_id") or item.get("idempotency_key") or "").strip()
+    asset_ref_id = str(
+        timeline.get("asset_ref_id")
+        or source_item_id
+        or item.get("event_id")
+        or ""
+    ).strip()
+    media_path = str(item.get("media_path") or "").strip()
+    if not asset_ref_id and not media_path:
+        return None
+
+    kind = str(
+        timeline.get("kind")
+        or provenance.get("kind")
+        or item.get("content_type")
+        or ("file" if media_path else "")
+    ).strip()
+    if kind == "text":
+        return None
+    if not kind:
+        kind = "file"
+
+    normalized: dict[str, Any] = {
+        "asset_ref_id": asset_ref_id or media_path,
+        "kind": kind,
+        "event_id": str(item.get("event_id") or "").strip() or None,
+        "source_type": source_type or None,
+        "source_item_id": source_item_id or None,
+        "original_name": str(
+            provenance.get("filename")
+            or timeline.get("original_name")
+            or timeline.get("title")
+            or ""
+        ).strip() or None,
+        "display_name": str(
+            timeline.get("title")
+            or provenance.get("filename")
+            or item.get("content")
+            or ""
+        ).strip() or None,
+        "captured_at": provenance.get("captured_at") or timeline.get("captured_at") or item.get("timestamp"),
+        "occurred_at": item.get("timestamp") or item.get("created_at"),
+    }
+    attributes = _safe_asset_attributes(timeline, provenance)
+    if attributes:
+        normalized["attributes"] = attributes
+    return {key: value for key, value in normalized.items() if value is not None}
+
+
+def _safe_asset_attributes(*mappings: Any) -> dict[str, Any]:
+    blocked_keys = {
+        "asset_ref_id",
+        "source_type",
+        "source_item_id",
+        "event_id",
+        "title",
+        "summary",
+        "content",
+        "kind",
+        "filename",
+        "original_name",
+        "file_path",
+        "storage_path",
+        "media_path",
+        "resolver_tool",
+        "captured_at",
+        "occurred_at",
+    }
+    attributes: dict[str, Any] = {}
+    for mapping in mappings:
+        if not isinstance(mapping, dict):
+            continue
+        for key, value in mapping.items():
+            normalized_key = str(key or "").strip()
+            if not normalized_key or normalized_key in blocked_keys:
+                continue
+            safe_value = _coerce_safe_attribute_value(value)
+            if safe_value is None:
+                continue
+            attributes.setdefault(normalized_key, safe_value)
+    return attributes
+
+
+def _coerce_safe_attribute_value(value: Any) -> Any | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip()
+        if not normalized:
+            return None
+        return normalized[:200]
+    if isinstance(value, list):
+        items: list[Any] = []
+        for entry in value[:8]:
+            coerced = _coerce_safe_attribute_value(entry)
+            if coerced is not None:
+                items.append(coerced)
+        return items or None
+    return None
+
+
+def _type_from_entity_id(entity_id: str) -> str | None:
+    normalized = str(entity_id or "").strip()
+    if ":" not in normalized:
+        return None
+    prefix, _, _ = normalized.partition(":")
+    return prefix or None
+
+
+def _dedupe_records(items: list[dict[str, Any]], *, primary_key: str) -> list[dict[str, Any]]:
+    merged: dict[str, dict[str, Any]] = {}
+    ordered_keys: list[str] = []
+    for item in items:
+        key = str(item.get(primary_key) or "").strip()
+        if not key:
+            continue
+        if key not in merged:
+            merged[key] = dict(item)
+            ordered_keys.append(key)
+            continue
+        merged[key].update({name: value for name, value in item.items() if value not in (None, "", [], {})})
+    return [merged[key] for key in ordered_keys]
 
 
 def _project_relationships(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -152,7 +413,6 @@ def _project_relationships(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         object_value = str(item.get("object") or item.get("object_id") or "").strip()
         if not subject or not predicate or not object_value:
             continue
-        evidence_ref_ids = _collect_ids(item.get("triple_id"), item.get("evidence_event_ids"))
         finding: dict[str, Any] = {
             "kind": "relationship",
             "statement": f"{subject} {predicate} {object_value}",
@@ -161,7 +421,6 @@ def _project_relationships(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "status": item.get("status"),
             "occurred_at": item.get("first_observed_at"),
             "updated_at": item.get("updated_at"),
-            "evidence_ref_ids": evidence_ref_ids,
         }
         evidence_text = str(item.get("evidence_text") or "").strip()
         if evidence_text:
@@ -284,7 +543,6 @@ def _project_assertions(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "status": item.get("validation_state") or item.get("status"),
                 "occurred_at": item.get("created_at"),
                 "updated_at": item.get("updated_at") or item.get("last_validated_at"),
-                "evidence_ref_ids": _collect_ids(item.get("assertion_id"), item.get("evidence_events")),
             }
         )
     return findings
@@ -307,10 +565,40 @@ def _project_events(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "status": "active",
                 "occurred_at": item.get("timestamp"),
                 "updated_at": item.get("timestamp") or item.get("created_at"),
-                "evidence_ref_ids": _collect_ids(item.get("event_id"), item.get("turn_id")),
             }
         )
     return findings
+
+
+def _preserved_l1_event_count(
+    *,
+    request: RetrievalQuery,
+    event_findings: list[dict[str, Any]],
+) -> int:
+    if not event_findings:
+        return 0
+    time_range = request.time_range or {}
+    has_explicit_time_range = bool(time_range.get("start") is not None or time_range.get("end") is not None)
+    if has_explicit_time_range:
+        return min(2, max(int(request.limit or 0), 1))
+    if _is_list_like_query(request.query):
+        return 0
+    return 1
+
+
+def _merge_exact_fact_findings(
+    event_findings: list[dict[str, Any]],
+    derived_findings: list[dict[str, Any]],
+    *,
+    limit: int,
+    preserved_event_count: int,
+) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    merged.extend(event_findings[: min(preserved_event_count, max(limit, 1))])
+    remaining = max(limit - len(merged), 0)
+    if remaining > 0:
+        merged.extend(derived_findings[:remaining])
+    return merged
 
 
 def _project_reflections(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -330,7 +618,6 @@ def _project_reflections(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "status": item.get("status"),
                 "occurred_at": item.get("period_start_at"),
                 "updated_at": item.get("updated_at") or item.get("created_at"),
-                "evidence_ref_ids": _collect_ids(item.get("summary_id"), item.get("source_event_ids")),
             }
         )
     return findings
@@ -353,7 +640,6 @@ def _project_procedures(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "status": item.get("status"),
                 "occurred_at": item.get("created_at"),
                 "updated_at": item.get("updated_at"),
-                "evidence_ref_ids": _collect_ids(item.get("skill_id")),
             }
         )
     return findings

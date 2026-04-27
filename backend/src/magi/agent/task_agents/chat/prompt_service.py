@@ -278,23 +278,97 @@ class ChatPromptService:
         *,
         system_prompt: str,
         reply_context: ChatReplyContext | None,
+        recent_tool_state: list[dict[str, Any]] | None = None,
     ) -> str:
+        tool_state_block = self.build_recent_tool_state_block(recent_tool_state)
+        if tool_state_block:
+            system_prompt = f"{system_prompt}\n\n{tool_state_block}"
         reply_block = self.build_reply_context_block(reply_context)
         if not reply_block:
             return system_prompt
         return f"{system_prompt}\n\n{reply_block}"
 
+    def build_recent_tool_state_block(self, recent_tool_state: list[dict[str, Any]] | None) -> str:
+        items = recent_tool_state if isinstance(recent_tool_state, list) else []
+        lines: list[str] = []
+        for item in items[:4]:
+            if not isinstance(item, dict):
+                continue
+            tool_name = str(item.get("tool_name") or "unknown")
+            status = str(item.get("status") or "unknown")
+            line = f"- {tool_name}: {status}"
+            execution_time_ms = item.get("execution_time_ms")
+            if execution_time_ms not in (None, ""):
+                line += f" | duration_ms={execution_time_ms}"
+            outcome = str(item.get("outcome") or "").strip()
+            if outcome:
+                line += f" | outcome={outcome}"
+            handles = item.get("handles")
+            if isinstance(handles, list) and handles:
+                line += f" | handles={', '.join(str(handle) for handle in handles[:4])}"
+            error_code = str(item.get("error_code") or "").strip()
+            if error_code:
+                line += f" | error_code={error_code}"
+            lines.append(line)
+        if not lines:
+            return ""
+        return "\n".join(
+            [
+                "# Recent Tool State",
+                "Use this block only as lightweight continuity from recent tool activity. If the user asks for exact parameters, durations, or full outputs, call `trace_query` instead of guessing.",
+                *lines,
+            ]
+        )
+
     def build_reply_context_block(self, reply_context: ChatReplyContext | None) -> str:
         if reply_context is None:
             return ""
         lines = [
-            "Current message is replying to:",
+            (
+                "Current message is replying to:"
+                if reply_context.is_explicit_reply
+                else "Most recent assistant turn includes reusable context:"
+            ),
             f"- speaker: {reply_context.role}",
             f'- message: "{reply_context.content_excerpt}"',
         ]
+        if reply_context.structured_payload:
+            lines.extend(
+                [
+                    "- reusable reply data:",
+                    json.dumps(reply_context.structured_payload, ensure_ascii=False),
+                ]
+            )
+            if reply_context.structured_payload.get("asset_refs"):
+                lines.extend(
+                    [
+                        f"- asset workflow note: {self._build_asset_workflow_note(reply_context.structured_payload.get('asset_refs'))}",
+                    ]
+                )
         if reply_context.references_prior_turn:
             lines.append("- note: this reply points to an earlier turn, so keep that thread continuity explicit.")
         return "\n".join(lines)
+
+    @staticmethod
+    def _build_asset_workflow_note(asset_refs: Any) -> str:
+        items = asset_refs if isinstance(asset_refs, list) else []
+        resolver_tools = sorted(
+            {
+                str(item.get("resolver_tool") or "").strip()
+                for item in items
+                if isinstance(item, dict) and str(item.get("resolver_tool") or "").strip()
+            }
+        )
+        if resolver_tools:
+            tools_text = ", ".join(f"`{tool_name}`" for tool_name in resolver_tools)
+            return (
+                "if the user wants those assets sent in chat, first call the stored asset resolver "
+                f"tool(s) {tools_text} to obtain `file_paths`, then call `prepare_chat_attachments`."
+            )
+        return (
+            "if the user wants those assets sent in chat, first call the appropriate source resolver tool "
+            "to obtain `file_paths`, then call `prepare_chat_attachments`."
+        )
 
     def format_explore_render_response(self, response_text: str) -> str:
         text = str(response_text or "").replace("\r\n", "\n").strip()

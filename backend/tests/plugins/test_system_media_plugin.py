@@ -286,10 +286,11 @@ class TestSystemMediaTimelineSensor:
             "duration_seconds": 240,
         }
         output = asyncio.run(sensor.build_output(item))
-        assert "Shape of You" in output.title
-        assert "Ed Sheeran" in output.title
-        assert "4m" in output.title
-        assert "Spotify" in output.summary
+        assert output.narration.title is not None
+        assert "Shape of You" in output.narration.title
+        assert "Ed Sheeran" in output.narration.title
+        assert "4m" in output.narration.title
+        assert "Spotify" in output.narration.body
         assert output.tags == ["media", "music", "listening"]
 
     def test_build_output_without_artist(self, tmp_path: Path) -> None:
@@ -305,9 +306,10 @@ class TestSystemMediaTimelineSensor:
             "duration_seconds": 1800,
         }
         output = asyncio.run(sensor.build_output(item))
-        assert "Podcast Episode 42" in output.title
-        assert "30m" in output.title
-        assert "Ed Sheeran" not in output.title  # no artist in title
+        assert output.narration.title is not None
+        assert "Podcast Episode 42" in output.narration.title
+        assert "30m" in output.narration.title
+        assert "Ed Sheeran" not in output.narration.title  # no artist in title
 
     def test_source_item_identity_uniqueness(self) -> None:
         sensor = SystemMediaTimelineSensor()

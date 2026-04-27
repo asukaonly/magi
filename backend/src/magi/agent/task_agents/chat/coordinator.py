@@ -153,6 +153,7 @@ class ChatExecutionCoordinator:
             current_user="unknown",
             recent_messages=recent_messages,
             recent_tool_errors=list(context.recent_tool_errors),
+            recent_tool_state=list(context.recent_tool_state),
         )
 
         # Inject L4 procedural-memory advisory if provider is available.

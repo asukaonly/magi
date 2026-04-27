@@ -21,7 +21,14 @@ class _FakeContextService:
 
 
 class _FakePromptService:
-    def augment_system_prompt_with_reply_context(self, *, system_prompt, reply_context=None):
+    def augment_system_prompt_with_reply_context(
+        self,
+        *,
+        system_prompt,
+        reply_context=None,
+        recent_tool_state=None,
+    ):
+        _ = (reply_context, recent_tool_state)
         return system_prompt
 
     async def call_llm(  # type: ignore[no-untyped-def]
@@ -305,7 +312,6 @@ async def test_function_calling_handler_passes_turn_workspace_into_context_servi
                 reasoning="tool use",
                 orchestration_plan=OrchestrationPlan(),
                 memory_route="none",
-                routing_memory_hint=None,
             ),
             tool_selection=ToolSelection(tools=["glob"], reasoning="search repo"),
         )
@@ -371,6 +377,65 @@ async def test_function_calling_handler_appends_scope_guidance_from_task_hint() 
 
     assert "# Scope Guidance" in request.system_prompt
     assert "ask the user for a path or use web-search before any external local scan" in request.system_prompt
+
+
+@pytest.mark.asyncio
+async def test_function_calling_handler_adds_photo_workflow_guidance_when_photo_tools_selected() -> None:
+    context_service = _FakeContextService()
+    handler = FunctionCallingHandler(
+        SimpleNamespace(
+            context_service=context_service,
+            prompt_service=_FakePromptService(),
+        )
+    )
+    context = ChatRuntimeContext(
+        latest_fact=None,
+        recent_facts=[],
+        batch_facts=[],
+        agent_id="local_user",
+        agent_type="chat",
+        runtime_key="chat:local_user",
+        user_id="local_user",
+        session_id="session-1",
+        history_key="local_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message="把刚才那些照片发出来",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload(
+            user_id="local_user",
+            session_id="session-1",
+            content="把刚才那些照片发出来",
+            turn_id="turn-1",
+        ),
+    )
+
+    request = await handler.build_request(
+        SimpleNamespace(
+            mode=ExecutionMode.FUNCTION_CALLING,
+            context=context,
+            intent=IntentDecision(
+                intent="chat",
+                difficulty="normal",
+                execution_mode=ExecutionMode.FUNCTION_CALLING,
+                reasoning="tool use",
+                orchestration_plan=OrchestrationPlan(),
+                memory_route="none",
+            ),
+            tool_selection=ToolSelection(
+                tools=["photo_library_resolve_photo_refs", "prepare_chat_attachments"],
+                reasoning="send previous photo candidates",
+            ),
+        )
+    )
+
+    assert "# Attachment Preparation Guidance" in request.system_prompt
+    assert "source resolver tool" in request.system_prompt
+    assert "prepare_chat_attachments" in request.system_prompt
+    assert "structured message metadata" in request.system_prompt
+    assert "Do not emit attachment JSON" in request.system_prompt
 
 
 @pytest.mark.asyncio

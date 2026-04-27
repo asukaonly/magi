@@ -20,7 +20,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
-const CONTRIBUTION_TYPE_FILTERS = ['all', 'sensor', 'tool', 'action', 'channel'] as const;
+const CONTRIBUTION_TYPE_FILTERS = ['all', 'sensor', 'tool', 'channel'] as const;
 type ContributionFilter = (typeof CONTRIBUTION_TYPE_FILTERS)[number];
 
 /** Resolve the localized text from an i18n map, falling back to the default. */

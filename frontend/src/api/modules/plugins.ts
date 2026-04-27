@@ -1,7 +1,7 @@
 import { api } from '../client';
 import type { ApiResponse } from '../client';
 
-export type ExtensionSurface = 'extensions' | 'tools' | 'timeline' | 'actions';
+export type ExtensionSurface = 'extensions' | 'tools' | 'timeline';
 export type ExtensionFieldType = 'switch' | 'select' | 'input' | 'number' | 'secret' | 'path' | 'tags';
 
 export interface ExtensionFieldOption {

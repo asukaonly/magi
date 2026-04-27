@@ -187,6 +187,12 @@ flowchart TD
     C --> A["User-Facing Response"]
 ```
 
+  Reply-target continuity in chat is intentionally compact but now carries more than plain text excerpts.
+  When a user replies to an earlier assistant message, the runtime may include a sanitized structured payload summary from that replied-to message, such as managed attachment references, so follow-up turns can reuse concrete artifacts without re-exposing raw local file paths.
+  Tool-driven chat turns may persist this reusable state through assistant message payloads. In particular, function-calling tools can return a sanitized `assistant_payload` with generic `asset_refs`, which later reply turns may see through reply context and hand back to source resolver tools before calling `prepare_chat_attachments`.
+  Beyond explicit reply targets, chat prompt assembly may inject a compact `Recent Tool State` block derived from the last few tool interactions in the same session. This block is intentionally lossy: tool name, coarse success/failure state, short outcome summary, limited reusable handles, and coarse duration only.
+  Important rule: `Recent Tool State` is continuity guidance for the chat LLM, not the canonical execution audit trail. Exact parameters, full outputs, and detailed timing remain in `runtime_trace.db` and should be queried through trace read APIs or the builtin `trace_query` tool.
+
 ## Runtime And Persistence Boundaries
 
 The current dual-process topology is intentionally split by responsibility:
@@ -203,9 +209,14 @@ Persistence is separated the same way:
   Source of truth for `chat_sessions`, `chat_turns`, and `chat_messages`
   Current path: `~/.magi/data/chat/chat.db`
 
+  Assistant chat messages may persist managed attachment payloads in `chat_messages.payload_json`.
+  Local source plugins should not bypass this boundary by exposing raw local file paths directly to the frontend.
+
 - `runtime_trace.db`
   Execution observability only, including spans, tool calls, turn summaries, intent records, live notifications, and append-only plugin ingress events emitted by the desktop shell or other local producers
   Current path: `~/.magi/runtime/runtime_trace.db`
+
+  Chat prompt assembly may derive compact recent-tool summaries from recent tool interaction records, but those summaries are explicitly lossy and must not replace `runtime_trace.db` as the source of truth for execution details.
 
 - `memory/l1_events.db`
   Canonical memory projection only; it stores `user_text` and `assistant_final` as lossy memory facts, but it is no longer the chat transcript source of truth
@@ -307,7 +318,7 @@ Prompt assembly ownership lives in `backend/src/magi/context/`.
 The current split is:
 
 - `ChatTaskAgent.build_context`
-  Builds typed runtime context such as fact classification, explicit session identity, conversation history, tool errors, active orchestrations, and routing environment facts like OS, current datetime, timezone, workspace path, and home directory
+  Builds typed runtime context such as fact classification, explicit session identity, conversation history, recent tool errors, recent lightweight tool state, active orchestrations, and routing environment facts like OS, current datetime, timezone, workspace path, and home directory
 
 - `ContextAssemblyService`
   Owns prompt-context policy, implicit retrieval query selection, prompt module assembly, and final system prompt rendering
@@ -332,7 +343,9 @@ Explicit historical recall is handled separately from implicit prompt injection:
 - parameter hint generation is handled by rules, not by an extra LLM planning step, to keep routing latency and variance low
 - the main LLM may still discover additional memory needs later during function calling and issue a refined tool call; the routing hint is advisory, not the final execution payload
 - once `memory_query` has returned, its answer-facing `historical_recall` payload is marked as the source of truth for historical recall in the current turn, and final-response prompt rules explicitly forbid replacing missing recall results with implicit memory or guesses
+- that `historical_recall` contract may carry compact `entity_refs` and `asset_refs` alongside human-readable findings so later turns can reuse concrete entities or assets without leaking raw source paths into the chat protocol
 - raw retrieval traces remain in the debug/trace path and are not reinjected into the main LLM tool-message context
+- cross-turn tool continuity uses only a compact chat-specific summary block; old raw tool transcripts, full arguments, and full results are not replayed into the general chat prompt
 
 ### `ExploreTaskAgent`
 
@@ -376,42 +389,42 @@ Workers remain leaf executors and do not recursively create other workers.
 ## Background Tasks
 
 Long-running goals that the user doesn't want to watch live run in a
-dedicated subsystem under [backend/src/magi/agent/background/](/Users/asuka/code/magi/backend/src/magi/agent/background/).
+dedicated subsystem under [backend/src/magi/agent/background/](../backend/src/magi/agent/background/).
 It is separate from the `ChatTaskAgent` turn loop so a detached task
 can outlive the originating session, survive a backend restart, and
 report back asynchronously.
 
 Key components:
 
-- `BackgroundTaskStore` ([store.py](/Users/asuka/code/magi/backend/src/magi/agent/background/store.py))
+- `BackgroundTaskStore` ([store.py](../backend/src/magi/agent/background/store.py))
   — SQLite-backed persistence for task rows and an append-only event
   log. Owns restart recovery (``running`` / ``cancelling`` rows from a
   previous process become ``failed(reason="backend_restart")``) and
   ``purge_expired``, which hard-deletes terminal rows (plus their
   event log) once they predate the configured retention window.
-- `BackgroundTaskManager` ([manager.py](/Users/asuka/code/magi/backend/src/magi/agent/background/manager.py))
+- `BackgroundTaskManager` ([manager.py](../backend/src/magi/agent/background/manager.py))
   — runtime-singleton scheduler with a bounded semaphore, pending
   queue, and a pluggable ``run_fn`` so phases can swap the orchestrator
   without touching this module. Supports ``enqueue`` / ``cancel`` /
   ``retry`` / ``list_active`` / ``list_pending`` and fan-outs to
   listeners after each terminal transition.
 - `BackgroundTaskDispatcher` + `BackgroundTaskLaunchService`
-  ([dispatcher.py](/Users/asuka/code/magi/backend/src/magi/agent/background/dispatcher.py),
-  [launch.py](/Users/asuka/code/magi/backend/src/magi/agent/background/launch.py))
+  ([dispatcher.py](../backend/src/magi/agent/background/dispatcher.py),
+  [launch.py](../backend/src/magi/agent/background/launch.py))
   — entry points that let planners, rules, or explicit user actions
   hand a spec to the manager. ``build_background_run_fn`` tags every
   orchestrator invocation with ``execution_agent_id=f"background:{task_id}"``
   so runtime-trace rows can be filtered back to the owning task.
-- `BackgroundTaskExecutor` ([executor.py](/Users/asuka/code/magi/backend/src/magi/agent/background/executor.py))
+- `BackgroundTaskExecutor` ([executor.py](../backend/src/magi/agent/background/executor.py))
   — wraps a single attempt: transitions, cancellation plumbing, and
   persisted ``BackgroundTaskEvent`` entries.
-- `BackgroundTaskRetentionGC` ([retention.py](/Users/asuka/code/magi/backend/src/magi/agent/background/retention.py))
+- `BackgroundTaskRetentionGC` ([retention.py](../backend/src/magi/agent/background/retention.py))
   — periodic purge driven by ``agent.background_tasks.history_retention_days``.
   Runs one sweep at startup and then hourly; disabled when
   ``history_retention_days <= 0``.
 
 Lifecycle (orchestrated by
-[agent/lifecycle.py](/Users/asuka/code/magi/backend/src/magi/agent/lifecycle.py)):
+[agent/lifecycle.py](../backend/src/magi/agent/lifecycle.py)):
 
 1. `build_background_task_wiring` composes store + executor + manager +
    dispatcher + launch service from config.
@@ -426,7 +439,7 @@ Lifecycle (orchestrated by
      card that deep-links into the Tasks drawer via
      ``/tasks?taskId=...``.
    - `broadcast_background_task_state_changed` (from
-     [transport/chat_events.py](/Users/asuka/code/magi/backend/src/magi/transport/chat_events.py))
+    [transport/chat_events.py](../backend/src/magi/transport/chat_events.py))
      — writes a ``background_task_state_changed`` row onto the runtime
      notification channel. The Rust gateway relays that channel onto
      the Tauri event stream the frontend Tasks page subscribes to.
@@ -436,7 +449,7 @@ Lifecycle (orchestrated by
    rows as ordinary terminal entries.
 
 Configuration lives under `agent.background_tasks` in
-[config.example.yaml](/Users/asuka/code/magi/backend/configs/config.example.yaml):
+[config.example.yaml](../backend/configs/config.example.yaml):
 ``enabled``, ``max_concurrent``, ``queue_when_full``,
 ``auto_detect_long_task``, ``auto_detect_threshold``,
 ``default_task_timeout_seconds``, ``history_retention_days``. When
@@ -444,7 +457,7 @@ Configuration lives under `agent.background_tasks` in
 service unwired so the runtime still boots.
 
 REST surface: the `/api/background-tasks` router
-([api/routers/background_tasks.py](/Users/asuka/code/magi/backend/src/magi/api/routers/background_tasks.py))
+([api/routers/background_tasks.py](../backend/src/magi/api/routers/background_tasks.py))
 exposes `list`, `get`, `cancel`, `retry`, `dismiss` for the Tasks UI;
 each endpoint sits on the public-route allowlist.
 
@@ -462,7 +475,7 @@ loop hand itself off to the background runtime while preserving the
 exact tool-loop state.
 
 Primitives (in
-[agent/run_control.py](/Users/asuka/code/magi/backend/src/magi/agent/run_control.py)):
+[agent/run_control.py](../backend/src/magi/agent/run_control.py)):
 
 - ``DetachSignal`` — one-shot flag flipped by a tool or a user action.
   Exposes ``request(payload)`` and ``is_requested()``.
@@ -473,12 +486,12 @@ Primitives (in
   (``current_detach_signal()``). A ``None`` signal is a no-op.
 
 The
-[``detach_to_background`` tool](/Users/asuka/code/magi/backend/src/magi/tools/builtin/detach_to_background_tool.py)
+[`detach_to_background` tool](../backend/src/magi/tools/builtin/detach_to_background_tool.py)
 reads ``current_detach_signal()`` and calls ``signal.request(...)``.
 Outside a bound context it returns ``error_code="detach_not_supported"``.
 
 Flow inside a chat turn
-([agent/task_agents/chat/handlers.py](/Users/asuka/code/magi/backend/src/magi/agent/task_agents/chat/handlers.py)):
+([agent/task_agents/chat/handlers.py](../backend/src/magi/agent/task_agents/chat/handlers.py)):
 
 1. ``FunctionCallingHandler.execute()`` builds a fresh ``DetachSignal``
    via ``_build_detach_signal()`` — only when a ``BackgroundLaunchService``
@@ -530,7 +543,7 @@ chat transcript keeps the latest control state without accumulating
 stale intermediate copies after reloads or reconnects.
 
 Event channels (all published via
-[``publish_control_event``](/Users/asuka/code/magi/backend/src/magi/bootstrap/control_plane.py)):
+[`publish_control_event`](../backend/src/magi/bootstrap/control_plane.py)):
 
 - ``control.permission_requested`` / ``control.permission_resolved`` —
   emitted around the permission prompter when a gated tool call waits
@@ -755,11 +768,13 @@ The current runtime trace path is:
 2. `runtime_trace.db` stores turn summaries, spans, LLM call details, tool call details, and intent-resolution records
 3. `ChatTraceReadService` reconstructs the UI trace tree from those canonical rows
 4. the Rust gateway and IPC-dispatched message APIs expose trace summaries and snapshots without routing trace nodes through `L1`
+5. the builtin `trace_query` tool reads those persisted summaries and tool-call details when the user asks which tool ran, which parameters were used, how long it took, or why it failed
 
 Two rules matter here:
 
 - runtime trace data is execution observability, not durable memory
 - `L1` stores recall-worthy facts, while `runtime_trace.db` stores execution structure and metrics
+- cross-turn chat continuity should prefer compact recent-tool state over replaying old raw tool transcripts; exact execution inspection should prefer `trace_query`
 
 ## Timeline Pull-Sync Flow
 
@@ -833,15 +848,15 @@ For a large codebase exploration request, the path is:
 
 If you are modifying this part of the system, read these first:
 
-- [task_agent.py](/Users/asuka/code/magi/backend/src/magi/agent/runtime/task_agent.py)
-- [chat_task_agent.py](/Users/asuka/code/magi/backend/src/magi/agent/task_agents/chat_task_agent.py)
-- [explore_task_agent.py](/Users/asuka/code/magi/backend/src/magi/agent/task_agents/explore_task_agent.py)
-- [task_orchestrator.py](/Users/asuka/code/magi/backend/src/magi/agent/task_orchestrator.py)
-- [orchestration.py](/Users/asuka/code/magi/backend/src/magi/agent/orchestration.py)
-- [worker_manager.py](/Users/asuka/code/magi/backend/src/magi/agent/workers/worker_manager.py)
-- [memory/__init__.py](/Users/asuka/code/magi/backend/src/magi/memory/__init__.py)
-- [integration.py](/Users/asuka/code/magi/backend/src/magi/memory/integration.py)
-- [hybrid_retrieval/service.py](/Users/asuka/code/magi/backend/src/magi/memory/hybrid_retrieval/service.py)
+- [task_agent.py](../backend/src/magi/agent/runtime/task_agent.py)
+- [chat_task_agent.py](../backend/src/magi/agent/task_agents/chat_task_agent.py)
+- [explore_task_agent.py](../backend/src/magi/agent/task_agents/explore_task_agent.py)
+- [task_orchestrator.py](../backend/src/magi/agent/task_orchestrator.py)
+- [orchestration.py](../backend/src/magi/agent/orchestration.py)
+- [worker_manager.py](../backend/src/magi/agent/workers/worker_manager.py)
+- [memory/__init__.py](../backend/src/magi/memory/__init__.py)
+- [integration.py](../backend/src/magi/memory/integration.py)
+- [hybrid_retrieval/service.py](../backend/src/magi/memory/hybrid_retrieval/service.py)
 
 ## Current Strengths
 
@@ -853,7 +868,7 @@ If you are modifying this part of the system, read these first:
 
 ## Current Risks
 
-- [common/contracts.py](/Users/asuka/code/magi/backend/src/magi/agent/task_agents/common/contracts.py) is growing and may need to be split by concern
+- [common/contracts.py](../backend/src/magi/agent/task_agents/common/contracts.py) is growing and may need to be split by concern
 - `TaskOrchestrator` is still a dense class and may eventually need event-adapter separation
 - Event transport payloads are still dict-based externally, so contract drift is still possible if new event producers bypass the typed classifiers
 - Memory quality now depends more heavily on correct event routing and source taxonomy, so runtime producers must follow the memory event contract carefully

@@ -97,8 +97,6 @@ export interface UseSettingsReturn {
   fetchTimelineStatuses: () => Promise<void>;
 
   // Contribution sub-nav selections
-  actionsSelection: string | null;
-  setActionsSelection: React.Dispatch<React.SetStateAction<string | null>>;
   channelsSelection: string | null;
   setChannelsSelection: React.Dispatch<React.SetStateAction<string | null>>;
 
@@ -146,9 +144,8 @@ export function useSettings(): UseSettingsReturn {
     llm: false,
     personality: false,
     memory: false,
-    extensions: false,
+    plugins: false,
     timeline: false,
-    actions: false,
     channels: false,
   });
 
@@ -157,8 +154,7 @@ export function useSettings(): UseSettingsReturn {
   const [timelineStatusesLoading, setTimelineStatusesLoading] = useState(false);
   const [timelineSelection, setTimelineSelection] = useState<string | null>(null);
 
-  // Actions / Channels sub-nav selections
-  const [actionsSelection, setActionsSelection] = useState<string | null>(null);
+  // Channels sub-nav selection
   const [channelsSelection, setChannelsSelection] = useState<string | null>(null);
 
   // Plugins state
@@ -213,9 +209,6 @@ export function useSettings(): UseSettingsReturn {
       setActiveSection(itemId);
       if (itemId === 'timeline') {
         setTimelineSelection(null);
-      }
-      if (itemId === 'actions') {
-        setActionsSelection(null);
       }
       if (itemId === 'channels') {
         setChannelsSelection(null);
@@ -301,7 +294,7 @@ export function useSettings(): UseSettingsReturn {
       setDraftPluginDrafts((prev) => mergeDraftMaps(prev, nextSnapshot, { preserveExisting: true }));
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'unknown';
-      toast.error(t('settings.extensions.errors.loadFailed', { message }));
+      toast.error(t('settings.pluginPackages.errors.loadFailed', { message }));
     } finally {
       if (!silent) {
         setPluginsLoading(false);
@@ -501,11 +494,11 @@ export function useSettings(): UseSettingsReturn {
       setPlugins((prev) => prev.map((item) => (item.manifest.plugin_id === next.manifest.plugin_id ? next : item)));
       setSavedPluginDrafts((prev) => mergeDraftMaps(prev, nextSnapshot, { preserveExisting: false }));
       setDraftPluginDrafts((prev) => mergeDraftMaps(prev, nextSnapshot, { preserveExisting: false }));
-      toast.success(t(`settings.extensions.feedback.${action}Success`, { name: next.manifest.name }));
+      toast.success(t(`settings.pluginPackages.feedback.${action}Success`, { name: next.manifest.name }));
       await fetchTimelineStatuses();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'unknown';
-      toast.error(t('settings.extensions.errors.actionFailed', { message }));
+      toast.error(t('settings.pluginPackages.errors.actionFailed', { message }));
     } finally {
       setPluginProcessingIds((prev) => {
         const next = { ...prev };
@@ -751,8 +744,6 @@ export function useSettings(): UseSettingsReturn {
     fetchTimelineStatuses,
 
     // Contribution sub-nav selections
-    actionsSelection,
-    setActionsSelection,
     channelsSelection,
     setChannelsSelection,
 

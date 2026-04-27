@@ -72,9 +72,9 @@ Main code locations:
 - API layer: `backend/src/magi/api/`
 - Frontend app: `frontend/src/`
 - Desktop host/runtime: `frontend/src-tauri/`
-- Builtin plugins: `plugins/` (core-tools, core-actions)
+- Builtin plugins: `plugins/` (currently `core-tools`; `core-actions` is inactive)
 - External plugins repo: `github.com/asukaonly/magi-plugins` (marketplace registry + all non-builtin plugins)
-- Builtin plugins: `plugins/` (core-tools, core-actions)
+- Builtin plugins: `plugins/` (currently `core-tools`; `core-actions` is inactive)
 - External plugins repo: `github.com/asukaonly/magi-plugins` (marketplace registry + all non-builtin plugins)
 
 ---
@@ -87,7 +87,7 @@ magi/
 │   ├── src/magi/
 │   │   ├── agent/              # Task-agent runtime, orchestration, workers
 │   │   ├── api/                # Product-facing routers and services
-│   │   ├── awareness/          # Sensors and runtime event emission
+│   │   ├── awareness/          # Sensors, ingestion, scheduling, event emission
 │   │   ├── bootstrap/          # Composition root and lifecycle assembly
 │   │   ├── channels/           # External messaging adapters
 │   │   ├── chat/               # Chat domain persistence and attachments
@@ -133,10 +133,10 @@ magi/
 │   └── dev-tauri-hot.sh        # Start Tauri + backend with hot reload
 ├── plugins/
 │   ├── core-tools/              # Builtin tools plugin (web search, file ops, etc.)
-│   └── core-actions/             # Builtin actions plugin (email, notifications)
+│   └── core-actions/             # Legacy inactive directory
 ├── plugins/
 │   ├── core-tools/              # Builtin tools plugin (web search, file ops, etc.)
-│   └── core-actions/             # Builtin actions plugin (email, notifications)
+│   └── core-actions/             # Legacy inactive directory
 ├── configs/
 ├── docs/
 │   ├── project-overview.md

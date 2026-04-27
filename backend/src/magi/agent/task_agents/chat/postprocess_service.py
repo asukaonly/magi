@@ -306,6 +306,8 @@ class ChatPostProcessService:
         await self._persist_final_chat_outcome(
             turn_id=turn_id,
             response_text=response_text,
+            attachments=list(getattr(result, "attachments", []) or []),
+            message_payload=dict(getattr(result, "message_payload", {}) or {}),
             started_at_ms=started_at_ms,
             completed_at_ms=now_ms,
             orchestration_id=result.orchestration_id,
@@ -333,6 +335,12 @@ class ChatPostProcessService:
             notification_message_kind = "assistant_reaction"
         final_message = notification_message if notification_message and notification_message.message_kind == "assistant_final" else None
         await self._project_final_chat_message(context=context, final_message=final_message)
+        if getattr(result, "streamed", False) and final_message is not None:
+            await self._runtime_notifier.emit_chat_message_upsert(
+                user_id=context.user_id,
+                session_id=context.session_id,
+                message_id=final_message.message_id,
+            )
 
         if not getattr(result, "streamed", False):
             await self._emit_agent_response_notification(
@@ -340,6 +348,7 @@ class ChatPostProcessService:
                 session_id=context.session_id,
                 turn_id=turn_id,
                 response_text=notification_response_text,
+                attachments=list(getattr(result, "attachments", []) or []),
                 orchestration_id=result.orchestration_id,
                 trace_summary=trace_summary,
                 trace_available=trace_available,
@@ -736,6 +745,7 @@ class ChatPostProcessService:
         session_id = self._history_service.require_session_id(user_id, payload.get("session_id"))
         history_key = self._history_service.history_key(user_id, session_id)
         turn_id = str(payload.get("turn_id") or "").strip() or None
+        result_data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
         self._history_service.store_tool_interaction(
             history_key,
             {
@@ -745,8 +755,8 @@ class ChatPostProcessService:
                 "status": "success" if bool(payload.get("success")) else "error",
                 "error_code": str(payload.get("error_code") or ""),
                 "error_message": str(payload.get("error") or ""),
-                "result_summary": str(payload.get("data") or ""),
-                "result_data": payload.get("data") if isinstance(payload.get("data"), dict) else {},
+                "result_summary": self._summarize_tool_result(result_data),
+                "result_data": result_data,
                 "turn_id": turn_id,
             },
         )
@@ -798,6 +808,38 @@ class ChatPostProcessService:
             session_id=session_id,
             turn_id=turn_id,
         )
+
+    @staticmethod
+    def _summarize_tool_result(result_data: dict[str, Any]) -> str:
+        if not isinstance(result_data, dict) or not result_data:
+            return ""
+
+        summary = str(result_data.get("summary") or "").strip()
+        if summary:
+            return summary
+
+        historical_recall = result_data.get("historical_recall")
+        if isinstance(historical_recall, dict):
+            recall_summary = str(historical_recall.get("summary") or "").strip()
+            if recall_summary:
+                return recall_summary
+            status = str(historical_recall.get("status") or "").strip()
+            if status:
+                return f"historical_recall status={status}"
+
+        resolved_count = result_data.get("resolved_count")
+        if isinstance(resolved_count, int):
+            return f"Resolved {resolved_count} asset(s)."
+
+        chat_attachments = result_data.get("chat_attachments")
+        if isinstance(chat_attachments, list):
+            return f"Prepared {len(chat_attachments)} chat attachment(s)."
+
+        asset_refs = result_data.get("asset_refs")
+        if isinstance(asset_refs, list):
+            return f"Returned {len(asset_refs)} asset ref(s)."
+
+        return ""
 
     async def record_tool_loop_fact(self, payload: dict[str, Any]) -> None:
         user_id = str(payload.get("user_id") or self._agent_id)
@@ -1028,6 +1070,8 @@ class ChatPostProcessService:
         *,
         turn_id: str | None,
         response_text: str,
+        attachments: list[dict[str, Any]] | None = None,
+        message_payload: dict[str, Any] | None = None,
         started_at_ms: int,
         completed_at_ms: int,
         orchestration_id: str | None,
@@ -1044,6 +1088,8 @@ class ChatPostProcessService:
             execution_mode=execution_mode,
             ux_plan=ux_plan,
             response_text=response_text,
+            attachments=attachments,
+            message_payload=message_payload,
             started_at_ms=started_at_ms,
             completed_at_ms=completed_at_ms,
             run_id=run_id,
@@ -1369,6 +1415,7 @@ class ChatPostProcessService:
         session_id: str,
         turn_id: str | None,
         response_text: str,
+        attachments: list[dict[str, Any]] | None,
         orchestration_id: str | None,
         trace_summary: dict[str, Any] | None,
         trace_available: bool,
@@ -1381,6 +1428,7 @@ class ChatPostProcessService:
             session_id=session_id,
             turn_id=turn_id,
             response_text=response_text,
+            attachments=attachments,
             orchestration_id=orchestration_id,
             trace_summary=trace_summary,
             trace_available=trace_available,

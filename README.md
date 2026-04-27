@@ -10,70 +10,119 @@
   <a href="https://github.com/asukaonly/magi/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-2f3b4d" alt="License"></a>
   <a href="https://github.com/asukaonly/magi/releases"><img src="https://img.shields.io/github/v/release/asukaonly/magi" alt="Release"></a>
   <img src="https://img.shields.io/badge/platform-macOS-black?logo=apple" alt="macOS">
-  <img src="https://img.shields.io/badge/React-18+-61DAFB?logo=react&logoColor=white" alt="React">
+  <img src="https://img.shields.io/badge/platform-Windows-0078D4?logo=windows&logoColor=white" alt="Windows">
   <img src="https://img.shields.io/badge/Tauri-2.x-24C8DB?logo=tauri&logoColor=white" alt="Tauri">
+  <img src="https://img.shields.io/badge/Rust-gateway-b7410e?logo=rust&logoColor=white" alt="Rust gateway">
   <img src="https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white" alt="Python">
 </p>
 
-Magi is a local-first desktop AI agent that combines multi-source sensing, layered memory, and personality controls for long-term personal companionship and life recall.
+Magi is a local-first desktop AI companion runtime with benchmarked long-term memory, personal data plugins, an inspectable agent workflow, and a persistent personality layer.
 
-**Status:** Alpha (fast-moving, interfaces and behavior may change)
+**Status:** Alpha. Magi is moving quickly, and interfaces may still change.
 
 Language: English | [简体中文](./README.zh-CN.md)
 
 ## Why Magi
 
-Magi takes inspiration from the intelligent computer system in *Evangelion*, and can also be read as `My Agent Gets It`.
+Most AI products are built around short prompts and disposable context. Magi is built around continuity.
 
-Most AI products are built around instant answers and short-lived context. Magi is designed differently: as a local desktop agent that can continuously sense, remember, and interact with you over time.
+It runs on your desktop, keeps your data local by default, connects to personal data sources through plugins, turns scattered activity into a timeline, and gives the assistant a memory system it can query with evidence instead of guessing from a short chat window.
 
-Through extensible sensor plugins, Magi can connect to external personal data sources such as browsing history, screen activity, calendars, social posts, AI conversations, and photo archives, then organize them into a searchable personal timeline and memory system.
+Magi can also be read as `My Agent Gets It`: a system that remembers what happened, understands how things changed over time, and keeps a consistent personality as it interacts with you.
 
-At the core is a five-layer memory model: workspace memory, event memory, knowledge memory, summary and reflection memory, and tool skill memory. This structure is meant to improve recall, support long-term understanding, and help turn scattered life fragments into something more coherent and reviewable.
+## Benchmark Signal
 
-Magi also exposes more detailed personality and emotional controls, so the way it responds can stay consistent with the kind of long-term companion you want to build, not just a generic assistant.
+Magi's current memory and retrieval benchmark harness reaches **87.2% accuracy** on LongMemEval.
 
-Magi is not trying to be another one-off question answering tool. It is built to be a more personal desktop agent for remembering, organizing, and understanding your life over time.
+| LongMemEval category | Accuracy | Count |
+| --- | ---: | ---: |
+| Overall | 0.8720 | - |
+| Multi-session | 0.7444 | 133 |
+| Single-session assistant | 1.0000 | 56 |
+| Temporal reasoning | 0.8947 | 133 |
+| Knowledge update | 0.8974 | 78 |
+| Single-session preference | 0.8667 | 30 |
+| Single-session user | 0.9429 | 70 |
 
-## Core Highlights
+Methodology note: these numbers describe the current long-term memory/retrieval evaluation path, not a broad claim about every product surface. Before using them as a release claim, attach the model configuration, dataset revision, run command, and output artifact.
 
-- Multi-source sensing and timeline building through extensible sensor plugins
-- A five-layer memory system for better recall, reflection, and personal understanding
-- Personality and emotion controls for a more stable long-term companion experience
+> Benchmark artifact placeholder: add the reproducible LongMemEval output summary here.
 
-## For Users (macOS)
+## Core Advantages
 
-Magi is distributed as a packaged desktop app.
-You do not need to install Python, Node.js, or run source code.
+- **Benchmarked long-term recall**: Magi is designed to answer questions about facts, preferences, episodes, cross-session patterns, and temporal changes from durable memory.
+- **Local-first desktop runtime**: a Tauri app starts a Rust gateway and Python IPC worker locally, with app/runtime data stored under your local Magi directory.
+- **Personal data plugins**: optional official plugins can bring in sources such as calendar activity, Chrome history, git activity, music listening, photo metadata, screen time, media playback, Telegram, and terminal history.
+- **L0-L4 lifecycle memory**: working context, normalized events, structured cognition, reflections, and procedural memory are separate but connected layers.
+- **Inspectable memory workbench**: memory is not a hidden blob. The desktop UI exposes memory events, knowledge graph/state snapshots, reflections, and procedural skills.
+- **Persistent personality system**: Magi maintains personality configuration, scenario-specific expression, state changes, and deeper behavior modeling beyond a one-off system prompt.
+- **Controllable agent runs**: you can interrupt, steer, stop, or move long-running work into the background instead of waiting on a single blocking completion.
+- **Runtime observability**: traces, tool calls, task status, permissions, and control surfaces are visible enough for users and developers to understand what the agent is doing.
 
-### Install
+## Product Tour
 
-1. Open GitHub Releases for this repository.
-2. Download `Magi-0.1.0-macos.dmg`.
-3. Open the DMG and drag `Magi` into `Applications`.
-4. Launch `Magi` from `Applications`.
+### Chat With Memory And Attachments
 
-### Launch and First Run
+The chat workspace supports long-running conversations, local workspaces, managed attachments, reply context, tool traces, and memory-guided recall.
 
-1. Open `Magi`.
-2. Complete onboarding (language, model/provider setup, basic preferences).
-3. Start chatting and configuring your agent from the desktop app.
+> Screenshot placeholder: add a chat screenshot or GIF showing a memory-backed answer with visible context/tool evidence.
 
-### Update
+### Timeline
 
-1. Download the latest DMG from GitHub Releases.
-2. Replace the existing app in `Applications`.
+Magi turns events from conversations and plugins into a searchable timeline with multiple time scales, query support, and context inspection.
 
-### Uninstall
+> Screenshot placeholder: add a timeline screenshot showing month/week/day/hour navigation and a context drawer.
 
-1. Remove `Magi` from `Applications`.
-2. Optional: remove local data directory `~/.magi/` if you want a full cleanup.
+### Memory Workbench
+
+The memory pages expose L0 working state, L1 events, L2 structured cognition, L3 reflections, and L4 procedural skills so long-term memory can be inspected and tuned.
+
+> Screenshot placeholder: add a memory workbench screenshot showing the L1-L4 navigation or L2 knowledge/state view.
+
+### Tasks And Run Control
+
+Magi treats conversations as controllable agent runs. You can interrupt a reply, steer the active run, approve permission prompts, ask/answer agent questions, and move long work into background tasks.
+
+> Screenshot placeholder: add a tasks/control screenshot showing a background task or active run controls.
+
+### Plugin Marketplace
+
+The plugin marketplace lets users install, update, enable, disable, and configure official or external plugins without shipping plugin-specific frontend bundles.
+
+> Screenshot placeholder: add a plugin marketplace screenshot showing official source/channel plugins.
+
+## Install
+
+Magi is distributed as a packaged desktop app. You do not need to install Python, Node.js, or Rust to use a release build.
+
+1. Open [GitHub Releases](https://github.com/asukaonly/magi/releases).
+2. Download the latest installer for your platform:
+   - macOS Apple Silicon: `Magi_aarch64.dmg`
+   - macOS Intel: `Magi_x64.dmg`
+   - Windows: `Magi_<version>_x64-setup.exe`
+3. Install and launch Magi.
+4. Complete onboarding for language, model/provider setup, and basic preferences.
 
 ### Local Data Directory
 
-Magi stores runtime/app data at:
+Magi stores local app/runtime data under:
 
-- `~/.magi/`
+- macOS/Linux: `~/.magi/`
+- Windows: `%USERPROFILE%\.magi`
+
+Remove that directory only if you want to fully clear local Magi data.
+
+## Architecture At A Glance
+
+```text
+Tauri desktop shell
+  -> React WebView
+  -> Rust gateway (Axum HTTP/WebSocket, config I/O, static reads)
+    -> Python IPC worker (LLM, agents, memory, plugins, scheduler)
+      -> local stores under ~/.magi
+```
+
+The Rust gateway owns the desktop-facing API and WebSocket surface. Requests that need model calls, agent execution, memory retrieval, plugin runtime, or scheduler work are dispatched to the Python sidecar over IPC. FastAPI is used as an in-memory ASGI app inside the worker, not as a public Python HTTP server in desktop mode.
 
 ## For Contributors
 
@@ -82,42 +131,19 @@ Magi stores runtime/app data at:
 - Python 3.10+
 - Node.js 18+
 - npm
-- Rust toolchain (required for Tauri desktop development)
+- Rust toolchain
 
-### Quick Start (Source Development)
-
-#### Install all dependencies
+### Quick Start
 
 ```bash
 ./scripts/install-deps.sh
-```
-
-This installs frontend (npm), backend (pip), and Rust workspace dependencies in one step. Run it after cloning, switching branches, or pulling updates.
-
-#### Desktop (Tauri) + Backend hot reload
-
-```bash
 ./scripts/dev-tauri-hot.sh
 ```
 
-This launcher keeps backend lifecycle ownership inside the Tauri debug app so closing the desktop app also tears down the paired backend processes.
+On Windows, use the PowerShell helpers where applicable:
 
-### Manual Setup
-
-#### Backend
-
-```bash
-cd backend
-pip install -e ".[dev]"
-python run_server.py
-```
-
-#### Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
+```powershell
+.\scripts\dev-tauri-hot.ps1
 ```
 
 ### Desktop Release Build
@@ -131,11 +157,13 @@ cd frontend
 npm run tauri:build
 ```
 
-The sidecar must be built before Tauri build. The `sidecar-dist/` directory under `frontend/src-tauri/` is gitignored and must be rebuilt after cloning or switching branches.
+On Windows, build the sidecar with:
+
+```powershell
+.\scripts\build-sidecar.ps1
+```
 
 ### Validation Commands
-
-#### Frontend
 
 ```bash
 cd frontend
@@ -144,38 +172,23 @@ npm run test
 npm run lint
 ```
 
-#### Backend
-
 ```bash
 cd backend
 pytest
 ```
 
-## Architecture At A Glance
-
-Magi is built as a local-first agent runtime with clear layering and ownership boundaries.
-
-- Runtime loop: Sense -> Plan -> Act -> Reflect
-- Agent layering: MasterAgent -> TaskAgent -> WorkerAgent
-- Core task runtime:
-  - `ChatTaskAgent` for user-facing flows
-  - `ExploreTaskAgent` for large exploration workflows
-  - `TaskOrchestrator` for bounded orchestration
-  - `WorkerAgentManager` for leaf worker execution
-- Memory model: lifecycle-based `L0` to `L4`
-- Extension model: tools, plugins, skills, sensors/actions
-- Runtime target: desktop-only via Tauri + React WebView + Python sidecar backend
-
 ## Repository Layout
 
 ```text
 magi/
-├── backend/        # Python runtime, API, orchestration, memory, tools, plugins
+├── backend/        # Python runtime, IPC app, orchestration, memory, tools, plugins
+├── crates/         # Rust gateway crate
 ├── frontend/       # React UI and Tauri desktop host
 ├── docs/           # Architecture and product documentation
-├── plugins/        # Plugin packages
-├── scripts/        # Dev/build helper scripts
-└── openspec/       # Specs and planning artifacts
+├── plugins/        # Built-in plugin packages
+├── benchmark/      # LongMemEval and benchmark utilities
+├── sdk/            # Plugin SDK package
+└── scripts/        # Dev/build helper scripts
 ```
 
 ## Documentation
@@ -184,7 +197,7 @@ magi/
 - [Project Overview](./docs/project-overview.md)
 - [Product Configuration Guide](./docs/product-configuration-guide.md)
 - [Task-Agent Runtime Architecture](./docs/task-agent-runtime-architecture.md)
-- [Plugin Extension Architecture](./docs/plugin-extension-architecture.md)
+- [Unified Plugin Architecture](./docs/plugin-extension-architecture.md)
 - [Plugin Development Guide](./docs/plugin-development-guide.md)
 - [Memory System Design](./docs/memory-system-design.md)
 

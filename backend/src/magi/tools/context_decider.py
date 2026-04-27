@@ -11,7 +11,7 @@ This replaces the old ToolSelector for better tool selection.
 import json
 import logging
 from dataclasses import dataclass
-from typing import Dict, Any, Optional, List, List as TypingList
+from typing import Dict, Any, Optional, List
 
 from ..agent.message_utils import trim_latest_user_message
 from ..config.models import LLMScenario, ThinkingDepth
@@ -20,7 +20,6 @@ from ..llm.provider_bridge import LLMProviderBridge
 from ..config.constants import DEFAULT_MAX_TOKENS, DEFAULT_THINKING_TOKENS
 from .registry import ToolRegistry
 from .context_decider_context import ContextDeciderContext
-from .memory_query_hint_resolver import MemoryQueryHintResolver
 from ..utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
 
 logger = logging.getLogger(__name__)
@@ -39,7 +38,6 @@ class ContextDecision:
         orchestration_strategy: Optional[Dict[str, Any]] = None,
         memory_layer: Optional[str] = None,  # TODO: implement memory layer selection
         memory_route: str = "none",
-        routing_memory_hint: Optional[Dict[str, Any]] = None,
         llm_trace: Optional[Dict[str, Any]] = None,
         thinking_depth: Optional[ThinkingDepth] = None,
     ):
@@ -49,7 +47,6 @@ class ContextDecision:
         self.orchestration_strategy = orchestration_strategy or {}
         self.memory_layer = memory_layer  # Which memory layer to use (L1-L4)
         self.memory_route = memory_route
-        self.routing_memory_hint = routing_memory_hint
         self.llm_trace = dict(llm_trace or {})
 
         # Thinking depth: use explicit value if provided, otherwise derive from legacy bool
@@ -67,30 +64,41 @@ class ContextDecision:
 
 
 @dataclass
-class ToolRecommendation:
-    """Tool recommendation with suggested parameters."""
-    name: str
-    description: str
-    suggested_params: dict
-
-
-@dataclass
 class MemoryGuidance:
-    """Memory retrieval guidance from ContextDecider."""
+    """Memory retrieval guidance from ContextDecider.
+
+    Boolean recommendation only. The core chat LLM is the single decision
+    point for ``memory_query`` parameters and reads them from the tool
+    schema directly. No pre-call parameter injection.
+    """
     recommended: bool
-    inject_prompt: bool
-    system_prompt: str
-    recommended_tools: TypingList[ToolRecommendation]
     route: str = "none"
 
 
-# Memory retrieval trigger keywords
+# Memory retrieval trigger keywords. The boolean promotion lives here so
+# we still surface ``memory_query`` for recall-flavored requests; the chat
+# LLM is the single decision point for the actual tool parameters
+# (``query_mode`` etc.) via the tool schema.
 MEMORY_RETRIEVAL_TRIGGERS = [
+    # English recall / activity phrasing
     "what did i", "what was i", "what have i",
+    "do you remember", "remember when", "i remember",
+    "i like", "i prefer", "my preference", "my favorite",
     "yesterday", "last week", "last month", "recently",
     "browsing", "browse", "visited", "watched", "read",
     "my history", "my activity", "my notes", "my chat",
-    "browse yesterday", "最近", "浏览", "看", "读",
+    "my default", "my settings",
+    "we agreed", "we promised", "you promised",
+    "photo", "picture", "image of",
+    # Chinese recall / preference / relationship / asset phrasing.
+    # NOTE: avoid generic time markers like "之前"/"以前" — they collide
+    # with workflow-reuse intent ("按之前那套流程..."). Keep triggers
+    # focused on recall verbs, preference markers, and asset nouns.
+    "最近", "刚才", "刚刚", "昨天", "上周", "上个月",
+    "浏览", "拍",
+    "我喜欢", "我爱", "我讨厌", "偏好", "默认",
+    "记得", "约定", "答应",
+    "照片", "图片",
 ]
 
 
@@ -215,6 +223,15 @@ JSON: {"intent": "chat", "tools": ["memory_query"], "thinking_depth": "none", "r
 User: "按之前那套流程修一下这个 bug"
 JSON: {"intent": "code_execution", "tools": ["file_read", "file_write"], "thinking_depth": "medium", "reasoning": "This is a workflow reuse request, not an explicit historical recall request.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
 
+User: "2022年9月我在哪里拍了照片"
+JSON: {"intent": "chat", "tools": ["memory_query"], "thinking_depth": "low", "reasoning": "This asks for historical asset recall. Use memory_query first for the factual answer, and only add source-specific asset tools when the user needs concrete files.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
+
+User: "把刚才那些照片发出来"
+JSON: {"intent": "chat", "tools": ["photo_library_resolve_photo_refs", "prepare_chat_attachments"], "thinking_depth": "low", "reasoning": "The user wants to send previously identified assets, so use the source resolver to obtain file paths and then prepare chat attachments.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
+
+User: "刚刚你调了什么工具，参数和耗时是多少"
+JSON: {"intent": "chat", "tools": ["trace_query"], "thinking_depth": "low", "reasoning": "The user is asking for exact recent execution details, so query the persisted execution trace instead of relying on conversational memory.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
+
 Note: Always match tools/skills from the "Available Tools" and "Available Skills" lists. If not matching skill exists, use basic tools."""
 
     def __init__(
@@ -237,7 +254,6 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
         self.llm = llm_adapter or self._resolve_llm_from_pool()
         self.provider_bridge = LLMProviderBridge(self.llm) if self.llm else None
         self.max_tools = max_tools
-        self._memory_query_hint_resolver = MemoryQueryHintResolver()
 
     def _resolve_llm_from_pool(self) -> Optional[LLMAdapter]:
         if self._llm_pool is None:
@@ -477,6 +493,26 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                     if next_action:
                         line += f" | next_action={next_action}"
                     prompt += f"{line}\n"
+            recent_tool_state = context.recent_tool_state
+            if isinstance(recent_tool_state, list) and recent_tool_state:
+                prompt += "\n## Recent Tool State\n\n"
+                prompt += "Use this as lightweight continuity from recent tool activity. If exact parameters, durations, or detailed outputs are needed, prefer `trace_query`.\n"
+                for item in recent_tool_state[:4]:
+                    if not isinstance(item, dict):
+                        continue
+                    tool_name = str(item.get("tool_name", "unknown"))
+                    status = str(item.get("status", "unknown"))
+                    line = f"- {tool_name}: {status}"
+                    execution_time_ms = item.get("execution_time_ms")
+                    if execution_time_ms not in (None, ""):
+                        line += f" | duration_ms={execution_time_ms}"
+                    outcome = str(item.get("outcome") or "").strip()
+                    if outcome:
+                        line += f" | outcome={outcome}"
+                    handles = item.get("handles")
+                    if isinstance(handles, list) and handles:
+                        line += f" | handles={', '.join(str(h) for h in handles[:4])}"
+                    prompt += f"{line}\n"
         else:
             prompt += "- No environment info\n"
 
@@ -667,6 +703,31 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                         orchestration_strategy=self._default_orchestration_strategy(),
                     )
 
+        trace_keywords = [
+            "参数",
+            "耗时",
+            "tool",
+            "工具",
+            "调用",
+            "trace",
+            "duration",
+            "latency",
+            "为什么失败",
+            "failed",
+            "error code",
+        ]
+        if "trace_query" in available_tools and any(kw in user_lower for kw in trace_keywords):
+            recent_tool_state = context.get("recent_tool_state") if context else None
+            if isinstance(recent_tool_state, list) and recent_tool_state:
+                logger.info("[ContextDecider] Trace detail fallback matched recent tool state")
+                return ContextDecision(
+                    intent="chat",
+                    tools=["trace_query"],
+                    deep_thinking=False,
+                    reasoning="The user is asking for concrete recent tool execution details, so query the persisted trace.",
+                    orchestration_strategy=self._default_orchestration_strategy(),
+                )
+
         # Complex planning/exploration: prefer worker agent tool.
         complex_keywords = [
             "复杂",
@@ -788,8 +849,8 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
         if "memory_query" not in available_names:
             return decision
         tools = list(decision.tools)
-        if "memory_query" not in tools:
-            tools.append("memory_query")
+        tools = [tool for tool in tools if tool != "memory_query"]
+        tools.insert(0, "memory_query")
         return ContextDecision(
             intent=decision.intent,
             tools=tools[: self.max_tools],
@@ -798,12 +859,8 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
             orchestration_strategy=decision.orchestration_strategy,
             memory_layer=decision.memory_layer,
             memory_route=guidance.route,
-            routing_memory_hint=(
-                guidance.recommended_tools[0].suggested_params
-                if guidance.recommended_tools
-                else None
-            ),
         )
+
 
     def _default_orchestration_strategy(
         self,
@@ -943,72 +1000,28 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
         user_message: str,
         context: dict
     ) -> Optional[MemoryGuidance]:
-        """
-        Evaluate if memory retrieval would help answer the user's query.
+        """Evaluate whether memory retrieval would help answer the user's query.
 
-        Only determines whether memory_query should be triggered.
-        Time/type inference is handled by the IntentDecider inside
-        HybridRetrievalService.
+        Returns a boolean recommendation only. The core chat LLM is the
+        single decision point for the ``memory_query`` tool's parameters
+        (``query_mode``, ``time_range``, ``sources``, ``summary_categories``)
+        — the schema description tells it how. No pre-call parameter
+        injection is performed here, so the chat LLM is not biased by
+        rule-based guesses that historically misrouted queries like
+        "我最近在用 chrome 看什么".
 
         Args:
-            user_message: User's message
-            context: Current context (date, etc.)
+            user_message: User's message.
+            context: Current context (unused; kept for signature stability).
 
         Returns:
-            MemoryGuidance if memory retrieval is recommended, None otherwise.
+            MemoryGuidance(recommended=True, route="explicit_query") when
+            the message looks like a recall / preference / activity-recap
+            request; otherwise ``None``.
         """
+        del context  # unused
         message_lower = user_message.lower()
-        if not self._memory_query_hint_resolver.should_route_explicitly(user_message):
+        if not any(trigger in message_lower for trigger in MEMORY_RETRIEVAL_TRIGGERS):
             return None
-        suggested_params = self._memory_query_hint_resolver.resolve(user_message)
+        return MemoryGuidance(recommended=True, route="explicit_query")
 
-        return MemoryGuidance(
-            recommended=True,
-            inject_prompt=False,
-            system_prompt=(
-                "Based on the user's query, memory retrieval may be helpful. "
-                "Consider using the memory_query tool to access relevant historical data."
-            ),
-            recommended_tools=[
-                ToolRecommendation(
-                    name="memory_query",
-                    description="Retrieve memories from L0-L4 layers",
-                    suggested_params=suggested_params,
-                )
-            ],
-            route="explicit_query",
-        )
-
-    def _infer_time_range(self, message_lower: str) -> dict:
-        """Infer time range from message content.
-
-        .. deprecated::
-            Time range inference has moved to IntentDecider.
-            Kept for backward compatibility; will be removed.
-        """
-        if "yesterday" in message_lower or "昨天" in message_lower:
-            return {"relative": "1d"}
-        elif "last week" in message_lower or "上周" in message_lower:
-            return {"relative": "7d"}
-        elif "last month" in message_lower or "上个月" in message_lower:
-            return {"relative": "30d"}
-        elif "recently" in message_lower or "最近" in message_lower:
-            return {"relative": "7d"}
-        else:
-            return {"relative": "7d"}
-
-    def _infer_memory_types(self, message_lower: str) -> Optional[list]:
-        """Infer memory types from message content.
-
-        .. deprecated::
-            Memory type inference has moved to IntentDecider.
-            Kept for backward compatibility; will be removed.
-        """
-        types = []
-        if any(kw in message_lower for kw in ["browse", "visit", "website", "浏览", "网页"]):
-            types.append("chrome_history")
-        if any(kw in message_lower for kw in ["chat", "conversation", "对话", "聊天"]):
-            types.append("chat")
-        if any(kw in message_lower for kw in ["note", "笔记", "记录"]):
-            types.append("note")
-        return types if types else None

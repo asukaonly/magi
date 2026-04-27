@@ -7,7 +7,7 @@ import uuid
 from typing import Any, Callable
 
 from ....agent.trace import now_wall_ms
-from ....chat import ChatMessageRecord, ChatProjector, ChatStore, ChatTurnRecord
+from ....chat import ChatMessageRecord, ChatProjector, ChatStore, ChatTurnRecord, get_chat_read_service
 from ....llm.streaming_events import LLMStreamEvent
 from ....runtime_trace import RuntimeNotificationRecord, RuntimeTraceStore
 
@@ -94,6 +94,8 @@ class ChatOutcomeWriter:
         execution_mode: str | None,
         ux_plan: dict[str, Any] | None,
         response_text: str,
+        attachments: list[dict[str, Any]] | None = None,
+        message_payload: dict[str, Any] | None = None,
         started_at_ms: int,
         completed_at_ms: int,
         run_id: str | None = None,
@@ -158,7 +160,7 @@ class ChatOutcomeWriter:
             role="assistant",
             message_kind="assistant_final",
             content_text=response_text,
-            payload_json="{}",
+            payload_json=self._build_message_payload_json(attachments, message_payload),
             is_final=True,
             is_visible=True,
             created_at_ms=completed_at_ms,
@@ -167,13 +169,26 @@ class ChatOutcomeWriter:
             replaced_by_message_id=None,
             reply_to_message_id=str(reply_to_message_id or "").strip() or None,
         )
-        await self._chat_store.append_message(final_message)
+        await self._chat_store.append_message(final_message, attachment_payloads=attachments)
         await self._chat_store.bump_history_version(existing_turn.session_id)
         if interim_message is not None:
             await self._chat_store.mark_message_replaced(
                 message_id=interim_message.message_id,
                 replaced_by_message_id=final_message.message_id,
             )
+
+    @staticmethod
+    def _build_message_payload_json(
+        attachments: list[dict[str, Any]] | None,
+        message_payload: dict[str, Any] | None,
+    ) -> str:
+        payload = dict(message_payload or {})
+        payload.pop("attachments", None)
+        if attachments:
+            payload["attachments"] = ChatStore._public_attachment_payloads(list(attachments))
+        if not payload:
+            return "{}"
+        return json.dumps(payload, ensure_ascii=False)
 
     async def persist_turn_supersession(
         self,
@@ -358,6 +373,7 @@ class ChatRuntimeNotifier:
         session_id: str,
         turn_id: str | None,
         response_text: str,
+        attachments: list[dict[str, Any]] | None = None,
         orchestration_id: str | None,
         trace_summary: dict[str, Any] | None,
         trace_available: bool,
@@ -371,6 +387,7 @@ class ChatRuntimeNotifier:
             "message_id": message_id,
             "message_kind": message_kind,
             "content": response_text,
+            "attachments": list(attachments or []),
             "author_type": "assistant",
             "content_type": "text",
             "timestamp": time.time(),
@@ -390,6 +407,50 @@ class ChatRuntimeNotifier:
                 session_id=session_id,
                 turn_id=turn_id,
                 payload_json=json.dumps(payload, ensure_ascii=False),
+                created_at_ms=now_wall_ms(),
+            )
+        )
+
+    async def emit_chat_message_upsert(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        message_id: str,
+    ) -> None:
+        if self._runtime_trace_store is None:
+            return
+        normalized_user_id = str(user_id or "").strip()
+        normalized_session_id = str(session_id or "").strip()
+        normalized_message_id = str(message_id or "").strip()
+        if not normalized_user_id or not normalized_session_id or not normalized_message_id:
+            return
+        read_service = get_chat_read_service()
+        message = await read_service.aget_display_message(
+            normalized_user_id,
+            normalized_session_id,
+            normalized_message_id,
+        )
+        if message is None:
+            return
+        session_summary = await read_service.aget_session_summary(
+            normalized_user_id,
+            normalized_session_id,
+        )
+        payload = {
+            "user_id": normalized_user_id,
+            "session_id": normalized_session_id,
+            "message_id": normalized_message_id,
+            "message": message.to_dict(),
+            "session_summary": session_summary.to_dict() if session_summary is not None else None,
+        }
+        await self._runtime_trace_store.append_notification(
+            RuntimeNotificationRecord(
+                notification_id=0,
+                channel="chat_message_upserted",
+                user_id=normalized_user_id,
+                session_id=normalized_session_id,
+                payload_json=json.dumps(payload, default=str),
                 created_at_ms=now_wall_ms(),
             )
         )

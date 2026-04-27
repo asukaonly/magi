@@ -1,7 +1,6 @@
 """Execution handlers for chat task-agent modes."""
 from __future__ import annotations
 
-import json
 import time
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Optional
@@ -67,17 +66,41 @@ _BACKGROUND_TRIGGER_SOURCE_BY_DECISION: dict[
 }
 
 
-def _build_memory_query_guidance_block(routing_memory_hint: dict | None) -> str:
-    if not isinstance(routing_memory_hint, dict) or not routing_memory_hint:
+def _build_attachment_preparation_guidance_block(selected_tools: list[str]) -> str:
+    tool_names = set(selected_tools)
+    if "prepare_chat_attachments" not in tool_names:
         return ""
-    hint_json = json.dumps(routing_memory_hint, ensure_ascii=False)
-    return "\n".join(
-        [
-            "# Memory Query Guidance",
-            "Use `memory_query` before answering. Prefer these parameters for the first recall attempt:",
-            hint_json,
-        ]
-    )
+    lines = [
+        "# Attachment Preparation Guidance",
+        "Use `memory_query` as the source of truth for historical recall when it is available for this turn.",
+        "Only prepare chat attachments after the relevant entities or assets have already been identified by recall results or reusable reply context.",
+        "If the user wants matched local assets sent in chat, first use the appropriate source resolver tool to obtain concrete `file_paths`, then call `prepare_chat_attachments`.",
+        "Do not pass raw local file paths to the user. Use `prepare_chat_attachments` to import resolved `file_paths` into managed chat attachments.",
+        "After `prepare_chat_attachments` succeeds, the backend attaches the returned `chat_attachments` to the assistant turn as structured message metadata.",
+        "Return normal assistant text only. Do not emit attachment JSON, `attachment_id` values, raw `file_paths`, or any other transport markup in the assistant message.",
+    ]
+    return "\n".join(lines)
+
+
+def _build_memory_query_guidance_block(routing_memory_hint: dict | None) -> str:
+    lines = [
+        "# Memory Query Guidance",
+        "Use `memory_query` before broader search or filesystem tools when the turn is primarily asking for historical recall.",
+        "Use the memory-query result to ground later tool calls instead of re-discovering the same context from scratch.",
+    ]
+    if not isinstance(routing_memory_hint, dict) or not routing_memory_hint:
+        return "\n".join(lines)
+
+    preferred_scope = str(routing_memory_hint.get("preferred_scope") or "").strip()
+    preferred_query = str(routing_memory_hint.get("preferred_query") or "").strip()
+    recall_target = str(routing_memory_hint.get("recall_target") or "").strip()
+    if preferred_scope:
+        lines.append(f"Preferred scope: {preferred_scope}")
+    if preferred_query:
+        lines.append(f"Preferred memory query: {preferred_query}")
+    if recall_target:
+        lines.append(f"Recall target: {recall_target}")
+    return "\n".join(lines)
 
 
 def _build_scope_guidance_block(task_hint: dict | None) -> str:
@@ -185,12 +208,15 @@ class DirectLLMHandler(BaseExecutionHandler):
             system_prompt=self._deps.prompt_service.augment_system_prompt_with_reply_context(
                 system_prompt=prompt_package.system_prompt,
                 reply_context=getattr(request.context, "reply_context", None),
+                recent_tool_state=getattr(request.context, "recent_tool_state", None),
             ),
             messages=append_latest_user_message(
                 request.context.history,
                 request.context.latest_user_message,
                 history_limit=10,
                 attachments=list(getattr(request.context.latest_payload, "attachments", []) or []),
+                user_id=request.context.user_id,
+                session_id=request.context.session_id,
             ),
             thinking_depth=request.intent.thinking_depth,
         )
@@ -267,6 +293,9 @@ class FunctionCallingHandler(BaseExecutionHandler):
         )
         if scope_guidance_block:
             system_prompt = f"{system_prompt}\n\n{scope_guidance_block}"
+        attachment_guidance_block = _build_attachment_preparation_guidance_block(selected_tools)
+        if attachment_guidance_block:
+            system_prompt = f"{system_prompt}\n\n{attachment_guidance_block}"
         return FunctionCallingRequest(
             mode=request.mode,
             context=request.context,
@@ -276,6 +305,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
             system_prompt=self._deps.prompt_service.augment_system_prompt_with_reply_context(
                 system_prompt=system_prompt,
                 reply_context=getattr(request.context, "reply_context", None),
+                recent_tool_state=getattr(request.context, "recent_tool_state", None),
             ),
             selected_tools=selected_tools,
             thinking_depth=request.intent.thinking_depth,
@@ -340,6 +370,8 @@ class FunctionCallingHandler(BaseExecutionHandler):
             fc_result = FunctionCallingExecutionResult(
                 mode=request.mode,
                 response_text=execution_outcome.content,
+                attachments=list(getattr(execution_outcome, "attachments", []) or []),
+                message_payload=dict(getattr(execution_outcome, "message_payload", {}) or {}),
                 root_user_message=request.context.latest_user_message,
                 execution_outcome=execution_outcome.to_dict(),
                 turn_id=turn_id,
@@ -372,6 +404,10 @@ class FunctionCallingHandler(BaseExecutionHandler):
             system_prompt=request.system_prompt,
             selected_tools=request.selected_tools,
             conversation_history=request.context.history,
+            allow_attachment_grounding=(
+                bool(getattr(request.context, "allow_media_grounding_for_conversation", False))
+                and bool(getattr(request.context, "core_model_supports_vision", False))
+            ),
         )
         max_iterations = int(getattr(orchestrator, "MAX_ITERATIONS", 10) or 10)
 
@@ -381,11 +417,15 @@ class FunctionCallingHandler(BaseExecutionHandler):
                     return FunctionCallingExecutionResult(
                         mode=request.mode,
                         response_text="",
+                        attachments=list(getattr(step_state, "chat_attachments", []) or []),
+                        message_payload=dict(getattr(step_state, "message_payload", {}) or {}),
                         root_user_message=current_user_message,
                         execution_outcome={
                             "status": "cancelled",
                             "content": "",
                             "failure_reason": None,
+                            "attachments": list(getattr(step_state, "chat_attachments", []) or []),
+                            "message_payload": dict(getattr(step_state, "message_payload", {}) or {}),
                             "tool_failures": list(getattr(step_state, "tool_failures", [])),
                             "iterations": step_state.iteration,
                         },
@@ -438,6 +478,8 @@ class FunctionCallingHandler(BaseExecutionHandler):
                     return FunctionCallingExecutionResult(
                         mode=request.mode,
                         response_text=step_outcome.content,
+                        attachments=list(getattr(step_state, "chat_attachments", []) or []),
+                        message_payload=dict(getattr(step_state, "message_payload", {}) or {}),
                         root_user_message=current_user_message,
                         execution_outcome=execution_outcome,
                         turn_id=current_turn_id,
@@ -470,6 +512,10 @@ class FunctionCallingHandler(BaseExecutionHandler):
                         system_prompt=request.system_prompt,
                         selected_tools=request.selected_tools,
                         conversation_history=request.context.history,
+                        allow_attachment_grounding=(
+                            bool(getattr(request.context, "allow_media_grounding_for_conversation", False))
+                            and bool(getattr(request.context, "core_model_supports_vision", False))
+                        ),
                     )
                     if steer_inbox is not None:
                         # Pending STEER turns from the prior revision are no
@@ -487,6 +533,10 @@ class FunctionCallingHandler(BaseExecutionHandler):
                         system_prompt=request.system_prompt,
                         selected_tools=request.selected_tools,
                         conversation_history=request.context.history,
+                        allow_attachment_grounding=(
+                            bool(getattr(request.context, "allow_media_grounding_for_conversation", False))
+                            and bool(getattr(request.context, "core_model_supports_vision", False))
+                        ),
                     )
                     continue
 
@@ -513,6 +563,8 @@ class FunctionCallingHandler(BaseExecutionHandler):
         return FunctionCallingExecutionResult(
             mode=request.mode,
             response_text=execution_outcome.content,
+            attachments=list(getattr(execution_outcome, "attachments", []) or []),
+            message_payload=dict(getattr(execution_outcome, "message_payload", {}) or {}),
             root_user_message=current_user_message,
             execution_outcome=execution_outcome.to_dict(),
             turn_id=current_turn_id,
@@ -547,11 +599,15 @@ class FunctionCallingHandler(BaseExecutionHandler):
         return FunctionCallingExecutionResult(
             mode=request.mode,
             response_text="",
+            attachments=list(getattr(step_state, "chat_attachments", []) or []),
+            message_payload=dict(getattr(step_state, "message_payload", {}) or {}),
             root_user_message=current_user_message,
             execution_outcome={
                 "status": "detached",
                 "content": "",
                 "failure_reason": None,
+                "attachments": list(getattr(step_state, "chat_attachments", []) or []),
+                "message_payload": dict(getattr(step_state, "message_payload", {}) or {}),
                 "tool_failures": list(getattr(step_state, "tool_failures", [])),
                 "iterations": step_state.iteration,
                 "snapshot": snapshot.to_dict(),

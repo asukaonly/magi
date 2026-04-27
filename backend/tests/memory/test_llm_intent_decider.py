@@ -1,4 +1,10 @@
-"""Tests for LLMIntentDecider."""
+"""Tests for LLMIntentDecider (refinement contract).
+
+The LLM is no longer responsible for layer routing — that is the rule
+engine's job (driven by ``query_mode``). ``LLMIntentDecider.evaluate``
+returns a flat :class:`LLMRefinement` object that ``IntentDecider``
+overlays onto the rule-routed plans via ``LLMIntentDecider.apply``.
+"""
 
 from __future__ import annotations
 
@@ -7,14 +13,19 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from magi.memory.hybrid_retrieval.intent_decider import LLMIntentDecider
+from magi.memory.hybrid_retrieval.intent_decider import (
+    LLMIntentDecider,
+    LLMRefinement,
+)
 from magi.memory.hybrid_retrieval.models import (
+    IntentDecision,
     IntentDeciderInput,
     L1Conditions,
     L2Conditions,
     L2SemanticFrame,
     L3Conditions,
     L4Conditions,
+    LayerQueryPlan,
 )
 
 
@@ -28,349 +39,150 @@ def decider(mock_bridge):
     return LLMIntentDecider(mock_bridge, timeout_seconds=3.0)
 
 
+def _make_l1_rule_plan(query: str) -> IntentDecision:
+    return IntentDecision(
+        plans=[LayerQueryPlan(layer="L1", conditions=L1Conditions(content_query=query))],
+        reasoning="rule",
+        source="rule",
+    )
+
+
+def _make_l2_rule_plan(query: str) -> IntentDecision:
+    return IntentDecision(
+        plans=[LayerQueryPlan(layer="L2", conditions=L2Conditions(content_query=query))],
+        reasoning="rule",
+        source="rule",
+    )
+
+
 # -----------------------------------------------------------------------
-# Successful parsing
+# Successful parsing → LLMRefinement
 # -----------------------------------------------------------------------
 
 
 class TestLLMParsing:
     @pytest.mark.asyncio
-    async def test_single_l1_layer(self, decider: LLMIntentDecider, mock_bridge):
+    async def test_minimal_content_query(self, decider: LLMIntentDecider, mock_bridge):
         mock_bridge.chat.return_value = json.dumps({
-            "layers": [
-                {
-                    "layer": "L1",
-                    "is_fallback": False,
-                    "content_query": "browsing history",
-                    "source_filters": ["chrome_history"],
-                }
-            ],
+            "content_query": "browsing history",
             "reasoning": "user asked about browsing",
         })
-        inp = IntentDeciderInput(query="what did I browse")
-        result = await decider.evaluate(inp)
 
-        assert result is not None
-        assert result.source == "llm"
-        assert len(result.plans) == 1
-        assert result.plans[0].layer == "L1"
-        assert isinstance(result.plans[0].conditions, L1Conditions)
-        assert result.plans[0].conditions.content_query == "browsing history"
+        result = await decider.evaluate(IntentDeciderInput(query="what did I browse"))
+
+        assert isinstance(result, LLMRefinement)
+        assert result.content_query == "browsing history"
         assert result.reasoning == "user asked about browsing"
+        assert result.entities is None
+        assert result.semantic_frame is None
 
     @pytest.mark.asyncio
-    async def test_multi_layer(self, decider: LLMIntentDecider, mock_bridge):
+    async def test_l2_entities_and_predicate_family(self, decider: LLMIntentDecider, mock_bridge):
         mock_bridge.chat.return_value = json.dumps({
-            "layers": [
-                {"layer": "L4", "is_fallback": False, "content_query": "deploy"},
-                {"layer": "L1", "is_fallback": True, "content_query": "deploy"},
-            ],
-            "reasoning": "experience query",
-        })
-        inp = IntentDeciderInput(query="how to deploy")
-        result = await decider.evaluate(inp)
-
-        assert result is not None
-        assert len(result.plans) == 2
-        assert result.plans[0].layer == "L4"
-        assert not result.plans[0].is_fallback
-        assert result.plans[1].layer == "L1"
-        assert result.plans[1].is_fallback
-
-    @pytest.mark.asyncio
-    async def test_l2_with_entities(self, decider: LLMIntentDecider, mock_bridge):
-        mock_bridge.chat.return_value = json.dumps({
-            "layers": [
-                {
-                    "layer": "L2",
-                    "is_fallback": False,
-                    "content_query": "Alice 和 Bob 的关系",
-                    "entities": ["Alice", "Bob"],
-                    "subject_hint": "explicit",
-                    "predicate_family": "relationship",
-                }
-            ],
+            "content_query": "Alice 和 Bob 的关系",
+            "entities": ["Alice", "Bob"],
+            "subject_hint": "explicit",
+            "predicate_family": "relationship",
             "reasoning": "relationship query",
         })
-        inp = IntentDeciderInput(query="Alice和Bob什么关系")
-        result = await decider.evaluate(inp)
+
+        result = await decider.evaluate(IntentDeciderInput(query="Alice和Bob什么关系"))
 
         assert result is not None
-        assert result.plans[0].layer == "L2"
-        assert isinstance(result.plans[0].conditions, L2Conditions)
-        assert result.plans[0].conditions.entities == ["Alice", "Bob"]
-        assert result.plans[0].conditions.subject_hint == "explicit"
-        assert result.plans[0].conditions.predicate_family == "relationship"
+        assert result.entities == ["Alice", "Bob"]
+        assert result.subject_hint == "explicit"
+        assert result.predicate_family == "relationship"
 
     @pytest.mark.asyncio
-    async def test_l2_with_semantic_frame(self, decider: LLMIntentDecider, mock_bridge):
+    async def test_l2_semantic_frame_creator(self, decider: LLMIntentDecider, mock_bridge):
         mock_bridge.chat.return_value = json.dumps({
-            "layers": [
-                {
-                    "layer": "L2",
-                    "is_fallback": False,
-                    "content_query": "B站 喜欢的 up 主",
-                    "entities": ["B站"],
-                    "subject_hint": "self",
-                    "predicate_family": "preference",
-                    "semantic_frame": {
-                        "query_family": "affinity",
-                        "subject_scope": "self",
-                        "answer_kind": "creator",
-                        "answer_unit": "identity",
-                        "constraints": [
-                            {
-                                "scope": "target",
-                                "facet": "platform",
-                                "raw_value": "B站",
-                                "resolved_entity_id": "software:bilibili",
-                            }
-                        ],
-                    },
-                }
-            ],
+            "content_query": "B站 喜欢的 up 主",
+            "entities": ["B站"],
+            "subject_hint": "self",
+            "predicate_family": "preference",
+            "semantic_frame": {
+                "query_family": "affinity",
+                "subject_scope": "self",
+                "answer_kind": "creator",
+                "answer_unit": "identity",
+                "constraints": [
+                    {
+                        "scope": "target",
+                        "facet": "platform",
+                        "raw_value": "B站",
+                        "resolved_entity_id": "software:bilibili",
+                    }
+                ],
+            },
             "reasoning": "creator affinity query",
         })
 
         result = await decider.evaluate(IntentDeciderInput(query="我B站喜欢哪些up主"))
 
         assert result is not None
-        assert isinstance(result.plans[0].conditions, L2Conditions)
-        assert isinstance(result.plans[0].conditions.semantic_frame, L2SemanticFrame)
-        assert result.plans[0].conditions.semantic_frame.answer_kind == "creator"
-        assert result.plans[0].conditions.semantic_frame.constraints[0].resolved_entity_id == "software:bilibili"
+        assert isinstance(result.semantic_frame, L2SemanticFrame)
+        assert result.semantic_frame.answer_kind == "creator"
+        assert result.semantic_frame.constraints[0].resolved_entity_id == "software:bilibili"
 
     @pytest.mark.asyncio
-    async def test_l2_with_place_semantic_frame(self, decider: LLMIntentDecider, mock_bridge):
+    async def test_l2_semantic_frame_place(self, decider: LLMIntentDecider, mock_bridge):
         mock_bridge.chat.return_value = json.dumps({
-            "layers": [
-                {
-                    "layer": "L2",
-                    "is_fallback": False,
-                    "content_query": "杭州 喜欢去的 咖啡馆",
-                    "subject_hint": "self",
-                    "predicate_family": "preference",
-                    "semantic_frame": {
-                        "query_family": "affinity",
-                        "subject_scope": "self",
-                        "answer_kind": "place",
-                        "answer_unit": "place",
-                        "constraints": [
-                            {
-                                "scope": "target",
-                                "facet": "located_in",
-                                "raw_value": "杭州",
-                                "resolved_entity_id": "place:hangzhou",
-                            },
-                            {
-                                "scope": "target",
-                                "facet": "category",
-                                "raw_value": "咖啡馆",
-                                "resolved_facet_value": "coffee_shop",
-                            },
-                        ],
+            "content_query": "杭州 喜欢去的 咖啡馆",
+            "subject_hint": "self",
+            "predicate_family": "preference",
+            "semantic_frame": {
+                "query_family": "affinity",
+                "subject_scope": "self",
+                "answer_kind": "place",
+                "answer_unit": "place",
+                "constraints": [
+                    {
+                        "scope": "target",
+                        "facet": "located_in",
+                        "raw_value": "杭州",
+                        "resolved_entity_id": "place:hangzhou",
                     },
-                }
-            ],
-            "reasoning": "place affinity query",
+                    {
+                        "scope": "target",
+                        "facet": "category",
+                        "raw_value": "咖啡馆",
+                        "resolved_facet_value": "coffee_shop",
+                    },
+                ],
+            },
+            "reasoning": "place affinity",
         })
 
         result = await decider.evaluate(IntentDeciderInput(query="我在杭州喜欢去哪些咖啡馆"))
 
         assert result is not None
-        frame = result.plans[0].conditions.semantic_frame
+        frame = result.semantic_frame
         assert isinstance(frame, L2SemanticFrame)
         assert frame.answer_kind == "place"
         assert frame.constraints[0].resolved_entity_id == "place:hangzhou"
         assert frame.constraints[1].resolved_facet_value == "coffee_shop"
 
     @pytest.mark.asyncio
-    async def test_l2_with_interaction_scoped_place_semantic_frame(self, decider: LLMIntentDecider, mock_bridge):
+    async def test_invalid_subject_hint_dropped(self, decider: LLMIntentDecider, mock_bridge):
         mock_bridge.chat.return_value = json.dumps({
-            "layers": [
-                {
-                    "layer": "L2",
-                    "is_fallback": False,
-                    "content_query": "在杭州的时候 喜欢去的 咖啡馆",
-                    "subject_hint": "self",
-                    "predicate_family": "preference",
-                    "semantic_frame": {
-                        "query_family": "affinity",
-                        "subject_scope": "self",
-                        "answer_kind": "place",
-                        "answer_unit": "place",
-                        "constraints": [
-                            {
-                                "scope": "interaction",
-                                "facet": "located_in",
-                                "raw_value": "杭州",
-                                "resolved_entity_id": "place:hangzhou",
-                            },
-                            {
-                                "scope": "target",
-                                "facet": "category",
-                                "raw_value": "咖啡馆",
-                                "resolved_facet_value": "coffee_shop",
-                            },
-                        ],
-                    },
-                }
-            ],
-            "reasoning": "interaction-scoped place affinity query",
+            "content_query": "x",
+            "subject_hint": "garbage_value",
+            "reasoning": "ok",
         })
-
-        result = await decider.evaluate(IntentDeciderInput(query="我在杭州的时候喜欢去哪些咖啡馆"))
-
+        result = await decider.evaluate(IntentDeciderInput(query="x"))
         assert result is not None
-        frame = result.plans[0].conditions.semantic_frame
-        assert isinstance(frame, L2SemanticFrame)
-        assert frame.answer_kind == "place"
-        assert [(item.scope, item.facet, item.raw_value) for item in frame.constraints] == [
-            ("interaction", "located_in", "杭州"),
-            ("target", "category", "咖啡馆"),
-        ]
+        assert result.subject_hint is None
 
     @pytest.mark.asyncio
-    async def test_l2_with_interaction_scoped_creator_semantic_frame(self, decider: LLMIntentDecider, mock_bridge):
+    async def test_invalid_predicate_family_dropped(self, decider: LLMIntentDecider, mock_bridge):
         mock_bridge.chat.return_value = json.dumps({
-            "layers": [
-                {
-                    "layer": "L2",
-                    "is_fallback": False,
-                    "content_query": "在B站的时候 喜欢看的 up 主",
-                    "subject_hint": "self",
-                    "predicate_family": "preference",
-                    "semantic_frame": {
-                        "query_family": "affinity",
-                        "subject_scope": "self",
-                        "answer_kind": "creator",
-                        "answer_unit": "identity",
-                        "constraints": [
-                            {
-                                "scope": "interaction",
-                                "facet": "platform",
-                                "raw_value": "B站",
-                                "resolved_entity_id": "software:bilibili",
-                            }
-                        ],
-                    },
-                }
-            ],
-            "reasoning": "interaction-scoped creator affinity query",
+            "content_query": "x",
+            "predicate_family": "weird",
+            "reasoning": "ok",
         })
-
-        result = await decider.evaluate(IntentDeciderInput(query="我最近在B站的时候喜欢看哪些up主"))
-
+        result = await decider.evaluate(IntentDeciderInput(query="x"))
         assert result is not None
-        frame = result.plans[0].conditions.semantic_frame
-        assert isinstance(frame, L2SemanticFrame)
-        assert frame.answer_kind == "creator"
-        assert [(item.scope, item.facet, item.raw_value) for item in frame.constraints] == [
-            ("interaction", "platform", "B站")
-        ]
-
-    @pytest.mark.asyncio
-    async def test_l2_with_topic_semantic_frame(self, decider: LLMIntentDecider, mock_bridge):
-        mock_bridge.chat.return_value = json.dumps({
-            "layers": [
-                {
-                    "layer": "L2",
-                    "is_fallback": False,
-                    "content_query": "喜欢的题材",
-                    "subject_hint": "self",
-                    "predicate_family": "preference",
-                    "semantic_frame": {
-                        "query_family": "affinity",
-                        "subject_scope": "self",
-                        "answer_kind": "topic",
-                        "answer_unit": "topic",
-                        "constraints": [],
-                    },
-                }
-            ],
-            "reasoning": "topic affinity query",
-        })
-
-        result = await decider.evaluate(IntentDeciderInput(query="我喜欢什么题材"))
-
-        assert result is not None
-        frame = result.plans[0].conditions.semantic_frame
-        assert isinstance(frame, L2SemanticFrame)
-        assert frame.answer_kind == "topic"
-        assert frame.answer_unit == "topic"
-
-    @pytest.mark.asyncio
-    async def test_l3_layer(self, decider: LLMIntentDecider, mock_bridge):
-        mock_bridge.chat.return_value = json.dumps({
-            "layers": [
-                {"layer": "L3", "is_fallback": False, "content_query": "weekly review"},
-            ],
-            "reasoning": "summary",
-        })
-        inp = IntentDeciderInput(query="summarize this week")
-        result = await decider.evaluate(inp)
-
-        assert result is not None
-        assert isinstance(result.plans[0].conditions, L3Conditions)
-
-    @pytest.mark.asyncio
-    async def test_rewrites_overly_broad_quoted_l1_query_back_to_original_query(self, decider: LLMIntentDecider, mock_bridge):
-        query = "How many days before the team meeting I was preparing for did I attend the workshop on 'Effective Communication in the Workplace'?"
-        mock_bridge.chat.return_value = json.dumps({
-            "layers": [
-                {
-                    "layer": "L1",
-                    "is_fallback": False,
-                    "content_query": "communication skills workshop and meeting preparation",
-                }
-            ],
-            "reasoning": "temporal distance query",
-        })
-
-        result = await decider.evaluate(IntentDeciderInput(query=query))
-
-        assert result is not None
-        assert isinstance(result.plans[0].conditions, L1Conditions)
-        assert result.plans[0].conditions.content_query == query
-
-    @pytest.mark.asyncio
-    async def test_rewrites_overly_broad_unquoted_comparison_query_back_to_original_query(self, decider: LLMIntentDecider, mock_bridge):
-        query = "Which vehicle did I take care of first in February, the bike or the car?"
-        mock_bridge.chat.return_value = json.dumps({
-            "layers": [
-                {
-                    "layer": "L1",
-                    "is_fallback": False,
-                    "content_query": "vehicle maintenance in february",
-                }
-            ],
-            "reasoning": "comparison query",
-        })
-
-        result = await decider.evaluate(IntentDeciderInput(query=query))
-
-        assert result is not None
-        assert isinstance(result.plans[0].conditions, L1Conditions)
-        assert result.plans[0].conditions.content_query == query
-
-    @pytest.mark.asyncio
-    async def test_preserves_specific_anchor_queries_when_llm_already_returns_them(self, decider: LLMIntentDecider, mock_bridge):
-        query = "Which event did I attend first, the 'Effective Time Management' workshop or the 'Data Analysis using Python' webinar?"
-        mock_bridge.chat.return_value = json.dumps({
-            "layers": [
-                {"layer": "L1", "is_fallback": False, "content_query": "Effective Time Management workshop"},
-                {"layer": "L1", "is_fallback": False, "content_query": "Data Analysis using Python webinar"},
-            ],
-            "reasoning": "comparison query",
-        })
-
-        result = await decider.evaluate(IntentDeciderInput(query=query))
-
-        assert result is not None
-        assert [plan.conditions.content_query for plan in result.plans] == [
-            "Effective Time Management workshop",
-            "Data Analysis using Python webinar",
-        ]
+        assert result.predicate_family is None
 
 
 # -----------------------------------------------------------------------
@@ -382,57 +194,33 @@ class TestLLMFailures:
     @pytest.mark.asyncio
     async def test_llm_exception_returns_none(self, decider: LLMIntentDecider, mock_bridge):
         mock_bridge.chat.side_effect = TimeoutError("timeout")
-        inp = IntentDeciderInput(query="hello")
-        result = await decider.evaluate(inp)
+        result = await decider.evaluate(IntentDeciderInput(query="hello"))
         assert result is None
 
     @pytest.mark.asyncio
     async def test_invalid_json_returns_none(self, decider: LLMIntentDecider, mock_bridge):
         mock_bridge.chat.return_value = "not valid json at all"
-        inp = IntentDeciderInput(query="hello")
-        result = await decider.evaluate(inp)
+        result = await decider.evaluate(IntentDeciderInput(query="hello"))
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_empty_layers_returns_none(self, decider: LLMIntentDecider, mock_bridge):
-        mock_bridge.chat.return_value = json.dumps({"layers": [], "reasoning": "empty"})
-        inp = IntentDeciderInput(query="hello")
-        result = await decider.evaluate(inp)
+    async def test_empty_object_returns_none(self, decider: LLMIntentDecider, mock_bridge):
+        mock_bridge.chat.return_value = json.dumps({})
+        result = await decider.evaluate(IntentDeciderInput(query="hello"))
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_missing_layers_key_returns_none(self, decider: LLMIntentDecider, mock_bridge):
-        mock_bridge.chat.return_value = json.dumps({"reasoning": "no layers"})
-        inp = IntentDeciderInput(query="hello")
-        result = await decider.evaluate(inp)
+    async def test_no_useful_fields_returns_none(self, decider: LLMIntentDecider, mock_bridge):
+        # content_query empty + no entities + no semantic_frame → nothing useful
+        mock_bridge.chat.return_value = json.dumps({"reasoning": "no info"})
+        result = await decider.evaluate(IntentDeciderInput(query="hello"))
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_invalid_layer_name_skipped(self, decider: LLMIntentDecider, mock_bridge):
-        mock_bridge.chat.return_value = json.dumps({
-            "layers": [
-                {"layer": "L99", "is_fallback": False, "content_query": "x"},
-            ],
-            "reasoning": "bad layer",
-        })
-        inp = IntentDeciderInput(query="hello")
-        result = await decider.evaluate(inp)
-        assert result is None  # all layers invalid → no plans → None
-
-    @pytest.mark.asyncio
-    async def test_mixed_valid_invalid_layers(self, decider: LLMIntentDecider, mock_bridge):
-        mock_bridge.chat.return_value = json.dumps({
-            "layers": [
-                {"layer": "L99", "is_fallback": False, "content_query": "x"},
-                {"layer": "L1", "is_fallback": False, "content_query": "valid"},
-            ],
-            "reasoning": "mixed",
-        })
-        inp = IntentDeciderInput(query="hello")
-        result = await decider.evaluate(inp)
-        assert result is not None
-        assert len(result.plans) == 1
-        assert result.plans[0].layer == "L1"
+    async def test_non_dict_response_returns_none(self, decider: LLMIntentDecider, mock_bridge):
+        mock_bridge.chat.return_value = json.dumps(["not", "an", "object"])
+        result = await decider.evaluate(IntentDeciderInput(query="hello"))
+        assert result is None
 
 
 # -----------------------------------------------------------------------
@@ -443,12 +231,9 @@ class TestLLMFailures:
 class TestLLMCallParams:
     @pytest.mark.asyncio
     async def test_chat_called_with_correct_params(self, decider: LLMIntentDecider, mock_bridge):
-        mock_bridge.chat.return_value = json.dumps({
-            "layers": [{"layer": "L1", "is_fallback": False, "content_query": "x"}],
-            "reasoning": "ok",
-        })
-        inp = IntentDeciderInput(query="test query")
-        await decider.evaluate(inp)
+        mock_bridge.chat.return_value = json.dumps({"content_query": "x", "reasoning": "ok"})
+
+        await decider.evaluate(IntentDeciderInput(query="test query"))
 
         mock_bridge.chat.assert_called_once()
         call_kwargs = mock_bridge.chat.call_args
@@ -461,46 +246,193 @@ class TestLLMCallParams:
 
     @pytest.mark.asyncio
     async def test_chat_prompt_includes_query_mode_hint(self, decider: LLMIntentDecider, mock_bridge):
-        mock_bridge.chat.return_value = json.dumps({
-            "layers": [{"layer": "L2", "is_fallback": False, "content_query": "weather preference"}],
-            "reasoning": "ok",
-        })
+        mock_bridge.chat.return_value = json.dumps({"content_query": "x", "reasoning": "ok"})
 
-        inp = IntentDeciderInput(query="我喜欢什么天气", query_mode_hint="exact_fact")
-        await decider.evaluate(inp)
+        await decider.evaluate(IntentDeciderInput(query="hello", query_mode_hint="exact_fact"))
 
         prompt = mock_bridge.chat.call_args.kwargs["messages"][0]["content"]
         assert "exact_fact" in prompt
 
     @pytest.mark.asyncio
-    async def test_system_prompt_preserves_quoted_titles(self, decider: LLMIntentDecider, mock_bridge):
-        mock_bridge.chat.return_value = json.dumps({
-            "layers": [{"layer": "L1", "is_fallback": False, "content_query": "x"}],
-            "reasoning": "ok",
-        })
+    async def test_system_prompt_omits_layers_array(self, decider: LLMIntentDecider, mock_bridge):
+        mock_bridge.chat.return_value = json.dumps({"content_query": "x", "reasoning": "ok"})
 
-        await decider.evaluate(
-            IntentDeciderInput(
-                query="Which event did I attend first, the 'Effective Time Management' workshop or the 'Data Analysis using Python' webinar?"
-            )
-        )
+        await decider.evaluate(IntentDeciderInput(query="hello"))
+
+        system_prompt = mock_bridge.chat.call_args.kwargs["system_prompt"]
+        # The new contract no longer asks the LLM to produce a "layers" array.
+        assert '"layers"' not in system_prompt
+        # And it explicitly tells the LLM that layer routing is handled elsewhere.
+        assert "Layer routing is handled elsewhere" in system_prompt
+
+    @pytest.mark.asyncio
+    async def test_system_prompt_preserves_quoted_titles_guidance(self, decider: LLMIntentDecider, mock_bridge):
+        mock_bridge.chat.return_value = json.dumps({"content_query": "x", "reasoning": "ok"})
+
+        await decider.evaluate(IntentDeciderInput(query="x"))
 
         system_prompt = mock_bridge.chat.call_args.kwargs["system_prompt"]
         assert "Keep quoted titles verbatim" in system_prompt
-        assert "Do not replace a quoted title with a broad topic" in system_prompt
 
     @pytest.mark.asyncio
-    @pytest.mark.asyncio
-    async def test_system_prompt_includes_l2_subject_and_predicate_contract(self, decider: LLMIntentDecider, mock_bridge):
-        mock_bridge.chat.return_value = json.dumps({
-            "layers": [{"layer": "L2", "is_fallback": False, "content_query": "天气偏好"}],
-            "reasoning": "ok",
-        })
+    async def test_system_prompt_describes_semantic_frame_contract(self, decider: LLMIntentDecider, mock_bridge):
+        mock_bridge.chat.return_value = json.dumps({"content_query": "x", "reasoning": "ok"})
 
         await decider.evaluate(IntentDeciderInput(query="我喜欢什么天气"))
 
         system_prompt = mock_bridge.chat.call_args.kwargs["system_prompt"]
-        assert 'set subject_hint to "self"' in system_prompt
-        assert "Allowed predicate_family values" in system_prompt
-        assert '"semantic_frame"' in system_prompt
-        assert '"answer_kind"' in system_prompt
+        assert "predicate_family" in system_prompt
+        assert "semantic_frame" in system_prompt
+        assert "answer_kind" in system_prompt
+
+
+# -----------------------------------------------------------------------
+# apply(): overlays refinement onto rule-routed plans
+# -----------------------------------------------------------------------
+
+
+class TestApplyRefinement:
+    def test_overlays_content_query_on_l1_plan(self, decider: LLMIntentDecider):
+        rule_decision = _make_l1_rule_plan(query="raw user query")
+        refinement = LLMRefinement(content_query="refined query", reasoning="r")
+
+        result = decider.apply(
+            original_query="raw user query",
+            rule_decision=rule_decision,
+            refinement=refinement,
+        )
+
+        assert result.plans[0].conditions.content_query == "refined query"
+        assert result.source == "llm"
+        assert "llm: r" in result.reasoning
+
+    def test_overlays_l2_fields_on_l2_plan(self, decider: LLMIntentDecider):
+        rule_decision = _make_l2_rule_plan(query="原始查询")
+        refinement = LLMRefinement(
+            content_query="精炼查询",
+            entities=["Alice"],
+            subject_hint="explicit",
+            predicate_family="relationship",
+            reasoning="r",
+        )
+
+        result = decider.apply(
+            original_query="原始查询",
+            rule_decision=rule_decision,
+            refinement=refinement,
+        )
+
+        l2_conditions = result.plans[0].conditions
+        assert isinstance(l2_conditions, L2Conditions)
+        assert l2_conditions.content_query == "精炼查询"
+        assert l2_conditions.entities == ["Alice"]
+        assert l2_conditions.subject_hint == "explicit"
+        assert l2_conditions.predicate_family == "relationship"
+
+    def test_overlays_semantic_frame_on_l2_plan(self, decider: LLMIntentDecider):
+        rule_decision = _make_l2_rule_plan(query="x")
+        frame = L2SemanticFrame(
+            query_family="affinity",
+            subject_scope="self",
+            answer_kind="creator",
+            answer_unit="identity",
+        )
+        refinement = LLMRefinement(content_query="y", semantic_frame=frame, reasoning="r")
+
+        result = decider.apply(
+            original_query="x", rule_decision=rule_decision, refinement=refinement,
+        )
+
+        l2_conditions = result.plans[0].conditions
+        assert isinstance(l2_conditions, L2Conditions)
+        assert l2_conditions.semantic_frame is frame
+
+    def test_l3_l4_get_content_query_only(self, decider: LLMIntentDecider):
+        rule_decision = IntentDecision(
+            plans=[
+                LayerQueryPlan(layer="L3", conditions=L3Conditions(content_query="orig")),
+                LayerQueryPlan(layer="L4", conditions=L4Conditions(content_query="orig")),
+            ],
+            reasoning="rule",
+            source="rule",
+        )
+        refinement = LLMRefinement(
+            content_query="refined",
+            entities=["should_not_apply"],
+            reasoning="r",
+        )
+
+        result = decider.apply(
+            original_query="orig", rule_decision=rule_decision, refinement=refinement,
+        )
+
+        assert result.plans[0].conditions.content_query == "refined"
+        assert result.plans[1].conditions.content_query == "refined"
+
+    def test_l1_validation_rejects_overly_broad_quoted_query(self, decider: LLMIntentDecider):
+        original_query = (
+            "How many days before the team meeting did I attend the workshop on "
+            "'Effective Communication in the Workplace'?"
+        )
+        rule_decision = _make_l1_rule_plan(query=original_query)
+        refinement = LLMRefinement(
+            content_query="communication skills workshop and meeting preparation",
+            reasoning="bad",
+        )
+
+        result = decider.apply(
+            original_query=original_query,
+            rule_decision=rule_decision,
+            refinement=refinement,
+        )
+
+        # L1 validation rolls overly-broad refinement back to original_query.
+        assert result.plans[0].conditions.content_query == original_query
+
+    def test_l1_validation_rejects_overly_broad_comparison_query(self, decider: LLMIntentDecider):
+        original_query = "Which vehicle did I take care of first in February, the bike or the car?"
+        rule_decision = _make_l1_rule_plan(query=original_query)
+        refinement = LLMRefinement(
+            content_query="vehicle maintenance in february",
+            reasoning="bad",
+        )
+
+        result = decider.apply(
+            original_query=original_query,
+            rule_decision=rule_decision,
+            refinement=refinement,
+        )
+
+        assert result.plans[0].conditions.content_query == original_query
+
+    def test_l1_validation_preserves_specific_anchor_queries(self, decider: LLMIntentDecider):
+        original_query = (
+            "Which event did I attend first, the 'Effective Time Management' workshop or "
+            "the 'Data Analysis using Python' webinar?"
+        )
+        rule_decision = _make_l1_rule_plan(query=original_query)
+        refinement = LLMRefinement(
+            content_query="Effective Time Management workshop",
+            reasoning="ok",
+        )
+
+        result = decider.apply(
+            original_query=original_query,
+            rule_decision=rule_decision,
+            refinement=refinement,
+        )
+
+        # Refinement preserves a quoted span → kept.
+        assert result.plans[0].conditions.content_query == "Effective Time Management workshop"
+
+    def test_empty_content_query_keeps_rule_query_for_l1(self, decider: LLMIntentDecider):
+        rule_decision = _make_l1_rule_plan(query="rule query")
+        refinement = LLMRefinement(content_query="", entities=["X"], reasoning="r")
+
+        result = decider.apply(
+            original_query="rule query",
+            rule_decision=rule_decision,
+            refinement=refinement,
+        )
+
+        assert result.plans[0].conditions.content_query == "rule query"

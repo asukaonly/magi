@@ -15,6 +15,16 @@ from ....chat import ChatStore
 logger = get_logger(__name__)
 
 FACT_EVENTS_TABLE = "fact_events"
+_TOOL_STATE_HANDLE_FIELDS = (
+    "attachment_id",
+    "asset_ref_id",
+    "event_id",
+    "entity_id",
+    "task_id",
+    "worker_id",
+    "source_item_id",
+    "message_id",
+)
 
 
 @dataclass(slots=True)
@@ -154,6 +164,45 @@ class ChatHistoryService:
                     "next_action": next_action,
                 }
             )
+            if len(results) >= max(1, limit):
+                break
+        return results
+
+    def get_recent_tool_state(self, history_key: str, limit: int = 4) -> list[dict[str, Any]]:
+        records = self._tool_interactions.get(history_key, [])
+        results: list[dict[str, Any]] = []
+        for item in reversed(records):
+            if not isinstance(item, dict):
+                continue
+            tool_name = str(item.get("tool_name") or "").strip()
+            if not tool_name:
+                continue
+            status = str(item.get("status") or "unknown").strip() or "unknown"
+            result_summary = str(item.get("result_summary") or "").strip()
+            result_data = item.get("result_data") if isinstance(item.get("result_data"), dict) else {}
+            state: dict[str, Any] = {
+                "tool_name": tool_name,
+                "status": status,
+            }
+            turn_id = str(item.get("turn_id") or "").strip()
+            if turn_id:
+                state["turn_id"] = turn_id
+            execution_time_ms = self._normalize_execution_time_ms(item.get("execution_time_ms"))
+            if execution_time_ms is not None:
+                state["execution_time_ms"] = execution_time_ms
+            if result_summary:
+                state["outcome"] = result_summary[:160]
+            if status != "success":
+                error_code = str(item.get("error_code") or "").strip()
+                error_message = str(item.get("error_message") or "").strip()
+                if error_code:
+                    state["error_code"] = error_code
+                if error_message:
+                    state["error_message"] = error_message[:160]
+            handles = self._extract_reusable_handles(result_data)
+            if handles:
+                state["handles"] = handles
+            results.append(state)
             if len(results) >= max(1, limit):
                 break
         return results
@@ -299,6 +348,52 @@ class ChatHistoryService:
                     "error_message": str(error_message or ""),
                     "result_summary": str(result_preview or ""),
                     "result_data": result_data,
+                    "execution_time_ms": self._normalize_execution_time_ms(execution_time_ms),
                     "turn_id": turn_id,
                 },
             )
+
+    @staticmethod
+    def _normalize_execution_time_ms(value: Any) -> int | None:
+        try:
+            if value is None or value == "":
+                return None
+            normalized = int(round(float(value)))
+        except (TypeError, ValueError):
+            return None
+        return max(0, normalized)
+
+    @staticmethod
+    def _extract_reusable_handles(result_data: dict[str, Any]) -> list[str]:
+        handles: list[str] = []
+
+        def _visit(value: Any, *, depth: int) -> None:
+            if depth > 3:
+                return
+            if isinstance(value, dict):
+                for field_name in _TOOL_STATE_HANDLE_FIELDS:
+                    nested_value = value.get(field_name)
+                    if nested_value is None:
+                        continue
+                    text = str(nested_value).strip()
+                    if text:
+                        handles.append(f"{field_name}:{text}")
+                for nested in value.values():
+                    _visit(nested, depth=depth + 1)
+                return
+            if isinstance(value, list):
+                for item in value[:3]:
+                    _visit(item, depth=depth + 1)
+
+        _visit(result_data, depth=0)
+
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for handle in handles:
+            if handle in seen:
+                continue
+            seen.add(handle)
+            deduped.append(handle)
+            if len(deduped) >= 6:
+                break
+        return deduped

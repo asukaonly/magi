@@ -56,7 +56,6 @@ def _make_request(*, user_message: str = "long task", turn_id: str = "t-1") -> F
             reasoning="",
             orchestration_plan=OrchestrationPlan(),
             memory_route="none",
-            routing_memory_hint=None,
         ),
         tool_selection=ToolSelection(tools=["detach_to_background"], reasoning=""),
         selected_tools=["detach_to_background"],

@@ -24,6 +24,7 @@ from ...llm.streaming_events import LLMStreamEvent, emit_stream_event, get_strea
 from ...chat.workspace import get_default_chat_workspace_path
 from ...config.models import LLMScenario, ThinkingDepth
 from ...config.constants import DEFAULT_MAX_TOKENS
+from ..asset_refs import normalize_asset_ref_payload
 from ..cancel import CancelToken, null_cancel_token
 from ..message_utils import append_latest_user_message
 from ..run_control import (
@@ -122,6 +123,8 @@ class ExecutionOutcome:
     # than only the classified ``failure_reason`` bucket.
     error_text: Optional[str] = None
     tool_failures: List[Dict[str, Any]] = field(default_factory=list)
+    attachments: List[Dict[str, Any]] = field(default_factory=list)
+    message_payload: Dict[str, Any] = field(default_factory=dict)
     iterations: int = 0
     snapshot: Optional["OrchestratorSnapshot"] = None
 
@@ -139,6 +142,8 @@ class ExecutionOutcome:
             "content": self.content,
             "failure_reason": self.failure_reason,
             "tool_failures": list(self.tool_failures),
+            "attachments": list(self.attachments),
+            "message_payload": dict(self.message_payload),
             "iterations": self.iterations,
             "snapshot": self.snapshot.to_dict() if self.snapshot is not None else None,
         }
@@ -235,6 +240,7 @@ class FunctionCallingOrchestrator:
         system_prompt: str,
         selected_tools: List[str],
         conversation_history: List[Dict[str, Any]] | None = None,
+        allow_attachment_grounding: bool = False,
     ) -> FunctionCallingStepState:
         """Build the initial loop state for step-wise function calling."""
         messages = append_latest_user_message(
@@ -246,6 +252,32 @@ class FunctionCallingOrchestrator:
             messages=messages,
             effective_system_prompt=self._augment_system_prompt(system_prompt),
             tools=self._build_tools_parameter(selected_tools),
+            allow_attachment_grounding=allow_attachment_grounding,
+        )
+
+    def inject_prepared_attachment_grounding_message(
+        self,
+        *,
+        messages: List[Dict[str, Any]],
+        attachments: List[Dict[str, Any]],
+        user_id: str | None,
+        session_id: str | None,
+    ) -> List[Dict[str, Any]]:
+        if not attachments:
+            return messages
+        reminder = (
+            "These prepared attachments will be sent with your response. "
+            "Keep the text reply brief and confirmation-focused unless the user explicitly asks for commentary. "
+            "If you mention them, use only details that are directly visible in the attached images "
+            "or already confirmed by tool results. Do not guess location, identity, or scene details."
+        )
+        return append_latest_user_message(
+            messages,
+            reminder,
+            history_limit=max(len(messages), 1) + 1,
+            attachments=attachments,
+            user_id=user_id,
+            session_id=session_id,
         )
 
     def _resolve_llm(self) -> LLMAdapter:
@@ -2146,6 +2178,76 @@ class FunctionCallingOrchestrator:
             if all_names - failed_names:
                 return True
         return False
+
+    def _extract_chat_attachments_from_tool_results(
+        self,
+        tool_results: List[ToolCallResult],
+    ) -> List[Dict[str, Any]]:
+        attachments: List[Dict[str, Any]] = []
+        for result in tool_results:
+            if not result.success or not isinstance(result.data, dict):
+                continue
+            tool_attachments = result.data.get("chat_attachments")
+            if not isinstance(tool_attachments, list):
+                continue
+            for item in tool_attachments:
+                if isinstance(item, dict):
+                    attachments.append(dict(item))
+        return attachments
+
+    def _extract_assistant_message_payload_from_tool_results(
+        self,
+        tool_results: List[ToolCallResult],
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {}
+        for result in tool_results:
+            if not result.success or not isinstance(result.data, dict):
+                continue
+            normalized_result = normalize_asset_ref_payload(result.data)
+            direct_payload: Dict[str, Any] = {}
+            asset_refs = normalized_result.get("asset_refs")
+            if isinstance(asset_refs, list):
+                direct_payload["asset_refs"] = [
+                    dict(item) for item in asset_refs if isinstance(item, dict)
+                ]
+            historical_recall = result.data.get("historical_recall")
+            if isinstance(historical_recall, dict):
+                recall_asset_refs = historical_recall.get("asset_refs")
+                if isinstance(recall_asset_refs, list):
+                    direct_payload["asset_refs"] = [
+                        dict(item) for item in recall_asset_refs if isinstance(item, dict)
+                    ]
+            payload = self._merge_assistant_message_payload(payload, direct_payload)
+
+            nested_payload = result.data.get("assistant_payload")
+            if isinstance(nested_payload, dict):
+                payload = self._merge_assistant_message_payload(
+                    payload,
+                    normalize_asset_ref_payload(nested_payload),
+                )
+        return payload
+
+    def _merge_assistant_message_payload(
+        self,
+        base_payload: Dict[str, Any] | None,
+        incoming_payload: Dict[str, Any] | None,
+    ) -> Dict[str, Any]:
+        merged: Dict[str, Any] = normalize_asset_ref_payload(base_payload)
+        if not incoming_payload:
+            return merged
+        for key, value in normalize_asset_ref_payload(incoming_payload).items():
+            if key == "attachments":
+                continue
+            if isinstance(value, list):
+                normalized_items = [dict(item) if isinstance(item, dict) else item for item in value]
+                existing = merged.get(key)
+                if isinstance(existing, list):
+                    merged[key] = [*existing, *normalized_items]
+                else:
+                    merged[key] = normalized_items
+                continue
+            merged[key] = value
+        return merged
 
     def _classify_exception_failure(self, exc: Exception) -> str:
         message = str(exc).lower()

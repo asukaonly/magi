@@ -375,6 +375,8 @@ class ExecutionResult:
 
     mode: ExecutionMode
     response_text: str = ""
+    attachments: list[dict[str, Any]] = field(default_factory=list)
+    message_payload: dict[str, Any] = field(default_factory=dict)
     skip_emit: bool = False
     root_user_message: str = ""
     correlation_id: Optional[str] = None

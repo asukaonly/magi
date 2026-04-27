@@ -238,7 +238,8 @@ def test_sensor_build_output():
     output = asyncio.run(sensor.build_output(item))
 
     assert output.source_type == "terminal_history"
-    assert "npm run build" in output.title
+    assert output.narration.title is not None
+    assert "npm run build" in output.narration.title
     assert len(output.content_blocks) > 0
     assert "terminal" in output.tags
     assert "zsh" in output.tags

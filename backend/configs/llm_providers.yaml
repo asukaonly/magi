@@ -424,87 +424,65 @@ providers:
     display_name: 阿里云百炼
     description: Qwen models via Alibaba Cloud DashScope
     icon: bailian
-    default_model: qwen3-235b-a22b
-    default_classify_model: qwen3-30b-a3b
+    default_model: qwen3.6-plus
+    default_classify_model: qwen3.6-flash
     default_base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
     chat_models:
-      - id: qwen3-235b-a22b
-        label: Qwen3 235B-A22B
+      - id: qwen3.6-plus
+        label: qwen3.6-plus
         capabilities:
-          vision: false
+          vision: true
           image_output: false
           tool_calling: true
           reasoning: true
         limits:
-          context_window: 131072
-          max_output_tokens: 16384
-          max_concurrency: 3
-      - id: qwen3-32b
-        label: Qwen3 32B
+          context_window: 1000000
+          max_output_tokens: 64000
+          max_concurrency: 10
+      - id: qwen3.6-flash
+        label: qwen3.6-flash
         capabilities:
-          vision: false
+          vision: true
           image_output: false
           tool_calling: true
           reasoning: true
         limits:
-          context_window: 131072
-          max_output_tokens: 16384
-          max_concurrency: 4
-      - id: qwen3-30b-a3b
-        label: Qwen3 30B-A3B
+          context_window: 1000000
+          max_output_tokens: 64000
+          max_concurrency: 10
+      - id: qwen3.5-plus
+        label: qwen3.5-plus
         capabilities:
-          vision: false
+          vision: true
           image_output: false
           tool_calling: true
           reasoning: true
         limits:
-          context_window: 131072
-          max_output_tokens: 16384
-          max_concurrency: 6
-      - id: qwen-max
-        label: Qwen Max
+          context_window: 1000000
+          max_output_tokens: 64000
+          max_concurrency: 10
+      - id: qwen3.5-flash
+        label: qwen3.5-flash
         capabilities:
-          vision: false
+          vision: true
           image_output: false
           tool_calling: true
           reasoning: true
         limits:
-          context_window: 131072
-          max_output_tokens: 16384
-          max_concurrency: 3
-      - id: qwen-plus
-        label: Qwen Plus
+          context_window: 1000000
+          max_output_tokens: 64000
+          max_concurrency: 10
+      - id: qwen3.6-max-preview
+        label: qwen3.6-max-preview
         capabilities:
-          vision: false
+          vision: true
           image_output: false
           tool_calling: true
           reasoning: true
         limits:
-          context_window: 131072
-          max_output_tokens: 16384
-          max_concurrency: 6
-      - id: qwen-turbo
-        label: Qwen Turbo
-        capabilities:
-          vision: false
-          image_output: false
-          tool_calling: true
-          reasoning: true
-        limits:
-          context_window: 131072
-          max_output_tokens: 16384
-          max_concurrency: 6
-      - id: qwq-plus
-        label: QwQ Plus
-        capabilities:
-          vision: false
-          image_output: false
-          tool_calling: true
-          reasoning: true
-        limits:
-          context_window: 131072
-          max_output_tokens: 16384
-          max_concurrency: 4
+          context_window: 256000
+          max_output_tokens: 64000
+          max_concurrency: 10
     embedding_models:
       - id: text-embedding-v3
         label: Text Embedding v3

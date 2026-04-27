@@ -48,9 +48,8 @@ contribution_types = ["tool"]
         encoding="utf-8",
     )
     (plugin_dir / "plugin.py").write_text(
-        """
-from magi.plugins import Plugin
-from magi.tools import Tool, ToolSchema, ToolExecutionContext, ToolResult
+        """from magi_plugin_sdk import Plugin
+from magi_plugin_sdk.tools import Tool, ToolSchema, ToolExecutionContext, ToolResult
 
 class ExternalHelloTool(Tool):
     def _init_schema(self) -> None:

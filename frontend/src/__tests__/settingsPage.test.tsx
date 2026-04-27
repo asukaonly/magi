@@ -17,6 +17,7 @@ const {
   syncStartMinimizedPreferenceMock,
   pickDirectoryMock,
   llmFormAutoChangeRef,
+  translateMock,
 } = vi.hoisted(() => ({
   syncCloseToTrayPreferenceMock: vi.fn(),
   syncAutoStartPreferenceMock: vi.fn(),
@@ -24,6 +25,12 @@ const {
   pickDirectoryMock: vi.fn(),
   llmFormAutoChangeRef: {
     current: null as null | ((args: { value: any; view?: 'all' | 'providers' | 'models' }) => any | null),
+  },
+  translateMock: (key: string, params?: Record<string, any>) => {
+    if (params?.message) {
+      return `${key}:${params.message}`;
+    }
+    return translationMap[key] ?? key;
   },
 }));
 
@@ -48,7 +55,7 @@ const translate = (key: string, params?: Record<string, any>) => {
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: translate,
+    t: translateMock,
   }),
 }));
 
@@ -792,6 +799,69 @@ describe('settings page draft saving', () => {
         plan_approval_required: false,
       });
     });
+  });
+
+  it('disables media grounding when the current core model lacks vision support', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.conversation' }));
+
+    const mediaGroundingSwitch = await screen.findByRole('switch', { name: 'settings.fields.mediaGrounding' });
+    expect(mediaGroundingSwitch).toBeDisabled();
+    expect(mediaGroundingSwitch).toHaveAttribute('data-state', 'unchecked');
+    expect(screen.getByText('settings.mediaGroundingUnavailable')).toBeInTheDocument();
+  });
+
+  it('still lets users turn off media grounding after switching to a non-vision core model', async () => {
+    const user = userEvent.setup();
+    vi.mocked(configApi.get).mockResolvedValue({
+      data: {
+        ...structuredClone(DEFAULT_SYSTEM_CONFIG),
+        llm: {
+          ...structuredClone(DEFAULT_SYSTEM_CONFIG.llm),
+          selections: {
+            ...structuredClone(DEFAULT_SYSTEM_CONFIG.llm.selections),
+            core: {
+              provider_id: 'openai',
+              model: 'gpt-5',
+              capabilities: {
+                vision: false,
+              },
+            },
+          },
+        },
+        preferences: {
+          ...structuredClone(DEFAULT_SYSTEM_CONFIG.preferences),
+          allow_media_grounding_for_conversation: true,
+        },
+      },
+    } as any);
+
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.conversation' }));
+
+    const mediaGroundingSwitch = await screen.findByRole('switch', { name: 'settings.fields.mediaGrounding' });
+    expect(mediaGroundingSwitch).toBeEnabled();
+    expect(mediaGroundingSwitch).toHaveAttribute('data-state', 'checked');
+    expect(screen.getByText('settings.mediaGroundingUnavailable')).toBeInTheDocument();
+
+    await user.click(mediaGroundingSwitch);
+    expect(mediaGroundingSwitch).toHaveAttribute('data-state', 'unchecked');
+    expect(screen.getByText('settings.pendingChanges')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+
+    await waitFor(() =>
+      expect(configApi.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          preferences: expect.objectContaining({
+            allow_media_grounding_for_conversation: false,
+          }),
+        })
+      )
+    );
   });
 
   it('shows grouped memory navigation with dedicated sub-sections', async () => {

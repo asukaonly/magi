@@ -132,7 +132,7 @@ export const ChannelsSection: React.FC<ChannelsSectionProps> = ({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={plugin.enabled ? 'default' : 'secondary'} className="rounded-md">
-              {plugin.enabled ? t('settings.extensions.status.enabled') : t('settings.extensions.status.disabled')}
+              {plugin.enabled ? t('settings.pluginPackages.status.enabled') : t('settings.pluginPackages.status.disabled')}
             </Badge>
             <span className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{plugin.manifest.plugin_id}</span>
           </div>
@@ -195,7 +195,7 @@ export const ChannelsSection: React.FC<ChannelsSectionProps> = ({
           onClick={() => void onReloadPlugin(plugin.manifest.plugin_id)}
         >
           <RefreshCw className={reloading[plugin.manifest.plugin_id] ? 'mr-2 h-4 w-4 animate-spin' : 'mr-2 h-4 w-4'} />
-          {t('settings.extensions.actions.reload')}
+          {t('settings.pluginPackages.actions.reload')}
         </Button>
       </div>
     </div>

@@ -12,7 +12,6 @@ import {
   BarChart3,
   ScrollText,
   PlugZap,
-  Send,
   Radio,
 } from 'lucide-react';
 
@@ -46,9 +45,8 @@ export const NAV_ITEMS: NavItem[] = [
       { id: 'memorySkills' },
     ],
   },
-  { id: 'extensions', icon: PlugZap, children: [{ id: 'extensionsInstalled' }, { id: 'extensionsMarketplace' }] },
+  { id: 'plugins', icon: PlugZap, children: [{ id: 'pluginsInstalled' }, { id: 'pluginsMarketplace' }] },
   { id: 'timeline', icon: ScrollText },
-  { id: 'actions', icon: Send },
   { id: 'channels', icon: Radio },
   { id: 'tools', icon: Wrench },
   {

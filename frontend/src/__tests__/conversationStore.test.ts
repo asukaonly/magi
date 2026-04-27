@@ -252,6 +252,47 @@ describe('conversation store', () => {
         turnId: 'turn-history',
       }),
     ]);
+
+  });
+
+  it('preserves assistant attachments from realtime agent responses', () => {
+    const store = useConversationStore.getState();
+
+    store.receiveAgentResponse({
+      sessionId: 'session-a',
+      content: '照片已准备好',
+      attachments: [
+        {
+          attachment_id: 'att-photo-1',
+          kind: 'image',
+          original_name: 'hangzhou.jpg',
+          size_bytes: 2048,
+        },
+      ],
+      timestamp: Date.now(),
+      turnId: 'turn-photo',
+      messageId: 'msg-photo-final',
+      messageKind: 'assistant_final',
+    });
+
+    expect(
+      useConversationStore.getState().messagesBySession['session-a']?.find((message) => message.turnId === 'turn-photo')
+    ).toEqual(
+      expect.objectContaining({
+        role: 'assistant',
+        kind: 'assistant',
+        content: '照片已准备好',
+        turnId: 'turn-photo',
+        messageId: 'msg-photo-final',
+        attachments: [
+          expect.objectContaining({
+            attachment_id: 'att-photo-1',
+            kind: 'image',
+            original_name: 'hangzhou.jpg',
+          }),
+        ],
+      })
+    );
   });
 
   it('merges a durable user message into the local pending reply without dropping the quote', () => {

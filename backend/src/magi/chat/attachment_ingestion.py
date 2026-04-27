@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import mimetypes
 from pathlib import Path
 
 from ..utils.runtime import RuntimePaths, get_runtime_paths
@@ -165,6 +166,35 @@ class LocalChatAttachmentIngestionService:
             turn_id=turn_id,
             stored=stored,
         )
+
+    def ingest_local_file(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        file_path: str,
+        original_name: str | None = None,
+        mime_type: str | None = None,
+    ) -> dict[str, object]:
+        """Import one existing local file into managed chat attachment storage."""
+
+        source_path = Path(str(file_path or "").strip())
+        if not source_path.is_file():
+            raise ValueError("Attachment source file not found.")
+        resolved_name = Path(str(original_name or "").strip()).name or source_path.name
+        resolved_mime_type = str(
+            mime_type or mimetypes.guess_type(source_path.name)[0] or "application/octet-stream"
+        )
+        payload = self.ingest_attachment(
+            session_id=session_id,
+            turn_id=turn_id,
+            original_name=resolved_name,
+            content=source_path.read_bytes(),
+            mime_type=resolved_mime_type,
+        )
+        payload["source_path"] = str(source_path)
+        payload["source_origin"] = "local_file"
+        return payload
 
     def _build_text_payload(
         self,

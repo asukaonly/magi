@@ -12,6 +12,8 @@ npm install
 echo ""
 echo "==> Installing backend dependencies..."
 cd "${BACKEND_DIR}"
+# Install the plugin SDK first (local editable, before the backend that depends on it)
+pip install --no-build-isolation -e "${ROOT_DIR}/sdk"
 pip install -e ".[dev]" 2>/dev/null || pip install -e .
 
 echo ""

@@ -221,6 +221,8 @@ class L3SummaryStore:
         period_start: float,
         period_end: float,
         persona_context: Dict[str, str] | None = None,
+        source_filter: Optional[List[str]] = None,
+        min_events: int = 1,
     ) -> Optional[Dict[str, Any]]:
         """Build a temporal summary from eligible L1 events."""
         await self.initialize()
@@ -228,6 +230,7 @@ class L3SummaryStore:
             start_time=period_start,
             end_time=period_end,
             cognition_eligible=True,
+            source_filters=list(source_filter) if source_filter else None,
             limit=500,
         )
         events = [
@@ -235,7 +238,7 @@ class L3SummaryStore:
             for event in candidates
             if event["memory_domain"] != "runtime_telemetry" and event["retention_class"] != "disposable"
         ]
-        if not events:
+        if len(events) < max(1, int(min_events)):
             return None
 
         evidence_pack = self._temporal_llm_service.build_evidence_pack(
@@ -252,6 +255,7 @@ class L3SummaryStore:
                         summary_category=summary_category,
                         period_start=period_start,
                         period_end=period_end,
+                        source_filter=list(source_filter) if source_filter else None,
                     )
                     or {}
                 )
@@ -459,6 +463,36 @@ class L3SummaryStore:
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute("SELECT * FROM summaries ORDER BY updated_at DESC LIMIT ? OFFSET ?", (int(limit), int(offset))) as cursor:
+                rows = await cursor.fetchall()
+        return [self._row_to_dict(row) for row in rows]
+
+    async def list_summaries_by_category(
+        self,
+        *,
+        summary_categories: List[str],
+        period_start: Optional[float] = None,
+        period_end: Optional[float] = None,
+        limit: int = 20,
+    ) -> List[Dict[str, Any]]:
+        """List summaries scoped to one or more summary_category values within a window."""
+        await self.initialize()
+        normalized = [str(c).strip() for c in summary_categories if str(c).strip()]
+        if not normalized:
+            return []
+        placeholders = ", ".join("?" for _ in normalized)
+        sql = f"SELECT * FROM summaries WHERE summary_category IN ({placeholders})"
+        args: List[Any] = list(normalized)
+        if period_start is not None:
+            sql += " AND period_end >= ?"
+            args.append(float(period_start))
+        if period_end is not None:
+            sql += " AND period_start <= ?"
+            args.append(float(period_end))
+        sql += " ORDER BY period_end DESC, updated_at DESC LIMIT ?"
+        args.append(int(limit))
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(sql, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
         return [self._row_to_dict(row) for row in rows]
 

@@ -524,9 +524,9 @@
       "memoryReflection": "摘要反思记忆",
       "memorySkills": "工具技能记忆",
       "timeline": "传感器",
-      "extensions": "扩展",
-      "extensionsInstalled": "已安装",
-      "extensionsMarketplace": "插件市场",
+      "plugins": "插件",
+      "pluginsInstalled": "已安装",
+      "pluginsMarketplace": "插件市场",
       "tools": "工具",
       "actions": "执行器",
       "channels": "接入渠道",
@@ -550,6 +550,9 @@
     "defaultChatWorkspacePickFailed": "选择默认对话目录失败：{{message}}",
     "streamingChatLabel": "流式输出",
     "streamingChatDesc": "开启后消息将逐字显示，关闭则等待完整回复后一次性呈现。",
+    "mediaGroundingLabel": "在需要时允许助手查看已准备的媒体内容",
+    "mediaGroundingDesc": "开启后，助手可在需要时查看已准备的图片附件来提升回复依据性。仅当当前 core 模型支持视觉能力时才会发送媒体内容。",
+    "mediaGroundingUnavailable": "当前 core 模型不支持视觉能力，切换到支持视觉的 core 模型前无法开启此选项。",
     "allowInterjectionLabel": "允许插话",
     "allowInterjectionDesc": "开启后可在 AI 回复过程中发送新消息打断当前回复。关闭后需等待回复完成才能发送下一条消息。",
     "allowAskInBackgroundLabel": "允许后台任务向我提问",
@@ -567,9 +570,9 @@
     "personalitySettingsDesc": "控制人格状态记忆、状态跃迁和深层人格等全局运行能力。",
     "memoryDesc": "控制 L0-L4 记忆生命周期、回放策略和各层抽取管线。",
     "timelineDesc": "配置时间线接入默认策略，并分别调整每个来源的行为",
-    "extensionsDesc": "统一查看、启停和重载插件包，并检查它们贡献的能力。",
-    "extensionsInstalledDesc": "管理已安装的插件，启停和重载插件包。",
-    "extensionsMarketplaceDesc": "浏览和下载可用的插件扩展。",
+    "pluginsDesc": "统一查看、启停和重载插件包，并检查它们贡献的能力。",
+    "pluginsInstalledDesc": "管理已安装的插件，启停和重载插件包。",
+    "pluginsMarketplaceDesc": "浏览和下载可用插件。",
     "toolsDesc": "配置内置工具和技能",
     "actionsDesc": "配置 Agent 对外操作能力及其声明式参数。",
     "channelsDesc": "接入外部消息平台（如 Telegram），通过现有聊天链路与 AI 交互。",
@@ -650,6 +653,7 @@
       "proxyPort": "代理端口",
       "defaultChatWorkspace": "默认对话目录",
       "streamingChat": "流式输出",
+      "mediaGrounding": "媒体理解",
       "allowInterjection": "允许插话",
       "allowAskInBackground": "允许后台任务向我提问",
       "userMode": "用户模式",
@@ -1271,11 +1275,11 @@
         "resourceLoadFailed": "读取资源失败：{{message}}"
       }
     },
-    "extensions": {
-      "loading": "正在加载扩展...",
+    "pluginPackages": {
+      "loading": "正在加载插件...",
       "summary": "已发现 {{count}} 个插件包",
       "emptyDescription": "这个插件没有提供额外描述。",
-      "emptySettings": "这个插件当前没有 extensions 面的声明式设置项。",
+      "emptySettings": "这个插件当前没有可配置的声明式设置项。",
       "emptyState": "还没有扫描到任何插件包。",
       "actions": {
         "rescan": "重新扫描",
@@ -1405,6 +1409,10 @@
             "label": "单次最大数量",
             "description": "每次同步最多处理的照片数量。"
           },
+          "settle_window_hours": {
+            "label": "Session 收敛等待时间（小时）",
+            "description": "一组连续拍摄在停止新增这么多小时后，才会被视为已结束并写入时间线。值越小出现越快，值越大分组越稳。"
+          },
           "analysis_features": {
             "label": "分析能力",
             "description": "照片元数据提取能力。"
@@ -1488,6 +1496,10 @@
             "label": "定时间隔",
             "description": "定时同步 Chrome 历史的时间间隔。"
           },
+          "sensors.chrome_history.merge_window_minutes": {
+            "label": "合并窗口（分钟）",
+            "description": "同一页面在该时间窗口内的多次访问会合并成一条时间线事件。"
+          },
           "sensors.chrome_history.lookback_hours": {
             "label": "回溯小时数",
             "description": "还没有游标时，首次同步向前读取多少小时的历史。"
@@ -1495,10 +1507,6 @@
           "sensors.chrome_history.max_items_per_sync": {
             "label": "单次最大条数",
             "description": "每次同步最多写入多少条浏览记录。"
-          },
-          "sensors.chrome_history.fetch_page_content": {
-            "label": "抓取页面正文",
-            "description": "预留给后续页面正文抓取能力，目前不会启用。"
           }
         },
         "options": {

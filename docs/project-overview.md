@@ -23,9 +23,9 @@ Current release expectations are:
 - maintainers publish desktop builds by pushing a version tag in the form `vX.Y.Z`
 - the pushed tag must match the version stored in `frontend/package.json`, `frontend/src-tauri/tauri.conf.json`, `frontend/src-tauri/Cargo.toml`, and `backend/pyproject.toml`
 - release automation builds the Python sidecar first, then runs frontend type-check, a focused frontend smoke suite, frontend lint, a focused backend smoke suite, and finally the Tauri bundle build
-- release jobs create or update a draft GitHub Release and attach the generated desktop installers
+- release jobs publish a GitHub Release and attach the generated desktop installers (`releaseDraft: false` in the workflow)
 - desktop update packages are signed with the Tauri updater keypair, and release automation expects `TAURI_SIGNING_PRIVATE_KEY` plus the optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secret in the `release` environment
-- the desktop app checks the stable GitHub Release feed through `latest.json`, so draft releases do not become visible to in-app auto update until they are published
+- the desktop app checks the GitHub Release update feed through `latest.json`; prerelease visibility follows the release tag and updater configuration
 - macOS signing and notarization should be supplied through repository secrets before shipping public releases to end users
 
 ## Core Goals
@@ -33,7 +33,7 @@ Current release expectations are:
 - local-first deployment and data ownership
 - a layered backend with explicit ownership boundaries
 - a pragmatic but extensible task-agent runtime
-- unified extension loading for built-ins and external packages
+- unified plugin loading for built-ins and external packages
 - a product surface that makes the runtime operable through onboarding and settings
 
 ## Non-Goals
@@ -50,7 +50,7 @@ Magi is a desktop-only application:
 - Desktop mode
   Tauri shell plus React WebView plus Rust Axum gateway plus Python sidecar (IPC worker)
 
-The Rust gateway serves all HTTP and WebSocket traffic on a single port. It handles static database reads, config file I/O, and session/task mutations natively in Rust. Requests that require the Python runtime (message send, LLM calls, agent execution) are dispatched over a Unix Domain Socket IPC channel to the Python sidecar. The Python process runs no HTTP server — FastAPI is used only as an in-memory ASGI app for IPC request dispatch.
+The Rust gateway serves all HTTP and WebSocket traffic on a single port. It handles static database reads, chat attachment content reads, config file I/O, and session/task mutations natively in Rust. Requests that require the Python runtime (message send, LLM calls, agent execution) are dispatched over IPC to the Python sidecar, using Unix Domain Sockets on Unix-like systems and loopback TCP on Windows. The Python process runs no public HTTP server; FastAPI is used only as an in-memory ASGI app for IPC request dispatch.
 
 ## Backend Shape
 
@@ -138,7 +138,7 @@ Execution observability is now a separate concern from durable memory:
   Runtime command-queue persistence only
 
 - `~/.magi/data/chat/chat.db`
-  Chat-domain source of truth for `chat_sessions`, `chat_turns`, and `chat_messages`
+  Chat-domain source of truth for `chat_sessions`, `chat_turns`, `chat_messages`, and indexed `chat_attachments`
 
 - `~/.magi/data/resources/chat/`
   Managed local chat attachments and derived artifacts grouped by type, session, and turn
@@ -205,11 +205,12 @@ magi/
 │   └── tests/
 ├── crates/
 │   └── magi-gateway/       # Rust gateway: Axum routes, IPC client, DB reader
-├── frontend/
-├── docs/
-├── openspec/
-├── plugins/
-└── scripts/
+├── frontend/              # React UI and Tauri desktop host
+├── docs/                  # Durable architecture and product documentation
+├── benchmark/             # LongMemEval and benchmark utilities
+├── plugins/               # Built-in plugin packages
+├── sdk/                   # Plugin SDK package
+└── scripts/               # Dev/build helper scripts
 ```
 
 ## Explore Flow
@@ -237,5 +238,5 @@ This keeps workers leaf-only while preserving a conversational entry point.
 
 - Runtime contributors should read [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md).
 - Product and settings contributors should read [Product Configuration Guide](./product-configuration-guide.md).
-- Extension contributors should read [Unified Plugin Extension Architecture](./plugin-extension-architecture.md) and [Plugin Development Guide](./plugin-development-guide.md).
+- Plugin contributors should read [Unified Plugin Architecture](./plugin-extension-architecture.md) and [Plugin Development Guide](./plugin-development-guide.md).
 - Memory contributors should read [Memory System Design](./memory-system-design.md).

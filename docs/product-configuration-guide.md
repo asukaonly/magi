@@ -20,7 +20,7 @@ Magi currently exposes these major configuration areas:
 - AI personality and tone
 - memory system
 - tool management
-- plugin and extension management
+- plugin management
 - sensor source management
 - settings page structure
 
@@ -97,7 +97,7 @@ It should provide a stable place where users can revisit and update:
 - personality settings
 - memory settings
 - timeline settings
-- extension settings
+- plugin settings
 - tool settings
 - relevant system/runtime settings
 
@@ -130,6 +130,7 @@ Current product expectations:
 - desktop chat history thumbnails should open a larger local preview when clicked
 - parsed text and PDF attachments should be injected into the chat prompt as active attachment context for the current turn
 - image attachments on vision-capable core models should be delivered as multimodal message blocks and routed through direct LLM execution
+- conversation preferences should allow users to decide whether the assistant may inspect prepared media attachments for grounded replies; media grounding must remain disabled unless the selected core model exposes vision capability
 
 ## Conversation Settings
 
@@ -271,7 +272,7 @@ Current storage implementation notes:
 - `runtime_trace.db` is reserved for execution observability and live runtime notifications, not durable chat transcript recovery.
 - rebuildable plugin state belongs under `~/.magi/cache/plugins/<plugin_id>/`, not under memory storage.
 
-## Tool And Extension Management
+## Tool And Plugin Management
 
 Tool management covers:
 
@@ -283,7 +284,7 @@ Tool management covers:
 
 Expected product behavior:
 
-- users can inspect discovered plugin packages in a dedicated Extensions area
+- users can inspect discovered plugin packages in a dedicated Plugins area
 - users can enable, disable, reload, and rescan plugin packages
 - plugin-provided settings are rendered from backend field metadata rather than custom plugin frontend code
 - tool surfaces should continue to reflect runtime-registered tools rather than hardcoded frontend lists
@@ -429,13 +430,13 @@ This document is product-facing.
 
 For internal runtime implementation details, read:
 
-- [Task-Agent Runtime Architecture](/Users/asuka/code/magi/docs/task-agent-runtime-architecture.md)
+- [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md)
 
-For unified extension loading and plugin-backed sensors, read:
+For unified plugin loading and plugin-backed sensors, read:
 
-- [Unified Plugin Extension Architecture](/Users/asuka/code/magi/docs/plugin-extension-architecture.md)
-- [Plugin Development Guide](/Users/asuka/code/magi/docs/plugin-development-guide.md)
+- [Unified Plugin Architecture](./plugin-extension-architecture.md)
+- [Plugin Development Guide](./plugin-development-guide.md)
 
 For a high-level repository and architecture introduction, read:
 
-- [Project Overview](/Users/asuka/code/magi/docs/project-overview.md)
+- [Project Overview](./project-overview.md)

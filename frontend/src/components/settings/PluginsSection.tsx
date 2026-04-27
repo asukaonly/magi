@@ -21,7 +21,7 @@ const collectSurfaceFields = (
     .filter((field) => field.surface === surface);
 
 /**
- * Helper function to get plugin-specific translation with fallback
+ * Helper function to get plugin-specific translation with fallback.
  */
 const getPluginTranslation = (
   t: TFunction,
@@ -31,11 +31,10 @@ const getPluginTranslation = (
 ): string => {
   const translationKey = `settings.plugins.${pluginId}.${key}`;
   const translated = t(translationKey);
-  // If translation doesn't exist, i18next returns the key itself
   return translated === translationKey ? fallback : translated;
 };
 
-interface ExtensionsSectionProps {
+interface PluginsSectionProps {
   plugins: PluginPackageState[];
   loading?: boolean;
   drafts: Record<string, Record<string, any>>;
@@ -46,7 +45,7 @@ interface ExtensionsSectionProps {
   processingIds: Record<string, string>;
 }
 
-export const ExtensionsSection: React.FC<ExtensionsSectionProps> = ({
+export const PluginsSection: React.FC<PluginsSectionProps> = ({
   plugins,
   loading = false,
   drafts,
@@ -64,11 +63,11 @@ export const ExtensionsSection: React.FC<ExtensionsSectionProps> = ({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-center gap-2">
           <Badge variant="secondary" className="rounded-md px-3 py-1">
-            {t('settings.extensions.summary', { count: pluginCount })}
+            {t('settings.pluginPackages.summary', { count: pluginCount })}
           </Badge>
           <Button type="button" variant="outline" size="sm" onClick={() => void onRescan()} disabled={dirty}>
             <RefreshCw className="mr-2 h-4 w-4" />
-            {t('settings.extensions.actions.rescan')}
+            {t('settings.pluginPackages.actions.rescan')}
           </Button>
         </div>
       </div>
@@ -76,14 +75,15 @@ export const ExtensionsSection: React.FC<ExtensionsSectionProps> = ({
       {loading ? (
         <div className="border-t border-[hsl(var(--settings-subnav-border)/0.72)] pt-6">
           <div className="border-b border-dashed border-[hsl(var(--settings-subnav-border)/0.72)] py-8 text-center text-sm text-muted-foreground">
-            {t('settings.extensions.loading')}
+            {t('settings.pluginPackages.loading')}
           </div>
         </div>
       ) : (
         <div className="grid gap-4">
           {plugins.map((plugin) => {
-            const extensionFields = collectSurfaceFields(plugin, 'extensions');
+            const pluginPackageFields = collectSurfaceFields(plugin, 'extensions');
             const operation = processingIds[plugin.manifest.plugin_id];
+
             return (
               <section
                 key={plugin.manifest.plugin_id}
@@ -97,14 +97,19 @@ export const ExtensionsSection: React.FC<ExtensionsSectionProps> = ({
                         {getPluginTranslation(t, plugin.manifest.plugin_id, 'name', plugin.manifest.name)}
                       </div>
                       <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-                        {getPluginTranslation(t, plugin.manifest.plugin_id, 'description', plugin.manifest.description || t('settings.extensions.emptyDescription'))}
+                        {getPluginTranslation(
+                          t,
+                          plugin.manifest.plugin_id,
+                          'description',
+                          plugin.manifest.description || t('settings.pluginPackages.emptyDescription')
+                        )}
                       </p>
                       <div className="flex flex-wrap gap-2">
                         <Badge variant={plugin.enabled ? 'default' : 'secondary'}>
-                          {plugin.enabled ? t('settings.extensions.status.enabled') : t('settings.extensions.status.disabled')}
+                          {plugin.enabled ? t('settings.pluginPackages.status.enabled') : t('settings.pluginPackages.status.disabled')}
                         </Badge>
                         <Badge variant={plugin.healthy ? 'secondary' : 'destructive'}>
-                          {plugin.healthy ? t('settings.extensions.status.healthy') : t('settings.extensions.status.unhealthy')}
+                          {plugin.healthy ? t('settings.pluginPackages.status.healthy') : t('settings.pluginPackages.status.unhealthy')}
                         </Badge>
                         <Badge variant="outline">
                           {plugin.manifest.source} · v{plugin.manifest.version}
@@ -112,12 +117,12 @@ export const ExtensionsSection: React.FC<ExtensionsSectionProps> = ({
                         {plugin.trusted ? (
                           <Badge variant="secondary">
                             <ShieldCheck className="mr-1 h-3 w-3" />
-                            {t('settings.extensions.status.trusted')}
+                            {t('settings.pluginPackages.status.trusted')}
                           </Badge>
                         ) : (
                           <Badge variant="outline">
                             <ShieldX className="mr-1 h-3 w-3" />
-                            {t('settings.extensions.status.untrusted')}
+                            {t('settings.pluginPackages.status.untrusted')}
                           </Badge>
                         )}
                       </div>
@@ -132,8 +137,8 @@ export const ExtensionsSection: React.FC<ExtensionsSectionProps> = ({
                         onClick={() => void onPluginAction(plugin.manifest.plugin_id, plugin.enabled ? 'disable' : 'enable')}
                       >
                         {plugin.enabled
-                          ? t('settings.extensions.actions.disable')
-                          : t('settings.extensions.actions.enable')}
+                          ? t('settings.pluginPackages.actions.disable')
+                          : t('settings.pluginPackages.actions.enable')}
                       </Button>
                       <Button
                         type="button"
@@ -143,7 +148,7 @@ export const ExtensionsSection: React.FC<ExtensionsSectionProps> = ({
                         onClick={() => void onPluginAction(plugin.manifest.plugin_id, 'reload')}
                       >
                         <RefreshCw className={operation === 'reload' ? 'mr-2 h-4 w-4 animate-spin' : 'mr-2 h-4 w-4'} />
-                        {t('settings.extensions.actions.reload')}
+                        {t('settings.pluginPackages.actions.reload')}
                       </Button>
                     </div>
                   </div>
@@ -185,15 +190,15 @@ export const ExtensionsSection: React.FC<ExtensionsSectionProps> = ({
                     <div className="border-l-2 border-destructive/50 pl-4 text-sm text-destructive">
                       <div className="flex items-center gap-2 font-medium">
                         <TriangleAlert className="h-4 w-4" />
-                        {t('settings.extensions.status.lastError')}
+                        {t('settings.pluginPackages.status.lastError')}
                       </div>
                       <p className="mt-2">{plugin.last_error}</p>
                     </div>
                   ) : null}
 
-                  {extensionFields.length > 0 ? (
+                  {pluginPackageFields.length > 0 ? (
                     <PluginSettingsFields
-                      fields={extensionFields}
+                      fields={pluginPackageFields}
                       values={drafts[plugin.manifest.plugin_id] || {}}
                       onChange={(key, value) => onFieldChange(plugin.manifest.plugin_id, key, value)}
                       disabled={!plugin.enabled}
@@ -203,7 +208,7 @@ export const ExtensionsSection: React.FC<ExtensionsSectionProps> = ({
                     <div className="border-b border-dashed border-[hsl(var(--settings-subnav-border)/0.72)] py-3 text-sm text-muted-foreground">
                       <div className="flex items-center gap-2">
                         <CheckCircle2 className="h-4 w-4 text-primary" />
-                        {t('settings.extensions.emptySettings')}
+                        {t('settings.pluginPackages.emptySettings')}
                       </div>
                     </div>
                   )}
@@ -217,4 +222,4 @@ export const ExtensionsSection: React.FC<ExtensionsSectionProps> = ({
   );
 };
 
-export default ExtensionsSection;
+export default PluginsSection;

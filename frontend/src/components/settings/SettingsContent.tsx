@@ -25,10 +25,9 @@ import {
 } from '@/components/settings';
 import { DynamicToolsConfig } from '@/components/config-forms/DynamicToolConfig';
 import LLMForm from '@/components/config-forms/LLMForm';
-import ActionsSection from '@/components/settings/ActionsSection';
 import ChannelsSection from '@/components/settings/ChannelsSection';
 import { DesktopUpdateSection } from '@/components/settings/DesktopUpdateSection';
-import ExtensionsSection from '@/components/settings/ExtensionsSection';
+import PluginsSection from '@/components/settings/PluginsSection';
 import { PluginMarketplace } from '@/components/settings/PluginMarketplace';
 import TimelineSourcesSection from '@/components/settings/TimelineSourcesSection';
 import { ControlSettingsPanel } from '@/components/control';
@@ -118,8 +117,6 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     timelineSelection,
     setTimelineSelection,
     fetchTimelineStatuses,
-    actionsSelection,
-    setActionsSelection,
     channelsSelection,
     setChannelsSelection,
     dirty,
@@ -138,15 +135,6 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
       collator.compare(getTimelineSourceDisplayName(t, left), getTimelineSourceDisplayName(t, right))
     );
   }, [t, timelineStatuses]);
-
-  const actionContributions = useMemo(() =>
-    plugins.flatMap((plugin) =>
-      plugin.contributions
-        .filter((c) => c.contribution_type === 'action' || c.surface === 'actions')
-        .map((contribution) => ({ plugin, contribution }))
-    ),
-    [plugins]
-  );
 
   const channelContributions = useMemo(() =>
     plugins.flatMap((plugin) =>
@@ -241,6 +229,9 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
   const renderSectionContent = () => {
     const embeddingSelection = draftConfig.llm?.selections?.embedding;
     const hasEmbeddingModel = !!(embeddingSelection?.provider_id && embeddingSelection?.model);
+    const coreModelSupportsVision = Boolean(draftConfig.llm?.selections?.core?.capabilities?.vision);
+    const mediaGroundingEnabled = Boolean(draftConfig.preferences.allow_media_grounding_for_conversation);
+    const mediaGroundingSwitchDisabled = !coreModelSupportsVision && !mediaGroundingEnabled;
     const defaultChatWorkspacePath = draftConfig.preferences.default_chat_workspace_path;
 
     const handlePickWorkspace = async () => {
@@ -449,6 +440,30 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                     draft.preferences.streaming_chat_enabled = checked;
                   })}
                 />
+              </div>
+            </SettingsGroup>
+
+            <SettingsGroup
+              title={t('settings.fields.mediaGrounding')}
+              description={t('settings.mediaGroundingDesc')}
+            >
+              <div className="border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-sm">{t('settings.mediaGroundingLabel')}</span>
+                  <Switch
+                    aria-label={t('settings.fields.mediaGrounding')}
+                    checked={draftConfig.preferences.allow_media_grounding_for_conversation}
+                    disabled={mediaGroundingSwitchDisabled}
+                    onCheckedChange={(checked) => patchDraftConfig((draft) => {
+                      draft.preferences.allow_media_grounding_for_conversation = checked;
+                    })}
+                  />
+                </div>
+                {!coreModelSupportsVision ? (
+                  <p className="mt-2 text-xs leading-6 text-muted-foreground">
+                    {t('settings.mediaGroundingUnavailable')}
+                  </p>
+                ) : null}
               </div>
             </SettingsGroup>
 
@@ -762,9 +777,9 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
           </div>
         );
 
-      case 'extensionsInstalled':
+      case 'pluginsInstalled':
         return (
-          <ExtensionsSection
+          <PluginsSection
             plugins={plugins}
             loading={pluginsLoading}
             drafts={draftPluginDrafts}
@@ -772,33 +787,18 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             onFieldChange={handlePluginDraftChange}
             onRescan={async () => {
               await loadPlugins();
-              toast.success(t('settings.extensions.feedback.rescanSuccess'));
+              toast.success(t('settings.pluginPackages.feedback.rescanSuccess'));
             }}
             onPluginAction={handlePluginAction}
             processingIds={pluginProcessingIds}
           />
         );
 
-      case 'extensionsMarketplace':
+      case 'pluginsMarketplace':
         return (
           <PluginMarketplace
             installedPlugins={plugins}
             onInstallComplete={loadPluginsAndSensors}
-          />
-        );
-
-      case 'actions':
-        return (
-          <ActionsSection
-            plugins={plugins}
-            drafts={draftPluginDrafts}
-            dirty={dirty}
-            selectedContributionId={actionsSelection}
-            onSelectContribution={setActionsSelection}
-            onFieldChange={handlePluginDraftChange}
-            onReloadPlugin={handleReloadActionPlugin}
-            onPluginAction={handlePluginAction}
-            reloading={reloadingActionPlugins}
           />
         );
 
@@ -858,7 +858,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon;
               const isActive = isNavGroupActive(item);
-              const isExpandable = isNavGroup(item) || item.id === 'timeline' || item.id === 'actions' || item.id === 'channels';
+              const isExpandable = isNavGroup(item) || item.id === 'timeline' || item.id === 'channels';
               const isExpanded = isExpandable ? getGroupExpanded(item.id) : false;
               const ParentChevron = isExpandable && isExpanded ? ChevronDown : ChevronRight;
               return (
@@ -976,47 +976,6 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                             {source.last_error ? (
                               <span className="ml-auto h-1.5 w-1.5 rounded-full bg-destructive" aria-hidden="true" />
                             ) : null}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-
-                  {item.id === 'actions' && isActive && isExpanded ? (
-                    <div className="ml-3 space-y-0.5 border-l border-[hsl(var(--settings-subnav-border)/0.78)] pl-4">
-                      <button
-                        type="button"
-                        onClick={() => setActionsSelection(null)}
-                        aria-current={actionsSelection === null ? 'page' : undefined}
-                        className={cn(
-                          'flex w-full items-center rounded-sm px-2.5 py-1.5 text-[13px]',
-                          'transition-colors duration-150 ease-out',
-                          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                          actionsSelection === null
-                            ? 'bg-[hsl(var(--settings-shell-elevated)/0.62)] text-foreground font-medium'
-                            : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.52)] hover:text-foreground'
-                        )}
-                      >
-                        {t('settings.timeline.nav.overview')}
-                      </button>
-                      {actionContributions.map(({ contribution }) => {
-                        const isSelected = actionsSelection === contribution.contribution_id;
-                        return (
-                          <button
-                            key={contribution.contribution_id}
-                            type="button"
-                            onClick={() => setActionsSelection(contribution.contribution_id)}
-                            aria-current={isSelected ? 'page' : undefined}
-                            className={cn(
-                              'flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-[13px]',
-                              'transition-colors duration-150 ease-out',
-                              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                              isSelected
-                                ? 'bg-[hsl(var(--settings-shell-elevated)/0.62)] text-foreground font-medium'
-                                : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.52)] hover:text-foreground'
-                            )}
-                          >
-                            <span className="truncate">{contribution.display_name}</span>
                           </button>
                         );
                       })}

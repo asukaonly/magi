@@ -69,6 +69,7 @@ class ChatRuntimeContext(BaseRuntimeContext):
     conversation_history: list[dict[str, Any]]
     active_orchestrations: list[dict[str, Any]]
     recent_tool_errors: list[dict[str, Any]] = field(default_factory=list)
+    recent_tool_state: list[dict[str, Any]] = field(default_factory=list)
     active_run: ActiveRun | None = None
     session_run_id: str | None = None
     session_run_revision: int = 0
@@ -79,6 +80,8 @@ class ChatRuntimeContext(BaseRuntimeContext):
     pending_turns: list[PendingTurn] = field(default_factory=list)
     reply_context: "ChatReplyContext | None" = None
     streaming_chat_enabled: bool = False
+    allow_media_grounding_for_conversation: bool = False
+    core_model_supports_vision: bool = False
 
 
 @dataclass(slots=True)
@@ -88,7 +91,9 @@ class ChatReplyContext:
     message_id: str
     role: str
     content_excerpt: str
+    is_explicit_reply: bool
     references_prior_turn: bool
+    structured_payload: dict[str, Any] | None = None
 
 
 @dataclass(slots=True, kw_only=True)

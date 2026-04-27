@@ -18,6 +18,7 @@ import { isTranscriptMessage } from '@/domain/chat/presentation';
 type AgentResponsePayload = {
   sessionId: string;
   content: string;
+  attachments?: ChatAttachment[];
   timestamp: number;
   messageId?: string;
   messageKind?: string | null;
@@ -480,11 +481,12 @@ export const useConversationStore = create<ConversationState>((set) => ({
       },
     };
   }),
-  receiveAgentResponse: ({ sessionId, content, timestamp, messageId, messageKind, turnId, traceSummary, traceAvailable, uxPlan }) => set((state) => {
+  receiveAgentResponse: ({ sessionId, content, attachments, timestamp, messageId, messageKind, turnId, traceSummary, traceAvailable, uxPlan }) => set((state) => {
     const ensured = ensureSession(state.sessionsById, state.orderedSessionIds, sessionId);
     const previousMessages = state.messagesBySession[sessionId] || [];
     const nextMessages = applyAgentResponse(previousMessages, {
       content,
+      attachments,
       timestamp,
       messageId,
       messageKind,

@@ -15,6 +15,7 @@ import aiosqlite
 from ...core.sqlite import sqlite_connection_async
 from ...config.models import EmbeddingBackend
 from ...events.events import Event, EventLevel, EventTypes
+from ...runtime_defaults import DEFAULT_USER_ID
 from ..embedding.chunking import ChunkedText, chunk_sentences, chunk_text
 from ..embedding.embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
 from ..embedding.embedding_service import EmbeddingProfile, MemoryEmbeddingService
@@ -193,6 +194,7 @@ class L1EventStore:
             await self._ensure_event_identity_schema(db)
             await self._ensure_embedding_status_columns(db)
             await self._ensure_metadata_json_column(db)
+            await self._backfill_external_owner_user_ids(db)
             await db.execute(
                 f"CREATE INDEX IF NOT EXISTS idx_fact_events_embedding_status ON {FACT_EVENTS_TABLE}(embedding_status)"
             )
@@ -1559,6 +1561,19 @@ class L1EventStore:
                 f"ALTER TABLE {FACT_EVENTS_TABLE} ADD COLUMN metadata_json TEXT"
             )
 
+    async def _backfill_external_owner_user_ids(self, db: aiosqlite.Connection) -> None:
+        await db.execute(
+            f"""
+            UPDATE {FACT_EVENTS_TABLE}
+            SET user_id = ?
+            WHERE user_id IS NULL
+              AND deleted_at IS NULL
+              AND session_id IS NULL
+              AND author_type = 'external'
+            """,
+            (DEFAULT_USER_ID,),
+        )
+
     async def _ensure_event_identity_schema(self, db: aiosqlite.Connection) -> None:
         async with db.execute(f"PRAGMA table_info({FACT_EVENTS_TABLE})") as cursor:
             rows = await cursor.fetchall()
@@ -1793,8 +1808,13 @@ class L1EventStore:
         stored_profile_id: str | None,
         *,
         active_profile_id: str | None = None,
+        memory_domain: MemoryDomain | None = None,
     ) -> str:
         normalized_status = str(stored_status or EMBEDDING_STATUS_DISABLED)
+        if not self._vectors_enabled() or self._embedding_service is None:
+            if memory_domain is not None and memory_domain in {MemoryDomain.RUNTIME_TELEMETRY, MemoryDomain.SYSTEM_CONTROL}:
+                return EMBEDDING_STATUS_SKIPPED
+            return EMBEDDING_STATUS_DISABLED
         if normalized_status != EMBEDDING_STATUS_READY:
             return normalized_status
         if active_profile_id and stored_profile_id and stored_profile_id != active_profile_id:
@@ -1811,6 +1831,7 @@ class L1EventStore:
     ) -> Dict[str, Any]:
         stored_profile_id = row["embedding_profile_id"]
         metadata_json = row["metadata_json"] if include_metadata_json else None
+        memory_domain = MemoryDomain.from_value(row["memory_domain"])
         item = {
             "id": int(row["id"]),
             "event_id": str(row["event_id"]),
@@ -1821,7 +1842,7 @@ class L1EventStore:
             "source": str(row["source"]),
             "source_item_id": row["source_item_id"],
             "idempotency_key": row["idempotency_key"],
-            "memory_domain": MemoryDomain.from_value(row["memory_domain"]).label,
+            "memory_domain": memory_domain.label,
             "ingest_target": IngestTarget.from_value(row["ingest_target"]).label,
             "cognition_eligible": bool(row["cognition_eligible"]),
             "tom_depth": TomDepth.from_value(row["tom_depth"]).label,
@@ -1846,6 +1867,7 @@ class L1EventStore:
                 row["embedding_status"],
                 stored_profile_id,
                 active_profile_id=active_embedding_profile_id,
+                memory_domain=memory_domain,
             )
             item["embedding_profile_id"] = stored_profile_id
         return item
@@ -1853,6 +1875,7 @@ class L1EventStore:
     def _row_to_memory_event(self, row: aiosqlite.Row) -> MemoryEvent:
         stored_profile_id = row["embedding_profile_id"]
         metadata_json = row["metadata_json"]
+        memory_domain = MemoryDomain.from_value(row["memory_domain"])
         return MemoryEvent(
             id=int(row["id"]),
             event_id=str(row["event_id"]),
@@ -1863,7 +1886,7 @@ class L1EventStore:
             source=str(row["source"]),
             source_item_id=row["source_item_id"],
             idempotency_key=row["idempotency_key"],
-            memory_domain=MemoryDomain.from_value(row["memory_domain"]),
+            memory_domain=memory_domain,
             ingest_target=IngestTarget.from_value(row["ingest_target"]),
             cognition_eligible=bool(row["cognition_eligible"]),
             tom_depth=TomDepth.from_value(row["tom_depth"]),
@@ -1879,7 +1902,11 @@ class L1EventStore:
             level=int(row["level"]),
             media_path=row["media_path"],
             metadata_json=json.loads(str(metadata_json)) if metadata_json else None,
-            embedding_status=self._effective_embedding_status(row["embedding_status"], stored_profile_id),
+            embedding_status=self._effective_embedding_status(
+                row["embedding_status"],
+                stored_profile_id,
+                memory_domain=memory_domain,
+            ),
             embedding_profile_id=stored_profile_id,
         )
 

@@ -10,7 +10,7 @@ Use it to answer three questions:
 - which dependencies are allowed across layers
 - where lifecycle assembly stops and business logic begins
 
-Read it together with [Project Overview](./project-overview.md), [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md), and [Unified Plugin Extension Architecture](./plugin-extension-architecture.md).
+Read it together with [Project Overview](./project-overview.md), [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md), and [Unified Plugin Architecture](./plugin-extension-architecture.md).
 
 ## Core Rules
 
@@ -227,7 +227,7 @@ Responsibilities:
 
 - timeline read models (`TimelineEvent` is L12-internal, not exported)
 - scale-aware viewport and context-bundle read models
-- timeline adapter (`TimelineAdapter`) converts `SensorOutput` → `TimelineEvent`
+- timeline adapter (`TimelineAdapter`) stores host-rendered `TimelineEvent` objects
 - timeline normalization and insight extraction
 - scheduled source sync policy
 
@@ -238,7 +238,8 @@ Primary packages:
 Notes:
 
 - `TimelineEvent` is an L12-internal view model; sensors produce `SensorOutput` (L9)
-- `TimelineAdapter` is the sole entry point for sensor data into the timeline read model
+- host projection is the sole owner of timeline display rendering from `SensorOutput.activity` + `SensorOutput.narration`
+- `TimelineAdapter` is the sole entry point for rendered timeline events into the timeline read model
 
 ### L13. External Services
 
@@ -283,7 +284,7 @@ Primary packages:
 
 Notes:
 
-- the Python process runs no HTTP server; all external traffic arrives over a Unix Domain Socket IPC channel from the Rust gateway
+- the Python process runs no public HTTP server; external traffic arrives through the Rust gateway and crosses into Python over IPC (Unix Domain Socket on Unix-like systems, loopback TCP on Windows)
 - `ipc/` owns the server, NDJSON protocol parsing, and method-to-handler routing
 - `transport/` owns the in-memory FastAPI/ASGI app used for IPC request dispatch
 

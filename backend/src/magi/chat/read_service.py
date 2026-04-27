@@ -22,6 +22,7 @@ FACT_EVENTS_TABLE = "fact_events"
 CHAT_SESSIONS_TABLE = "chat_sessions"
 CHAT_TURNS_TABLE = "chat_turns"
 CHAT_MESSAGES_TABLE = "chat_messages"
+CHAT_ATTACHMENTS_TABLE = "chat_attachments"
 
 CHAT_STORE_SCHEMA_SQL = f"""
 CREATE TABLE IF NOT EXISTS {CHAT_SESSIONS_TABLE} (
@@ -77,6 +78,20 @@ CREATE TABLE IF NOT EXISTS {CHAT_MESSAGES_TABLE} (
     replaced_by_message_id TEXT,
     reply_to_message_id TEXT,
     label_json TEXT
+);
+CREATE TABLE IF NOT EXISTS {CHAT_ATTACHMENTS_TABLE} (
+    attachment_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    turn_id TEXT,
+    message_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    original_name TEXT NOT NULL DEFAULT '',
+    mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+    size_bytes INTEGER NOT NULL DEFAULT 0,
+    storage_rel_path TEXT NOT NULL,
+    sha256 TEXT,
+    created_at_ms INTEGER NOT NULL
 );
 """
 
@@ -185,6 +200,7 @@ class ChatReadService:
 
     def __init__(self) -> None:
         runtime_paths = get_runtime_paths()
+        self._runtime_paths = runtime_paths
         self._chat_db_path: Path = runtime_paths.chat_db_path
         self._l1_db_path: Path = runtime_paths.l1_memory_db_path
         self._runtime_trace_db_path: Path = runtime_paths.runtime_trace_db_path
@@ -531,6 +547,10 @@ class ChatReadService:
             (normalized_user_id, normalized_session_id),
         )
         conn.execute(
+            f"DELETE FROM {CHAT_ATTACHMENTS_TABLE} WHERE user_id = ? AND session_id = ?",
+            (normalized_user_id, normalized_session_id),
+        )
+        conn.execute(
             f"DELETE FROM {CHAT_TURNS_TABLE} WHERE user_id = ? AND session_id = ?",
             (normalized_user_id, normalized_session_id),
         )
@@ -737,28 +757,36 @@ class ChatReadService:
         if not self._chat_db_path.exists():
             return None
 
-        rows = self._get_conn().execute(
+        row = self._get_conn().execute(
             f"""
-            SELECT payload_json
-            FROM {CHAT_MESSAGES_TABLE}
-            WHERE user_id = ?
-              AND session_id = ?
-              AND is_visible = 1
-              AND payload_json != '{{}}'
-            ORDER BY created_at_ms DESC
+            SELECT a.attachment_id, a.kind, a.original_name, a.mime_type,
+                   a.size_bytes, a.storage_rel_path, a.sha256
+            FROM {CHAT_ATTACHMENTS_TABLE} a
+            JOIN {CHAT_MESSAGES_TABLE} m ON m.message_id = a.message_id
+            WHERE a.user_id = ?
+              AND a.session_id = ?
+              AND a.attachment_id = ?
+              AND m.is_visible = 1
+            LIMIT 1
             """,
-            (normalized_user_id, normalized_session_id),
-        ).fetchall()
-
-        for row in rows:
-            payload = self._parse_message_payload_json(row["payload_json"])
-            attachments = payload.get("attachments") if isinstance(payload.get("attachments"), list) else []
-            for attachment in attachments:
-                if not isinstance(attachment, dict):
-                    continue
-                if str(attachment.get("attachment_id") or "").strip() == normalized_attachment_id:
-                    return dict(attachment)
-        return None
+            (normalized_user_id, normalized_session_id, normalized_attachment_id),
+        ).fetchone()
+        if row is None:
+            return None
+        storage_rel_path = str(row["storage_rel_path"] or "").strip()
+        if not storage_rel_path:
+            return None
+        storage_path = self._runtime_paths.base_dir / Path(storage_rel_path)
+        return {
+            "attachment_id": str(row["attachment_id"] or "").strip(),
+            "kind": str(row["kind"] or "file").strip() or "file",
+            "original_name": str(row["original_name"] or "").strip(),
+            "mime_type": str(row["mime_type"] or "application/octet-stream").strip() or "application/octet-stream",
+            "size_bytes": int(row["size_bytes"] or 0),
+            "storage_rel_path": storage_rel_path,
+            "storage_path": str(storage_path),
+            "sha256": str(row["sha256"] or "").strip() or None,
+        }
 
     def clear_conversation_history(self, user_id: str, session_id: str) -> None:
         if not self._chat_db_path.exists():
@@ -767,6 +795,10 @@ class ChatReadService:
             conn = self._get_conn()
             conn.execute(
                 f"DELETE FROM {CHAT_MESSAGES_TABLE} WHERE user_id = ? AND session_id = ?",
+                (user_id, session_id),
+            )
+            conn.execute(
+                f"DELETE FROM {CHAT_ATTACHMENTS_TABLE} WHERE user_id = ? AND session_id = ?",
                 (user_id, session_id),
             )
             conn.execute(
@@ -1016,6 +1048,7 @@ class ChatReadService:
                 role=role,
                 kind="assistant",
                 content=content,
+                attachments=list(attachments),
                 timestamp=int(row["created_at_ms"] or 0),
                 message_id=str(row["message_id"]),
                 message_kind=message_kind,

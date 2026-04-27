@@ -500,10 +500,10 @@ async def test_build_output():
     # Check output properties
     assert output.source_type == "netease_music"
     assert output.source_item_id == "netease_123_1641000000"
-    assert output.title == "Test Song - Test Artist"
+    assert output.narration.title == "Test Song - Test Artist"
     # Natural language summary must include artist and album for searchability
-    assert "Test Artist" in output.summary
-    assert "Test Song" in output.summary
+    assert "Test Artist" in output.narration.body
+    assert "Test Song" in output.narration.body
     assert output.occurred_at == 1641000000
 
     # Check content blocks: track, artist, album (no alias since track_alias=[])
@@ -553,7 +553,7 @@ async def test_build_output_with_alias():
     }
     output = await sensor.build_output(item)
     # Alias goes into summary (for BM25 searchability)
-    assert "剧场版《新世纪福音战士》片尾曲" in output.summary
+    assert "剧场版《新世纪福音战士》片尾曲" in output.narration.body
     # And into content_blocks as a separate block
     block_values = [b.value for b in output.content_blocks]
     assert "剧场版《新世纪福音战士》片尾曲" in block_values

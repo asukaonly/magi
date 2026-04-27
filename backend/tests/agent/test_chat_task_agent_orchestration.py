@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -164,6 +165,24 @@ async def test_chat_history_service_retries_reload_after_transient_read_failure(
     assert second_history == [{"role": "user", "content": "hello"}]
 
 
+def test_chat_history_service_extracts_asset_ref_handles_from_tool_state() -> None:
+    handles = ChatHistoryService._extract_reusable_handles(
+        {
+            "historical_recall": {
+                "asset_refs": [
+                    {
+                        "asset_ref_id": "asset-1",
+                        "event_id": "evt-1",
+                    }
+                ]
+            }
+        }
+    )
+
+    assert "asset_ref_id:asset-1" in handles
+    assert "event_id:evt-1" in handles
+
+
 @pytest.mark.asyncio
 async def test_chat_task_agent_builds_reply_aware_prompt_context(tmp_path: Path) -> None:
     chat_store = ChatStore(db_path=str(tmp_path / "chat.db"))
@@ -183,7 +202,26 @@ async def test_chat_task_agent_builds_reply_aware_prompt_context(tmp_path: Path)
         role="assistant",
         message_kind="assistant_final",
         content_text="Run the desktop dev script from the repo root.",
-        payload_json="{}",
+        payload_json=json.dumps(
+            {
+                "attachments": [
+                    {
+                        "attachment_id": "att-root-1",
+                        "kind": "image",
+                        "original_name": "desktop-dev.png",
+                    }
+                ],
+                "asset_refs": [
+                    {
+                        "asset_ref_id": "asset-root-1",
+                        "event_id": "evt-photo-root-1",
+                        "original_name": "desktop-dev.png",
+                        "resolver_tool": "photo_library_resolve_photo_refs",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
         is_final=True,
         is_visible=True,
         created_at_ms=150,
@@ -232,8 +270,26 @@ async def test_chat_task_agent_builds_reply_aware_prompt_context(tmp_path: Path)
     assert getattr(context, "reply_context", None) is not None
     assert context.reply_context.message_id == assistant_message.message_id
     assert context.reply_context.role == "assistant"
+    assert context.reply_context.is_explicit_reply is True
     assert context.reply_context.content_excerpt == "Run the desktop dev script from the repo root."
     assert context.reply_context.references_prior_turn is True
+    assert context.reply_context.structured_payload == {
+        "attachments": [
+            {
+                "attachment_id": "att-root-1",
+                "kind": "image",
+                "original_name": "desktop-dev.png",
+            }
+        ],
+        "asset_refs": [
+            {
+                "asset_ref_id": "asset-root-1",
+                "event_id": "evt-photo-root-1",
+                "original_name": "desktop-dev.png",
+                "resolver_tool": "photo_library_resolve_photo_refs",
+            }
+        ],
+    }
 
     request = await agent._handler_registry.get(ExecutionMode.DIRECT_LLM).build_request(
         ExecutionRequest(
@@ -252,8 +308,115 @@ async def test_chat_task_agent_builds_reply_aware_prompt_context(tmp_path: Path)
     assert "Current message is replying to:" in request.system_prompt
     assert "- speaker: assistant" in request.system_prompt
     assert 'Run the desktop dev script from the repo root.' in request.system_prompt
+    assert '"attachment_id": "att-root-1"' in request.system_prompt
+    assert '"asset_ref_id": "asset-root-1"' in request.system_prompt
     assert request.messages[-1] == {"role": "user", "content": "What if I only want the backend?"}
     assert original_user_message.reply_to_message_id is None
+
+
+@pytest.mark.asyncio
+async def test_chat_task_agent_falls_back_to_recent_photo_context_without_explicit_reply(tmp_path: Path) -> None:
+    chat_store = ChatStore(db_path=str(tmp_path / "chat.db"))
+    await chat_store.initialize()
+    await chat_store.create_user_turn(
+        session_id="s-chat",
+        user_id="u-chat",
+        turn_id="turn-1",
+        message_text="2022年9月我在哪里拍了照片",
+        created_at_ms=100,
+    )
+    assistant_message = ChatMessageRecord(
+        message_id="msg-assistant-photo-root",
+        session_id="s-chat",
+        turn_id="turn-1",
+        user_id="u-chat",
+        role="assistant",
+        message_kind="assistant_final",
+        content_text="我找到了几张 2022 年 9 月的照片。",
+        payload_json=json.dumps(
+            {
+                "asset_refs": [
+                    {
+                        "asset_ref_id": "asset-root-1",
+                        "event_id": "evt-photo-root-1",
+                        "original_name": "hangzhou.jpg",
+                        "resolver_tool": "photo_library_resolve_photo_refs",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        is_final=True,
+        is_visible=True,
+        created_at_ms=150,
+        sequence_no=2,
+        replaces_message_id=None,
+        replaced_by_message_id=None,
+    )
+    await chat_store.append_message(assistant_message)
+    await chat_store.bump_history_version("s-chat")
+    await chat_store.create_user_turn(
+        session_id="s-chat",
+        user_id="u-chat",
+        turn_id="turn-2",
+        message_text="发出来看看",
+        created_at_ms=200,
+    )
+
+    agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter(), chat_store=chat_store)
+
+    async def _fake_build_prompt_package(**kwargs):  # type: ignore[no-untyped-def]
+        _ = kwargs
+        return PromptPackage(prompt_context=None, system_prompt="BASE SYSTEM PROMPT")
+
+    agent._context_service.build_prompt_package = _fake_build_prompt_package  # type: ignore[method-assign]
+
+    follow_up_fact = FactRecord(
+        agent_id="chat:u-chat",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={
+            "content": "发出来看看",
+            "user_id": "u-chat",
+            "session_id": "s-chat",
+            "turn_id": "turn-2",
+        },
+        agent_type="chat",
+        agent_instance_id="u-chat",
+        correlation_id="corr_reply_implicit_1",
+    )
+
+    context = await agent.build_context(await agent.merge_facts([follow_up_fact]))
+
+    assert getattr(context, "reply_context", None) is not None
+    assert context.reply_context.message_id == assistant_message.message_id
+    assert context.reply_context.is_explicit_reply is False
+    assert context.reply_context.structured_payload == {
+        "asset_refs": [
+            {
+                "asset_ref_id": "asset-root-1",
+                "event_id": "evt-photo-root-1",
+                "original_name": "hangzhou.jpg",
+                "resolver_tool": "photo_library_resolve_photo_refs",
+            }
+        ]
+    }
+
+    request = await agent._handler_registry.get(ExecutionMode.DIRECT_LLM).build_request(
+        ExecutionRequest(
+            mode=ExecutionMode.DIRECT_LLM,
+            context=context,
+            intent=IntentDecision(
+                intent="chat",
+                difficulty="normal",
+                execution_mode=ExecutionMode.DIRECT_LLM,
+            ),
+            tool_selection=ToolSelection(),
+        )
+    )
+
+    assert "Most recent assistant turn includes reusable context:" in request.system_prompt
+    assert '"asset_ref_id": "asset-root-1"' in request.system_prompt
+    assert "photo_library_resolve_photo_refs" in request.system_prompt
 
 
 @pytest.mark.asyncio

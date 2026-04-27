@@ -7,7 +7,9 @@ import time
 import uuid
 from typing import TYPE_CHECKING, Any, Callable
 
+from ..config import get_user_preference
 from ..core.logger import get_logger
+from ..plugins.i18n import get_current_language, set_current_language
 from ..core.runtime_bindings import require_sensor_scheduler_contrib
 from ..plugins.sensors import SensorRegistry
 from ..runtime_trace import RuntimeNotificationRecord
@@ -209,102 +211,110 @@ class SensorSchedulerContrib:
         if not bool(getattr(sensor, "supports_pull_sync", False)):
             raise RuntimeError(f"Sensor source does not support pull sync: {source_type}")
         package_state = self._plugin_manager.get_package(plugin_id)
-        package_settings = package_state.current_settings if package_state is not None else {}
+        package_settings = dict(package_state.current_settings) if package_state is not None else {}
+        preferred_language = str(get_user_preference("language", "zh") or "zh").strip()
+        if preferred_language:
+            package_settings.setdefault("locale", preferred_language)
         source_settings = dict(package_settings.get("sensors", {}).get(source_type, {}))
-        pull_context = SensorSyncContext(
-            source_type=source_type,
-            manual=manual,
-            last_cursor=target_state.last_cursor,
-            last_success_at=target_state.last_success_at,
-            limit=int(source_settings.get("max_items_per_sync", 200)),
-            runtime_paths=self._runtime_paths,
-            plugin_settings=package_settings,
-        )
-        result = await sensor.collect_items(pull_context)
-        allowed_edge_whitelist = [
-            str(edge_type)
-            for edge_type in source_settings.get(
-                "edge_whitelist",
-                spec.metadata.get("default_settings", {}).get("edge_whitelist", []),
+        previous_language = get_current_language()
+        set_current_language(preferred_language or None)
+        try:
+            pull_context = SensorSyncContext(
+                source_type=source_type,
+                manual=manual,
+                last_cursor=target_state.last_cursor,
+                last_success_at=target_state.last_success_at,
+                limit=int(source_settings.get("max_items_per_sync", 200)),
+                runtime_paths=self._runtime_paths,
+                plugin_settings=package_settings,
             )
-        ]
+            result = await sensor.collect_items(pull_context)
+            allowed_edge_whitelist = [
+                str(edge_type)
+                for edge_type in source_settings.get(
+                    "edge_whitelist",
+                    spec.metadata.get("default_settings", {}).get("edge_whitelist", []),
+                )
+            ]
 
-        # Sort items by modified_at so mid-batch cursor saves are monotonic
-        sorted_items = sorted(
-            result.items,
-            key=lambda it: float(it.get("modified_at") or 0.0),
-        )
-
-        total_items = len(sorted_items)
-        checkpoint_interval = 50
-        target_type_enum = ScheduledTargetType.SENSOR_SYNC
-
-        # Emit initial progress notification
-        await self._emit_sync_progress(
-            source_type=source_type,
-            processed=0,
-            total=total_items,
-            schedule_id=schedule_id,
-        )
-
-        for idx, item in enumerate(sorted_items):
-            fetched = await sensor.fetch_item(item)
-
-            if self._ingestion_gateway is None:
-                raise RuntimeError("SensorIngestionGateway is required for sensor sync")
-
-            output = await sensor.build_output(fetched)
-            metadata = await sensor.extract_metadata(fetched)
-            output.provenance.update(
-                {
-                    "scheduler_schedule_id": schedule_id,
-                    "scheduler_target_key": target_key,
-                    "sensor_sync_mode": "manual" if manual else "scheduled",
-                }
-            )
-            await self._ingestion_gateway.ingest(
-                sensor, output, metadata,
-                allowed_edge_whitelist=allowed_edge_whitelist,
+            # Sort items by modified_at so mid-batch cursor saves are monotonic
+            sorted_items = sorted(
+                result.items,
+                key=lambda it: float(it.get("modified_at") or 0.0),
             )
 
-            # Mid-batch cursor checkpoint + progress report
-            if (idx + 1) % checkpoint_interval == 0:
-                # Progress notification
-                await self._emit_sync_progress(
-                    source_type=source_type,
-                    processed=idx + 1,
-                    total=total_items,
-                    schedule_id=schedule_id,
+            total_items = len(sorted_items)
+            checkpoint_interval = 50
+            target_type_enum = ScheduledTargetType.SENSOR_SYNC
+
+            # Emit initial progress notification
+            await self._emit_sync_progress(
+                source_type=source_type,
+                processed=0,
+                total=total_items,
+                schedule_id=schedule_id,
+            )
+
+            for idx, item in enumerate(sorted_items):
+                fetched = await sensor.fetch_item(item)
+
+                if self._ingestion_gateway is None:
+                    raise RuntimeError("SensorIngestionGateway is required for sensor sync")
+
+                output = await sensor.build_output(fetched)
+                metadata = await sensor.extract_metadata(fetched)
+                output.provenance.update(
+                    {
+                        "scheduler_schedule_id": schedule_id,
+                        "scheduler_target_key": target_key,
+                        "sensor_sync_mode": "manual" if manual else "scheduled",
+                    }
+                )
+                await self._ingestion_gateway.ingest(
+                    sensor, output, metadata,
+                    allowed_edge_whitelist=allowed_edge_whitelist,
                 )
 
-                # Mid-batch cursor save (skip on last item — final cursor is set below)
-                if idx + 1 < total_items:
-                    item_mtime = float(item.get("modified_at") or 0.0)
-                    if item_mtime > 0:
-                        try:
-                            await self._scheduler_service.update_target_cursor(
-                                target_type_enum, target_key,
-                                cursor=str(item_mtime), watermark_ts=item_mtime,
-                            )
-                        except Exception:
-                            logger.debug("Mid-batch cursor save failed", target_key=target_key)
+                # Mid-batch cursor checkpoint + progress report
+                if (idx + 1) % checkpoint_interval == 0:
+                    # Progress notification
+                    await self._emit_sync_progress(
+                        source_type=source_type,
+                        processed=idx + 1,
+                        total=total_items,
+                        schedule_id=schedule_id,
+                    )
 
-        # Emit completion progress notification
-        await self._emit_sync_progress(
-            source_type=source_type,
-            processed=total_items,
-            total=total_items,
-            schedule_id=schedule_id,
-            completed=True,
-        )
+                    # Mid-batch cursor save (skip on last item — final cursor is set below)
+                    if idx + 1 < total_items:
+                        item_mtime = float(item.get("modified_at") or 0.0)
+                        if item_mtime > 0:
+                            try:
+                                await self._scheduler_service.update_target_cursor(
+                                    target_type_enum, target_key,
+                                    cursor=str(item_mtime), watermark_ts=item_mtime,
+                                )
+                            except Exception:
+                                logger.debug("Mid-batch cursor save failed", target_key=target_key)
 
-        return ScheduledExecutionResult(
-            success=True,
-            message="sensor_sync_completed",
-            next_cursor=result.next_cursor,
-            watermark_ts=result.watermark_ts,
-            stats=result.stats,
-        )
+            # Emit completion progress notification
+            await self._emit_sync_progress(
+                source_type=source_type,
+                processed=total_items,
+                total=total_items,
+                schedule_id=schedule_id,
+                completed=True,
+            )
+
+            return ScheduledExecutionResult(
+                success=True,
+                message="sensor_sync_completed",
+                next_cursor=result.next_cursor,
+                watermark_ts=result.watermark_ts,
+                stats=result.stats,
+            )
+        finally:
+            set_current_language(previous_language or None)
 
     async def _emit_sync_progress(
         self,

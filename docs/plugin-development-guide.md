@@ -8,7 +8,80 @@ Use it when you want to:
 
 - add a built-in extension under `plugins/`
 - author an external plugin under `~/.magi/plugins/`
-- contribute new tools or timeline sensors
+- contribute new tools, timeline sensors, or channels
+
+## Prerequisites — Plugin SDK
+
+All plugin contracts (`Plugin`, `SensorSpec`, `ExtensionFieldSpec`, …) live in the
+**`magi-plugin-sdk`** package (`sdk/` in this repository).  Install it before
+developing plugins:
+
+```bash
+# External plugin author — install from PyPI
+pip install magi-plugin-sdk
+
+# Working inside this monorepo — install in editable mode
+pip install -e sdk/
+```
+
+`magi-plugin-sdk` depends only on `pydantic`.  You do **not** need the full Magi
+backend runtime just to write or type-check a plugin.
+
+For plugin-local logging, prefer the SDK helper instead of backend logging utilities:
+
+```python
+from magi_plugin_sdk import get_logger
+
+
+logger = get_logger(__name__)
+```
+
+This keeps plugin code portable when only `magi-plugin-sdk` is installed.
+
+Both import paths below resolve to the same classes at runtime:
+
+```python
+from magi_plugin_sdk import Plugin, SensorSpec   # recommended for external plugins
+from magi.plugins import Plugin, SensorSpec      # also works (requires magi backend)
+```
+
+## Authoring Surface Status
+
+The SDK is the long-term source of truth for plugin authoring, but the migration is still in progress.
+
+Current status:
+
+- declarative plugin contracts already live in `magi-plugin-sdk`
+- tool authoring contracts already live in `magi-plugin-sdk.tools`
+- sensor authoring contracts already live in `magi-plugin-sdk.sensors`
+- channel authoring contracts already live in `magi-plugin-sdk.channels`
+- ingress authoring contracts already live in `magi-plugin-sdk.ingress`
+- the backend re-exports those contracts from `magi.plugins` for compatibility
+- runtime registries, lifecycle modules, and persistence stores remain backend-owned
+
+When writing new external plugins:
+
+- prefer `magi_plugin_sdk` imports wherever available
+- treat backend runtime imports as compatibility imports during the transition
+- avoid depending on backend host internals such as registries, scheduler services, or persistence stores
+
+## Legacy Import Migration Map
+
+Use this table when moving an existing plugin off backend-owned imports.
+
+| Legacy import / pattern | Preferred replacement |
+| --- | --- |
+| `from magi.plugins import Plugin, SensorSpec, ExtensionFieldSpec, ...` | `from magi_plugin_sdk import Plugin, SensorSpec, ExtensionFieldSpec, ...` |
+| `from magi.awareness import SensorBase, SensorOutput, SensorSyncContext, ...` | `from magi_plugin_sdk.sensors import SensorBase, SensorOutput, SensorSyncContext, ...` |
+| `from magi.channels.base import Channel` | `from magi_plugin_sdk.channels import Channel` |
+| `from magi.channels.contracts import ChannelTarget, OutboundContent, ...` | `from magi_plugin_sdk.channels import ChannelTarget, OutboundContent, ...` |
+| `from magi.channels.session_mapper import ChannelSessionMapper` for adapter typing | use injected `ChannelSessionMapperProtocol` instead of the backend concrete class |
+| `from magi.api.services.message_dispatch_service import dispatch_user_message` inside a channel adapter | use injected `ChannelMessageDispatcherProtocol` and call `dispatcher.dispatch_user_message(...)` |
+| `from magi.events.plugin_ingress import PluginIngressHandlerRegistration` | `from magi_plugin_sdk.ingress import PluginIngressHandlerRegistration` |
+| `from magi.runtime_trace import PluginIngressEventRecord` | `from magi_plugin_sdk.ingress import PluginIngressEventRecord` |
+| `from magi.core.logger import get_logger` | `from magi_plugin_sdk import get_logger` |
+
+Compatibility paths still exist in the backend for the migration window, but new plugin code should treat the SDK column as canonical.
 
 ## Quick Start
 
@@ -48,12 +121,12 @@ You only need to declare the contribution types you actually expose.
 
 Every plugin must inherit:
 
-- [Plugin](/Users/asuka/code/magi/backend/src/magi/plugins/base.py)
+- [Plugin](../backend/src/magi/plugins/base.py)
 
 Example:
 
 ```python
-from magi.plugins import Plugin
+from magi_plugin_sdk import Plugin
 
 
 class ExamplePlugin(Plugin):
@@ -62,9 +135,23 @@ class ExamplePlugin(Plugin):
 
     def get_sensors(self):
         return []
+
+    def get_settings_resources(self):
+        return []
 ```
 
 The runtime will call `configure()` before registration, so `self.manifest` and `self.settings` are available inside your plugin instance.
+
+The `Plugin` base class also exposes safe no-op defaults for host-consumed optional hooks such as:
+
+- `get_channel()`
+- `get_channel_fields()`
+- `get_settings_resources()`
+- `read_settings_resource()`
+- `build_temporal_summary_features()`
+- `get_plugin_ingress_registrations()`
+
+Only implement the hooks your package actually contributes.
 
 ## 3. Install the plugin in a scan path
 
@@ -86,7 +173,7 @@ Use the plugin management API:
 
 Or use the Settings page:
 
-- `Settings -> Extensions`
+- `Settings -> Plugins`
 
 New external plugins are discovered disabled by default.
 
@@ -103,8 +190,8 @@ Tool plugins return normal Magi tool classes from `get_tools()`.
 Example:
 
 ```python
-from magi.plugins import Plugin
-from magi.tools.schema import Tool, ToolExecutionContext, ToolResult, ToolSchema
+from magi_plugin_sdk import Plugin
+from magi_plugin_sdk.tools import Tool, ToolExecutionContext, ToolResult, ToolSchema
 
 
 class HelloTool(Tool):
@@ -130,6 +217,128 @@ Guidelines:
 - treat tool implementations exactly like other Magi tools
 - use the plugin only as the registration container
 - if the tool needs settings, expose them through plugin contribution fields rather than custom frontend UI
+- legacy backend imports from `magi.tools.schema` still work during migration, but new plugin code should target `magi_plugin_sdk.tools`
+- for plugin-local logging, use `magi_plugin_sdk.get_logger` rather than `magi.core.logger`
+
+## Channel Plugins
+
+Channel plugins return a configured channel adapter from `get_channel()` and declarative settings fields from `get_channel_fields()`.
+
+Example:
+
+```python
+from magi_plugin_sdk import ExtensionFieldSpec, Plugin
+from magi_plugin_sdk.channels import (
+    Channel,
+    ChannelMessageDispatcherProtocol,
+    ChannelSessionMapperProtocol,
+    ChannelTarget,
+    OutboundContent,
+)
+
+
+class ExampleChannel(Channel):
+    def __init__(self) -> None:
+        self._session_mapper: ChannelSessionMapperProtocol | None = None
+        self._message_dispatcher: ChannelMessageDispatcherProtocol | None = None
+
+    @property
+    def channel_type(self) -> str:
+        return "example"
+
+    def bind_session_mapper(self, session_mapper: ChannelSessionMapperProtocol) -> None:
+        self._session_mapper = session_mapper
+
+    def bind_message_dispatcher(self, dispatcher: ChannelMessageDispatcherProtocol) -> None:
+        self._message_dispatcher = dispatcher
+
+    async def start(self) -> None:
+        return None
+
+    async def stop(self) -> None:
+        return None
+
+    async def send_message(self, target: ChannelTarget, content: OutboundContent) -> None:
+        _ = target, content
+
+    async def send_typing_indicator(self, target: ChannelTarget) -> None:
+        _ = target
+
+
+class ExamplePlugin(Plugin):
+    def get_channel(self) -> Channel | None:
+        return ExampleChannel()
+
+    def get_channel_fields(self) -> list[ExtensionFieldSpec]:
+        return [
+            ExtensionFieldSpec(
+                key="channels.example.enabled",
+                type="switch",
+                label="Enabled",
+                default=True,
+                surface="extensions",
+            )
+        ]
+```
+
+Guidelines:
+
+- prefer `magi_plugin_sdk.channels` for `Channel`, `ChannelTarget`, and related DTOs
+- treat the injected session mapper as a host-provided dependency and type it as `ChannelSessionMapperProtocol`
+- treat the injected inbound dispatcher as a host-provided dependency and type it as `ChannelMessageDispatcherProtocol`
+- keep transport-specific SDKs inside the plugin package so the core SDK stays lightweight
+- route inbound messages through the injected dispatcher instead of importing `magi.api.services.message_dispatch_service` directly
+- legacy imports from `magi.channels.base` and `magi.channels.contracts` still work during the migration window
+
+## Ingress Plugins
+
+Ingress plugins register host-routed event handlers through `get_plugin_ingress_registrations()`.
+
+Example:
+
+```python
+from magi_plugin_sdk import Plugin
+from magi_plugin_sdk.ingress import (
+    PluginIngressEventRecord,
+    PluginIngressHandlerRegistration,
+)
+from magi_plugin_sdk.sensors import PluginRuntimePaths
+
+
+class ExampleIngressHandler:
+    def __init__(self, *, runtime_paths: PluginRuntimePaths) -> None:
+        self._runtime_paths = runtime_paths
+
+    async def handle_event(
+        self,
+        event: PluginIngressEventRecord,
+        payload: dict[str, object],
+    ) -> None:
+        _ = event, payload, self._runtime_paths
+
+
+class ExamplePlugin(Plugin):
+    def get_plugin_ingress_registrations(
+        self,
+        *,
+        runtime_paths: PluginRuntimePaths,
+    ) -> list[PluginIngressHandlerRegistration]:
+        return [
+            PluginIngressHandlerRegistration(
+                plugin_target="example",
+                event_type="example_event",
+                handler=ExampleIngressHandler(runtime_paths=runtime_paths),
+            )
+        ]
+```
+
+Guidelines:
+
+- prefer `magi_plugin_sdk.ingress` for handler registrations and ingress event typing
+- type `runtime_paths` as `PluginRuntimePaths`; current external ingress usage only needs `plugin_cache_dir(...)`
+- keep event handlers host-agnostic; queue claiming, dispatch, and persistence stay in backend runtime modules
+- legacy imports from `magi.events.plugin_ingress` still work during the migration window
+- older plugins that typed events as `magi.runtime_trace.PluginIngressEventRecord` still resolve, but new code should import the SDK protocol instead
 
 ## Sensor Plugins
 
@@ -142,7 +351,7 @@ Sensors return tuples from `get_sensors()`:
 Example:
 
 ```python
-from magi.plugins import ExtensionFieldSpec, Plugin, SensorSpec
+from magi_plugin_sdk import ExtensionFieldSpec, Plugin, SensorSpec
 
 
 class ExampleTimelineSensor:
@@ -193,7 +402,7 @@ Guidelines:
 
 ### SensorBase Hooks
 
-Sensors inheriting `SensorBase` have access to the following hooks that control memory routing and L2 cognition behavior:
+Sensors inheriting `SensorBase` from `magi_plugin_sdk.sensors` have access to the following hooks that control memory routing and L2 cognition behavior:
 
 **Core contract:**
 
@@ -201,6 +410,51 @@ Sensors inheriting `SensorBase` have access to the following hooks that control 
 - `extract_metadata(item)`: extract `SensorOutputMetadata` containing entity hints, tags, and relation candidates
 - `collect_items(context)`: pull-sync entry point; returns `SensorSyncResult` with items, cursor, and stats
 - `fetch_item(item)`: optional pre-processing/enrichment before `build_output`
+
+`SensorOutput` is now a source-truth contract, not a final display-string contract.
+
+Required truth fields inside `SensorOutput`:
+
+- `activity.source` / `activity.action`: stable semantic facets with `code` and `i18n_key`
+- optional `activity.object`: optional semantic object facet when it materially changes retrieval or display
+- optional `activity.qualifiers`: stable low-cardinality qualifiers such as capture mode or session type
+- `narration.body`: factual event narration without host-owned source/action prefix
+- optional `narration.title`: short source-owned headline that the host may reuse in timeline titles
+
+Important ownership rule:
+
+- plugins own `activity` and `narration` truth
+- the host runtime owns final `L1` text, timeline title/summary, and embedding projection
+- plugins should not pre-compose final `{source} {action} ...` display strings inside `narration.body`
+
+Typical authoring pattern:
+
+```python
+return self._build_output(
+    source_item_id="track:123",
+    activity=self._build_activity(
+        source=self._build_activity_facet(
+            code="netease_music",
+            i18n_key="activity.source.netease_music",
+            fallback="NetEase Music",
+            embedding_fallback="网易云音乐",
+        ),
+        action=self._build_activity_facet(
+            code="listen_music",
+            i18n_key="activity.action.listen_music",
+            fallback="Listening",
+            embedding_fallback="听歌",
+        ),
+    ),
+    narration=self._build_narration(
+        title="Track Name - Artist",
+        body="在网易云音乐听了《Track Name》，播放了 3 分钟",
+    ),
+    occurred_at=occurred_at,
+)
+```
+
+Use `fallback` for resilient display when a translation file is missing. Use `embedding_fallback` sparingly for a short dense-retrieval head; do not dump large alias lists or schema text into the event body.
 
 **Dedup helpers:**
 
@@ -293,7 +547,7 @@ Important conventions:
 Typical surfaces:
 
 - `extensions`
-  plugin package level settings shown on the Extensions page
+    plugin package level settings shown on the Plugins page
 
 - `timeline`
   sensor settings shown in Timeline & Sources
@@ -380,16 +634,16 @@ When adding a new plugin or contribution, validate at three levels when relevant
 
 Useful existing references:
 
-- Backend plugin tests under [backend/tests/plugins](/Users/asuka/code/magi/backend/tests/plugins)
-- Backend plugin API tests under [backend/tests/api](/Users/asuka/code/magi/backend/tests/api)
-- [settingsPage.test.tsx](/Users/asuka/code/magi/frontend/src/__tests__/settingsPage.test.tsx)
+- Backend plugin tests under [backend/tests/plugins](../backend/tests/plugins)
+- Backend plugin API tests under [backend/tests/api](../backend/tests/api)
+- [settingsPage.test.tsx](../frontend/src/__tests__/settingsPage.test.tsx)
 
 ## Built-In Examples
 
 Use these as the primary templates:
 
-- [core-tools plugin](/Users/asuka/code/magi/plugins/core-tools/plugin.py)
-- [chrome-history plugin](/Users/asuka/code/magi/plugins/chrome-history/) — full sensor with entity hints, L2 batch policy, and extraction metadata
+- [core-tools plugin](../plugins/core-tools/plugin.py)
+- `chrome-history` plugin in the companion `magi-plugins` repository under `plugins/chrome-history/` - full sensor with entity hints, L2 batch policy, and extraction metadata
 
 ## Common Mistakes
 
@@ -404,5 +658,5 @@ Use these as the primary templates:
 
 ## Related Documents
 
-- [Unified Plugin Extension Architecture](/Users/asuka/code/magi/docs/plugin-extension-architecture.md)
-- [Project Overview](/Users/asuka/code/magi/docs/project-overview.md)
+- [Unified Plugin Architecture](./plugin-extension-architecture.md)
+- [Project Overview](./project-overview.md)

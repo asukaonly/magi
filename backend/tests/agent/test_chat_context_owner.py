@@ -114,17 +114,9 @@ class TestChatContextOwner(unittest.IsolatedAsyncioTestCase):
             tools=["weather", "memory_query"],
             orchestration_plan=OrchestrationPlan(),
             memory_route="explicit_query",
-            routing_memory_hint={
-                "query": "昨天我看了什么",
-                "query_mode": "detail",
-                "sources": ["timeline"],
-                "time_range": {"relative": "1d"},
-            },
         )
         tool_result = ToolSelection(tools=["weather", "memory_query"], reasoning="history lookup")
 
         llm_params = await agent.assemble_llm_params(context, intent_result, tool_result)
 
         self.assertEqual(llm_params.selected_tools[0], "memory_query")
-        self.assertIn("Use `memory_query` before answering", llm_params.system_prompt)
-        self.assertIn('"sources": ["timeline"]', llm_params.system_prompt)

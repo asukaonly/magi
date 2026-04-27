@@ -91,9 +91,9 @@
     "installSuccess": "Successfully installed {{count}} sensor(s)",
     "installAllFailed": "{{count}} sensor(s) failed to install, you can retry later in Settings",
     "installPartial": "{{success}} installed, {{fail}} failed",
-    "skipHint": "You can skip this step and install sensors later in Settings → Extensions.",
-    "registryUnavailable": "The sensor plugin registry is temporarily unavailable. After setup, you can browse and install these sensors in Settings → Extensions:",
-    "installLaterHint": "You can install and configure sensors in Settings → Extensions after setup. Click Next to continue."
+    "skipHint": "You can skip this step and install sensors later in Settings → Plugins.",
+    "registryUnavailable": "The sensor plugin registry is temporarily unavailable. After setup, you can browse and install these sensors in Settings → Plugins:",
+    "installLaterHint": "You can install and configure sensors in Settings → Plugins after setup. Click Next to continue."
   },
   "sensors": {
     "title": "Sensor Configuration",

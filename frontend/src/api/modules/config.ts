@@ -44,6 +44,7 @@ export interface UserPreferences {
   start_minimized: boolean;
   default_chat_workspace_path: string | null;
   streaming_chat_enabled: boolean;
+  allow_media_grounding_for_conversation: boolean;
   allow_interjection: boolean;
   allow_ask_in_background: boolean;
 }
@@ -576,6 +577,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     start_minimized: false,
     default_chat_workspace_path: '~/.magi/chat-workspace',
     streaming_chat_enabled: false,
+    allow_media_grounding_for_conversation: false,
     allow_interjection: true,
     allow_ask_in_background: false,
   },

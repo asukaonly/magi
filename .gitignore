@@ -79,6 +79,8 @@ sidecar-dist/
 .ruff_cache/
 .worktrees/
 .worktree/
+.magi/
+gateway-cli/.magi/
 
 # Claude Code local settings
 .claude/settings.local.json

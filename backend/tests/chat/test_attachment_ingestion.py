@@ -70,3 +70,22 @@ def test_ingest_attachment_rejects_oversized_text_file(tmp_path: Path) -> None:
             content=b"0" * (50 * 1024 * 1024 + 1),
             mime_type="text/markdown",
         )
+
+
+def test_ingest_local_file_imports_existing_image_path(tmp_path: Path) -> None:
+    runtime_paths = RuntimePaths(tmp_path / "runtime")
+    service = LocalChatAttachmentIngestionService(runtime_paths=runtime_paths)
+    source_path = tmp_path / "photo.jpg"
+    source_path.write_bytes(b"fake-jpeg")
+
+    payload = service.ingest_local_file(
+        session_id="session-1",
+        turn_id="turn-1",
+        file_path=str(source_path),
+        mime_type="image/jpeg",
+    )
+
+    assert payload["kind"] == "image"
+    assert payload["source_path"] == str(source_path)
+    assert payload["source_origin"] == "local_file"
+    assert Path(str(payload["storage_path"])).is_file()
