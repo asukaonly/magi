@@ -2,8 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2, ChevronDown, Loader2, Plus, XCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-import { SelectField } from '@/components/config-forms/fields';
-import { LLMProviderApiKeyField } from '@/components/config-forms/LLMProviderApiKeyField';
+import { LLMProviderConnectionFields } from '@/components/config-forms/LLMProviderConnectionFields';
 import { LLMProviderDetailHeader } from '@/components/config-forms/LLMProviderDetailHeader';
 import { LLMProviderListPane } from '@/components/config-forms/LLMProviderListPane';
 import { LLMProviderTestStatus } from '@/components/config-forms/LLMProviderTestStatus';
@@ -326,125 +325,17 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
               <LLMProviderTestStatus error={activeTestState.error} result={activeTestState.result} />
 
               <div className="grid gap-4">
-                {activeProvider.provider_type === 'custom' ? (
-                  <>
-                    <label className="space-y-2">
-                      <span className="text-sm font-medium">{t('llm.fields.displayName')}</span>
-                      <input
-                        aria-label={t('llm.fields.displayName')}
-                        className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
-                        value={activeProvider.display_name || ''}
-                        onChange={(event) =>
-                          onProviderChange(activeProviderId, (provider) => {
-                            provider.display_name = event.target.value;
-                          })
-                        }
-                      />
-                    </label>
-
-                    <label className="space-y-2">
-                      <span className="text-sm font-medium">{t('llm.fields.apiFormat')}</span>
-                      <SelectField
-                        className="w-full"
-                        triggerClassName={cn(
-                          'h-11 rounded-xl border-border/55 shadow-[0_1px_2px_rgba(15,23,42,0.04)]',
-                          isSettingsSurface && 'rounded-lg'
-                        )}
-                        value={activeProvider.api_format || 'openai'}
-                        allowEmpty={false}
-                        options={(registry.custom_provider.fields?.api_format?.options || ['openai', 'anthropic']).map((option) => ({
-                          label: t(`llm.apiFormatOptions.${option}`),
-                          value: option,
-                        }))}
-                        onChange={(nextValue) =>
-                          onProviderChange(activeProviderId, (provider) => {
-                            provider.api_format = nextValue as LLMProviderConfig['api_format'];
-                          })
-                        }
-                      />
-                    </label>
-
-                    <LLMProviderApiKeyField
-                      providerId={activeProviderId}
-                      provider={activeProvider}
-                      isSettingsSurface={isSettingsSurface}
-                      showApiKey={showApiKey}
-                      onShowApiKeyChange={setShowApiKey}
-                      onProviderChange={onProviderChange}
-                    />
-
-                    <label className="space-y-2">
-                      <span className="text-sm font-medium">{t('llm.fields.baseUrl')}</span>
-                      <input
-                        aria-label={t('llm.fields.baseUrl')}
-                        className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
-                        value={activeProvider.base_url || ''}
-                        onChange={(event) =>
-                          onProviderChange(activeProviderId, (provider) => {
-                            provider.base_url = event.target.value;
-                          })
-                        }
-                      />
-                    </label>
-
-                    <div
-                      className={cn(
-                        'space-y-4 rounded-[20px] bg-muted/40 p-4',
-                        isSettingsSurface &&
-                          'space-y-5 rounded-none border-t border-[hsl(var(--settings-subnav-border)/0.72)] bg-transparent p-0 pt-5 shadow-none'
-                      )}
-                    >
-                      <div className="space-y-2">
-                        <label className="block space-y-2">
-                          <span className="text-sm font-medium">{t('llm.fields.defaultModel')}</span>
-                          <SelectField
-                            className="w-full"
-                            triggerClassName={cn(
-                              'h-11 rounded-xl border-border/55 shadow-[0_1px_2px_rgba(15,23,42,0.04)]',
-                              isSettingsSurface && 'rounded-lg',
-                              'disabled:cursor-not-allowed disabled:opacity-60'
-                            )}
-                            value={activeProvider.custom_default_model || ''}
-                            disabled={!activeProvider.custom_models?.length}
-                            placeholder={t('llm.providerConfiguration.defaultModelEmpty')}
-                            allowEmpty={false}
-                            options={(activeProvider.custom_models || []).map((model) => ({
-                              label: model,
-                              value: model,
-                            }))}
-                            onChange={(nextValue) => onProviderDefaultModelChange(activeProviderId, nextValue)}
-                          />
-                        </label>
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <LLMProviderApiKeyField
-                      providerId={activeProviderId}
-                      provider={activeProvider}
-                      isSettingsSurface={isSettingsSurface}
-                      showApiKey={showApiKey}
-                      onShowApiKeyChange={setShowApiKey}
-                      onProviderChange={onProviderChange}
-                    />
-
-                    <label className="space-y-2">
-                      <span className="text-sm font-medium">{t('llm.fields.baseUrl')}</span>
-                      <input
-                        aria-label={t('llm.fields.baseUrl')}
-                        className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
-                        placeholder={activeProviderMeta?.default_base_url || ''}
-                        value={activeProvider.base_url || ''}
-                        onChange={(event) =>
-                          onProviderChange(activeProviderId, (provider) => {
-                            provider.base_url = event.target.value;
-                          })
-                        }
-                      />
-                    </label>
-                  </>
-                )}
+                <LLMProviderConnectionFields
+                  registry={registry}
+                  providerId={activeProviderId}
+                  provider={activeProvider}
+                  providerMeta={activeProviderMeta}
+                  isSettingsSurface={isSettingsSurface}
+                  showApiKey={showApiKey}
+                  onShowApiKeyChange={setShowApiKey}
+                  onProviderChange={onProviderChange}
+                  onProviderDefaultModelChange={onProviderDefaultModelChange}
+                />
 
                 <div
                   className={cn(
