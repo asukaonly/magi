@@ -471,8 +471,5 @@
       "owner_file": "backend/src/magi/api/routers/tools.py"
     }
   ],
-  "ignored_python_routes": [
-    "/api/docs",
-    "/api/openapi.json"
-  ]
+  "ignored_python_routes": ["/api/docs", "/api/openapi.json"]
 }
