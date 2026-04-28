@@ -171,6 +171,7 @@ Recent progress:
 - LLM provider embedding model dimensions/concurrency fields now live in `LLMProviderEmbeddingModelFields.tsx`.
 - LLM provider image model runtime hint now lives in `LLMProviderImageModelFields.tsx`.
 - LLM provider model editor shell now lives in `LLMProviderModelEditor.tsx`.
+- LLM form cloning, registry, normalization, and runtime override helpers now live in `llm-form-state.ts`.
 - Worker prompt and tool-profile helpers now live in `worker_prompting.py`.
 - Worker status, await, and run-state serialization helpers now live in `worker_status.py`.
 - Worker tool schema definition now lives in `worker_schema.py`.
