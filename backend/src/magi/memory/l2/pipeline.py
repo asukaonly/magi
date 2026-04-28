@@ -31,6 +31,7 @@ from .pipeline_lifecycle import (
 from .pipeline_conflict import L2ConflictArbitrationMixin
 from .pipeline_context import L2PipelineContextMixin
 from .pipeline_entity import L2EntityResolutionMixin
+from .pipeline_entity_side_effects import L2EntitySideEffectMixin
 from .pipeline_persistence import L2PipelinePersistenceMixin
 from .pipeline_staging import (
     DEFAULT_L2_FLUSH_POLL_INTERVAL_SECONDS,
@@ -53,6 +54,7 @@ class L2Pipeline(
     L2PipelineWorkerMixin,
     L2ConflictArbitrationMixin,
     L2EntityResolutionMixin,
+    L2EntitySideEffectMixin,
     L2PipelinePersistenceMixin,
     L2ValidationMixin,
 ):
@@ -243,48 +245,15 @@ class L2Pipeline(
             resolved_mention_count=len(resolved_mentions),
         )
 
-        # ── Write L1 event–entity linkage for entity co-occurrence retrieval ──
-        if resolved_mentions and self._l1_store is not None:
-            entity_mappings = [
-                (eid, m.resolved_entity_id, m.entity_type, m.confidence)
-                for m in resolved_mentions
-                if m.resolved_entity_id
-                for eid in batch_event_ids
-            ]
-            if entity_mappings:
-                try:
-                    await self._l1_store.write_event_entities(entity_mappings)
-                except Exception as exc:
-                    logger.warning(
-                        "Failed to write l1_event_entities",
-                        event_id=stored_event.event_id,
-                        exc_info=exc,
-                    )
-
-        # ── Build entity-scoped semantic edges (async, best-effort) ──
-        if resolved_mentions and self._semantic_edge_builder is not None:
-            resolved_entity_ids = list(
-                {m.resolved_entity_id for m in resolved_mentions if m.resolved_entity_id}
-            )
-            if resolved_entity_ids:
-                try:
-                    sem_edge_count = await self._semantic_edge_builder.build_edges_for_event(
-                        event_id=stored_event.event_id,
-                        entity_ids=resolved_entity_ids,
-                        observed_at=float(stored_event.timestamp),
-                    )
-                    if sem_edge_count > 0:
-                        logger.debug(
-                            "Entity-scoped semantic edges created",
-                            event_id=stored_event.event_id,
-                            edge_count=sem_edge_count,
-                        )
-                except Exception as exc:
-                    logger.warning(
-                        "Entity-scoped semantic edge building failed",
-                        event_id=stored_event.event_id,
-                        exc_info=exc,
-                    )
+        await self._write_event_entity_links(
+            event=stored_event,
+            batch_event_ids=batch_event_ids,
+            resolved_mentions=resolved_mentions,
+        )
+        await self._build_entity_semantic_edges(
+            event=stored_event,
+            resolved_mentions=resolved_mentions,
+        )
 
         if not phase1_result.has_content:
             # Even when Phase 1 is empty, persist any structured

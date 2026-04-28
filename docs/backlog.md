@@ -181,6 +181,7 @@ Recent progress:
 - L2 projection queue ready-claim batching now lives in `projection_queue_claiming.py` with old constants patchable through `projection_queue.py`.
 - L2 pipeline single-mention entity ID resolution and catalog finalization now live in `pipeline_entity_id_resolution.py`.
 - L2 pipeline entity quality/type/focal helper methods now live in `pipeline_entity_helpers.py` with old `L2Pipeline` method access preserved.
+- L2 pipeline post-resolution L1 entity links and entity semantic edge side effects now live in `pipeline_entity_side_effects.py`.
 
 Candidates to review next:
 
