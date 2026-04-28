@@ -27,6 +27,7 @@ export PYTHONPATH="$ROOT_DIR/backend/src:$ROOT_DIR/sdk/src${PYTHONPATH:+:$PYTHON
   src/magi/agent/task_agents/chat/postprocess_outcomes.py \
   src/magi/agent/task_agents/chat/postprocess_session.py \
   src/magi/agent/task_agents/chat/postprocess_tool_events.py \
+  src/magi/agent/workers/worker_actions.py \
   src/magi/agent/workers/worker_prompting.py \
   src/magi/agent/workers/worker_schema.py \
   src/magi/agent/workers/worker_status.py \

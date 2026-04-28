@@ -16,6 +16,7 @@ from ...agent.execution.function_calling import FunctionCallingOrchestrator
 from ...runtime_trace import RuntimeTraceStore
 from ...llm.streaming_events import stream_source
 from ...tools.registry import ToolRegistry, tool_registry
+from .worker_actions import WorkerActionMixin
 from .worker_prompting import WorkerPromptMixin
 from .worker_result_validation import WorkerResultValidationMixin
 from .worker_schema import WorkerSchemaMixin
@@ -40,6 +41,7 @@ logger = get_logger(__name__)
 
 
 class WorkerAgentManager(
+    WorkerActionMixin,
     WorkerTraceMixin,
     WorkerResultValidationMixin,
     WorkerPromptMixin,
@@ -107,79 +109,6 @@ class WorkerAgentManager(
             self._scenario_llm_pool = scenario_llm_pool
         if permission_gateway_provider is not None:
             self._permission_gateway_provider = permission_gateway_provider
-
-    async def validate_parameters(
-        self,
-        parameters: Dict[str, Any],
-    ) -> tuple[bool, Optional[str]]:
-        valid, error = await super().validate_parameters(parameters)
-        if not valid:
-            return valid, error
-
-        action = str(parameters.get("action", self.ACTION_LAUNCH))
-        if action not in {self.ACTION_LAUNCH, self.ACTION_STATUS, self.ACTION_AWAIT}:
-            return False, f"Unsupported action: {action}"
-
-        worker_ids = parameters.get("worker_ids")
-        has_worker_ids = isinstance(worker_ids, list) and len(worker_ids) > 0
-        has_worker_id = bool(str(parameters.get("worker_id", "")).strip())
-        if (
-            action in {self.ACTION_STATUS, self.ACTION_AWAIT}
-            and not has_worker_id
-            and not has_worker_ids
-        ):
-            return False, "worker_id or worker_ids is required for status/await actions"
-
-        if action == self.ACTION_LAUNCH:
-            workers = parameters.get("workers")
-            if isinstance(workers, list) and workers:
-                for idx, worker in enumerate(workers):
-                    if not isinstance(worker, dict):
-                        return False, f"workers[{idx}] must be an object"
-                    if not str(worker.get("subagent_type", "")).strip():
-                        return False, f"workers[{idx}].subagent_type is required"
-                    if not str(worker.get("description", "")).strip():
-                        return False, f"workers[{idx}].description is required"
-                    if not str(worker.get("prompt", "")).strip():
-                        return False, f"workers[{idx}].prompt is required"
-            else:
-                if not str(parameters.get("subagent_type", "")).strip():
-                    return False, "subagent_type is required for launch action"
-                if not str(parameters.get("description", "")).strip():
-                    return False, "description is required for launch action"
-                if not str(parameters.get("prompt", "")).strip():
-                    return False, "prompt is required for launch action"
-
-        return True, None
-
-    async def execute(
-        self,
-        parameters: Dict[str, Any],
-        context: ToolExecutionContext,
-    ) -> ToolResult:
-        action = str(parameters.get("action", self.ACTION_LAUNCH))
-        if action == self.ACTION_STATUS:
-            worker_ids = parameters.get("worker_ids")
-            if isinstance(worker_ids, list) and worker_ids:
-                return await self._get_workers_status(
-                    [str(item) for item in worker_ids if str(item).strip()]
-                )
-            return await self._get_worker_status(str(parameters.get("worker_id", "")))
-        if action == self.ACTION_AWAIT:
-            worker_ids = parameters.get("worker_ids")
-            if isinstance(worker_ids, list) and worker_ids:
-                return await self._await_workers(
-                    worker_ids=[str(item) for item in worker_ids if str(item).strip()],
-                    timeout_seconds=int(parameters.get("timeout_seconds", 300)),
-                )
-            return await self._await_worker(
-                worker_id=str(parameters.get("worker_id", "")),
-                timeout_seconds=int(parameters.get("timeout_seconds", 300)),
-            )
-        workers = parameters.get("workers")
-        if isinstance(workers, list) and workers:
-            return await self._launch_workers_batch(parameters, context)
-        return await self._launch_worker(parameters, context)
 
     async def _launch_worker(
         self,

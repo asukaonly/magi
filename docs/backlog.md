@@ -142,6 +142,7 @@ Recent progress:
 - Worker prompt and tool-profile helpers now live in `worker_prompting.py`.
 - Worker status, await, and run-state serialization helpers now live in `worker_status.py`.
 - Worker tool schema definition now lives in `worker_schema.py`.
+- Worker public action validation and dispatch now lives in `worker_actions.py`.
 
 Candidates to review next:
 
