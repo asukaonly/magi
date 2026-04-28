@@ -98,12 +98,12 @@ Completed:
 
 ### 1. Remove current backend warning debt
 
-Status: active
+Status: done — provider configuration helpers now use Pydantic v2 `model_config`.
 
-Known items:
+Completed:
 
-- resolve the Pydantic v2 deprecation warnings still reported in the backend test suite
-- update the affected response and provider helper code to the current supported API shape
+- resolved the Pydantic v2 deprecation warning from `ProviderConfig`.
+- updated the provider helper code to the current supported API shape.
 
 ### 2. Retire or split oversized legacy modules
 

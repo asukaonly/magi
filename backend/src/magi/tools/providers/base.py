@@ -6,17 +6,16 @@ Each provider encapsulates the logic for a specific service backend.
 """
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ProviderConfig(BaseModel):
     """Base provider configuration."""
 
+    model_config = ConfigDict(extra="allow")
+
     api_key: Optional[str] = Field(default=None, description="API key for authentication")
     base_url: Optional[str] = Field(default=None, description="Custom API endpoint URL")
-
-    class Config:
-        extra = "allow"  # Allow provider-specific config fields
 
 
 class Provider(ABC):
