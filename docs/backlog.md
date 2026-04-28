@@ -149,6 +149,7 @@ Recent progress:
 - Settings page save/discard persistence orchestration now lives in `useSettingsPersistence.ts`.
 - Settings page navigation sidebar rendering now lives in `SettingsNavigationSidebar.tsx`.
 - Settings page tools and skills section rendering/loading now lives in `SettingsToolsSection.tsx`.
+- Shared settings section primitives now live in `SettingsSectionPrimitives.tsx`.
 - Worker prompt and tool-profile helpers now live in `worker_prompting.py`.
 - Worker status, await, and run-state serialization helpers now live in `worker_status.py`.
 - Worker tool schema definition now lives in `worker_schema.py`.

@@ -4,28 +4,9 @@ import { useTranslation } from 'react-i18next';
 import { skillsApi, type SkillItem } from '@/api/modules/skills';
 import type { ToolConfig } from '@/api/modules/tools';
 import { DynamicToolsConfig } from '@/components/config-forms/DynamicToolConfig';
+import { SettingsGroup } from '@/components/settings/SettingsSectionPrimitives';
 import { Switch } from '@/components/ui/switch';
 import type { ToolDraftMap } from '@/types/settings';
-
-function SettingsGroup({
-  title,
-  description,
-  children,
-}: {
-  title: string;
-  description?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="space-y-4">
-      <div className="space-y-1.5">
-        <h3 className="text-sm font-semibold tracking-[0.01em] text-foreground">{title}</h3>
-        {description ? <p className="max-w-3xl text-xs leading-6 text-muted-foreground">{description}</p> : null}
-      </div>
-      <div className="space-y-3">{children}</div>
-    </section>
-  );
-}
 
 interface SettingsToolsSectionProps {
   tools: ToolConfig[];
