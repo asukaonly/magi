@@ -147,6 +147,7 @@ Recent progress:
 - Worker fact, bus-event, and trace-notification publication helpers now live in `worker_publication.py`.
 - L1 event/entity linkage helpers now live in `event_store_entities.py`.
 - L1 event-store schema migration helpers now live in `event_store_schema.py`.
+- L1 event-store row serialization and timeline projection helpers now live in `event_store_rows.py`.
 
 Candidates to review next:
 
