@@ -34,6 +34,7 @@ export PYTHONPATH="$ROOT_DIR/backend/src:$ROOT_DIR/sdk/src${PYTHONPATH:+:$PYTHON
   src/magi/memory/l2/graph_conflicts.py \
   src/magi/memory/l2/maintenance_schedule.py \
   src/magi/memory/l2/store_candidates.py \
+  src/magi/memory/l2/store_contradictions.py \
   src/magi/memory/l2/store_fact_kind.py \
   src/magi/memory/l2/store_migrations.py \
   src/magi/memory/l2/store_graph_conflicts.py \

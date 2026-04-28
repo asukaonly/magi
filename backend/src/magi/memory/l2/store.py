@@ -14,10 +14,11 @@ from ...core.logger import get_logger
 from ...core.sqlite import sqlite_connection_async
 from ..event_contracts import MemoryEvent
 from .graph_conflicts import GraphConflictRule, build_exclusive_group_index, build_graph_conflict_matrix
-from .models import ContradictionHint, L2KnowledgeEdgeWrite, L2TomAssertionWrite, ReconciledTraitOutcome
+from .models import L2KnowledgeEdgeWrite, L2TomAssertionWrite, ReconciledTraitOutcome
 from .ontology import are_predicates_synonymous
 from .projection_queue import ProjectionJobQueue
 from .store_candidates import L2StoreCandidateExtractionMixin
+from .store_contradictions import L2StoreContradictionMixin
 from .store_episodes import L2EpisodeStoreMixin
 from .store_facets import L2EntityFacetStoreMixin
 from .store_fact_kind import L2StoreFactKindMixin
@@ -49,6 +50,7 @@ class L2CognitionStore(
     L2StoreRowMappingMixin,
     L2StoreFactKindMixin,
     L2StoreCandidateExtractionMixin,
+    L2StoreContradictionMixin,
 ):
     """Persists structured cognition artifacts derived from L1 events."""
 
@@ -1307,123 +1309,6 @@ class L2CognitionStore(
             await db.commit()
         await self._projection_queue.clear_all()
         return count
-
-    async def apply_contradiction_hint(self, hint: Dict[str, Any] | ContradictionHint) -> bool:
-        """Apply a contradiction hint to an existing graph edge or ToM assertion."""
-        payload = hint.to_dict() if isinstance(hint, ContradictionHint) else dict(hint)
-        target_record_type = str(payload.get("target_record_type", ""))
-        target_record_id = str(payload.get("target_record_id", ""))
-        action = str(payload.get("recommended_action", ""))
-        confidence = float(payload.get("confidence", 0.0) or 0.0)
-        if not target_record_id or not target_record_type:
-            return False
-
-        now = time.time()
-        await self.initialize()
-        async with sqlite_connection_async(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            if target_record_type == "tom_trait_assertion":
-                async with db.execute(
-                    "SELECT assertion_id, confidence_score, validation_state FROM tom_trait_assertions WHERE assertion_id = ?",
-                    (target_record_id,),
-                ) as cursor:
-                    row = await cursor.fetchone()
-                if row is None:
-                    return False
-
-                if action == "revalidate_only":
-                    await db.execute(
-                        """
-                        UPDATE tom_trait_assertions
-                        SET last_validated_at = ?, updated_at = ?
-                        WHERE assertion_id = ?
-                        """,
-                        (now, now, target_record_id),
-                    )
-                    await db.commit()
-                    logger.info(
-                        "L2 contradiction revalidated existing assertion",
-                        target_record_type=target_record_type,
-                        target_record_id=target_record_id,
-                    )
-                    return True
-
-                existing_confidence = float(row["confidence_score"])
-                next_confidence = self._contradicted_confidence(
-                    current_confidence=existing_confidence,
-                    hint_confidence=confidence,
-                    action=action,
-                )
-                next_state = "contradicted" if action in {"downgrade_confidence", "mark_conflicted"} else "corroborated"
-                await db.execute(
-                    """
-                    UPDATE tom_trait_assertions
-                    SET confidence_score = ?, validation_state = ?, last_validated_at = ?, updated_at = ?
-                    WHERE assertion_id = ?
-                    """,
-                    (
-                        next_confidence,
-                        next_state,
-                        now,
-                        now,
-                        target_record_id,
-                    ),
-                )
-                await db.commit()
-                logger.info(
-                    "L2 contradiction applied",
-                    target_record_type=target_record_type,
-                    target_record_id=target_record_id,
-                    action=action,
-                    next_state=next_state,
-                    next_confidence=next_confidence,
-                )
-                return True
-
-            if target_record_type == "knowledge_graph":
-                if action == "revalidate_only":
-                    await db.execute(
-                        """
-                        UPDATE knowledge_graph
-                        SET last_confirmed_at = ?, updated_at = ?
-                        WHERE triple_id = ?
-                        """,
-                        (now, now, target_record_id),
-                    )
-                    await db.commit()
-                    logger.info(
-                        "L2 contradiction revalidated existing relation",
-                        target_record_type=target_record_type,
-                        target_record_id=target_record_id,
-                    )
-                    return True
-
-                next_status = "deprecated" if action == "mark_deprecated" else "conflicted"
-                await db.execute(
-                    """
-                    UPDATE knowledge_graph
-                    SET status = ?, deprecated_by = ?, deprecated_at = ?, updated_at = ?
-                    WHERE triple_id = ?
-                    """,
-                    (
-                        next_status,
-                        f"hint:{target_record_id}",
-                        now,
-                        now,
-                        target_record_id,
-                    ),
-                )
-                await db.commit()
-                logger.info(
-                    "L2 contradiction applied",
-                    target_record_type=target_record_type,
-                    target_record_id=target_record_id,
-                    action=action,
-                    next_status=next_status,
-                )
-                return True
-
-        return False
 
     async def reconcile_entity(
         self,

@@ -123,6 +123,7 @@ Recent progress:
 - L2 knowledge-graph schema backfills now live with the other store migrations.
 - L2 graph `fact_kind` admission rules now live in `store_fact_kind.py`.
 - L2 rule-based candidate extraction now lives in `store_candidates.py`.
+- L2 contradiction hint application now lives in `store_contradictions.py`.
 
 Candidates to review next:
 
