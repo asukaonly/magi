@@ -388,7 +388,7 @@ async def test_get_pending_permissions_filters_by_session(wiring, monkeypatch):
         origin=ToolOrigin.CHAT,
         agent_id="chat",
         session_id="sid-A",
-        task_id=None,
+        turn_id=None,
         workspace=None,
     )
     req_b = PermissionRequest(
@@ -399,7 +399,7 @@ async def test_get_pending_permissions_filters_by_session(wiring, monkeypatch):
         origin=ToolOrigin.CHAT,
         agent_id="chat",
         session_id="sid-B",
-        task_id=None,
+        turn_id=None,
         workspace=None,
     )
     await registry.add(req_a)

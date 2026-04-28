@@ -32,14 +32,14 @@ def _request(request_id: str = "req-1", session_id: str | None = "sid-1") -> Per
         origin=ToolOrigin.CHAT,
         agent_id="chat",
         session_id=session_id,
-        task_id=None,
+        turn_id=None,
         workspace=None,
     )
 
 
 def test_permission_request_payload_uses_canonical_turn_id() -> None:
     req = _request()
-    req.task_id = "turn-1"
+    req.turn_id = "turn-1"
 
     payload = req.to_dict()
 

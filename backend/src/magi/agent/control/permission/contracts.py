@@ -116,7 +116,7 @@ class PermissionRequest:
     origin: ToolOrigin
     agent_id: str
     session_id: str | None
-    task_id: str | None
+    turn_id: str | None
     workspace: str | None
     #: Short human-facing preview (first N chars of command, diff summary…).
     preview: str | None = None
@@ -137,7 +137,7 @@ class PermissionRequest:
             "origin": self.origin.value,
             "agent_id": self.agent_id,
             "session_id": self.session_id,
-            "turn_id": self.task_id,
+            "turn_id": self.turn_id,
             "workspace": self.workspace,
             "preview": self.preview,
             "signals": list(self.signals),
