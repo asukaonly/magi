@@ -116,6 +116,7 @@ Recent progress:
 - The backend type gate now covers extracted function-calling execution helpers in addition to LLM and L2 support modules.
 - Function-calling callback and runtime-trace persistence helpers now live in `function_calling_tracing.py`.
 - Function-calling LLM request/response helpers now live in `function_calling_llm.py`.
+- Provider bridge thinking-option and concurrency helpers now live in `provider_bridge_options.py`.
 
 Candidates to review next:
 
