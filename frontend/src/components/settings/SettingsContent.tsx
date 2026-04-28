@@ -20,6 +20,7 @@ import {
   RuntimeStatisticsSection,
 } from '@/components/settings';
 import ChannelsSection from '@/components/settings/ChannelsSection';
+import { SettingsControlSection } from '@/components/settings/SettingsControlSection';
 import { SettingsConversationSection } from '@/components/settings/SettingsConversationSection';
 import { SettingsLlmSection } from '@/components/settings/SettingsLlmSection';
 import PluginsSection from '@/components/settings/PluginsSection';
@@ -27,10 +28,8 @@ import { PluginMarketplace } from '@/components/settings/PluginMarketplace';
 import { SettingsNavigationSidebar } from '@/components/settings/SettingsNavigationSidebar';
 import { SettingsPersonalityRuntimeSection } from '@/components/settings/SettingsPersonalityRuntimeSection';
 import { SettingsPreferencesSection } from '@/components/settings/SettingsPreferencesSection';
-import { SettingsGroup, SettingsSectionShell } from '@/components/settings/SettingsSectionPrimitives';
 import { SettingsToolsSection } from '@/components/settings/SettingsToolsSection';
 import TimelineSourcesSection from '@/components/settings/TimelineSourcesSection';
-import { ControlSettingsPanel } from '@/components/control';
 import PersonalityModern from '@/pages/PersonalityModern';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
@@ -339,22 +338,10 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
 
       case 'control':
         return (
-          <SettingsSectionShell>
-            <SettingsGroup
-              title={t('settings.control.title')}
-              description={t('settings.control.description')}
-            >
-              {draftControlSettings ? (
-                <ControlSettingsPanel
-                  value={draftControlSettings}
-                  onChange={(next) => patchDraftControlSettings((draft) => {
-                    draft.permission_mode = next.permission_mode;
-                    draft.plan_approval_required = next.plan_approval_required;
-                  })}
-                />
-              ) : null}
-            </SettingsGroup>
-          </SettingsSectionShell>
+          <SettingsControlSection
+            draftControlSettings={draftControlSettings}
+            patchDraftControlSettings={patchDraftControlSettings}
+          />
         );
 
       default:
