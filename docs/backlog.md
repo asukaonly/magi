@@ -168,6 +168,7 @@ Recent progress:
 - LLM provider workbench model list pane now lives in `LLMProviderModelListPane.tsx`.
 - LLM provider model editor header/actions now live in `LLMProviderModelEditorHeader.tsx`.
 - LLM provider chat model capability/limit fields now live in `LLMProviderChatModelFields.tsx`.
+- LLM provider embedding model dimensions/concurrency fields now live in `LLMProviderEmbeddingModelFields.tsx`.
 - Worker prompt and tool-profile helpers now live in `worker_prompting.py`.
 - Worker status, await, and run-state serialization helpers now live in `worker_status.py`.
 - Worker tool schema definition now lives in `worker_schema.py`.
