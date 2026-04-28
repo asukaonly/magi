@@ -1,24 +1,22 @@
 """
 Worker manager for launching and tracking specialized worker agents.
 """
+
 from __future__ import annotations
 
 import asyncio
-import os
-import platform
 import time
 import uuid
-from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
 from ...agent.orchestration import WorkerResult, get_orchestration_store
 from ...config.models import ThinkingDepth
 from ...core.logger import get_logger
 from ...agent.execution.function_calling import FunctionCallingOrchestrator
-from ...chat.workspace import get_default_chat_workspace_path
 from ...runtime_trace import RuntimeTraceStore
 from ...llm.streaming_events import stream_source
 from ...tools.registry import ToolRegistry, tool_registry
+from .worker_prompting import WorkerPromptMixin
 from .worker_result_validation import WorkerResultValidationMixin
 from .worker_state import (
     DEFAULT_WORKER_MAX_ITERATIONS,
@@ -41,7 +39,8 @@ from ...tools.schema import (
 
 logger = get_logger(__name__)
 
-class WorkerAgentManager(WorkerTraceMixin, WorkerResultValidationMixin, Tool):
+
+class WorkerAgentManager(WorkerTraceMixin, WorkerResultValidationMixin, WorkerPromptMixin, Tool):
     """Manage worker-agent launch/status/await lifecycle for orchestration layers."""
 
     ACTION_LAUNCH = "launch"
@@ -300,7 +299,11 @@ class WorkerAgentManager(WorkerTraceMixin, WorkerResultValidationMixin, Tool):
         worker_ids = parameters.get("worker_ids")
         has_worker_ids = isinstance(worker_ids, list) and len(worker_ids) > 0
         has_worker_id = bool(str(parameters.get("worker_id", "")).strip())
-        if action in {self.ACTION_STATUS, self.ACTION_AWAIT} and not has_worker_id and not has_worker_ids:
+        if (
+            action in {self.ACTION_STATUS, self.ACTION_AWAIT}
+            and not has_worker_id
+            and not has_worker_ids
+        ):
             return False, "worker_id or worker_ids is required for status/await actions"
 
         if action == self.ACTION_LAUNCH:
@@ -334,7 +337,9 @@ class WorkerAgentManager(WorkerTraceMixin, WorkerResultValidationMixin, Tool):
         if action == self.ACTION_STATUS:
             worker_ids = parameters.get("worker_ids")
             if isinstance(worker_ids, list) and worker_ids:
-                return await self._get_workers_status([str(item) for item in worker_ids if str(item).strip()])
+                return await self._get_workers_status(
+                    [str(item) for item in worker_ids if str(item).strip()]
+                )
             return await self._get_worker_status(str(parameters.get("worker_id", "")))
         if action == self.ACTION_AWAIT:
             worker_ids = parameters.get("worker_ids")
@@ -430,15 +435,21 @@ class WorkerAgentManager(WorkerTraceMixin, WorkerResultValidationMixin, Tool):
             or user_id
             or "default"
         )
-        target_task_agent_type = str(parameters.get("target_task_agent_type") or parent_task_agent_type)
+        target_task_agent_type = str(
+            parameters.get("target_task_agent_type") or parent_task_agent_type
+        )
         target_task_agent_id = str(parameters.get("target_task_agent_id") or parent_task_agent_id)
 
         worker_id = f"worker_{uuid.uuid4().hex[:10]}"
         created_at = time.time()
         started_at_ms = int(created_at * 1000)
-        run_id = str(parameters.get("run_id") or context.env_vars.get("run_id") or "").strip() or None
+        run_id = (
+            str(parameters.get("run_id") or context.env_vars.get("run_id") or "").strip() or None
+        )
         try:
-            run_revision = int(parameters.get("run_revision") or context.env_vars.get("run_revision") or 0)
+            run_revision = int(
+                parameters.get("run_revision") or context.env_vars.get("run_revision") or 0
+            )
         except (TypeError, ValueError):
             run_revision = 0
         run_state = WorkerRunState(
@@ -509,13 +520,17 @@ class WorkerAgentManager(WorkerTraceMixin, WorkerResultValidationMixin, Tool):
 
         run_in_background = bool(parameters.get("run_in_background", False))
         parallel = bool(parameters.get("parallel", True))
-        default_max_iterations = int(parameters.get("max_iterations", DEFAULT_WORKER_MAX_ITERATIONS))
+        default_max_iterations = int(
+            parameters.get("max_iterations", DEFAULT_WORKER_MAX_ITERATIONS)
+        )
 
         run_states: List[WorkerRunState] = []
         for worker in workers:
             worker_params = dict(parameters)
             worker_params.update(worker if isinstance(worker, dict) else {})
-            worker_params["max_iterations"] = int(worker.get("max_iterations", default_max_iterations))
+            worker_params["max_iterations"] = int(
+                worker.get("max_iterations", default_max_iterations)
+            )
             run_state = await self._start_worker(worker_params, context)
             if isinstance(run_state, ToolResult):
                 return run_state
@@ -534,7 +549,9 @@ class WorkerAgentManager(WorkerTraceMixin, WorkerResultValidationMixin, Tool):
             "run_in_background": run_in_background,
             "parallel": parallel,
         }
-        orchestration_ids = {state.orchestration_id for state in run_states if state.orchestration_id}
+        orchestration_ids = {
+            state.orchestration_id for state in run_states if state.orchestration_id
+        }
         if len(orchestration_ids) == 1:
             data["orchestration_id"] = next(iter(orchestration_ids))
         if run_in_background:
@@ -579,8 +596,7 @@ class WorkerAgentManager(WorkerTraceMixin, WorkerResultValidationMixin, Tool):
             effective_system_prompt = worker_system_prompt
             if run_state.parent_context_summary:
                 effective_system_prompt = (
-                    worker_system_prompt
-                    + "\n\n--- PARENT CONVERSATION CONTEXT ---\n"
+                    worker_system_prompt + "\n\n--- PARENT CONVERSATION CONTEXT ---\n"
                     "The following is a summary of the parent agent's conversation "
                     "that led to your creation. Use it for background context only; "
                     "focus on your assigned task.\n\n"
@@ -593,7 +609,9 @@ class WorkerAgentManager(WorkerTraceMixin, WorkerResultValidationMixin, Tool):
                 tool_registry=self._tool_registry,
                 skill_runner=None,
                 tool_result_callback=lambda payload: self._handle_tool_result(run_state, payload),
-                loop_event_callback=lambda payload: self._handle_worker_loop_event(run_state, payload),
+                loop_event_callback=lambda payload: self._handle_worker_loop_event(
+                    run_state, payload
+                ),
                 runtime_trace_store=self._runtime_trace_store,
                 scenario_llm_pool=self._scenario_llm_pool,
                 permission_gateway_provider=self._permission_gateway_provider,
@@ -608,11 +626,15 @@ class WorkerAgentManager(WorkerTraceMixin, WorkerResultValidationMixin, Tool):
                     turn_id=run_state.turn_id,
                     conversation_history=[],
                     max_iterations=max_iterations,
-                    thinking_depth=ThinkingDepth.HIGH if run_state.subagent_type == self.TYPE_PLAN else ThinkingDepth.NONE,
+                    thinking_depth=ThinkingDepth.HIGH
+                    if run_state.subagent_type == self.TYPE_PLAN
+                    else ThinkingDepth.NONE,
                     intent=f"worker_{run_state.subagent_type.lower()}",
                     execution_agent_id=run_state.worker_id,
                     execution_workspace=execution_workspace,
-                    llm_timeout_seconds=180.0 if run_state.subagent_type == self.TYPE_PLAN else None,
+                    llm_timeout_seconds=180.0
+                    if run_state.subagent_type == self.TYPE_PLAN
+                    else None,
                     final_response_json_mode=True,
                 )
             run_state.completed_at = time.time()
@@ -805,7 +827,9 @@ class WorkerAgentManager(WorkerTraceMixin, WorkerResultValidationMixin, Tool):
         if run_state.task is not None and not run_state.task.done():
             try:
                 # Timeout should stop waiting, not terminate the worker task itself.
-                await asyncio.wait_for(asyncio.shield(run_state.task), timeout=float(timeout_seconds))
+                await asyncio.wait_for(
+                    asyncio.shield(run_state.task), timeout=float(timeout_seconds)
+                )
             except asyncio.TimeoutError:
                 return ToolResult(
                     success=False,
@@ -836,11 +860,15 @@ class WorkerAgentManager(WorkerTraceMixin, WorkerResultValidationMixin, Tool):
                 data={"missing_worker_ids": missing_ids},
             )
 
-        pending_tasks = [state.task for state in run_states if state.task is not None and not state.task.done()]
+        pending_tasks = [
+            state.task for state in run_states if state.task is not None and not state.task.done()
+        ]
         if pending_tasks:
             try:
                 await asyncio.wait_for(
-                    asyncio.gather(*(asyncio.shield(task) for task in pending_tasks), return_exceptions=True),
+                    asyncio.gather(
+                        *(asyncio.shield(task) for task in pending_tasks), return_exceptions=True
+                    ),
                     timeout=float(timeout_seconds),
                 )
             except asyncio.TimeoutError:
@@ -907,171 +935,6 @@ class WorkerAgentManager(WorkerTraceMixin, WorkerResultValidationMixin, Tool):
             "failure_reason": run_state.failure_reason,
             "retry_count": run_state.retry_count,
         }
-
-    def _normalize_subagent_type(self, subagent_type: str) -> Optional[str]:
-        return self._WORKER_TYPE_MAP.get(subagent_type.strip())
-
-    def _resolve_tools_for_type(self, subagent_type: str) -> List[str]:
-        available_tools = set(self._tool_registry.list_tools())
-        if subagent_type == self.TYPE_GENERAL:
-            # ``todo_write`` is planner-owned — the ``TaskOrchestrator``
-            # mirrors its subtask list onto the session todo store, so
-            # leaf workers must not rewrite it mid-flight.
-            return sorted(
-                name
-                for name in available_tools
-                if name not in {"agent", "todo_write"}
-            )
-        if subagent_type == self.TYPE_EXPLORE:
-            return [name for name in self._EXPLORE_TOOL_CANDIDATES if name in available_tools]
-        if subagent_type == self.TYPE_PLAN:
-            return [name for name in self._PLAN_TOOL_CANDIDATES if name in available_tools]
-        return []
-
-    def _build_worker_system_prompt(
-        self,
-        worker_id: str,
-        subagent_type: str,
-        description: str,
-        selected_tools: List[str],
-        execution_workspace: Optional[str] = None,
-    ) -> str:
-        base_rules = (
-            f"You are worker agent {worker_id}. "
-            f"Task summary: {description}. "
-            "You are a leaf executor. Stay inside the given scope, use tools autonomously when needed, "
-            "and return only the requested structured JSON result."
-        )
-        environment_rules = self._build_worker_environment_rules(execution_workspace)
-        tool_rules = (
-            "Only use these tools: " + ", ".join(selected_tools)
-            if selected_tools
-            else "No tools are available. Reason directly from prompt context."
-        )
-        if subagent_type == self.TYPE_EXPLORE:
-            role_rules = self._build_explore_role_rules(description)
-        elif subagent_type == self.TYPE_PLAN:
-            role_rules = (
-                "Act as a software architect. Return ONLY valid JSON with this schema: "
-                '{"result_status":"success|partial|failed","summary":"string","findings":[{"title":"string","detail":"string"}],"evidence":[{"path":"string","detail":"string"}],"gaps":["string"],"next_steps":["string"],"failure_reason":"string|null","subtasks":[{"description":"string","subagent_type":"Explore|general-purpose","prompt":"string","parallel_group":"string"}]}. '
-                "The plan must be decision-complete, keep subtasks bounded, and not include any final user-facing aggregation. "
-                "Start from the most concrete anchor or owning code path you can identify, then split by neighboring responsibilities only when needed. "
-                "Prefer execution-ready subtasks organized around concrete entry points, interfaces, modules, or discriminating checks. "
-                "Avoid generic subtasks like gathering context or summarizing risks unless the parent request explicitly needs them or ambiguity remains unresolved. "
-                "If you name a file, symbol, route, flag, or config key in findings or evidence, confirm it exists in the current code before treating it as fact. "
-                "Any response that is not a single valid JSON object will be treated as failure."
-            )
-        else:
-            role_rules = (
-                "Act as a general-purpose leaf execution agent for one bounded task. "
-                "Return ONLY valid JSON with this schema: "
-                '{"result_status":"success|partial|failed","summary":"string","findings":[{"title":"string","detail":"string","path":"string","why_it_matters":"string"}],"evidence":[{"path":"string","detail":"string"}],"gaps":["string"],"next_steps":["string"],"failure_reason":"string|null"}. '
-                "Any response that is not a single valid JSON object will be treated as failure."
-            )
-        return "\n".join([base_rules, environment_rules, role_rules, tool_rules])
-
-    def _build_worker_environment_rules(self, execution_workspace: Optional[str]) -> str:
-        workspace_root = self._resolve_execution_workspace(execution_workspace)
-        home_dir = os.path.realpath(os.path.expanduser("~"))
-        current_time = datetime.now().astimezone().isoformat(timespec="seconds")
-        return "\n".join(
-            [
-                "Execution environment:",
-                f"- Workspace root: {workspace_root}",
-                f"- Home directory: {home_dir}",
-                f"- Operating system: {platform.system()} {platform.release()}",
-                f"- Current local time: {current_time}",
-                f"- Interpret '~' as: {home_dir}",
-                "- Prefer paths under the workspace root unless the prompt explicitly requires another location.",
-                "- Do not invent alternative Linux-style or macOS-style home paths when a path is missing; report the missing path instead.",
-            ]
-        )
-
-    def _resolve_execution_workspace(self, execution_workspace: Optional[str]) -> str:
-        raw_workspace = str(execution_workspace or "").strip() or get_default_chat_workspace_path()
-        return os.path.realpath(os.path.expandvars(os.path.expanduser(raw_workspace)))
-
-    def _build_explore_role_rules(self, description: str) -> str:
-        lowered = description.lower()
-        profile = self._select_explore_prompt_profile(lowered)
-        common_rules = """
-Prioritize bounded exploration over exhaustive scans.
-Common rules:
-1.Directionality: Start from the layer most likely to contain the answer. If unclear, follow: frontend -> backend -> ops -> docs.
-    2.Anchor First: Identify the most concrete likely anchor first (entry file, symbol, route, config, or owning module) and investigate that before widening scope.
-2.Precision Search: Use targeted glob patterns to map structure, then grep for logic entry points. Strictly avoid root-level ls -R or dumping non-essential trees.
-3.Execution Discipline: For glob calls, default to recursive=false and only recurse when pattern explicitly includes '**'. Never use '*' or '**/*' at repository root.
-4.Scope Control: Start from one focused layer (frontend/, backend/, docs/, scripts/) and expand only if needed. Keep every glob/grep call at max_results <= 200.
-5.Negative Constraints: Always exclude node_modules, dist, build, .git, .venv, __pycache__, and lock files. Do not read binary files or minified assets.
-    6.Claim Validation: If you mention a file, symbol, route, flag, or config key in findings, confirm it exists in the current code before treating it as fact.
-6.Incremental Validation: Identify 2-5 validated findings with absolute paths and a brief 'why it matters'. Prefer source-of-truth entry files over broad scans.
-7.Response Validation: Your final answer must be one parseable JSON object and nothing else. Any prose, markdown, code fences, or trailing commentary will be treated as failure.
-"""
-        schema_rules = """
-STRICT OUTPUT SCHEMA:
-Return ONLY valid JSON with this schema:
-{
-  "result_status": "success|partial|failed",
-  "summary": "string",
-  "findings": [{"title": "string", "detail": "string", "path": "string", "why_it_matters": "string"}],
-  "evidence": [{"path": "string", "detail": "string"}],
-  "gaps": ["string"],
-  "next_steps": ["string"],
-  "failure_reason": "string|null"
-}
-Do not emit Markdown, prose before the JSON, or fenced code blocks.
-Before sending the final answer, self-check that it can be parsed by json.loads and that all required fields are present.
-"""
-        return "\n".join([common_rules.strip(), profile, schema_rules.strip()])
-
-    def _select_explore_prompt_profile(self, lowered_description: str) -> str:
-        if "repository layout" in lowered_description or "layout" in lowered_description:
-            return """
-SUBTASK PROFILE: Repository Layout
-- Primary goal: map the top-level structure, major directories, and ownership boundaries.
-- Start with immediate children of the repository root and major first-level folders before any recursive scan.
-- Prefer directory and manifest evidence over reading many implementation files.
-- Do not drift into detailed frontend/backend logic unless it is necessary to explain module boundaries.
-""".strip()
-        if "technology stack" in lowered_description or "tech stack" in lowered_description:
-            return """
-SUBTASK PROFILE: Technology Stack
-- Primary goal: identify frameworks, runtimes, storage, package managers, and deployment/runtime targets.
-- Prioritize dependency manifests, lockfiles, config files, boot files, and build scripts.
-- Avoid broad source-code traversal unless a manifest is ambiguous and needs confirmation.
-- Call out the evidence file that confirms each stack claim.
-""".strip()
-        if "frontend structure" in lowered_description or "frontend" in lowered_description:
-            return """
-SUBTASK PROFILE: Frontend Structure
-- Primary goal: explain frontend organization, bootstrap flow, routing, stores, and key UI entry points.
-- Start from frontend entry files, router setup, app shell, and major feature folders.
-- Prefer reading index, main, router, page, and store files before component-level exploration.
-- Do not spend time on backend or docs unless they directly explain the frontend boundary.
-""".strip()
-        if "backend modules" in lowered_description or "backend" in lowered_description:
-            return """
-SUBTASK PROFILE: Backend Modules
-- Primary goal: explain backend module boundaries, runtime startup, task-agent chain, APIs, and execution flow.
-- Start from backend bootstrap/backend.py and app entry files, then trace the task-agent and worker chain.
-- Prefer source-of-truth files such as backend app creation, bootstrap wiring, router wiring, and agent runtime modules.
-- Do not drift into frontend structure or docs unless they are required to explain a backend dependency.
-""".strip()
-        if "project progress" in lowered_description or "progress" in lowered_description:
-            return """
-SUBTASK PROFILE: Project Progress
-- Primary goal: infer current project status, active migration work, and unfinished areas.
-- Prioritize README, PROGRESS, CHANGELOG, migration plans, release notes, TODO-style docs, and roadmap files.
-- Use source code only as supporting evidence when documentation is stale or missing.
-- Do not spend time mapping the whole codebase; stay focused on status signals and recent direction.
-""".strip()
-        return """
-SUBTASK PROFILE: Generic Exploration
-- Primary goal: gather the minimum source-of-truth evidence needed to answer this bounded exploration request.
-- Start from the most likely folder and expand only when evidence is incomplete.
-- Prefer entry files, manifests, and coordinator modules over exhaustive file reads.
-- Keep the result narrow, evidence-driven, and scoped to the assigned subtask.
-""".strip()
 
     def _trim_history(self, max_runs: int) -> None:
         if len(self._runs) <= max_runs:

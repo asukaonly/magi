@@ -4,6 +4,7 @@ from pathlib import Path
 try:
     import pytest
 except ModuleNotFoundError:  # pragma: no cover
+
     class _Mark:
         @staticmethod
         def asyncio(func):
@@ -44,7 +45,15 @@ class _FakeFunctionCallingOrchestrator:
         loop_event_callback=None,
         runtime_trace_store=None,
         scenario_llm_pool=None,
+        permission_gateway_provider=None,
     ):
+        _ = (
+            llm_adapter,
+            tool_registry,
+            skill_runner,
+            scenario_llm_pool,
+            permission_gateway_provider,
+        )
         self._tool_result_callback = tool_result_callback
         self._loop_event_callback = loop_event_callback
         self._runtime_trace_store = runtime_trace_store
@@ -118,7 +127,9 @@ class _FakeFunctionCallingOrchestrator:
                 }
             )
         await asyncio.sleep(0.01)
-        is_plan = thinking_depth is not None and getattr(thinking_depth, "value", str(thinking_depth)) not in ("none", "")
+        is_plan = thinking_depth is not None and getattr(
+            thinking_depth, "value", str(thinking_depth)
+        ) not in ("none", "")
         if is_plan:
             content = (
                 '{"result_status":"success","summary":"plan ready","findings":[{"title":"plan","detail":"created subtasks"}],'
@@ -145,7 +156,9 @@ class _FakeFunctionCallingOrchestrator:
 async def test_agent_tool_launch_foreground(monkeypatch):
     from magi.agent.workers import worker_manager as worker_manager_module
 
-    monkeypatch.setattr(worker_manager_module, "FunctionCallingOrchestrator", _FakeFunctionCallingOrchestrator)
+    monkeypatch.setattr(
+        worker_manager_module, "FunctionCallingOrchestrator", _FakeFunctionCallingOrchestrator
+    )
     tool = AgentTool()
     tool.configure(llm_adapter=_FakeLLMAdapter(), tool_registry_instance=_FakeToolRegistry())
 
@@ -191,7 +204,9 @@ async def test_agent_tool_uses_30_iteration_default_for_workers(monkeypatch):
             super().__init__(*args, **kwargs)
             fake_orchestrators.append(self)
 
-    monkeypatch.setattr(worker_manager_module, "FunctionCallingOrchestrator", _RecordingFunctionCallingOrchestrator)
+    monkeypatch.setattr(
+        worker_manager_module, "FunctionCallingOrchestrator", _RecordingFunctionCallingOrchestrator
+    )
     tool = AgentTool()
     tool.configure(llm_adapter=_FakeLLMAdapter(), tool_registry_instance=_FakeToolRegistry())
 
@@ -228,7 +243,9 @@ async def test_agent_tool_persists_worker_trace_nodes_to_runtime_trace_store(
 ):
     from magi.agent.workers import worker_manager as worker_manager_module
 
-    monkeypatch.setattr(worker_manager_module, "FunctionCallingOrchestrator", _FakeFunctionCallingOrchestrator)
+    monkeypatch.setattr(
+        worker_manager_module, "FunctionCallingOrchestrator", _FakeFunctionCallingOrchestrator
+    )
     tool = AgentTool()
     runtime_trace_store = RuntimeTraceStore(db_path=str(tmp_path / "runtime_trace.db"))
     await runtime_trace_store.initialize()
@@ -267,7 +284,9 @@ async def test_agent_tool_persists_worker_trace_nodes_to_runtime_trace_store(
         dispatch_span = await runtime_trace_store.get_span("turn-1:worker_dispatch:subtask-1")
         attempt_span = await runtime_trace_store.get_span("turn-1:worker_attempt:subtask-1:1")
         worker_span = await runtime_trace_store.get_span("turn-1:worker:subtask-1:1")
-        llm_call = await runtime_trace_store.get_llm_call("turn-1:worker_llm:subtask-1:1:final_response:1")
+        llm_call = await runtime_trace_store.get_llm_call(
+            "turn-1:worker_llm:subtask-1:1:final_response:1"
+        )
 
         assert result.success is True
         assert dispatch_span is not None
@@ -282,7 +301,9 @@ async def test_agent_tool_persists_worker_trace_nodes_to_runtime_trace_store(
 async def test_agent_tool_background_then_await(monkeypatch):
     from magi.agent.workers import worker_manager as worker_manager_module
 
-    monkeypatch.setattr(worker_manager_module, "FunctionCallingOrchestrator", _FakeFunctionCallingOrchestrator)
+    monkeypatch.setattr(
+        worker_manager_module, "FunctionCallingOrchestrator", _FakeFunctionCallingOrchestrator
+    )
     tool = AgentTool()
     tool.configure(llm_adapter=_FakeLLMAdapter(), tool_registry_instance=_FakeToolRegistry())
 
@@ -338,7 +359,9 @@ async def test_agent_tool_background_then_await(monkeypatch):
 async def test_agent_tool_batch_workers(monkeypatch):
     from magi.agent.workers import worker_manager as worker_manager_module
 
-    monkeypatch.setattr(worker_manager_module, "FunctionCallingOrchestrator", _FakeFunctionCallingOrchestrator)
+    monkeypatch.setattr(
+        worker_manager_module, "FunctionCallingOrchestrator", _FakeFunctionCallingOrchestrator
+    )
     tool = AgentTool()
     tool.configure(llm_adapter=_FakeLLMAdapter(), tool_registry_instance=_FakeToolRegistry())
 
@@ -446,8 +469,14 @@ def test_agent_tool_explore_prompt_includes_scan_guardrails():
     assert "Never use '*' or '**/*' at repository root." in prompt
     assert "default to recursive=false" in prompt
     assert "max_results <= 200" in prompt
-    assert "Always exclude node_modules, dist, build, .git, .venv, __pycache__, and lock files." in prompt
-    assert "Any prose, markdown, code fences, or trailing commentary will be treated as failure." in prompt
+    assert (
+        "Always exclude node_modules, dist, build, .git, .venv, __pycache__, and lock files."
+        in prompt
+    )
+    assert (
+        "Any prose, markdown, code fences, or trailing commentary will be treated as failure."
+        in prompt
+    )
 
 
 def test_agent_tool_explore_prompt_uses_backend_profile():
@@ -505,7 +534,10 @@ def test_agent_tool_general_prompt_matches_validator_schema():
         selected_tools=["file_read", "grep"],
     )
 
-    assert '"findings":[{"title":"string","detail":"string","path":"string","why_it_matters":"string"}]' in prompt
+    assert (
+        '"findings":[{"title":"string","detail":"string","path":"string","why_it_matters":"string"}]'
+        in prompt
+    )
     assert '"evidence":[{"path":"string","detail":"string"}]' in prompt
 
 
@@ -533,14 +565,16 @@ def test_agent_tool_plan_prompt_requires_anchor_first_decomposition():
 
     assert "Start from the most concrete anchor or owning code path you can identify" in prompt
     assert "Avoid generic subtasks like gathering context or summarizing risks" in prompt
-    assert "If you name a file, symbol, route, flag, or config key in findings or evidence" in prompt
+    assert (
+        "If you name a file, symbol, route, flag, or config key in findings or evidence" in prompt
+    )
 
 
 def test_agent_tool_prompt_defaults_to_managed_workspace_when_missing(
     monkeypatch,
     tmp_path: Path,
 ):
-    from magi.agent.workers import worker_manager as worker_manager_module
+    from magi.agent.workers import worker_prompting as worker_prompting_module
 
     fallback_cwd = tmp_path / "cwd"
     managed_workspace = tmp_path / "managed-chat-workspace"
@@ -549,7 +583,7 @@ def test_agent_tool_prompt_defaults_to_managed_workspace_when_missing(
 
     monkeypatch.chdir(fallback_cwd)
     monkeypatch.setattr(
-        worker_manager_module,
+        worker_prompting_module,
         "get_default_chat_workspace_path",
         lambda: str(managed_workspace),
         raising=False,
@@ -669,7 +703,7 @@ async def test_invalid_json_worker_result_is_marked_failed(monkeypatch):
             _ = kwargs
             return ExecutionOutcome(
                 status="completed",
-                content="Here is the result:\n```json\n{\"summary\":\"oops\"}\n```",
+                content='Here is the result:\n```json\n{"summary":"oops"}\n```',
                 iterations=1,
             )
 
@@ -730,7 +764,9 @@ async def test_structured_failed_worker_result_is_not_marked_completed(monkeypat
                 iterations=1,
             )
 
-    monkeypatch.setattr(worker_manager_module, "FunctionCallingOrchestrator", _StructuredFailureExecutor)
+    monkeypatch.setattr(
+        worker_manager_module, "FunctionCallingOrchestrator", _StructuredFailureExecutor
+    )
     tool = AgentTool()
     tool.configure(llm_adapter=_FakeLLMAdapter(), tool_registry_instance=_FakeToolRegistry())
 
