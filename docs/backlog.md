@@ -143,6 +143,7 @@ Recent progress:
 - Worker status, await, and run-state serialization helpers now live in `worker_status.py`.
 - Worker tool schema definition now lives in `worker_schema.py`.
 - Worker public action validation and dispatch now lives in `worker_actions.py`.
+- Worker launch/start/batch lifecycle helpers now live in `worker_launch.py`.
 
 Candidates to review next:
 
