@@ -1,19 +1,15 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, AlertTriangle, Check, Download, FolderOpen, Info, Loader2, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { toast } from 'sonner';
 
 import { SelectField } from '@/components/config-forms/fields';
 import { resolveProviderModels, type CrossEncoderConfig, type EmbeddingConfig, type LLMConfig, type LLMProviderRegistry, type LLMScenario } from '@/api/modules/config';
-import type { LocalEmbeddingModelInfo } from '@/api/modules/local-embedding';
-import { localEmbeddingApi } from '@/api/modules/local-embedding';
-import type { LocalRerankerModelInfo } from '@/api/modules/local-reranker';
-import { localRerankerApi } from '@/api/modules/local-reranker';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { pickDirectory } from '@/runtime/desktop';
 import { cn } from '@/lib/utils';
+
+import { useManagedEmbeddingModels, useManagedRerankerModels } from './llm-model-download-hooks';
 
 interface LLMModelSelectionSectionProps {
   registry: LLMProviderRegistry;
@@ -88,136 +84,31 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
   );
 
   const isLocalEmbeddingMode = embeddingConfig?.mode === 'local';
-  const [presetModels, setPresetModels] = useState<LocalEmbeddingModelInfo[]>([]);
-  const [downloadingModelId, setDownloadingModelId] = useState<string | null>(null);
-  const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
-  const [downloadError, setDownloadError] = useState<string | null>(null);
-
-  const refreshPresetModels = useCallback(() => {
-    localEmbeddingApi.listModels().then(setPresetModels).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    if (isLocalEmbeddingMode) {
-      refreshPresetModels();
-    }
-  }, [isLocalEmbeddingMode, refreshPresetModels]);
-
-  // Poll download status while downloading
-  useEffect(() => {
-    if (!downloadingModelId) return;
-    const interval = setInterval(async () => {
-      try {
-        const status = await localEmbeddingApi.getDownloadStatus(downloadingModelId);
-        if (status.status === 'downloading') {
-          setDownloadProgress(status.progress_pct ?? null);
-        } else if (status.status === 'completed') {
-          setDownloadingModelId(null);
-          setDownloadProgress(null);
-          refreshPresetModels();
-        } else if (status.status === 'failed') {
-          setDownloadingModelId(null);
-          setDownloadProgress(null);
-          setDownloadError(status.error ?? tApp('settings.memory.fields.embedding_local_download.downloadFailed'));
-          toast.error(status.error ?? tApp('settings.memory.fields.embedding_local_download.downloadFailed'));
-        }
-      } catch {
-        // Ignore polling errors
-      }
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [downloadingModelId, refreshPresetModels]);
-
-  const handleDownloadModel = useCallback(async (modelId: string) => {
-    setDownloadingModelId(modelId);
-    setDownloadProgress(0);
-    setDownloadError(null);
-    try {
-      await localEmbeddingApi.downloadModel(modelId);
-    } catch {
-      setDownloadingModelId(null);
-      setDownloadProgress(null);
-    }
-  }, []);
-
-  const handleDeleteModel = useCallback(async (modelId: string) => {
-    try {
-      await localEmbeddingApi.deleteModel(modelId);
-      refreshPresetModels();
-    } catch {
-      // Ignore delete errors
-    }
-  }, [refreshPresetModels]);
-
-  const handlePickDirectory = useCallback(async () => {
-    const dir = await pickDirectory(embeddingConfig?.local.model_dir_path ?? undefined);
-    if (dir && onEmbeddingConfigChange) {
-      onEmbeddingConfigChange((emb) => {
-        emb.local.model_dir_path = dir;
-      });
-    }
-  }, [embeddingConfig?.local.model_dir_path, onEmbeddingConfigChange]);
-
-  // ── Reranker (cross-encoder) model state ──
-  const [rerankerModels, setRerankerModels] = useState<LocalRerankerModelInfo[]>([]);
-  const [rerankerDownloadingId, setRerankerDownloadingId] = useState<string | null>(null);
-  const [rerankerDownloadProgress, setRerankerDownloadProgress] = useState<number | null>(null);
-  const [rerankerDownloadError, setRerankerDownloadError] = useState<string | null>(null);
-
-  const refreshRerankerModels = useCallback(() => {
-    localRerankerApi.listModels().then(setRerankerModels).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    if (crossEncoderConfig) {
-      refreshRerankerModels();
-    }
-  }, [crossEncoderConfig, refreshRerankerModels]);
-
-  useEffect(() => {
-    if (!rerankerDownloadingId) return;
-    const interval = setInterval(async () => {
-      try {
-        const status = await localRerankerApi.getDownloadStatus(rerankerDownloadingId);
-        if (status.status === 'downloading') {
-          setRerankerDownloadProgress(status.progress_pct ?? null);
-        } else if (status.status === 'completed') {
-          setRerankerDownloadingId(null);
-          setRerankerDownloadProgress(null);
-          refreshRerankerModels();
-        } else if (status.status === 'failed') {
-          setRerankerDownloadingId(null);
-          setRerankerDownloadProgress(null);
-          setRerankerDownloadError(status.error ?? tApp('settings.memory.fields.reranker_download.downloadFailed'));
-          toast.error(status.error ?? tApp('settings.memory.fields.reranker_download.downloadFailed'));
-        }
-      } catch {
-        // Ignore polling errors
-      }
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [rerankerDownloadingId, refreshRerankerModels, tApp]);
-
-  const handleRerankerDownload = useCallback(async (modelId: string) => {
-    setRerankerDownloadingId(modelId);
-    setRerankerDownloadProgress(0);
-    setRerankerDownloadError(null);
-    try {
-      await localRerankerApi.downloadModel(modelId);
-    } catch {
-      setRerankerDownloadingId(null);
-      setRerankerDownloadProgress(null);
-    }
-  }, []);
-
-  const handleRerankerDelete = useCallback(async (modelId: string) => {
-    try {
-      await localRerankerApi.deleteModel(modelId);
-      refreshRerankerModels();
-    } catch {
-      // Ignore delete errors
-    }
-  }, [refreshRerankerModels]);
+  const {
+    presetModels,
+    downloadingModelId,
+    downloadProgress,
+    downloadError,
+    handleDownloadModel,
+    handleDeleteModel,
+    handlePickDirectory,
+  } = useManagedEmbeddingModels({
+    enabled: isLocalEmbeddingMode,
+    modelDirPath: embeddingConfig?.local.model_dir_path,
+    downloadFailedMessage: tApp('settings.memory.fields.embedding_local_download.downloadFailed'),
+    onEmbeddingConfigChange,
+  });
+  const {
+    rerankerModels,
+    rerankerDownloadingId,
+    rerankerDownloadProgress,
+    rerankerDownloadError,
+    handleRerankerDownload,
+    handleRerankerDelete,
+  } = useManagedRerankerModels({
+    enabled: Boolean(crossEncoderConfig),
+    downloadFailedMessage: tApp('settings.memory.fields.reranker_download.downloadFailed'),
+  });
 
   // Collect all embedding models from all enabled providers
   const allEmbeddingModels = useMemo(() => {

@@ -173,6 +173,7 @@ Recent progress:
 - LLM provider model editor shell now lives in `LLMProviderModelEditor.tsx`.
 - LLM form cloning, registry, normalization, and runtime override helpers now live in `llm-form-state.ts`.
 - LLM embedding dimension confirmation dialog now lives in `LLMEmbeddingDimensionConfirmDialog.tsx`.
+- LLM model selection local embedding/reranker download state now lives in `llm-model-download-hooks.ts`.
 - Worker prompt and tool-profile helpers now live in `worker_prompting.py`.
 - Worker status, await, and run-state serialization helpers now live in `worker_status.py`.
 - Worker tool schema definition now lives in `worker_schema.py`.
