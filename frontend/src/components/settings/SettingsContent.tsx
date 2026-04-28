@@ -19,9 +19,9 @@ import {
   LLMStatisticsSection,
   RuntimeStatisticsSection,
 } from '@/components/settings';
-import LLMForm from '@/components/config-forms/LLMForm';
 import ChannelsSection from '@/components/settings/ChannelsSection';
 import { SettingsConversationSection } from '@/components/settings/SettingsConversationSection';
+import { SettingsLlmSection } from '@/components/settings/SettingsLlmSection';
 import PluginsSection from '@/components/settings/PluginsSection';
 import { PluginMarketplace } from '@/components/settings/PluginMarketplace';
 import { SettingsNavigationSidebar } from '@/components/settings/SettingsNavigationSidebar';
@@ -176,45 +176,22 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
 
       case 'llmProviders':
         return (
-          <div className="h-full min-h-0">
-            <LLMForm
-              quickMode={false}
-              view="providers"
-              surface="settings"
-              showSectionIntro={false}
-              value={draftConfig.llm}
-              onAutoNormalize={syncNormalizedLlmConfig}
-              onChange={(next) => patchDraftConfig((draft) => {
-                draft.llm = next;
-              })}
-            />
-          </div>
+          <SettingsLlmSection
+            view="providers"
+            draftConfig={draftConfig}
+            patchDraftConfig={patchDraftConfig}
+            syncNormalizedLlmConfig={syncNormalizedLlmConfig}
+          />
         );
 
       case 'llmModels':
         return (
-          <div className="space-y-4">
-            <LLMForm
-              quickMode={false}
-              view="models"
-              surface="settings"
-              showSectionIntro={false}
-              value={draftConfig.llm}
-              onAutoNormalize={syncNormalizedLlmConfig}
-              onChange={(next) => patchDraftConfig((draft) => {
-                draft.llm = next;
-              })}
-              embeddingConfig={draftConfig.memory.embedding}
-              onEmbeddingConfigChange={(updater) => patchDraftConfig((draft) => {
-                updater(draft.memory.embedding);
-              })}
-              crossEncoderConfig={draftConfig.memory.reranker?.cross_encoder}
-              onCrossEncoderConfigChange={(updater) => patchDraftConfig((draft) => {
-                draft.memory.reranker.cross_encoder ??= { enabled: false, managed_model_id: null };
-                updater(draft.memory.reranker.cross_encoder);
-              })}
-            />
-          </div>
+          <SettingsLlmSection
+            view="models"
+            draftConfig={draftConfig}
+            patchDraftConfig={patchDraftConfig}
+            syncNormalizedLlmConfig={syncNormalizedLlmConfig}
+          />
         );
 
       case 'personalitySelection':

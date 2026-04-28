@@ -153,6 +153,7 @@ Recent progress:
 - Settings page preferences section rendering now lives in `SettingsPreferencesSection.tsx`.
 - Settings page conversation section rendering now lives in `SettingsConversationSection.tsx`.
 - Settings page personality runtime settings now lives in `SettingsPersonalityRuntimeSection.tsx`.
+- Settings page LLM provider/model branches now live in `SettingsLlmSection.tsx`.
 - Worker prompt and tool-profile helpers now live in `worker_prompting.py`.
 - Worker status, await, and run-state serialization helpers now live in `worker_status.py`.
 - Worker tool schema definition now lives in `worker_schema.py`.
