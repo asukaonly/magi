@@ -6,6 +6,7 @@ import { LLMProviderChatModelFields } from '@/components/config-forms/LLMProvide
 import { LLMProviderConnectionFields } from '@/components/config-forms/LLMProviderConnectionFields';
 import { LLMProviderDetailHeader } from '@/components/config-forms/LLMProviderDetailHeader';
 import { LLMProviderEmbeddingModelFields } from '@/components/config-forms/LLMProviderEmbeddingModelFields';
+import { LLMProviderImageModelFields } from '@/components/config-forms/LLMProviderImageModelFields';
 import { LLMProviderListPane } from '@/components/config-forms/LLMProviderListPane';
 import { LLMProviderModelEditorHeader, type LLMProviderModelEditorKind } from '@/components/config-forms/LLMProviderModelEditorHeader';
 import { LLMProviderModelListPane } from '@/components/config-forms/LLMProviderModelListPane';
@@ -408,21 +409,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                                 onModelOverrideChange={updateModelOverride}
                               />
                             ) : (
-                              <div className="space-y-3">
-                                <p className="rounded-xl bg-background/80 px-3 py-3 text-sm text-muted-foreground">
-                                  {t('llm.modelFields.imageRuntimeHint')}
-                                </p>
-                                <ul className="grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">
-                                  <li className="rounded-lg bg-background/60 px-3 py-2">
-                                    <span className="block text-xs font-medium text-foreground">{t('llm.modelFields.imageSizes')}</span>
-                                    <span>1024×1024 / 1024×1536 / 1536×1024 / auto</span>
-                                  </li>
-                                  <li className="rounded-lg bg-background/60 px-3 py-2">
-                                    <span className="block text-xs font-medium text-foreground">{t('llm.modelFields.imageQuality')}</span>
-                                    <span>auto / high / medium / low</span>
-                                  </li>
-                                </ul>
-                              </div>
+                              <LLMProviderImageModelFields />
                             )}
                           </>
                         );
