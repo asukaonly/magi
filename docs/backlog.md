@@ -134,6 +134,7 @@ Recent progress:
 - Provider bridge non-streaming request implementations now live in `provider_bridge_requests.py`.
 - Provider bridge plain chat streaming now lives in `provider_bridge_streaming.py`.
 - Provider bridge tool-call streaming now lives in `provider_bridge_streaming.py`.
+- Function-calling fallback final-response and rescue-pass logic now lives in `function_calling_fallback.py`.
 - Chat post-processing session-run finalization helpers now live in `postprocess_session.py`.
 - Chat post-processing tool event helpers now live in `postprocess_tool_events.py`.
 - Chat post-processing outcome writer helpers now live in `postprocess_outcomes.py`.
