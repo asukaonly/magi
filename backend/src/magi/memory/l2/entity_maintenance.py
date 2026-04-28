@@ -25,6 +25,7 @@ from ..embedding.embedding_pipeline import (
 from ..embedding.embedding_text_builders import build_l2_edge_embedding_text
 from ..embedding.sqlite_vec_index import SqliteVecIndex
 from .ontology import PREDICATE_REGISTRY, get_predicate_synonym_group
+from .entity_maintenance_assertions import L2EntityAssertionMaintenanceMixin
 from .pipeline import L2Pipeline
 
 logger = get_logger(__name__)
@@ -101,7 +102,7 @@ class L2EntityMaintenanceStats:
     errors: list[str] = field(default_factory=list)
 
 
-class L2EntityMaintenance:
+class L2EntityMaintenance(L2EntityAssertionMaintenanceMixin):
     """Best-effort cleanup: ghost graph refs, same-name type merges, low-mention orphans."""
 
     # Reconcile entities whose assertions haven't been updated in this many seconds.
@@ -112,7 +113,7 @@ class L2EntityMaintenance:
     # Archive thresholds: edges below this confidence AND not updated within
     # the staleness window are moved from 'active' to 'archived'.
     ARCHIVE_CONFIDENCE_THRESHOLD: float = 0.3
-    ARCHIVE_STALENESS_SECONDS: float = 90 * 86400   # 90 days
+    ARCHIVE_STALENESS_SECONDS: float = 90 * 86400  # 90 days
     ARCHIVE_SINGLE_OBS_STALENESS: float = 180 * 86400  # 180 days for observation_count == 1
 
     # Hard-delete archived/expired edges older than this.
@@ -133,8 +134,8 @@ class L2EntityMaintenance:
         self._run_lock = asyncio.Lock()
 
     # Default TTLs (seconds) for decay policies that lack an explicit expires_at.
-    FAST_DECAY_TTL: float = 4 * 3600       # 4 hours
-    SESSION_DECAY_TTL: float = 24 * 3600   # 24 hours
+    FAST_DECAY_TTL: float = 4 * 3600  # 4 hours
+    SESSION_DECAY_TTL: float = 24 * 3600  # 24 hours
 
     async def run(
         self,
@@ -381,10 +382,8 @@ class L2EntityMaintenance:
                 for row in rows:
                     triple_id = str(row[0])
                     subject_id = str(row[1])
-                    subject_type = str(row[2])
                     predicate = str(row[3])
                     object_id = str(row[4])
-                    object_type = str(row[5])
                     if column == "subject_id":
                         new_subject = to_id
                         new_object = object_id
@@ -430,7 +429,9 @@ class L2EntityMaintenance:
                             """,
                             (ev, obs, first_at, last_at, conf, now, dup_id),
                         )
-                        await db.execute("DELETE FROM knowledge_graph WHERE triple_id = ?", (triple_id,))
+                        await db.execute(
+                            "DELETE FROM knowledge_graph WHERE triple_id = ?", (triple_id,)
+                        )
                         merged += 1
                 await db.commit()
             except Exception as exc:
@@ -559,7 +560,9 @@ class L2EntityMaintenance:
                     stats.fragment_entities_merged += 1
                 except Exception as exc:
                     stats.errors.append(f"merge {loser}->{winner}: {exc}")
-                    logger.warning("L2 fragment merge failed", loser=loser, winner=winner, error=str(exc))
+                    logger.warning(
+                        "L2 fragment merge failed", loser=loser, winner=winner, error=str(exc)
+                    )
             stats.fragment_groups_processed += 1
 
     @staticmethod
@@ -706,7 +709,9 @@ class L2EntityMaintenance:
                 """,
                 (min_mentions,),
             ) as cur:
-                candidates = [(str(r["entity_id"]), int(r["mention_count"])) for r in await cur.fetchall()]
+                candidates = [
+                    (str(r["entity_id"]), int(r["mention_count"])) for r in await cur.fetchall()
+                ]
 
         for entity_id, _mc in candidates:
             try:
@@ -743,7 +748,9 @@ class L2EntityMaintenance:
                 await db.execute("DELETE FROM tom_snapshots WHERE entity_id = ?", (entity_id,))
                 await db.execute("DELETE FROM entity_facets WHERE entity_id = ?", (entity_id,))
                 await db.execute("DELETE FROM entity_aliases WHERE entity_id = ?", (entity_id,))
-                await db.execute("DELETE FROM entity_mentions WHERE resolved_entity_id = ?", (entity_id,))
+                await db.execute(
+                    "DELETE FROM entity_mentions WHERE resolved_entity_id = ?", (entity_id,)
+                )
                 await db.execute("DELETE FROM entity_catalog WHERE entity_id = ?", (entity_id,))
                 await db.commit()
                 return True
@@ -767,130 +774,6 @@ class L2EntityMaintenance:
             )
             stats.expired_future_intents = cursor.rowcount
             await db.commit()
-
-    async def _expire_decayed_assertions(self, stats: L2EntityMaintenanceStats) -> None:
-        """Expire assertions whose decay policy indicates they have outlived their TTL.
-
-        - ``fast_decay`` (annoyance, irritation, frustration): expire after
-          ``FAST_DECAY_TTL`` seconds since last update.
-        - ``session_decay`` (mood, engagement): expire after
-          ``SESSION_DECAY_TTL`` seconds since last update.
-        - Assertions that already have an explicit ``expires_at`` in the past
-          are also marked expired.
-        """
-        now = time.time()
-        fast_cutoff = now - self.FAST_DECAY_TTL
-        session_cutoff = now - self.SESSION_DECAY_TTL
-        async with sqlite_connection_async(self._db_path) as db:
-            cursor = await db.execute(
-                """
-                UPDATE tom_trait_assertions
-                SET validation_state = 'expired', status = 'expired', updated_at = ?
-                WHERE validation_state NOT IN ('expired', 'user_rejected', 'contradicted')
-                  AND status NOT IN ('superseded', 'archived')
-                  AND (
-                    (expires_at IS NOT NULL AND expires_at < ?)
-                    OR (decay_policy = 'fast_decay' AND updated_at < ?)
-                    OR (decay_policy = 'session_decay' AND updated_at < ?)
-                  )
-                """,
-                (now, now, fast_cutoff, session_cutoff),
-            )
-            stats.expired_assertions = cursor.rowcount
-            await db.commit()
-
-    async def _clean_stale_snapshots(self, stats: L2EntityMaintenanceStats) -> None:
-        """Delete snapshots for entities that have no active/corroborated/tentative assertions.
-
-        After assertion expiry runs, some entities may have all their
-        assertions in terminal states (expired, user_rejected, contradicted).
-        Their snapshots become stale and should be removed so orphan pruning
-        can reclaim the entity later.
-        """
-        async with sqlite_connection_async(self._db_path) as db:
-            cursor = await db.execute(
-                """
-                DELETE FROM tom_snapshots
-                WHERE entity_id NOT IN (
-                    SELECT DISTINCT entity_id FROM tom_trait_assertions
-                    WHERE validation_state IN ('tentative', 'corroborated', 'stable')
-                      AND status NOT IN ('superseded', 'archived', 'expired', 'user_rejected')
-                )
-                """
-            )
-            cleaned = cursor.rowcount
-            if cleaned:
-                await db.commit()
-            stats.stale_snapshots_cleaned = cleaned
-
-    async def _reconcile_stale_entities(self, stats: L2EntityMaintenanceStats) -> None:
-        """Re-reconcile entities whose assertions haven't been reviewed recently.
-
-        Finds entities with non-terminal assertions older than
-        ``RECONCILE_STALE_THRESHOLD`` and runs rule-based reconciliation +
-        snapshot refresh for each.  Processes in batches of
-        ``RECONCILE_BATCH_SIZE`` up to ``RECONCILE_MAX_TOTAL`` entities per
-        maintenance run.
-        """
-        store = self._cognition_store
-        if store is None:
-            from .store import L2CognitionStore
-            store = L2CognitionStore(db_path=self._db_path)
-            await store.initialize()
-
-        stale_cutoff = time.time() - self.RECONCILE_STALE_THRESHOLD
-        total_processed = 0
-        last_updated_at: float = 0.0
-
-        while total_processed < self.RECONCILE_MAX_TOTAL:
-            async with sqlite_connection_async(self._db_path) as db:
-                db.row_factory = aiosqlite.Row
-                async with db.execute(
-                    """
-                    SELECT DISTINCT entity_id, entity_type, MIN(updated_at) AS min_updated
-                    FROM tom_trait_assertions
-                    WHERE validation_state IN ('tentative', 'corroborated')
-                      AND status NOT IN ('superseded', 'archived', 'expired', 'user_rejected')
-                      AND updated_at < ?
-                      AND updated_at > ?
-                    GROUP BY entity_id, entity_type
-                    ORDER BY min_updated ASC
-                    LIMIT ?
-                    """,
-                    (stale_cutoff, last_updated_at, self.RECONCILE_BATCH_SIZE),
-                ) as cursor:
-                    rows = await cursor.fetchall()
-
-            if not rows:
-                break
-
-            for row in rows:
-                entity_id = str(row["entity_id"])
-                entity_type = str(row["entity_type"])
-                last_updated_at = float(row["min_updated"])
-                try:
-                    outcomes = await store.reconcile_entity(
-                        entity_id=entity_id,
-                        entity_type=entity_type,
-                    )
-                    if outcomes:
-                        stats.entities_reconciled += 1
-                        await store.refresh_entity_snapshot(
-                            entity_id=entity_id,
-                            entity_type=entity_type,
-                        )
-                        stats.snapshots_refreshed += 1
-                except Exception as exc:
-                    stats.errors.append(f"reconcile {entity_id}: {exc}")
-                    logger.warning(
-                        "L2 maintenance reconcile failed for entity",
-                        entity_id=entity_id,
-                        error=str(exc),
-                    )
-
-            total_processed += len(rows)
-            if len(rows) < self.RECONCILE_BATCH_SIZE:
-                break
 
     async def _consolidate_open_predicates(self, stats: L2EntityMaintenanceStats) -> None:
         """Rewrite non-core predicates to their core synonym when a mapping exists.
@@ -951,7 +834,9 @@ class L2EntityMaintenance:
                 if existing:
                     dup = existing[0]
                     dup_triple_id = str(dup["triple_id"])
-                    ev = _merge_evidence_json(str(row["evidence_event_ids"]), str(dup["evidence_event_ids"]))
+                    ev = _merge_evidence_json(
+                        str(row["evidence_event_ids"]), str(dup["evidence_event_ids"])
+                    )
                     obs = int(row["observation_count"]) + int(dup["observation_count"])
                     first_at = min(float(row["first_observed_at"]), float(dup["first_observed_at"]))
                     last_at = max(float(row["last_observed_at"]), float(dup["last_observed_at"]))
