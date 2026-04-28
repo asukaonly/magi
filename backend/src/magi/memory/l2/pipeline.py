@@ -6,7 +6,7 @@ import asyncio
 import re
 import time
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Optional
 
 from ...core.logger import get_logger
@@ -25,7 +25,6 @@ from .models import (
     L2PendingBatchBucket,
     ReconciledTraitOutcome,
     ResolvedEntityMention,
-    build_l2_batch_bucket_key,
 )
 from .store import L2CognitionStore
 from .evidence_classifier import classify_event_evidence
@@ -38,6 +37,12 @@ from .models import EpisodeCandidateJob
 from .ontology import coerce_unknown_entity_type
 from .pipeline_conflict import L2ConflictArbitrationMixin
 from .pipeline_entity import L2EntityResolutionMixin
+from .pipeline_staging import (
+    DEFAULT_L2_FLUSH_POLL_INTERVAL_SECONDS,
+    DEFAULT_L2_MAX_ESTIMATED_TOKENS_PER_BATCH,
+    DEFAULT_L2_MAX_EVENTS_PER_BATCH,
+    L2PipelineStagingMixin,
+)
 from .pipeline_validation import L2ValidationMixin
 from ..hybrid_retrieval.entity_semantic_builder import EntityScopedSemanticBuilder
 
@@ -51,11 +56,10 @@ _GENERIC_PREFERENCE_OBJECT_SUFFIXES = {
 logger = get_logger(__name__)
 DEFAULT_L2_EXTRACT_WORKER_COUNT = 5
 DEFAULT_L2_BATCH_FLUSH_INTERVAL_SECONDS = 60
-DEFAULT_L2_FLUSH_POLL_INTERVAL_SECONDS = 0.2
-DEFAULT_L2_MAX_EVENTS_PER_BATCH = 12
-DEFAULT_L2_MAX_ESTIMATED_TOKENS_PER_BATCH = 2400
 DEFAULT_L2_BATCH_SHUTDOWN_TIMEOUT_SECONDS = 2.0
-DEFAULT_L2_PROJECTION_CLAIM_LIMIT = DEFAULT_L2_MAX_EVENTS_PER_BATCH * DEFAULT_L2_EXTRACT_WORKER_COUNT
+DEFAULT_L2_PROJECTION_CLAIM_LIMIT = (
+    DEFAULT_L2_MAX_EVENTS_PER_BATCH * DEFAULT_L2_EXTRACT_WORKER_COUNT
+)
 DEFAULT_L2_PROJECTION_STALE_QUEUED_TIMEOUT_SECONDS = 1800.0
 DEFAULT_L2_PROJECTION_STALE_RUNNING_TIMEOUT_SECONDS = 300.0
 DEFAULT_L2_HISTORY_ENTITY_MATCH_LIMIT = 3
@@ -63,6 +67,7 @@ DEFAULT_L2_HISTORY_CONTEXT_LIMIT = 3
 DEFAULT_L2_HISTORY_SEARCH_LIMIT = 4
 DEFAULT_ENABLE_L2_CONFLICT_ARBITRATION = True
 DEFAULT_L2_CONFLICT_ARBITRATION_MIN_CONFIDENCE = 0.85
+
 
 @dataclass(slots=True)
 class L2PipelineStats:
@@ -93,7 +98,13 @@ class L2PipelineStats:
     conflict_arbitration_by_decision: dict[str, int] = field(default_factory=dict)
     severe_contradiction_hint_count: int = 0
 
-class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2ValidationMixin):
+
+class L2Pipeline(
+    L2PipelineStagingMixin,
+    L2ConflictArbitrationMixin,
+    L2EntityResolutionMixin,
+    L2ValidationMixin,
+):
     """Owns asynchronous L2 extraction and follow-up queues."""
 
     def __init__(
@@ -103,8 +114,10 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
         l1_store: Optional[L1EventStore] = None,
         entity_catalog: Optional[L2EntityCatalog] = None,
         llm_service: Optional[L2LLMService] = None,
-        state_change_callback: Callable[[str, str, list[ReconciledTraitOutcome]], Awaitable[None]] | None = None,
-        active_entity_callback: Callable[[MemoryEvent, list[L2FocalEntityRef]], Awaitable[None]] | None = None,
+        state_change_callback: Callable[[str, str, list[ReconciledTraitOutcome]], Awaitable[None]]
+        | None = None,
+        active_entity_callback: Callable[[MemoryEvent, list[L2FocalEntityRef]], Awaitable[None]]
+        | None = None,
         batch_flush_interval_seconds: int = DEFAULT_L2_BATCH_FLUSH_INTERVAL_SECONDS,
         enable_conflict_arbitration: bool = DEFAULT_ENABLE_L2_CONFLICT_ARBITRATION,
         conflict_arbitration_min_confidence: float = DEFAULT_L2_CONFLICT_ARBITRATION_MIN_CONFIDENCE,
@@ -123,7 +136,9 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
         self._active_entity_callback = active_entity_callback
         self._batch_flush_interval_seconds = max(0, int(batch_flush_interval_seconds))
         self._enable_conflict_arbitration = bool(enable_conflict_arbitration)
-        self._conflict_arbitration_min_confidence = max(0.0, min(1.0, float(conflict_arbitration_min_confidence)))
+        self._conflict_arbitration_min_confidence = max(
+            0.0, min(1.0, float(conflict_arbitration_min_confidence))
+        )
         self._extract_queue: asyncio.Queue[L2BatchJob | None] = asyncio.Queue()
         self._reconcile_queue: asyncio.Queue[list[str] | None] = asyncio.Queue()
         self._snapshot_queue: asyncio.Queue[list[str] | None] = asyncio.Queue()
@@ -137,19 +152,28 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
         self._entity_locks: dict[str, asyncio.Lock] = {}
         self._entity_locks_guard = asyncio.Lock()
         self._session_touched_entities: dict[str, set[str]] = {}
-        self._entity_resolution_cache: dict[tuple[str, str | None], tuple[str | None, float | None]] = {}
+        self._entity_resolution_cache: dict[
+            tuple[str, str | None], tuple[str | None, float | None]
+        ] = {}
         self._stats = L2PipelineStats()
         self._projection_consumer_name = f"l2-pipeline:{uuid.uuid4().hex[:8]}"
         self._projection_claim_limit = DEFAULT_L2_PROJECTION_CLAIM_LIMIT
-        self._projection_stale_queued_timeout_seconds = DEFAULT_L2_PROJECTION_STALE_QUEUED_TIMEOUT_SECONDS
-        self._projection_stale_running_timeout_seconds = DEFAULT_L2_PROJECTION_STALE_RUNNING_TIMEOUT_SECONDS
+        self._projection_stale_queued_timeout_seconds = (
+            DEFAULT_L2_PROJECTION_STALE_QUEUED_TIMEOUT_SECONDS
+        )
+        self._projection_stale_running_timeout_seconds = (
+            DEFAULT_L2_PROJECTION_STALE_RUNNING_TIMEOUT_SECONDS
+        )
 
     async def start(self) -> None:
         if self._stats.is_running or self._cognition_store is None:
             return
 
         self._stats.is_running = True
-        self._extract_workers = [asyncio.create_task(self._run_extract_worker()) for _ in range(self._extract_worker_count)]
+        self._extract_workers = [
+            asyncio.create_task(self._run_extract_worker())
+            for _ in range(self._extract_worker_count)
+        ]
         self._flush_worker = asyncio.create_task(self._run_flush_worker())
         self._reconcile_worker = asyncio.create_task(self._run_reconcile_worker())
         self._snapshot_worker = asyncio.create_task(self._run_snapshot_worker())
@@ -189,403 +213,6 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
         self._flush_worker = None
         self._reconcile_worker = None
         self._snapshot_worker = None
-
-    async def enqueue_event(self, event: MemoryEvent) -> bool:
-        if self._cognition_store is None or not event.cognition_eligible:
-            self._stats.extract_skipped += 1
-            return False
-
-        max_events, max_estimated_tokens = self._resolve_batch_limits(event)
-        owner_key = None
-        if isinstance(event.metadata_json, dict):
-            owner_key = event.metadata_json.get("l2_batch_owner")
-        bucket_key = build_l2_batch_bucket_key(
-            session_id=event.session_id,
-            user_id=event.user_id,
-            owner_key=str(owner_key) if owner_key is not None else None,
-        )
-        if bucket_key is None:
-            await self._enqueue_extract_job(
-                L2BatchJob(
-                    job_id=f"event:{event.event_id}",
-                    bucket_key=f"event:{event.event_id}",
-                    events=[self._serialize_event_for_batch(event)],
-                    flush_reason="direct_fallback",
-                    estimated_tokens=self._estimate_event_tokens(event.content),
-                    session_id=event.session_id,
-                    user_id=event.user_id,
-                )
-            )
-            return True
-
-        job_to_flush: L2BatchJob | None = None
-        async with self._staging_lock:
-            bucket = self._staging_buckets.get(bucket_key)
-            if bucket is None:
-                bucket = L2PendingBatchBucket.for_owner(
-                    session_id=event.session_id,
-                    user_id=event.user_id,
-                    owner_key=str(owner_key) if owner_key is not None else None,
-                    max_events=max_events,
-                    max_estimated_tokens=max_estimated_tokens,
-                )
-                self._staging_buckets[bucket_key] = bucket
-            bucket.add_event(
-                self._serialize_event_for_batch(event),
-                estimated_tokens=self._estimate_event_tokens(event.content),
-                max_events=max_events,
-                max_estimated_tokens=max_estimated_tokens,
-            )
-            self._refresh_staging_stats_locked()
-            flush_reason = self._flush_reason_for_bucket(bucket)
-            if flush_reason is not None:
-                job_to_flush = self._build_and_remove_bucket_job_locked(bucket_key=bucket_key, flush_reason=flush_reason)
-
-        if job_to_flush is not None:
-            await self._enqueue_extract_job(job_to_flush)
-        return True
-
-    async def enqueue_entities(self, entity_ids: list[str]) -> bool:
-        normalized = sorted({entity_id.strip() for entity_id in entity_ids if entity_id and entity_id.strip()})
-        if not normalized or self._cognition_store is None:
-            return False
-        await self._reconcile_queue.put(normalized)
-        self._stats.reconcile_enqueued += 1
-        return True
-
-    async def enqueue_snapshot_refresh(self, entity_ids: list[str]) -> bool:
-        normalized = sorted({entity_id.strip() for entity_id in entity_ids if entity_id and entity_id.strip()})
-        if not normalized or self._cognition_store is None:
-            return False
-        await self._snapshot_queue.put(normalized)
-        self._stats.snapshot_enqueued += 1
-        return True
-
-    async def flush_session(self, session_id: str) -> list[str]:
-        """Flush remaining staged events for *session_id* and enqueue a
-        comprehensive reconciliation of all entities touched during the session.
-
-        Returns the list of entity_ids scheduled for session-end reconciliation.
-        """
-        if not session_id or self._cognition_store is None:
-            return []
-
-        bucket_key = build_l2_batch_bucket_key(session_id=session_id, user_id=None)
-        job: L2BatchJob | None = None
-        if bucket_key is not None:
-            async with self._staging_lock:
-                job = self._build_and_remove_bucket_job_locked(
-                    bucket_key=bucket_key, flush_reason="session_end",
-                )
-        if job is not None:
-            await self._enqueue_extract_job(job)
-
-        accumulated = sorted(self._session_touched_entities.pop(session_id, set()))
-        if accumulated:
-            logger.info(
-                "L2 session-end review enqueued",
-                session_id=session_id,
-                entity_count=len(accumulated),
-            )
-            expired_count = await self._cognition_store.expire_session_decay_assertions(
-                entity_ids=accumulated,
-            )
-            if expired_count:
-                logger.info(
-                    "L2 session-end tentative assertions expired",
-                    session_id=session_id,
-                    expired_count=expired_count,
-                )
-            await self.enqueue_entities(accumulated)
-            await self.enqueue_snapshot_refresh(accumulated)
-        return accumulated
-
-    async def flush_all_pending_batches(self) -> int:
-        """Flush every currently staged microbatch into extract jobs."""
-        if self._cognition_store is None:
-            return 0
-
-        jobs: list[L2BatchJob] = []
-        async with self._staging_lock:
-            for bucket_key in list(self._staging_buckets.keys()):
-                job = self._build_and_remove_bucket_job_locked(
-                    bucket_key=bucket_key,
-                    flush_reason="manual_flush",
-                )
-                if job is not None:
-                    jobs.append(job)
-
-        for job in jobs:
-            await self._enqueue_extract_job(job)
-
-        projection_batch_count = await self._claim_pending_projection_jobs(
-            limit=self._projection_claim_limit,
-            force=True,
-        )
-        if jobs:
-            logger.info("L2 manual microbatch flush enqueued", batch_count=len(jobs))
-        if projection_batch_count:
-            logger.info(
-                "L2 manual durable projection flush enqueued",
-                batch_count=projection_batch_count,
-            )
-        return len(jobs) + int(projection_batch_count)
-
-    def _accumulate_session_entities(
-        self, session_id: str | None, entity_ids: list[str],
-    ) -> None:
-        if not session_id or not entity_ids:
-            return
-        bucket = self._session_touched_entities.get(session_id)
-        if bucket is None:
-            bucket = set()
-            self._session_touched_entities[session_id] = bucket
-        bucket.update(entity_ids)
-
-    def get_statistics(self) -> dict[str, int | bool]:
-        return asdict(self._stats)
-
-    async def _run_flush_worker(self) -> None:
-        poll_interval = DEFAULT_L2_FLUSH_POLL_INTERVAL_SECONDS
-        while self._stats.is_running:
-            try:
-                await asyncio.sleep(poll_interval)
-            except asyncio.CancelledError:
-                break
-            await self._claim_pending_projection_jobs()
-            await self._flush_ready_buckets()
-
-    async def _claim_pending_projection_jobs(self, *, limit: int | None = None, force: bool = False) -> int:
-        if self._cognition_store is None or self._l1_store is None:
-            return 0
-
-        await self._cognition_store.requeue_stale_projection_jobs(
-            queued_timeout_seconds=self._projection_stale_queued_timeout_seconds,
-            running_timeout_seconds=self._projection_stale_running_timeout_seconds,
-        )
-        claim_limit = max(1, int(limit or self._projection_claim_limit))
-        if force:
-            claimed_rows = await self._cognition_store.claim_projection_jobs(
-                consumer_name=self._projection_consumer_name,
-                limit=claim_limit,
-            )
-        else:
-            claimed_rows = await self._cognition_store.claim_ready_projection_jobs(
-                consumer_name=self._projection_consumer_name,
-                limit=claim_limit,
-            )
-        if not claimed_rows:
-            return 0
-
-        claimed_rows = sorted(
-            claimed_rows,
-            key=lambda item: (
-                float(item.get("created_at", 0.0) or 0.0),
-                str(item.get("event_id", "")),
-            ),
-        )
-        jobs, missing_event_ids = await self._build_extract_jobs_from_projection_rows(claimed_rows)
-        if missing_event_ids:
-            await self._cognition_store.fail_projection_jobs(
-                missing_event_ids,
-                error_text="l1_event_not_found",
-                requeue=False,
-            )
-            logger.warning(
-                "L2 projection jobs referenced missing L1 events",
-                event_ids=missing_event_ids,
-            )
-
-        for job in jobs:
-            await self._enqueue_extract_job(job)
-        return len(jobs)
-
-    async def _flush_ready_buckets(self) -> None:
-        jobs: list[L2BatchJob] = []
-        async with self._staging_lock:
-            for bucket_key, bucket in list(self._staging_buckets.items()):
-                if bucket.is_flushing or not bucket.events:
-                    continue
-                flush_reason = self._flush_reason_for_bucket(bucket)
-                if flush_reason not in {None, "interval_elapsed"}:
-                    continue
-                if flush_reason == "interval_elapsed":
-                    job = self._build_and_remove_bucket_job_locked(bucket_key=bucket_key, flush_reason=flush_reason)
-                    if job is not None:
-                        jobs.append(job)
-        for job in jobs:
-            await self._enqueue_extract_job(job)
-
-    async def _flush_all_buckets(self, *, flush_reason: str) -> None:
-        jobs: list[L2BatchJob] = []
-        async with self._staging_lock:
-            for bucket_key in list(self._staging_buckets.keys()):
-                job = self._build_and_remove_bucket_job_locked(bucket_key=bucket_key, flush_reason=flush_reason)
-                if job is not None:
-                    jobs.append(job)
-        for job in jobs:
-            await self._enqueue_extract_job(job)
-
-    async def _enqueue_extract_job(self, job: L2BatchJob) -> None:
-        await self._extract_queue.put(job)
-        self._stats.extract_enqueued += 1
-
-    async def _build_extract_jobs_from_projection_rows(
-        self,
-        rows: list[dict[str, Any]],
-    ) -> tuple[list[L2BatchJob], list[str]]:
-        jobs: list[L2BatchJob] = []
-        missing_event_ids: list[str] = []
-        buckets: dict[str, L2PendingBatchBucket] = {}
-
-        for row in rows:
-            event_id = str(row.get("event_id", "")).strip()
-            if not event_id:
-                continue
-            event = await self._l1_store.get_memory_event(event_id) if self._l1_store is not None else None
-            if event is None:
-                missing_event_ids.append(event_id)
-                continue
-
-            max_events, max_estimated_tokens = self._resolve_batch_limits(event)
-            owner_key = row.get("effective_batch_owner")
-            if owner_key is None and isinstance(event.metadata_json, dict):
-                owner_key = event.metadata_json.get("l2_batch_owner")
-            if owner_key is None:
-                owner_key = row.get("batch_owner")
-            normalized_owner_key = str(owner_key) if owner_key is not None else None
-            bucket_key = build_l2_batch_bucket_key(
-                session_id=event.session_id,
-                user_id=event.user_id,
-                owner_key=normalized_owner_key,
-            )
-            if bucket_key is None:
-                direct_job = L2BatchJob(
-                    job_id=f"projection:{event.event_id}",
-                    bucket_key=f"event:{event.event_id}",
-                    events=[self._serialize_event_for_batch(event)],
-                    flush_reason="projection_direct",
-                    estimated_tokens=self._estimate_event_tokens(event.content),
-                    session_id=event.session_id,
-                    user_id=event.user_id,
-                )
-                self._record_batch_flush(direct_job, flush_reason=direct_job.flush_reason)
-                jobs.append(direct_job)
-                continue
-
-            bucket = buckets.get(bucket_key)
-            if bucket is None:
-                bucket = L2PendingBatchBucket.for_owner(
-                    session_id=event.session_id,
-                    user_id=event.user_id,
-                    owner_key=normalized_owner_key,
-                    max_events=max_events,
-                    max_estimated_tokens=max_estimated_tokens,
-                )
-                buckets[bucket_key] = bucket
-            bucket.add_event(
-                self._serialize_event_for_batch(event),
-                estimated_tokens=self._estimate_event_tokens(event.content),
-                max_events=max_events,
-                max_estimated_tokens=max_estimated_tokens,
-            )
-            flush_reason = self._flush_reason_for_bucket(bucket)
-            if flush_reason is not None:
-                jobs.append(self._build_projection_bucket_job(bucket, flush_reason=flush_reason))
-                buckets.pop(bucket_key, None)
-
-        for bucket in buckets.values():
-            jobs.append(self._build_projection_bucket_job(bucket, flush_reason="projection_ready"))
-        return jobs, missing_event_ids
-
-    def _build_and_remove_bucket_job_locked(self, *, bucket_key: str, flush_reason: str) -> L2BatchJob | None:
-        bucket = self._staging_buckets.pop(bucket_key, None)
-        if bucket is None or not bucket.events:
-            self._refresh_staging_stats_locked()
-            return None
-        bucket.is_flushing = True
-        job = bucket.build_job(flush_reason=flush_reason)
-        self._record_batch_flush(job, flush_reason=flush_reason)
-        self._refresh_staging_stats_locked()
-        return job
-
-    def _build_projection_bucket_job(
-        self,
-        bucket: L2PendingBatchBucket,
-        *,
-        flush_reason: str,
-    ) -> L2BatchJob:
-        job = bucket.build_job(
-            flush_reason=flush_reason,
-            job_id=f"projection:{bucket.bucket_key}:{int(bucket.newest_event_timestamp * 1000)}",
-        )
-        self._record_batch_flush(job, flush_reason=flush_reason)
-        return job
-
-    def _record_batch_flush(self, job: L2BatchJob, *, flush_reason: str) -> None:
-        self._stats.batch_flush_count += 1
-        self._increment_bucket(self._stats.batch_flush_by_reason, flush_reason)
-        previous_flushes = self._stats.batch_flush_count - 1
-        self._stats.avg_batch_event_count = self._rolling_average(
-            current_average=self._stats.avg_batch_event_count,
-            previous_count=previous_flushes,
-            new_value=float(len(job.events)),
-        )
-        self._stats.avg_batch_estimated_tokens = self._rolling_average(
-            current_average=self._stats.avg_batch_estimated_tokens,
-            previous_count=previous_flushes,
-            new_value=float(job.estimated_tokens),
-        )
-
-    def _flush_reason_for_bucket(self, bucket: L2PendingBatchBucket) -> str | None:
-        max_events = bucket.max_events or DEFAULT_L2_MAX_EVENTS_PER_BATCH
-        max_estimated_tokens = bucket.max_estimated_tokens or DEFAULT_L2_MAX_ESTIMATED_TOKENS_PER_BATCH
-        if len(bucket.events) >= max_events:
-            return "max_events"
-        if bucket.estimated_tokens >= max_estimated_tokens:
-            return "token_cap"
-        if not bucket.events:
-            return None
-        if self._batch_flush_interval_seconds <= 0:
-            return "interval_elapsed"
-        oldest_age_seconds = max(0.0, time.time() - bucket.created_at)
-        if oldest_age_seconds >= float(self._batch_flush_interval_seconds):
-            return "interval_elapsed"
-        return None
-
-    def _refresh_staging_stats_locked(self) -> None:
-        self._stats.active_bucket_count = len(self._staging_buckets)
-        self._stats.pending_staged_event_count = sum(len(bucket.events) for bucket in self._staging_buckets.values())
-
-    def _serialize_event_for_batch(self, event: MemoryEvent) -> dict[str, Any]:
-        payload = event.to_dict()
-        payload["memory_domain"] = event.memory_domain.label
-        payload["ingest_target"] = event.ingest_target.label
-        payload["tom_depth"] = event.tom_depth.label
-        payload["retention_class"] = event.retention_class.label
-        return payload
-
-    def _estimate_event_tokens(self, text: str) -> int:
-        normalized = str(text or "").strip()
-        return max(1, len(normalized) // 4) if normalized else 1
-
-    def _resolve_batch_limits(self, event: MemoryEvent) -> tuple[int | None, int | None]:
-        if not isinstance(event.metadata_json, dict):
-            return (None, None)
-        max_events = event.metadata_json.get("l2_batch_max_events")
-        max_estimated_tokens = event.metadata_json.get("l2_batch_max_estimated_tokens")
-        resolved_max_events = max(1, int(max_events)) if max_events is not None else None
-        resolved_max_tokens = (
-            max(1, int(max_estimated_tokens))
-            if max_estimated_tokens is not None
-            else None
-        )
-        return (resolved_max_events, resolved_max_tokens)
-
-    def _rolling_average(self, *, current_average: float, previous_count: int, new_value: float) -> float:
-        if previous_count <= 0:
-            return new_value
-        return ((current_average * previous_count) + new_value) / float(previous_count + 1)
 
     async def _run_extract_worker(self) -> None:
         if self._cognition_store is None:
@@ -642,8 +269,12 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
                         mention_count=int(result.get("mention_count", 0)),
                         graph_candidate_count=int(result.get("graph_candidate_count", 0)),
                         assertion_candidate_count=int(result.get("assertion_candidate_count", 0)),
-                        rejected_graph_candidate_count=int(result.get("rejected_graph_candidate_count", 0)),
-                        rejected_assertion_candidate_count=int(result.get("rejected_assertion_candidate_count", 0)),
+                        rejected_graph_candidate_count=int(
+                            result.get("rejected_graph_candidate_count", 0)
+                        ),
+                        rejected_assertion_candidate_count=int(
+                            result.get("rejected_assertion_candidate_count", 0)
+                        ),
                         relation_count=int(result["relation_count"]),
                         assertion_count=int(result["assertion_count"]),
                         contradiction_hint_count=int(result.get("contradiction_hint_count", 0)),
@@ -660,13 +291,19 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
                 if isinstance(snapshot_refresh_entity_ids, list) and snapshot_refresh_entity_ids:
                     await self.enqueue_snapshot_refresh(snapshot_refresh_entity_ids)
                 # ── Episode candidate formation ──────────────────
-                if self._cognition_store is not None and job.event_ids and not result.get("skipped"):
+                if (
+                    self._cognition_store is not None
+                    and job.event_ids
+                    and not result.get("skipped")
+                ):
                     try:
                         candidate_jobs = [
                             EpisodeCandidateJob(
                                 event_id=eid,
                                 event_timestamp=float(evt.get("timestamp", 0.0) or 0.0),
-                                entity_ids=touched_entity_ids if isinstance(touched_entity_ids, list) else [],
+                                entity_ids=touched_entity_ids
+                                if isinstance(touched_entity_ids, list)
+                                else [],
                             )
                             for eid, evt in zip(job.event_ids, job.events)
                         ]
@@ -823,7 +460,12 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
 
     async def _extract_and_persist(self, job: L2BatchJob) -> dict[str, Any]:
         if self._cognition_store is None:
-            return {"relation_count": 0, "assertion_count": 0, "touched_entity_ids": [], "skipped": True}
+            return {
+                "relation_count": 0,
+                "assertion_count": 0,
+                "touched_entity_ids": [],
+                "skipped": True,
+            }
 
         stored_events = await self._load_batch_events(job)
         if not stored_events:
@@ -840,7 +482,9 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
         eligible_events: list[tuple[MemoryEvent, Any, Any]] = []
         for stored_event in stored_events:
             classification = classify_event_evidence(stored_event)
-            self._increment_bucket(self._stats.extract_by_evidence_class, classification.evidence_class)
+            self._increment_bucket(
+                self._stats.extract_by_evidence_class, classification.evidence_class
+            )
             logger.debug(
                 "L2 evidence classified",
                 event_id=stored_event.event_id,
@@ -898,7 +542,9 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
 
         context_messages = (
             await self._load_context_messages(stored_event, exclude_event_ids=batch_event_ids)
-            if policy.allow_entity_extraction or policy.allow_assertion_write or policy.allow_graph_write
+            if policy.allow_entity_extraction
+            or policy.allow_assertion_write
+            or policy.allow_graph_write
             else []
         )
         history_contexts = (
@@ -907,7 +553,9 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
                 batch_events=[item[0] for item in eligible_events],
                 exclude_event_ids=batch_event_ids,
             )
-            if policy.allow_entity_extraction or policy.allow_assertion_write or policy.allow_graph_write
+            if policy.allow_entity_extraction
+            or policy.allow_assertion_write
+            or policy.allow_graph_write
             else []
         )
         extraction_profile = resolve_extraction_profile(stored_event)
@@ -918,7 +566,9 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
             event_ids=batch_event_ids,
             events=[self._serialize_event_for_batch(item[0]) for item in eligible_events],
             texts=[item[0].content for item in eligible_events],
-            context_texts=[msg.get("content", "") for msg in context_messages if msg.get("content", "").strip()],
+            context_texts=[
+                msg.get("content", "") for msg in context_messages if msg.get("content", "").strip()
+            ],
             history_contexts=history_contexts,
             summary=L2EventWindowSummary(
                 event_count=len(eligible_events),
@@ -1019,11 +669,9 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
 
         # ── Build entity-scoped semantic edges (async, best-effort) ──
         if resolved_mentions and self._semantic_edge_builder is not None:
-            resolved_entity_ids = list({
-                m.resolved_entity_id
-                for m in resolved_mentions
-                if m.resolved_entity_id
-            })
+            resolved_entity_ids = list(
+                {m.resolved_entity_id for m in resolved_mentions if m.resolved_entity_id}
+            )
             if resolved_entity_ids:
                 try:
                     sem_edge_count = await self._semantic_edge_builder.build_edges_for_event(
@@ -1089,7 +737,9 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
         focal_entities = self._build_focal_entities(stored_event, resolved_mentions)
         await self._emit_active_entities(event=stored_event, focal_entities=focal_entities)
         if self._cognition_store is not None:
-            existing_graph_edges, existing_assertions = await self._load_existing_graph_context(focal_entities)
+            existing_graph_edges, existing_assertions = await self._load_existing_graph_context(
+                focal_entities
+            )
 
         # ── Fast-track: skip Phase 2 when Phase 1 output is simple ──
         if self._can_fast_track(
@@ -1167,14 +817,16 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
 
         # ── Validate and prepare Phase 2 outputs ──
         catalog_name_index = await self._build_catalog_name_index()
-        graph_candidates, corroborate_targets, rejected_graph_candidate_count = self._validate_phase2_graph_edges(
-            event=stored_event,
-            profile=extraction_profile,
-            policy=policy,
-            resolved_mentions=resolved_mentions,
-            evidence_event_ids=batch_event_ids,
-            phase2_edges=phase2_result.graph_edges,
-            catalog_name_index=catalog_name_index,
+        graph_candidates, corroborate_targets, rejected_graph_candidate_count = (
+            self._validate_phase2_graph_edges(
+                event=stored_event,
+                profile=extraction_profile,
+                policy=policy,
+                resolved_mentions=resolved_mentions,
+                evidence_event_ids=batch_event_ids,
+                phase2_edges=phase2_result.graph_edges,
+                catalog_name_index=catalog_name_index,
+            )
         )
         facet_candidates = self._build_structured_facet_candidates(
             event=stored_event,
@@ -1198,7 +850,9 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
         )
 
         # Convert Phase 2 contradiction hints to ContradictionHint
-        contradiction_hints = self._convert_phase2_contradiction_hints(phase2_result.contradiction_hints)
+        contradiction_hints = self._convert_phase2_contradiction_hints(
+            phase2_result.contradiction_hints
+        )
 
         logger.info(
             "L2 Phase 2 candidate validation completed",
@@ -1221,7 +875,9 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
                 assertion_candidates=assertion_candidates,
                 contradiction_hints=contradiction_hints,
             )
-            arbitration_decision = conflict_arbitration.decision if conflict_arbitration is not None else None
+            arbitration_decision = (
+                conflict_arbitration.decision if conflict_arbitration is not None else None
+            )
             if arbitration_decision == "keep_existing":
                 logger.info(
                     "L2 conflict arbitration kept existing records",
@@ -1249,8 +905,16 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
         # Acquire per-entity locks before persisting to prevent concurrent
         # workers from interleaving read-then-write sequences on the same entity.
         persist_entity_ids = sorted(
-            {str(c.get("subject_id", "")) for c in graph_candidates + direct_write_candidates if c.get("subject_id")}
-            | {str(c.get("object_id", "")) for c in graph_candidates + direct_write_candidates if c.get("object_id")}
+            {
+                str(c.get("subject_id", ""))
+                for c in graph_candidates + direct_write_candidates
+                if c.get("subject_id")
+            }
+            | {
+                str(c.get("object_id", ""))
+                for c in graph_candidates + direct_write_candidates
+                if c.get("object_id")
+            }
             | {str(c.get("entity_id", "")) for c in assertion_candidates if c.get("entity_id")}
         )
         entity_locks = await self._acquire_entity_locks(persist_entity_ids)
@@ -1287,10 +951,14 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
             facet_count=facet_count,
             assertion_count=assertion_count,
             contradiction_hint_count=len(contradiction_hints),
-            conflict_arbitration_decision=conflict_arbitration.decision if conflict_arbitration is not None else None,
+            conflict_arbitration_decision=conflict_arbitration.decision
+            if conflict_arbitration is not None
+            else None,
         )
 
-        conflict_arbitration_decision = conflict_arbitration.decision if conflict_arbitration is not None else None
+        conflict_arbitration_decision = (
+            conflict_arbitration.decision if conflict_arbitration is not None else None
+        )
         touched_entity_ids = self._collect_touched_entities(
             graph_candidates + direct_write_candidates, assertion_candidates
         )
@@ -1378,7 +1046,9 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
             ingest_target=IngestTarget.from_value(payload.get("ingest_target", "l1_only")),
             cognition_eligible=bool(payload.get("cognition_eligible", True)),
             tom_depth=TomDepth.from_value(payload.get("tom_depth", "topology_only")),
-            retention_class=RetentionClass.from_value(payload.get("retention_class", "compressible")),
+            retention_class=RetentionClass.from_value(
+                payload.get("retention_class", "compressible")
+            ),
             session_id=self._non_empty_text(payload.get("session_id")),
             turn_id=self._non_empty_text(payload.get("turn_id")),
             user_id=self._non_empty_text(payload.get("user_id")),
@@ -1391,11 +1061,16 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
             media_path=self._non_empty_text(payload.get("media_path")),
         )
 
-    async def _load_context_texts(self, event: MemoryEvent, *, exclude_event_ids: list[str] | None = None) -> list[str]:
+    async def _load_context_texts(
+        self, event: MemoryEvent, *, exclude_event_ids: list[str] | None = None
+    ) -> list[str]:
         if self._l1_store is None:
             return []
 
-        query_args: dict[str, Any] = {"cognition_eligible": True, "limit": max(4, len(exclude_event_ids or []) + 4)}
+        query_args: dict[str, Any] = {
+            "cognition_eligible": True,
+            "limit": max(4, len(exclude_event_ids or []) + 4),
+        }
         if event.session_id:
             query_args["session_id"] = event.session_id
         elif event.user_id:
@@ -1407,7 +1082,9 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
         excluded = set(exclude_event_ids or [])
         excluded.add(event.event_id)
         context_rows = [row for row in rows if row["event_id"] not in excluded]
-        context_texts = [str(row["content"]) for row in reversed(context_rows) if str(row["content"]).strip()]
+        context_texts = [
+            str(row["content"]) for row in reversed(context_rows) if str(row["content"]).strip()
+        ]
         return context_texts[:3]
 
     async def _load_context_messages(
@@ -1420,7 +1097,10 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
         if self._l1_store is None:
             return []
 
-        query_args: dict[str, Any] = {"cognition_eligible": True, "limit": max(4, len(exclude_event_ids or []) + 4)}
+        query_args: dict[str, Any] = {
+            "cognition_eligible": True,
+            "limit": max(4, len(exclude_event_ids or []) + 4),
+        }
         if event.session_id:
             query_args["session_id"] = event.session_id
         elif event.user_id:
@@ -1457,7 +1137,9 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
         for entity in focal_entities:
             # Load graph edges
             for relations in [
-                await self._cognition_store.get_relationships(subject_id=entity.entity_id, limit=30),
+                await self._cognition_store.get_relationships(
+                    subject_id=entity.entity_id, limit=30
+                ),
                 await self._cognition_store.get_relationships(object_id=entity.entity_id, limit=30),
             ]:
                 for relation in relations:
@@ -1493,9 +1175,7 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
             return []
 
         query_text = " ".join(
-            text
-            for event in batch_events
-            if (text := self._non_empty_text(event.content))
+            text for event in batch_events if (text := self._non_empty_text(event.content))
         ).strip()
         if not query_text:
             return []
@@ -1534,7 +1214,10 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
                         continue
                     if not bool(row.get("cognition_eligible", True)):
                         continue
-                    if anchor_event.session_id and str(row.get("session_id") or "") == anchor_event.session_id:
+                    if (
+                        anchor_event.session_id
+                        and str(row.get("session_id") or "") == anchor_event.session_id
+                    ):
                         continue
                     history_context = L2HistoryContext(
                         event_id=event_id,
@@ -1547,7 +1230,10 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
                         match_source=self._non_empty_text(match.get("match_source")),
                     )
                     existing_context = matches_by_event_id.get(event_id)
-                    if existing_context is None or history_context.timestamp > existing_context.timestamp:
+                    if (
+                        existing_context is None
+                        or history_context.timestamp > existing_context.timestamp
+                    ):
                         matches_by_event_id[event_id] = history_context
                     seen_event_ids.add(event_id)
         ranked_contexts = sorted(
@@ -1634,7 +1320,9 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
     def _normalize_structured_graph_hint_origin_mode(self, raw_value: Any) -> str:
         return str(self._non_empty_text(raw_value) or "source_structured").casefold()
 
-    def _normalize_structured_graph_hint_page_kind(self, attributes: dict[str, Any] | None) -> str | None:
+    def _normalize_structured_graph_hint_page_kind(
+        self, attributes: dict[str, Any] | None
+    ) -> str | None:
         if not isinstance(attributes, dict):
             return None
         return str(self._non_empty_text(attributes.get("page_kind")) or "").casefold() or None
@@ -1675,9 +1363,15 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
         normalized = str(text or "").strip().casefold()
         if not normalized:
             return False
-        if any(marker in normalized for marker in ("?", "？", "什么", "哪种", "哪类", "是不是", "吗", "么")):
+        if any(
+            marker in normalized
+            for marker in ("?", "？", "什么", "哪种", "哪类", "是不是", "吗", "么")
+        ):
             return True
-        if any(marker in normalized for marker in ("你觉得", "你记得", "你知道", "guess", "do i ", "what ", "which ")):
+        if any(
+            marker in normalized
+            for marker in ("你觉得", "你记得", "你知道", "guess", "do i ", "what ", "which ")
+        ):
             return True
         return False
 
@@ -1689,14 +1383,21 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
         candidate = suffix or normalized
         return candidate in _GENERIC_PREFERENCE_OBJECT_SUFFIXES
 
-    def _is_self_like_preference_object(self, *, subject_id: str, object_id: str, object_type: str) -> bool:
+    def _is_self_like_preference_object(
+        self, *, subject_id: str, object_id: str, object_type: str
+    ) -> bool:
         if object_id == subject_id:
             return True
         if object_type != "person":
             return False
         subject_prefix, _, subject_suffix = subject_id.partition(":")
         object_prefix, _, object_suffix = object_id.partition(":")
-        if subject_prefix != "user" or object_prefix != "person" or not subject_suffix or not object_suffix:
+        if (
+            subject_prefix != "user"
+            or object_prefix != "person"
+            or not subject_suffix
+            or not object_suffix
+        ):
             return False
         return self._slugify(subject_suffix) == object_suffix
 
@@ -1720,5 +1421,6 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
     def _entity_type_from_id(self, entity_id: str) -> str:
         prefix, _, _ = entity_id.partition(":")
         return prefix or "entity"
+
 
 __all__ = ["L2Pipeline", "L2PipelineStats"]

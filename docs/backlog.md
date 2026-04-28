@@ -151,6 +151,7 @@ Recent progress:
 - L1 event-store FTS/BM25 helpers now live in `event_store_fts.py`.
 - L1 event-store embedding, chunk, and vector-search helpers now live in `event_store_embeddings.py`.
 - L1 event-store read/query helpers now live in `event_store_queries.py`.
+- L2 pipeline staging, projection claiming, and microbatch flush helpers now live in `pipeline_staging.py`.
 
 Candidates to review next:
 
