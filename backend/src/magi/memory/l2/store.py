@@ -23,6 +23,7 @@ from .store_contradictions import L2StoreContradictionMixin
 from .store_episodes import L2EpisodeStoreMixin
 from .store_facets import L2EntityFacetStoreMixin
 from .store_fact_kind import L2StoreFactKindMixin
+from .store_feedback import L2StoreFeedbackMixin
 from .store_forgetting import L2StoreForgettingMixin
 from .store_migrations import L2StoreMigrationMixin
 from .store_projection_jobs import L2ProjectionJobStoreMixin
@@ -55,6 +56,7 @@ class L2CognitionStore(
     L2StoreSnapshotMixin,
     L2StoreAssertionMixin,
     L2StoreForgettingMixin,
+    L2StoreFeedbackMixin,
 ):
     """Persists structured cognition artifacts derived from L1 events."""
 
@@ -535,177 +537,6 @@ class L2CognitionStore(
             ) as cursor:
                 row = await cursor.fetchone()
         return self._assertion_row_to_dict(row) if row else None
-
-    async def apply_user_feedback(
-        self,
-        *,
-        assertion_id: str,
-        feedback: str,
-    ) -> Optional[Dict[str, Any]]:
-        """Apply user confirmation or rejection to an assertion.
-
-        Args:
-            assertion_id: The assertion to update.
-            feedback: ``"confirmed"`` or ``"rejected"``.
-
-        Returns:
-            The updated assertion dict, or ``None`` if not found.
-        """
-        if feedback not in {"confirmed", "rejected"}:
-            raise ValueError(f"Invalid feedback value: {feedback!r}")
-
-        await self.initialize()
-        now = time.time()
-
-        async with sqlite_connection_async(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                "SELECT * FROM tom_trait_assertions WHERE assertion_id = ?",
-                (assertion_id,),
-            ) as cursor:
-                existing = await cursor.fetchone()
-
-            if existing is None:
-                return None
-
-            current_confidence = float(existing["confidence_score"])
-            current_state = str(existing["validation_state"])
-
-            if feedback == "confirmed":
-                new_confidence = min(0.95, current_confidence + 0.20)
-                new_state = "stable" if current_state != "contradicted" else current_state
-            else:
-                new_confidence = 0.10
-                new_state = "user_rejected"
-
-            await db.execute(
-                """
-                UPDATE tom_trait_assertions
-                SET user_feedback = ?, user_feedback_at = ?,
-                    confidence_score = ?, validation_state = ?, status = ?, updated_at = ?
-                WHERE assertion_id = ?
-                """,
-                (feedback, now, new_confidence, new_state, new_state, now, assertion_id),
-            )
-            await db.commit()
-
-        logger.info(
-            "L2 user feedback applied",
-            assertion_id=assertion_id,
-            feedback=feedback,
-            old_confidence=current_confidence,
-            new_confidence=new_confidence,
-            old_state=current_state,
-            new_state=new_state,
-        )
-        return await self.get_tom_assertion(assertion_id=assertion_id)
-
-    async def correct_assertion(
-        self,
-        *,
-        assertion_id: str,
-        new_value: str,
-        reason: Optional[str] = None,
-    ) -> Optional[Dict[str, Any]]:
-        """User-initiated value correction that supersedes the current assertion.
-
-        Creates a new assertion with the corrected value and marks the old one
-        as ``superseded``.  The new assertion starts at ``status='stable'``
-        with high confidence because it comes directly from the user.
-
-        Args:
-            assertion_id: The assertion to correct.
-            new_value: The corrected value.
-            reason: Optional reason for the correction.
-
-        Returns:
-            The newly created assertion dict, or ``None`` if the original was
-            not found.
-        """
-        await self.initialize()
-        now = time.time()
-
-        async with sqlite_connection_async(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                "SELECT * FROM tom_trait_assertions WHERE assertion_id = ?",
-                (assertion_id,),
-            ) as cursor:
-                existing = await cursor.fetchone()
-
-            if existing is None:
-                return None
-
-            new_assertion_id = f"assert_{uuid.uuid4().hex}"
-
-            # Supersede the old assertion
-            await db.execute(
-                """
-                UPDATE tom_trait_assertions
-                SET status = 'superseded', superseded_by = ?, superseded_at = ?, updated_at = ?
-                WHERE assertion_id = ?
-                """,
-                (new_assertion_id, now, now, assertion_id),
-            )
-
-            # Insert the corrected assertion with high confidence
-            evidence = json.loads(existing["evidence_events"] or "[]")
-            await db.execute(
-                """
-                INSERT INTO tom_trait_assertions(
-                    assertion_id, entity_id, entity_type, trait_family, trait_name, trait_value,
-                    confidence_score, evidence_events, volatility_index, source_domain,
-                    inference_depth, validation_state, first_inferred_at, last_validated_at,
-                    target_entity_id, target_entity_type, target_scope, temporal_scope,
-                    decay_policy, decay_anchor_at, context_ref_id, expires_at,
-                    status, privacy_scope, user_feedback, user_feedback_at,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    new_assertion_id,
-                    str(existing["entity_id"]),
-                    str(existing["entity_type"]),
-                    str(existing["trait_family"]),
-                    str(existing["trait_name"]),
-                    new_value,
-                    0.95,  # high confidence — user-provided
-                    json.dumps(evidence, ensure_ascii=False),
-                    float(existing["volatility_index"]),
-                    "user_correction",
-                    "explicit",
-                    "stable",
-                    float(existing["first_inferred_at"]),
-                    now,
-                    str(existing["target_entity_id"] or ""),
-                    str(existing["target_entity_type"] or ""),
-                    str(existing["target_scope"] or "global"),
-                    str(existing["temporal_scope"] or "session"),
-                    existing["decay_policy"],
-                    existing["decay_anchor_at"],
-                    str(existing["context_ref_id"] or ""),
-                    existing["expires_at"],
-                    "stable",
-                    str(existing["privacy_scope"] if "privacy_scope" in existing.keys() else "private"),
-                    "confirmed",
-                    now,
-                    now,
-                    now,
-                ),
-            )
-            await db.commit()
-
-        logger.info(
-            "L2 user correction applied",
-            old_assertion_id=assertion_id,
-            new_assertion_id=new_assertion_id,
-            entity_id=str(existing["entity_id"]),
-            trait_name=str(existing["trait_name"]),
-            old_value=str(existing["trait_value"]),
-            new_value=new_value,
-            reason=reason,
-        )
-        return await self.get_tom_assertion(assertion_id=new_assertion_id)
 
     async def count_tom_snapshots(self) -> int:
         """Count all ToM snapshots."""
