@@ -145,6 +145,7 @@ Recent progress:
 - Settings page navigation and sub-selection state now lives in `useSettingsNavigation.ts`.
 - Settings page tool config loading and draft mutation state now lives in `useSettingsTools.ts`.
 - Settings page config/control draft loading and mutation state now lives in `useSettingsConfig.ts`.
+- Settings page plugin package and timeline source draft state now lives in `useSettingsPluginsTimeline.ts`.
 - Worker prompt and tool-profile helpers now live in `worker_prompting.py`.
 - Worker status, await, and run-state serialization helpers now live in `worker_status.py`.
 - Worker tool schema definition now lives in `worker_schema.py`.
