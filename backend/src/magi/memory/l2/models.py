@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Optional
 
 from .context_bundle import ResolvedContextRef
+from .episode_models import EpisodeCandidateJob, EpisodeConsolidationStats, EpisodeWrite
 
 
 def _non_empty_text(value: str, *, field_name: str) -> str:
@@ -168,14 +169,14 @@ class L2EventWindow:
         normalized_texts = [str(item) for item in self.texts if str(item).strip()]
         if not normalized_texts:
             normalized_texts = [
-                str(item.content).strip()
-                for item in normalized_events
-                if str(item.content).strip()
+                str(item.content).strip() for item in normalized_events if str(item.content).strip()
             ]
         if not isinstance(self.summary, L2EventWindowSummary):
             self.summary = L2EventWindowSummary(**dict(self.summary))
         if self.summary.event_count <= 0:
-            self.summary.event_count = max(len(normalized_event_ids), len(normalized_events), len(normalized_texts))
+            self.summary.event_count = max(
+                len(normalized_event_ids), len(normalized_events), len(normalized_texts)
+            )
         if self.summary.history_context_count <= 0 and self.history_contexts:
             self.summary.history_context_count = len(self.history_contexts)
 
@@ -298,8 +299,12 @@ class L2AssertionCandidate:
         self.volatility_index = float(self.volatility_index or 0.5)
         self.confidence = float(self.confidence or 0.0)
         self.validation_state = _optional_text(self.validation_state) or "tentative"
-        self.evidence_texts = [str(item).strip() for item in self.evidence_texts if str(item).strip()]
-        self.supporting_event_ids = [str(item).strip() for item in self.supporting_event_ids if str(item).strip()]
+        self.evidence_texts = [
+            str(item).strip() for item in self.evidence_texts if str(item).strip()
+        ]
+        self.supporting_event_ids = [
+            str(item).strip() for item in self.supporting_event_ids if str(item).strip()
+        ]
         self.temporal_scope = _optional_text(self.temporal_scope) or ""
         self.decay_policy = _optional_text(self.decay_policy) or ""
         self.expires_at = None if self.expires_at in (None, "") else float(self.expires_at)
@@ -358,17 +363,28 @@ class L2UnifiedExtractionResult:
                 normalized_resolved_context_refs.append(
                     ResolvedContextRef(
                         surface=str(item.get("surface") or "").strip(),
-                        reference_type=str(item.get("reference_type") or "unresolved").strip() or "unresolved",
+                        reference_type=str(item.get("reference_type") or "unresolved").strip()
+                        or "unresolved",
                         resolved_ref=str(item.get("resolved_ref") or "").strip(),
                         resolved_kind=str(item.get("resolved_kind") or "").strip(),
                         confidence=float(item.get("confidence", 0.0) or 0.0),
                         evidence_text=str(item.get("evidence_text") or "").strip(),
                     )
                 )
-        self.resolved_context_refs = [item for item in normalized_resolved_context_refs if item.surface]
-        self.graph_candidates = L2CandidateSet(graph_candidates=self.graph_candidates).graph_candidates
-        self.assertion_candidates = L2CandidateSet(assertion_candidates=self.assertion_candidates).assertion_candidates
-        self.diagnostics = dict(self.diagnostics) if isinstance(self.diagnostics, dict) else {"entity_status": "none"}
+        self.resolved_context_refs = [
+            item for item in normalized_resolved_context_refs if item.surface
+        ]
+        self.graph_candidates = L2CandidateSet(
+            graph_candidates=self.graph_candidates
+        ).graph_candidates
+        self.assertion_candidates = L2CandidateSet(
+            assertion_candidates=self.assertion_candidates
+        ).assertion_candidates
+        self.diagnostics = (
+            dict(self.diagnostics)
+            if isinstance(self.diagnostics, dict)
+            else {"entity_status": "none"}
+        )
         if not self.diagnostics.get("entity_status"):
             self.diagnostics["entity_status"] = "none"
 
@@ -391,8 +407,12 @@ class L2ConflictArbitrationResult:
 
     def __post_init__(self) -> None:
         self.decision = _non_empty_text(self.decision, field_name="decision")
-        self.winning_record_ids = [str(item).strip() for item in self.winning_record_ids if str(item).strip()]
-        self.superseded_record_ids = [str(item).strip() for item in self.superseded_record_ids if str(item).strip()]
+        self.winning_record_ids = [
+            str(item).strip() for item in self.winning_record_ids if str(item).strip()
+        ]
+        self.superseded_record_ids = [
+            str(item).strip() for item in self.superseded_record_ids if str(item).strip()
+        ]
         self.reason = str(self.reason or "").strip()
 
     def to_dict(self) -> dict[str, Any]:
@@ -459,7 +479,9 @@ class L2KnowledgeEdgeWrite:
         self.predicate = _non_empty_text(self.predicate, field_name="predicate")
         self.object_id = _non_empty_text(self.object_id, field_name="object_id")
         self.object_type = _non_empty_text(self.object_type, field_name="object_type")
-        self.evidence_event_ids = [str(item).strip() for item in self.evidence_event_ids if str(item).strip()]
+        self.evidence_event_ids = [
+            str(item).strip() for item in self.evidence_event_ids if str(item).strip()
+        ]
         self.confidence = float(self.confidence or 0.0)
         self.observed_at = float(self.observed_at or 0.0)
         self.source_type = _optional_text(self.source_type) or "unknown"
@@ -502,7 +524,9 @@ class L2TomAssertionWrite:
         self.trait_name = _non_empty_text(self.trait_name, field_name="trait_name")
         self.trait_value = str(self.trait_value)
         self.confidence_score = float(self.confidence_score or 0.0)
-        self.evidence_events = [str(item).strip() for item in self.evidence_events if str(item).strip()]
+        self.evidence_events = [
+            str(item).strip() for item in self.evidence_events if str(item).strip()
+        ]
         self.volatility_index = float(self.volatility_index or 0.5)
         self.source_domain = _optional_text(self.source_domain) or ""
         self.inference_depth = _optional_text(self.inference_depth) or ""
@@ -573,7 +597,9 @@ class L2ExistingRecord:
         self.object_id = _optional_text(self.object_id) or ""
         self.status = _optional_text(self.status) or ""
         self.confidence = float(self.confidence or 0.0)
-        self.evidence_event_ids = [str(item).strip() for item in self.evidence_event_ids if str(item).strip()]
+        self.evidence_event_ids = [
+            str(item).strip() for item in self.evidence_event_ids if str(item).strip()
+        ]
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -753,7 +779,9 @@ class L2ReconcileAssertion:
         self.trait_value = str(self.trait_value)
         self.validation_state = _optional_text(self.validation_state) or ""
         self.confidence = float(self.confidence or 0.0)
-        self.evidence_event_ids = [str(item).strip() for item in self.evidence_event_ids if str(item).strip()]
+        self.evidence_event_ids = [
+            str(item).strip() for item in self.evidence_event_ids if str(item).strip()
+        ]
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -783,7 +811,10 @@ class L2BatchJob:
         self.estimated_tokens = max(0, int(self.estimated_tokens))
         self.events = sorted(
             [dict(item) for item in self.events if isinstance(item, dict)],
-            key=lambda item: (float(item.get("timestamp", 0.0) or 0.0), str(item.get("event_id", ""))),
+            key=lambda item: (
+                float(item.get("timestamp", 0.0) or 0.0),
+                str(item.get("event_id", "")),
+            ),
         )
         if not self.events:
             raise ValueError("events must not be empty")
@@ -793,7 +824,11 @@ class L2BatchJob:
 
     @property
     def event_ids(self) -> list[str]:
-        return [str(item.get("event_id", "")).strip() for item in self.events if str(item.get("event_id", "")).strip()]
+        return [
+            str(item.get("event_id", "")).strip()
+            for item in self.events
+            if str(item.get("event_id", "")).strip()
+        ]
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -903,7 +938,9 @@ class L2PendingBatchBucket:
             self.newest_event_timestamp = timestamp
 
     def build_job(self, *, flush_reason: str, job_id: str | None = None) -> "L2BatchJob":
-        resolved_job_id = _optional_text(job_id) or f"{self.bucket_key}:{int(self.newest_event_timestamp * 1000)}"
+        resolved_job_id = (
+            _optional_text(job_id) or f"{self.bucket_key}:{int(self.newest_event_timestamp * 1000)}"
+        )
         return L2BatchJob(
             job_id=resolved_job_id,
             bucket_key=self.bucket_key,
@@ -929,7 +966,9 @@ class L2EntityReconcileJob:
     batch_key: str = field(init=False)
 
     def __post_init__(self) -> None:
-        normalized = sorted({_non_empty_text(entity_id, field_name="entity_id") for entity_id in self.entity_ids})
+        normalized = sorted(
+            {_non_empty_text(entity_id, field_name="entity_id") for entity_id in self.entity_ids}
+        )
         if not normalized:
             raise ValueError("entity_ids must not be empty")
         self.entity_ids = normalized
@@ -949,7 +988,9 @@ class L2SnapshotRefreshJob:
     batch_key: str = field(init=False)
 
     def __post_init__(self) -> None:
-        normalized = sorted({_non_empty_text(entity_id, field_name="entity_id") for entity_id in self.entity_ids})
+        normalized = sorted(
+            {_non_empty_text(entity_id, field_name="entity_id") for entity_id in self.entity_ids}
+        )
         if not normalized:
             raise ValueError("entity_ids must not be empty")
         self.entity_ids = normalized
@@ -1035,10 +1076,14 @@ class StructuredGraphHint:
             object_type=str(payload.get("object_type", "")),
             subject_type=_optional_text(payload.get("subject_type")),
             fact_kind=_optional_text(payload.get("fact_kind")),
-            confidence=float(payload["confidence"]) if payload.get("confidence") is not None else None,
+            confidence=float(payload["confidence"])
+            if payload.get("confidence") is not None
+            else None,
             evidence_text=_optional_text(payload.get("evidence_text")),
             origin_mode=_optional_text(payload.get("origin_mode")),
-            attributes=dict(payload.get("attributes", {})) if isinstance(payload.get("attributes"), dict) else {},
+            attributes=dict(payload.get("attributes", {}))
+            if isinstance(payload.get("attributes"), dict)
+            else {},
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -1152,7 +1197,9 @@ class L2Phase1FactClaim:
         self.specificity = _optional_text(self.specificity) or "concrete"
         self.evidence_text = _optional_text(self.evidence_text) or ""
         self.confidence = float(self.confidence or 0.0)
-        self.supporting_event_ids = [str(s).strip() for s in self.supporting_event_ids if str(s).strip()]
+        self.supporting_event_ids = [
+            str(s).strip() for s in self.supporting_event_ids if str(s).strip()
+        ]
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -1201,9 +1248,21 @@ class L2Phase1Result:
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "L2Phase1Result":
         return cls(
-            entities=[L2Phase1Entity.from_dict(e) for e in payload.get("entities", []) if isinstance(e, dict)],
-            fact_claims=[L2Phase1FactClaim.from_dict(f) for f in payload.get("fact_claims", []) if isinstance(f, dict)],
-            resolved_refs=[L2Phase1ResolvedRef.from_dict(r) for r in payload.get("resolved_refs", []) if isinstance(r, dict)],
+            entities=[
+                L2Phase1Entity.from_dict(e)
+                for e in payload.get("entities", [])
+                if isinstance(e, dict)
+            ],
+            fact_claims=[
+                L2Phase1FactClaim.from_dict(f)
+                for f in payload.get("fact_claims", [])
+                if isinstance(f, dict)
+            ],
+            resolved_refs=[
+                L2Phase1ResolvedRef.from_dict(r)
+                for r in payload.get("resolved_refs", [])
+                if isinstance(r, dict)
+            ],
             diagnostics=payload.get("diagnostics", {"entity_status": "none"}),
         )
 
@@ -1232,7 +1291,11 @@ class L2Phase1Result:
                 normalized_refs.append(L2Phase1ResolvedRef.from_dict(item))
         self.resolved_refs = normalized_refs
 
-        self.diagnostics = dict(self.diagnostics) if isinstance(self.diagnostics, dict) else {"entity_status": "none"}
+        self.diagnostics = (
+            dict(self.diagnostics)
+            if isinstance(self.diagnostics, dict)
+            else {"entity_status": "none"}
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -1296,7 +1359,9 @@ class L2Phase2GraphEdge:
         self.polarity = _optional_text(self.polarity) or "positive"
         self.confidence = float(self.confidence or 0.0)
         self.evidence_text = _optional_text(self.evidence_text) or ""
-        self.supporting_event_ids = [str(s).strip() for s in self.supporting_event_ids if str(s).strip()]
+        self.supporting_event_ids = [
+            str(s).strip() for s in self.supporting_event_ids if str(s).strip()
+        ]
         self.relationship_to_existing = _optional_text(self.relationship_to_existing) or "new"
         self.related_existing_triple_id = _optional_text(self.related_existing_triple_id)
 
@@ -1364,7 +1429,9 @@ class L2Phase2AssertionCandidate:
         self.volatility_index = float(self.volatility_index or 0.5)
         self.confidence = float(self.confidence or 0.0)
         self.evidence_texts = [str(s).strip() for s in self.evidence_texts if str(s).strip()]
-        self.supporting_event_ids = [str(s).strip() for s in self.supporting_event_ids if str(s).strip()]
+        self.supporting_event_ids = [
+            str(s).strip() for s in self.supporting_event_ids if str(s).strip()
+        ]
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -1416,10 +1483,26 @@ class L2Phase2Result:
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "L2Phase2Result":
         return cls(
-            graph_edges=[L2Phase2GraphEdge.from_dict(e) for e in payload.get("graph_edges", []) if isinstance(e, dict)],
-            refinements=[L2Phase2Refinement.from_dict(r) for r in payload.get("refinements", []) if isinstance(r, dict)],
-            assertion_candidates=[L2Phase2AssertionCandidate.from_dict(a) for a in payload.get("assertion_candidates", []) if isinstance(a, dict)],
-            contradiction_hints=[L2Phase2ContradictionHint.from_dict(h) for h in payload.get("contradiction_hints", []) if isinstance(h, dict)],
+            graph_edges=[
+                L2Phase2GraphEdge.from_dict(e)
+                for e in payload.get("graph_edges", [])
+                if isinstance(e, dict)
+            ],
+            refinements=[
+                L2Phase2Refinement.from_dict(r)
+                for r in payload.get("refinements", [])
+                if isinstance(r, dict)
+            ],
+            assertion_candidates=[
+                L2Phase2AssertionCandidate.from_dict(a)
+                for a in payload.get("assertion_candidates", [])
+                if isinstance(a, dict)
+            ],
+            contradiction_hints=[
+                L2Phase2ContradictionHint.from_dict(h)
+                for h in payload.get("contradiction_hints", [])
+                if isinstance(h, dict)
+            ],
         )
 
     def __post_init__(self) -> None:
@@ -1466,127 +1549,6 @@ class L2Phase2Result:
     @property
     def has_content(self) -> bool:
         return bool(self.graph_edges or self.assertion_candidates or self.contradiction_hints)
-
-
-# ── Episode Models ────────────────────────────────────────────────
-
-
-@dataclass(slots=True)
-class EpisodeWrite:
-    """Payload for creating or extending an episode."""
-
-    episode_id: str
-    episode_type: str = "activity"
-    status: str = "candidate"
-    time_start: float = 0.0
-    time_end: float = 0.0
-    parent_episode_id: str = ""
-    label: str = ""
-    summary: str = ""
-    dominant_mode: str = ""
-    primary_entity_ids: list[str] = field(default_factory=list)
-    primary_place_ids: list[str] = field(default_factory=list)
-    primary_topic_keys: list[str] = field(default_factory=list)
-    continuity_signals: list[str] = field(default_factory=list)
-    formation_method: str = "time_gap_cluster"
-    confidence: float = 0.5
-    source_event_count: int = 0
-    privacy_scope: str = "private"
-
-    def __post_init__(self) -> None:
-        self.episode_id = _non_empty_text(self.episode_id, field_name="episode_id")
-        self.episode_type = _optional_text(self.episode_type) or "activity"
-        self.status = _optional_text(self.status) or "candidate"
-        self.time_start = float(self.time_start or 0.0)
-        self.time_end = float(self.time_end or 0.0)
-        self.parent_episode_id = _optional_text(self.parent_episode_id) or ""
-        self.label = _optional_text(self.label) or ""
-        self.summary = _optional_text(self.summary) or ""
-        self.dominant_mode = _optional_text(self.dominant_mode) or ""
-        self.primary_entity_ids = [str(i).strip() for i in self.primary_entity_ids if str(i).strip()]
-        self.primary_place_ids = [str(i).strip() for i in self.primary_place_ids if str(i).strip()]
-        self.primary_topic_keys = [str(k).strip() for k in self.primary_topic_keys if str(k).strip()]
-        self.continuity_signals = [str(s).strip() for s in self.continuity_signals if str(s).strip()]
-        self.formation_method = _optional_text(self.formation_method) or "time_gap_cluster"
-        self.confidence = float(self.confidence or 0.5)
-        self.source_event_count = int(self.source_event_count or 0)
-        self.privacy_scope = _optional_text(self.privacy_scope) or "private"
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-    @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> "EpisodeWrite":
-        return cls(
-            episode_id=str(data.get("episode_id", "")),
-            episode_type=str(data.get("episode_type", "activity")),
-            status=str(data.get("status", "candidate")),
-            time_start=float(data.get("time_start", 0.0)),
-            time_end=float(data.get("time_end", 0.0)),
-            parent_episode_id=str(data.get("parent_episode_id", "")),
-            label=str(data.get("label", "")),
-            summary=str(data.get("summary", "")),
-            dominant_mode=str(data.get("dominant_mode", "")),
-            primary_entity_ids=list(data.get("primary_entity_ids", [])),
-            primary_place_ids=list(data.get("primary_place_ids", [])),
-            primary_topic_keys=list(data.get("primary_topic_keys", [])),
-            continuity_signals=list(data.get("continuity_signals", [])),
-            formation_method=str(data.get("formation_method", "time_gap_cluster")),
-            confidence=float(data.get("confidence", 0.5)),
-            source_event_count=int(data.get("source_event_count", 0)),
-            privacy_scope=str(data.get("privacy_scope", "private")),
-        )
-
-
-@dataclass(slots=True)
-class EpisodeCandidateJob:
-    """Job unit for streaming episode candidate formation."""
-
-    event_id: str
-    event_timestamp: float
-    event_tags: list[str] = field(default_factory=list)
-    entity_ids: list[str] = field(default_factory=list)
-    place_ids: list[str] = field(default_factory=list)
-    topic_keys: list[str] = field(default_factory=list)
-    episode_type_hint: str = "activity"
-
-    def __post_init__(self) -> None:
-        self.event_id = _non_empty_text(self.event_id, field_name="event_id")
-        self.event_timestamp = float(self.event_timestamp or 0.0)
-        self.event_tags = [str(t).strip() for t in self.event_tags if str(t).strip()]
-        self.entity_ids = [str(i).strip() for i in self.entity_ids if str(i).strip()]
-        self.place_ids = [str(i).strip() for i in self.place_ids if str(i).strip()]
-        self.topic_keys = [str(k).strip() for k in self.topic_keys if str(k).strip()]
-        self.episode_type_hint = _optional_text(self.episode_type_hint) or "activity"
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-    @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> "EpisodeCandidateJob":
-        return cls(
-            event_id=str(data.get("event_id", "")),
-            event_timestamp=float(data.get("event_timestamp", 0.0)),
-            event_tags=list(data.get("event_tags", [])),
-            entity_ids=list(data.get("entity_ids", [])),
-            place_ids=list(data.get("place_ids", [])),
-            topic_keys=list(data.get("topic_keys", [])),
-            episode_type_hint=str(data.get("episode_type_hint", "activity")),
-        )
-
-
-@dataclass(slots=True)
-class EpisodeConsolidationStats:
-    """Statistics for a single episode consolidation run."""
-
-    promoted: int = 0
-    merged: int = 0
-    invalidated: int = 0
-    summaries_generated: int = 0
-    embeddings_queued: int = 0
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
 
 
 __all__ = [
