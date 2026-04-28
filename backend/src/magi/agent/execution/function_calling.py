@@ -7,9 +7,7 @@ Handles tool execution using LLM's native function calling capability:
 3. Executes tools (local or skill-based)
 4. Supports continuous tool calling loop
 """
-import getpass
 import logging
-import os
 from typing import Callable, Dict, Any, List, Optional, TYPE_CHECKING
 
 from ...llm.base import LLMAdapter
@@ -38,6 +36,7 @@ from .function_calling_step_executor import (
     FunctionCallingStepExecutor,
     FunctionCallingStepState,
 )
+from .function_calling_tool_execution import FunctionCallingToolExecutionMixin
 from .function_calling_tools import (
     build_tool_description,
     build_tools_parameter,
@@ -59,6 +58,7 @@ class FunctionCallingOrchestrator(
     FunctionCallingMessageHistoryMixin,
     FunctionCallingPermissionMixin,
     FunctionCallingResponseMixin,
+    FunctionCallingToolExecutionMixin,
     FunctionCallingTracingMixin,
 ):
     """
@@ -442,233 +442,5 @@ class FunctionCallingOrchestrator(
 
     _build_tool_description = staticmethod(build_tool_description)
 
-    async def _execute_tool_call(
-        self,
-        tool_call: ToolCall,
-        user_id: str,
-        session_id: Optional[str],
-        turn_id: Optional[str],
-        intent: str,
-        execution_agent_id: str,
-        execution_workspace: Optional[str],
-        orchestration_strategy: Optional[Dict[str, Any]],
-        session_run_id: str | None = None,
-        session_run_revision: int = 0,
-        user_message: str | None = None,
-    ) -> ToolCallResult:
-        """
-        Execute a single tool call
 
-        Args:
-            tool_call: Tool call to execute
-            user_id: User id for context
-
-        Returns:
-            ToolCallResult
-        """
-        import time
-        start_time = time.time()
-
-        tool_name = tool_call.name
-        arguments = tool_call.arguments if isinstance(tool_call.arguments, dict) else {}
-        workspace_root = self._resolve_execution_workspace(execution_workspace)
-
-        try:
-            from ...tools.schema import ToolExecutionContext
-
-            # Check if it's a skill
-            if tool_name.startswith("skill_"):
-                skill_name = tool_name.replace("skill_", "")
-                return await self._execute_skill(
-                    skill_name=skill_name,
-                    arguments=arguments,
-                    user_id=user_id,
-                    execution_workspace=execution_workspace,
-                )
-
-            # Regular tool
-            arguments, guardrail_error = self._apply_worker_explore_guardrails(
-                intent=intent,
-                tool_name=tool_name,
-                arguments=arguments,
-                execution_workspace=execution_workspace,
-                user_message=user_message,
-            )
-            if guardrail_error:
-                guardrail_error_code = self._classify_guardrail_error_code(
-                    tool_name=tool_name,
-                    error_text=guardrail_error,
-                )
-                logger.warning(
-                    "[FunctionCalling] Blocked by guardrail: %s | intent=%s | workspace=%s | args=%s | reason=%s",
-                    tool_name,
-                    intent,
-                    workspace_root,
-                    arguments,
-                    guardrail_error,
-                )
-                return ToolCallResult(
-                    tool_call_id=tool_call.id,
-                    tool_name=tool_name,
-                    success=False,
-                    error=guardrail_error,
-                    error_code=guardrail_error_code,
-                    execution_time=time.time() - start_time,
-                )
-
-            permissions = ["authenticated"]
-            tool_info = self.tool_registry.get_tool_info(tool_name)
-            if tool_info and tool_info.get("dangerous", False):
-                permissions.append("dangerous_tools")
-            normalized_session_id = str(session_id or "").strip()
-            target_task_agent_id = normalized_session_id or user_id
-
-            context = ToolExecutionContext(
-                agent_id=execution_agent_id,
-                workspace=workspace_root,
-                env_vars={
-                    "user_id": user_id,
-                    "session_id": session_id or "",
-                    "turn_id": turn_id or "",
-                    "intent": intent,
-                    "run_id": session_run_id or "",
-                    "run_revision": str(session_run_revision),
-                    "target_task_agent_type": "chat",
-                    "target_task_agent_id": target_task_agent_id,
-                },
-                permissions=permissions,
-            )
-
-            if tool_name == "agent":
-                arguments = self._normalize_agent_launch_arguments(
-                    arguments=arguments,
-                    orchestration_strategy=orchestration_strategy,
-                )
-
-            gateway = self._resolve_permission_gateway()
-            if gateway is not None:
-                denied_result = await self._gate_tool_call(
-                    tool_call=tool_call,
-                    tool_name=tool_name,
-                    arguments=arguments,
-                    agent_id=execution_agent_id,
-                    session_id=session_id,
-                    turn_id=turn_id,
-                    workspace=context.workspace,
-                    intent=intent,
-                    start_time=start_time,
-                    gateway=gateway,
-                )
-                if denied_result is not None:
-                    return denied_result
-
-            if tool_name in self._FILE_SCAN_TOOLS:
-                logger.info(
-                    "[FunctionCalling] Executing scan tool: %s | workspace=%s | path=%s | args=%s",
-                    tool_name,
-                    workspace_root,
-                    self._resolve_scan_root_path(arguments.get("path"), execution_workspace),
-                    arguments,
-                )
-            else:
-                logger.info(f"[FunctionCalling] Executing: {tool_name} with args: {arguments}")
-            result = await self.tool_registry.execute(tool_name, arguments, context)
-            execution_time = time.time() - start_time
-            if not result.success:
-                logger.warning(
-                    f"[FunctionCalling] Tool failed: {tool_name} | "
-                    f"error={result.error} | code={result.error_code}"
-                )
-            if (
-                tool_name in self._FILE_SCAN_TOOLS
-                and execution_time >= self._SLOW_SCAN_WARNING_SECONDS
-            ):
-                logger.warning(
-                    "[FunctionCalling] Slow scan tool: %s | workspace=%s | path=%s | elapsed_ms=%.1f | args=%s",
-                    tool_name,
-                    workspace_root,
-                    self._resolve_scan_root_path(arguments.get("path"), execution_workspace),
-                    execution_time * 1000,
-                    arguments,
-                )
-
-            return ToolCallResult(
-                tool_call_id=tool_call.id,
-                tool_name=tool_name,
-                success=result.success,
-                data=result.data,
-                error=result.error,
-                error_code=getattr(result, "error_code", None),
-                execution_time=execution_time,
-            )
-
-        except Exception as e:
-            logger.error(f"[FunctionCalling] Tool execution error: {e}")
-            return ToolCallResult(
-                tool_call_id=tool_call.id,
-                tool_name=tool_name,
-                success=False,
-                error=str(e),
-                execution_time=time.time() - start_time,
-            )
-
-    async def _execute_skill(
-        self,
-        skill_name: str,
-        arguments: Dict[str, Any],
-        user_id: str,
-        execution_workspace: Optional[str] = None,
-    ) -> ToolCallResult:
-        """Execute a skill"""
-        if not self.skill_runner:
-            return ToolCallResult(
-                tool_call_id="",
-                tool_name=skill_name,
-                success=False,
-                error="Skill runner not available",
-            )
-
-        workspace_root = self._resolve_execution_workspace(execution_workspace)
-        skill_context = {
-            "user_id": user_id,
-            "session_id": f"session_{user_id}",
-            "workspace": workspace_root,
-            "env_vars": {
-                "user": getpass.getuser(),
-                "HOME": os.path.expanduser("~"),
-                "PWD": workspace_root,
-            },
-        }
-
-        try:
-            # Convert arguments dict to list for the skill runner
-            args_list = []
-            if arguments:
-                for key, value in arguments.items():
-                    if isinstance(value, str):
-                        args_list.append(value)
-                    elif value is not None:
-                        args_list.append(str(value))
-
-            result = await self.skill_runner.execute(
-                skill_name=skill_name,
-                arguments=args_list,
-                context=skill_context,
-            )
-
-            return ToolCallResult(
-                tool_call_id="",
-                tool_name=skill_name,
-                success=result.success,
-                data=result.content,
-                error=result.error,
-            )
-
-        except Exception as e:
-            logger.error(f"[FunctionCalling] Skill execution error: {e}")
-            return ToolCallResult(
-                tool_call_id="",
-                tool_name=skill_name,
-                success=False,
-                error=str(e),
-            )
+__all__ = ["FunctionCallingOrchestrator", "ToolCall", "ToolCallResult"]

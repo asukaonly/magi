@@ -21,6 +21,7 @@ export PYTHONPATH="$ROOT_DIR/backend/src:$ROOT_DIR/sdk/src${PYTHONPATH:+:$PYTHON
   src/magi/agent/execution/function_calling_postprocessor.py \
   src/magi/agent/execution/function_calling_responses.py \
   src/magi/agent/execution/function_calling_step_executor.py \
+  src/magi/agent/execution/function_calling_tool_execution.py \
   src/magi/agent/execution/function_calling_tracing.py \
   src/magi/agent/execution/function_calling_types.py \
   src/magi/agent/task_agents/chat/postprocess_background.py \
