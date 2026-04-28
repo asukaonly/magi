@@ -13,12 +13,10 @@ import {
   LLMStatisticsSection,
   RuntimeStatisticsSection,
 } from '@/components/settings';
-import ChannelsSection from '@/components/settings/ChannelsSection';
 import { SettingsControlSection } from '@/components/settings/SettingsControlSection';
 import { SettingsConversationSection } from '@/components/settings/SettingsConversationSection';
+import { SettingsIntegrationsSection, type SettingsIntegrationsSectionId } from '@/components/settings/SettingsIntegrationsSection';
 import { SettingsLlmSection } from '@/components/settings/SettingsLlmSection';
-import PluginsSection from '@/components/settings/PluginsSection';
-import { PluginMarketplace } from '@/components/settings/PluginMarketplace';
 import { SettingsMemorySection, type SettingsMemorySectionId } from '@/components/settings/SettingsMemorySection';
 import { SettingsNavigationSidebar } from '@/components/settings/SettingsNavigationSidebar';
 import { SettingsPersonalityRuntimeSection } from '@/components/settings/SettingsPersonalityRuntimeSection';
@@ -30,7 +28,6 @@ import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { cn } from '@/lib/utils';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
-import { toast } from 'sonner';
 import { getTimelineSourceDisplayName } from '@/utils/timeline-source-copy';
 
 const ADVANCED_MEMORY_SECTION_IDS = new Set([
@@ -48,6 +45,12 @@ const MEMORY_SECTION_IDS = new Set<string>([
   'memoryKnowledge',
   'memoryReflection',
   'memorySkills',
+]);
+
+const INTEGRATION_SECTION_IDS = new Set<string>([
+  'pluginsInstalled',
+  'pluginsMarketplace',
+  'channels',
 ]);
 
 export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({ onRequestClose }, ref) => {
@@ -265,42 +268,27 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
         );
 
       case 'pluginsInstalled':
-        return (
-          <PluginsSection
-            plugins={plugins}
-            loading={pluginsLoading}
-            drafts={draftPluginDrafts}
-            dirty={dirty}
-            onFieldChange={handlePluginDraftChange}
-            onRescan={async () => {
-              await loadPlugins();
-              toast.success(t('settings.pluginPackages.feedback.rescanSuccess'));
-            }}
-            onPluginAction={handlePluginAction}
-            processingIds={pluginProcessingIds}
-          />
-        );
-
       case 'pluginsMarketplace':
-        return (
-          <PluginMarketplace
-            installedPlugins={plugins}
-            onInstallComplete={loadPluginsAndSensors}
-          />
-        );
-
       case 'channels':
+        if (!INTEGRATION_SECTION_IDS.has(effectiveActiveSection)) {
+          return null;
+        }
         return (
-          <ChannelsSection
+          <SettingsIntegrationsSection
+            section={effectiveActiveSection as SettingsIntegrationsSectionId}
             plugins={plugins}
-            drafts={draftPluginDrafts}
+            pluginsLoading={pluginsLoading}
+            draftPluginDrafts={draftPluginDrafts}
             dirty={dirty}
-            selectedContributionId={channelsSelection}
-            onSelectContribution={setChannelsSelection}
-            onFieldChange={handlePluginDraftChange}
-            onReloadPlugin={handleReloadActionPlugin}
-            onPluginAction={handlePluginAction}
-            reloading={reloadingActionPlugins}
+            pluginProcessingIds={pluginProcessingIds}
+            reloadingActionPlugins={reloadingActionPlugins}
+            channelsSelection={channelsSelection}
+            setChannelsSelection={setChannelsSelection}
+            handlePluginDraftChange={handlePluginDraftChange}
+            handlePluginAction={handlePluginAction}
+            handleReloadActionPlugin={handleReloadActionPlugin}
+            loadPlugins={loadPlugins}
+            loadPluginsAndSensors={loadPluginsAndSensors}
           />
         );
 
