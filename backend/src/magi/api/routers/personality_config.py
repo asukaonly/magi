@@ -11,7 +11,6 @@ import asyncio
 import json
 import random
 import re
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -645,42 +644,14 @@ async def api_get_greeting():
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-def _load_builtin_personality(name: str, lang: str = "zh") -> Optional[Dict[str, Any]]:
-    """Load personality from built-in presets directory."""
-    builtin_dir = _get_builtin_personalities_dir(lang)
-    if not builtin_dir:
-        return None
-    filepath = builtin_dir / f"{name}.json"
-    if not filepath.exists():
-        return None
-    try:
-        content = filepath.read_text(encoding="utf-8")
-        return json.loads(content)
-    except Exception as exc:
-        logger.warning("Failed to load built-in personality %s: %s", name, exc)
-        return None
-
-
 @personality_config_router.get(
     "/{name}",
     response_model=PersonalityResponse,
     summary="Get personality config",
-    description="Load one personality configuration by name from built-in presets or runtime storage.",
+    description="Load one personality configuration by slug from the persona registry.",
 )
-async def get_personality(name: str = DEFAULT_PERSONALITY, lang: str = ""):
+async def get_personality(name: str = DEFAULT_PERSONALITY):
     try:
-        # If lang parameter is provided, try loading from built-in presets first
-        if lang:
-            builtin_data = _load_builtin_personality(name, lang)
-            if builtin_data:
-                config = PersonalityConfigModel.model_validate(builtin_data)
-                return PersonalityResponse(
-                    success=True,
-                    message=f"Successfully retrieved built-in personality: {name}",
-                    data=_normalize_avatar_in_payload(config.model_dump()),
-                )
-
-        # Fallback to registry
         try:
             resolved = await resolve_persona_config(name)
             if resolved is not None:
@@ -780,39 +751,18 @@ async def generate_personality(request: AIGenerateRequest):
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-def _get_builtin_personalities_dir(lang: str = "zh") -> Optional[Path]:
-    """Get built-in personality presets directory."""
-    # backend/personalities/{lang}/
-    backend_dir = Path(__file__).resolve().parents[3] / "personalities" / lang
-    if backend_dir.exists():
-        return backend_dir
-    return None
-
-
 @personality_config_router.get(
     "/",
     response_model=PersonalityResponse,
     summary="List personalities",
-    description="List available personality names from runtime storage or built-in presets by language.",
+    description="List available personality slugs from the persona registry.",
 )
-async def list_personalities(lang: str = ""):
+async def list_personalities():
     try:
-        personalities: List[str] = []
-
-        # If lang parameter is provided, load from built-in presets
-        if lang:
-            builtin_dir = _get_builtin_personalities_dir(lang)
-            if builtin_dir and builtin_dir.exists():
-                for filepath in builtin_dir.glob("*.json"):
-                    name = filepath.stem
-                    if name != DEFAULT_PERSONALITY:
-                        personalities.append(name)
-        else:
-            # Default: list from persona registry
-            repo = PersonaRepository(str(get_runtime_paths().persona_registry_db_path))
-            await repo.init()
-            summaries = await repo.list_all()
-            personalities = [s.slug for s in summaries if s.slug != DEFAULT_PERSONALITY]
+        repo = PersonaRepository(str(get_runtime_paths().persona_registry_db_path))
+        await repo.init()
+        summaries = await repo.list_all()
+        personalities: List[str] = [s.slug for s in summaries if s.slug != DEFAULT_PERSONALITY]
 
         return PersonalityResponse(
             success=True,

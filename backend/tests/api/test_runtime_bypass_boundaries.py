@@ -35,3 +35,12 @@ def test_api_service_helpers_do_not_probe_container_directly() -> None:
     assert not Path("/Users/asuka/code/magi/backend/src/magi/api/services/user_message_sensor_service.py").exists()
     assert not Path("/Users/asuka/code/magi/backend/src/magi/api/services/message_bus_service.py").exists()
     assert not Path("/Users/asuka/code/magi/backend/src/magi/api/services/other_memory_service.py").exists()
+
+
+def test_personality_config_router_does_not_read_builtin_preset_files() -> None:
+    source = Path("/Users/asuka/code/magi/backend/src/magi/api/routers/personality_config.py").read_text(encoding="utf-8")
+
+    assert "_get_builtin_personalities_dir" not in source
+    assert "_load_builtin_personality" not in source
+    assert "backend/personalities" not in source
+    assert ".glob(\"*.json\")" not in source

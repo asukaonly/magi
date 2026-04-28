@@ -42,6 +42,7 @@ Why it is still open:
 - Quick onboarding now selects the default persona from locale-aware seed metadata instead of a hardcoded seed slug.
 - Existing file-based persona JSON configs can be imported into the registry with `scripts/migrate-personas-to-registry.py`.
 - The old in-memory `current_state.py` bridge has been retired; active persona runtime state lives in `active_persona.py`.
+- Legacy `/api/personality` slug/list reads now stay registry-backed; bundled JSON preset reads remain isolated behind `/api/personalities/*`.
 
 Remaining work:
 
