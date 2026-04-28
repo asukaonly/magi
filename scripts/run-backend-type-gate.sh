@@ -39,4 +39,5 @@ export PYTHONPATH="$ROOT_DIR/backend/src:$ROOT_DIR/sdk/src${PYTHONPATH:+:$PYTHON
   src/magi/memory/l2/store_migrations.py \
   src/magi/memory/l2/store_graph_conflicts.py \
   src/magi/memory/l2/store_reconcile.py \
-  src/magi/memory/l2/store_rows.py
+  src/magi/memory/l2/store_rows.py \
+  src/magi/memory/l2/store_snapshots.py

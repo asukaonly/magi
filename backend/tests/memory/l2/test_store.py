@@ -2769,13 +2769,14 @@ async def test_snapshot_mood_trajectory_excludes_non_temporal_families(tmp_path)
 @pytest.mark.asyncio
 async def test_snapshot_mood_trajectory_capped_at_limit(tmp_path):
     """Mood trajectory should keep only the most recent entries when exceeding limit."""
-    from magi.memory.l2.store import L2CognitionStore, _MOOD_TRAJECTORY_LIMIT
+    from magi.memory.l2.store import L2CognitionStore
+    from magi.memory.l2.store_utils import MOOD_TRAJECTORY_LIMIT
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()
 
     now = time.time()
-    count = _MOOD_TRAJECTORY_LIMIT + 5
+    count = MOOD_TRAJECTORY_LIMIT + 5
 
     # Simulate accumulation by alternating mood values and refreshing each time
     for i in range(count):
@@ -2802,11 +2803,11 @@ async def test_snapshot_mood_trajectory_capped_at_limit(tmp_path):
     assert snapshot is not None
 
     trajectory = snapshot.get("mood_trajectory", [])
-    assert len(trajectory) == _MOOD_TRAJECTORY_LIMIT
+    assert len(trajectory) == MOOD_TRAJECTORY_LIMIT
 
     # Should contain the most recent entries
     assert trajectory[-1]["value"] == f"mood_{count - 1}"
-    assert trajectory[0]["value"] == f"mood_{count - _MOOD_TRAJECTORY_LIMIT}"
+    assert trajectory[0]["value"] == f"mood_{count - MOOD_TRAJECTORY_LIMIT}"
 
 
 # ---------------------------------------------------------------------------

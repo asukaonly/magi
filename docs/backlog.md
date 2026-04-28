@@ -124,6 +124,7 @@ Recent progress:
 - L2 graph `fact_kind` admission rules now live in `store_fact_kind.py`.
 - L2 rule-based candidate extraction now lives in `store_candidates.py`.
 - L2 contradiction hint application now lives in `store_contradictions.py`.
+- L2 ToM snapshot persistence now lives in `store_snapshots.py`.
 
 Candidates to review next:
 
