@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from 'react';
+import { forwardRef, useImperativeHandle, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   FolderOpen,
@@ -22,17 +22,16 @@ import {
   LLMStatisticsSection,
   RuntimeStatisticsSection,
 } from '@/components/settings';
-import { DynamicToolsConfig } from '@/components/config-forms/DynamicToolConfig';
 import LLMForm from '@/components/config-forms/LLMForm';
 import ChannelsSection from '@/components/settings/ChannelsSection';
 import { DesktopUpdateSection } from '@/components/settings/DesktopUpdateSection';
 import PluginsSection from '@/components/settings/PluginsSection';
 import { PluginMarketplace } from '@/components/settings/PluginMarketplace';
 import { SettingsNavigationSidebar } from '@/components/settings/SettingsNavigationSidebar';
+import { SettingsToolsSection } from '@/components/settings/SettingsToolsSection';
 import TimelineSourcesSection from '@/components/settings/TimelineSourcesSection';
 import { ControlSettingsPanel } from '@/components/control';
 import PersonalityModern from '@/pages/PersonalityModern';
-import { skillsApi, type SkillItem } from '@/api/modules/skills';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
@@ -121,9 +120,6 @@ function SettingsSwitchRow({
 
 export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({ onRequestClose }, ref) => {
   const { t } = useTranslation('app');
-  const [skills, setSkills] = useState<SkillItem[]>([]);
-  const [skillsLoading, setSkillsLoading] = useState(false);
-  const [skillsError, setSkillsError] = useState<string | null>(null);
   const [pickingWorkspace, setPickingWorkspace] = useState(false);
 
   const {
@@ -240,39 +236,6 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
   };
 
   useImperativeHandle(ref, getHandle, [getHandle]);
-
-  useEffect(() => {
-    if (activeSection !== 'tools') {
-      return;
-    }
-
-    let cancelled = false;
-    const loadSkills = async () => {
-      setSkillsLoading(true);
-      setSkillsError(null);
-      try {
-        const data = await skillsApi.list();
-        if (!cancelled) {
-          setSkills(Array.isArray(data) ? data : []);
-        }
-      } catch (error: unknown) {
-        if (!cancelled) {
-          const message = error instanceof Error ? error.message : t('settings.errorUnknown');
-          setSkillsError(message);
-          setSkills([]);
-        }
-      } finally {
-        if (!cancelled) {
-          setSkillsLoading(false);
-        }
-      }
-    };
-
-    void loadSkills();
-    return () => {
-      cancelled = true;
-    };
-  }, [activeSection, t]);
 
   if (loading) {
     return (
@@ -720,89 +683,19 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
         );
 
       case 'tools':
-        const selectedSkills = draftConfig.tools.skills || [];
-        const skillsEnabled = selectedSkills.length > 0;
         return (
-          <div className="space-y-8">
-            <DynamicToolsConfig
-              tools={tools}
-              loading={toolsLoading}
-              error={toolsError}
-              drafts={draftToolDrafts}
-              onUpdateConfig={handleToolDraftChange}
-              onUpdateEnabled={handleToolEnabledChange}
-            />
-
-            <SettingsGroup
-              title={t('tools.skills.label', { ns: 'onboarding' })}
-              description={
-                skills.length > 0
-                  ? t('tools.skills.desc', { ns: 'onboarding', count: skills.length })
-                  : t('tools.skills.empty', { ns: 'onboarding' })
-              }
-            >
-              <label className="grid gap-3 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
-                <div className="space-y-1">
-                  <div className="text-sm font-medium text-foreground">{t('tools.skills.enable', { ns: 'onboarding' })}</div>
-                  <div className="text-xs leading-6 text-muted-foreground">
-                    {t('tools.skills.emptyHint', { ns: 'onboarding' })}
-                  </div>
-                </div>
-                <div className="flex justify-start sm:justify-end">
-                  <Switch
-                    checked={skillsEnabled}
-                    disabled={skills.length === 0}
-                    onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                      draft.tools.skills = checked ? skills.map((skill) => skill.name) : [];
-                    })}
-                  />
-                </div>
-              </label>
-
-              <div className="max-h-64 overflow-auto">
-                {skillsLoading ? (
-                  <div className="py-3 text-xs text-muted-foreground">{t('settings.loadingTools')}</div>
-                ) : null}
-
-                {!skillsLoading && skillsError ? (
-                  <div className="py-3 text-xs text-destructive">{skillsError}</div>
-                ) : null}
-
-                {!skillsLoading && !skillsError && skills.length > 0
-                  ? skills.map((skill) => {
-                      const checked = selectedSkills.includes(skill.name);
-                      return (
-                        <label
-                          key={skill.name}
-                          className="flex items-center justify-between gap-3 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3 last:border-b-0"
-                        >
-                          <div className="min-w-0">
-                            <div className="truncate text-sm font-medium">{skill.name}</div>
-                            <div className="truncate text-xs text-muted-foreground">{skill.description}</div>
-                          </div>
-                          <Switch
-                            checked={checked}
-                            onCheckedChange={(nextChecked) => patchDraftConfig((draft) => {
-                              const current = new Set(draft.tools.skills || []);
-                              if (nextChecked) {
-                                current.add(skill.name);
-                              } else {
-                                current.delete(skill.name);
-                              }
-                              draft.tools.skills = Array.from(current);
-                            })}
-                          />
-                        </label>
-                      );
-                    })
-                  : null}
-
-                {!skillsLoading && !skillsError && skills.length === 0 ? (
-                  <div className="py-3 text-xs text-muted-foreground">{t('tools.skills.emptyHint', { ns: 'onboarding' })}</div>
-                ) : null}
-              </div>
-            </SettingsGroup>
-          </div>
+          <SettingsToolsSection
+            tools={tools}
+            toolsLoading={toolsLoading}
+            toolsError={toolsError}
+            draftToolDrafts={draftToolDrafts}
+            selectedSkills={draftConfig.tools.skills || []}
+            onToolDraftChange={handleToolDraftChange}
+            onToolEnabledChange={handleToolEnabledChange}
+            onSelectedSkillsChange={(nextSkills) => patchDraftConfig((draft) => {
+              draft.tools.skills = nextSkills;
+            })}
+          />
         );
 
       case 'pluginsInstalled':
