@@ -113,6 +113,7 @@ Status: active
 Recent progress:
 
 - `function_calling.py` no longer owns permission-gateway formatting/resolution logic directly; it delegates that slice to `function_calling_permission.py`.
+- The backend type gate now covers extracted function-calling execution helpers in addition to LLM and L2 support modules.
 
 Candidates to review next:
 

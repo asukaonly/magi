@@ -12,6 +12,14 @@ export PYTHONPATH="$ROOT_DIR/backend/src:$ROOT_DIR/sdk/src${PYTHONPATH:+:$PYTHON
 "$PYTHON_BIN" -m mypy \
   --config-file pyproject.toml \
   --follow-imports=skip \
+  src/magi/agent/execution/function_calling_failures.py \
+  src/magi/agent/execution/function_calling_guardrails.py \
+  src/magi/agent/execution/function_calling_messages.py \
+  src/magi/agent/execution/function_calling_permission.py \
+  src/magi/agent/execution/function_calling_postprocessor.py \
+  src/magi/agent/execution/function_calling_responses.py \
+  src/magi/agent/execution/function_calling_step_executor.py \
+  src/magi/agent/execution/function_calling_types.py \
   src/magi/llm/base.py \
   src/magi/llm/concurrency_limiter.py \
   src/magi/llm/streaming_events.py \

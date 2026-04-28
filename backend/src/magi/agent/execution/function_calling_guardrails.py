@@ -17,7 +17,7 @@ def _resolve_default_chat_workspace_path() -> str:
             return str(resolver())
     except Exception:
         pass
-    return get_default_chat_workspace_path()
+    return str(get_default_chat_workspace_path())
 
 
 class FunctionCallingGuardrailsMixin:
@@ -174,7 +174,7 @@ class FunctionCallingGuardrailsMixin:
             return "AMBIGUOUS_SCOPE"
         from ...tools.schema import ToolErrorCode
 
-        return ToolErrorCode.INVALID_PARAMETERS.value
+        return str(ToolErrorCode.INVALID_PARAMETERS.value)
 
     @staticmethod
     def _bounded_max_results(value: Any, cap: int) -> int:

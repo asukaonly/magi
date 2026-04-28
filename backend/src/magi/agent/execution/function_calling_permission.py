@@ -4,23 +4,36 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Dict, Optional
+from collections.abc import Callable
+from typing import Any, Dict, Optional, Protocol, cast
 
 from .function_calling_types import ToolCall, ToolCallResult
 
 logger = logging.getLogger(__name__)
 
 
+class _ToolRegistryProtocol(Protocol):
+    def get_tool_info(self, tool_name: str) -> dict[str, Any] | None:
+        ...
+
+
+class _PermissionHostProtocol(Protocol):
+    permission_gateway: Any
+    _permission_gateway_provider: Callable[[], Any] | None
+    tool_registry: _ToolRegistryProtocol
+
+
 class FunctionCallingPermissionMixin:
     """Resolve and apply control-plane permission gates for tool calls."""
 
     def _resolve_permission_gateway(self) -> Any:
-        if self.permission_gateway is not None:
-            return self.permission_gateway
-        if self._permission_gateway_provider is None:
+        host = cast(_PermissionHostProtocol, self)
+        if host.permission_gateway is not None:
+            return host.permission_gateway
+        if host._permission_gateway_provider is None:
             return None
         try:
-            return self._permission_gateway_provider()
+            return host._permission_gateway_provider()
         except Exception:
             return None
 
@@ -49,7 +62,8 @@ class FunctionCallingPermissionMixin:
             logger.error(f"[FunctionCalling] permission gateway import failed: {exc}")
             return None
 
-        tool_info = self.tool_registry.get_tool_info(tool_name) or {}
+        host = cast(_PermissionHostProtocol, self)
+        tool_info = host.tool_registry.get_tool_info(tool_name) or {}
         origin = (
             ToolOrigin.SUBAGENT
             if isinstance(intent, str) and intent.startswith("worker_")

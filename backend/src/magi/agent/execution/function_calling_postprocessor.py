@@ -5,7 +5,7 @@ This module keeps tool-result context shaping out of executor orchestration logi
 """
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, cast
 
 from ..asset_refs import normalize_asset_ref_list, normalize_asset_ref_payload
 from ...memory.tool_context_formatter import compact_memory_tool_data
@@ -134,8 +134,11 @@ class FunctionCallingPostprocessor:
         return sanitized
 
     def _compact_memory_query_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        return compact_memory_tool_data(
-            data,
-            max_items=self.max_items,
-            max_text_chars=self.max_text_chars,
+        return cast(
+            Dict[str, Any],
+            compact_memory_tool_data(
+                data,
+                max_items=self.max_items,
+                max_text_chars=self.max_text_chars,
+            ),
         )

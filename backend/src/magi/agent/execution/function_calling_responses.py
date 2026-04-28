@@ -228,7 +228,7 @@ class FunctionCallingResponseMixin:
             return ""
 
         recent = messages[-self._PARENT_CONTEXT_MAX_MESSAGES:]
-        rendered = ContextCompactor._render_messages_for_summary(recent)
+        rendered = str(ContextCompactor._render_messages_for_summary(recent))
         if len(rendered) > self._PARENT_CONTEXT_MAX_CHARS:
             rendered = rendered[-self._PARENT_CONTEXT_MAX_CHARS:]
             newline_index = rendered.find("\n")
