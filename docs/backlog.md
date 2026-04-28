@@ -131,6 +131,7 @@ Recent progress:
 - L2 assertion/snapshot/relationship read queries now live in `store_queries.py`.
 - L2 edge embedding status and vector search helpers now live in `store_edge_embeddings.py`.
 - L2 knowledge-graph upsert and corroboration helpers now live in `store_graph_writes.py`.
+- Provider bridge non-streaming request implementations now live in `provider_bridge_requests.py`.
 
 Candidates to review next:
 
