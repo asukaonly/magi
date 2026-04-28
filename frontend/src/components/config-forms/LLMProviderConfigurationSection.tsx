@@ -1,12 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { CheckCircle2, ChevronDown, Loader2, Plus, Trash2, XCircle } from 'lucide-react';
+import { CheckCircle2, ChevronDown, Loader2, Plus, XCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { SelectField } from '@/components/config-forms/fields';
 import { LLMProviderApiKeyField } from '@/components/config-forms/LLMProviderApiKeyField';
+import { LLMProviderDetailHeader } from '@/components/config-forms/LLMProviderDetailHeader';
 import { LLMProviderListPane } from '@/components/config-forms/LLMProviderListPane';
-import { LLMProviderTestMenu } from '@/components/config-forms/LLMProviderTestMenu';
-import { ProviderIcon } from '@/components/config-forms/provider-icons';
 import { Switch } from '@/components/ui/switch';
 import {
   type LLMModelMetadataOverride,
@@ -302,77 +301,26 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
             )}
           >
             <div className={cn('space-y-6', isSettingsSurface && 'space-y-5')}>
-              <div className={cn('space-y-3', isSettingsSurface && 'space-y-4 border-b border-[hsl(var(--settings-subnav-border)/0.72)] pb-5')}>
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                  <div className="space-y-2">
-                    <div className="flex items-start gap-3">
-                      <ProviderIcon
-                        providerId={activeProvider.provider_type}
-                        iconName={activeProviderMeta?.icon || (activeProvider.provider_type === 'custom' ? 'custom' : undefined)}
-                        displayName={activeProvider.display_name || activeProviderMeta?.display_name || activeProviderId}
-                        className="mt-0.5"
-                      />
-                      <div className="space-y-2">
-                        <h4 className={cn('text-xl font-semibold tracking-[-0.01em] text-foreground', isSettingsSurface && 'text-lg')}>
-                          {activeProvider.display_name || activeProviderMeta?.display_name || activeProviderId}
-                        </h4>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className={badgeClassName}>
-                            {activeProvider.provider_type === 'custom'
-                              ? t('llm.providerConfiguration.providerKinds.custom')
-                              : t('llm.providerConfiguration.providerKinds.builtin')}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    {activeReferences.length > 0 ? (
-                      <p className="text-xs leading-5 text-muted-foreground">
-                        {t('llm.providerConfiguration.referencedBy')}:{' '}
-                        {activeReferences.map((scenario) => t(`llm.scenarios.${scenario}.title`)).join(' / ')}
-                      </p>
-                    ) : null}
-                  </div>
-
-                  <div className="flex shrink-0 flex-wrap items-center gap-2.5 lg:justify-end">
-                    {activeProvider.provider_type === 'custom' ? (
-                      <button
-                        type="button"
-                        onClick={() => onRemoveCustomProvider(activeProviderId)}
-                        className="inline-flex min-w-fit items-center justify-center gap-2 whitespace-nowrap rounded-md border border-destructive/18 bg-transparent px-3 py-2.5 text-sm font-medium text-destructive/85 transition hover:bg-destructive/6 hover:text-destructive"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        <span>{t('llm.actions.removeProvider')}</span>
-                      </button>
-                    ) : null}
-                    <div className="inline-flex min-w-fit items-center gap-2 whitespace-nowrap rounded-md bg-[hsl(var(--settings-shell-elevated)/0.58)] px-3 py-2 text-[hsl(var(--settings-nav-foreground))]">
-                      <span className="whitespace-nowrap text-sm font-medium text-foreground/88">{t('llm.fields.enabled')}</span>
-                      <Switch
-                        aria-label={t('llm.fields.enabled')}
-                        checked={activeProvider.enabled}
-                        disabled={surface !== 'onboarding' && activeReferences.length > 0}
-                        onCheckedChange={(checked) =>
-                          onProviderChange(activeProviderId, (provider) => {
-                            provider.enabled = checked;
-                          })
-                        }
-                      />
-                    </div>
-                    <LLMProviderTestMenu
-                      providerId={activeProviderId}
-                      isTesting={activeTestState.loading}
-                      testableModels={activeTestableModels}
-                      selectedModelId={resolvedActiveTestModel}
-                      onSelectedModelChange={(providerId, modelId) =>
-                        setProviderTestModels((prev) => ({
-                          ...prev,
-                          [providerId]: modelId,
-                        }))
-                      }
-                      onTestProviderConnection={onTestProviderConnection}
-                    />
-                  </div>
-                </div>
-              </div>
+              <LLMProviderDetailHeader
+                providerId={activeProviderId}
+                provider={activeProvider}
+                providerMeta={activeProviderMeta}
+                references={activeReferences}
+                surface={surface}
+                isSettingsSurface={isSettingsSurface}
+                isTesting={activeTestState.loading}
+                testableModels={activeTestableModels}
+                selectedTestModelId={resolvedActiveTestModel}
+                onProviderChange={onProviderChange}
+                onRemoveCustomProvider={onRemoveCustomProvider}
+                onSelectedTestModelChange={(providerId, modelId) =>
+                  setProviderTestModels((prev) => ({
+                    ...prev,
+                    [providerId]: modelId,
+                  }))
+                }
+                onTestProviderConnection={onTestProviderConnection}
+              />
 
               {activeTestState.error ? (
                 <div className="flex items-start gap-2 rounded-xl bg-destructive/8 px-3 py-2.5 text-sm text-destructive">
