@@ -118,6 +118,7 @@ Recent progress:
 - Function-calling LLM request/response helpers now live in `function_calling_llm.py`.
 - Provider bridge thinking-option and concurrency helpers now live in `provider_bridge_options.py`.
 - L2 snapshot evolution and ToM reconciliation helpers now live in `store_reconcile.py`.
+- L2 graph-conflict resolution and rule reload helpers now live in `store_graph_conflicts.py`.
 
 Candidates to review next:
 
