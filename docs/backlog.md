@@ -161,6 +161,7 @@ Recent progress:
 - L2 entity maintenance edge expiry/archive/purge helpers now live in `entity_maintenance_edges.py`.
 - L2 entity maintenance catalog/ghost/fragment/orphan helpers now live in `entity_maintenance_catalog.py`.
 - L2 entity maintenance open predicate consolidation helpers now live in `entity_maintenance_predicates.py`.
+- L2 entity maintenance episode consolidation helpers now live in `entity_maintenance_episodes.py`.
 
 Candidates to review next:
 

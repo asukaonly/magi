@@ -19,6 +19,7 @@ from .entity_maintenance_catalog import (
 )
 from .entity_maintenance_edges import L2EntityEdgeMaintenanceMixin
 from .entity_maintenance_embeddings import L2EntityEmbeddingMaintenanceMixin
+from .entity_maintenance_episodes import L2EntityEpisodeMaintenanceMixin
 from .entity_maintenance_predicates import L2EntityPredicateMaintenanceMixin
 from .ontology import get_predicate_synonym_group as get_predicate_synonym_group
 
@@ -68,6 +69,7 @@ class L2EntityMaintenance(
     L2EntityEmbeddingMaintenanceMixin,
     L2EntityEdgeMaintenanceMixin,
     L2EntityPredicateMaintenanceMixin,
+    L2EntityEpisodeMaintenanceMixin,
 ):
     """Best-effort cleanup: ghost graph refs, same-name type merges, low-mention orphans."""
 
@@ -228,17 +230,3 @@ class L2EntityMaintenance(
                 episodes_invalidated=stats.episodes_invalidated,
             )
         return stats
-
-    async def _consolidate_episodes(self, stats: L2EntityMaintenanceStats) -> None:
-        if self._cognition_store is None:
-            return
-        try:
-            from .episode_formation import consolidate_episodes
-
-            result = await consolidate_episodes(self._cognition_store)
-            stats.episodes_promoted = result.promoted
-            stats.episodes_merged = result.merged
-            stats.episodes_invalidated = result.invalidated
-        except Exception as exc:
-            logger.warning("Episode consolidation failed: %s", exc)
-            stats.errors.append(f"episode_consolidation: {exc}")
