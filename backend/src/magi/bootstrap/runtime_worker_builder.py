@@ -32,7 +32,6 @@ from ..events.lifecycle import (
 from ..llm.lifecycle import LLMRuntimeModule
 from ..memory.lifecycle import (
     L2MaintenanceScheduleRegistrationModule,
-    L3DigestScheduleRegistrationModule,
     L3SummaryScheduleRegistrationModule,
     MemoryStoreModule,
 )
@@ -146,7 +145,6 @@ def _build_exports_and_maintenance_modules(context: RuntimeBootstrapContext) -> 
         ControlPlaneModule(context),
         L2MaintenanceScheduleRegistrationModule(context),
         L3SummaryScheduleRegistrationModule(context),
-        L3DigestScheduleRegistrationModule(context),
         OtherDependenciesModule(context),
         ChannelsModule(context),
     ]

@@ -313,6 +313,42 @@ async def test_l1_event_store_persists_metadata_json(tmp_path):
         await store.shutdown()
 
 
+def test_l1_event_store_search_text_includes_projection_retrieval_terms():
+    from magi.memory.l1.event_store import L1EventStore
+
+    store = L1EventStore(vector_enabled=False)
+    event = MemoryEvent(
+        event_id="evt-search-1",
+        correlation_id="corr-search-1",
+        timestamp=1711504800.0,
+        created_at=1711504801.0,
+        event_type="SENSOR_EVENT",
+        source="netease_music",
+        source_item_id="track-1",
+        memory_domain=MemoryDomain.EXTERNAL_ACTIVITY,
+        ingest_target=IngestTarget.L1_ONLY,
+        cognition_eligible=True,
+        tom_depth=TomDepth.NONE,
+        retention_class=RetentionClass.COMPRESSIBLE,
+        session_id=None,
+        turn_id=None,
+        user_id="local_user",
+        task_id=None,
+        content="网易云音乐听了 YOASOBI 的《夜に駆ける》",
+        author_type="external",
+        content_type="observation",
+        importance_score=0.5,
+        level=1,
+        metadata_json={
+            "projection": {
+                "retrieval_terms": ["j-pop", "electropop", "J-POP"],
+            }
+        },
+    )
+
+    assert store.get_search_text(event) == "网易云音乐听了 YOASOBI 的《夜に駆ける》 j-pop electropop external observation"
+
+
 @pytest.mark.asyncio
 async def test_l1_event_store_backfills_owner_for_legacy_external_events(tmp_path):
     from magi.memory.l1.event_store import L1EventStore

@@ -6,7 +6,14 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .channels import Channel
-from .contracts import ExtensionFieldSpec, PluginManifest, PluginSettingsResourceSpec, SummaryProfileSpec
+from .contracts import (
+    ExtensionFieldSpec,
+    PluginManifest,
+    PluginSettingsResourceSpec,
+    SummaryProfileSpec,
+    TemporalSummaryFeatureBudget,
+    TemporalSummarySourceFeatures,
+)
 from .ingress import PluginIngressHandlerRegistration
 from .i18n import PluginI18n, get_current_language
 from .sensors import PluginRuntimePaths, SensorSpec
@@ -119,9 +126,15 @@ class Plugin(ABC):
         summary_category: str,
         period_start: float,
         period_end: float,
-    ) -> dict[str, object] | None:
-        """Return optional source-specific features for L3 temporal summaries."""
-        _ = source_type, events, summary_category, period_start, period_end
+        budget: TemporalSummaryFeatureBudget | None = None,
+    ) -> TemporalSummarySourceFeatures | dict[str, object] | None:
+        """Return optional source-specific features for L3 temporal summaries.
+
+        The host owns final cross-source L3 generation. Plugins should use this
+        hook to expose compact source-local evidence, such as top entities,
+        time buckets, coverage counts, and representative event ids.
+        """
+        _ = source_type, events, summary_category, period_start, period_end, budget
         return None
 
     def get_summary_profiles(self) -> list[SummaryProfileSpec]:

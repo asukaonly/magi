@@ -67,7 +67,7 @@ class SensorIngestionGateway:
         policy = sensor.memory_policy
 
         # 1. Build MemoryEvent with sensor's policy
-        projection = build_sensor_projection(sensor, output)
+        projection = build_sensor_projection(sensor, output, metadata)
         timeline_event = build_sensor_timeline_event(
             event_id,
             output,

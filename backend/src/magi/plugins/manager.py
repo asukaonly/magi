@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import importlib.util
 import logging
 import shutil
@@ -32,6 +33,7 @@ from .contracts import (
     PluginPackageState,
     PluginSettingsResourcePayload,
     SummaryProfileSpec,
+    TemporalSummaryFeatureBudget,
 )
 from .sensors import SensorRegistry, SensorSpec
 
@@ -372,6 +374,7 @@ class PluginManager:
         period_start: float,
         period_end: float,
         source_filter: list[str] | None = None,
+        feature_budgets: dict[str, TemporalSummaryFeatureBudget | dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Collect plugin-provided temporal summary features for the current event window."""
 
@@ -394,13 +397,20 @@ class PluginManager:
                 if source_type in features_by_source:
                     continue
                 try:
-                    features = plugin.build_temporal_summary_features(
-                        source_type=source_type,
-                        events=source_events,
-                        summary_category=summary_category,
-                        period_start=period_start,
-                        period_end=period_end,
-                    )
+                    kwargs: dict[str, Any] = {
+                        "source_type": source_type,
+                        "events": source_events,
+                        "summary_category": summary_category,
+                        "period_start": period_start,
+                        "period_end": period_end,
+                    }
+                    if self._plugin_accepts_temporal_budget(plugin):
+                        budget = (feature_budgets or {}).get(source_type)
+                        if isinstance(budget, dict):
+                            budget = TemporalSummaryFeatureBudget(**budget)
+                        if budget is not None:
+                            kwargs["budget"] = budget
+                    features = plugin.build_temporal_summary_features(**kwargs)
                 except Exception as exc:
                     logger.warning(
                         "Plugin temporal summary feature builder failed",
@@ -408,8 +418,21 @@ class PluginManager:
                     )
                     continue
                 if features:
-                    features_by_source[source_type] = features
+                    dumper = getattr(features, "model_dump", None)
+                    features_by_source[source_type] = dumper() if callable(dumper) else features
         return features_by_source
+
+    @staticmethod
+    def _plugin_accepts_temporal_budget(plugin: Plugin) -> bool:
+        """Return whether a plugin hook can accept the optional budget keyword."""
+        try:
+            signature = inspect.signature(plugin.build_temporal_summary_features)
+        except (TypeError, ValueError):
+            return False
+        return any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD or name == "budget"
+            for name, parameter in signature.parameters.items()
+        )
 
     def iter_summary_profiles(self) -> list[SummaryProfileSpec]:
         """Aggregate ``SummaryProfileSpec`` entries from all loaded plugins."""

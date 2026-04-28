@@ -222,7 +222,17 @@
       "baseUrl": "Base URL",
       "displayName": "Display Name",
       "apiFormat": "API Format",
-      "enabled": "Enabled"
+      "enabled": "Enabled",
+      "modelKind": "Model Type",
+      "modelManualEntryChat": "Add Chat Model",
+      "modelManualEntryEmbedding": "Add Embedding Model",
+      "modelManualEntryEmbeddingPlaceholder": "Enter embedding model ID",
+      "imageModelsManagedByRegistry": "Image generation models are predefined by the provider; manual add is not supported yet."
+    },
+    "modelKinds": {
+      "chat": "Chat",
+      "embedding": "Embedding",
+      "image": "Image Generation"
     },
     "modelFields": {
       "modelId": "Model ID",
@@ -237,7 +247,17 @@
       "preferred": "Preferred",
       "contextWindow": "Context Window",
       "maxOutputTokens": "Max Output",
-      "maxConcurrency": "Max Concurrency"
+      "maxConcurrency": "Max Concurrency",
+      "dimensions": "Dimensions",
+      "dimensionsPlaceholder": "e.g. 1536, 1024",
+      "dimensionsHint": "Supported output dimensions, comma-separated. Leave empty to use the model defaults.",
+      "dimensionsAdd": "Add dimension",
+      "dimensionsAddPlaceholder": "Type a value, then Enter",
+      "dimensionsRemove": "Remove dimension {{value}}",
+      "dimensionsChipHint": "Type a number then press Enter or comma. An empty list means the model defaults are used.",
+      "imageRuntimeHint": "Size and quality for image generation are passed at call time, so this view only enables/disables which image models are available.",
+      "imageSizes": "Common sizes",
+      "imageQuality": "Quality presets"
     },
     "actions": {
       "addCustomProvider": "Add Custom Provider",
@@ -253,7 +273,8 @@
       "enabled": "Enabled",
       "disabled": "Disabled",
       "chat": "Chat",
-      "embedding": "Embedding"
+      "embedding": "Embedding",
+      "image": "Image"
     },
     "warnings": {
       "coreVisionMissing": "The current core model does not support image input. If chat receives images, runtime will return a clear error."

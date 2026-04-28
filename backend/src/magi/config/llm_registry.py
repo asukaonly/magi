@@ -377,6 +377,11 @@ def _resolve_embedding_model(
         override.limits if override is not None else None,
     )
     input_modalities, output_modalities = _default_embedding_modalities(resolved_capabilities)
+    resolved_dimensions = (
+        list(override.dimensions)
+        if override is not None and override.dimensions is not None
+        else list(dimensions)
+    )
     return LLMResolvedEmbeddingModelMetaModel(
         id=model_id,
         label=override.label if override is not None and override.label else label or model_id,
@@ -386,7 +391,7 @@ def _resolve_embedding_model(
         hidden=bool(override.hidden) if override is not None and override.hidden is not None else False,
         preferred=bool(override.preferred) if override is not None and override.preferred is not None else False,
         capabilities=resolved_capabilities,
-        dimensions=list(dimensions),
+        dimensions=resolved_dimensions,
         limits=resolved_limits,
         input_modalities=(
             list(override.input_modalities)

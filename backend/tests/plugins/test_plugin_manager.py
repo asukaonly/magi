@@ -5,9 +5,11 @@ from pathlib import Path
 import pytest
 
 from magi.config.models import AppConfig, PluginSettings
+from magi.plugins import Plugin
 from magi.plugins.manager import PluginManager, build_plugin_runtime
 from magi.plugins.sensors import SensorRegistry
 from magi.tools.registry import ToolRegistry, tool_registry as shared_tool_registry
+from magi_plugin_sdk import TemporalSummarySourceFeatures
 
 
 def _apply_updates(config: AppConfig, updates: dict[str, object]) -> None:
@@ -178,30 +180,38 @@ def test_build_plugin_runtime_uses_shared_tool_registry_by_default(
     assert bindings.plugin_manager._tool_registry is shared_tool_registry
 
 
-def test_plugin_manager_collects_temporal_summary_features_from_loaded_plugins(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    config = AppConfig()
-    config.plugins.packages["chrome-history"] = PluginSettings(
-        enabled=True,
-        trusted=True,
-        source="builtin",
-        settings={},
-    )
-    tool_registry = ToolRegistry()
+def test_plugin_manager_collects_temporal_summary_features_from_loaded_plugins() -> None:
+    class ChromeFeaturePlugin(Plugin):
+        def build_temporal_summary_features(self, *, source_type, events, summary_category, period_start, period_end):  # type: ignore[no-untyped-def]
+            _ = summary_category, period_start, period_end
+            assert source_type == "chrome_history"
+            assert len(events) == 3
+            return {
+                "feature_type": "chrome_history",
+                "event_count": 3,
+                "visit_count": 4,
+                "unique_domain_count": 2,
+                "focus_domain": "openai.com",
+                "focus_share": 2 / 3,
+                "session_count": 1,
+                "top_domains": [
+                    {"domain": "openai.com", "count": 2},
+                    {"domain": "github.com", "count": 1},
+                ],
+                "revisit_domains": ["openai.com"],
+                "summary_lines": [
+                    "Browsing concentrated heavily on openai.com.",
+                    "Repeated visits clustered around openai.com.",
+                    "Browsing stayed within a small set of sites.",
+                ],
+            }
 
-    monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
-    monkeypatch.setattr("magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True)
-
-    builtin_plugins_root = Path(__file__).resolve().parents[3] / "plugins"
     manager = PluginManager(
-        tool_registry=tool_registry,
+        tool_registry=ToolRegistry(),
         sensor_registry=SensorRegistry(),
-        search_paths=[builtin_plugins_root],
+        search_paths=[],
     )
-
-    manager.scan(persist_discovery=False)
-    manager.activate_enabled_plugins()
+    manager._plugin_instances["chrome-feature"] = ChromeFeaturePlugin()
 
     features = manager.build_temporal_summary_features(
         events=[
@@ -271,3 +281,46 @@ def test_plugin_manager_collects_temporal_summary_features_from_loaded_plugins(
             ],
         }
     }
+
+
+def test_plugin_manager_passes_temporal_feature_budget_to_new_hooks() -> None:
+    class BudgetAwarePlugin(Plugin):
+        def build_temporal_summary_features(self, *, source_type, events, summary_category, period_start, period_end, budget=None):  # type: ignore[no-untyped-def]
+            _ = summary_category, period_start, period_end
+            assert source_type == "music"
+            assert len(events) == 1
+            assert budget is not None
+            return TemporalSummarySourceFeatures(
+                source_type=source_type,
+                total_event_count=budget.total_event_count,
+                covered_event_count=budget.available_event_count,
+                omitted_event_count=budget.omitted_event_count,
+                summary_lines=["Music listening was compacted for L3."],
+            )
+
+    manager = PluginManager(
+        tool_registry=ToolRegistry(),
+        sensor_registry=SensorRegistry(),
+        search_paths=[],
+    )
+    manager._plugin_instances["budget-aware"] = BudgetAwarePlugin()
+
+    features = manager.build_temporal_summary_features(
+        events=[{"event_id": "evt-1", "source": "music", "content": "song"}],
+        summary_category="day",
+        period_start=1.0,
+        period_end=2.0,
+        feature_budgets={
+            "music": {
+                "source_type": "music",
+                "total_event_count": 10,
+                "available_event_count": 4,
+                "selected_event_count": 1,
+                "omitted_event_count": 6,
+            }
+        },
+    )
+
+    assert features["music"]["total_event_count"] == 10
+    assert features["music"]["covered_event_count"] == 4
+    assert features["music"]["omitted_event_count"] == 6

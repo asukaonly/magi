@@ -1000,6 +1000,18 @@
       "notConfigured": "未配置"
     },
     "toolProviders": "提供者",
+    "pluginSections": {
+      "general": "常规",
+      "sync": "同步",
+      "storage": "存储",
+      "analysis": "分析",
+      "notifications": "通知",
+      "delivery": "投递",
+      "privacy": "隐私",
+      "retention": "保留策略",
+      "activation": "激活",
+      "filters": "过滤"
+    },
     "selectPlaceholder": "请选择",
     "browseFolder": "选择文件夹",
     "loadingTools": "加载工具中...",
@@ -1541,35 +1553,86 @@
       "git-activity": {
         "name": "Git 活动",
         "description": "Git 仓库活动接入时间线",
+        "fields": {
+          "sensors.git_activity.repos": {
+            "label": "仓库目录",
+            "description": "选择一个或多个要监控的 Git 仓库文件夹。"
+          },
+          "sensors.git_activity.sync_interval_minutes": {
+            "label": "同步间隔（分钟）",
+            "description": "多久检查一次新的 Git 活动。"
+          },
+          "sensors.git_activity.initial_sync_policy": {
+            "label": "首次同步范围",
+            "description": "首次启用时要导入多少历史记录。"
+          },
+          "sensors.git_activity.initial_sync_lookback_days": {
+            "label": "回溯天数",
+            "description": "首次同步范围设为“最近几天”时使用。"
+          },
+          "sensors.git_activity.sensitive_mode": {
+            "label": "敏感内容处理",
+            "description": "如何处理包含敏感内容的提交信息。"
+          },
+          "sensors.git_activity.sensitive_keywords": {
+            "label": "额外敏感关键词",
+            "description": "提交信息里命中这些关键词时会按上面的敏感策略处理。"
+          }
+        },
         "options": {
           "enabled": {
             "true": "启用",
             "false": "停用"
           },
-          "default_retention_mode": {
-            "analyze_only": "仅分析",
-            "full": "完整保留"
-          },
           "initial_sync_policy": {
             "full": "同步全部历史",
             "lookback_days": "同步最近几天",
-            "from_now": "仅同步新提交"
+            "from_now": "仅同步之后的新记录"
           },
           "sensitive_mode": {
             "redact": "脱敏敏感内容",
-            "skip": "跳过包含敏感内容的提交",
-            "include": "包含所有内容"
+            "block": "整条跳过"
           }
         },
         "sections": {
           "general": "常规",
-          "retention": "保留策略",
+          "sync": "同步",
           "privacy": "隐私"
         }
       },
       "netease-music": {
         "name": "网易云音乐",
         "description": "自动同步网易云音乐的播放历史到时间线（支持 Windows 和 macOS）",
+        "fields": {
+          "sensors.netease_music.sync_mode": {
+            "label": "同步方式",
+            "description": "如何读取并同步网易云音乐播放记录。"
+          },
+          "sensors.netease_music.sync_interval_minutes": {
+            "label": "同步间隔（分钟）",
+            "description": "定时同步模式下的轮询间隔。"
+          },
+          "sensors.netease_music.min_play_duration": {
+            "label": "最短播放时长（秒）",
+            "description": "播放少于这个时长的曲目会被忽略，避免把点开就切走的内容写进时间线。"
+          },
+          "sensors.netease_music.db_path": {
+            "label": "数据库路径",
+            "description": "网易云音乐本地播放数据库 local.db 的路径。"
+          },
+          "sensors.netease_music.initial_sync_policy": {
+            "label": "首次同步范围",
+            "description": "首次同步时，先把多少历史记录写入时间线。"
+          },
+          "sensors.netease_music.tag_strategy": {
+            "label": "曲风标签来源",
+            "description": "为播放记录补充曲风或流派标签的方式。"
+          },
+          "sensors.netease_music.lastfm_api_key": {
+            "label": "Last.fm API Key",
+            "description": "当曲风标签来源设为 Last.fm 时必填，可在 last.fm/api/account/create 免费申请。"
+          }
+        },
         "options": {
           "enabled": {
             "true": "启用",
@@ -1592,11 +1655,17 @@
             "full": "同步全部历史",
             "lookback_days": "同步最近几天",
             "from_now": "仅同步新曲目"
+          },
+          "tag_strategy": {
+            "off": "关闭",
+            "builtin": "内置（本地别名数据，覆盖率有限）",
+            "lastfm": "Last.fm"
           }
         },
         "sections": {
           "general": "常规",
-          "storage": "存储"
+          "analysis": "分析",
+          "activation": "激活"
         }
       },
       "screen-time": {
@@ -1627,11 +1696,11 @@
       },
       "system-media": {
         "name": "听歌/视频记录",
-        "description": "自动记录你在听什么歌、看什么视频，支持所有播放器",
+        "description": "自动记录系统媒体会话里的音乐和视频播放，适用于支持系统媒体控制的播放器",
         "fields": {
           "enabled": {
             "label": "启用听歌记录",
-            "description": "自动检测并记录你正在播放的音乐和视频，支持 Spotify、网易云、QQ 音乐、浏览器等。"
+            "description": "自动检测并记录系统媒体会话中的音乐和视频。常见浏览器标签页、Spotify 等通常可用，网易云音乐当前不保证支持。"
           },
           "sync_interval_minutes": {
             "label": "记录频率",
@@ -1639,12 +1708,15 @@
           },
           "min_session_seconds": {
             "label": "最短播放时长（秒）",
-            "description": "播放少于这个时长的会被忽略（跳过的歌不记录）。"
+            "description": "一次播放累计不到这个时长就不记入时间线，主要用于过滤点开就切走的歌或视频。"
           },
           "pause_timeout_seconds": {
             "label": "暂停多久算听完（秒）",
-            "description": "暂停播放超过这个时间后，会自动结束当前这条记录。比如设为 300 就是暂停 5 分钟后算听完。"
+            "description": "暂停超过这个时长后，当前这条播放记录会被视为已经结束。比如 300 表示暂停 5 分钟后自动收尾。"
           }
+        },
+        "section_notes": {
+          "sync": "这两个阈值一起决定一条记录什么时候成立、什么时候结束：最短播放时长用于过滤点开就切走的内容；暂停多久算听完用于判断一次播放会话是否已经结束。"
         },
         "options": {
           "sync_interval_minutes": {

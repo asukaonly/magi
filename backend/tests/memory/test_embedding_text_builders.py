@@ -2,6 +2,7 @@
 
 from magi.memory.embedding.embedding_text_builders import (
     build_l1_embedding_text,
+    build_l1_retrieval_terms_text,
     build_l2_edge_embedding_text,
 )
 from magi.memory.event_contracts import IngestTarget, MemoryDomain, MemoryEvent, RetentionClass, TomDepth
@@ -39,6 +40,44 @@ class TestBuildL1EmbeddingText:
         )
 
         assert build_l1_embedding_text(event) == "照片拍摄\n照片 拍摄 2022-11-27 在湖州拍摄了 1 张照片"
+
+    def test_appends_projection_retrieval_terms(self):
+        event = MemoryEvent(
+            event_id="evt-2",
+            correlation_id="evt-2",
+            timestamp=1700000000.0,
+            created_at=1700000001.0,
+            event_type="SENSOR_EVENT",
+            source="netease_music",
+            source_item_id="item-2",
+            memory_domain=MemoryDomain.EXTERNAL_ACTIVITY,
+            ingest_target=IngestTarget.L1_ONLY,
+            cognition_eligible=True,
+            tom_depth=TomDepth.NONE,
+            retention_class=RetentionClass.COMPRESSIBLE,
+            session_id=None,
+            turn_id=None,
+            user_id="local_user",
+            task_id=None,
+            content="网易云音乐听了 YOASOBI 的《夜に駆ける》",
+            author_type="external",
+            content_type="observation",
+            importance_score=0.5,
+            level=20,
+            metadata_json={
+                "projection": {
+                    "embedding_head": "网易云音乐听歌",
+                    "retrieval_terms": ["j-pop", "electropop", "J-POP"],
+                }
+            },
+        )
+
+        assert build_l1_retrieval_terms_text(event) == "j-pop electropop"
+        assert build_l1_embedding_text(event) == (
+            "网易云音乐听歌\n"
+            "网易云音乐听了 YOASOBI 的《夜に駆ける》\n"
+            "j-pop electropop"
+        )
 
 
 class TestBuildL2EdgeEmbeddingText:

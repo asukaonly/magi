@@ -101,23 +101,6 @@ export interface TimelineContextBundle {
   runtime_trace: Array<Record<string, unknown>>;
 }
 
-export interface TimelineDigestSummary {
-  summary_id: string;
-  summary_type: string;
-  summary_category: string;
-  content: string;
-  period_start: number;
-  period_end: number;
-  key_topics: string[];
-  key_entities: Array<Record<string, unknown>>;
-  sentiment_summary?: Record<string, unknown> | null;
-  change_and_pattern?: Record<string, unknown> | null;
-  importance_aggregate?: number;
-  source_event_count?: number;
-  generated_by_model?: string;
-  updated_at?: string;
-}
-
 export const timelineApi = {
   getViewport: async (options: {
     scale: 'month' | 'week' | 'day' | 'hour';
@@ -142,28 +125,6 @@ export const timelineApi = {
 
   getContext: async (anchorId: string): Promise<TimelineContextBundle> => {
     const response = await api.get<TimelineContextBundle>(`/timeline/context/${anchorId}`);
-    return unwrapGatewayPayload(response);
-  },
-
-  getDigests: async (options?: {
-    limit?: number;
-    category?: string;
-  }): Promise<TimelineDigestSummary[]> => {
-    const response = await api.get<TimelineDigestSummary[]>('/timeline/digests', {
-      params: {
-        limit: options?.limit ?? 5,
-        category: options?.category ?? 'day',
-      },
-    });
-    return unwrapGatewayPayload(response);
-  },
-
-  triggerDigest: async (category: string = 'day'): Promise<{ status: string; summary: TimelineDigestSummary | null }> => {
-    const response = await api.post<{ status: string; summary: TimelineDigestSummary | null }>(
-      '/timeline/digests/generate',
-      null,
-      { params: { category } },
-    );
     return unwrapGatewayPayload(response);
   },
 };

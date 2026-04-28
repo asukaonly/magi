@@ -533,11 +533,35 @@ The boundary is:
 The current hook shape is:
 
 - plugin hook:
-  - `build_temporal_summary_features(source_type, events, summary_category, period_start, period_end)`
+  - `build_temporal_summary_features(source_type, events, summary_category, period_start, period_end, budget=None)`
 - host runtime:
   - loaded plugins are asked for features during temporal summary generation
+  - the host may pass only a bounded event pool, not every L1 event in the window
+  - `budget` is a `TemporalSummaryFeatureBudget` reporting source-level total, available, selected, omitted, and policy information
   - returned feature payloads are attached to the temporal evidence pack
   - the generic L3 summarizer consumes those features alongside the normal event evidence
+
+Recommended return shape is either a plain dictionary or `TemporalSummarySourceFeatures` from the SDK contract:
+
+```python
+def build_temporal_summary_features(
+    self,
+    *,
+    source_type: str,
+    events: list[dict[str, object]],
+    summary_category: str,
+    period_start: float,
+    period_end: float,
+    budget: TemporalSummaryFeatureBudget | None = None,
+) -> TemporalSummarySourceFeatures | dict[str, object] | None:
+    ...
+```
+
+Feature payloads should include source-local facts such as `summary_lines`, `top_entities`, `top_tags`, `time_buckets`, `representative_event_ids`, `total_event_count`, `covered_event_count`, `omitted_event_count`, and `coverage_ratio`. They should not include unbounded raw records or imply that the plugin saw every event when the budget says the host compacted the window.
+
+The public SDK types live in:
+
+- [contracts.py](../sdk/src/magi_plugin_sdk/contracts.py)
 
 Plugins must not bypass the host L3 store by writing standalone summary records.
 
