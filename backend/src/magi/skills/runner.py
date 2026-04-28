@@ -11,7 +11,7 @@ Implements the "Execute" phase of the skill system:
 import logging
 import os
 import time
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set
 
 from ..chat.workspace import get_default_chat_workspace_path
 from .schema import SkillContent, SkillResult
@@ -37,6 +37,7 @@ class SkillRunner:
         self,
         loader: Optional[SkillLoader] = None,
         llm_adapter: Optional[LLMAdapter] = None,
+        permission_gateway_provider: Callable[[], Any] | None = None,
     ):
         """
         Initialize the skill runner.
@@ -47,6 +48,7 @@ class SkillRunner:
         """
         self.loader = loader
         self.llm = llm_adapter
+        self.permission_gateway_provider = permission_gateway_provider
 
     async def execute(
         self,
@@ -210,6 +212,7 @@ class SkillRunner:
         subagent = create_skill_subagent(
             skill=skill,
             llm_adapter=self.llm,
+            permission_gateway_provider=self.permission_gateway_provider,
         )
         user_message = context.get("user_message", "")
 

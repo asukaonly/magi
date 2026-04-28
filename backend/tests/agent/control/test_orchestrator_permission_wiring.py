@@ -58,12 +58,16 @@ async def _make_gateway(
 
 
 def _orchestrator(
-    *, registry: _FakeToolRegistry, gateway: PermissionGateway | None
+    *,
+    registry: _FakeToolRegistry,
+    gateway: PermissionGateway | None,
+    gateway_provider: Any = None,
 ) -> FunctionCallingOrchestrator:
     return FunctionCallingOrchestrator(
         tool_registry=registry,
         llm_adapter=SimpleNamespace(model_name="fake", provider_name="fake"),
         permission_gateway=gateway,
+        permission_gateway_provider=gateway_provider,
     )
 
 
@@ -215,6 +219,32 @@ async def test_orchestrator_without_gateway_behaves_as_before() -> None:
     # Gateway off → the registry ran (dev hasn't opted in yet).
     assert result.success is True
     assert registry.executed == [("bash", {"command": "rm -rf /"})]
+
+
+@pytest.mark.asyncio
+async def test_gateway_provider_blocks_when_constructor_gateway_absent() -> None:
+    registry = _FakeToolRegistry()
+    gateway = await _make_gateway(mode=PermissionMode.OFF)
+    orch = _orchestrator(
+        registry=registry,
+        gateway=None,
+        gateway_provider=lambda: gateway,
+    )
+
+    result = await orch._execute_tool_call(
+        tool_call=ToolCall(id="c1", name="bash", arguments={"command": "rm -rf /"}),
+        user_id="u",
+        session_id=None,
+        turn_id=None,
+        intent="chat",
+        execution_agent_id="a",
+        execution_workspace=None,
+        orchestration_strategy=None,
+    )
+
+    assert result.success is False
+    assert result.error_code == ToolErrorCode.PERMISSION_DENIED.value
+    assert registry.executed == []
 
 
 @pytest.mark.asyncio

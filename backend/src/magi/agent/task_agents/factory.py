@@ -32,6 +32,7 @@ def create_chat_agent_factory(
     config: AppConfig,
     background_dispatcher: Any | None = None,
     background_launch_service: Any | None = None,
+    permission_gateway_provider: Callable[[], Any] | None = None,
 ) -> Callable[[str], ChatTaskAgent]:
     """Return a factory callable that creates ChatTaskAgent instances."""
 
@@ -54,6 +55,7 @@ def create_chat_agent_factory(
             chat_read_service_factory=chat_read_service_factory,
             background_dispatcher=background_dispatcher,
             background_launch_service=background_launch_service,
+            permission_gateway_provider=permission_gateway_provider,
         )
 
     return _create

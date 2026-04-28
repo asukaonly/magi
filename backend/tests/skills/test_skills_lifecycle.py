@@ -17,14 +17,20 @@ async def test_skills_module_populates_shared_runtime(monkeypatch: pytest.Monkey
     fake_indexer = object()
     fake_loader = object()
     fake_runner = object()
+    captured: dict[str, object] = {}
 
-    monkeypatch.setattr(
-        "magi.skills.lifecycle.build_skills_runtime",
-        lambda llm_adapter=None: SimpleNamespace(
+    def _fake_build_skills_runtime(llm_adapter=None, permission_gateway_provider=None):
+        captured["llm_adapter"] = llm_adapter
+        captured["permission_gateway_provider"] = permission_gateway_provider
+        return SimpleNamespace(
             skill_indexer=fake_indexer,
             skill_loader=fake_loader,
             skill_runner=fake_runner,
-        ),
+        )
+
+    monkeypatch.setattr(
+        "magi.skills.lifecycle.build_skills_runtime",
+        _fake_build_skills_runtime,
     )
 
     module = SkillsModule(context)
@@ -33,3 +39,5 @@ async def test_skills_module_populates_shared_runtime(monkeypatch: pytest.Monkey
     assert context.skills.skill_indexer is fake_indexer
     assert context.skills.skill_loader is fake_loader
     assert context.skills.skill_runner is fake_runner
+    assert captured["llm_adapter"] is context.llm.llm_adapter
+    assert callable(captured["permission_gateway_provider"])

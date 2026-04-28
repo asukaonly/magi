@@ -96,6 +96,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         chat_read_service_factory: Callable[[], ChatReadService] | None = None,
         background_dispatcher: Any | None = None,
         background_launch_service: Any | None = None,
+        permission_gateway_provider: Callable[[], Any] | None = None,
     ) -> None:
         super().__init__(agent_type=TaskAgentType.CHAT, agent_id=agent_id)
         self.llm = llm_adapter
@@ -215,6 +216,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             loop_event_callback=self._postprocess_service.record_tool_loop_fact,
             runtime_trace_store=runtime_trace_store,
             scenario_llm_pool=llm_pool,
+            permission_gateway_provider=permission_gateway_provider,
         )
         handler_deps = ChatHandlerDependencies(
             context_service=self._context_service,

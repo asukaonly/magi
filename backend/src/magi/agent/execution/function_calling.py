@@ -13,7 +13,7 @@ import logging
 import getpass
 import os
 import time
-from typing import Dict, Any, List, Optional, TYPE_CHECKING
+from typing import Callable, Dict, Any, List, Optional, TYPE_CHECKING
 
 from ...llm.base import LLMAdapter
 from ...llm.provider_bridge import LLMProviderBridge, ToolStreamResult, _coerce_thinking_depth
@@ -104,6 +104,7 @@ class FunctionCallingOrchestrator(
         scenario_llm_pool=None,
         context_window: int | None = None,
         permission_gateway: Any = None,
+        permission_gateway_provider: Callable[[], Any] | None = None,
     ):
         """
         initialize the executor
@@ -125,6 +126,7 @@ class FunctionCallingOrchestrator(
         self.loop_event_callback = loop_event_callback
         self.runtime_trace_store = runtime_trace_store
         self.permission_gateway = permission_gateway
+        self._permission_gateway_provider = permission_gateway_provider
         self.step_executor = FunctionCallingStepExecutor(self)
         self._current_messages: List[Dict[str, Any]] = []
         self._context_compactor = ContextCompactor(
@@ -132,6 +134,16 @@ class FunctionCallingOrchestrator(
             context_window=context_window,
             on_event=loop_event_callback,
         )
+
+    def _resolve_permission_gateway(self) -> Any:
+        if self.permission_gateway is not None:
+            return self.permission_gateway
+        if self._permission_gateway_provider is None:
+            return None
+        try:
+            return self._permission_gateway_provider()
+        except Exception:
+            return None
 
     def build_step_state(
         self,
@@ -1350,22 +1362,7 @@ class FunctionCallingOrchestrator(
                     orchestration_strategy=orchestration_strategy,
                 )
 
-            # Permission gateway — resolved in priority order:
-            #   1. instance-level (explicit ctor kwarg; used by tests
-            #      and bespoke wirings),
-            #   2. the DI container binding set up by the control-plane
-            #      bootstrap module in production.
-            # When neither is available the call stays ungated, which
-            # is the exact zero-behavior-change path the rest of the
-            # codebase assumes.
-            gateway = self.permission_gateway
-            if gateway is None:
-                try:
-                    from ...core.runtime_bindings import require_permission_gateway
-
-                    gateway = require_permission_gateway()
-                except Exception:
-                    gateway = None
+            gateway = self._resolve_permission_gateway()
             if gateway is not None:
                 denied_result = await self._gate_tool_call(
                     tool_call=tool_call,

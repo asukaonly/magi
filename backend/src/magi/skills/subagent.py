@@ -13,7 +13,7 @@ import subprocess
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
+from typing import Any, Callable, Dict, List, Optional, Set, TYPE_CHECKING
 
 from .schema import SkillContent, SkillResult
 from ..chat.workspace import get_default_chat_workspace_path
@@ -34,7 +34,13 @@ def _get_tool_registry():
     return tool_registry
 
 
-def _get_function_calling_orchestrator(llm_adapter, tool_registry, skill_runner, tool_result_callback):
+def _get_function_calling_orchestrator(
+    llm_adapter,
+    tool_registry,
+    skill_runner,
+    tool_result_callback,
+    permission_gateway_provider: Callable[[], Any] | None = None,
+):
     """Lazy import to avoid circular dependency."""
     from ..agent.execution.function_calling import FunctionCallingOrchestrator
     return FunctionCallingOrchestrator(
@@ -42,6 +48,7 @@ def _get_function_calling_orchestrator(llm_adapter, tool_registry, skill_runner,
         tool_registry=tool_registry,
         skill_runner=skill_runner,
         tool_result_callback=tool_result_callback,
+        permission_gateway_provider=permission_gateway_provider,
     )
 
 
@@ -61,6 +68,7 @@ class SkillSubagent:
         skill: SkillContent,
         llm_adapter: LLMAdapter,
         allowed_tools: Optional[List[str]] = None,
+        permission_gateway_provider: Callable[[], Any] | None = None,
     ):
         """
         Initialize the skill subagent.
@@ -73,6 +81,7 @@ class SkillSubagent:
         self.skill = skill
         self.llm = llm_adapter
         self.allowed_tools: Optional[Set[str]] = set(allowed_tools) if allowed_tools else None
+        self.permission_gateway_provider = permission_gateway_provider
         self.subagent_id = f"skill-{skill.name}-{uuid.uuid4().hex[:8]}"
 
         # Create restricted tool registry view
@@ -226,6 +235,7 @@ class SkillSubagent:
                 tool_registry=registry,
                 skill_runner=None,
                 tool_result_callback=None,
+                permission_gateway_provider=self.permission_gateway_provider,
             )
 
         # Build system prompt with tool restrictions notice
@@ -390,6 +400,7 @@ class SkillSubagent:
 def create_skill_subagent(
     skill: SkillContent,
     llm_adapter: LLMAdapter,
+    permission_gateway_provider: Callable[[], Any] | None = None,
 ) -> SkillSubagent:
     """
     Factory function to create a SkillSubagent.
@@ -406,4 +417,5 @@ def create_skill_subagent(
         skill=skill,
         llm_adapter=llm_adapter,
         allowed_tools=allowed_tools,
+        permission_gateway_provider=permission_gateway_provider,
     )

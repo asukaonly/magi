@@ -59,6 +59,7 @@ def build_background_task_wiring(
     runtime_trace_store: Any,
     max_concurrent: int = 2,
     history_retention_days: float = 0.0,
+    permission_gateway_provider: Callable[[], Any] | None = None,
 ) -> BackgroundTaskWiring:
     """Construct the background-task components in their dependency order.
 
@@ -75,6 +76,7 @@ def build_background_task_wiring(
         skill_runner=skill_runner,
         runtime_trace_store=runtime_trace_store,
         scenario_llm_pool=llm_pool,
+        permission_gateway_provider=permission_gateway_provider,
     )
     run_fn = build_background_run_fn(
         function_calling_orchestrator=orchestrator,

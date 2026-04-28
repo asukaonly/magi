@@ -9,7 +9,7 @@ import platform
 import time
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from ...agent.orchestration import WorkerResult, get_orchestration_store
 from ...config.models import ThinkingDepth
@@ -72,6 +72,7 @@ class WorkerAgentManager(WorkerTraceMixin, WorkerResultValidationMixin, Tool):
         self._task_agent_manager = None
         self._message_bus = None
         self._runtime_trace_store: RuntimeTraceStore | None = None
+        self._permission_gateway_provider: Callable[[], Any] | None = None
         self._runs: Dict[str, WorkerRunState] = {}
         self._lock = asyncio.Lock()
         self._orchestration_store = get_orchestration_store()
@@ -267,6 +268,7 @@ class WorkerAgentManager(WorkerTraceMixin, WorkerResultValidationMixin, Tool):
         message_bus=None,
         runtime_trace_store: RuntimeTraceStore | None = None,
         scenario_llm_pool=None,
+        permission_gateway_provider: Callable[[], Any] | None = None,
     ) -> None:
         """Inject runtime dependencies after bootstrap."""
         self._llm_adapter = llm_adapter
@@ -280,6 +282,8 @@ class WorkerAgentManager(WorkerTraceMixin, WorkerResultValidationMixin, Tool):
             self._runtime_trace_store = runtime_trace_store
         if scenario_llm_pool is not None:
             self._scenario_llm_pool = scenario_llm_pool
+        if permission_gateway_provider is not None:
+            self._permission_gateway_provider = permission_gateway_provider
 
     async def validate_parameters(
         self,
@@ -592,6 +596,7 @@ class WorkerAgentManager(WorkerTraceMixin, WorkerResultValidationMixin, Tool):
                 loop_event_callback=lambda payload: self._handle_worker_loop_event(run_state, payload),
                 runtime_trace_store=self._runtime_trace_store,
                 scenario_llm_pool=self._scenario_llm_pool,
+                permission_gateway_provider=self._permission_gateway_provider,
             )
             async with stream_source("worker"):
                 outcome = await executor.execute_with_tools(

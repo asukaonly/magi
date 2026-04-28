@@ -1,7 +1,7 @@
 """Agent tool facade for launching specialized worker agents."""
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 from ...agent.workers import (
     WorkerAgentManager,
@@ -239,6 +239,7 @@ class AgentTool(Tool):
         message_bus=None,
         runtime_trace_store=None,
         scenario_llm_pool=None,
+        permission_gateway_provider: Callable[[], Any] | None = None,
     ) -> None:
         """Inject runtime dependencies after bootstrap."""
         self._manager.configure(
@@ -248,6 +249,7 @@ class AgentTool(Tool):
             message_bus=message_bus,
             runtime_trace_store=runtime_trace_store,
             scenario_llm_pool=scenario_llm_pool,
+            permission_gateway_provider=permission_gateway_provider,
         )
 
     async def validate_parameters(
