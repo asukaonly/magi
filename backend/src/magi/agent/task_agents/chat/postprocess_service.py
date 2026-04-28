@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
 import time
 import uuid
@@ -37,6 +36,7 @@ from .postprocess_constants import (
     TOOL_INTERACTION_EVENT_TYPE,
 )
 from .postprocess_components import ChatOutcomeWriter, ChatRuntimeNotifier
+from .postprocess_session import ChatPostprocessSessionMixin
 from .postprocess_trace import ChatPostprocessTraceMixin
 from .session_run_coordinator import TurnSupersession
 from ...background.contracts import BackgroundTask, BackgroundTaskStatus
@@ -53,7 +53,7 @@ def _default_chat_read_service_factory() -> Any:
     return get_chat_read_service()
 
 
-class ChatPostProcessService(ChatPostprocessTraceMixin):
+class ChatPostProcessService(ChatPostprocessTraceMixin, ChatPostprocessSessionMixin):
     """Applies side effects for chat execution results."""
 
     def __init__(
@@ -426,123 +426,6 @@ class ChatPostProcessService(ChatPostprocessTraceMixin):
         )
         await self._finalize_session_run(context)
         return True
-
-    async def _finalize_session_run(self, context: ChatRuntimeContext) -> None:
-        if self._complete_session_run is None:
-            return
-        run_id = str(context.session_run_id or "").strip()
-        if not run_id:
-            return
-        revision = int(context.session_run_revision or 0)
-        try:
-            completion = self._complete_session_run(
-                context.session_id,
-                run_id,
-                revision,
-            )
-            if inspect.isawaitable(completion):
-                await completion
-        except Exception as exc:
-            logger.warning(
-                "Failed to complete chat session run",
-                session_id=context.session_id,
-                run_id=run_id,
-                revision=revision,
-                error=str(exc),
-            )
-            return
-        status = self._session_run_status(context)
-        if status == "cancelled":
-            active_run = context.active_run
-            await self.emit_execution_control_notification(
-                user_id=context.user_id,
-                session_id=context.session_id,
-                turn_id=(
-                    str((active_run.cancel_anchor_turn_id if active_run is not None else None) or "").strip()
-                    or str((active_run.root_turn_id if active_run is not None else None) or "").strip()
-                    or None
-                ),
-                run_id=run_id,
-                orchestration_id=(
-                    str(context.active_orchestrations[0].get("orchestration_id") or "").strip()
-                    if context.active_orchestrations
-                    and isinstance(context.active_orchestrations[0], dict)
-                    else None
-                ),
-                state="cancelled",
-                can_cancel=False,
-                label="Run cancelled",
-            )
-        await self._drain_deferred_user_turns(context)
-        await self._notify_memory_session_end(context.session_id)
-
-    async def _drain_deferred_user_turns(self, context: ChatRuntimeContext) -> None:
-        """Re-inject DEFER pending turns as new user messages after turn completion.
-
-        AUGMENT turns are merged mid-run at the tool-loop checkpoint. DEFER
-        turns must wait until the active run is finalized and then start a
-        fresh run, so we dispatch them back through the runtime command queue
-        as brand-new user messages.
-        """
-        if self._drain_deferred_turns is None:
-            return
-        session_id = str(context.session_id or "").strip()
-        if not session_id:
-            return
-        try:
-            result = self._drain_deferred_turns(session_id)
-            if inspect.isawaitable(result):
-                await result
-        except Exception as exc:
-            logger.warning(
-                "Failed to drain deferred user turns",
-                session_id=session_id,
-                error=str(exc),
-            )
-
-    async def _notify_memory_session_end(self, session_id: str | None) -> None:
-        """Fire-and-forget L2 session-end review so memory can flush remaining
-        staged events and reconcile all entities touched during the session."""
-        if not session_id or self._unified_memory is None:
-            return
-        on_session_end = getattr(self._unified_memory, "on_session_end", None)
-        if on_session_end is None:
-            return
-        try:
-            await on_session_end(session_id)
-        except Exception:
-            logger.warning(
-                "L2 session-end review failed",
-                session_id=session_id,
-                exc_info=True,
-            )
-
-    def _session_run_status(self, context: ChatRuntimeContext) -> str | None:
-        if self._resolve_session_run_status is None:
-            return None
-        run_id = str(context.session_run_id or "").strip()
-        if not run_id:
-            return None
-        revision = int(context.session_run_revision or 0)
-        try:
-            status = self._resolve_session_run_status(
-                context.session_id,
-                run_id,
-                revision,
-            )
-            if inspect.isawaitable(status):
-                return None
-        except Exception as exc:
-            logger.warning(
-                "Failed to resolve chat session run status",
-                session_id=context.session_id,
-                run_id=run_id,
-                revision=revision,
-                error=str(exc),
-            )
-            return None
-        normalized = str(status or "").strip()
-        return normalized or None
 
     async def record_intent_resolution(self, context: ChatRuntimeContext, decision: Any) -> None:
         latest_fact = context.latest_fact
