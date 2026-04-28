@@ -165,6 +165,7 @@ Recent progress:
 - LLM provider connection test status banners now live in `LLMProviderTestStatus.tsx`.
 - LLM provider builtin/custom connection fields now live in `LLMProviderConnectionFields.tsx`.
 - LLM provider model kind/manual-add toolbar now lives in `LLMProviderModelToolbar.tsx`.
+- LLM provider workbench model list pane now lives in `LLMProviderModelListPane.tsx`.
 - Worker prompt and tool-profile helpers now live in `worker_prompting.py`.
 - Worker status, await, and run-state serialization helpers now live in `worker_status.py`.
 - Worker tool schema definition now lives in `worker_schema.py`.
