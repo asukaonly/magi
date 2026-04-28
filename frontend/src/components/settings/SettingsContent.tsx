@@ -10,12 +10,6 @@ import { useSettings } from '@/hooks/useSettings';
 import { NAV_ITEMS, isNavGroup } from '@/constants/settings';
 import type { SettingsPageHandle, SettingsPageProps } from '@/types/settings';
 import {
-  MemoryEventsSettingsSection,
-  MemoryGeneralSettingsSection,
-  MemoryKnowledgeSettingsSection,
-  MemoryReflectionSettingsSection,
-  MemorySkillsSettingsSection,
-  MemoryWorkbenchSettingsSection,
   LLMStatisticsSection,
   RuntimeStatisticsSection,
 } from '@/components/settings';
@@ -25,6 +19,7 @@ import { SettingsConversationSection } from '@/components/settings/SettingsConve
 import { SettingsLlmSection } from '@/components/settings/SettingsLlmSection';
 import PluginsSection from '@/components/settings/PluginsSection';
 import { PluginMarketplace } from '@/components/settings/PluginMarketplace';
+import { SettingsMemorySection, type SettingsMemorySectionId } from '@/components/settings/SettingsMemorySection';
 import { SettingsNavigationSidebar } from '@/components/settings/SettingsNavigationSidebar';
 import { SettingsPersonalityRuntimeSection } from '@/components/settings/SettingsPersonalityRuntimeSection';
 import { SettingsPreferencesSection } from '@/components/settings/SettingsPreferencesSection';
@@ -39,6 +34,15 @@ import { toast } from 'sonner';
 import { getTimelineSourceDisplayName } from '@/utils/timeline-source-copy';
 
 const ADVANCED_MEMORY_SECTION_IDS = new Set([
+  'memoryWorkbench',
+  'memoryEvents',
+  'memoryKnowledge',
+  'memoryReflection',
+  'memorySkills',
+]);
+
+const MEMORY_SECTION_IDS = new Set<string>([
+  'memoryGeneral',
   'memoryWorkbench',
   'memoryEvents',
   'memoryKnowledge',
@@ -211,57 +215,21 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
         return <RuntimeStatisticsSection />;
 
       case 'memoryGeneral':
-        return (
-          <MemoryGeneralSettingsSection
-            draftConfig={draftConfig}
-            patchDraftConfig={patchDraftConfig}
-          />
-        );
-
       case 'memoryWorkbench':
-        return (
-          <MemoryWorkbenchSettingsSection
-            draftConfig={draftConfig}
-            patchDraftConfig={patchDraftConfig}
-            updateMemoryToggle={updateMemoryToggle}
-          />
-        );
-
       case 'memoryEvents':
-        return (
-          <MemoryEventsSettingsSection
-            draftConfig={draftConfig}
-            patchDraftConfig={patchDraftConfig}
-            updateMemoryToggle={updateMemoryToggle}
-            hasEmbeddingModel={hasEmbeddingModel}
-          />
-        );
-
       case 'memoryKnowledge':
-        return (
-          <MemoryKnowledgeSettingsSection
-            draftConfig={draftConfig}
-            patchDraftConfig={patchDraftConfig}
-            updateMemoryToggle={updateMemoryToggle}
-            hasEmbeddingModel={hasEmbeddingModel}
-          />
-        );
-
       case 'memoryReflection':
+      case 'memorySkills':
+        if (!MEMORY_SECTION_IDS.has(effectiveActiveSection)) {
+          return null;
+        }
         return (
-          <MemoryReflectionSettingsSection
+          <SettingsMemorySection
+            section={effectiveActiveSection as SettingsMemorySectionId}
             draftConfig={draftConfig}
             patchDraftConfig={patchDraftConfig}
             updateMemoryToggle={updateMemoryToggle}
             hasEmbeddingModel={hasEmbeddingModel}
-          />
-        );
-
-      case 'memorySkills':
-        return (
-          <MemorySkillsSettingsSection
-            draftConfig={draftConfig}
-            updateMemoryToggle={updateMemoryToggle}
           />
         );
 
