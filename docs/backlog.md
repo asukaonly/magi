@@ -159,6 +159,7 @@ Recent progress:
 - L2 entity maintenance assertion expiry/snapshot/reconcile helpers now live in `entity_maintenance_assertions.py`.
 - L2 entity maintenance edge embedding helpers now live in `entity_maintenance_embeddings.py`.
 - L2 entity maintenance edge expiry/archive/purge helpers now live in `entity_maintenance_edges.py`.
+- L2 entity maintenance catalog/ghost/fragment/orphan helpers now live in `entity_maintenance_catalog.py`.
 
 Candidates to review next:
 
