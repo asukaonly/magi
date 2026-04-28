@@ -94,7 +94,7 @@ export const ChatTimelinePane = ({
   const finalizedTurnIds = useMemo(() => {
     const ids = new Set<string>();
     for (const message of messages) {
-      if (message.role !== 'assistant') {
+      if (message.role !== 'assistant' || message.kind !== 'assistant') {
         continue;
       }
       const turnId = String(message.turnId || '').trim();

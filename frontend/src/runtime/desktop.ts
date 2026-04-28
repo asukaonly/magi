@@ -93,6 +93,21 @@ export async function pickDirectory(defaultPath?: string | null): Promise<string
   return selection;
 }
 
+export async function openExternalUrl(url: string): Promise<void> {
+  const normalizedUrl = String(url || '').trim();
+  if (!normalizedUrl) {
+    return;
+  }
+
+  if (isTauriRuntime()) {
+    const { open } = await import('@tauri-apps/plugin-shell');
+    await open(normalizedUrl);
+    return;
+  }
+
+  window.open(normalizedUrl, '_blank', 'noopener,noreferrer');
+}
+
 export async function confirmExitApp(): Promise<void> {
   await invokeDesktopCommand('confirm_exit_app');
 }

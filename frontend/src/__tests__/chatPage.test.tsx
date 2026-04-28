@@ -14,8 +14,9 @@ import { applyRealtimeStoreProjection } from '@/realtime/store-projection';
 
 let realtimeListener: ((message: Record<string, unknown>) => void) | null = null;
 const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-const { pickDirectoryMock, convertFileSrcMock, toastWarningMock } = vi.hoisted(() => ({
+const { pickDirectoryMock, openExternalUrlMock, convertFileSrcMock, toastWarningMock } = vi.hoisted(() => ({
   pickDirectoryMock: vi.fn(),
+  openExternalUrlMock: vi.fn().mockResolvedValue(undefined),
   convertFileSrcMock: vi.fn((path: string) => `asset://${path}`),
   toastWarningMock: vi.fn(),
 }));
@@ -109,6 +110,7 @@ vi.mock('@/api/modules/personas', async () => {
 
 vi.mock('@/runtime/desktop', () => ({
   pickDirectory: pickDirectoryMock,
+  openExternalUrl: openExternalUrlMock,
 }));
 
 vi.mock('@tauri-apps/api/core', () => ({
@@ -189,6 +191,8 @@ describe('ChatPage', () => {
     consoleErrorSpy.mockClear();
     pickDirectoryMock.mockReset();
     pickDirectoryMock.mockResolvedValue(undefined);
+    openExternalUrlMock.mockReset();
+    openExternalUrlMock.mockResolvedValue(undefined);
     toastWarningMock.mockReset();
     vi.mocked(personasApi.getGreeting).mockReset().mockResolvedValue({ success: true, data: { name: 'AI', greeting: '', needs_bootstrap: false } } as any);
     vi.mocked(personasApi.bootstrapInit).mockReset().mockResolvedValue({ success: true, data: { bootstrap_active: false, opening: null } } as any);
@@ -1360,6 +1364,31 @@ describe('ChatPage', () => {
     expect(screen.queryByText('Answer')).not.toBeInTheDocument();
   });
 
+  it('opens assistant markdown links through the desktop external link handler', async () => {
+    const user = userEvent.setup();
+
+    useConversationStore.getState().receiveHistory(
+      'session-1',
+      normalizeHistoryMessages([
+        {
+          message_id: 'msg-assistant-link',
+          message_kind: 'assistant_final',
+          role: 'assistant',
+          content: '[点击查看实时K线图](https://example.com/aapl)',
+          timestamp: 1200,
+          turn_id: 'turn-link',
+          kind: 'assistant',
+        } as any,
+      ])
+    );
+
+    render(<ChatPage />);
+
+    await user.click(screen.getByRole('link', { name: '点击查看实时K线图' }));
+
+    expect(openExternalUrlMock).toHaveBeenCalledWith('https://example.com/aapl');
+  });
+
   it('renders trace entry when an agent response arrives through chat subscription', async () => {
     render(<ChatPage />);
 
@@ -2238,6 +2267,80 @@ describe('ChatPage', () => {
         turnId: 'turn-interim-actions',
       });
     });
+  });
+
+  it('keeps interim execution actions visible after a todo state card appears', async () => {
+    render(<ChatPage />);
+
+    act(() => {
+      realtimeListener?.({
+        event: 'turn_ux_plan',
+        data: {
+          session_id: 'session-1',
+          turn_id: 'turn-interim-todo',
+          message_id: 'msg-interim-todo',
+          message_kind: 'assistant_interim',
+          ux_plan: {
+            assistant_surface_mode: 'interim_then_final',
+            interim_text: '让我仔细想想再回复你。',
+            trace_display_mode: 'prominent',
+            allow_trace_collapse: true,
+          },
+        },
+      });
+    });
+
+    act(() => {
+      realtimeListener?.({
+        event: 'execution_trace_update',
+        data: {
+          session_id: 'session-1',
+          turn_id: 'turn-interim-todo',
+          trace_summary: {
+            turn_id: 'turn-interim-todo',
+            mode: 'orchestration',
+            status: 'running',
+            headline: '正在分析项目',
+            active_steps: 1,
+            completed_steps: 0,
+            failed_steps: 0,
+            duration_seconds: 0.8,
+            trace_available: true,
+          },
+        },
+      });
+    });
+
+    act(() => {
+      realtimeListener?.({
+        event: 'chat_message_upserted',
+        data: {
+          session_id: 'session-1',
+          message: {
+            message_id: 'todo:turn-interim-todo',
+            message_kind: 'todo_state',
+            role: 'assistant',
+            kind: 'status',
+            content: 'Search official sources',
+            timestamp: Date.now() / 1000,
+            turn_id: 'turn-interim-todo',
+            payload: {
+              items: [
+                { id: 'todo-1', content: 'Search official sources', status: 'in_progress' },
+              ],
+            },
+          },
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Search official sources')).toBeInTheDocument();
+    });
+
+    const runningPanel = screen.getByTestId('chat-execution-panel-turn-interim-todo');
+    expect(within(runningPanel).getByRole('button', { name: 'chat.trace.cancelRun' })).toBeInTheDocument();
+    expect(within(runningPanel).getByRole('button', { name: 'chat.trace.detachRun' })).toBeInTheDocument();
   });
 
   it('updates the running interim execution bubble from execution control websocket events', async () => {

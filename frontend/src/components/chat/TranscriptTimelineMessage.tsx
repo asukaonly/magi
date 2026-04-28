@@ -6,6 +6,7 @@ import { motion } from 'framer-motion';
 import { AssistantRuntimePanel } from './AssistantRuntimePanel';
 import type { ChatTimelineMessage } from '@/domain/chat/state';
 import { normalizeAssistantMarkdownContent } from '@/domain/chat/markdown';
+import { openExternalUrl } from '@/runtime/desktop';
 
 type TranscriptTimelineMessageProps = {
   message: ChatTimelineMessage;
@@ -71,7 +72,20 @@ const assistantMarkdownComponents: Components = {
   td: ({ children }) => <td className="px-3 py-2.5 text-sm text-foreground/90">{children}</td>,
   hr: () => <hr className="my-5 border-border/60" />,
   a: ({ href, children }) => (
-    <a href={href} className="font-medium text-primary underline decoration-primary/45 underline-offset-4 transition-colors hover:text-primary/80" target="_blank" rel="noreferrer">
+    <a
+      href={href}
+      className="font-medium text-primary underline decoration-primary/45 underline-offset-4 transition-colors hover:text-primary/80"
+      target="_blank"
+      rel="noreferrer"
+      onClick={(event) => {
+        if (!href) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        void openExternalUrl(href);
+      }}
+    >
       {children}
     </a>
   ),
