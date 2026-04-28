@@ -52,6 +52,7 @@ export PYTHONPATH="$ROOT_DIR/backend/src:$ROOT_DIR/sdk/src${PYTHONPATH:+:$PYTHON
   src/magi/memory/l2/evidence_policy.py \
   src/magi/memory/l2/graph_conflicts.py \
   src/magi/memory/l2/maintenance_schedule.py \
+  src/magi/memory/l2/pipeline_context.py \
   src/magi/memory/l2/pipeline_staging.py \
   src/magi/memory/l2/store_assertions.py \
   src/magi/memory/l2/store_candidates.py \
