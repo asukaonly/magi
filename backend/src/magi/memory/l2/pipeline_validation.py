@@ -3,21 +3,18 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any, Optional
+from typing import Any, Optional
 
-from ...core.logger import get_logger
 from ..event_contracts import MemoryEvent
 from .context_bundle import ResolvedContextRef
 from .models import (
     ContradictionHint,
     L2AssertionCandidate,
     L2GraphCandidate,
-    L2Phase1FactClaim,
     L2Phase1Result,
     L2Phase2ContradictionHint,
     L2Phase2GraphEdge,
     ResolvedEntityMention,
-    StructuredGraphHint,
 )
 from .extraction_profiles import ExtractionProfile
 from .ontology import (
@@ -28,11 +25,7 @@ from .ontology import (
     validate_assertion_candidate,
     validate_graph_candidate,
 )
-
-if TYPE_CHECKING:
-    pass
-
-logger = get_logger(__name__)
+from .pipeline_structured_hints import L2StructuredHintMixin
 
 _PREFERENCE_PREDICATES = {"LIKES", "DISLIKES", "INTERESTED_IN"}
 _TOPOLOGY_ONLY_TRAIT_FAMILIES = {"public_sentiment", "group_atmosphere", "relationship_shift"}
@@ -43,8 +36,6 @@ _GENERIC_PREFERENCE_OBJECT_SUFFIXES = {
     "music",
     "place",
 }
-_STRUCTURED_GRAPH_HINT_DIRECT_FACT_KINDS = {"public_topology", "interaction_evidence", "explicit_fact"}
-_STRUCTURED_GRAPH_HINT_DIRECT_ORIGIN_MODES = {"source_explicit", "source_structured"}
 
 # P2: memory subdomain classification — stable/persistent + evidence-only → semantic
 _SEMANTIC_TEMPORAL_SCOPES = {"persistent", "stable", ""}
@@ -58,136 +49,10 @@ def classify_memory_subdomain(temporal_scope: str, decay_policy: str) -> str:
     ):
         return "semantic"
     return "state"
-_STRUCTURED_GRAPH_HINT_FOLLOWS_PAGE_KINDS = {
-    "creator_profile",
-    "creator_home",
-    "creator_channel",
-    "subscription",
-    "subscriptions",
-}
 
 
-class L2ValidationMixin:
+class L2ValidationMixin(L2StructuredHintMixin):
     """Mixin providing validation, candidate preparation, and structured hint methods for L2Pipeline."""
-
-    def _inject_structured_entity_hints(
-        self,
-        event: MemoryEvent,
-        existing_entities: list[dict[str, Any]],
-    ) -> None:
-        """Inject structured entity hints into existing_entities as Phase 1 context."""
-        metadata_json = event.metadata_json
-        if not isinstance(metadata_json, dict):
-            return
-        hints = metadata_json.get("structured_entity_hints")
-        if not hints or not isinstance(hints, list):
-            return
-
-        existing_ids = {str(e.get("entity_id", "")) for e in existing_entities}
-        injected_count = 0
-        for hint in hints:
-            if not isinstance(hint, dict):
-                continue
-            mention_text = str(hint.get("mention_text", "")).strip()
-            entity_type = self._normalize_entity_type(hint.get("entity_type"))  # type: ignore[attr-defined]
-            if not mention_text or not entity_type:
-                continue
-
-            canonical_name = str(hint.get("canonical_name_hint") or mention_text).strip()
-            resolved_id = hint.get("resolved_entity_id")
-            if resolved_id:
-                entity_id = str(resolved_id)
-            else:
-                entity_id = self._build_canonical_entity_id(  # type: ignore[attr-defined]
-                    entity_type=entity_type, canonical_name=canonical_name,
-                )
-
-            if entity_id in existing_ids:
-                continue
-
-            existing_entities.append({
-                "entity_id": entity_id,
-                "canonical_name": canonical_name,
-                "entity_type": entity_type,
-                "aliases": [canonical_name],
-                "hint_only": True,
-            })
-            existing_ids.add(entity_id)
-            injected_count += 1
-
-        if injected_count:
-            logger.debug(
-                "L2 structured entity hints injected as context",
-                event_id=event.event_id,
-                hint_count=len(hints),
-                injected_count=injected_count,
-            )
-
-    def _inject_structured_graph_hints(
-        self,
-        event: MemoryEvent,
-        phase1_result: L2Phase1Result,
-    ) -> None:
-        """Inject structured graph hints as deterministic Phase 1 fact claims."""
-        metadata_json = event.metadata_json
-        if not isinstance(metadata_json, dict):
-            return
-        hints = metadata_json.get("structured_graph_hints")
-        if not hints or not isinstance(hints, list):
-            return
-
-        existing_keys = {
-            (
-                self._non_empty_text(claim.subject_ref) or "",  # type: ignore[attr-defined]
-                self._normalize_predicate(claim.predicate) or "",  # type: ignore[attr-defined]
-                self._non_empty_text(claim.object_ref) or "",  # type: ignore[attr-defined]
-                self._normalize_entity_type(claim.object_type) or "",  # type: ignore[attr-defined]
-            )
-            for claim in phase1_result.fact_claims
-        }
-
-        injected_count = 0
-        for raw_hint in hints:
-            if not isinstance(raw_hint, dict):
-                continue
-            hint = StructuredGraphHint.from_dict(raw_hint)
-            subject_ref = self._non_empty_text(hint.subject_ref)  # type: ignore[attr-defined]
-            predicate = self._normalize_predicate(hint.predicate)  # type: ignore[attr-defined]
-            object_ref = self._non_empty_text(hint.object_ref)  # type: ignore[attr-defined]
-            object_type = self._normalize_entity_type(hint.object_type)  # type: ignore[attr-defined]
-            subject_type = self._non_empty_text(hint.subject_type) or "user"  # type: ignore[attr-defined]
-            if not subject_ref or not predicate or not object_ref or not object_type:
-                continue
-
-            hint_key = (subject_ref, predicate, object_ref, object_type)
-            if hint_key in existing_keys:
-                continue
-
-            phase1_result.fact_claims.append(
-                L2Phase1FactClaim(
-                    subject_ref=subject_ref,
-                    subject_type=subject_type,
-                    predicate=predicate,
-                    object_ref=object_ref,
-                    object_type=object_type,
-                    fact_kind=self._non_empty_text(hint.fact_kind) or "explicit_fact",  # type: ignore[attr-defined]
-                    polarity="positive",
-                    specificity="concrete",
-                    evidence_text=self._non_empty_text(hint.evidence_text) or "",  # type: ignore[attr-defined]
-                    confidence=float(hint.confidence if hint.confidence is not None else 1.0),
-                    supporting_event_ids=[event.event_id],
-                )
-            )
-            existing_keys.add(hint_key)
-            injected_count += 1
-
-        if injected_count:
-            logger.debug(
-                "L2 structured graph hints injected as fact claims",
-                event_id=event.event_id,
-                hint_count=len(hints),
-                injected_count=injected_count,
-            )
 
     def _validate_phase2_graph_edges(
         self,
@@ -209,13 +74,15 @@ class L2ValidationMixin:
         rejected_count = 0
         for edge in phase2_edges:
             if edge.relationship_to_existing == "corroborates" and edge.related_existing_triple_id:
-                corroborate_targets.append({
-                    "triple_id": edge.related_existing_triple_id,
-                    "evidence_event_ids": list(edge.supporting_event_ids or evidence_event_ids),
-                    "new_confidence": edge.confidence,
-                    "observed_at": event.timestamp,
-                    "evidence_text": edge.evidence_text or "",
-                })
+                corroborate_targets.append(
+                    {
+                        "triple_id": edge.related_existing_triple_id,
+                        "evidence_event_ids": list(edge.supporting_event_ids or evidence_event_ids),
+                        "new_confidence": edge.confidence,
+                        "observed_at": event.timestamp,
+                        "evidence_text": edge.evidence_text or "",
+                    }
+                )
                 continue
 
             object_type = self._normalize_entity_type(edge.object_type)  # type: ignore[attr-defined]
@@ -346,7 +213,9 @@ class L2ValidationMixin:
                 continue
             if predicate not in profile.effective_structured_allowed_predicates:
                 continue
-            is_valid, _ = validate_graph_candidate({"predicate": predicate, "object_type": object_type})
+            is_valid, _ = validate_graph_candidate(
+                {"predicate": predicate, "object_type": object_type}
+            )
             if not is_valid:
                 continue
             subject_id = self._resolve_phase2_subject_id(event=event, subject_ref=claim.subject_ref)
@@ -369,185 +238,27 @@ class L2ValidationMixin:
                 raw_object_ref=claim.object_ref,
             ):
                 continue
-            candidates.append({
-                "subject_id": subject_id,
-                "subject_type": claim.subject_type or "user",
-                "predicate": predicate,
-                "object_id": object_id,
-                "object_type": object_type,
-                "fact_kind": self._non_empty_text(claim.fact_kind) or "explicit_fact",  # type: ignore[attr-defined]
-                "evidence_event_ids": list(claim.supporting_event_ids or evidence_event_ids),
-                "confidence": claim.confidence,
-                "observed_at": event.timestamp,
-                "source_type": event.source,
-                "extraction_method": "llm_phase1_fast_track",
-                "evidence_text": claim.evidence_text or "",
-            })
-        return candidates
-
-    def _build_structured_graph_candidates(
-        self,
-        *,
-        event: MemoryEvent,
-        profile: ExtractionProfile,
-        policy: Any,
-        evidence_event_ids: list[str],
-        catalog_name_index: dict[str, str] | None = None,
-    ) -> tuple[list[dict[str, Any]], int]:
-        """Convert source-owned structured graph hints into deterministic graph candidates."""
-        if not policy.allow_graph_write or not profile.allow_graph or policy.graph_scope != "full":
-            return [], 0
-
-        metadata_json = event.metadata_json
-        if not isinstance(metadata_json, dict):
-            return [], 0
-        raw_hints = metadata_json.get("structured_graph_hints")
-        if not isinstance(raw_hints, list) or not raw_hints:
-            return [], 0
-
-        prepared: list[dict[str, Any]] = []
-        rejected_count = 0
-        for raw_hint in raw_hints:
-            if not isinstance(raw_hint, dict):
-                continue
-            hint = StructuredGraphHint.from_dict(raw_hint)
-            object_type = self._normalize_entity_type(hint.object_type)  # type: ignore[attr-defined]
-            predicate = self._normalize_predicate(hint.predicate)  # type: ignore[attr-defined]
-            fact_kind = self._non_empty_text(hint.fact_kind) or "explicit_fact"  # type: ignore[attr-defined]
-            if fact_kind not in _STRUCTURED_GRAPH_HINT_DIRECT_FACT_KINDS:
-                rejected_count += 1
-                continue
-            if not self._is_structured_graph_hint_directly_admissible(hint=hint, predicate=predicate, fact_kind=fact_kind):
-                rejected_count += 1
-                continue
-            if object_type not in profile.effective_structured_allowed_entity_types:
-                rejected_count += 1
-                continue
-            if predicate not in profile.effective_structured_allowed_predicates:
-                rejected_count += 1
-                continue
-            is_valid, _ = validate_graph_candidate({"predicate": predicate, "object_type": object_type})
-            if not is_valid:
-                rejected_count += 1
-                continue
-
-            subject_id = self._resolve_phase2_subject_id(event=event, subject_ref=hint.subject_ref)
-            if not subject_id:
-                rejected_count += 1
-                continue
-            object_id = self._resolve_phase2_object_id(
-                raw_object_ref=hint.object_ref,
-                object_type=object_type,
-                resolved_mentions=[],
-                catalog_name_index=catalog_name_index,
-            )
-            if not object_id:
-                rejected_count += 1
-                continue
-            if self._should_reject_preference_graph_candidate(
-                event=event,
-                subject_id=subject_id,
-                predicate=predicate,
-                object_id=object_id,
-                object_type=object_type,
-                raw_object_ref=hint.object_ref,
-            ):
-                rejected_count += 1
-                continue
-
-            prepared.append(
+            candidates.append(
                 {
                     "subject_id": subject_id,
-                    "subject_type": self._non_empty_text(hint.subject_type) or "user",  # type: ignore[attr-defined]
+                    "subject_type": claim.subject_type or "user",
                     "predicate": predicate,
                     "object_id": object_id,
                     "object_type": object_type,
-                    "fact_kind": fact_kind,
-                    "evidence_event_ids": list(evidence_event_ids or [event.event_id]),
-                    "confidence": float(hint.confidence if hint.confidence is not None else 1.0),
+                    "fact_kind": self._non_empty_text(claim.fact_kind) or "explicit_fact",  # type: ignore[attr-defined]
+                    "evidence_event_ids": list(claim.supporting_event_ids or evidence_event_ids),
+                    "confidence": claim.confidence,
                     "observed_at": event.timestamp,
                     "source_type": event.source,
-                    "extraction_method": "structured_hint",
+                    "extraction_method": "llm_phase1_fast_track",
+                    "evidence_text": claim.evidence_text or "",
                 }
             )
-        return prepared, rejected_count
+        return candidates
 
-    def _build_structured_facet_candidates(
-        self,
-        *,
-        event: MemoryEvent,
-        evidence_event_ids: list[str],
+    def _merge_graph_candidates(
+        self, *candidate_groups: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
-        """Convert source-owned structured graph hint attributes into sidecar entity facets."""
-        metadata_json = event.metadata_json
-        if not isinstance(metadata_json, dict):
-            return []
-        raw_hints = metadata_json.get("structured_graph_hints")
-        if not isinstance(raw_hints, list) or not raw_hints:
-            return []
-
-        prepared: list[dict[str, Any]] = []
-        seen: set[tuple[str, str, str]] = set()
-        for raw_hint in raw_hints:
-            if not isinstance(raw_hint, dict):
-                continue
-            hint = StructuredGraphHint.from_dict(raw_hint)
-            origin_mode = self._normalize_structured_graph_hint_origin_mode(hint.origin_mode)  # type: ignore[attr-defined]
-            if origin_mode not in _STRUCTURED_GRAPH_HINT_DIRECT_ORIGIN_MODES:
-                continue
-            subject_id = self._resolve_phase2_subject_id(event=event, subject_ref=hint.subject_ref)
-            subject_type = self._normalize_entity_type(hint.subject_type)  # type: ignore[attr-defined]
-            if not subject_id or not subject_type:
-                continue
-            for facet_name, facet_value in self._extract_structured_graph_hint_facets(hint.attributes):  # type: ignore[attr-defined]
-                key = (subject_id, facet_name, facet_value)
-                if key in seen:
-                    continue
-                seen.add(key)
-                prepared.append(
-                    {
-                        "entity_id": subject_id,
-                        "entity_type": subject_type,
-                        "facet_name": facet_name,
-                        "facet_value": facet_value,
-                        "evidence_event_ids": list(evidence_event_ids or [event.event_id]),
-                        "confidence": float(hint.confidence if hint.confidence is not None else 1.0),
-                        "observed_at": event.timestamp,
-                        "source_type": event.source,
-                        "extraction_method": "structured_hint",
-                    }
-                )
-        return prepared
-
-    def _is_structured_graph_hint_directly_admissible(
-        self,
-        *,
-        hint: StructuredGraphHint,
-        predicate: str | None,
-        fact_kind: str,
-    ) -> bool:
-        """Return whether a source-owned graph hint may bypass LLM edge generation."""
-        canonical_predicate = self._normalize_predicate(predicate)  # type: ignore[attr-defined]
-        if canonical_predicate is None:
-            return False
-
-        origin_mode = self._normalize_structured_graph_hint_origin_mode(hint.origin_mode)  # type: ignore[attr-defined]
-        if origin_mode not in _STRUCTURED_GRAPH_HINT_DIRECT_ORIGIN_MODES:
-            return False
-
-        if fact_kind in {"public_topology", "explicit_fact"}:
-            return True
-
-        if fact_kind != "interaction_evidence":
-            return False
-
-        if canonical_predicate != "FOLLOWS":
-            return True
-
-        page_kind = self._normalize_structured_graph_hint_page_kind(hint.attributes)  # type: ignore[attr-defined]
-        return page_kind in _STRUCTURED_GRAPH_HINT_FOLLOWS_PAGE_KINDS
-
-    def _merge_graph_candidates(self, *candidate_groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Merge graph candidates by triple identity, preferring structured hints."""
         merged: dict[tuple[str, str, str], dict[str, Any]] = {}
         for group in candidate_groups:
@@ -566,9 +277,16 @@ class L2ValidationMixin:
 
                 existing_method = str(existing.get("extraction_method") or "")
                 candidate_method = str(candidate.get("extraction_method") or "")
-                preferred = dict(candidate) if candidate_method == "structured_hint" and existing_method != "structured_hint" else dict(existing)
+                preferred = (
+                    dict(candidate)
+                    if candidate_method == "structured_hint"
+                    and existing_method != "structured_hint"
+                    else dict(existing)
+                )
                 preferred["evidence_event_ids"] = sorted(
-                    set(existing.get("evidence_event_ids") or []).union(candidate.get("evidence_event_ids") or [])
+                    set(existing.get("evidence_event_ids") or []).union(
+                        candidate.get("evidence_event_ids") or []
+                    )
                 )
                 preferred["confidence"] = max(
                     float(existing.get("confidence") or 0.0),
@@ -576,8 +294,14 @@ class L2ValidationMixin:
                 )
                 preferred["fact_kind"] = (
                     str(candidate.get("fact_kind") or "").strip()
-                    if candidate_method == "structured_hint" and str(candidate.get("fact_kind") or "").strip()
-                    else str(preferred.get("fact_kind") or existing.get("fact_kind") or candidate.get("fact_kind") or "explicit_fact")
+                    if candidate_method == "structured_hint"
+                    and str(candidate.get("fact_kind") or "").strip()
+                    else str(
+                        preferred.get("fact_kind")
+                        or existing.get("fact_kind")
+                        or candidate.get("fact_kind")
+                        or "explicit_fact"
+                    )
                 )
                 merged[key] = preferred
         return list(merged.values())
@@ -599,15 +323,16 @@ class L2ValidationMixin:
         prepared: list[dict[str, Any]] = []
         rejected_count = 0
         duplicate_check_candidates = [
-            {"predicate": c["predicate"], "object_ref": c["object_id"]}
-            for c in graph_candidates
+            {"predicate": c["predicate"], "object_ref": c["object_id"]} for c in graph_candidates
         ]
         for assertion in phase2_assertions:
             trait_family = str(getattr(assertion, "trait_family", "") or "").casefold()
             if trait_family not in profile.allowed_assertion_families:
                 rejected_count += 1
                 continue
-            assertion_dict = assertion.to_dict() if hasattr(assertion, "to_dict") else dict(assertion)
+            assertion_dict = (
+                assertion.to_dict() if hasattr(assertion, "to_dict") else dict(assertion)
+            )
             is_valid, _ = validate_assertion_candidate(assertion_dict)
             if not is_valid:
                 rejected_count += 1
@@ -627,7 +352,10 @@ class L2ValidationMixin:
             elif trait_value is None:
                 trait_value = ""
 
-            inference_depth = self._non_empty_text(getattr(assertion, "inference_depth", "")) or event.tom_depth.label  # type: ignore[attr-defined]
+            inference_depth = (
+                self._non_empty_text(getattr(assertion, "inference_depth", ""))
+                or event.tom_depth.label
+            )  # type: ignore[attr-defined]
             volatility_index = float(getattr(assertion, "volatility_index", 0.5) or 0.5)
 
             temporal_scope, decay_policy, expires_at = self._derive_assertion_decay_from_family(
@@ -636,30 +364,34 @@ class L2ValidationMixin:
                 trait_name=str(getattr(assertion, "trait_name", "") or ""),
             )
 
-            prepared.append({
-                "entity_id": entity_ref or self_entity_id or "",
-                "entity_type": str(getattr(assertion, "entity_type", "user") or "user"),
-                "trait_family": trait_family,
-                "trait_name": str(getattr(assertion, "trait_name", "") or ""),
-                "trait_value": str(trait_value),
-                "confidence_score": float(getattr(assertion, "confidence", 0.0) or 0.0),
-                "evidence_events": list(getattr(assertion, "supporting_event_ids", None) or default_event_ids),
-                "volatility_index": volatility_index,
-                "source_domain": event.memory_domain.label,
-                "inference_depth": inference_depth,
-                "validation_state": "tentative",
-                "first_inferred_at": event.timestamp,
-                "last_validated_at": event.timestamp,
-                "target_entity_id": "",
-                "target_entity_type": "",
-                "target_scope": "global",
-                "temporal_scope": temporal_scope,
-                "decay_policy": decay_policy,
-                "decay_anchor_at": event.timestamp,
-                "context_ref_id": "",
-                "expires_at": expires_at,
-                "memory_subdomain": classify_memory_subdomain(temporal_scope, decay_policy),
-            })
+            prepared.append(
+                {
+                    "entity_id": entity_ref or self_entity_id or "",
+                    "entity_type": str(getattr(assertion, "entity_type", "user") or "user"),
+                    "trait_family": trait_family,
+                    "trait_name": str(getattr(assertion, "trait_name", "") or ""),
+                    "trait_value": str(trait_value),
+                    "confidence_score": float(getattr(assertion, "confidence", 0.0) or 0.0),
+                    "evidence_events": list(
+                        getattr(assertion, "supporting_event_ids", None) or default_event_ids
+                    ),
+                    "volatility_index": volatility_index,
+                    "source_domain": event.memory_domain.label,
+                    "inference_depth": inference_depth,
+                    "validation_state": "tentative",
+                    "first_inferred_at": event.timestamp,
+                    "last_validated_at": event.timestamp,
+                    "target_entity_id": "",
+                    "target_entity_type": "",
+                    "target_scope": "global",
+                    "temporal_scope": temporal_scope,
+                    "decay_policy": decay_policy,
+                    "decay_anchor_at": event.timestamp,
+                    "context_ref_id": "",
+                    "expires_at": expires_at,
+                    "memory_subdomain": classify_memory_subdomain(temporal_scope, decay_policy),
+                }
+            )
         return prepared, rejected_count
 
     def _convert_phase2_contradiction_hints(
@@ -835,9 +567,13 @@ class L2ValidationMixin:
             return False
         if self._looks_like_interrogative_preference_query(event.content):  # type: ignore[attr-defined]
             return True
-        if self._is_generic_preference_object_id(object_id) or self._is_generic_preference_object_id(raw_object_ref):  # type: ignore[attr-defined]
+        if self._is_generic_preference_object_id(
+            object_id
+        ) or self._is_generic_preference_object_id(raw_object_ref):  # type: ignore[attr-defined]
             return True
-        if self._is_self_like_preference_object(subject_id=subject_id, object_id=object_id, object_type=object_type):  # type: ignore[attr-defined]
+        if self._is_self_like_preference_object(
+            subject_id=subject_id, object_id=object_id, object_type=object_type
+        ):  # type: ignore[attr-defined]
             return True
         return False
 
@@ -889,7 +625,9 @@ class L2ValidationMixin:
             )
         return prepared, rejected_count
 
-    def _resolve_subject_id(self, *, event: MemoryEvent, raw_candidate: L2GraphCandidate) -> str | None:
+    def _resolve_subject_id(
+        self, *, event: MemoryEvent, raw_candidate: L2GraphCandidate
+    ) -> str | None:
         subject_ref = self._non_empty_text(raw_candidate.subject_ref)  # type: ignore[attr-defined]
         if subject_ref:
             if subject_ref.startswith("user:"):
@@ -913,7 +651,11 @@ class L2ValidationMixin:
             return object_ref
         object_ref_casefold = object_ref.casefold()
         for context_ref in resolved_context_refs:
-            if context_ref.surface and context_ref.resolved_ref and context_ref.surface.casefold() == object_ref_casefold:
+            if (
+                context_ref.surface
+                and context_ref.resolved_ref
+                and context_ref.surface.casefold() == object_ref_casefold
+            ):
                 return context_ref.resolved_ref
         for mention in resolved_mentions:
             surfaces = {
@@ -962,7 +704,9 @@ class L2ValidationMixin:
             "trait_name": candidate.trait_name,
             "trait_value": str(trait_value),
             "confidence_score": candidate.confidence,
-            "evidence_events": list(candidate.supporting_event_ids or default_event_ids or [event.event_id]),
+            "evidence_events": list(
+                candidate.supporting_event_ids or default_event_ids or [event.event_id]
+            ),
             "volatility_index": candidate.volatility_index,
             "source_domain": event.memory_domain.label,
             "inference_depth": candidate.inference_depth or event.tom_depth.label,
@@ -995,8 +739,14 @@ class L2ValidationMixin:
             return None, None, None
         target_ref_casefold = target_ref.casefold()
         for context_ref in resolved_context_refs:
-            if context_ref.surface and context_ref.resolved_ref and context_ref.surface.casefold() == target_ref_casefold:
-                kind = self._normalize_entity_type(context_ref.resolved_kind) or self._normalize_entity_type(  # type: ignore[attr-defined]
+            if (
+                context_ref.surface
+                and context_ref.resolved_ref
+                and context_ref.surface.casefold() == target_ref_casefold
+            ):
+                kind = self._normalize_entity_type(
+                    context_ref.resolved_kind
+                ) or self._normalize_entity_type(  # type: ignore[attr-defined]
                     context_ref.resolved_ref.split(":", 1)[0]
                 )
                 return context_ref.resolved_ref, kind, context_ref.resolved_ref
@@ -1013,7 +763,11 @@ class L2ValidationMixin:
         decay_policy = self._non_empty_text(candidate.decay_policy)  # type: ignore[attr-defined]
         expires_at = candidate.expires_at
         if temporal_scope and decay_policy:
-            return temporal_scope, decay_policy, float(expires_at) if expires_at is not None else None
+            return (
+                temporal_scope,
+                decay_policy,
+                float(expires_at) if expires_at is not None else None,
+            )
 
         trait_family = candidate.trait_family.casefold()
         trait_name = candidate.trait_name.casefold()

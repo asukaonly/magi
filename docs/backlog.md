@@ -154,6 +154,7 @@ Recent progress:
 - L2 pipeline staging, projection claiming, and microbatch flush helpers now live in `pipeline_staging.py`.
 - L2 pipeline context loading and history recall helpers now live in `pipeline_context.py`.
 - L2 pipeline extract/reconcile/snapshot worker loops now live in `pipeline_workers.py`.
+- L2 validation structured entity/graph hint helpers now live in `pipeline_structured_hints.py`.
 
 Candidates to review next:
 
