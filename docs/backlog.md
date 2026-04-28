@@ -160,6 +160,7 @@ Recent progress:
 - L2 entity maintenance edge embedding helpers now live in `entity_maintenance_embeddings.py`.
 - L2 entity maintenance edge expiry/archive/purge helpers now live in `entity_maintenance_edges.py`.
 - L2 entity maintenance catalog/ghost/fragment/orphan helpers now live in `entity_maintenance_catalog.py`.
+- L2 entity maintenance ghost graph/TOM reference repair helpers now live in `entity_maintenance_ghosts.py`.
 - L2 entity maintenance open predicate consolidation helpers now live in `entity_maintenance_predicates.py`.
 - L2 entity maintenance episode consolidation helpers now live in `entity_maintenance_episodes.py`.
 - L2 episode dataclass contracts now live in `episode_models.py` with old `models.py` exports preserved.
