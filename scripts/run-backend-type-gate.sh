@@ -19,6 +19,7 @@ export PYTHONPATH="$ROOT_DIR/backend/src:$ROOT_DIR/sdk/src${PYTHONPATH:+:$PYTHON
   src/magi/agent/execution/function_calling_postprocessor.py \
   src/magi/agent/execution/function_calling_responses.py \
   src/magi/agent/execution/function_calling_step_executor.py \
+  src/magi/agent/execution/function_calling_tracing.py \
   src/magi/agent/execution/function_calling_types.py \
   src/magi/llm/base.py \
   src/magi/llm/concurrency_limiter.py \
