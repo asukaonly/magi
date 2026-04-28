@@ -78,17 +78,6 @@ Rules:
 - If evidence is weak, stay conservative and summarize only explicit content.
 """
 
-DIGEST_PERSONA_OVERLAY = """
-You are writing this summary in the voice of a specific persona.
-Persona profile:
-- Name: {name}
-- Tone: {tone}
-- Background: {background}
-- Keywords the persona uses often: {keywords}
-
-Write the content field in this persona's voice and style.
-Keep the JSON structure and evidence-grounding rules the same.
-"""
 TEMPORAL_SUMMARY_OUTPUT_SCHEMA = {
     "content": "A concise temporal recap grounded in the evidence pack.",
     "key_topics": ["short_topic_label"],
@@ -204,7 +193,6 @@ class TemporalSummaryLLMService:
         pack: TemporalEvidencePack,
         *,
         fallback_summary: str,
-        persona_context: dict[str, str] | None = None,
     ) -> TemporalGenerationResult:
         """Try the model path and fall back to a rule summary on failure."""
         fallback = self._build_fallback_result(pack, fallback_summary)
@@ -214,7 +202,7 @@ class TemporalSummaryLLMService:
             return fallback
         try:
             payload = await asyncio.wait_for(
-                self._call_temporal_model(pack, persona_context=persona_context),
+                self._call_temporal_model(pack),
                 timeout=self._llm_timeout_seconds,
             )
         except Exception:
@@ -231,7 +219,7 @@ class TemporalSummaryLLMService:
             used_fallback=False,
         )
 
-    async def _call_temporal_model(self, pack: TemporalEvidencePack, *, persona_context: dict[str, str] | None = None) -> dict[str, Any] | None:
+    async def _call_temporal_model(self, pack: TemporalEvidencePack) -> dict[str, Any] | None:
         """Model hook for temporal summary generation.
 
         The default implementation is intentionally inert until a real LLM caller
@@ -243,13 +231,6 @@ class TemporalSummaryLLMService:
         adapter, provider_bridge = llm_target
         prompt = self._render_temporal_summary_prompt(pack)
         system_prompt = TEMPORAL_SUMMARY_SYSTEM_PROMPT
-        if persona_context:
-            system_prompt += DIGEST_PERSONA_OVERLAY.format(
-                name=persona_context.get("name", ""),
-                tone=persona_context.get("tone", ""),
-                background=persona_context.get("background", ""),
-                keywords=persona_context.get("keywords", ""),
-            )
         started_at = time.perf_counter()
         provider = str(getattr(adapter, "provider_name", "unknown") or "unknown")
         model = str(getattr(adapter, "model_name", "unknown") or "unknown")
@@ -337,12 +318,16 @@ class TemporalSummaryLLMService:
             "summary_category": pack.summary_category,
             "period_start": pack.period_start,
             "period_end": pack.period_end,
+            "window_event_count": pack.window_event_count if pack.window_event_count is not None else pack.source_event_count,
             "source_event_count": pack.source_event_count,
+            "omitted_event_count": pack.omitted_event_count,
             "source_event_ids": pack.source_event_ids,
             "importance_aggregate": pack.importance_aggregate,
             "event_type_distribution": pack.event_type_distribution,
             "rule_hints": pack.rule_hints,
             "plugin_summary_features": pack.plugin_summary_features,
+            "source_distribution": pack.source_distribution,
+            "selection_policy": pack.selection_policy,
             "events": [
                 {
                     "event_id": item.event_id,
@@ -362,6 +347,7 @@ class TemporalSummaryLLMService:
             "Write a temporal summary for the provided memory window.\n"
             "Use the rule_hints as guidance, not as independent evidence.\n"
             "When plugin_summary_features are present, use them to surface source-specific behavior patterns such as concentration, revisits, and session structure.\n"
+            "Use source_distribution, window_event_count, and omitted_event_count to understand coverage and avoid treating representative events as exhaustive.\n"
             "Prioritize explicit changes, recurring constraints, and high-importance events.\n\n"
             "Output Requirements:\n"
             "- Return one JSON object only.\n"

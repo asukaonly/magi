@@ -23,6 +23,7 @@ from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
 from ..hybrid_retrieval.handlers import rrf_fuse
 from ..l1.event_store import L1EventStore
 from ..embedding.sqlite_vec_index import SqliteVecIndex, VectorSearchHit
+from .evidence_selector import select_temporal_evidence
 from .models import L3Candidate
 from .topic_llm_service import TopicSummaryLLMService
 from .temporal_llm_service import TemporalSummaryLLMService
@@ -220,24 +221,18 @@ class L3SummaryStore:
         summary_category: str,
         period_start: float,
         period_end: float,
-        persona_context: Dict[str, str] | None = None,
         source_filter: Optional[List[str]] = None,
         min_events: int = 1,
     ) -> Optional[Dict[str, Any]]:
         """Build a temporal summary from eligible L1 events."""
         await self.initialize()
-        candidates = await l1_store.query_events(
-            start_time=period_start,
-            end_time=period_end,
-            cognition_eligible=True,
-            source_filters=list(source_filter) if source_filter else None,
-            limit=500,
+        selection = await select_temporal_evidence(
+            l1_store=l1_store,
+            period_start=period_start,
+            period_end=period_end,
+            source_filter=list(source_filter) if source_filter else None,
         )
-        events = [
-            event
-            for event in candidates
-            if event["memory_domain"] != "runtime_telemetry" and event["retention_class"] != "disposable"
-        ]
+        events = list(selection.selected_events)
         if len(events) < max(1, int(min_events)):
             return None
 
@@ -247,15 +242,20 @@ class L3SummaryStore:
             period_start=period_start,
             period_end=period_end,
         )
+        evidence_pack.window_event_count = int(selection.source_event_total)
+        evidence_pack.omitted_event_count = int(selection.omitted_event_count)
+        evidence_pack.source_distribution = dict(selection.source_distribution)
+        evidence_pack.selection_policy = dict(selection.selection_policy)
         if self._temporal_summary_features_builder is not None:
             try:
                 evidence_pack.plugin_summary_features = dict(
                     self._temporal_summary_features_builder(
-                        events=events,
+                        events=list(selection.feature_events),
                         summary_category=summary_category,
                         period_start=period_start,
                         period_end=period_end,
                         source_filter=list(source_filter) if source_filter else None,
+                        feature_budgets=dict(selection.feature_budgets),
                     )
                     or {}
                 )
@@ -268,7 +268,6 @@ class L3SummaryStore:
         generation = await self._temporal_llm_service.generate_temporal_candidate(
             evidence_pack,
             fallback_summary=fallback_summary,
-            persona_context=persona_context,
         )
         decision = validate_candidate(generation.candidate, evidence_events=events)
         if decision.action != "accept" and not generation.used_fallback:
@@ -296,6 +295,13 @@ class L3SummaryStore:
             "generated_by_model": "rule-summary" if generation.used_fallback else "temporal-llm",
             "generation_prompt": None,
             "generation_reason": f"temporal:{summary_category}",
+            "evidence_selection": {
+                "window_event_count": int(selection.source_event_total),
+                "selected_event_count": int(evidence_pack.source_event_count),
+                "omitted_event_count": int(selection.omitted_event_count),
+                "source_distribution": dict(selection.source_distribution),
+                "selection_policy": dict(selection.selection_policy),
+            },
         }
         summary_overrides.update(generation.summary_overrides)
         summary = await self.upsert_candidate(

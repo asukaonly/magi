@@ -86,6 +86,47 @@ class PluginSettingsResourcePayload(BaseModel):
     data: Any = None
 
 
+class TemporalSummaryFeatureBudget(BaseModel):
+    """Host-provided budget for a plugin temporal feature builder.
+
+    The host may pass only a bounded event sample to a plugin. These fields let
+    the plugin report coverage honestly instead of implying it saw every L1
+    event in the window.
+    """
+
+    source_type: str
+    total_event_count: int = 0
+    available_event_count: int = 0
+    selected_event_count: int = 0
+    omitted_event_count: int = 0
+    max_feature_events: int = 240
+    max_summary_lines: int = 6
+    max_representative_events: int = 8
+    selection_policy: str = "source_aware_compaction_v1"
+
+
+class TemporalSummarySourceFeatures(BaseModel):
+    """Structured source-local evidence contributed to generic L3 summaries.
+
+    Plugins should return source-specific facts and compact observations, not a
+    final cross-source L3 summary. The host uses these features alongside a
+    balanced set of representative raw events.
+    """
+
+    source_type: str
+    feature_type: str = "source_summary_features"
+    total_event_count: int = 0
+    covered_event_count: int = 0
+    omitted_event_count: int = 0
+    coverage_ratio: float | None = None
+    summary_lines: list[str] = Field(default_factory=list)
+    top_entities: list[dict[str, Any]] = Field(default_factory=list)
+    top_tags: list[dict[str, Any]] = Field(default_factory=list)
+    time_buckets: list[dict[str, Any]] = Field(default_factory=list)
+    representative_event_ids: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class PluginManifest(BaseModel):
     """Parsed manifest for a plugin package."""
 

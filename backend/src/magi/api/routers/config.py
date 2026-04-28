@@ -119,8 +119,6 @@ class MemoryL3ConfigModel(BaseModel):
     temporal_llm_timeout_seconds: float = Field(default=3.0, ge=0.1)
     temporal_llm_min_event_count: int = Field(default=2, ge=1)
     summary_interval_minutes: int = Field(default=60, ge=1)
-    digest_enabled: bool = Field(default=True)
-    digest_interval_hours: int = Field(default=24, ge=1)
 
 
 class MemoryL4ConfigModel(BaseModel):
@@ -386,8 +384,6 @@ def _build_memory_config(raw: Dict[str, Any], runtime_config: Any) -> MemoryConf
             temporal_llm_timeout_seconds=memory_cfg.l3.temporal_llm_timeout_seconds,
             temporal_llm_min_event_count=memory_cfg.l3.temporal_llm_min_event_count,
             summary_interval_minutes=memory_cfg.l3.summary_interval_minutes,
-            digest_enabled=memory_cfg.l3.digest_enabled,
-            digest_interval_hours=memory_cfg.l3.digest_interval_hours,
         ),
         l4=MemoryL4ConfigModel(
             enabled=memory_cfg.l4.enabled,

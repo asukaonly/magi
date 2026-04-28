@@ -325,8 +325,6 @@ class MemoryL3Settings(BaseModel):
     temporal_llm_timeout_seconds: float = Field(default=3.0, ge=0.1)
     temporal_llm_min_event_count: int = Field(default=2, ge=1)
     summary_interval_minutes: int = Field(default=60, ge=1)
-    digest_enabled: bool = Field(default=True)
-    digest_interval_hours: int = Field(default=24, ge=1)
 
 
 class MemoryL4Settings(BaseModel):

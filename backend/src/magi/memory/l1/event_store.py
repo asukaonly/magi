@@ -8,7 +8,7 @@ import json
 import re
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
 
 import aiosqlite
 
@@ -822,10 +822,13 @@ class L1EventStore:
         cognition_eligible: Optional[bool] = None,
         start_time: Optional[float] = None,
         end_time: Optional[float] = None,
+        exclude_memory_domain: Optional[str] = None,
+        exclude_retention_class: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
         include_metadata_json: bool = True,
         include_embedding_fields: bool = True,
+        order_by: Literal["timestamp_desc", "timestamp_asc", "importance_desc"] = "timestamp_desc",
     ) -> List[Dict[str, Any]]:
         """Query events with SQL-level filters."""
         await self.initialize()
@@ -834,9 +837,15 @@ class L1EventStore:
             event_type=event_type, query=query, source_filters=source_filters,
             source_item_id=source_item_id, idempotency_key=idempotency_key,
             cognition_eligible=cognition_eligible, start_time=start_time, end_time=end_time,
+            exclude_memory_domain=exclude_memory_domain, exclude_retention_class=exclude_retention_class,
         )
         sql = f"SELECT * FROM {FACT_EVENTS_TABLE} WHERE {where_clause}"
-        sql += " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+        order_clause = {
+            "timestamp_desc": "timestamp DESC",
+            "timestamp_asc": "timestamp ASC",
+            "importance_desc": "importance_score DESC, timestamp DESC",
+        }.get(order_by, "timestamp DESC")
+        sql += f" ORDER BY {order_clause} LIMIT ? OFFSET ?"
         args.append(int(limit))
         args.append(int(offset))
 
@@ -859,6 +868,54 @@ class L1EventStore:
         ]
         return items
 
+    async def summarize_event_sources(
+        self,
+        *,
+        source_filters: Optional[List[str]] = None,
+        cognition_eligible: Optional[bool] = None,
+        start_time: Optional[float] = None,
+        end_time: Optional[float] = None,
+        exclude_memory_domain: Optional[str] = None,
+        exclude_retention_class: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Return lightweight source counts for a filtered L1 event window."""
+        await self.initialize()
+        where_clause, args = self._build_event_filters(
+            source_filters=source_filters,
+            cognition_eligible=cognition_eligible,
+            start_time=start_time,
+            end_time=end_time,
+            exclude_memory_domain=exclude_memory_domain,
+            exclude_retention_class=exclude_retention_class,
+        )
+        sql = f"""
+            SELECT
+                source,
+                COUNT(*) AS event_count,
+                AVG(importance_score) AS avg_importance,
+                MIN(timestamp) AS min_timestamp,
+                MAX(timestamp) AS max_timestamp
+            FROM {FACT_EVENTS_TABLE}
+            WHERE {where_clause}
+            GROUP BY source
+            ORDER BY event_count DESC, source ASC
+        """
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(sql, tuple(args)) as cursor:
+                rows = await cursor.fetchall()
+        return [
+            {
+                "source": str(row["source"] or ""),
+                "event_count": int(row["event_count"] or 0),
+                "avg_importance": float(row["avg_importance"] or 0.0),
+                "min_timestamp": float(row["min_timestamp"]) if row["min_timestamp"] is not None else None,
+                "max_timestamp": float(row["max_timestamp"]) if row["max_timestamp"] is not None else None,
+            }
+            for row in rows
+            if str(row["source"] or "").strip()
+        ]
+
     @staticmethod
     def _build_event_filters(
         *,
@@ -873,6 +930,8 @@ class L1EventStore:
         cognition_eligible: Optional[bool] = None,
         start_time: Optional[float] = None,
         end_time: Optional[float] = None,
+        exclude_memory_domain: Optional[str] = None,
+        exclude_retention_class: Optional[str] = None,
     ) -> tuple:
         """Build WHERE clause and args for event queries."""
         parts = ["deleted_at IS NULL"]
@@ -911,6 +970,18 @@ class L1EventStore:
         if end_time is not None:
             parts.append("timestamp <= ?")
             args.append(float(end_time))
+        if exclude_memory_domain:
+            try:
+                parts.append("memory_domain != ?")
+                args.append(int(MemoryDomain.from_value(exclude_memory_domain)))
+            except (ValueError, KeyError):
+                pass
+        if exclude_retention_class:
+            try:
+                parts.append("retention_class != ?")
+                args.append(int(RetentionClass.from_value(exclude_retention_class)))
+            except (ValueError, KeyError):
+                pass
         return " AND ".join(parts), args
 
     async def get_timeline_event(self, event_id: str) -> Optional[Dict[str, Any]]:

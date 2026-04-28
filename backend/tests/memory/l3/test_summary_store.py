@@ -570,6 +570,76 @@ async def test_generate_temporal_summary_uses_plugin_summary_lines_in_fallback(t
 
 
 @pytest.mark.asyncio
+async def test_generate_temporal_summary_uses_source_aware_compaction(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    from magi.memory.l1.event_store import L1EventStore
+    from magi.memory.l3.summary_store import L3SummaryStore
+
+    l1_store = L1EventStore(db_path=str(tmp_path / "l1_events.db"))
+    l3_store = L3SummaryStore(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
+    await l1_store.initialize()
+    await l3_store.initialize()
+
+    for index in range(160):
+        await l1_store.store(
+            normalize_runtime_event(
+                Event(
+                    type=EventTypes.USER_MESSAGE,
+                    data={"user_id": "u1", "session_id": "s1", "content": f"Chrome visit {index}"},
+                    source="chrome_history",
+                    level=EventLevel.INFO,
+                    correlation_id=f"chrome-{index}",
+                    timestamp=1710001000.0 + index,
+                ),
+                event_id=f"chrome-{index}",
+            )
+        )
+    for index in range(2):
+        await l1_store.store(
+            normalize_runtime_event(
+                Event(
+                    type=EventTypes.USER_MESSAGE,
+                    data={"user_id": "u1", "session_id": "s1", "content": f"Netease track {index}"},
+                    source="netease_music",
+                    level=EventLevel.INFO,
+                    correlation_id=f"music-{index}",
+                    timestamp=1710000000.0 + index,
+                ),
+                event_id=f"music-{index}",
+            )
+        )
+
+    captured_pack = None
+
+    async def _fake_model(pack, **_kwargs):  # type: ignore[no-untyped-def]
+        nonlocal captured_pack
+        captured_pack = pack
+        return {
+            "content": "Balanced temporal summary",
+            "key_topics": ["browsing", "music"],
+            "importance_aggregate": 0.7,
+        }
+
+    monkeypatch.setattr(l3_store._temporal_llm_service, "_call_temporal_model", _fake_model)
+
+    summary = await l3_store.generate_temporal_summary(
+        l1_store=l1_store,
+        summary_category="day",
+        period_start=1709999000.0,
+        period_end=1710002000.0,
+    )
+
+    assert summary is not None
+    assert captured_pack is not None
+    assert captured_pack.window_event_count == 162
+    assert captured_pack.source_event_count <= 120
+    assert captured_pack.omitted_event_count == 162 - captured_pack.source_event_count
+    assert captured_pack.source_distribution["chrome_history"]["total_event_count"] == 160
+    assert captured_pack.source_distribution["netease_music"]["total_event_count"] == 2
+    assert {"music-0", "music-1"}.issubset(set(captured_pack.source_event_ids))
+    assert summary["evidence_selection"]["omitted_event_count"] > 0
+
+
+@pytest.mark.asyncio
 async def test_generate_temporal_summary_falls_back_when_llm_candidate_is_rejected(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,

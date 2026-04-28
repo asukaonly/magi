@@ -124,12 +124,16 @@ class TemporalEvidencePack:
     period_start: float
     period_end: float
     source_event_count: int
+    window_event_count: int | None = None
+    omitted_event_count: int = 0
     source_event_ids: list[str] = field(default_factory=list)
     events: list[TemporalEvidenceItem] = field(default_factory=list)
     importance_aggregate: float | None = None
     event_type_distribution: dict[str, int] = field(default_factory=dict)
     rule_hints: dict[str, object] = field(default_factory=dict)
     plugin_summary_features: dict[str, object] = field(default_factory=dict)
+    source_distribution: dict[str, object] = field(default_factory=dict)
+    selection_policy: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(slots=True)

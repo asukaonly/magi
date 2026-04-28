@@ -47,6 +47,8 @@ from .contracts import (
     PluginSettingsResourceSpec,
     SettingsUIBlockSpec,
     SummaryProfileSpec,
+    TemporalSummaryFeatureBudget,
+    TemporalSummarySourceFeatures,
 )
 from .i18n import (
     DEFAULT_LANGUAGE,
@@ -133,6 +135,8 @@ __all__ = [
     "PluginRegistryEntry",
     "PluginRegistryIndex",
     "SummaryProfileSpec",
+    "TemporalSummaryFeatureBudget",
+    "TemporalSummarySourceFeatures",
     # Tools
     "MultiProviderTool",
     "ParameterType",

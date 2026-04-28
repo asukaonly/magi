@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 
 import type { TimelineClusterBlock, TimelineViewportResponse } from '@/api/modules/timeline';
 import DayClusterLane from '@/components/timeline/DayClusterLane';
-import DigestCards from '@/components/timeline/DigestCards';
 import HighlightCards from '@/components/timeline/HighlightCards';
 import HourDetailLane from '@/components/timeline/HourDetailLane';
 import MonthOverviewLane from '@/components/timeline/MonthOverviewLane';
@@ -45,11 +44,6 @@ export const TimelineViewport: React.FC<TimelineViewportProps> = ({ scale, viewp
 
       {/* State bands */}
       <StateBandOverlay bands={viewport.state_bands} markers={viewport.state_markers} scale={scale} />
-
-      {/* Digest (month/week/day) */}
-      {(scale === 'month' || scale === 'week' || scale === 'day') && (
-        <DigestCards category={scale} />
-      )}
 
       {/* Highlights (month/week) */}
       {highlights.length > 0 && (

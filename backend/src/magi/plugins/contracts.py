@@ -18,5 +18,7 @@ from magi_plugin_sdk.contracts import (  # noqa: F401
     PluginSettingsResourceSpec,
     SettingsUIBlockSpec,
     SummaryProfileSpec,
+    TemporalSummaryFeatureBudget,
+    TemporalSummarySourceFeatures,
 )
 
