@@ -115,6 +115,7 @@ Recent progress:
 - `function_calling.py` no longer owns permission-gateway formatting/resolution logic directly; it delegates that slice to `function_calling_permission.py`.
 - The backend type gate now covers extracted function-calling execution helpers in addition to LLM and L2 support modules.
 - Function-calling callback and runtime-trace persistence helpers now live in `function_calling_tracing.py`.
+- Function-calling LLM request/response helpers now live in `function_calling_llm.py`.
 
 Candidates to review next:
 

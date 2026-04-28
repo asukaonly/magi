@@ -9,7 +9,7 @@ import pytest
 from magi.llm.base import LLMAdapter
 from magi.llm.provider_bridge import ProviderResponse, ProviderToolCall
 from magi.agent.execution.function_calling_postprocessor import FunctionCallingPostprocessor
-from magi.agent.execution import function_calling as function_calling_module
+from magi.agent.execution import function_calling_llm as function_calling_llm_module
 from magi.agent.execution.function_calling import FunctionCallingOrchestrator, ToolCall, ToolCallResult
 from magi.config.models import ThinkingDepth
 from magi.tools.schema import ToolResult
@@ -921,7 +921,7 @@ async def test_call_llm_without_tools_logs_provider_metadata(monkeypatch: pytest
         captured.update(metadata)
 
     executor.provider_bridge.chat_response = _fake_chat_response  # type: ignore[method-assign]
-    monkeypatch.setattr(function_calling_module, "log_llm_response", _fake_log_llm_response)
+    monkeypatch.setattr(function_calling_llm_module, "log_llm_response", _fake_log_llm_response)
 
     result = await executor._call_llm_without_tools(
         system_prompt="sys",
@@ -981,7 +981,7 @@ async def test_call_llm_with_tools_logs_json_response_without_ascii_escaping(
         captured["response"] = response
 
     executor.provider_bridge.chat_with_tools = _fake_chat_with_tools  # type: ignore[method-assign]
-    monkeypatch.setattr(function_calling_module, "log_llm_response", _fake_log_llm_response)
+    monkeypatch.setattr(function_calling_llm_module, "log_llm_response", _fake_log_llm_response)
 
     await executor._call_llm_with_tools(
         system_prompt="sys",

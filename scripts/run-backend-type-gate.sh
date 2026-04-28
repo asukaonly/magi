@@ -14,6 +14,7 @@ export PYTHONPATH="$ROOT_DIR/backend/src:$ROOT_DIR/sdk/src${PYTHONPATH:+:$PYTHON
   --follow-imports=skip \
   src/magi/agent/execution/function_calling_failures.py \
   src/magi/agent/execution/function_calling_guardrails.py \
+  src/magi/agent/execution/function_calling_llm.py \
   src/magi/agent/execution/function_calling_messages.py \
   src/magi/agent/execution/function_calling_permission.py \
   src/magi/agent/execution/function_calling_postprocessor.py \
