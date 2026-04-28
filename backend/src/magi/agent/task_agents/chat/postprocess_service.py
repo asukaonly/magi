@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import time
 from typing import Any, Awaitable, Callable, TYPE_CHECKING
 
 from ....core.logger import get_logger
@@ -13,9 +12,6 @@ from ....agent.trace import (
 )
 from ....chat import ChatProjector, ChatStore
 from ....events.events import EventTypes
-from ....personality.feature_flags import get_personality_feature_flags
-from ....personality.interaction_analyzer import analyze_interaction, DEFAULT_ANALYSIS
-from ....memory.l3.models import TaskOutcomePacket
 from ....runtime_trace import (
     RuntimeTraceStore,
     TraceIntentResolutionRecord,
@@ -34,6 +30,7 @@ from .fact_classifier import WORKER_AGENT_EVENT_TYPES
 from .history_service import ChatHistoryService
 from .postprocess_background import ChatPostprocessBackgroundMixin
 from .postprocess_components import ChatOutcomeWriter, ChatRuntimeNotifier
+from .postprocess_memory import ChatPostprocessMemoryMixin
 from .postprocess_outcomes import ChatPostprocessOutcomeMixin
 from .postprocess_session import ChatPostprocessSessionMixin
 from .postprocess_tool_events import ChatPostprocessToolEventMixin
@@ -58,6 +55,7 @@ class ChatPostProcessService(
     ChatPostprocessSessionMixin,
     ChatPostprocessToolEventMixin,
     ChatPostprocessOutcomeMixin,
+    ChatPostprocessMemoryMixin,
 ):
     """Applies side effects for chat execution results."""
 
@@ -529,250 +527,6 @@ class ChatPostProcessService(
                 ),
             )
         )
-
-    async def _record_task_reflection(
-        self,
-        *,
-        context: ChatRuntimeContext,
-        result: ExecutionResult,
-        user_message: str,
-        response_text: str,
-    ) -> bool:
-        if self._unified_memory is None:
-            return False
-        if not user_message or not response_text:
-            return False
-        if not self._should_record_task_reflection(context=context, result=result):
-            return False
-
-        event_ids = await self._collect_reflection_event_ids(
-            user_id=context.user_id,
-            session_id=context.session_id,
-        )
-        if not event_ids:
-            return False
-
-        task_id = str(
-            result.orchestration_id
-            or (
-                context.latest_fact.payload.get("orchestration_id")
-                if isinstance(context.latest_fact, FactRecord)
-                and isinstance(context.latest_fact.payload, dict)
-                else ""
-            )
-            or f"task_reflection_{int(time.time())}"
-        ).strip()
-        packet = TaskOutcomePacket(
-            task_id=task_id,
-            user_id=context.user_id,
-            task_kind="user_goal_task",
-            task_title=user_message[:120],
-            task_status="completed",
-            user_goal=user_message,
-            result_summary=response_text,
-            evidence_event_ids=event_ids,
-        )
-        try:
-            summary = await self._unified_memory.persist_task_outcome_reflection(packet)
-            return summary is not None
-        except Exception as exc:
-            logger.warning("Failed to persist task reflection: %s", exc)
-            return False
-
-    def _should_record_task_reflection(
-        self,
-        *,
-        context: ChatRuntimeContext,
-        result: ExecutionResult,
-    ) -> bool:
-        if context.incoming_fact_kind == IncomingFactKind.EXPLORE_TASK_COMPLETED:
-            return True
-        return context.incoming_fact_kind == IncomingFactKind.WORKER_UPDATE and bool(
-            result.orchestration_id
-        )
-
-    async def _collect_reflection_event_ids(
-        self,
-        *,
-        user_id: str,
-        session_id: str,
-        limit: int = 6,
-    ) -> list[str]:
-        l1_store = getattr(self._unified_memory, "l1", None)
-        if l1_store is None or not hasattr(l1_store, "query_events"):
-            return []
-        try:
-            events = await l1_store.query_events(
-                user_id=user_id,
-                session_id=session_id,
-                cognition_eligible=True,
-                limit=limit,
-            )
-        except Exception as exc:
-            logger.debug("Failed to query reflection evidence events: %s", exc)
-            return []
-        return [
-            str(event.get("event_id") or "").strip()
-            for event in events
-            if str(event.get("event_id") or "").strip()
-        ]
-
-    def _schedule_background_memory_updates(
-        self,
-        *,
-        user_id: str,
-        user_message: str,
-        response_text: str,
-        context: ChatRuntimeContext,
-        result: ExecutionResult,
-    ) -> None:
-        """Run memory/reflection updates off the AI_RESPONSE critical path.
-
-        These updates persist relationship profile, emotional state, persona
-        milestones, direct-chat STP triggers, and (for worker/explore turns)
-        task reflection summaries. None of them influence the response that
-        is about to be emitted; they only shape future turns, so they are safe
-        to run after AI_RESPONSE is published.
-        """
-
-        async def _runner() -> None:
-            t0 = time.monotonic()
-            try:
-                if user_message:
-                    await self._record_memory_updates(
-                        user_id=user_id,
-                        user_message=user_message,
-                        response_text=response_text,
-                        allow_state_transition=self._allows_state_transition(
-                            context=context, result=result
-                        ),
-                        incoming_fact_kind=self._enum_value(context.incoming_fact_kind),
-                        execution_mode=self._enum_value(result.mode),
-                        session_id=context.session_id,
-                        turn_id=result.turn_id,
-                    )
-                await self._record_task_reflection(
-                    context=context,
-                    result=result,
-                    user_message=user_message,
-                    response_text=response_text,
-                )
-            except Exception:
-                logger.exception(
-                    "Background memory update failed user_id=%s session_id=%s",
-                    user_id,
-                    context.session_id,
-                )
-            finally:
-                logger.info(
-                    "[chat.handle] background memory updates finished elapsed_ms=%.1f",
-                    (time.monotonic() - t0) * 1000,
-                )
-
-        task = asyncio.create_task(
-            _runner(),
-            name=f"chat-memory-updates:{context.session_id}",
-        )
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
-
-    async def _record_memory_updates(
-        self,
-        *,
-        user_id: str,
-        user_message: str,
-        response_text: str = "",
-        allow_state_transition: bool = True,
-        incoming_fact_kind: str | None = None,
-        execution_mode: str | None = None,
-        session_id: str | None = None,
-        turn_id: str | None = None,
-    ) -> bool:
-        features = get_personality_feature_flags()
-        if not (
-            features.state_memory_enabled
-            or features.state_transition_enabled
-            or features.deep_persona_enabled
-        ):
-            return False
-
-        effective_state_transition = bool(
-            allow_state_transition and features.state_transition_enabled
-        )
-        logger.info(
-            "[chat.memory] interaction analysis scope user_id=%s session_id=%s turn_id=%s "
-            "incoming_fact_kind=%s execution_mode=%s state_transition_enabled=%s",
-            user_id,
-            session_id,
-            turn_id,
-            incoming_fact_kind,
-            execution_mode,
-            effective_state_transition,
-        )
-
-        # Collect STP rules so the analyzer can detect behavioral triggers.
-        stp_rules: list[dict[str, str]] | None = None
-        milestone_conditions: dict[str, str] | None = None
-        if self._memory is not None:
-            try:
-                config = await self._memory.get_core_personality()
-                if (
-                    effective_state_transition
-                    and hasattr(config, "state_transition_protocol")
-                    and config.state_transition_protocol
-                ):
-                    stp_rules = []
-                    for item in config.state_transition_protocol:
-                        tt = getattr(item, "trigger_type", "")
-                        cond = getattr(item, "trigger_condition", "")
-                        if tt and cond:
-                            stp_rules.append({"trigger_type": tt, "trigger_condition": cond})
-                if (
-                    features.deep_persona_enabled
-                    and hasattr(config, "milestone_conditions")
-                    and config.milestone_conditions
-                ):
-                    milestone_conditions = config.milestone_conditions
-            except Exception:
-                pass
-
-        analysis = await analyze_interaction(
-            user_message,
-            response_text,
-            stp_rules=stp_rules,
-            milestone_conditions=milestone_conditions,
-        )
-
-        updated = False
-        if self._memory is not None:
-            try:
-                updated = await self._memory.process_turn_outcome(
-                    user_id=user_id,
-                    user_message=user_message,
-                    analysis=analysis,
-                    stp_rules=stp_rules,
-                    milestone_conditions=milestone_conditions,
-                    allow_state_transition=effective_state_transition,
-                )
-            except Exception as exc:
-                logger.warning("Failed to process turn outcome: %s", exc)
-
-        return updated
-
-    @staticmethod
-    def _allows_state_transition(
-        *,
-        context: ChatRuntimeContext,
-        result: ExecutionResult,
-    ) -> bool:
-        return (
-            context.incoming_fact_kind == IncomingFactKind.USER_MESSAGE
-            and result.mode == ExecutionMode.DIRECT_LLM
-        )
-
-    @staticmethod
-    def _enum_value(value: Any) -> str:
-        return str(getattr(value, "value", value) or "")
 
     def _resolve_turn_id(self, context: ChatRuntimeContext, payload: dict[str, Any]) -> str | None:
         latest_payload = context.latest_payload
