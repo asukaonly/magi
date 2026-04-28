@@ -6,7 +6,7 @@ This module centralizes API differences between OpenAI-compatible models
 """
 import json
 import time
-from typing import Any, AsyncIterator, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from .base import LLMAdapter
 from .concurrency_limiter import LLMConcurrencyLimiter, get_llm_concurrency_limiter
@@ -16,7 +16,10 @@ from .provider_bridge_models import ProviderResponse, ProviderToolCall, Provider
 from .provider_bridge_options import ProviderBridgeOptionsMixin
 from .provider_bridge_requests import ProviderBridgeRequestMixin
 from .provider_bridge_responses import ProviderBridgeResponseMixin
-from .provider_bridge_streaming import ThinkTagScrubber as _ThinkTagScrubber
+from .provider_bridge_streaming import (
+    ProviderBridgeChatStreamingMixin,
+    ThinkTagScrubber as _ThinkTagScrubber,
+)
 from ..config.constants import DEFAULT_MAX_TOKENS, DEFAULT_THINKING_TOKENS
 from ..config.models import ThinkingDepth
 
@@ -42,6 +45,7 @@ class LLMProviderBridge(
     ProviderBridgeOptionsMixin,
     ProviderBridgeResponseMixin,
     ProviderBridgeRequestMixin,
+    ProviderBridgeChatStreamingMixin,
 ):
     """Unified entrypoint for provider-specific LLM calls."""
 
@@ -143,163 +147,6 @@ class LLMProviderBridge(
                 error=str(exc),
             )
             raise
-
-    async def chat_response_stream(
-        self,
-        system_prompt: str,
-        messages: List[Dict[str, Any]],
-        max_tokens: int = DEFAULT_THINKING_TOKENS,
-        temperature: float = 0.7,
-        json_mode: bool = False,
-        timeout_seconds: Optional[float] = None,
-        thinking_depth: ThinkingDepth | None = None,
-    ) -> AsyncIterator[LLMStreamEvent]:
-        """Streaming variant of chat_response().
-
-        Yields :class:`LLMStreamEvent` — one ``text_delta`` per visible
-        text fragment, one ``reasoning_delta`` per thinking/reasoning
-        fragment (GLM ``delta.reasoning_content`` or Anthropic
-        ``thinking`` blocks), an optional final ``usage``, and a
-        terminal ``done``. Each event is also forwarded to the
-        contextual stream sink via :func:`emit_stream_event`.
-        """
-        depth = _coerce_thinking_depth(thinking_depth, None)
-        if self.is_anthropic():
-            api_messages = self._convert_messages_to_anthropic(messages)
-            anthropic_kwargs: Dict[str, Any] = {
-                "model": self.llm.model_name,
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-                "system": system_prompt,
-                "messages": api_messages,
-                "stream": True,
-            }
-            if timeout_seconds is not None:
-                anthropic_kwargs["timeout"] = timeout_seconds
-            anthropic_kwargs = self._apply_provider_options(anthropic_kwargs, depth)
-            stream = await self.llm._client.messages.create(**anthropic_kwargs)
-            in_thinking = False
-            usage_data: Any = None
-            async for event in stream:
-                event_type = getattr(event, "type", None)
-                if event_type == "content_block_start":
-                    block = getattr(event, "content_block", None)
-                    block_type = getattr(block, "type", None) if block is not None else None
-                    in_thinking = block_type == "thinking"
-                elif event_type == "content_block_delta":
-                    delta = event.delta
-                    delta_type = getattr(delta, "type", None)
-                    # Anthropic emits thinking via ``thinking_delta``
-                    # with a ``thinking`` attribute, or as text inside
-                    # a thinking content block.
-                    if delta_type == "thinking_delta":
-                        text = getattr(delta, "thinking", None) or getattr(delta, "text", None)
-                        if text:
-                            ev = LLMStreamEvent(kind="reasoning_delta", text=text)
-                            await emit_stream_event(ev)
-                            yield ev
-                    elif in_thinking and getattr(delta, "text", None):
-                        ev = LLMStreamEvent(kind="reasoning_delta", text=delta.text)
-                        await emit_stream_event(ev)
-                        yield ev
-                    elif getattr(delta, "text", None):
-                        ev = LLMStreamEvent(kind="text_delta", text=delta.text)
-                        await emit_stream_event(ev)
-                        yield ev
-                elif event_type == "content_block_stop":
-                    in_thinking = False
-                elif event_type == "message_delta":
-                    usage_data = getattr(event, "usage", usage_data)
-                elif event_type == "message_start":
-                    msg = getattr(event, "message", None)
-                    if msg is not None:
-                        usage_data = getattr(msg, "usage", usage_data)
-            usage_payload = self._anthropic_usage_to_wire(usage_data)
-            if usage_payload is not None:
-                usage_ev = LLMStreamEvent(kind="usage", usage=usage_payload)
-                await emit_stream_event(usage_ev)
-                yield usage_ev
-        else:
-            full_messages = [{"role": "system", "content": system_prompt}] + self._convert_messages_to_openai(messages)
-            chat_kwargs: Dict[str, Any] = {
-                "messages": full_messages,
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-                "stream": True,
-            }
-            if json_mode:
-                chat_kwargs["response_format"] = {"type": "json_object"}
-            if timeout_seconds is not None:
-                chat_kwargs["timeout"] = timeout_seconds
-            chat_kwargs = self._apply_provider_options(chat_kwargs, depth)
-            if getattr(self.llm, "_client", None) is not None:
-                chat_kwargs["model"] = self.llm.model_name
-                stream = await self.llm._client.chat.completions.create(**chat_kwargs)
-                usage_data: Any = None
-                scrubber = _ThinkTagScrubber()
-                async for chunk in stream:
-                    if not getattr(chunk, "choices", None):
-                        if hasattr(chunk, "usage") and chunk.usage is not None:
-                            usage_data = chunk.usage
-                        continue
-                    delta = chunk.choices[0].delta
-                    if delta is None:
-                        continue
-                    # GLM / DashScope-compatible reasoning fields.
-                    reasoning_text = (
-                        getattr(delta, "reasoning_content", None)
-                        or getattr(delta, "reasoning", None)
-                    )
-                    if reasoning_text:
-                        ev = LLMStreamEvent(kind="reasoning_delta", text=reasoning_text)
-                        await emit_stream_event(ev)
-                        yield ev
-                    content = getattr(delta, "content", None)
-                    if content:
-                        visible, reasoning_leak = scrubber.feed(content)
-                        if reasoning_leak:
-                            ev = LLMStreamEvent(kind="reasoning_delta", text=reasoning_leak)
-                            await emit_stream_event(ev)
-                            yield ev
-                        if visible:
-                            ev = LLMStreamEvent(kind="text_delta", text=visible)
-                            await emit_stream_event(ev)
-                            yield ev
-                    if hasattr(chunk, "usage") and chunk.usage is not None:
-                        usage_data = chunk.usage
-                tail_visible, tail_reasoning = scrubber.flush()
-                if tail_reasoning:
-                    ev = LLMStreamEvent(kind="reasoning_delta", text=tail_reasoning)
-                    await emit_stream_event(ev)
-                    yield ev
-                if tail_visible:
-                    ev = LLMStreamEvent(kind="text_delta", text=tail_visible)
-                    await emit_stream_event(ev)
-                    yield ev
-                usage_payload = self._openai_usage_to_wire(usage_data)
-                if usage_payload is not None:
-                    usage_ev = LLMStreamEvent(kind="usage", usage=usage_payload)
-                    await emit_stream_event(usage_ev)
-                    yield usage_ev
-            else:
-                content = await self.llm.chat(**chat_kwargs)
-                if content:
-                    scrubber = _ThinkTagScrubber()
-                    visible, reasoning_leak = scrubber.feed(content)
-                    tail_visible, tail_reasoning = scrubber.flush()
-                    visible = visible + tail_visible
-                    reasoning_leak = reasoning_leak + tail_reasoning
-                    if reasoning_leak:
-                        ev = LLMStreamEvent(kind="reasoning_delta", text=reasoning_leak)
-                        await emit_stream_event(ev)
-                        yield ev
-                    if visible:
-                        ev = LLMStreamEvent(kind="text_delta", text=visible)
-                        await emit_stream_event(ev)
-                        yield ev
-        done_ev = LLMStreamEvent(kind="done")
-        await emit_stream_event(done_ev)
-        yield done_ev
 
     async def chat_with_tools(
         self,
