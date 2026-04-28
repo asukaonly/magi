@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { CheckCircle2, ChevronDown, Loader2, Plus, XCircle } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Plus, XCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { LLMProviderConnectionFields } from '@/components/config-forms/LLMProviderConnectionFields';
 import { LLMProviderDetailHeader } from '@/components/config-forms/LLMProviderDetailHeader';
 import { LLMProviderListPane } from '@/components/config-forms/LLMProviderListPane';
+import { LLMProviderModelToolbar, type LLMProviderModelKind } from '@/components/config-forms/LLMProviderModelToolbar';
 import { LLMProviderTestStatus } from '@/components/config-forms/LLMProviderTestStatus';
 import { Switch } from '@/components/ui/switch';
 import {
@@ -79,9 +80,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
 }) => {
   const { t } = useTranslation('onboarding');
   const [modelDraft, setModelDraft] = useState('');
-  const [modelDraftKind, setModelDraftKind] = useState<'chat' | 'embedding' | 'image'>('chat');
-  const [modelKindMenuOpen, setModelKindMenuOpen] = useState(false);
-  const modelKindMenuRef = useRef<HTMLDivElement | null>(null);
+  const [modelDraftKind, setModelDraftKind] = useState<LLMProviderModelKind>('chat');
   const [selectedModelId, setSelectedModelId] = useState('');
   const [providerTestModels, setProviderTestModels] = useState<Record<string, string>>({});
   const [showApiKey, setShowApiKey] = useState(false);
@@ -164,7 +163,6 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
   useEffect(() => {
     setModelDraft('');
     setModelDraftKind('chat');
-    setModelKindMenuOpen(false);
     setSelectedModelId('');
     setShowApiKey(false);
   }, [activeProviderId]);
@@ -205,30 +203,6 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
       }));
     }
   }, [activeProviderId, activeSelectedTestModel, activeTestableModels, providerTestModels, value.selections]);
-
-  useEffect(() => {
-    if (!modelKindMenuOpen) {
-      return undefined;
-    }
-
-    const handlePointerDown = (event: MouseEvent) => {
-      if (!modelKindMenuRef.current?.contains(event.target as Node)) {
-        setModelKindMenuOpen(false);
-      }
-    };
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setModelKindMenuOpen(false);
-      }
-    };
-
-    window.addEventListener('mousedown', handlePointerDown);
-    window.addEventListener('keydown', handleEscape);
-    return () => {
-      window.removeEventListener('mousedown', handlePointerDown);
-      window.removeEventListener('keydown', handleEscape);
-    };
-  }, [modelKindMenuOpen]);
 
   const updateModelOverride = (modelId: string, updater: (draft: LLMModelMetadataOverride) => void) => {
     onProviderChange(activeProviderId, (provider) => {
@@ -345,115 +319,18 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                 >
                   <div className="text-sm font-medium text-foreground">{t('llm.providerConfiguration.availableModels')}</div>
 
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                    <div className="space-y-2 sm:w-fit">
-                      <span className="text-sm font-medium">{t('llm.fields.modelKind')}</span>
-                      <div className="relative" ref={modelKindMenuRef}>
-                        <button
-                          type="button"
-                          aria-haspopup="listbox"
-                          aria-expanded={modelKindMenuOpen}
-                          onClick={() => setModelKindMenuOpen((current) => !current)}
-                          className={cn(
-                            'inline-flex h-11 min-w-[160px] items-center justify-between gap-2 whitespace-nowrap rounded-md bg-[hsl(var(--settings-shell-elevated)/0.58)] px-3.5 text-sm font-medium text-foreground transition hover:bg-[hsl(var(--settings-shell-elevated)/0.82)]',
-                            isSettingsSurface && 'border border-[hsl(var(--settings-subnav-border)/0.8)] bg-transparent hover:bg-[hsl(var(--settings-shell-elevated)/0.42)]'
-                          )}
-                        >
-                          <span>{t(`llm.modelKinds.${modelDraftKind}`)}</span>
-                          <ChevronDown className={cn('h-4 w-4 opacity-65 transition', modelKindMenuOpen && 'rotate-180')} />
-                        </button>
-
-                        {modelKindMenuOpen ? (
-                          <div
-                            role="listbox"
-                            className="absolute left-0 top-full z-20 mt-2 w-[min(220px,calc(100vw-2rem))] overflow-hidden rounded-[16px] border border-border/70 bg-background py-1.5 shadow-[0_18px_42px_rgba(15,23,42,0.16)]"
-                          >
-                            {(['chat', 'embedding', 'image'] as const).map((kindValue) => {
-                              const isSelected = modelDraftKind === kindValue;
-                              return (
-                                <button
-                                  key={kindValue}
-                                  type="button"
-                                  role="option"
-                                  aria-selected={isSelected}
-                                  onClick={() => {
-                                    setModelDraftKind(kindValue);
-                                    setModelKindMenuOpen(false);
-                                  }}
-                                  className={cn(
-                                    'flex w-full items-center justify-between px-3 py-2.5 text-left text-sm text-foreground transition',
-                                    isSelected ? 'bg-muted/80' : 'hover:bg-muted/50'
-                                  )}
-                                >
-                                  <span>{t(`llm.modelKinds.${kindValue}`)}</span>
-                                  {isSelected ? <CheckCircle2 className="h-4 w-4 text-primary" /> : null}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    {modelDraftKind !== 'image' ? (
-                      <label className="flex-1 space-y-2">
-                        <span className="text-sm font-medium">
-                          {modelDraftKind === 'embedding'
-                            ? t('llm.fields.modelManualEntryEmbedding')
-                            : t('llm.fields.modelManualEntryChat')}
-                        </span>
-                        <input
-                          aria-label={t('llm.fields.modelManualEntry')}
-                          className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
-                          placeholder={
-                            modelDraftKind === 'embedding'
-                              ? t('llm.fields.modelManualEntryEmbeddingPlaceholder')
-                              : t('llm.fields.modelManualEntryPlaceholder')
-                          }
-                          value={modelDraft}
-                          onChange={(event) => setModelDraft(event.target.value)}
-                        />
-                      </label>
-                    ) : (
-                      <div className="flex-1 space-y-2 self-stretch">
-                        <span className="text-sm font-medium opacity-0 select-none" aria-hidden="true">
-                          {t('llm.fields.modelManualEntryChat')}
-                        </span>
-                        <p className="rounded-lg bg-muted/40 px-3 py-2.5 text-xs text-muted-foreground">
-                          {t('llm.fields.imageModelsManagedByRegistry')}
-                        </p>
-                      </div>
-                    )}
-                    {modelDraftKind !== 'image' ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onAddProviderModel(activeProviderId, modelDraft, modelDraftKind);
-                          setModelDraft('');
-                        }}
-                        className={cn(
-                          'inline-flex h-11 min-w-fit items-center justify-center whitespace-nowrap rounded-lg bg-background px-4 text-sm font-medium text-foreground transition hover:bg-accent',
-                          isSettingsSurface && 'rounded-md border border-[hsl(var(--settings-subnav-border)/0.8)] bg-transparent hover:bg-[hsl(var(--settings-shell-elevated)/0.42)]'
-                        )}
-                      >
-                        {t('llm.actions.addModel')}
-                      </button>
-                    ) : null}
-                    {activeProvider.provider_type === 'custom' && modelDraftKind !== 'image' ? (
-                      <button
-                        type="button"
-                        onClick={() => onDiscoverProviderModels(activeProviderId)}
-                        disabled={activeDiscoveryState.loading}
-                        className={cn(
-                          'inline-flex h-11 min-w-fit items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-background px-4 text-sm font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60',
-                          isSettingsSurface && 'rounded-md border border-[hsl(var(--settings-subnav-border)/0.8)] bg-transparent hover:bg-[hsl(var(--settings-shell-elevated)/0.42)]'
-                        )}
-                      >
-                        {activeDiscoveryState.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                        <span>{t('llm.actions.fetchModels')}</span>
-                      </button>
-                    ) : null}
-                  </div>
+                  <LLMProviderModelToolbar
+                    providerId={activeProviderId}
+                    isCustomProvider={activeProvider.provider_type === 'custom'}
+                    isSettingsSurface={isSettingsSurface}
+                    modelDraft={modelDraft}
+                    modelDraftKind={modelDraftKind}
+                    discoveryLoading={activeDiscoveryState.loading}
+                    onModelDraftChange={setModelDraft}
+                    onModelDraftKindChange={setModelDraftKind}
+                    onAddProviderModel={onAddProviderModel}
+                    onDiscoverProviderModels={onDiscoverProviderModels}
+                  />
 
                   {activeDiscoveryState.error ? (
                     <p className="text-sm text-destructive">{activeDiscoveryState.error}</p>
