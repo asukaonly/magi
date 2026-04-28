@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { CheckCircle2, ChevronDown, Loader2, Plus, PlugZap, Search, Trash2, XCircle } from 'lucide-react';
+import { CheckCircle2, ChevronDown, Loader2, Plus, Trash2, XCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { SelectField } from '@/components/config-forms/fields';
 import { LLMProviderApiKeyField } from '@/components/config-forms/LLMProviderApiKeyField';
 import { LLMProviderListPane } from '@/components/config-forms/LLMProviderListPane';
+import { LLMProviderTestMenu } from '@/components/config-forms/LLMProviderTestMenu';
 import { ProviderIcon } from '@/components/config-forms/provider-icons';
 import { Switch } from '@/components/ui/switch';
 import {
@@ -84,10 +85,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
   const modelKindMenuRef = useRef<HTMLDivElement | null>(null);
   const [selectedModelId, setSelectedModelId] = useState('');
   const [providerTestModels, setProviderTestModels] = useState<Record<string, string>>({});
-  const [providerTestMenuOpen, setProviderTestMenuOpen] = useState(false);
-  const [providerTestQuery, setProviderTestQuery] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
-  const providerTestMenuRef = useRef<HTMLDivElement | null>(null);
   const isSettingsSurface = surface === 'settings';
 
   const customProviderIds = Object.entries(value.providers)
@@ -153,14 +151,6 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
     activeSelectedTestModel && activeTestableModels.some((model) => model.id === activeSelectedTestModel)
       ? activeSelectedTestModel
       : resolveDefaultTestModel(activeProviderId, activeTestableModels);
-  const normalizedProviderTestQuery = providerTestQuery.trim().toLowerCase();
-  const filteredActiveTestableModels = normalizedProviderTestQuery
-    ? activeTestableModels.filter((model) => {
-        const label = model.label.toLowerCase();
-        const value = model.id.toLowerCase();
-        return label.includes(normalizedProviderTestQuery) || value.includes(normalizedProviderTestQuery);
-      })
-    : activeTestableModels;
   const activeModelOverride =
     activeWorkbenchModel && activeProvider?.model_metadata_overrides
       ? activeProvider.model_metadata_overrides[activeWorkbenchModel.id]
@@ -177,16 +167,8 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
     setModelDraftKind('chat');
     setModelKindMenuOpen(false);
     setSelectedModelId('');
-    setProviderTestMenuOpen(false);
-    setProviderTestQuery('');
     setShowApiKey(false);
   }, [activeProviderId]);
-
-  useEffect(() => {
-    if (!providerTestMenuOpen && providerTestQuery) {
-      setProviderTestQuery('');
-    }
-  }, [providerTestMenuOpen, providerTestQuery]);
 
   useEffect(() => {
     if (!filteredWorkbenchModels.length) {
@@ -224,30 +206,6 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
       }));
     }
   }, [activeProviderId, activeSelectedTestModel, activeTestableModels, providerTestModels, value.selections]);
-
-  useEffect(() => {
-    if (!providerTestMenuOpen) {
-      return undefined;
-    }
-
-    const handlePointerDown = (event: MouseEvent) => {
-      if (!providerTestMenuRef.current?.contains(event.target as Node)) {
-        setProviderTestMenuOpen(false);
-      }
-    };
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setProviderTestMenuOpen(false);
-      }
-    };
-
-    window.addEventListener('mousedown', handlePointerDown);
-    window.addEventListener('keydown', handleEscape);
-    return () => {
-      window.removeEventListener('mousedown', handlePointerDown);
-      window.removeEventListener('keydown', handleEscape);
-    };
-  }, [providerTestMenuOpen]);
 
   useEffect(() => {
     if (!modelKindMenuOpen) {
@@ -399,88 +357,19 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                         }
                       />
                     </div>
-                    <div className="relative" ref={providerTestMenuRef}>
-                      <button
-                        type="button"
-                        aria-haspopup="dialog"
-                        aria-expanded={providerTestMenuOpen}
-                        aria-controls={providerTestMenuOpen ? `provider-test-menu-${activeProviderId}` : undefined}
-                        onClick={() => {
-                          if (activeTestState.loading || !activeTestableModels.length) {
-                            return;
-                          }
-                          setProviderTestMenuOpen((current) => !current);
-                        }}
-                        disabled={activeTestState.loading || !activeTestableModels.length}
-                        className="inline-flex min-w-fit items-center justify-center gap-2 whitespace-nowrap rounded-md bg-[hsl(var(--settings-shell-elevated)/0.58)] px-3.5 py-2.5 text-sm font-medium text-foreground transition hover:bg-[hsl(var(--settings-shell-elevated)/0.82)] disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {activeTestState.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlugZap className="h-4 w-4" />}
-                        <span>
-                          {activeTestState.loading
-                            ? t('llm.actions.testingConnection')
-                            : t('llm.actions.testConnection')}
-                        </span>
-                        {!activeTestState.loading ? <ChevronDown className="h-4 w-4 opacity-65" /> : null}
-                      </button>
-
-                      {providerTestMenuOpen ? (
-                        <div
-                          id={`provider-test-menu-${activeProviderId}`}
-                          data-testid="llm-provider-test-model-menu"
-                          className="absolute right-0 top-full z-20 mt-2 w-[min(320px,calc(100vw-2rem))] overflow-hidden rounded-[20px] border border-border/70 bg-background shadow-[0_18px_42px_rgba(15,23,42,0.16)]"
-                        >
-                          <div className="border-b border-border/60 px-3 py-3">
-                            <label className="relative block">
-                              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                              <input
-                                aria-label={t('llm.providerConfiguration.testModelLabel')}
-                                autoFocus
-                                value={providerTestQuery}
-                                onChange={(event) => setProviderTestQuery(event.target.value)}
-                                placeholder={t('llm.providerConfiguration.testModelSearchPlaceholder')}
-                                className="h-11 w-full rounded-xl bg-background px-10 text-sm ring-1 ring-inset ring-border/55 shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45"
-                              />
-                            </label>
-                          </div>
-
-                          <div className="max-h-80 overflow-y-auto px-2 py-2">
-                            {filteredActiveTestableModels.length ? (
-                              filteredActiveTestableModels.map((model) => {
-                                const isSelected = model.id === resolvedActiveTestModel;
-                                return (
-                                  <button
-                                    key={model.id}
-                                    type="button"
-                                    onClick={() => {
-                                      setProviderTestModels((prev) => ({
-                                        ...prev,
-                                        [activeProviderId]: model.id,
-                                      }));
-                                      setProviderTestMenuOpen(false);
-                                      setProviderTestQuery('');
-                                      onTestProviderConnection(activeProviderId, model.id);
-                                    }}
-                                    className={cn(
-                                      'flex w-full items-center justify-between rounded-2xl px-3 py-3 text-left text-base text-foreground transition',
-                                      isSelected
-                                        ? 'bg-muted/80 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.18)]'
-                                        : 'hover:bg-muted/50'
-                                    )}
-                                  >
-                                    <span className="truncate">{model.label}</span>
-                                    <span className="ml-3 shrink-0 text-xs text-muted-foreground">{model.id}</span>
-                                  </button>
-                                );
-                              })
-                            ) : (
-                              <div className="px-3 py-4 text-sm text-muted-foreground">
-                                {t('llm.fields.noSearchResults')}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
+                    <LLMProviderTestMenu
+                      providerId={activeProviderId}
+                      isTesting={activeTestState.loading}
+                      testableModels={activeTestableModels}
+                      selectedModelId={resolvedActiveTestModel}
+                      onSelectedModelChange={(providerId, modelId) =>
+                        setProviderTestModels((prev) => ({
+                          ...prev,
+                          [providerId]: modelId,
+                        }))
+                      }
+                      onTestProviderConnection={onTestProviderConnection}
+                    />
                   </div>
                 </div>
               </div>

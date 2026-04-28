@@ -160,6 +160,7 @@ Recent progress:
 - LLM provider workbench model helpers now live in `llm-provider-workbench-models.ts`.
 - LLM provider list pane rendering now lives in `LLMProviderListPane.tsx`.
 - LLM provider API key reveal/input control now lives in `LLMProviderApiKeyField.tsx`.
+- LLM provider connection test model menu now lives in `LLMProviderTestMenu.tsx`.
 - Worker prompt and tool-profile helpers now live in `worker_prompting.py`.
 - Worker status, await, and run-state serialization helpers now live in `worker_status.py`.
 - Worker tool schema definition now lives in `worker_schema.py`.
