@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::sync::{OnceLock, RwLock};
 
 use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
@@ -9,11 +10,33 @@ use serde_json::Value;
 
 /// Resolve the Magi base directory (~/.magi).
 pub fn magi_base_dir() -> PathBuf {
+    if let Some(path) = magi_base_dir_override()
+        .read()
+        .ok()
+        .and_then(|guard| guard.clone())
+    {
+        return path;
+    }
+
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("."));
     home.join(".magi")
+}
+
+static MAGI_BASE_DIR_OVERRIDE: OnceLock<RwLock<Option<PathBuf>>> = OnceLock::new();
+
+fn magi_base_dir_override() -> &'static RwLock<Option<PathBuf>> {
+    MAGI_BASE_DIR_OVERRIDE.get_or_init(|| RwLock::new(None))
+}
+
+#[doc(hidden)]
+pub fn set_magi_base_dir_override_for_tests(path: Option<PathBuf>) -> Option<PathBuf> {
+    let mut guard = magi_base_dir_override()
+        .write()
+        .expect("lock Magi base dir override");
+    std::mem::replace(&mut *guard, path)
 }
 
 /// Path to the backend configs directory.

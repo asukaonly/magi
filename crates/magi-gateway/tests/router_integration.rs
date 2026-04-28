@@ -3,23 +3,24 @@
 //! These tests verify that the Axum router builds correctly and that
 //! endpoints not requiring IPC (health, ready) respond as expected.
 
-use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use axum::body::Body;
 use http_body_util::BodyExt;
 use hyper::Request;
-use magi_gateway::{api, ipc};
+use magi_gateway::{api, db, ipc};
 use serde_json::Value;
 use tower::ServiceExt;
 
 static TEST_COUNTER: AtomicU32 = AtomicU32::new(0);
+static HOME_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 struct HomeGuard {
-    previous: Option<OsString>,
+    previous_base_dir: Option<PathBuf>,
     home: PathBuf,
+    _lock: MutexGuard<'static, ()>,
 }
 
 impl HomeGuard {
@@ -30,15 +31,12 @@ impl HomeGuard {
 
 impl Drop for HomeGuard {
     fn drop(&mut self) {
-        if let Some(previous) = &self.previous {
-            std::env::set_var("HOME", previous);
-        } else {
-            std::env::remove_var("HOME");
-        }
+        db::set_magi_base_dir_override_for_tests(self.previous_base_dir.take());
     }
 }
 
 fn isolated_home(label: &str) -> HomeGuard {
+    let lock = router_test_guard();
     let n = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
     let home = std::env::temp_dir().join(format!(
         "magi-gateway-home-{label}-{}-{n}",
@@ -46,9 +44,19 @@ fn isolated_home(label: &str) -> HomeGuard {
     ));
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(&home).unwrap();
-    let previous = std::env::var_os("HOME");
-    std::env::set_var("HOME", &home);
-    HomeGuard { previous, home }
+    let previous_base_dir = db::set_magi_base_dir_override_for_tests(Some(home.join(".magi")));
+    HomeGuard {
+        previous_base_dir,
+        home,
+        _lock: lock,
+    }
+}
+
+fn router_test_guard() -> MutexGuard<'static, ()> {
+    HOME_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("lock gateway router integration test")
 }
 
 async fn request_json(
@@ -112,6 +120,7 @@ async fn test_state() -> api::state::ApiState {
 
 #[tokio::test]
 async fn health_returns_ok() {
+    let guard = router_test_guard();
     let state = test_state().await;
     let router = api::build_router(state);
 
@@ -127,10 +136,12 @@ async fn health_returns_ok() {
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["status"], "ok");
+    drop(guard);
 }
 
 #[tokio::test]
 async fn ready_returns_json() {
+    let guard = router_test_guard();
     let state = test_state().await;
     let router = api::build_router(state);
 
@@ -148,10 +159,12 @@ async fn ready_returns_json() {
     assert_eq!(json["success"], true);
     assert!(json["data"]["ready"].is_boolean());
     assert!(json["data"]["startup_state"].is_string());
+    drop(guard);
 }
 
 #[tokio::test]
 async fn unknown_api_path_hits_fallback_proxy() {
+    let guard = router_test_guard();
     let state = test_state().await;
     let router = api::build_router(state);
 
@@ -172,10 +185,12 @@ async fn unknown_api_path_hits_fallback_proxy() {
         status, 404,
         "Fallback proxy should handle unknown /api/ paths"
     );
+    drop(guard);
 }
 
 #[tokio::test]
 async fn cors_headers_present() {
+    let guard = router_test_guard();
     let state = test_state().await;
     let router = api::build_router(state);
 
@@ -195,11 +210,12 @@ async fn cors_headers_present() {
             .contains_key("access-control-allow-origin"),
         "CORS allow-origin header should be present"
     );
+    drop(guard);
 }
 
 #[tokio::test]
 async fn native_read_routes_return_stable_empty_payloads_when_databases_are_missing() {
-    let _home = isolated_home("missing-dbs");
+    let home = isolated_home("missing-dbs");
     let state = test_state().await;
     let router = api::build_router(state);
 
@@ -223,6 +239,7 @@ async fn native_read_routes_return_stable_empty_payloads_when_databases_are_miss
     assert_eq!(events["total"], 0);
     assert_eq!(events["limit"], 7);
     assert_eq!(events["offset"], 3);
+    drop(home);
 }
 
 #[tokio::test]
@@ -271,7 +288,7 @@ async fn native_task_create_persists_owned_product_fields() {
     )
     .await;
 
-    assert_eq!(status, 201);
+    assert_eq!(status, 201, "created={created:?} home={:?}", home.path());
     let task_id = created["task"]["task_id"].as_str().unwrap();
     assert_eq!(created["task"]["title"], "Review memory evidence");
     assert_eq!(created["task"]["status"], "open");
@@ -283,7 +300,13 @@ async fn native_task_create_persists_owned_product_fields() {
 
     let (status, fetched) =
         request_json(router, "GET", &format!("/api/tasks/{task_id}"), None).await;
-    assert_eq!(status, 200);
+    assert_eq!(
+        status,
+        200,
+        "created={created:?} fetched={fetched:?} home={:?}",
+        home.path()
+    );
     assert_eq!(fetched["task"]["task_id"], task_id);
     assert_eq!(fetched["task"]["user_id"], "u1");
+    drop(home);
 }
