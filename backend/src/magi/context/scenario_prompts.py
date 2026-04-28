@@ -291,7 +291,7 @@ async def initialize_default_prompts(store: ScenarioPromptsStore, persona_name: 
 async def _load_persona_scenario_prompts(store: ScenarioPromptsStore, persona_name: str) -> None:
     """Load scenario prompts from persona config into the store."""
     try:
-        from ..personality.current_state import resolve_persona_config
+        from ..personality.active_persona import resolve_persona_config
         config = await resolve_persona_config(persona_name)
         if config is not None and config.scenario_prompts:
             for scenario, prompt in config.scenario_prompts.items():

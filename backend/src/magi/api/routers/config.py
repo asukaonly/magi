@@ -432,7 +432,7 @@ def _build_tools(raw: Dict[str, Any], runtime_config: Any) -> ToolsConfigModel:
 
 def _load_full_personality() -> FullPersonalityConfigModel:
     """Load full personality config from the in-memory cache."""
-    from ...personality.current_state import get_current_personality_config
+    from ...personality.active_persona import get_current_personality_config
 
     try:
         cached = get_current_personality_config()
@@ -1010,7 +1010,7 @@ async def get_onboarding_template():
 async def _save_personality_to_user(personality: FullPersonalityConfigModel) -> bool:
     """Save personality config to the persona registry and set as current."""
     import json
-    from ...personality.current_state import set_current_personality
+    from ...personality.active_persona import set_current_personality
     from ...personality.loader import PersonalityConfig
     from ...personality.persona_repository import PersonaRepository
     from ...utils.runtime import get_runtime_paths

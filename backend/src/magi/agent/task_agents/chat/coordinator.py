@@ -10,7 +10,7 @@ from typing import Any, Awaitable, Callable, Dict, List
 
 from ....agent.message_utils import build_recent_messages
 from ....core.logger import get_logger
-from ....personality.current_state import get_current_personality_config
+from ....personality.active_persona import get_current_personality_config
 from ....tools.context_decider import ContextDecider
 from ....tools.context_decider_context import ContextDeciderContext
 from ....tools.recommender import ToolRecommender

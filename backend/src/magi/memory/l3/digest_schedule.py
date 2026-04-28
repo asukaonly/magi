@@ -7,7 +7,7 @@ import time
 from ...config import get_config
 from ...core.logger import get_logger
 from ...core.runtime_bindings import require_unified_memory
-from ...personality.current_state import get_current_personality, get_current_personality_config
+from ...personality.active_persona import get_current_personality, get_current_personality_config
 from ...scheduler.contracts import (
     ScheduledExecutionContext,
     ScheduledExecutionResult,

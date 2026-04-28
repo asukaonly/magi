@@ -379,7 +379,7 @@ class DatabaseInitializer:
             # Load persona-specific prompts from personality config
             if persona_name != "default":
                 try:
-                    from ..personality.current_state import get_current_personality_config
+                    from ..personality.active_persona import get_current_personality_config
                     config = get_current_personality_config()
                     if config is not None and config.scenario_prompts:
                         for scenario, prompt in config.scenario_prompts.items():

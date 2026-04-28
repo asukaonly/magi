@@ -23,7 +23,7 @@ from ...personality.growth_memory import GrowthMemoryEngine
 from ...personality.persona_journal_service import PersonaJournalService
 from ...personality.persona_repository import PersonaRepository
 from ..avatar_paths import resolve_avatar_public_url
-from ...personality.current_state import (
+from ...personality.active_persona import (
     get_current_personality as get_current_personality_name,
     get_current_personality_config,
     resolve_persona_config,

@@ -108,7 +108,7 @@ class SelfMemory:
             return
 
         # Try the in-memory config cache or registry.
-        from .current_state import resolve_persona_config
+        from .active_persona import resolve_persona_config
         resolved = await resolve_persona_config(self.personality_name)
         if resolved is not None:
             self._personality_config = resolved

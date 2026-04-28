@@ -137,7 +137,7 @@ async def set_active_persona(payload: ActivePersonaRequest):
     slug = record.slug
     persona_config = record.config
     try:
-        from ...personality.current_state import set_current_personality
+        from ...personality.active_persona import set_current_personality
         set_current_personality(slug, config=persona_config)
     except Exception as exc:
         logger.warning("Failed to sync in-memory personality slug: %s", exc)

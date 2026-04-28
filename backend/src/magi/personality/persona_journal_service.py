@@ -14,7 +14,7 @@ from ..config.models import LLMScenario
 from ..core.logger import get_logger
 from ..core.runtime_bindings import require_scenario_llm_pool
 from ..llm.provider_bridge import LLMProviderBridge
-from .current_state import resolve_persona_config
+from .active_persona import resolve_persona_config
 from .growth_memory import GrowthMemoryEngine, Milestone, MilestoneType
 from .loader import PersonalityConfig
 

@@ -51,7 +51,7 @@ def test_set_active_persona_updates_registry_and_live_prompt_state(tmp_path, mon
             return _FakeManager()
 
     monkeypatch.setattr(personas_module, "_get_repo", lambda: repo)
-    monkeypatch.setattr("magi.personality.current_state.set_current_personality", fake_set_current_personality)
+    monkeypatch.setattr("magi.personality.active_persona.set_current_personality", fake_set_current_personality)
     monkeypatch.setattr("magi.core.runtime_bindings.require_agent_runtime", lambda: _FakeRuntime())
 
     app = FastAPI()

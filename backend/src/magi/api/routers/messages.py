@@ -22,7 +22,7 @@ from ...core.runtime_bindings import require_agent_runtime, require_chat_store
 from ...agent.runtime.types import TaskAgentType
 from ...runtime_defaults import DEFAULT_RUNTIME_NAMESPACE, DEFAULT_USER_ID
 from ...personality.bootstrap_service import build_bootstrap_l2_priority_metadata
-from ...personality.current_state import get_current_personality
+from ...personality.active_persona import get_current_personality
 
 logger = get_logger(__name__)
 agent_logger = get_agent_logger('api')
