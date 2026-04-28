@@ -57,6 +57,7 @@ export PYTHONPATH="$ROOT_DIR/backend/src:$ROOT_DIR/sdk/src${PYTHONPATH:+:$PYTHON
   src/magi/memory/l2/entity_maintenance_catalog.py \
   src/magi/memory/l2/entity_maintenance_edges.py \
   src/magi/memory/l2/entity_maintenance_embeddings.py \
+  src/magi/memory/l2/entity_maintenance_predicates.py \
   src/magi/memory/l2/pipeline_context.py \
   src/magi/memory/l2/pipeline_staging.py \
   src/magi/memory/l2/pipeline_structured_hints.py \
