@@ -164,6 +164,7 @@ Recent progress:
 - L2 entity maintenance episode consolidation helpers now live in `entity_maintenance_episodes.py`.
 - L2 episode dataclass contracts now live in `episode_models.py` with old `models.py` exports preserved.
 - L2 phase/structured/reconciled outcome dataclass contracts now live in `phase_models.py` with old `models.py` exports preserved.
+- L2 Phase 1, Phase 2, and auxiliary dataclass contracts now live in focused phase model modules with old `phase_models.py` and `models.py` exports preserved.
 - L2 entity/reconcile dataclass contracts now live in `entity_models.py` with old `models.py` exports preserved.
 - L2 candidate/unified extraction dataclass contracts now live in `candidate_models.py` with old `models.py` exports preserved.
 - L2 batch/window/job/request dataclass contracts now live in `batch_models.py` with old `models.py` exports preserved.

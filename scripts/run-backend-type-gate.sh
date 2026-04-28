@@ -65,6 +65,10 @@ export PYTHONPATH="$ROOT_DIR/backend/src:$ROOT_DIR/sdk/src${PYTHONPATH:+:$PYTHON
   src/magi/memory/l2/entity_catalog_queries.py \
   src/magi/memory/l2/entity_models.py \
   src/magi/memory/l2/episode_models.py \
+  src/magi/memory/l2/phase1_models.py \
+  src/magi/memory/l2/phase2_models.py \
+  src/magi/memory/l2/phase_aux_models.py \
+  src/magi/memory/l2/phase_model_utils.py \
   src/magi/memory/l2/phase_models.py \
   src/magi/memory/l2/pipeline_context.py \
   src/magi/memory/l2/pipeline_entity_helpers.py \
