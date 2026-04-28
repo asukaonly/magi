@@ -20,6 +20,7 @@ from .projection_queue import ProjectionJobQueue
 from .store_assertions import L2StoreAssertionMixin
 from .store_candidates import L2StoreCandidateExtractionMixin
 from .store_contradictions import L2StoreContradictionMixin
+from .store_edge_embeddings import L2StoreEdgeEmbeddingMixin
 from .store_episodes import L2EpisodeStoreMixin
 from .store_facets import L2EntityFacetStoreMixin
 from .store_fact_kind import L2StoreFactKindMixin
@@ -59,6 +60,7 @@ class L2CognitionStore(
     L2StoreForgettingMixin,
     L2StoreFeedbackMixin,
     L2StoreQueryMixin,
+    L2StoreEdgeEmbeddingMixin,
 ):
     """Persists structured cognition artifacts derived from L1 events."""
 
@@ -424,97 +426,6 @@ class L2CognitionStore(
             accumulated_confidence=accumulated_confidence,
         )
         return True
-
-    async def get_pending_edge_embeddings(self, *, limit: int = 200) -> List[Dict[str, Any]]:
-        """Return active edges whose embedding_status is 'pending'."""
-        await self.initialize()
-        async with sqlite_connection_async(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                "SELECT * FROM knowledge_graph WHERE embedding_status = 'pending' AND status = 'active' "
-                "ORDER BY updated_at DESC LIMIT ?",
-                (limit,),
-            ) as cursor:
-                rows = await cursor.fetchall()
-        return [self._relation_row_to_dict(row) for row in rows]
-
-    async def update_edge_embedding_status(
-        self,
-        *,
-        triple_ids: List[str],
-        status: str = "ready",
-    ) -> int:
-        """Mark edges as embedded (or failed)."""
-        if not triple_ids:
-            return 0
-        await self.initialize()
-        placeholders = ", ".join("?" for _ in triple_ids)
-        async with sqlite_connection_async(self.db_path) as db:
-            cursor = await db.execute(
-                f"UPDATE knowledge_graph SET embedding_status = ? WHERE triple_id IN ({placeholders})",
-                (status, *triple_ids),
-            )
-            await db.commit()
-            return cursor.rowcount
-
-    async def search_edges_by_embedding(
-        self,
-        *,
-        vector_index: Any,
-        embedding: Any,
-        limit: int = 20,
-        status_filters: Optional[List[str]] = None,
-        predicates: Optional[List[str]] = None,
-    ) -> List[Dict[str, Any]]:
-        """Find graph edges similar to *embedding* via the edge vector index.
-
-        Returns full edge dicts from knowledge_graph, filtered by status and
-        predicates, ordered by vector distance (ascending).
-        """
-        if vector_index is None or embedding is None:
-            return []
-        await self.initialize()
-        try:
-            hits = await vector_index.search(embedding=embedding, limit=limit * 3)
-        except Exception as exc:
-            logger.debug("Edge vector search failed: %s", exc)
-            return []
-        if not hits:
-            return []
-
-        triple_ids = [hit.entity_id for hit in hits]
-        distance_by_id = {hit.entity_id: hit.distance for hit in hits}
-        placeholders = ", ".join("?" for _ in triple_ids)
-        args: list[Any] = list(triple_ids)
-
-        status_clause = ""
-        if status_filters:
-            sf_ph = ", ".join("?" for _ in status_filters)
-            status_clause = f" AND status IN ({sf_ph})"
-            args.extend(str(s).strip() for s in status_filters)
-        else:
-            status_clause = " AND status = 'active'"
-
-        pred_clause = ""
-        if predicates:
-            pred_ph = ", ".join("?" for _ in predicates)
-            pred_clause = f" AND predicate IN ({pred_ph})"
-            args.extend(str(p).strip().upper() for p in predicates)
-
-        query = (
-            f"SELECT * FROM knowledge_graph WHERE triple_id IN ({placeholders})"
-            f"{status_clause}{pred_clause}"
-        )
-        async with sqlite_connection_async(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(query, tuple(args)) as cursor:
-                rows = await cursor.fetchall()
-
-        edges = [self._relation_row_to_dict(row) for row in rows]
-        for edge in edges:
-            edge["vector_distance"] = distance_by_id.get(edge["triple_id"])
-        edges.sort(key=lambda e: e.get("vector_distance") or float("inf"))
-        return edges[:limit]
 
     def get_statistics(self) -> Dict[str, Any]:
         """Return lightweight counts for API reporting."""
