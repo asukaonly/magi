@@ -145,6 +145,7 @@ Recent progress:
 - Worker public action validation and dispatch now lives in `worker_actions.py`.
 - Worker launch/start/batch lifecycle helpers now live in `worker_launch.py`.
 - Worker fact, bus-event, and trace-notification publication helpers now live in `worker_publication.py`.
+- L1 event/entity linkage helpers now live in `event_store_entities.py`.
 
 Candidates to review next:
 

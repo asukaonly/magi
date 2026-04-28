@@ -42,6 +42,7 @@ export PYTHONPATH="$ROOT_DIR/backend/src:$ROOT_DIR/sdk/src${PYTHONPATH:+:$PYTHON
   src/magi/llm/usage_events.py \
   src/magi/llm/parsers/content_sanitizer.py \
   src/magi/llm/parsers/tool_call_parser.py \
+  src/magi/memory/l1/event_store_entities.py \
   src/magi/memory/l2/ontology.py \
   src/magi/memory/l2/evidence_policy.py \
   src/magi/memory/l2/graph_conflicts.py \

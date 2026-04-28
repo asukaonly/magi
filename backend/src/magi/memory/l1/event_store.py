@@ -19,10 +19,27 @@ from ...runtime_defaults import DEFAULT_USER_ID
 from ..embedding.chunking import ChunkedText, chunk_sentences, chunk_text
 from ..embedding.embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
 from ..embedding.embedding_service import EmbeddingProfile, MemoryEmbeddingService
-from ..embedding.embedding_text_builders import build_l1_embedding_text, build_l1_retrieval_terms_text
-from ..event_contracts import IngestTarget, MemoryDomain, MemoryEvent, RetentionClass, TomDepth, normalize_runtime_event
-from ..hybrid_retrieval.fts_utils import build_exact_fts_query, build_or_fts_query, build_stemmed_fts_query, escape_fts_query, tokenize_for_fts
+from ..embedding.embedding_text_builders import (
+    build_l1_embedding_text,
+    build_l1_retrieval_terms_text,
+)
+from ..event_contracts import (
+    IngestTarget,
+    MemoryDomain,
+    MemoryEvent,
+    RetentionClass,
+    TomDepth,
+    normalize_runtime_event,
+)
+from ..hybrid_retrieval.fts_utils import (
+    build_exact_fts_query,
+    build_or_fts_query,
+    build_stemmed_fts_query,
+    escape_fts_query,
+    tokenize_for_fts,
+)
 from .chat_sessions import ensure_chat_sessions_schema_async, project_chat_event_to_session
+from .event_store_entities import L1EventEntityMixin
 from ..embedding.sqlite_vec_index import SqliteVecIndex, VectorSearchHit
 
 FACT_EVENTS_TABLE = "fact_events"
@@ -47,7 +64,7 @@ L1_STORE_DIAGNOSTIC_EVENT_TYPES = {
 }
 
 
-class L1EventStore:
+class L1EventStore(L1EventEntityMixin):
     """Stores immutable normalized memory events in SQLite."""
 
     def __init__(
@@ -433,7 +450,9 @@ class L1EventStore:
         limit: int = 10,
     ) -> List[Dict[str, Any]]:
         """Search L1 events using sqlite-vec and fall back to keyword matching."""
-        semantic_hits = await self._semantic_search_event_hits(query=query, limit=max(limit * 5, 20))
+        semantic_hits = await self._semantic_search_event_hits(
+            query=query, limit=max(limit * 5, 20)
+        )
         if semantic_hits:
             ranked_events = await self._fetch_ranked_events(
                 hits=semantic_hits,
@@ -516,184 +535,6 @@ class L1EventStore:
             if cid in raw:
                 result[eid] = raw[cid]
         return result
-
-    # ------------------------------------------------------------------
-    # L1 Event–Entity linkage (for entity co-occurrence expansion)
-    # ------------------------------------------------------------------
-
-    async def write_event_entities(
-        self,
-        mappings: List[Tuple[str, str, Optional[str], Optional[float]]],
-    ) -> int:
-        """Persist (event_id, entity_id, entity_type, confidence) tuples.
-
-        Duplicates are silently ignored via INSERT OR IGNORE.
-        Returns the number of rows inserted.
-        """
-        if not mappings:
-            return 0
-        await self.initialize()
-        now = time.time()
-        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
-            await db.executemany(
-                "INSERT OR IGNORE INTO l1_event_entities"
-                " (event_id, entity_id, entity_type, confidence, created_at)"
-                " VALUES (?, ?, ?, ?, ?)",
-                [(eid, entid, etype, conf, now) for eid, entid, etype, conf in mappings],
-            )
-            await db.commit()
-            return db.total_changes
-
-    async def get_entity_event_ids(
-        self,
-        entity_ids: List[str],
-        *,
-        limit_per_entity: int = 20,
-    ) -> Dict[str, List[str]]:
-        """Return event IDs associated with each entity.
-
-        Returns ``{entity_id: [event_id, ...]}`` with the most recent
-        events first (by created_at DESC), capped at *limit_per_entity*.
-        """
-        if not entity_ids:
-            return {}
-        await self.initialize()
-        result: Dict[str, List[str]] = {eid: [] for eid in entity_ids}
-        async with sqlite_connection_async(self.db_path) as db:
-            for entity_id in entity_ids:
-                async with db.execute(
-                    "SELECT event_id FROM l1_event_entities"
-                    " WHERE entity_id = ?"
-                    " ORDER BY created_at DESC"
-                    " LIMIT ?",
-                    (entity_id, limit_per_entity),
-                ) as cursor:
-                    rows = await cursor.fetchall()
-                result[entity_id] = [r[0] for r in rows]
-        return result
-
-    async def get_event_entity_ids(
-        self,
-        event_ids: List[str],
-    ) -> Dict[str, List[str]]:
-        """Return entity IDs for each event.
-
-        Returns ``{event_id: [entity_id, ...]}`` for all given events.
-        """
-        if not event_ids:
-            return {}
-        await self.initialize()
-        result: Dict[str, List[str]] = {eid: [] for eid in event_ids}
-        async with sqlite_connection_async(self.db_path) as db:
-            ph = ", ".join("?" for _ in event_ids)
-            async with db.execute(
-                f"SELECT event_id, entity_id FROM l1_event_entities WHERE event_id IN ({ph})",
-                tuple(event_ids),
-            ) as cursor:
-                for row in await cursor.fetchall():
-                    result.setdefault(row[0], []).append(row[1])
-        return result
-
-    async def expand_by_entities(
-        self,
-        seed_event_ids: List[str],
-        *,
-        limit: int = 30,
-        exclude_event_ids: Optional[List[str]] = None,
-    ) -> List[str]:
-        """Find events that share entities with *seed_event_ids*.
-
-        Returns event IDs ordered by the number of shared entities (desc).
-        """
-        if not seed_event_ids:
-            return []
-        await self.initialize()
-        exclude = set(exclude_event_ids or []) | set(seed_event_ids)
-
-        async with sqlite_connection_async(self.db_path) as db:
-            # Step 1: seed events → entity_ids
-            ph = ", ".join("?" for _ in seed_event_ids)
-            async with db.execute(
-                f"SELECT DISTINCT entity_id FROM l1_event_entities WHERE event_id IN ({ph})",
-                tuple(seed_event_ids),
-            ) as cursor:
-                entity_ids = [row[0] for row in await cursor.fetchall()]
-
-            if not entity_ids:
-                return []
-
-            # Step 2: entity_ids → neighbouring event_ids (ranked by shared count)
-            eph = ", ".join("?" for _ in entity_ids)
-            async with db.execute(
-                f"SELECT event_id, COUNT(DISTINCT entity_id) AS shared"
-                f" FROM l1_event_entities"
-                f" WHERE entity_id IN ({eph})"
-                f" GROUP BY event_id"
-                f" ORDER BY shared DESC"
-                f" LIMIT ?",
-                (*entity_ids, limit + len(exclude)),
-            ) as cursor:
-                rows = await cursor.fetchall()
-
-        return [r[0] for r in rows if r[0] not in exclude][:limit]
-
-    async def resolve_event_entities(self, event_ids: List[str]) -> List[str]:
-        """Return distinct entity IDs linked to the given events."""
-        if not event_ids:
-            return []
-        await self.initialize()
-        async with sqlite_connection_async(self.db_path) as db:
-            ph = ", ".join("?" for _ in event_ids)
-            async with db.execute(
-                f"SELECT DISTINCT entity_id FROM l1_event_entities WHERE event_id IN ({ph})",
-                tuple(event_ids),
-            ) as cursor:
-                return [row[0] for row in await cursor.fetchall()]
-
-    async def find_events_by_entities(
-        self,
-        entity_ids: List[str],
-        *,
-        exclude_event_ids: Optional[List[str]] = None,
-        limit: int = 30,
-    ) -> List[Tuple[str, int]]:
-        """Find events sharing given entities, ranked by shared-entity count.
-
-        Returns ``[(event_id, shared_count), ...]`` ordered desc by *shared_count*.
-        """
-        if not entity_ids:
-            return []
-        await self.initialize()
-        exclude = set(exclude_event_ids or [])
-        eph = ", ".join("?" for _ in entity_ids)
-        async with sqlite_connection_async(self.db_path) as db:
-            async with db.execute(
-                f"SELECT event_id, COUNT(DISTINCT entity_id) AS shared"
-                f" FROM l1_event_entities"
-                f" WHERE entity_id IN ({eph})"
-                f" GROUP BY event_id"
-                f" ORDER BY shared DESC"
-                f" LIMIT ?",
-                (*entity_ids, limit + len(exclude)),
-            ) as cursor:
-                rows = await cursor.fetchall()
-        return [(r[0], r[1]) for r in rows if r[0] not in exclude][:limit]
-
-    async def filter_ids_by_user(self, event_ids: List[str], user_id: str) -> List[str]:
-        """Return the subset of *event_ids* that belong to *user_id*."""
-        if not event_ids:
-            return []
-        await self.initialize()
-        ph = ", ".join("?" for _ in event_ids)
-        async with sqlite_connection_async(self.db_path) as db:
-            async with db.execute(
-                f"SELECT event_id FROM fact_events"
-                f" WHERE event_id IN ({ph}) AND user_id = ? AND deleted_at IS NULL",
-                (*event_ids, user_id),
-            ) as cursor:
-                rows = await cursor.fetchall()
-        valid = {str(row[0]) for row in rows}
-        return [eid for eid in event_ids if eid in valid]
 
     async def fetch_events(
         self,
@@ -781,7 +622,9 @@ class L1EventStore:
     ) -> list[VectorSearchHit]:
         """Semantic vector search over L1 event chunks."""
         return await self._semantic_search_event_hits(
-            query=query, limit=limit, user_id=user_id,
+            query=query,
+            limit=limit,
+            user_id=user_id,
         )
 
     async def find_event_id_by_idempotency(
@@ -804,7 +647,9 @@ class L1EventStore:
                 idempotency_key=normalized_key,
             )
 
-    async def list_events(self, *, limit: int = 100, event_type: Optional[str] = None) -> List[Dict[str, Any]]:
+    async def list_events(
+        self, *, limit: int = 100, event_type: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """List the newest events, optionally constrained by event type."""
         return await self.query_events(event_type=event_type, limit=limit)
 
@@ -833,11 +678,19 @@ class L1EventStore:
         """Query events with SQL-level filters."""
         await self.initialize()
         where_clause, args = self._build_event_filters(
-            session_id=session_id, user_id=user_id, memory_domain=memory_domain,
-            event_type=event_type, query=query, source_filters=source_filters,
-            source_item_id=source_item_id, idempotency_key=idempotency_key,
-            cognition_eligible=cognition_eligible, start_time=start_time, end_time=end_time,
-            exclude_memory_domain=exclude_memory_domain, exclude_retention_class=exclude_retention_class,
+            session_id=session_id,
+            user_id=user_id,
+            memory_domain=memory_domain,
+            event_type=event_type,
+            query=query,
+            source_filters=source_filters,
+            source_item_id=source_item_id,
+            idempotency_key=idempotency_key,
+            cognition_eligible=cognition_eligible,
+            start_time=start_time,
+            end_time=end_time,
+            exclude_memory_domain=exclude_memory_domain,
+            exclude_retention_class=exclude_retention_class,
         )
         sql = f"SELECT * FROM {FACT_EVENTS_TABLE} WHERE {where_clause}"
         order_clause = {
@@ -909,8 +762,12 @@ class L1EventStore:
                 "source": str(row["source"] or ""),
                 "event_count": int(row["event_count"] or 0),
                 "avg_importance": float(row["avg_importance"] or 0.0),
-                "min_timestamp": float(row["min_timestamp"]) if row["min_timestamp"] is not None else None,
-                "max_timestamp": float(row["max_timestamp"]) if row["max_timestamp"] is not None else None,
+                "min_timestamp": float(row["min_timestamp"])
+                if row["min_timestamp"] is not None
+                else None,
+                "max_timestamp": float(row["max_timestamp"])
+                if row["max_timestamp"] is not None
+                else None,
             }
             for row in rows
             if str(row["source"] or "").strip()
@@ -989,7 +846,9 @@ class L1EventStore:
         event = await self.get_event(event_id)
         return self._to_timeline_view(event)
 
-    async def list_timeline_events(self, *, limit: int = 100, source_type: Optional[str] = None) -> List[Dict[str, Any]]:
+    async def list_timeline_events(
+        self, *, limit: int = 100, source_type: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """List timeline-shaped views with optional source filtering."""
         events = await self.query_events(limit=max(limit * 10, limit))
         items: List[Dict[str, Any]] = []
@@ -1020,10 +879,15 @@ class L1EventStore:
         """Count events, optionally filtered."""
         await self.initialize()
         where_clause, args = self._build_event_filters(
-            session_id=session_id, user_id=user_id, event_type=event_type,
-            query=query, source_filters=source_filters,
-            source_item_id=source_item_id, idempotency_key=idempotency_key,
-            start_time=start_time, end_time=end_time,
+            session_id=session_id,
+            user_id=user_id,
+            event_type=event_type,
+            query=query,
+            source_filters=source_filters,
+            source_item_id=source_item_id,
+            idempotency_key=idempotency_key,
+            start_time=start_time,
+            end_time=end_time,
         )
         sql = f"SELECT COUNT(*) FROM {FACT_EVENTS_TABLE} WHERE {where_clause}"
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
@@ -1038,8 +902,12 @@ class L1EventStore:
             "vector_enabled": self._vectors_enabled(),
             "async_embeddings": self._async_embeddings_enabled(),
             "active_embedding_profile_id": self.get_active_embedding_profile_id(),
-            "embedding_queue_size": self._embedding_queue.qsize() if self._embedding_queue is not None else 0,
-            "embedding_worker_running": any(not worker.done() for worker in self._embedding_workers),
+            "embedding_queue_size": self._embedding_queue.qsize()
+            if self._embedding_queue is not None
+            else 0,
+            "embedding_worker_running": any(
+                not worker.done() for worker in self._embedding_workers
+            ),
             "embedding_worker_count": self._embedding_worker_count,
         }
 
@@ -1120,7 +988,11 @@ class L1EventStore:
         """Rebuild all persisted L1 embeddings from the parent event rows."""
         await self.initialize()
         normalized_batch_size = max(1, int(batch_size))
-        if not self._vectors_enabled() or self._embedding_service is None or self._vector_index is None:
+        if (
+            not self._vectors_enabled()
+            or self._embedding_service is None
+            or self._vector_index is None
+        ):
             return 0
 
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
@@ -1226,21 +1098,27 @@ class L1EventStore:
                 if strict:
                     exact = build_exact_fts_query(escaped)
                     if exact:
-                        rows = await self._run_bm25_query(db, exact, limit=limit, user_id=user_id, **_time_kw)
+                        rows = await self._run_bm25_query(
+                            db, exact, limit=limit, user_id=user_id, **_time_kw
+                        )
                         if rows:
                             phase = "exact_and"
                 # Phase 1: Stemmed AND query (stop words removed, inflections expanded)
                 if not rows:
                     stemmed = build_stemmed_fts_query(escaped)
                     if stemmed:
-                        rows = await self._run_bm25_query(db, stemmed, limit=limit, user_id=user_id, **_time_kw)
+                        rows = await self._run_bm25_query(
+                            db, stemmed, limit=limit, user_id=user_id, **_time_kw
+                        )
                         if rows:
                             phase = "stemmed_and"
                     else:
                         stemmed = ""
                 # Phase 2: Original escaped query (for CJK / non-English text)
                 if not rows:
-                    rows = await self._run_bm25_query(db, escaped, limit=limit, user_id=user_id, **_time_kw)
+                    rows = await self._run_bm25_query(
+                        db, escaped, limit=limit, user_id=user_id, **_time_kw
+                    )
                     if rows:
                         phase = "original_and"
                 # Phase 3 & 4: Relaxed / OR fallback — skipped in strict mode
@@ -1248,7 +1126,9 @@ class L1EventStore:
                     # Phase 3: Relaxed phrase queries (quoted spans)
                     if not rows:
                         for fallback_query in self._build_relaxed_fts_queries(query):
-                            rows = await self._run_bm25_query(db, fallback_query, limit=limit, user_id=user_id, **_time_kw)
+                            rows = await self._run_bm25_query(
+                                db, fallback_query, limit=limit, user_id=user_id, **_time_kw
+                            )
                             if rows:
                                 phase = "relaxed_phrase"
                                 break
@@ -1256,13 +1136,19 @@ class L1EventStore:
                     if not rows:
                         or_query = build_or_fts_query(escaped)
                         if or_query and or_query != escaped:
-                            rows = await self._run_bm25_query(db, or_query, limit=limit, user_id=user_id, **_time_kw)
+                            rows = await self._run_bm25_query(
+                                db, or_query, limit=limit, user_id=user_id, **_time_kw
+                            )
                             if rows:
                                 phase = "or_fallback"
                 logger.info(
                     "BM25 search completed | phase=%s escaped=%r stemmed=%r "
                     "result_count=%d user_id=%s",
-                    phase, escaped, stemmed, len(rows), user_id,
+                    phase,
+                    escaped,
+                    stemmed,
+                    len(rows),
+                    user_id,
                 )
                 return [(str(row[0]), float(row[1])) for row in rows]
             except Exception as exc:
@@ -1359,7 +1245,14 @@ class L1EventStore:
                     content = str(row[1] or "")
                     author_type = str(row[2] or "")
                     content_type = str(row[3] or "")
-                    batch.append((event_id, tokenize_for_fts(self._compose_search_text(content, author_type, content_type))))
+                    batch.append(
+                        (
+                            event_id,
+                            tokenize_for_fts(
+                                self._compose_search_text(content, author_type, content_type)
+                            ),
+                        )
+                    )
                     if len(batch) >= batch_size:
                         await db.executemany(
                             "INSERT INTO l1_events_fts(event_id, content) VALUES (?, ?)",
@@ -1385,11 +1278,7 @@ class L1EventStore:
         pipeline = self._build_embedding_pipeline()
         if pipeline is None:
             return
-        eligible_events = [
-            event
-            for event in events
-            if self._embedding_eligible(event)
-        ]
+        eligible_events = [event for event in events if self._embedding_eligible(event)]
         if not eligible_events:
             return
         results = await pipeline.upsert_items(
@@ -1411,14 +1300,22 @@ class L1EventStore:
         if not results:
             await self._update_event_embedding_states(
                 [
-                    (event.event_id, EMBEDDING_STATUS_FAILED, self._initial_embedding_profile_id(event), 0, None)
+                    (
+                        event.event_id,
+                        EMBEDDING_STATUS_FAILED,
+                        self._initial_embedding_profile_id(event),
+                        0,
+                        None,
+                    )
                     for event in eligible_events
                 ]
             )
             return
         state_updates: list[tuple[str, str, str | None, int, float | None]] = []
         profiles_by_id: dict[str, EmbeddingProfile] = {}
-        successful_events: list[tuple[MemoryEvent, list[ChunkedText], list[Any], EmbeddingProfile]] = []
+        successful_events: list[
+            tuple[MemoryEvent, list[ChunkedText], list[Any], EmbeddingProfile]
+        ] = []
         failed_events: list[tuple[MemoryEvent, str | None]] = []
         results_by_event_id = {result.parent_id: result for result in results}
         for event in eligible_events:
@@ -1433,7 +1330,15 @@ class L1EventStore:
             await self._replace_event_chunks(successful_events)
             for event, chunks, _, profile in successful_events:
                 embedded_at = results_by_event_id[event.event_id].embedded_at
-                state_updates.append((event.event_id, EMBEDDING_STATUS_READY, profile.profile_id, len(chunks), embedded_at))
+                state_updates.append(
+                    (
+                        event.event_id,
+                        EMBEDDING_STATUS_READY,
+                        profile.profile_id,
+                        len(chunks),
+                        embedded_at,
+                    )
+                )
         for event, profile_id in failed_events:
             state_updates.append((event.event_id, EMBEDDING_STATUS_FAILED, profile_id, 0, None))
         if state_updates:
@@ -1447,14 +1352,23 @@ class L1EventStore:
             vector_index=self._vector_index,
         )
 
-    async def _semantic_search_event_hits(self, *, query: str, limit: int, user_id: str | None = None) -> list[VectorSearchHit]:
-        if not self._vectors_enabled() or self._embedding_service is None or self._vector_index is None or not query.strip():
+    async def _semantic_search_event_hits(
+        self, *, query: str, limit: int, user_id: str | None = None
+    ) -> list[VectorSearchHit]:
+        if (
+            not self._vectors_enabled()
+            or self._embedding_service is None
+            or self._vector_index is None
+            or not query.strip()
+        ):
             return []
         embedding = await self._embedding_service.embed_text(query)
         if embedding is None:
             return []
         try:
-            return await self._vector_index.search(embedding=embedding, limit=limit, partition_value=user_id)
+            return await self._vector_index.search(
+                embedding=embedding, limit=limit, partition_value=user_id
+            )
         except Exception as exc:
             logger.warning("Failed semantic search over L1 events: %s", exc)
             return []
@@ -1599,7 +1513,11 @@ class L1EventStore:
     @staticmethod
     def _compose_search_text(content: str, author_type: str, content_type: str) -> str:
         text = str(content or "").strip()
-        labels = " ".join(part for part in (str(author_type or "").strip(), str(content_type or "").strip()) if part)
+        labels = " ".join(
+            part
+            for part in (str(author_type or "").strip(), str(content_type or "").strip())
+            if part
+        )
         if text and labels:
             return f"{text} {labels}"
         return text or labels
@@ -1624,17 +1542,13 @@ class L1EventStore:
                 f"ALTER TABLE {FACT_EVENTS_TABLE} ADD COLUMN embedding_chunk_count INTEGER NOT NULL DEFAULT 0"
             )
         if "last_embedded_at" not in columns:
-            await db.execute(
-                f"ALTER TABLE {FACT_EVENTS_TABLE} ADD COLUMN last_embedded_at REAL"
-            )
+            await db.execute(f"ALTER TABLE {FACT_EVENTS_TABLE} ADD COLUMN last_embedded_at REAL")
 
     async def _ensure_metadata_json_column(self, db: aiosqlite.Connection) -> None:
         async with db.execute(f"PRAGMA table_info({FACT_EVENTS_TABLE})") as cursor:
             columns = {str(row[1]) for row in await cursor.fetchall()}
         if "metadata_json" not in columns:
-            await db.execute(
-                f"ALTER TABLE {FACT_EVENTS_TABLE} ADD COLUMN metadata_json TEXT"
-            )
+            await db.execute(f"ALTER TABLE {FACT_EVENTS_TABLE} ADD COLUMN metadata_json TEXT")
 
     async def _backfill_external_owner_user_ids(self, db: aiosqlite.Connection) -> None:
         await db.execute(
@@ -1705,7 +1619,9 @@ class L1EventStore:
             """
         )
         metadata_json_expr = "metadata_json" if has_metadata_json else "NULL"
-        embedding_status_expr = "embedding_status" if has_embedding_status else f"'{EMBEDDING_STATUS_DISABLED}'"
+        embedding_status_expr = (
+            "embedding_status" if has_embedding_status else f"'{EMBEDDING_STATUS_DISABLED}'"
+        )
         embedding_profile_expr = "embedding_profile_id" if has_embedding_profile_id else "NULL"
         await db.execute(
             f"""
@@ -1727,18 +1643,36 @@ class L1EventStore:
         )
         await db.execute(f"DROP TABLE {FACT_EVENTS_TABLE}")
         await db.execute(f"ALTER TABLE {FACT_EVENTS_TABLE}_migrated RENAME TO {FACT_EVENTS_TABLE}")
-        await db.execute(f"CREATE INDEX IF NOT EXISTS idx_fact_events_timestamp ON {FACT_EVENTS_TABLE}(timestamp)")
-        await db.execute(f"CREATE INDEX IF NOT EXISTS idx_fact_events_type ON {FACT_EVENTS_TABLE}(event_type)")
-        await db.execute(f"CREATE INDEX IF NOT EXISTS idx_fact_events_source ON {FACT_EVENTS_TABLE}(source)")
-        await db.execute(f"CREATE INDEX IF NOT EXISTS idx_fact_events_idempotency_key ON {FACT_EVENTS_TABLE}(idempotency_key)")
-        await db.execute(f"CREATE INDEX IF NOT EXISTS idx_fact_events_domain ON {FACT_EVENTS_TABLE}(memory_domain)")
-        await db.execute(f"CREATE INDEX IF NOT EXISTS idx_fact_events_session ON {FACT_EVENTS_TABLE}(session_id)")
-        await db.execute(f"CREATE INDEX IF NOT EXISTS idx_fact_events_turn ON {FACT_EVENTS_TABLE}(turn_id)")
-        await db.execute(f"CREATE INDEX IF NOT EXISTS idx_fact_events_user ON {FACT_EVENTS_TABLE}(user_id)")
+        await db.execute(
+            f"CREATE INDEX IF NOT EXISTS idx_fact_events_timestamp ON {FACT_EVENTS_TABLE}(timestamp)"
+        )
+        await db.execute(
+            f"CREATE INDEX IF NOT EXISTS idx_fact_events_type ON {FACT_EVENTS_TABLE}(event_type)"
+        )
+        await db.execute(
+            f"CREATE INDEX IF NOT EXISTS idx_fact_events_source ON {FACT_EVENTS_TABLE}(source)"
+        )
+        await db.execute(
+            f"CREATE INDEX IF NOT EXISTS idx_fact_events_idempotency_key ON {FACT_EVENTS_TABLE}(idempotency_key)"
+        )
+        await db.execute(
+            f"CREATE INDEX IF NOT EXISTS idx_fact_events_domain ON {FACT_EVENTS_TABLE}(memory_domain)"
+        )
+        await db.execute(
+            f"CREATE INDEX IF NOT EXISTS idx_fact_events_session ON {FACT_EVENTS_TABLE}(session_id)"
+        )
+        await db.execute(
+            f"CREATE INDEX IF NOT EXISTS idx_fact_events_turn ON {FACT_EVENTS_TABLE}(turn_id)"
+        )
+        await db.execute(
+            f"CREATE INDEX IF NOT EXISTS idx_fact_events_user ON {FACT_EVENTS_TABLE}(user_id)"
+        )
         await db.execute(
             f"CREATE INDEX IF NOT EXISTS idx_fact_events_importance ON {FACT_EVENTS_TABLE}(importance_score DESC)"
         )
-        await db.execute(f"CREATE INDEX IF NOT EXISTS idx_fact_events_retention ON {FACT_EVENTS_TABLE}(retention_class)")
+        await db.execute(
+            f"CREATE INDEX IF NOT EXISTS idx_fact_events_retention ON {FACT_EVENTS_TABLE}(retention_class)"
+        )
         await db.execute(
             f"CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_events_business_idempotency "
             f"ON {FACT_EVENTS_TABLE}(source, event_type, idempotency_key)"
@@ -1790,7 +1724,10 @@ class L1EventStore:
         return str(row[0])
 
     def _embedding_eligible(self, event: MemoryEvent) -> bool:
-        return event.memory_domain not in {MemoryDomain.RUNTIME_TELEMETRY, MemoryDomain.SYSTEM_CONTROL}
+        return event.memory_domain not in {
+            MemoryDomain.RUNTIME_TELEMETRY,
+            MemoryDomain.SYSTEM_CONTROL,
+        }
 
     def _initial_embedding_status(self, event: MemoryEvent) -> str:
         if not self._vectors_enabled() or self._embedding_service is None:
@@ -1800,12 +1737,18 @@ class L1EventStore:
         return EMBEDDING_STATUS_PENDING
 
     def _initial_embedding_profile_id(self, event: MemoryEvent) -> str | None:
-        if not self._vectors_enabled() or self._embedding_service is None or not self._embedding_eligible(event):
+        if (
+            not self._vectors_enabled()
+            or self._embedding_service is None
+            or not self._embedding_eligible(event)
+        ):
             return None
         return self.get_active_embedding_profile_id()
 
     def _profile_from_embedding_result(self, embedding: Any) -> EmbeddingProfile:
-        if self._embedding_service is not None and hasattr(self._embedding_service, "profile_from_result"):
+        if self._embedding_service is not None and hasattr(
+            self._embedding_service, "profile_from_result"
+        ):
             return self._embedding_service.profile_from_result(
                 embedding,
                 text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION,
@@ -1828,7 +1771,9 @@ class L1EventStore:
         profile_ids = {profile_id for _, _, profile_id, _, _ in updates if profile_id}
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             if profile_ids:
-                await self._sync_embedding_profiles(db, profile_ids, profiles_by_id=profiles_by_id or {})
+                await self._sync_embedding_profiles(
+                    db, profile_ids, profiles_by_id=profiles_by_id or {}
+                )
             await db.executemany(
                 f"""
                 UPDATE {FACT_EVENTS_TABLE}
@@ -1850,7 +1795,9 @@ class L1EventStore:
         profiles_by_id: dict[str, EmbeddingProfile],
     ) -> None:
         active_profile = None
-        if self._embedding_service is not None and hasattr(self._embedding_service, "get_active_profile"):
+        if self._embedding_service is not None and hasattr(
+            self._embedding_service, "get_active_profile"
+        ):
             active_profile = self._embedding_service.get_active_profile(
                 text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION
             )
@@ -1887,7 +1834,10 @@ class L1EventStore:
     ) -> str:
         normalized_status = str(stored_status or EMBEDDING_STATUS_DISABLED)
         if not self._vectors_enabled() or self._embedding_service is None:
-            if memory_domain is not None and memory_domain in {MemoryDomain.RUNTIME_TELEMETRY, MemoryDomain.SYSTEM_CONTROL}:
+            if memory_domain is not None and memory_domain in {
+                MemoryDomain.RUNTIME_TELEMETRY,
+                MemoryDomain.SYSTEM_CONTROL,
+            }:
                 return EMBEDDING_STATUS_SKIPPED
             return EMBEDDING_STATUS_DISABLED
         if normalized_status != EMBEDDING_STATUS_READY:
@@ -1934,7 +1884,9 @@ class L1EventStore:
             "media_path": row["media_path"],
             "metadata_json": json.loads(str(metadata_json)) if metadata_json else None,
             "embedding_chunk_count": int(row["embedding_chunk_count"] or 0),
-            "last_embedded_at": float(row["last_embedded_at"]) if row["last_embedded_at"] is not None else None,
+            "last_embedded_at": float(row["last_embedded_at"])
+            if row["last_embedded_at"] is not None
+            else None,
             "deleted_at": float(row["deleted_at"]) if row["deleted_at"] is not None else None,
         }
         if include_embedding_fields:
@@ -2060,7 +2012,9 @@ class L1EventStore:
             return None
         metadata = event.get("metadata") if isinstance(event.get("metadata"), dict) else {}
         if not metadata:
-            metadata = event.get("metadata_json") if isinstance(event.get("metadata_json"), dict) else {}
+            metadata = (
+                event.get("metadata_json") if isinstance(event.get("metadata_json"), dict) else {}
+            )
         timeline = metadata.get("timeline") if isinstance(metadata.get("timeline"), dict) else {}
         if not timeline:
             return None
@@ -2073,7 +2027,9 @@ class L1EventStore:
                 or event.get("idempotency_key")
             ),
             "occurred_at": float(event.get("timestamp") or event.get("created_at") or 0.0),
-            "title": str(timeline.get("title") or event.get("content") or event.get("event_id") or "Event"),
+            "title": str(
+                timeline.get("title") or event.get("content") or event.get("event_id") or "Event"
+            ),
             "summary": str(timeline.get("summary") or event.get("content") or ""),
         }
 
