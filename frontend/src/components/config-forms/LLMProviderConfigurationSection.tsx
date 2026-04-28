@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { LLMProviderConnectionFields } from '@/components/config-forms/LLMProviderConnectionFields';
 import { LLMProviderDetailHeader } from '@/components/config-forms/LLMProviderDetailHeader';
 import { LLMProviderListPane } from '@/components/config-forms/LLMProviderListPane';
+import { LLMProviderModelEditorHeader, type LLMProviderModelEditorKind } from '@/components/config-forms/LLMProviderModelEditorHeader';
 import { LLMProviderModelListPane } from '@/components/config-forms/LLMProviderModelListPane';
 import { LLMProviderModelToolbar, type LLMProviderModelKind } from '@/components/config-forms/LLMProviderModelToolbar';
 import { LLMProviderTestStatus } from '@/components/config-forms/LLMProviderTestStatus';
@@ -52,9 +53,6 @@ interface LLMProviderConfigurationSectionProps {
     }
   >;
 }
-
-const badgeClassName =
-  'inline-flex rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground';
 
 const fieldClassName =
   'h-11 w-full rounded-xl bg-background px-3 text-sm ring-1 ring-inset ring-border/55 shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45';
@@ -359,7 +357,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       )}
                     >
                       {activeWorkbenchModel ? (() => {
-                        const activeKind: 'chat' | 'embedding' | 'image' =
+                        const activeKind: LLMProviderModelEditorKind =
                           activeWorkbenchModel.kinds.includes('image') &&
                           !activeWorkbenchModel.kinds.includes('chat') &&
                           !activeWorkbenchModel.kinds.includes('embedding')
@@ -373,62 +371,13 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
 
                         return (
                           <>
-                            <div className="flex flex-wrap items-start justify-between gap-3">
-                              <div className="space-y-1">
-                                <div className="text-base font-semibold text-foreground">{activeWorkbenchModel.label}</div>
-                                <div className="text-xs text-muted-foreground">
-                                  {t('llm.modelFields.modelId')}: {activeWorkbenchModel.id}
-                                </div>
-                              </div>
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className={badgeClassName}>
-                                  {activeKind === 'embedding'
-                                    ? t('llm.modelKinds.embedding')
-                                    : activeKind === 'image'
-                                    ? t('llm.modelKinds.image')
-                                    : t('llm.modelKinds.chat')}
-                                </span>
-                                <span className={badgeClassName}>
-                                  {activeWorkbenchModel.source === 'manual'
-                                    ? t('llm.providerConfiguration.providerKinds.custom')
-                                    : t('llm.providerConfiguration.providerKinds.builtin')}
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    onProviderChange(activeProviderId, (provider) => {
-                                      const overrides = { ...(provider.model_metadata_overrides || {}) };
-                                      const previous = overrides[activeWorkbenchModel.id];
-                                      delete overrides[activeWorkbenchModel.id];
-                                      // Preserve embedding-kind marker for manual embedding-only models so they don't
-                                      // disappear (manual embedding models live solely in the override map).
-                                      if (
-                                        previous?.capabilities?.embedding === true &&
-                                        activeWorkbenchModel.source === 'manual' &&
-                                        !(provider.custom_models || []).includes(activeWorkbenchModel.id)
-                                      ) {
-                                        overrides[activeWorkbenchModel.id] = {
-                                          capabilities: { embedding: true },
-                                        };
-                                      }
-                                      provider.model_metadata_overrides = overrides;
-                                    })
-                                  }
-                                  className="inline-flex h-9 items-center justify-center rounded-md border border-border/70 px-3 text-sm text-foreground transition hover:bg-background/70"
-                                >
-                                  {t('llm.actions.restoreModelDefaults')}
-                                </button>
-                                {activeWorkbenchModel.source === 'manual' ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => onRemoveProviderModel(activeProviderId, activeWorkbenchModel.id)}
-                                    className="inline-flex h-9 items-center justify-center rounded-md border border-destructive/25 px-3 text-sm text-destructive transition hover:bg-destructive/6"
-                                  >
-                                    {t('llm.actions.removeModel')}
-                                  </button>
-                                ) : null}
-                              </div>
-                            </div>
+                            <LLMProviderModelEditorHeader
+                              providerId={activeProviderId}
+                              model={activeWorkbenchModel}
+                              activeKind={activeKind}
+                              onProviderChange={onProviderChange}
+                              onRemoveProviderModel={onRemoveProviderModel}
+                            />
 
                             <div className="grid gap-4">
                               <label className="space-y-2">
