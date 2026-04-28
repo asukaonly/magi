@@ -152,6 +152,7 @@ Recent progress:
 - L1 event-store embedding, chunk, and vector-search helpers now live in `event_store_embeddings.py`.
 - L1 event-store read/query helpers now live in `event_store_queries.py`.
 - L2 pipeline staging, projection claiming, and microbatch flush helpers now live in `pipeline_staging.py`.
+- L2 durable projection claim/batch construction helpers now live in `pipeline_projection.py`.
 - L2 pipeline context loading and history recall helpers now live in `pipeline_context.py`.
 - L2 pipeline extract/reconcile/snapshot worker loops now live in `pipeline_workers.py`.
 - L2 pipeline normalization/slug/stat bucket helpers now live in `pipeline_utils.py`.
