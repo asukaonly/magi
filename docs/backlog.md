@@ -144,6 +144,7 @@ Recent progress:
 - Worker tool schema definition now lives in `worker_schema.py`.
 - Worker public action validation and dispatch now lives in `worker_actions.py`.
 - Worker launch/start/batch lifecycle helpers now live in `worker_launch.py`.
+- Worker fact, bus-event, and trace-notification publication helpers now live in `worker_publication.py`.
 
 Candidates to review next:
 
