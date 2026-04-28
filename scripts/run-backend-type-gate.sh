@@ -66,6 +66,7 @@ export PYTHONPATH="$ROOT_DIR/backend/src:$ROOT_DIR/sdk/src${PYTHONPATH:+:$PYTHON
   src/magi/memory/l2/episode_models.py \
   src/magi/memory/l2/phase_models.py \
   src/magi/memory/l2/pipeline_context.py \
+  src/magi/memory/l2/pipeline_entity_helpers.py \
   src/magi/memory/l2/pipeline_staging.py \
   src/magi/memory/l2/pipeline_structured_hints.py \
   src/magi/memory/l2/pipeline_workers.py \

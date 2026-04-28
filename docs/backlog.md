@@ -170,6 +170,7 @@ Recent progress:
 - L2 auxiliary workflow prompt renderers now live in `workflow_prompts.py` with old `prompts.py` exports preserved.
 - L2 entity catalog embedding rebuild/search helpers now live in `entity_catalog_embeddings.py`.
 - L2 projection queue ready-claim batching now lives in `projection_queue_claiming.py` with old constants patchable through `projection_queue.py`.
+- L2 pipeline entity quality/type/focal helper methods now live in `pipeline_entity_helpers.py` with old `L2Pipeline` method access preserved.
 
 Candidates to review next:
 
