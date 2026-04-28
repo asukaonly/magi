@@ -75,6 +75,7 @@ export PYTHONPATH="$ROOT_DIR/backend/src:$ROOT_DIR/sdk/src${PYTHONPATH:+:$PYTHON
   src/magi/memory/l2/pipeline_context.py \
   src/magi/memory/l2/pipeline_entity_helpers.py \
   src/magi/memory/l2/pipeline_graph_validation.py \
+  src/magi/memory/l2/pipeline_lifecycle.py \
   src/magi/memory/l2/pipeline_projection.py \
   src/magi/memory/l2/pipeline_staging.py \
   src/magi/memory/l2/pipeline_structured_hints.py \
