@@ -32,6 +32,7 @@ import {
   previewLanguageSelection,
   serialize,
 } from '@/utils/settings-helpers';
+import { useSettingsNavigation } from './useSettingsNavigation';
 
 // ============================================================================
 // Hook Return Type
@@ -139,24 +140,9 @@ export function useSettings(): UseSettingsReturn {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  // Navigation state
-  const [activeSection, setActiveSection] = useState('preferences');
-  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
-    llm: false,
-    personality: false,
-    memory: false,
-    plugins: false,
-    timeline: false,
-    channels: false,
-  });
-
   // Timeline state
   const [timelineStatuses, setTimelineStatuses] = useState<SensorSourceStatusItem[]>([]);
   const [timelineStatusesLoading, setTimelineStatusesLoading] = useState(false);
-  const [timelineSelection, setTimelineSelection] = useState<string | null>(null);
-
-  // Channels sub-nav selection
-  const [channelsSelection, setChannelsSelection] = useState<string | null>(null);
 
   // Plugins state
   const [plugins, setPlugins] = useState<PluginPackageState[]>([]);
@@ -173,50 +159,19 @@ export function useSettings(): UseSettingsReturn {
   const [draftToolDrafts, setDraftToolDrafts] = useState<ToolDraftMap>({});
   const [reloadingActionPlugins, setReloadingActionPlugins] = useState<Record<string, boolean>>({});
 
-  // ========================================
-  // Dirty Tracking
-  // ========================================
-
-  // ========================================
-  // Navigation Helpers
-  // ========================================
-
-  const usesInnerPaneScroll = useMemo(
-    () => activeSection === 'llmProviders',
-    [activeSection]
-  );
-
-  const getGroupExpanded = useCallback(
-    (groupId: string) => expandedGroups[groupId] ?? false,
-    [expandedGroups]
-  );
-
-  const setGroupExpanded = useCallback((groupId: string, expanded: boolean) => {
-    setExpandedGroups((prev) => ({ ...prev, [groupId]: expanded }));
-  }, []);
-
-  const handleNavItemClick = useCallback(
-    (itemId: string, isGroup: boolean, firstChildId?: string) => {
-      if (isGroup) {
-        const isExpanded = getGroupExpanded(itemId);
-        if (isExpanded) {
-          setGroupExpanded(itemId, false);
-          return;
-        }
-        setGroupExpanded(itemId, true);
-        setActiveSection(firstChildId || itemId);
-        return;
-      }
-      setActiveSection(itemId);
-      if (itemId === 'timeline') {
-        setTimelineSelection(null);
-      }
-      if (itemId === 'channels') {
-        setChannelsSelection(null);
-      }
-    },
-    [getGroupExpanded, setGroupExpanded]
-  );
+  const {
+    activeSection,
+    setActiveSection,
+    expandedGroups,
+    getGroupExpanded,
+    setGroupExpanded,
+    handleNavItemClick,
+    usesInnerPaneScroll,
+    timelineSelection,
+    setTimelineSelection,
+    channelsSelection,
+    setChannelsSelection,
+  } = useSettingsNavigation();
 
   // ========================================
   // Config Mutation Helpers
