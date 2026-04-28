@@ -19,6 +19,7 @@ from .ontology import are_predicates_synonymous
 from .projection_queue import ProjectionJobQueue
 from .store_episodes import L2EpisodeStoreMixin
 from .store_facets import L2EntityFacetStoreMixin
+from .store_fact_kind import L2StoreFactKindMixin
 from .store_migrations import L2StoreMigrationMixin
 from .store_projection_jobs import L2ProjectionJobStoreMixin
 from .store_graph_conflicts import L2StoreGraphConflictMixin
@@ -47,6 +48,7 @@ class L2CognitionStore(
     L2ProjectionJobStoreMixin,
     L2StoreReconcileMixin,
     L2StoreRowMappingMixin,
+    L2StoreFactKindMixin,
 ):
     """Persists structured cognition artifacts derived from L1 events."""
 
@@ -2247,65 +2249,5 @@ class L2CognitionStore(
         snapshot = await self.get_tom_snapshot(entity_id=entity_id, entity_type=entity_type)
         assert snapshot is not None
         return snapshot
-
-    # ── P2: fact_kind admission ──────────────────────────────────────
-
-    # extraction_methods that qualify as explicit/structured sources
-    _EXPLICIT_SOURCES: set[str] = {"rule", "structured_hint", "source_explicit"}
-    _STRUCTURED_SOURCES: set[str] = {"structured_hint", "rule"}
-
-    # fact_kind values that require specific extraction lineage
-    _FACT_KIND_RULES: dict[str, set[str]] = {
-        "public_topology": _EXPLICIT_SOURCES | _STRUCTURED_SOURCES,
-        "stable_preference": _EXPLICIT_SOURCES,
-    }
-
-    @staticmethod
-    def _validate_fact_kind(
-        fact_kind: str,
-        extraction_method: str,
-        confidence: float,
-    ) -> str:
-        """Validate fact_kind against extraction_method, downgrading on mismatch.
-
-        Returns the (possibly adjusted) fact_kind. Empty input is returned as-is
-        so callers can fall back to existing values on update.
-        """
-        if not fact_kind:
-            return ""
-
-        # public_topology: only from explicit/structured sources,
-        # or high-confidence structured
-        if fact_kind == "public_topology":
-            allowed = L2CognitionStore._FACT_KIND_RULES["public_topology"]
-            if extraction_method not in allowed and not (
-                extraction_method in L2CognitionStore._STRUCTURED_SOURCES
-                and confidence >= 0.8
-            ):
-                logger.warning(
-                    "fact_kind_downgraded",
-                    original=fact_kind,
-                    extraction_method=extraction_method,
-                    confidence=confidence,
-                    target="explicit_fact",
-                )
-                return "explicit_fact"
-
-        # stable_preference: only from explicit user statements/configs
-        elif fact_kind == "stable_preference":
-            allowed = L2CognitionStore._FACT_KIND_RULES["stable_preference"]
-            if extraction_method not in allowed:
-                logger.warning(
-                    "fact_kind_downgraded",
-                    original=fact_kind,
-                    extraction_method=extraction_method,
-                    target="explicit_fact",
-                )
-                return "explicit_fact"
-
-        # interaction_evidence: real events can direct-write, no restriction needed
-
-        return fact_kind
-
 
 __all__ = ["L2CognitionStore"]
