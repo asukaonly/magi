@@ -14,10 +14,8 @@ import aiosqlite
 from ...core.sqlite import sqlite_connection_async
 from ...config.models import EmbeddingBackend
 from ...events.events import Event, EventLevel, EventTypes
-from ..embedding.chunking import ChunkedText, chunk_sentences, chunk_text
-from ..embedding.embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
-from ..embedding.embedding_service import EmbeddingProfile, MemoryEmbeddingService
-from ..embedding.embedding_text_builders import build_l1_embedding_text
+from ..embedding.embedding_service import MemoryEmbeddingService
+from ..embedding.sqlite_vec_index import SqliteVecIndex
 from ..event_contracts import (
     MemoryDomain,
     MemoryEvent,
@@ -26,11 +24,11 @@ from ..event_contracts import (
 )
 from ..hybrid_retrieval.fts_utils import tokenize_for_fts
 from .chat_sessions import ensure_chat_sessions_schema_async, project_chat_event_to_session
+from .event_store_embeddings import L1EventEmbeddingMixin
 from .event_store_entities import L1EventEntityMixin
 from .event_store_fts import L1EventFtsMixin
 from .event_store_rows import L1EventRowMixin
 from .event_store_schema import L1EventSchemaMixin
-from ..embedding.sqlite_vec_index import SqliteVecIndex, VectorSearchHit
 
 FACT_EVENTS_TABLE = "fact_events"
 EMBEDDING_PROFILES_TABLE = "embedding_profiles"
@@ -53,7 +51,13 @@ L1_STORE_DIAGNOSTIC_EVENT_TYPES = {
 }
 
 
-class L1EventStore(L1EventSchemaMixin, L1EventEntityMixin, L1EventRowMixin, L1EventFtsMixin):
+class L1EventStore(
+    L1EventSchemaMixin,
+    L1EventEntityMixin,
+    L1EventRowMixin,
+    L1EventFtsMixin,
+    L1EventEmbeddingMixin,
+):
     """Stores immutable normalized memory events in SQLite."""
 
     def __init__(
@@ -602,20 +606,6 @@ class L1EventStore(L1EventSchemaMixin, L1EventEntityMixin, L1EventRowMixin, L1Ev
         events_by_id = {str(row["event_id"]): self._row_to_dict(row) for row in rows}
         return [events_by_id[eid] for eid in event_ids if eid in events_by_id]
 
-    async def vector_search(
-        self,
-        *,
-        query: str,
-        limit: int = 100,
-        user_id: Optional[str] = None,
-    ) -> list[VectorSearchHit]:
-        """Semantic vector search over L1 event chunks."""
-        return await self._semantic_search_event_hits(
-            query=query,
-            limit=limit,
-            user_id=user_id,
-        )
-
     async def find_event_id_by_idempotency(
         self,
         *,
@@ -973,55 +963,6 @@ class L1EventStore(L1EventSchemaMixin, L1EventEntityMixin, L1EventRowMixin, L1Ev
 
         return count
 
-    async def rebuild_embeddings(self, *, batch_size: int = 100) -> int:
-        """Rebuild all persisted L1 embeddings from the parent event rows."""
-        await self.initialize()
-        normalized_batch_size = max(1, int(batch_size))
-        if (
-            not self._vectors_enabled()
-            or self._embedding_service is None
-            or self._vector_index is None
-        ):
-            return 0
-
-        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
-            await db.execute(f"DELETE FROM {EVENT_CHUNKS_TABLE}")
-            await db.execute(f"DELETE FROM {EMBEDDING_PROFILES_TABLE}")
-            await db.execute(
-                f"""
-                UPDATE {FACT_EVENTS_TABLE}
-                SET embedding_status = ?, embedding_profile_id = NULL, embedding_chunk_count = 0, last_embedded_at = NULL
-                WHERE deleted_at IS NULL
-                """,
-                (EMBEDDING_STATUS_DISABLED,),
-            )
-            await db.commit()
-        await self._vector_index.clear()
-
-        processed = 0
-        offset = 0
-        while True:
-            async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
-                db.row_factory = aiosqlite.Row
-                async with db.execute(
-                    f"""
-                    SELECT *
-                    FROM {FACT_EVENTS_TABLE}
-                    WHERE deleted_at IS NULL
-                    ORDER BY timestamp ASC, id ASC
-                    LIMIT ? OFFSET ?
-                    """,
-                    (normalized_batch_size, offset),
-                ) as cursor:
-                    rows = await cursor.fetchall()
-            if not rows:
-                break
-            events = [self._row_to_memory_event(row) for row in rows]
-            await self._maybe_upsert_event_embeddings(events)
-            processed += len(events)
-            offset += len(rows)
-        return processed
-
     async def mark_deleted(self, event_id: str, *, deleted_at: Optional[float] = None) -> bool:
         """Soft-delete an event."""
         await self.initialize()
@@ -1046,244 +987,6 @@ class L1EventStore(L1EventSchemaMixin, L1EventEntityMixin, L1EventRowMixin, L1Ev
             for chunk_id in chunk_ids:
                 await self._vector_index.delete_entity(entity_id=chunk_id)
         return cursor.rowcount > 0
-
-    async def _maybe_upsert_event_embedding(self, event: MemoryEvent) -> None:
-        await self._maybe_upsert_event_embeddings([event])
-
-    async def _maybe_upsert_event_embeddings(self, events: list[MemoryEvent]) -> None:
-        if not self._vectors_enabled():
-            return
-        pipeline = self._build_embedding_pipeline()
-        if pipeline is None:
-            return
-        eligible_events = [event for event in events if self._embedding_eligible(event)]
-        if not eligible_events:
-            return
-        results = await pipeline.upsert_items(
-            [
-                EmbeddingPipelineItem(
-                    parent_id=event.event_id,
-                    chunks=self._build_event_embedding_chunks(event),
-                    metadata={
-                        "event_id": event.event_id,
-                        "event_type": event.event_type,
-                        "source": event.source,
-                        "partition_value": event.user_id,
-                    },
-                    payload=event,
-                )
-                for event in eligible_events
-            ]
-        )
-        if not results:
-            await self._update_event_embedding_states(
-                [
-                    (
-                        event.event_id,
-                        EMBEDDING_STATUS_FAILED,
-                        self._initial_embedding_profile_id(event),
-                        0,
-                        None,
-                    )
-                    for event in eligible_events
-                ]
-            )
-            return
-        state_updates: list[tuple[str, str, str | None, int, float | None]] = []
-        profiles_by_id: dict[str, EmbeddingProfile] = {}
-        successful_events: list[
-            tuple[MemoryEvent, list[ChunkedText], list[Any], EmbeddingProfile]
-        ] = []
-        failed_events: list[tuple[MemoryEvent, str | None]] = []
-        results_by_event_id = {result.parent_id: result for result in results}
-        for event in eligible_events:
-            result = results_by_event_id.get(event.event_id)
-            if result is None:
-                failed_events.append((event, self._initial_embedding_profile_id(event)))
-                continue
-            profile = self._profile_from_embedding_result(result.embeddings[0])
-            profiles_by_id[profile.profile_id] = profile
-            successful_events.append((event, result.chunks, result.embeddings, profile))
-        if successful_events:
-            await self._replace_event_chunks(successful_events)
-            for event, chunks, _, profile in successful_events:
-                embedded_at = results_by_event_id[event.event_id].embedded_at
-                state_updates.append(
-                    (
-                        event.event_id,
-                        EMBEDDING_STATUS_READY,
-                        profile.profile_id,
-                        len(chunks),
-                        embedded_at,
-                    )
-                )
-        for event, profile_id in failed_events:
-            state_updates.append((event.event_id, EMBEDDING_STATUS_FAILED, profile_id, 0, None))
-        if state_updates:
-            await self._update_event_embedding_states(state_updates, profiles_by_id=profiles_by_id)
-
-    def _build_embedding_pipeline(self) -> MemoryEmbeddingPipeline | None:
-        if self._embedding_service is None or self._vector_index is None:
-            return None
-        return MemoryEmbeddingPipeline(
-            embedding_service=self._embedding_service,
-            vector_index=self._vector_index,
-        )
-
-    async def _semantic_search_event_hits(
-        self, *, query: str, limit: int, user_id: str | None = None
-    ) -> list[VectorSearchHit]:
-        if (
-            not self._vectors_enabled()
-            or self._embedding_service is None
-            or self._vector_index is None
-            or not query.strip()
-        ):
-            return []
-        embedding = await self._embedding_service.embed_text(query)
-        if embedding is None:
-            return []
-        try:
-            return await self._vector_index.search(
-                embedding=embedding, limit=limit, partition_value=user_id
-            )
-        except Exception as exc:
-            logger.warning("Failed semantic search over L1 events: %s", exc)
-            return []
-
-    async def _schedule_event_embedding(self, event: MemoryEvent) -> None:
-        if not self._vectors_enabled():
-            return
-        if self._embedding_queue is not None and self._async_embeddings_enabled():
-            await self._embedding_queue.put(event)
-            return
-        await self._maybe_upsert_event_embedding(event)
-
-    async def _run_embedding_worker(self) -> None:
-        if self._embedding_queue is None:
-            return
-        while True:
-            item = await self._embedding_queue.get()
-            if item is None:
-                self._embedding_queue.task_done()
-                break
-            batch = [item]
-            should_stop = False
-            batch_size = max(1, int(self._embedding_batch_size))
-            deadline = time.monotonic() + max(0.0, float(self._embedding_batch_wait_seconds))
-            while len(batch) < batch_size:
-                timeout = deadline - time.monotonic()
-                if timeout <= 0:
-                    break
-                try:
-                    next_item = await asyncio.wait_for(self._embedding_queue.get(), timeout=timeout)
-                except asyncio.TimeoutError:
-                    break
-                if next_item is None:
-                    self._embedding_queue.task_done()
-                    should_stop = True
-                    break
-                batch.append(next_item)
-            try:
-                await self._maybe_upsert_event_embeddings(batch)
-            finally:
-                for _ in batch:
-                    self._embedding_queue.task_done()
-            if should_stop:
-                break
-
-    async def _fetch_ranked_events(
-        self,
-        *,
-        hits: list[VectorSearchHit],
-        session_id: Optional[str],
-        user_id: Optional[str],
-        event_type: Optional[str],
-        source_filters: Optional[List[str]],
-        domain_filters: Optional[List[str]],
-        limit: int,
-    ) -> List[Dict[str, Any]]:
-        if not hits:
-            return []
-        query = f"SELECT * FROM {FACT_EVENTS_TABLE} WHERE deleted_at IS NULL"
-        chunk_ids = [hit.entity_id for hit in hits]
-        chunk_rows = await self._fetch_chunk_rows_by_ids(chunk_ids)
-        chunk_by_id = {str(row["chunk_id"]): row for row in chunk_rows}
-        event_id_order: list[str] = []
-        chunks_by_event: dict[str, list[dict[str, Any]]] = {}
-        best_distance_by_event: dict[str, float] = {}
-        for hit in hits:
-            row = chunk_by_id.get(hit.entity_id)
-            if row is None:
-                continue
-            event_id = str(row["event_id"])
-            if event_id not in chunks_by_event:
-                event_id_order.append(event_id)
-                chunks_by_event[event_id] = []
-                best_distance_by_event[event_id] = hit.distance
-            best_distance_by_event[event_id] = min(best_distance_by_event[event_id], hit.distance)
-            chunks_by_event[event_id].append(
-                {
-                    "chunk_id": str(row["chunk_id"]),
-                    "chunk_index": int(row["chunk_index"]),
-                    "text": str(row["chunk_text"]),
-                    "char_start": int(row["char_start"]),
-                    "char_end": int(row["char_end"]),
-                    "distance": hit.distance,
-                }
-            )
-        if not event_id_order:
-            return []
-
-        args: list[Any] = []
-        placeholders = ", ".join("?" for _ in event_id_order)
-        query += f" AND event_id IN ({placeholders})"
-        args.extend(event_id_order)
-        if session_id:
-            query += " AND session_id = ?"
-            args.append(session_id)
-        if user_id:
-            query += " AND user_id = ?"
-            args.append(user_id)
-        if event_type:
-            query += " AND event_type = ?"
-            args.append(event_type)
-        if source_filters:
-            source_placeholders = ", ".join("?" for _ in source_filters)
-            query += f" AND source IN ({source_placeholders})"
-            args.extend(source_filters)
-        allowed_domains = [MemoryDomain.from_value(value) for value in domain_filters or []]
-        if allowed_domains:
-            domain_placeholders = ", ".join("?" for _ in allowed_domains)
-            query += f" AND memory_domain IN ({domain_placeholders})"
-            args.extend(int(domain) for domain in allowed_domains)
-        else:
-            query += " AND memory_domain != ?"
-            args.append(int(MemoryDomain.RUNTIME_TELEMETRY))
-
-        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(query, tuple(args)) as cursor:
-                rows = await cursor.fetchall()
-        events_by_id = {str(row["event_id"]): self._row_to_dict(row) for row in rows}
-        ranked: list[Dict[str, Any]] = []
-        for event_id in event_id_order:
-            event = events_by_id.get(event_id)
-            if event is None:
-                continue
-            event["distance"] = best_distance_by_event[event_id]
-            event["matched_chunks"] = chunks_by_event.get(event_id, [])
-            ranked.append(event)
-            if len(ranked) >= limit:
-                break
-        return ranked
-
-    def get_embedding_text(self, event: MemoryEvent) -> str:
-        return build_l1_embedding_text(event)
-
-    def get_active_embedding_profile_id(self) -> str | None:
-        profile_id, _ = self._resolve_active_embedding_profile_id()
-        return profile_id
 
     async def _resolve_existing_event_id(
         self,
@@ -1329,176 +1032,6 @@ class L1EventStore(L1EventSchemaMixin, L1EventEntityMixin, L1EventRowMixin, L1Ev
         if row is None:
             return None
         return str(row[0])
-
-    def _embedding_eligible(self, event: MemoryEvent) -> bool:
-        return event.memory_domain not in {
-            MemoryDomain.RUNTIME_TELEMETRY,
-            MemoryDomain.SYSTEM_CONTROL,
-        }
-
-    def _initial_embedding_status(self, event: MemoryEvent) -> str:
-        if not self._vectors_enabled() or self._embedding_service is None:
-            return EMBEDDING_STATUS_DISABLED
-        if not self._embedding_eligible(event):
-            return EMBEDDING_STATUS_SKIPPED
-        return EMBEDDING_STATUS_PENDING
-
-    def _initial_embedding_profile_id(self, event: MemoryEvent) -> str | None:
-        if (
-            not self._vectors_enabled()
-            or self._embedding_service is None
-            or not self._embedding_eligible(event)
-        ):
-            return None
-        return self.get_active_embedding_profile_id()
-
-    def _profile_from_embedding_result(self, embedding: Any) -> EmbeddingProfile:
-        if self._embedding_service is not None and hasattr(
-            self._embedding_service, "profile_from_result"
-        ):
-            return self._embedding_service.profile_from_result(
-                embedding,
-                text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION,
-            )
-        return EmbeddingProfile.build(
-            provider_name="unknown",
-            model_name=str(getattr(embedding, "model_name", "embedding")),
-            dimension=int(getattr(embedding, "dimension", 0) or 0),
-            text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION,
-        )
-
-    async def _update_event_embedding_states(
-        self,
-        updates: list[tuple[str, str, str | None, int, float | None]],
-        *,
-        profiles_by_id: dict[str, EmbeddingProfile] | None = None,
-    ) -> None:
-        if not updates:
-            return
-        profile_ids = {profile_id for _, _, profile_id, _, _ in updates if profile_id}
-        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
-            if profile_ids:
-                await self._sync_embedding_profiles(
-                    db, profile_ids, profiles_by_id=profiles_by_id or {}
-                )
-            await db.executemany(
-                f"""
-                UPDATE {FACT_EVENTS_TABLE}
-                SET embedding_status = ?, embedding_profile_id = ?, embedding_chunk_count = ?, last_embedded_at = ?
-                WHERE event_id = ?
-                """,
-                [
-                    (status, profile_id, int(chunk_count), embedded_at, event_id)
-                    for event_id, status, profile_id, chunk_count, embedded_at in updates
-                ],
-            )
-            await db.commit()
-
-    async def _sync_embedding_profiles(
-        self,
-        db: aiosqlite.Connection,
-        profile_ids: set[str],
-        *,
-        profiles_by_id: dict[str, EmbeddingProfile],
-    ) -> None:
-        active_profile = None
-        if self._embedding_service is not None and hasattr(
-            self._embedding_service, "get_active_profile"
-        ):
-            active_profile = self._embedding_service.get_active_profile(
-                text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION
-            )
-        if active_profile is not None:
-            profiles_by_id[active_profile.profile_id] = active_profile
-        now = time.time()
-        for profile_id in profile_ids:
-            profile = profiles_by_id.get(profile_id)
-            if profile is None:
-                continue
-            await db.execute(
-                f"""
-                INSERT OR IGNORE INTO {EMBEDDING_PROFILES_TABLE}(
-                    profile_id, provider_name, model_name, embedding_dim, text_builder_version, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    profile.profile_id,
-                    profile.provider_name,
-                    profile.model_name,
-                    profile.dimension,
-                    profile.text_builder_version,
-                    now,
-                ),
-            )
-
-    def _build_event_embedding_chunks(self, event: MemoryEvent) -> list[ChunkedText]:
-        return chunk_sentences(self.get_embedding_text(event))
-
-    def _chunk_id_for_event(self, event_id: str, chunk_index: int) -> str:
-        return f"{event_id}::chunk-{chunk_index}"
-
-    async def _replace_event_chunks(
-        self,
-        entries: list[tuple[MemoryEvent, list[ChunkedText], list[Any], EmbeddingProfile]],
-    ) -> None:
-        if not entries:
-            return
-        now = time.time()
-        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
-            for event, chunks, _, profile in entries:
-                await db.execute(
-                    f"DELETE FROM {EVENT_CHUNKS_TABLE} WHERE event_id = ?",
-                    (event.event_id,),
-                )
-                await db.executemany(
-                    f"""
-                    INSERT INTO {EVENT_CHUNKS_TABLE}(
-                        chunk_id, event_id, chunk_index, chunk_text, char_start, char_end,
-                        token_estimate, embedding_profile_id, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    [
-                        (
-                            self._chunk_id_for_event(event.event_id, chunk.chunk_index),
-                            event.event_id,
-                            chunk.chunk_index,
-                            chunk.text,
-                            chunk.char_start,
-                            chunk.char_end,
-                            chunk.token_estimate,
-                            profile.profile_id,
-                            now,
-                            now,
-                        )
-                        for chunk in chunks
-                    ],
-                )
-            await db.commit()
-
-    async def _fetch_chunk_rows_by_ids(self, chunk_ids: list[str]) -> list[aiosqlite.Row]:
-        if not chunk_ids:
-            return []
-        placeholders = ", ".join("?" for _ in chunk_ids)
-        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                f"""
-                SELECT chunk_id, event_id, chunk_index, chunk_text, char_start, char_end
-                FROM {EVENT_CHUNKS_TABLE}
-                WHERE chunk_id IN ({placeholders})
-                """,
-                tuple(chunk_ids),
-            ) as cursor:
-                return await cursor.fetchall()
-
-    async def _list_chunk_ids_for_event(self, event_id: str) -> list[str]:
-        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
-            async with db.execute(
-                f"SELECT chunk_id FROM {EVENT_CHUNKS_TABLE} WHERE event_id = ?",
-                (event_id,),
-            ) as cursor:
-                rows = await cursor.fetchall()
-        return [str(row[0]) for row in rows]
 
 
 __all__ = ["L1EventStore"]

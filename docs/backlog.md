@@ -149,6 +149,7 @@ Recent progress:
 - L1 event-store schema migration helpers now live in `event_store_schema.py`.
 - L1 event-store row serialization and timeline projection helpers now live in `event_store_rows.py`.
 - L1 event-store FTS/BM25 helpers now live in `event_store_fts.py`.
+- L1 event-store embedding, chunk, and vector-search helpers now live in `event_store_embeddings.py`.
 
 Candidates to review next:
 
