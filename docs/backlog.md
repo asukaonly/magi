@@ -162,6 +162,7 @@ Recent progress:
 - LLM provider API key reveal/input control now lives in `LLMProviderApiKeyField.tsx`.
 - LLM provider connection test model menu now lives in `LLMProviderTestMenu.tsx`.
 - LLM provider detail header/actions now live in `LLMProviderDetailHeader.tsx`.
+- LLM provider connection test status banners now live in `LLMProviderTestStatus.tsx`.
 - Worker prompt and tool-profile helpers now live in `worker_prompting.py`.
 - Worker status, await, and run-state serialization helpers now live in `worker_status.py`.
 - Worker tool schema definition now lives in `worker_schema.py`.

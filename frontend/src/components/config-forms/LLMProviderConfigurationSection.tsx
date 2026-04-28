@@ -6,6 +6,7 @@ import { SelectField } from '@/components/config-forms/fields';
 import { LLMProviderApiKeyField } from '@/components/config-forms/LLMProviderApiKeyField';
 import { LLMProviderDetailHeader } from '@/components/config-forms/LLMProviderDetailHeader';
 import { LLMProviderListPane } from '@/components/config-forms/LLMProviderListPane';
+import { LLMProviderTestStatus } from '@/components/config-forms/LLMProviderTestStatus';
 import { Switch } from '@/components/ui/switch';
 import {
   type LLMModelMetadataOverride,
@@ -322,33 +323,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                 onTestProviderConnection={onTestProviderConnection}
               />
 
-              {activeTestState.error ? (
-                <div className="flex items-start gap-2 rounded-xl bg-destructive/8 px-3 py-2.5 text-sm text-destructive">
-                  <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                  <div className="space-y-0.5">
-                    <div className="font-medium">{t('llm.providerConfiguration.testFailed')}</div>
-                    <p>{activeTestState.error}</p>
-                  </div>
-                </div>
-              ) : null}
-
-              {activeTestState.result ? (
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl bg-emerald-500/10 px-3 py-2.5 text-sm text-emerald-900 dark:text-emerald-200">
-                  <CheckCircle2 className="h-4 w-4 shrink-0" />
-                  <span className="font-medium">{t('llm.providerConfiguration.testSuccess')}</span>
-                  <span>
-                    {t('llm.providerConfiguration.testSuccessMeta', {
-                      model: activeTestState.result.model,
-                      latency: activeTestState.result.latency_ms,
-                    })}
-                  </span>
-                  {activeTestState.result.preview ? (
-                    <span className="text-emerald-900/80 dark:text-emerald-100/80">
-                      {t('llm.providerConfiguration.testPreview', { preview: activeTestState.result.preview })}
-                    </span>
-                  ) : null}
-                </div>
-              ) : null}
+              <LLMProviderTestStatus error={activeTestState.error} result={activeTestState.result} />
 
               <div className="grid gap-4">
                 {activeProvider.provider_type === 'custom' ? (
