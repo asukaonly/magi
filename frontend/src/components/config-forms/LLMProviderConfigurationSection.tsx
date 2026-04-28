@@ -6,7 +6,6 @@ import { SelectField } from '@/components/config-forms/fields';
 import { ProviderIcon } from '@/components/config-forms/provider-icons';
 import { Switch } from '@/components/ui/switch';
 import {
-  resolveProviderModels,
   type LLMModelMetadataOverride,
   type LLMConfig,
   type LLMProviderConfig,
@@ -15,6 +14,12 @@ import {
   type TestLLMProviderConnectionResponse,
 } from '@/api/modules/config';
 import { cn } from '@/lib/utils';
+import {
+  buildProviderWorkbenchModels,
+  cloneModelOverride,
+  isModelOverrideEmpty,
+  type ProviderWorkbenchModelItem,
+} from '@/components/config-forms/llm-provider-workbench-models';
 
 interface LLMProviderConfigurationSectionProps {
   registry: LLMProviderRegistry;
@@ -49,141 +54,6 @@ const badgeClassName =
 
 const fieldClassName =
   'h-11 w-full rounded-xl bg-background px-3 text-sm ring-1 ring-inset ring-border/55 shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45';
-
-interface ProviderWorkbenchModelItem {
-  id: string;
-  label: string;
-  source: 'builtin' | 'manual';
-  capabilities: {
-    vision: boolean;
-    image_output: boolean;
-    tool_calling: boolean;
-    reasoning: boolean;
-    embedding: boolean;
-  };
-  limits: {
-    context_window?: number | null;
-    max_output_tokens?: number | null;
-    max_concurrency?: number | null;
-  };
-  kinds: Array<'chat' | 'embedding' | 'image'>;
-  dimensions: number[];
-}
-
-const buildProviderWorkbenchModels = (
-  registry: LLMProviderRegistry,
-  providerId: string,
-  provider: LLMProviderConfig | undefined
-): ProviderWorkbenchModelItem[] => {
-  if (!provider) {
-    return [];
-  }
-
-  const resolved = resolveProviderModels(registry, providerId, provider);
-  const models = new Map<string, ProviderWorkbenchModelItem>();
-
-  for (const model of resolved.chat_models) {
-    models.set(model.id, {
-      id: model.id,
-      label: model.label || model.id,
-      source: model.source,
-      capabilities: {
-        vision: model.capabilities.vision,
-        image_output: model.capabilities.image_output,
-        tool_calling: model.capabilities.tool_calling,
-        reasoning: model.capabilities.reasoning,
-        embedding: false,
-      },
-      limits: model.limits || {},
-      kinds: ['chat'],
-      dimensions: [],
-    });
-  }
-
-  for (const model of resolved.embedding_models) {
-    const existing = models.get(model.id);
-    if (existing) {
-      existing.kinds = Array.from(new Set([...existing.kinds, 'embedding']));
-      existing.capabilities = model.capabilities;
-      existing.limits = model.limits || {};
-      existing.dimensions = [...(model.dimensions || [])];
-      continue;
-    }
-
-    models.set(model.id, {
-      id: model.id,
-      label: model.label || model.id,
-      source: model.source,
-      capabilities: model.capabilities,
-      limits: model.limits || {},
-      kinds: ['embedding'],
-      dimensions: [...(model.dimensions || [])],
-    });
-  }
-
-  const providerMeta = registry.providers.find((item) => item.id === providerId);
-  for (const model of providerMeta?.image_generation_models || []) {
-    const existing = models.get(model.id);
-    if (existing) {
-      existing.kinds = Array.from(new Set([...existing.kinds, 'image']));
-      continue;
-    }
-    models.set(model.id, {
-      id: model.id,
-      label: model.label || model.id,
-      source: 'builtin',
-      capabilities: {
-        vision: false,
-        image_output: true,
-        tool_calling: false,
-        reasoning: false,
-        embedding: false,
-      },
-      limits: {},
-      kinds: ['image'],
-      dimensions: [],
-    });
-  }
-
-  return Array.from(models.values()).sort((left, right) => {
-    if (left.source !== right.source) {
-      return left.source === 'builtin' ? -1 : 1;
-    }
-    return left.label.localeCompare(right.label, 'en');
-  });
-};
-
-const cloneModelOverride = (value?: LLMModelMetadataOverride): LLMModelMetadataOverride => ({
-  ...(value || {}),
-  capabilities: { ...(value?.capabilities || {}) },
-  limits: { ...(value?.limits || {}) },
-  input_modalities:
-    value?.input_modalities === null ? null : value?.input_modalities ? [...value.input_modalities] : undefined,
-  output_modalities:
-    value?.output_modalities === null ? null : value?.output_modalities ? [...value.output_modalities] : undefined,
-  provider_options_example:
-    value?.provider_options_example === null
-      ? null
-      : value?.provider_options_example
-        ? { ...value.provider_options_example }
-        : undefined,
-  dimensions:
-    value?.dimensions === null ? null : value?.dimensions ? [...value.dimensions] : undefined,
-});
-
-const isModelOverrideEmpty = (value: LLMModelMetadataOverride): boolean => {
-  const capabilities = Object.values(value.capabilities || {}).every((item) => item === null || item === undefined);
-  const limits = Object.values(value.limits || {}).every((item) => item === null || item === undefined);
-
-  return !value.label &&
-    capabilities &&
-    limits &&
-    (value.input_modalities === undefined || value.input_modalities === null) &&
-    (value.output_modalities === undefined || value.output_modalities === null) &&
-    (value.provider_options_example === undefined || value.provider_options_example === null) &&
-    (value.dimensions === undefined || value.dimensions === null) &&
-    !value.source_note;
-};
 
 export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationSectionProps> = ({
   registry,

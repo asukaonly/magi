@@ -157,6 +157,7 @@ Recent progress:
 - Settings page control branch now lives in `SettingsControlSection.tsx`.
 - Settings page memory branches now route through `SettingsMemorySection.tsx`.
 - Settings page plugin/channel integration branches now route through `SettingsIntegrationsSection.tsx`.
+- LLM provider workbench model helpers now live in `llm-provider-workbench-models.ts`.
 - Worker prompt and tool-profile helpers now live in `worker_prompting.py`.
 - Worker status, await, and run-state serialization helpers now live in `worker_status.py`.
 - Worker tool schema definition now lives in `worker_schema.py`.
