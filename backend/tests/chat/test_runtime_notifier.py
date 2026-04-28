@@ -24,11 +24,18 @@ class _FakeTraceStore:
         return len(self.notifications)
 
 
+def _unused_read_service_factory() -> None:
+    return None
+
+
 class TestEmitContextUsage:
     @pytest.mark.asyncio
     async def test_emits_context_usage_notification(self) -> None:
         store = _FakeTraceStore()
-        notifier = ChatRuntimeNotifier(runtime_trace_store=store)
+        notifier = ChatRuntimeNotifier(
+            runtime_trace_store=store,
+            chat_read_service_factory=_unused_read_service_factory,
+        )
 
         await notifier.emit_context_usage(
             user_id="u1",
@@ -50,7 +57,10 @@ class TestEmitContextUsage:
 
     @pytest.mark.asyncio
     async def test_skips_when_no_trace_store(self) -> None:
-        notifier = ChatRuntimeNotifier(runtime_trace_store=None)
+        notifier = ChatRuntimeNotifier(
+            runtime_trace_store=None,
+            chat_read_service_factory=_unused_read_service_factory,
+        )
         # Should not raise
         await notifier.emit_context_usage(
             user_id="u1",
@@ -62,7 +72,10 @@ class TestEmitContextUsage:
     @pytest.mark.asyncio
     async def test_skips_when_empty_turn_id(self) -> None:
         store = _FakeTraceStore()
-        notifier = ChatRuntimeNotifier(runtime_trace_store=store)
+        notifier = ChatRuntimeNotifier(
+            runtime_trace_store=store,
+            chat_read_service_factory=_unused_read_service_factory,
+        )
 
         await notifier.emit_context_usage(
             user_id="u1",

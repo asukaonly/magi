@@ -28,6 +28,7 @@ def create_chat_agent_factory(
     runtime_trace_store: RuntimeTraceStore | None,
     chat_store: ChatStore | None,
     chat_projector: ChatProjector | None,
+    chat_read_service_factory: Callable[[], Any],
     config: AppConfig,
     background_dispatcher: Any | None = None,
     background_launch_service: Any | None = None,
@@ -50,6 +51,7 @@ def create_chat_agent_factory(
             runtime_trace_store=runtime_trace_store,
             chat_store=chat_store,
             chat_projector=chat_projector,
+            chat_read_service_factory=chat_read_service_factory,
             background_dispatcher=background_dispatcher,
             background_launch_service=background_launch_service,
         )

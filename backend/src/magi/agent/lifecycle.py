@@ -8,6 +8,7 @@ from ..bootstrap.background_tasks import (
     build_background_task_wiring,
     build_completion_handshake_listener,
 )
+from ..chat import get_chat_read_service
 from ..core.logger import get_logger
 from ..tools import tool_registry
 from ..transport.chat_events import broadcast_background_task_state_changed
@@ -85,6 +86,7 @@ class AgentRuntimeModule(LifecycleModule):
                 runtime_trace_store=runtime_trace_store,
                 chat_store=chat_store,
                 chat_projector=chat_projector,
+                chat_read_service_factory=get_chat_read_service,
                 config=config,
                 background_dispatcher=background_wiring.dispatcher if bg_settings.enabled else None,
                 background_launch_service=background_wiring.launch_service if bg_settings.enabled else None,

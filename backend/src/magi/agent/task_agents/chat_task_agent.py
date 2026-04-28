@@ -2,14 +2,14 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 from uuid import uuid4
 
 from ..asset_refs import normalize_asset_ref_list, normalize_asset_ref_payload
 from ...agent.orchestration import get_orchestration_store
 from ...agent.task_orchestrator import TaskOrchestrator
 from ...agent.trace import now_wall_ms
-from ...chat import ChatMessageRecord, ChatProjector, ChatStore, get_chat_read_service
+from ...chat import ChatMessageRecord, ChatProjector, ChatReadService, ChatStore
 from ...config import get_config, get_user_preference
 from ...core.logger import get_logger
 from ...agent.runtime.contracts import FactRecord
@@ -55,6 +55,12 @@ logger = get_logger(__name__)
 _RATE_LIMIT_CODES = {"429", "1302", "rate_limit_exceeded"}
 
 
+def _default_chat_read_service_factory() -> ChatReadService:
+    from ...chat import get_chat_read_service
+
+    return get_chat_read_service()
+
+
 def _format_llm_error(exc: Exception) -> str:
     """Return a concise user-facing error string for an LLM call failure."""
     exc_str = str(exc)
@@ -87,6 +93,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         runtime_trace_store: RuntimeTraceStore | None = None,
         chat_store: ChatStore | None = None,
         chat_projector: ChatProjector | None = None,
+        chat_read_service_factory: Callable[[], ChatReadService] | None = None,
         background_dispatcher: Any | None = None,
         background_launch_service: Any | None = None,
     ) -> None:
@@ -97,6 +104,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         self.unified_memory = unified_memory
         self.memory_integration = memory_integration
         self._chat_store = chat_store
+        self._chat_read_service_factory = chat_read_service_factory or _default_chat_read_service_factory
         self.context_decider = ContextDecider(
             tool_registry=tool_registry,
             llm_adapter=llm_adapter,
@@ -108,7 +116,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             user_profile_service=UserProfileService(unified_memory=unified_memory),
         )
         self.prompt_context_renderer = PromptContextRenderer()
-        self._chat_read_service = get_chat_read_service()
+        self._chat_read_service = self._chat_read_service_factory()
         self._context_retrieval_service = ContextRetrievalService(
             unified_memory=unified_memory,
             retrieval_service=hybrid_retrieval_service,
@@ -129,6 +137,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             history_cache_max_sessions=history_cache_max_sessions,
             history_fetch_limit=history_fetch_limit,
             chat_store=chat_store,
+            chat_read_service_factory=self._chat_read_service_factory,
         )
         self._fact_classifier = ChatFactClassifier()
         self._prompt_service = ChatPromptService(
@@ -184,6 +193,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             runtime_trace_store=runtime_trace_store,
             chat_store=chat_store,
             chat_projector=chat_projector,
+            chat_read_service_factory=self._chat_read_service_factory,
             complete_session_run=lambda session_id, run_id, revision: self._session_run_coordinator.complete_run(
                 session_id=session_id,
                 run_id=run_id,

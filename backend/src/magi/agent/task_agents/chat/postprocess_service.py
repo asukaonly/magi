@@ -46,6 +46,13 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+
+def _default_chat_read_service_factory() -> Any:
+    from ....chat import get_chat_read_service
+
+    return get_chat_read_service()
+
+
 class ChatPostProcessService(ChatPostprocessTraceMixin):
     """Applies side effects for chat execution results."""
 
@@ -64,6 +71,7 @@ class ChatPostProcessService(ChatPostprocessTraceMixin):
         runtime_trace_store: RuntimeTraceStore | None = None,
         chat_store: ChatStore | None = None,
         chat_projector: ChatProjector | None = None,
+        chat_read_service_factory: Callable[[], Any] | None = None,
         complete_session_run: Callable[[str, str, int], Any] | None = None,
         resolve_session_run_status: Callable[[str, str, int], Any] | None = None,
         drain_deferred_turns: Callable[[str], Any] | None = None,
@@ -79,13 +87,17 @@ class ChatPostProcessService(ChatPostprocessTraceMixin):
         self._local_fact_memory: list[FactRecord] = []
         self._max_fact_memory = max_fact_memory
         self._trace_read_service = trace_read_service
+        self._chat_read_service_factory = chat_read_service_factory or _default_chat_read_service_factory
         self._runtime_trace_store = runtime_trace_store
         self._chat_outcome_writer = ChatOutcomeWriter(
             chat_store=chat_store,
             chat_projector=chat_projector,
             trace_id_factory=self._build_trace_id,
         )
-        self._runtime_notifier = ChatRuntimeNotifier(runtime_trace_store=runtime_trace_store)
+        self._runtime_notifier = ChatRuntimeNotifier(
+            runtime_trace_store=runtime_trace_store,
+            chat_read_service_factory=self._chat_read_service_factory,
+        )
         self._started_turn_traces: set[str] = set()
         self._complete_session_run = complete_session_run
         self._resolve_session_run_status = resolve_session_run_status

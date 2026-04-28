@@ -85,6 +85,32 @@ def test_chat_task_agent_streaming_enabled_reads_streaming_preference(monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_chat_task_agent_uses_injected_chat_read_service_for_workspace() -> None:
+    class _FakeSessionSummary:
+        workspace_path = "/tmp/magi-workspace"
+
+    class _FakeReadService:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str]] = []
+
+        async def aget_session_summary(self, user_id: str, session_id: str):
+            self.calls.append((user_id, session_id))
+            return _FakeSessionSummary()
+
+    read_service = _FakeReadService()
+    agent = ChatTaskAgent(
+        agent_id="u-chat",
+        llm_adapter=_FakeLLMAdapter(),
+        chat_read_service_factory=lambda: read_service,
+    )
+
+    workspace_path = await agent._resolve_session_workspace_path(user_id="u-chat", session_id="s-chat")
+
+    assert workspace_path == "/tmp/magi-workspace"
+    assert read_service.calls == [("u-chat", "s-chat")]
+
+
+@pytest.mark.asyncio
 async def test_chat_task_agent_prefers_user_fact_over_tool_loop_trace_in_mixed_batch(monkeypatch) -> None:
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
     seen_messages: list[str] = []

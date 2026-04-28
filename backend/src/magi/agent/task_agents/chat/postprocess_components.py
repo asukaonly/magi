@@ -7,7 +7,7 @@ import uuid
 from typing import Any, Callable
 
 from ....agent.trace import now_wall_ms
-from ....chat import ChatMessageRecord, ChatProjector, ChatStore, ChatTurnRecord, get_chat_read_service
+from ....chat import ChatMessageRecord, ChatProjector, ChatStore, ChatTurnRecord
 from ....llm.streaming_events import LLMStreamEvent
 from ....runtime_trace import RuntimeNotificationRecord, RuntimeTraceStore
 
@@ -363,8 +363,14 @@ class ChatOutcomeWriter:
 class ChatRuntimeNotifier:
     """Appends live runtime notifications for chat consumers."""
 
-    def __init__(self, *, runtime_trace_store: RuntimeTraceStore | None) -> None:
+    def __init__(
+        self,
+        *,
+        runtime_trace_store: RuntimeTraceStore | None,
+        chat_read_service_factory: Callable[[], Any],
+    ) -> None:
         self._runtime_trace_store = runtime_trace_store
+        self._chat_read_service_factory = chat_read_service_factory
 
     async def emit_agent_response(
         self,
@@ -425,7 +431,7 @@ class ChatRuntimeNotifier:
         normalized_message_id = str(message_id or "").strip()
         if not normalized_user_id or not normalized_session_id or not normalized_message_id:
             return
-        read_service = get_chat_read_service()
+        read_service = self._chat_read_service_factory()
         message = await read_service.aget_display_message(
             normalized_user_id,
             normalized_session_id,

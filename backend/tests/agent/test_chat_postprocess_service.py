@@ -550,7 +550,10 @@ async def test_handle_worker_result_persists_reply_anchor_to_original_message(
 async def test_runtime_notifier_appends_response_and_trace_notifications(
     runtime_trace_store: RuntimeTraceStore,
 ) -> None:
-    notifier = ChatRuntimeNotifier(runtime_trace_store=runtime_trace_store)
+    notifier = ChatRuntimeNotifier(
+        runtime_trace_store=runtime_trace_store,
+        chat_read_service_factory=lambda: None,
+    )
 
     await notifier.emit_agent_response(
         user_id="local_user",
@@ -2303,7 +2306,6 @@ async def test_handle_does_not_record_task_reflection_for_plain_chat_reply() -> 
 async def test_handle_emits_execution_control_completed_for_streamed_result(
     runtime_trace_store: RuntimeTraceStore,
     chat_store: ChatStore,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Streamed turns must emit turn_execution_control(completed) so the frontend unlocks the input."""
     class _FakeDisplayMessage:
@@ -2344,11 +2346,6 @@ async def test_handle_emits_execution_control_completed_for_streamed_result(
             _ = (user_id, session_id)
             return _FakeSessionSummary()
 
-    monkeypatch.setattr(
-        "magi.agent.task_agents.chat.postprocess_components.get_chat_read_service",
-        lambda: _FakeReadService(),
-    )
-
     action_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
@@ -2358,6 +2355,7 @@ async def test_handle_emits_execution_control_completed_for_streamed_result(
         get_sensor_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
         chat_store=chat_store,
+        chat_read_service_factory=lambda: _FakeReadService(),
         max_fact_memory=10,
     )
     await chat_store.create_user_turn(
