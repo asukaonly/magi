@@ -137,6 +137,7 @@ Recent progress:
 - Chat post-processing session-run finalization helpers now live in `postprocess_session.py`.
 - Chat post-processing tool event helpers now live in `postprocess_tool_events.py`.
 - Chat post-processing outcome writer helpers now live in `postprocess_outcomes.py`.
+- Chat post-processing background completion helpers now live in `postprocess_background.py`.
 
 Candidates to review next:
 
