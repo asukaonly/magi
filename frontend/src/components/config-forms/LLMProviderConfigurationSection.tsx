@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Plus, XCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
+import { LLMProviderChatModelFields } from '@/components/config-forms/LLMProviderChatModelFields';
 import { LLMProviderConnectionFields } from '@/components/config-forms/LLMProviderConnectionFields';
 import { LLMProviderDetailHeader } from '@/components/config-forms/LLMProviderDetailHeader';
 import { LLMProviderListPane } from '@/components/config-forms/LLMProviderListPane';
@@ -9,7 +10,6 @@ import { LLMProviderModelEditorHeader, type LLMProviderModelEditorKind } from '@
 import { LLMProviderModelListPane } from '@/components/config-forms/LLMProviderModelListPane';
 import { LLMProviderModelToolbar, type LLMProviderModelKind } from '@/components/config-forms/LLMProviderModelToolbar';
 import { LLMProviderTestStatus } from '@/components/config-forms/LLMProviderTestStatus';
-import { Switch } from '@/components/ui/switch';
 import {
   type LLMModelMetadataOverride,
   type LLMConfig,
@@ -396,101 +396,12 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                             </div>
 
                             {activeKind === 'chat' ? (
-                              <>
-                                <div className={cn('grid gap-3', !isSettingsSurface && 'md:grid-cols-2 xl:grid-cols-3')}>
-                                  {([
-                                    ['vision', t('llm.modelFields.vision')],
-                                    ['tool_calling', t('llm.modelFields.toolCalling')],
-                                    ['reasoning', t('llm.modelFields.reasoning')],
-                                  ] as const).map(([field, label]) => {                                    const checked = Boolean(
-                                      activeModelOverride?.capabilities?.[field] ?? activeWorkbenchModel.capabilities[field]
-                                    );
-
-                                    return (
-                                      <div
-                                        key={field}
-                                        className="flex items-center justify-between rounded-xl bg-background/80 px-3 py-2.5"
-                                      >
-                                        <span className="text-sm text-foreground">{label}</span>
-                                        <Switch
-                                          aria-label={label}
-                                          checked={checked}
-                                          onCheckedChange={(nextValue) =>
-                                            updateModelOverride(activeWorkbenchModel.id, (draft) => {
-                                              draft.capabilities = { ...(draft.capabilities || {}), [field]: nextValue };
-                                            })
-                                          }
-                                        />
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-
-                                <div className={cn('grid gap-4', !isSettingsSurface && 'lg:grid-cols-3')}>
-                                  <label className="space-y-2">
-                                    <span className="text-sm font-medium">{t('llm.modelFields.contextWindow')}</span>
-                                    <div className="relative">
-                                      <input
-                                        aria-label={t('llm.modelFields.contextWindow')}
-                                        className={cn(fieldClassName, 'pr-8', isSettingsSurface && 'rounded-lg')}
-                                        type="number"
-                                        min={1}
-                                        step={1}
-                                        value={((activeModelOverride?.limits?.context_window ?? activeWorkbenchModel.limits.context_window) ?? 0) / 1000 || ''}
-                                        onChange={(event) =>
-                                          updateModelOverride(activeWorkbenchModel.id, (draft) => {
-                                            const v = event.target.value.trim();
-                                            draft.limits = { ...(draft.limits || {}), context_window: v ? Number(v) * 1000 : undefined };
-                                          })
-                                        }
-                                      />
-                                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">K</span>
-                                    </div>
-                                  </label>
-
-                                  <label className="space-y-2">
-                                    <span className="text-sm font-medium">{t('llm.modelFields.maxOutputTokens')}</span>
-                                    <div className="relative">
-                                      <input
-                                        aria-label={t('llm.modelFields.maxOutputTokens')}
-                                        className={cn(fieldClassName, 'pr-8', isSettingsSurface && 'rounded-lg')}
-                                        type="number"
-                                        min={1}
-                                        step={1}
-                                        value={((activeModelOverride?.limits?.max_output_tokens ?? activeWorkbenchModel.limits.max_output_tokens) ?? 0) / 1000 || ''}
-                                        onChange={(event) =>
-                                          updateModelOverride(activeWorkbenchModel.id, (draft) => {
-                                            const v = event.target.value.trim();
-                                            draft.limits = { ...(draft.limits || {}), max_output_tokens: v ? Number(v) * 1000 : undefined };
-                                          })
-                                        }
-                                      />
-                                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">K</span>
-                                    </div>
-                                  </label>
-
-                                  <label className="space-y-2">
-                                    <span className="text-sm font-medium">{t('llm.modelFields.maxConcurrency')}</span>
-                                    <input
-                                      aria-label={t('llm.modelFields.maxConcurrency')}
-                                      className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
-                                      type="number"
-                                      min={1}
-                                      step={1}
-                                      value={activeModelOverride?.limits?.max_concurrency ?? activeWorkbenchModel.limits.max_concurrency ?? ''}
-                                      onChange={(event) =>
-                                        updateModelOverride(activeWorkbenchModel.id, (draft) => {
-                                          const nextValue = event.target.value.trim();
-                                          draft.limits = {
-                                            ...(draft.limits || {}),
-                                            max_concurrency: nextValue ? Number(nextValue) : undefined,
-                                          };
-                                        })
-                                      }
-                                    />
-                                  </label>
-                                </div>
-                              </>
+                              <LLMProviderChatModelFields
+                                model={activeWorkbenchModel}
+                                modelOverride={activeModelOverride}
+                                isSettingsSurface={isSettingsSurface}
+                                onModelOverrideChange={updateModelOverride}
+                              />
                             ) : activeKind === 'embedding' ? (
                               <div className="space-y-4">
                                 <div className="space-y-2">
