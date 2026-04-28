@@ -156,6 +156,7 @@ Recent progress:
 - L2 pipeline context loading and history recall helpers now live in `pipeline_context.py`.
 - L2 pipeline extract/reconcile/snapshot worker loops now live in `pipeline_workers.py`.
 - L2 pipeline runtime defaults, stats, initialization, lifecycle, and entity lock helpers now live in `pipeline_lifecycle.py`.
+- L2 pipeline graph/facet/assertion persistence helpers now live in `pipeline_persistence.py`.
 - L2 pipeline normalization/slug/stat bucket helpers now live in `pipeline_utils.py`.
 - L2 validation structured entity/graph hint helpers now live in `pipeline_structured_hints.py`.
 - L2 validation graph candidate preparation and graph endpoint resolution now live in `pipeline_graph_validation.py`.

@@ -31,6 +31,7 @@ from .pipeline_lifecycle import (
 from .pipeline_conflict import L2ConflictArbitrationMixin
 from .pipeline_context import L2PipelineContextMixin
 from .pipeline_entity import L2EntityResolutionMixin
+from .pipeline_persistence import L2PipelinePersistenceMixin
 from .pipeline_staging import (
     DEFAULT_L2_FLUSH_POLL_INTERVAL_SECONDS,
     DEFAULT_L2_MAX_ESTIMATED_TOKENS_PER_BATCH,
@@ -52,6 +53,7 @@ class L2Pipeline(
     L2PipelineWorkerMixin,
     L2ConflictArbitrationMixin,
     L2EntityResolutionMixin,
+    L2PipelinePersistenceMixin,
     L2ValidationMixin,
 ):
     """Owns asynchronous L2 extraction and follow-up queues."""
@@ -197,16 +199,10 @@ class L2Pipeline(
             evidence_event_ids=batch_event_ids,
             catalog_name_index=catalog_name_index,
         )
-        direct_write_count = 0
-        if direct_write_candidates and self._cognition_store is not None:
-            for candidate in direct_write_candidates:
-                await self._cognition_store.upsert_knowledge_edge(**candidate)
-                direct_write_count += 1
-            logger.debug(
-                "L2 structured hints direct-written before Phase 1",
-                event_id=stored_event.event_id,
-                direct_write_count=direct_write_count,
-            )
+        direct_write_count = await self._direct_write_graph_candidates(
+            event=stored_event,
+            candidates=direct_write_candidates,
+        )
 
         # ── Phase 1: Extract & Resolve ──
         logger.info(
@@ -297,11 +293,7 @@ class L2Pipeline(
                 event=stored_event,
                 evidence_event_ids=batch_event_ids,
             )
-            facet_count = 0
-            if facet_candidates and self._cognition_store is not None:
-                for candidate in facet_candidates:
-                    await self._cognition_store.upsert_entity_facet(**candidate)
-                    facet_count += 1
+            facet_count = await self._upsert_entity_facets(facet_candidates)
 
             logger.info(
                 "L2 Phase 1 returned empty result, skipping Phase 2",
@@ -359,15 +351,8 @@ class L2Pipeline(
                 event=stored_event,
                 evidence_event_ids=batch_event_ids,
             )
-            relation_count = 0
-            facet_count = 0
-            if self._cognition_store is not None:
-                for candidate in fast_track_candidates:
-                    await self._cognition_store.upsert_knowledge_edge(**candidate)
-                    relation_count += 1
-                for candidate in facet_candidates:
-                    await self._cognition_store.upsert_entity_facet(**candidate)
-                    facet_count += 1
+            relation_count = await self._upsert_knowledge_edges(fast_track_candidates)
+            facet_count = await self._upsert_entity_facets(facet_candidates)
             touched_entity_ids = self._collect_touched_entities(fast_track_candidates, [])
             logger.info(
                 "L2 fast-track: skipped Phase 2",
@@ -495,50 +480,16 @@ class L2Pipeline(
                     conflict_arbitration=conflict_arbitration,
                 )
 
-        relation_count = 0
-        corroborate_count = 0
-        facet_count = 0
-        assertion_count = 0
-
-        # Acquire per-entity locks before persisting to prevent concurrent
-        # workers from interleaving read-then-write sequences on the same entity.
-        persist_entity_ids = sorted(
-            {
-                str(c.get("subject_id", ""))
-                for c in graph_candidates + direct_write_candidates
-                if c.get("subject_id")
-            }
-            | {
-                str(c.get("object_id", ""))
-                for c in graph_candidates + direct_write_candidates
-                if c.get("object_id")
-            }
-            | {str(c.get("entity_id", "")) for c in assertion_candidates if c.get("entity_id")}
+        relation_count, corroborate_count, facet_count, assertion_count = (
+            await self._persist_phase2_outputs(
+                graph_candidates=graph_candidates,
+                direct_write_candidates=direct_write_candidates,
+                corroborate_targets=corroborate_targets,
+                facet_candidates=facet_candidates,
+                assertion_candidates=assertion_candidates,
+                contradiction_hints=contradiction_hints,
+            )
         )
-        entity_locks = await self._acquire_entity_locks(persist_entity_ids)
-        try:
-            for candidate in graph_candidates:
-                await self._cognition_store.upsert_knowledge_edge(**candidate)
-                relation_count += 1
-
-            for target in corroborate_targets:
-                updated = await self._cognition_store.corroborate_edge(**target)
-                if updated:
-                    corroborate_count += 1
-
-            for candidate in facet_candidates:
-                await self._cognition_store.upsert_entity_facet(**candidate)
-                facet_count += 1
-
-            for candidate in assertion_candidates:
-                await self._cognition_store.upsert_assertion_candidate(candidate)
-                assertion_count += 1
-
-            for hint in contradiction_hints:
-                await self._cognition_store.apply_contradiction_hint(hint)
-        finally:
-            for lock in entity_locks:
-                lock.release()
 
         logger.info(
             "L2 persistence completed",
