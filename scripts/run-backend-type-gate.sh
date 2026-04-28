@@ -26,6 +26,7 @@ export PYTHONPATH="$ROOT_DIR/backend/src:$ROOT_DIR/sdk/src${PYTHONPATH:+:$PYTHON
   src/magi/llm/concurrency_limiter.py \
   src/magi/llm/provider_bridge_options.py \
   src/magi/llm/provider_bridge_requests.py \
+  src/magi/llm/provider_bridge_streaming.py \
   src/magi/llm/streaming_events.py \
   src/magi/llm/usage_events.py \
   src/magi/llm/parsers/content_sanitizer.py \

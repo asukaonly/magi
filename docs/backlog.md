@@ -133,6 +133,7 @@ Recent progress:
 - L2 knowledge-graph upsert and corroboration helpers now live in `store_graph_writes.py`.
 - Provider bridge non-streaming request implementations now live in `provider_bridge_requests.py`.
 - Provider bridge plain chat streaming now lives in `provider_bridge_streaming.py`.
+- Provider bridge tool-call streaming now lives in `provider_bridge_streaming.py`.
 
 Candidates to review next:
 
