@@ -157,6 +157,7 @@ Recent progress:
 - L2 validation structured entity/graph hint helpers now live in `pipeline_structured_hints.py`.
 - L2 validation assertion normalization, scope, and decay helpers now live in `pipeline_assertions.py`.
 - L2 entity maintenance assertion expiry/snapshot/reconcile helpers now live in `entity_maintenance_assertions.py`.
+- L2 entity maintenance edge embedding helpers now live in `entity_maintenance_embeddings.py`.
 
 Candidates to review next:
 

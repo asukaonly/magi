@@ -17,15 +17,11 @@ import aiosqlite
 
 from ...core.logger import get_logger
 from ...core.sqlite import sqlite_connection_async
-from ..embedding.chunking import ChunkedText
-from ..embedding.embedding_pipeline import (
-    EmbeddingPipelineItem,
-    MemoryEmbeddingPipeline,
-)
-from ..embedding.embedding_text_builders import build_l2_edge_embedding_text
+from ..embedding.embedding_pipeline import MemoryEmbeddingPipeline as MemoryEmbeddingPipeline
 from ..embedding.sqlite_vec_index import SqliteVecIndex
 from .ontology import PREDICATE_REGISTRY, get_predicate_synonym_group
 from .entity_maintenance_assertions import L2EntityAssertionMaintenanceMixin
+from .entity_maintenance_embeddings import L2EntityEmbeddingMaintenanceMixin
 from .pipeline import L2Pipeline
 
 logger = get_logger(__name__)
@@ -102,7 +98,7 @@ class L2EntityMaintenanceStats:
     errors: list[str] = field(default_factory=list)
 
 
-class L2EntityMaintenance(L2EntityAssertionMaintenanceMixin):
+class L2EntityMaintenance(L2EntityAssertionMaintenanceMixin, L2EntityEmbeddingMaintenanceMixin):
     """Best-effort cleanup: ghost graph refs, same-name type merges, low-mention orphans."""
 
     # Reconcile entities whose assertions haven't been updated in this many seconds.
@@ -911,37 +907,6 @@ class L2EntityMaintenance(L2EntityAssertionMaintenanceMixin):
         # Clean embeddings for edges that are no longer active.
         await self._clean_non_active_edge_embeddings(stats)
 
-    async def _clean_non_active_edge_embeddings(self, stats: L2EntityMaintenanceStats) -> None:
-        """Remove vector embeddings for edges that are no longer 'active'."""
-        if self._edge_vector_index is None:
-            return
-        async with sqlite_connection_async(self._db_path) as db:
-            async with db.execute(
-                """
-                SELECT triple_id FROM knowledge_graph
-                WHERE status != 'active' AND embedding_status = 'ready'
-                LIMIT 500
-                """
-            ) as cur:
-                rows = await cur.fetchall()
-        if not rows:
-            return
-        for row in rows:
-            triple_id = str(row[0])
-            try:
-                await self._edge_vector_index.delete_entity(entity_id=triple_id)
-            except Exception:
-                pass
-        triple_ids = [str(r[0]) for r in rows]
-        placeholders = ", ".join("?" for _ in triple_ids)
-        async with sqlite_connection_async(self._db_path) as db:
-            await db.execute(
-                f"UPDATE knowledge_graph SET embedding_status = 'disabled' WHERE triple_id IN ({placeholders})",
-                tuple(triple_ids),
-            )
-            await db.commit()
-        stats.edge_embeddings_cleaned = len(triple_ids)
-
     async def _purge_terminal_edges(self, stats: L2EntityMaintenanceStats) -> None:
         """Hard-delete archived/expired edges older than PURGE_TERMINAL_EDGE_STALENESS."""
         now = time.time()
@@ -959,90 +924,6 @@ class L2EntityMaintenance(L2EntityAssertionMaintenanceMixin):
             if purged:
                 await db.commit()
             stats.edges_purged = purged
-
-    async def _embed_pending_edges(
-        self,
-        stats: L2EntityMaintenanceStats,
-        *,
-        batch_limit: int = 200,
-    ) -> None:
-        """Embed knowledge_graph edges that have embedding_status='pending'."""
-        if self._embedding_service is None or self._edge_vector_index is None:
-            return
-
-        pipeline = MemoryEmbeddingPipeline(
-            embedding_service=self._embedding_service,
-            vector_index=self._edge_vector_index,
-        )
-
-        async with sqlite_connection_async(self._db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                "SELECT kg.triple_id, kg.subject_id, kg.predicate, kg.object_id, "
-                "kg.evidence_text, kg.natural_summary, "
-                "sc.canonical_name AS subject_name, oc.canonical_name AS object_name "
-                "FROM knowledge_graph kg "
-                "LEFT JOIN entity_catalog sc ON sc.entity_id = kg.subject_id "
-                "LEFT JOIN entity_catalog oc ON oc.entity_id = kg.object_id "
-                "WHERE kg.embedding_status = 'pending' AND kg.status = 'active' "
-                "ORDER BY kg.updated_at DESC LIMIT ?",
-                (batch_limit,),
-            ) as cur:
-                rows = await cur.fetchall()
-
-        if not rows:
-            return
-
-        items: list[EmbeddingPipelineItem] = []
-        for row in rows:
-            text = build_l2_edge_embedding_text(
-                subject_id=str(row["subject_id"]),
-                predicate=str(row["predicate"]),
-                object_id=str(row["object_id"]),
-                evidence_text=row["evidence_text"],
-                natural_summary=row["natural_summary"],
-                subject_name=row["subject_name"],
-                object_name=row["object_name"],
-            )
-            if not text.strip():
-                continue
-            triple_id = str(row["triple_id"])
-            items.append(
-                EmbeddingPipelineItem(
-                    parent_id=triple_id,
-                    chunks=[
-                        ChunkedText(
-                            chunk_id=triple_id,
-                            text=text,
-                            chunk_index=0,
-                            char_start=0,
-                            char_end=len(text),
-                            token_estimate=max(1, len(text) // 4),
-                        )
-                    ],
-                    metadata={"kind": "edge"},
-                )
-            )
-
-        if not items:
-            return
-
-        try:
-            results = await pipeline.upsert_items(items)
-            embedded_ids = [r.parent_id for r in results]
-            if embedded_ids:
-                placeholders = ", ".join("?" for _ in embedded_ids)
-                async with sqlite_connection_async(self._db_path) as db:
-                    await db.execute(
-                        f"UPDATE knowledge_graph SET embedding_status = 'ready' "
-                        f"WHERE triple_id IN ({placeholders})",
-                        tuple(embedded_ids),
-                    )
-                    await db.commit()
-                stats.edges_embedded = len(embedded_ids)
-        except Exception as exc:
-            logger.warning("Failed to embed pending edges: %s", exc)
-            stats.errors.append(f"edge_embedding: {exc}")
 
     async def _consolidate_episodes(self, stats: L2EntityMaintenanceStats) -> None:
         if self._cognition_store is None:
