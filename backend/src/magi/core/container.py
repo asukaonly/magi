@@ -11,6 +11,7 @@ from dependency_injector import containers, providers
 
 if TYPE_CHECKING:
     from ..agent.runtime import AgentRuntime
+    from ..api.services.chat_trace_read_service import ChatTraceReadService
     from ..bootstrap.context import RuntimeBootstrapContext
     from ..bootstrap.lifecycle import ModuleLifecycleOrchestrator
     from ..chat import ChatProjector, ChatReadService, ChatStore
@@ -31,6 +32,12 @@ def _create_chat_read_service():
     """Factory function for ChatReadService."""
     from ..chat.read_service import ChatReadService
     return ChatReadService()
+
+
+def _create_chat_trace_read_service():
+    """Factory function for ChatTraceReadService."""
+    from ..api.services.chat_trace_read_service import ChatTraceReadService
+    return ChatTraceReadService()
 
 
 def _create_user_message_sensor():
@@ -83,8 +90,13 @@ class Container(containers.DeclarativeContainer):
     control_interaction_broker: providers.Singleton[Any] = providers.Singleton(object)
     pending_permission_registry: providers.Singleton[Any] = providers.Singleton(object)
 
-    # Factory providers for per-request instances
-    chat_read_service = providers.Factory(_create_chat_read_service)
+    # Container-owned read services and lightweight service providers.
+    chat_read_service: providers.Singleton[ChatReadService] = providers.Singleton(
+        _create_chat_read_service
+    )
+    chat_trace_read_service: providers.Singleton[ChatTraceReadService] = providers.Singleton(
+        _create_chat_trace_read_service
+    )
     user_message_sensor = providers.Singleton(_create_user_message_sensor)
 
 

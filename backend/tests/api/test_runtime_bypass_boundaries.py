@@ -27,6 +27,10 @@ def test_api_service_helpers_do_not_probe_container_directly() -> None:
 
     assert "get_container()" not in chat_read_service
     assert "get_container()" not in chat_trace_read_service
+    assert "\n_chat_read_service" not in chat_read_service
+    assert "global _chat_read_service" not in chat_read_service
+    assert "\n_chat_trace_read_service" not in chat_trace_read_service
+    assert "global _chat_trace_read_service" not in chat_trace_read_service
     assert not Path("/Users/asuka/code/magi/backend/src/magi/api/services/chat_read_service.py").exists()
     assert not Path("/Users/asuka/code/magi/backend/src/magi/api/services/user_message_sensor_service.py").exists()
     assert not Path("/Users/asuka/code/magi/backend/src/magi/api/services/message_bus_service.py").exists()

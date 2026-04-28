@@ -1192,12 +1192,10 @@ class ChatReadService:
         finally:
             service.close()
 
-_chat_read_service: Optional[ChatReadService] = None
-
-
 def get_chat_read_service() -> ChatReadService:
     """Get the shared ChatReadService instance."""
-    global _chat_read_service
-    if _chat_read_service is None:
-        _chat_read_service = ChatReadService()
-    return _chat_read_service
+    from .read_service_provider import (
+        get_chat_read_service as _get_chat_read_service,
+    )
+
+    return _get_chat_read_service()

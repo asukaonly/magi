@@ -1603,12 +1603,10 @@ class ChatTraceReadService:
             return default
 
 
-_chat_trace_read_service: Optional[ChatTraceReadService] = None
-
-
 def get_chat_trace_read_service() -> ChatTraceReadService:
     """Get the shared ChatTraceReadService instance."""
-    global _chat_trace_read_service
-    if _chat_trace_read_service is None:
-        _chat_trace_read_service = ChatTraceReadService()
-    return _chat_trace_read_service
+    from .chat_trace_read_service_provider import (
+        get_chat_trace_read_service as _get_chat_trace_read_service,
+    )
+
+    return _get_chat_trace_read_service()
