@@ -21,6 +21,7 @@ from ..embedding.embedding_pipeline import MemoryEmbeddingPipeline as MemoryEmbe
 from ..embedding.sqlite_vec_index import SqliteVecIndex
 from .ontology import PREDICATE_REGISTRY, get_predicate_synonym_group
 from .entity_maintenance_assertions import L2EntityAssertionMaintenanceMixin
+from .entity_maintenance_edges import L2EntityEdgeMaintenanceMixin
 from .entity_maintenance_embeddings import L2EntityEmbeddingMaintenanceMixin
 from .pipeline import L2Pipeline
 
@@ -98,7 +99,11 @@ class L2EntityMaintenanceStats:
     errors: list[str] = field(default_factory=list)
 
 
-class L2EntityMaintenance(L2EntityAssertionMaintenanceMixin, L2EntityEmbeddingMaintenanceMixin):
+class L2EntityMaintenance(
+    L2EntityAssertionMaintenanceMixin,
+    L2EntityEmbeddingMaintenanceMixin,
+    L2EntityEdgeMaintenanceMixin,
+):
     """Best-effort cleanup: ghost graph refs, same-name type merges, low-mention orphans."""
 
     # Reconcile entities whose assertions haven't been updated in this many seconds.
@@ -754,23 +759,6 @@ class L2EntityMaintenance(L2EntityAssertionMaintenanceMixin, L2EntityEmbeddingMa
                 await db.rollback()
                 raise
 
-    async def _expire_stale_future_intents(self, stats: L2EntityMaintenanceStats) -> None:
-        """Mark expired future_intent edges as 'expired'."""
-        now = time.time()
-        async with sqlite_connection_async(self._db_path) as db:
-            cursor = await db.execute(
-                """
-                UPDATE knowledge_graph
-                SET status = 'expired', updated_at = ?
-                WHERE fact_kind = 'future_intent'
-                  AND expires_at IS NOT NULL AND expires_at < ?
-                  AND status = 'active'
-                """,
-                (now, now),
-            )
-            stats.expired_future_intents = cursor.rowcount
-            await db.commit()
-
     async def _consolidate_open_predicates(self, stats: L2EntityMaintenanceStats) -> None:
         """Rewrite non-core predicates to their core synonym when a mapping exists.
 
@@ -868,62 +856,6 @@ class L2EntityMaintenance(L2EntityAssertionMaintenanceMixin, L2EntityEmbeddingMa
             if consolidated:
                 await db.commit()
             stats.open_predicates_consolidated = consolidated
-
-    async def _archive_stale_edges(self, stats: L2EntityMaintenanceStats) -> None:
-        """Move low-confidence stale edges from 'active' to 'archived'.
-
-        Criteria (both must be true):
-        - ``confidence < ARCHIVE_CONFIDENCE_THRESHOLD`` AND ``updated_at`` older
-          than ``ARCHIVE_STALENESS_SECONDS``, OR
-        - ``observation_count == 1`` AND ``updated_at`` older than
-          ``ARCHIVE_SINGLE_OBS_STALENESS``.
-
-        ``future_intent`` edges are skipped (they have their own TTL expiry).
-        """
-        now = time.time()
-        cutoff_low_conf = now - self.ARCHIVE_STALENESS_SECONDS
-        cutoff_single_obs = now - self.ARCHIVE_SINGLE_OBS_STALENESS
-
-        async with sqlite_connection_async(self._db_path) as db:
-            cursor = await db.execute(
-                """
-                UPDATE knowledge_graph
-                SET status = 'archived', updated_at = ?
-                WHERE status = 'active'
-                  AND fact_kind != 'future_intent'
-                  AND (
-                      (confidence < ? AND updated_at < ?)
-                      OR
-                      (observation_count = 1 AND updated_at < ?)
-                  )
-                """,
-                (now, self.ARCHIVE_CONFIDENCE_THRESHOLD, cutoff_low_conf, cutoff_single_obs),
-            )
-            archived = cursor.rowcount
-            if archived:
-                await db.commit()
-            stats.edges_archived = archived
-
-        # Clean embeddings for edges that are no longer active.
-        await self._clean_non_active_edge_embeddings(stats)
-
-    async def _purge_terminal_edges(self, stats: L2EntityMaintenanceStats) -> None:
-        """Hard-delete archived/expired edges older than PURGE_TERMINAL_EDGE_STALENESS."""
-        now = time.time()
-        cutoff = now - self.PURGE_TERMINAL_EDGE_STALENESS
-        async with sqlite_connection_async(self._db_path) as db:
-            cursor = await db.execute(
-                """
-                DELETE FROM knowledge_graph
-                WHERE status IN ('archived', 'expired')
-                  AND updated_at < ?
-                """,
-                (cutoff,),
-            )
-            purged = cursor.rowcount
-            if purged:
-                await db.commit()
-            stats.edges_purged = purged
 
     async def _consolidate_episodes(self, stats: L2EntityMaintenanceStats) -> None:
         if self._cognition_store is None:
