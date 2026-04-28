@@ -48,6 +48,7 @@ export PYTHONPATH="$ROOT_DIR/backend/src:$ROOT_DIR/sdk/src${PYTHONPATH:+:$PYTHON
   src/magi/memory/l1/event_store_queries.py \
   src/magi/memory/l1/event_store_rows.py \
   src/magi/memory/l1/event_store_schema.py \
+  src/magi/memory/l2/batch_models.py \
   src/magi/memory/l2/candidate_models.py \
   src/magi/memory/l2/ontology.py \
   src/magi/memory/l2/pipeline_assertions.py \

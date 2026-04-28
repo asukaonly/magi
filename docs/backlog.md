@@ -166,6 +166,7 @@ Recent progress:
 - L2 phase/structured/reconciled outcome dataclass contracts now live in `phase_models.py` with old `models.py` exports preserved.
 - L2 entity/reconcile dataclass contracts now live in `entity_models.py` with old `models.py` exports preserved.
 - L2 candidate/unified extraction dataclass contracts now live in `candidate_models.py` with old `models.py` exports preserved.
+- L2 batch/window/job/request dataclass contracts now live in `batch_models.py` with old `models.py` exports preserved.
 
 Candidates to review next:
 
