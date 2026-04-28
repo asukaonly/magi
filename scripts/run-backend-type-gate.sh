@@ -68,6 +68,7 @@ export PYTHONPATH="$ROOT_DIR/backend/src:$ROOT_DIR/sdk/src${PYTHONPATH:+:$PYTHON
   src/magi/memory/l2/pipeline_staging.py \
   src/magi/memory/l2/pipeline_structured_hints.py \
   src/magi/memory/l2/pipeline_workers.py \
+  src/magi/memory/l2/workflow_prompts.py \
   src/magi/memory/l2/store_assertions.py \
   src/magi/memory/l2/store_candidates.py \
   src/magi/memory/l2/store_contradictions.py \

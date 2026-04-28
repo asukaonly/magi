@@ -2,21 +2,19 @@
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from typing import Any
 
-from .models import (
-    L2BatchEntityResolutionItem,
-    L2CandidateSet,
-    L2EntityCandidate,
-    L2EntityResolutionMention,
-    L2ReconcileAssertion,
-    L2ReconcileEntity,
-    L2ReconcileGraphFact,
-    L2EventWindow,
-    L2ExistingRecord,
-    L2SourceEvent,
+from .models import L2EventWindow
+from .workflow_prompts import (
+    BATCH_ENTITY_RESOLUTION_SYSTEM_PROMPT,
+    CONFLICT_ARBITRATION_SYSTEM_PROMPT,
+    ENTITY_RECONCILE_SYSTEM_PROMPT,
+    ENTITY_RESOLUTION_SYSTEM_PROMPT,
+    render_batch_entity_resolution_prompt,
+    render_conflict_arbitration_prompt,
+    render_entity_reconcile_prompt,
+    render_entity_resolution_prompt,
 )
 
 # ---------------------------------------------------------------------------
@@ -182,39 +180,10 @@ Return JSON only:
 ```
 """
 
-# Legacy prompts kept for entity resolution, reconcile, and conflict arbitration
-# which remain as separate LLM calls.
-
-ENTITY_RESOLUTION_SYSTEM_PROMPT = """You are an entity resolution engine for a memory graph.
-
-Your job is to determine whether a mention refers to one of the provided candidate entities.
-Be conservative:
-- Prefer unresolved over guessing.
-- Use local context, aliases, semantics, and common nicknames.
-- Do not create a new fact beyond identity resolution.
-- Return JSON only.
-"""
-
-ENTITY_RECONCILE_SYSTEM_PROMPT = """You are an entity-level reconciliation engine for a memory system.
-
-Your job is to review multiple evidence-bound records for the same entity and estimate which candidate traits are currently supported, contradicted, unstable, or still uncertain.
-Be conservative:
-- Respect evidence count and time span.
-- Do not overfit to a single recent statement if long-term evidence disagrees.
-- Separate stable traits from temporary states.
-- Return JSON only.
-"""
-
-CONFLICT_ARBITRATION_SYSTEM_PROMPT = """You are a conflict arbitration assistant for a memory system.
-
-Your task is to review new evidence, conflicting existing memory records, and supporting source events.
-Return exactly one final arbitration decision: keep_new, keep_existing, or mark_evolution.
-Do not hedge, and do not return multiple competing outcomes.
-"""
-
 # ---------------------------------------------------------------------------
 # Helper: format timestamp for prompts
 # ---------------------------------------------------------------------------
+
 
 def _format_ts(ts: float) -> str:
     if ts <= 0:
@@ -228,6 +197,7 @@ def _format_ts(ts: float) -> str:
 # ---------------------------------------------------------------------------
 # Phase 1 prompt renderer
 # ---------------------------------------------------------------------------
+
 
 def render_phase1_extract_prompt(
     *,
@@ -300,6 +270,7 @@ def render_phase1_extract_prompt(
 # Phase 2 prompt renderer
 # ---------------------------------------------------------------------------
 
+
 def render_phase2_integrate_prompt(
     *,
     phase1_result: dict[str, Any],
@@ -338,8 +309,7 @@ def render_phase2_integrate_prompt(
             conf = claim.get("confidence", 0.0)
             evidence = claim.get("evidence_text", "")
             parts.append(
-                f"{i}. {subj} → {pred} → {obj} [{obj_type}, {specificity}] "
-                f"(confidence: {conf})"
+                f"{i}. {subj} → {pred} → {obj} [{obj_type}, {specificity}] (confidence: {conf})"
             )
             if evidence:
                 parts.append(f'   Evidence: "{evidence}"')
@@ -354,7 +324,7 @@ def render_phase2_integrate_prompt(
         for ref in resolved_refs:
             surface = ref.get("surface", "")
             resolved = ref.get("resolved_ref") or "unresolved"
-            parts.append(f"- \"{surface}\" → {resolved}")
+            parts.append(f'- "{surface}" → {resolved}')
         parts.append("")
 
     # Existing graph edges for the focal subject
@@ -386,10 +356,7 @@ def render_phase2_integrate_prompt(
             state = assertion.get("validation_state", "?")
             conf = assertion.get("confidence_score", 0.0)
             aid = assertion.get("assertion_id", "")
-            parts.append(
-                f"- [{aid}] {family}/{trait} = {value} "
-                f"(state={state}, confidence={conf})"
-            )
+            parts.append(f"- [{aid}] {family}/{trait} = {value} (state={state}, confidence={conf})")
         parts.append("")
 
     # Focal subject
@@ -405,94 +372,6 @@ def render_phase2_integrate_prompt(
     parts.append("")
 
     return "\n".join(parts)
-
-
-def render_entity_resolution_prompt(
-    *,
-    mention: L2EntityResolutionMention,
-    candidate_entities: list[L2EntityCandidate],
-) -> str:
-    return (
-        "Resolve the entity mention to one of the candidate canonical entities if possible.\n\n"
-        f"Mention:\n{json.dumps(mention.to_dict(), ensure_ascii=False, indent=2)}\n\n"
-        f"Candidate entities:\n{json.dumps([item.to_dict() for item in candidate_entities], ensure_ascii=False, indent=2)}\n\n"
-        "Return JSON with this schema:\n"
-        '{\n  "resolution": {\n    "decision": "match|unresolved|create_new_candidate",\n    "matched_entity_id": "string or null",\n'
-        '    "matched_entity_name": "string or null",\n    "confidence": 0.0,\n    "reason_tags": ["string"],\n'
-        '    "should_merge": true,\n    "canonical_name_suggestion": "string or null"\n  }\n}'
-    )
-
-
-BATCH_ENTITY_RESOLUTION_SYSTEM_PROMPT = """You are an entity resolution engine for a memory graph.
-
-Your job is to determine, for EACH mention in the batch, whether it refers to one of its provided candidate entities.
-Be conservative:
-- Prefer unresolved over guessing.
-- Use local context, aliases, semantics, and common nicknames.
-- Do not create a new fact beyond identity resolution.
-- Return JSON only.
-"""
-
-
-def render_batch_entity_resolution_prompt(
-    *,
-    items: list[L2BatchEntityResolutionItem],
-) -> str:
-    items_payload = [item.to_dict() for item in items]
-    return (
-        "Resolve each entity mention to one of its candidate canonical entities if possible.\n\n"
-        f"Mentions to resolve:\n{json.dumps(items_payload, ensure_ascii=False, indent=2)}\n\n"
-        "Return JSON with this schema:\n"
-        '{\n  "resolutions": [\n    {\n      "mention_key": "string (echo back the mention_key)",\n'
-        '      "decision": "match|unresolved|create_new_candidate",\n      "matched_entity_id": "string or null",\n'
-        '      "matched_entity_name": "string or null",\n      "confidence": 0.0,\n      "reason_tags": ["string"],\n'
-        '      "should_merge": true,\n      "canonical_name_suggestion": "string or null"\n    }\n  ]\n}'
-    )
-
-
-def render_conflict_arbitration_prompt(
-    *,
-    new_event_window: L2EventWindow,
-    new_candidates: L2CandidateSet,
-    contradiction_hints: list[dict[str, Any]],
-    existing_records: list[L2ExistingRecord],
-    source_events: list[L2SourceEvent],
-) -> str:
-    return (
-        "Arbitrate the conflict between new evidence and existing memory records.\n\n"
-        f"New event window:\n{json.dumps(new_event_window.to_dict(), ensure_ascii=False, indent=2)}\n\n"
-        f"New candidates:\n{json.dumps(new_candidates.to_dict(), ensure_ascii=False, indent=2)}\n\n"
-        f"Contradiction hints:\n{json.dumps(contradiction_hints, ensure_ascii=False, indent=2)}\n\n"
-        f"Existing records:\n{json.dumps([item.to_dict() for item in existing_records], ensure_ascii=False, indent=2)}\n\n"
-        f"Supporting source events:\n{json.dumps([item.to_dict() for item in source_events], ensure_ascii=False, indent=2)}\n\n"
-        "Return JSON with this schema:\n"
-        '{\n  "decision": "keep_new|keep_existing|mark_evolution",\n'
-        '  "winning_record_ids": ["string"],\n'
-        '  "superseded_record_ids": ["string"],\n'
-        '  "reason": "string"\n}'
-    )
-
-
-def render_entity_reconcile_prompt(
-    *,
-    entity: L2ReconcileEntity,
-    graph_facts: list[L2ReconcileGraphFact],
-    assertions: list[L2ReconcileAssertion],
-    recent_events: list[L2SourceEvent],
-) -> str:
-    return (
-        "Reconcile the following evidence for one entity.\n\n"
-        f"Entity:\n{json.dumps(entity.to_dict(), ensure_ascii=False, indent=2)}\n\n"
-        f"Related graph facts:\n{json.dumps([item.to_dict() for item in graph_facts], ensure_ascii=False, indent=2)}\n\n"
-        f"Related assertion candidates:\n{json.dumps([item.to_dict() for item in assertions], ensure_ascii=False, indent=2)}\n\n"
-        f"Recent events:\n{json.dumps([item.to_dict() for item in recent_events], ensure_ascii=False, indent=2)}\n\n"
-        "Return JSON with this schema:\n"
-        '{\n  "reconciled_traits": [\n    {\n      "trait_name": "string",\n      "winning_value": "string or JSON string",\n'
-        '      "status": "stable|corroborated|tentative|contradicted|expired",\n      "confidence": 0.0,\n      "evidence_event_ids": ["string"],\n'
-        '      "time_span_hours": 0.0,\n      "stability_kind": "stable_trait|temporary_state|volatile_pattern",\n'
-        '      "recommended_snapshot_field": "core_traits|preferences|sensitive_triggers|public_sentiment_profile|relationship_topology|current_context|current_mood|current_stress_level|current_engagement|none"\n'
-        "    }\n  ]\n}"
-    )
 
 
 __all__ = [
