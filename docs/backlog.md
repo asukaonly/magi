@@ -140,6 +140,7 @@ Recent progress:
 - Chat post-processing background completion helpers now live in `postprocess_background.py`.
 - Chat post-processing memory/reflection helpers now live in `postprocess_memory.py`.
 - Worker prompt and tool-profile helpers now live in `worker_prompting.py`.
+- Worker status, await, and run-state serialization helpers now live in `worker_status.py`.
 
 Candidates to review next:
 

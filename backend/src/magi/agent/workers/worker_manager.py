@@ -26,6 +26,7 @@ from .worker_state import (
     WorkerRunState,
     optional_string,
 )
+from .worker_status import WorkerStatusMixin
 from .worker_trace import WorkerTraceMixin
 from ...tools.schema import (
     ParameterType,
@@ -40,7 +41,13 @@ from ...tools.schema import (
 logger = get_logger(__name__)
 
 
-class WorkerAgentManager(WorkerTraceMixin, WorkerResultValidationMixin, WorkerPromptMixin, Tool):
+class WorkerAgentManager(
+    WorkerTraceMixin,
+    WorkerResultValidationMixin,
+    WorkerPromptMixin,
+    WorkerStatusMixin,
+    Tool,
+):
     """Manage worker-agent launch/status/await lifecycle for orchestration layers."""
 
     ACTION_LAUNCH = "launch"
@@ -777,177 +784,3 @@ class WorkerAgentManager(WorkerTraceMixin, WorkerResultValidationMixin, WorkerPr
                 "result_preview": result_preview,
             },
         )
-
-    async def _get_worker_status(self, worker_id: str) -> ToolResult:
-        async with self._lock:
-            run_state = self._runs.get(worker_id)
-        if run_state is None:
-            return ToolResult(
-                success=False,
-                error=f"Worker not found: {worker_id}",
-                error_code=ToolErrorCode.TOOL_NOT_FOUND.value,
-            )
-        await self._refresh_run_state(run_state)
-        return ToolResult(success=True, data=self._serialize_run_state(run_state))
-
-    async def _get_workers_status(self, worker_ids: List[str]) -> ToolResult:
-        workers = []
-        missing_ids = []
-        for worker_id in worker_ids:
-            async with self._lock:
-                run_state = self._runs.get(worker_id)
-            if run_state is None:
-                missing_ids.append(worker_id)
-                continue
-            await self._refresh_run_state(run_state)
-            workers.append(self._serialize_run_state(run_state))
-
-        success = len(missing_ids) == 0
-        return ToolResult(
-            success=success,
-            data={
-                "workers": workers,
-                "worker_count": len(workers),
-                "missing_worker_ids": missing_ids,
-            },
-            error=None if success else f"Some workers not found: {', '.join(missing_ids)}",
-            error_code=None if success else ToolErrorCode.TOOL_NOT_FOUND.value,
-        )
-
-    async def _await_worker(self, worker_id: str, timeout_seconds: int) -> ToolResult:
-        async with self._lock:
-            run_state = self._runs.get(worker_id)
-        if run_state is None:
-            return ToolResult(
-                success=False,
-                error=f"Worker not found: {worker_id}",
-                error_code=ToolErrorCode.TOOL_NOT_FOUND.value,
-            )
-
-        if run_state.task is not None and not run_state.task.done():
-            try:
-                # Timeout should stop waiting, not terminate the worker task itself.
-                await asyncio.wait_for(
-                    asyncio.shield(run_state.task), timeout=float(timeout_seconds)
-                )
-            except asyncio.TimeoutError:
-                return ToolResult(
-                    success=False,
-                    error=f"Waiting for worker timed out after {timeout_seconds}s",
-                    error_code=ToolErrorCode.TIMEOUT.value,
-                    data=self._serialize_run_state(run_state),
-                )
-
-        await self._refresh_run_state(run_state)
-        return self._build_run_result(run_state)
-
-    async def _await_workers(self, worker_ids: List[str], timeout_seconds: int) -> ToolResult:
-        run_states = []
-        missing_ids = []
-        for worker_id in worker_ids:
-            async with self._lock:
-                run_state = self._runs.get(worker_id)
-            if run_state is None:
-                missing_ids.append(worker_id)
-                continue
-            run_states.append(run_state)
-
-        if missing_ids:
-            return ToolResult(
-                success=False,
-                error=f"Some workers not found: {', '.join(missing_ids)}",
-                error_code=ToolErrorCode.TOOL_NOT_FOUND.value,
-                data={"missing_worker_ids": missing_ids},
-            )
-
-        pending_tasks = [
-            state.task for state in run_states if state.task is not None and not state.task.done()
-        ]
-        if pending_tasks:
-            try:
-                await asyncio.wait_for(
-                    asyncio.gather(
-                        *(asyncio.shield(task) for task in pending_tasks), return_exceptions=True
-                    ),
-                    timeout=float(timeout_seconds),
-                )
-            except asyncio.TimeoutError:
-                return ToolResult(
-                    success=False,
-                    error=f"Waiting for workers timed out after {timeout_seconds}s",
-                    error_code=ToolErrorCode.TIMEOUT.value,
-                    data={"workers": [self._serialize_run_state(state) for state in run_states]},
-                )
-
-        for state in run_states:
-            await self._refresh_run_state(state)
-
-        all_success = all(state.status == "completed" for state in run_states)
-        return ToolResult(
-            success=all_success,
-            data={"workers": [self._serialize_run_state(state) for state in run_states]},
-            error=None if all_success else "Some workers failed",
-            error_code=None if all_success else ToolErrorCode.EXECUTION_ERROR.value,
-        )
-
-    async def _refresh_run_state(self, run_state: WorkerRunState) -> None:
-        task = run_state.task
-        if not task or not task.done():
-            return
-        if run_state.status != "running":
-            return
-        try:
-            task.result()
-        except Exception as exc:
-            run_state.status = "failed"
-            run_state.error = str(exc)
-            run_state.updated_at = time.time()
-            run_state.completed_at = run_state.updated_at
-
-    def _build_run_result(self, run_state: WorkerRunState) -> ToolResult:
-        success = run_state.status == "completed"
-        return ToolResult(
-            success=success,
-            data=self._serialize_run_state(run_state),
-            error=None if success else run_state.error or "Worker execution failed",
-            error_code=None if success else ToolErrorCode.EXECUTION_ERROR.value,
-        )
-
-    def _serialize_run_state(self, run_state: WorkerRunState) -> Dict[str, Any]:
-        return {
-            "worker_id": run_state.worker_id,
-            "status": run_state.status,
-            "subagent_type": run_state.subagent_type,
-            "description": run_state.description,
-            "orchestration_id": run_state.orchestration_id,
-            "subtask_id": run_state.subtask_id,
-            "turn_id": run_state.turn_id,
-            "parent_task_agent_type": run_state.parent_task_agent_type,
-            "parent_task_agent_id": run_state.parent_task_agent_id,
-            "target_task_agent_type": run_state.target_task_agent_type,
-            "target_task_agent_id": run_state.target_task_agent_id,
-            "created_at": run_state.created_at,
-            "updated_at": run_state.updated_at,
-            "completed_at": run_state.completed_at,
-            "result": run_state.result,
-            "result_preview": run_state.result_preview,
-            "error": run_state.error,
-            "failure_reason": run_state.failure_reason,
-            "retry_count": run_state.retry_count,
-        }
-
-    def _trim_history(self, max_runs: int) -> None:
-        if len(self._runs) <= max_runs:
-            return
-        sorted_runs = sorted(self._runs.values(), key=lambda item: item.created_at)
-        to_remove = len(sorted_runs) - max_runs
-        for run_state in sorted_runs[:to_remove]:
-            if run_state.status == "running":
-                continue
-            self._runs.pop(run_state.worker_id, None)
-
-    def _compact_value(self, value: Any, limit: int = 500) -> str:
-        text = str(value)
-        if len(text) <= limit:
-            return text
-        return text[:limit] + "...(truncated)"
