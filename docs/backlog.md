@@ -151,6 +151,7 @@ Recent progress:
 - Settings page tools and skills section rendering/loading now lives in `SettingsToolsSection.tsx`.
 - Shared settings section primitives now live in `SettingsSectionPrimitives.tsx`.
 - Settings page preferences section rendering now lives in `SettingsPreferencesSection.tsx`.
+- Settings page conversation section rendering now lives in `SettingsConversationSection.tsx`.
 - Worker prompt and tool-profile helpers now live in `worker_prompting.py`.
 - Worker status, await, and run-state serialization helpers now live in `worker_status.py`.
 - Worker tool schema definition now lives in `worker_schema.py`.

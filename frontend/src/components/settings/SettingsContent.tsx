@@ -1,13 +1,11 @@
-import { forwardRef, useImperativeHandle, useMemo, useState } from 'react';
+import { forwardRef, useImperativeHandle, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  FolderOpen,
   X,
   RotateCcw,
   Save,
 } from 'lucide-react';
 
-import { DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
 import { useSettings } from '@/hooks/useSettings';
 import { NAV_ITEMS, isNavGroup } from '@/constants/settings';
 import type { SettingsPageHandle, SettingsPageProps } from '@/types/settings';
@@ -23,23 +21,22 @@ import {
 } from '@/components/settings';
 import LLMForm from '@/components/config-forms/LLMForm';
 import ChannelsSection from '@/components/settings/ChannelsSection';
+import { SettingsConversationSection } from '@/components/settings/SettingsConversationSection';
 import PluginsSection from '@/components/settings/PluginsSection';
 import { PluginMarketplace } from '@/components/settings/PluginMarketplace';
 import { SettingsNavigationSidebar } from '@/components/settings/SettingsNavigationSidebar';
 import { SettingsPreferencesSection } from '@/components/settings/SettingsPreferencesSection';
-import { SettingsGroup, SettingsSectionShell, SettingsSwitchRow } from '@/components/settings/SettingsSectionPrimitives';
+import { SettingsGroup, SettingsSectionShell } from '@/components/settings/SettingsSectionPrimitives';
 import { SettingsToolsSection } from '@/components/settings/SettingsToolsSection';
 import TimelineSourcesSection from '@/components/settings/TimelineSourcesSection';
 import { ControlSettingsPanel } from '@/components/control';
 import PersonalityModern from '@/pages/PersonalityModern';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { cn } from '@/lib/utils';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { toast } from 'sonner';
-import { pickDirectory } from '@/runtime/desktop';
 import { getTimelineSourceDisplayName } from '@/utils/timeline-source-copy';
 
 const ADVANCED_MEMORY_SECTION_IDS = new Set([
@@ -52,7 +49,6 @@ const ADVANCED_MEMORY_SECTION_IDS = new Set([
 
 export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({ onRequestClose }, ref) => {
   const { t } = useTranslation('app');
-  const [pickingWorkspace, setPickingWorkspace] = useState(false);
 
   const {
     loading,
@@ -181,33 +177,8 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
   }
 
   const renderSectionContent = () => {
-    const defaultChatWorkspaceFallback = DEFAULT_SYSTEM_CONFIG.preferences.default_chat_workspace_path;
     const embeddingSelection = draftConfig.llm?.selections?.embedding;
     const hasEmbeddingModel = !!(embeddingSelection?.provider_id && embeddingSelection?.model);
-    const coreModelSupportsVision = Boolean(draftConfig.llm?.selections?.core?.capabilities?.vision);
-    const mediaGroundingEnabled = Boolean(draftConfig.preferences.allow_media_grounding_for_conversation);
-    const mediaGroundingSwitchDisabled = !coreModelSupportsVision && !mediaGroundingEnabled;
-    const defaultChatWorkspacePath = draftConfig.preferences.default_chat_workspace_path;
-    const effectiveDefaultChatWorkspacePath = defaultChatWorkspacePath ?? defaultChatWorkspaceFallback ?? '';
-    const canRestoreDefaultChatWorkspace = defaultChatWorkspacePath !== defaultChatWorkspaceFallback;
-
-    const handlePickWorkspace = async () => {
-      setPickingWorkspace(true);
-      try {
-        const selectedPath = await pickDirectory(effectiveDefaultChatWorkspacePath);
-        if (!selectedPath) {
-          return;
-        }
-        patchDraftConfig((draft) => {
-          draft.preferences.default_chat_workspace_path = selectedPath;
-        });
-      } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : 'unknown';
-        toast.error(t('settings.defaultChatWorkspacePickFailed', { message }));
-      } finally {
-        setPickingWorkspace(false);
-      }
-    };
 
     switch (effectiveActiveSection) {
       case 'preferences':
@@ -223,102 +194,12 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
 
       case 'conversation':
         return (
-          <SettingsSectionShell>
-            <SettingsGroup
-              title={t('settings.fields.defaultChatWorkspace')}
-              description={t('settings.defaultChatWorkspaceDesc')}
-              contentClassName="space-y-0"
-            >
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <label className="min-w-0 flex-1" htmlFor="default-chat-workspace">
-                  <Input
-                    id="default-chat-workspace"
-                    aria-label={t('settings.fields.defaultChatWorkspace')}
-                    readOnly
-                    value={effectiveDefaultChatWorkspacePath}
-                    placeholder={t('settings.defaultChatWorkspacePlaceholder')}
-                  />
-                </label>
-                <div className="flex flex-wrap gap-2 sm:flex-none">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      void handlePickWorkspace();
-                    }}
-                    disabled={pickingWorkspace}
-                  >
-                    <FolderOpen className="mr-2 h-4 w-4" />
-                    {t('settings.actions.chooseDirectory')}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={() => patchDraftConfig((draft) => {
-                      draft.preferences.default_chat_workspace_path = defaultChatWorkspaceFallback;
-                    })}
-                    disabled={!canRestoreDefaultChatWorkspace}
-                  >
-                    <RotateCcw className="mr-2 h-4 w-4" />
-                    {t('settings.actions.restoreDefaultDirectory')}
-                  </Button>
-                </div>
-              </div>
-            </SettingsGroup>
-
-            <SettingsSwitchRow
-              title={t('settings.streamingChatLabel')}
-              description={t('settings.streamingChatDesc')}
-              ariaLabel={t('settings.fields.streamingChat')}
-              checked={draftConfig.preferences.streaming_chat_enabled}
-              onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                draft.preferences.streaming_chat_enabled = checked;
-              })}
-            />
-
-            <SettingsSwitchRow
-              title={t('settings.mediaGroundingLabel')}
-              description={t('settings.mediaGroundingDesc')}
-              hint={!coreModelSupportsVision ? t('settings.mediaGroundingUnavailable') : undefined}
-              hintClassName={!coreModelSupportsVision ? 'text-amber-600 dark:text-amber-300' : undefined}
-              ariaLabel={t('settings.fields.mediaGrounding')}
-              checked={draftConfig.preferences.allow_media_grounding_for_conversation}
-              disabled={mediaGroundingSwitchDisabled}
-              onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                draft.preferences.allow_media_grounding_for_conversation = checked;
-              })}
-            />
-
-            <SettingsSwitchRow
-              title={t('settings.allowInterjectionLabel')}
-              description={t('settings.allowInterjectionDesc')}
-              ariaLabel={t('settings.fields.allowInterjection')}
-              checked={draftConfig.preferences.allow_interjection}
-              onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                draft.preferences.allow_interjection = checked;
-              })}
-            />
-
-            <SettingsSwitchRow
-              title={t('settings.allowAskInBackgroundLabel')}
-              description={t('settings.allowAskInBackgroundDesc')}
-              ariaLabel={t('settings.fields.allowAskInBackground')}
-              checked={draftConfig.preferences.allow_ask_in_background}
-              onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                draft.preferences.allow_ask_in_background = checked;
-              })}
-            />
-
-            {draftControlSettings ? (
-              <ControlSettingsPanel
-                value={draftControlSettings}
-                onChange={(next) => patchDraftControlSettings((draft) => {
-                  draft.permission_mode = next.permission_mode;
-                  draft.plan_approval_required = next.plan_approval_required;
-                })}
-              />
-            ) : null}
-          </SettingsSectionShell>
+          <SettingsConversationSection
+            draftConfig={draftConfig}
+            draftControlSettings={draftControlSettings}
+            patchDraftConfig={patchDraftConfig}
+            patchDraftControlSettings={patchDraftControlSettings}
+          />
         );
 
       case 'llmProviders':
