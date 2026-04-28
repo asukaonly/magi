@@ -2248,36 +2248,6 @@ class L2CognitionStore(
         assert snapshot is not None
         return snapshot
 
-    async def _ensure_knowledge_graph_columns(self, db: aiosqlite.Connection) -> None:
-        """Backfill additive columns for older knowledge_graph schemas."""
-        db.row_factory = aiosqlite.Row
-        async with db.execute("PRAGMA table_info(knowledge_graph)") as cursor:
-            rows = await cursor.fetchall()
-        columns = {str(row["name"]) for row in rows}
-        if "fact_kind" not in columns:
-            await db.execute(
-                "ALTER TABLE knowledge_graph ADD COLUMN fact_kind TEXT NOT NULL DEFAULT 'explicit_fact'"
-            )
-        if "evidence_text" not in columns:
-            await db.execute("ALTER TABLE knowledge_graph ADD COLUMN evidence_text TEXT DEFAULT ''")
-        if "natural_summary" not in columns:
-            await db.execute("ALTER TABLE knowledge_graph ADD COLUMN natural_summary TEXT DEFAULT ''")
-        if "embedding_status" not in columns:
-            await db.execute("ALTER TABLE knowledge_graph ADD COLUMN embedding_status TEXT DEFAULT 'pending'")
-        if "expires_at" not in columns:
-            await db.execute("ALTER TABLE knowledge_graph ADD COLUMN expires_at REAL")
-        # P2 semantic memory refinement columns
-        if "valid_from" not in columns:
-            await db.execute("ALTER TABLE knowledge_graph ADD COLUMN valid_from REAL")
-        if "valid_to" not in columns:
-            await db.execute("ALTER TABLE knowledge_graph ADD COLUMN valid_to REAL")
-        if "status_reason" not in columns:
-            await db.execute("ALTER TABLE knowledge_graph ADD COLUMN status_reason TEXT")
-        if "privacy_scope" not in columns:
-            await db.execute(
-                "ALTER TABLE knowledge_graph ADD COLUMN privacy_scope TEXT NOT NULL DEFAULT 'private'"
-            )
-
     # ── P2: fact_kind admission ──────────────────────────────────────
 
     # extraction_methods that qualify as explicit/structured sources

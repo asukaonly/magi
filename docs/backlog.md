@@ -120,6 +120,7 @@ Recent progress:
 - L2 snapshot evolution and ToM reconciliation helpers now live in `store_reconcile.py`.
 - L2 graph-conflict resolution and rule reload helpers now live in `store_graph_conflicts.py`.
 - L2 SQLite row-to-dict helpers now live in `store_rows.py`.
+- L2 knowledge-graph schema backfills now live with the other store migrations.
 
 Candidates to review next:
 
