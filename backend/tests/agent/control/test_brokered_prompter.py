@@ -37,6 +37,16 @@ def _request(request_id: str = "req-1", session_id: str | None = "sid-1") -> Per
     )
 
 
+def test_permission_request_payload_uses_canonical_turn_id() -> None:
+    req = _request()
+    req.task_id = "turn-1"
+
+    payload = req.to_dict()
+
+    assert payload["turn_id"] == "turn-1"
+    assert "task_id" not in payload
+
+
 @pytest.mark.asyncio
 async def test_registry_round_trip() -> None:
     registry = PendingPermissionRegistry()

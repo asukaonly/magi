@@ -85,24 +85,14 @@ Open items:
 
 ### 6. Retire legacy ``task_id`` alias from permission payload
 
-Status: active
+Status: done — ``turn_id`` is now the only permission payload runtime-turn identifier.
 
-Why it is still open:
+Completed:
 
-- ``PermissionRequest.to_dict()`` currently emits both ``turn_id``
-  (canonical) and ``task_id`` (legacy alias) so older consumers keep
-  working. The Rust gateway and the frontend already accept
-  ``turn_id``; the duplicate field should be removed once no in-tree
-  reader relies on the legacy key.
-
-Remaining work:
-
-- Audit gateway + frontend + tests for remaining reads of
-  ``task_id`` on permission payloads and migrate them to
-  ``turn_id``.
-- Drop the ``task_id`` emission from ``PermissionRequest.to_dict()``
-  and the fallback in ``_publish_permission_event``.
-- Target removal: next release cycle after this commit lands.
+- ``PermissionRequest.to_dict()`` emits ``turn_id`` only.
+- Frontend permission polling and modal projection read ``turn_id``
+  directly.
+- Backend/frontend tests cover the canonical payload shape.
 
 ## Maintenance Fixes
 

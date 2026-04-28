@@ -74,7 +74,7 @@ export function PermissionModalHost({
       });
 
     items.forEach((item) => {
-      const turnId = String(item.turn_id || item.task_id || '').trim() || undefined;
+      const turnId = String(item.turn_id || '').trim() || undefined;
       upsertMessage(sessionId, {
         id: `permission:${item.request_id}`,
         messageId: `permission:${item.request_id}`,

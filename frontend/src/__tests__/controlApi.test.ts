@@ -62,7 +62,7 @@ describe('control API routes', () => {
             request_id: 'perm-1',
             session_id: 'session-1',
             user_id: 'local_user',
-            task_id: 'turn-1',
+            turn_id: 'turn-1',
             agent_id: 'chat',
             origin: 'subagent',
             tool: 'bash',

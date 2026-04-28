@@ -155,10 +155,7 @@ export interface PendingPermissionDTO {
   request_id: string;
   session_id: string | null;
   user_id: string | null;
-  /** Canonical runtime turn id. */
-  turn_id?: string | null;
-  /** @deprecated Legacy alias of {@link turn_id}. */
-  task_id: string | null;
+  turn_id: string | null;
   agent_id: string | null;
   origin: string | null;
   tool: string;

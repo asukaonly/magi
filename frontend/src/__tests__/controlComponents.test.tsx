@@ -82,7 +82,7 @@ const baseRequest: PendingPermissionDTO = {
   request_id: 'req-1',
   session_id: 'sid-1',
   user_id: 'u1',
-  task_id: null,
+  turn_id: null,
   agent_id: 'a1',
   origin: 'main_loop',
   tool: 'git_push',
