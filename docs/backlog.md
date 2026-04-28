@@ -144,6 +144,7 @@ Recent progress:
 - Chat post-processing memory/reflection helpers now live in `postprocess_memory.py`.
 - Settings page navigation and sub-selection state now lives in `useSettingsNavigation.ts`.
 - Settings page tool config loading and draft mutation state now lives in `useSettingsTools.ts`.
+- Settings page config/control draft loading and mutation state now lives in `useSettingsConfig.ts`.
 - Worker prompt and tool-profile helpers now live in `worker_prompting.py`.
 - Worker status, await, and run-state serialization helpers now live in `worker_status.py`.
 - Worker tool schema definition now lives in `worker_schema.py`.

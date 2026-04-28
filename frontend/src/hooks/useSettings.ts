@@ -8,8 +8,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 
-import { configApi, DEFAULT_SYSTEM_CONFIG, SystemConfig, type LanguageCode } from '@/api/modules/config';
-import { type ControlSettingsDTO, getControlSettings, updateControlSettings } from '@/api/modules/control';
+import { configApi, type SystemConfig } from '@/api/modules/config';
+import { type ControlSettingsDTO, updateControlSettings } from '@/api/modules/control';
 import { pluginsApi, type PluginPackageState } from '@/api/modules/plugins';
 import { toolsApi, type ToolConfig } from '@/api/modules/tools';
 import { sensorsApi, type SensorSourceStatusItem } from '@/api/modules/sensors';
@@ -24,13 +24,13 @@ import type {
 import {
   buildPluginDraftSnapshotFromPackages,
   buildPluginDraftSnapshotFromSensors,
-  applyMemoryToggle,
   diffFlatMaps,
   mergeDraftMaps,
   persistLanguageSelection,
   previewLanguageSelection,
   serialize,
 } from '@/utils/settings-helpers';
+import { useSettingsConfig } from './useSettingsConfig';
 import { useSettingsNavigation } from './useSettingsNavigation';
 import { useSettingsTools } from './useSettingsTools';
 
@@ -126,18 +126,11 @@ export function useSettings(): UseSettingsReturn {
   // State Declarations
   // ========================================
 
-  // Config state (saved/draft)
-  const [savedConfig, setSavedConfig] = useState<SystemConfig>(DEFAULT_SYSTEM_CONFIG);
-  const [draftConfig, setDraftConfig] = useState<SystemConfig>(DEFAULT_SYSTEM_CONFIG);
-  const [savedControlSettings, setSavedControlSettings] = useState<ControlSettingsDTO | null>(null);
-  const [draftControlSettings, setDraftControlSettings] = useState<ControlSettingsDTO | null>(null);
-
   // Theme state (saved/draft)
   const [savedThemeMode, setSavedThemeMode] = useState<ThemeMode>(themeMode);
   const [draftThemeMode, setDraftThemeMode] = useState<ThemeMode>(themeMode);
 
   // Loading states
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   // Timeline state
@@ -152,6 +145,29 @@ export function useSettings(): UseSettingsReturn {
   const [draftPluginDrafts, setDraftPluginDrafts] = useState<PluginDraftMap>({});
 
   const [reloadingActionPlugins, setReloadingActionPlugins] = useState<Record<string, boolean>>({});
+
+  const {
+    loading,
+    savedConfig,
+    setSavedConfig,
+    draftConfig,
+    setDraftConfig,
+    savedControlSettings,
+    setSavedControlSettings,
+    draftControlSettings,
+    setDraftControlSettings,
+    patchDraftConfig,
+    syncNormalizedLlmConfig,
+    patchDraftControlSettings,
+    fetchConfig,
+    loadControlSettings,
+    handleLanguagePreviewChange,
+    updateMemoryToggle,
+  } = useSettingsConfig({
+    themeMode,
+    setSavedThemeMode,
+    setDraftThemeMode,
+  });
 
   const {
     activeSection,
@@ -178,48 +194,6 @@ export function useSettings(): UseSettingsReturn {
     handleToolDraftChange,
     handleToolEnabledChange,
   } = useSettingsTools();
-
-  // ========================================
-  // Config Mutation Helpers
-  // ========================================
-
-  const patchDraftConfig = useCallback((updater: (draft: SystemConfig) => void) => {
-    setDraftConfig((prev) => {
-      const next = structuredClone(prev);
-      updater(next);
-      return next;
-    });
-  }, []);
-
-  const syncNormalizedLlmConfig = useCallback((nextLlmConfig: SystemConfig['llm']) => {
-    const nextSnapshot = structuredClone(nextLlmConfig);
-    const draftWasPristine = serialize(savedConfig.llm) === serialize(draftConfig.llm);
-
-    if (draftWasPristine) {
-      setSavedConfig((prev) => {
-        const next = structuredClone(prev);
-        next.llm = structuredClone(nextSnapshot);
-        return next;
-      });
-    }
-
-    setDraftConfig((prev) => {
-      const next = structuredClone(prev);
-      next.llm = structuredClone(nextSnapshot);
-      return next;
-    });
-  }, [draftConfig.llm, savedConfig.llm]);
-
-  const patchDraftControlSettings = useCallback((updater: (draft: ControlSettingsDTO) => void) => {
-    setDraftControlSettings((prev) => {
-      if (!prev) {
-        return prev;
-      }
-      const next = structuredClone(prev);
-      updater(next);
-      return next;
-    });
-  }, []);
 
   // ========================================
   // Data Loading Functions
@@ -268,34 +242,6 @@ export function useSettings(): UseSettingsReturn {
     await loadPlugins();
     await fetchTimelineStatuses();
   }, [loadPlugins, fetchTimelineStatuses]);
-
-  const fetchConfig = useCallback(async () => {
-    setLoading(true);
-    try {
-      const response = await configApi.get();
-      const nextConfig = response.data || DEFAULT_SYSTEM_CONFIG;
-      setSavedConfig(nextConfig);
-      setDraftConfig(structuredClone(nextConfig));
-      setSavedThemeMode(themeMode);
-      setDraftThemeMode(themeMode);
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'unknown';
-      toast.error(t('settings.loadFailed', { message }));
-    } finally {
-      setLoading(false);
-    }
-  }, [t, themeMode]);
-
-  const loadControlSettings = useCallback(async () => {
-    try {
-      const nextSettings = await getControlSettings();
-      setSavedControlSettings(nextSettings);
-      setDraftControlSettings(structuredClone(nextSettings));
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'unknown';
-      toast.error(t('settings.loadFailed', { message }));
-    }
-  }, [t]);
 
   // ========================================
   // Effects
@@ -351,14 +297,6 @@ export function useSettings(): UseSettingsReturn {
     setDraftThemeMode(mode);
     setThemeMode(mode, { persist: false });
   }, [setThemeMode]);
-
-  const handleLanguagePreviewChange = useCallback((value: string) => {
-    const nextLanguage = value as LanguageCode;
-    patchDraftConfig((draft) => {
-      draft.preferences.language = nextLanguage;
-    });
-    void previewLanguageSelection(nextLanguage);
-  }, [patchDraftConfig]);
 
   const handlePluginDraftChange = useCallback((pluginId: string, key: string, value: unknown) => {
     setDraftPluginDrafts((prev) => ({
@@ -516,16 +454,6 @@ export function useSettings(): UseSettingsReturn {
     setThemeMode(savedThemeMode, { persist: true });
     await previewLanguageSelection(savedConfig.preferences.language);
   }, [savedConfig, savedControlSettings, savedPluginDrafts, savedToolDrafts, savedThemeMode, setThemeMode]);
-
-  // ========================================
-  // Memory Toggle Handler
-  // ========================================
-
-  const updateMemoryToggle = useCallback((field: MemoryToggleFieldId, checked: boolean) => {
-    patchDraftConfig((draft) => {
-      applyMemoryToggle(draft.memory, field, checked);
-    });
-  }, [patchDraftConfig]);
 
   // ========================================
   // Ref Handle
