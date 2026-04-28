@@ -1,4 +1,5 @@
 """Post-processing and side effects for chat execution results."""
+
 from __future__ import annotations
 
 import asyncio
@@ -23,12 +24,18 @@ from ....runtime_trace import (
     TraceLlmCallRecord,
     TraceSpanRecord,
 )
-from ..common import ExecutionMode, ExecutionResult, FunctionCallingExecutionResult, IncomingFactKind
+from ..common import (
+    ExecutionMode,
+    ExecutionResult,
+    FunctionCallingExecutionResult,
+    IncomingFactKind,
+)
 from ..explore.constants import EXPLORE_TASK_COMPLETED
 from .contracts import ChatParseOutcome, ChatRuntimeContext
 from .fact_classifier import WORKER_AGENT_EVENT_TYPES
 from .history_service import ChatHistoryService
 from .postprocess_components import ChatOutcomeWriter, ChatRuntimeNotifier
+from .postprocess_outcomes import ChatPostprocessOutcomeMixin
 from .postprocess_session import ChatPostprocessSessionMixin
 from .postprocess_tool_events import ChatPostprocessToolEventMixin
 from .postprocess_trace import ChatPostprocessTraceMixin
@@ -51,6 +58,7 @@ class ChatPostProcessService(
     ChatPostprocessTraceMixin,
     ChatPostprocessSessionMixin,
     ChatPostprocessToolEventMixin,
+    ChatPostprocessOutcomeMixin,
 ):
     """Applies side effects for chat execution results."""
 
@@ -85,7 +93,9 @@ class ChatPostProcessService(
         self._local_fact_memory: list[FactRecord] = []
         self._max_fact_memory = max_fact_memory
         self._trace_read_service = trace_read_service
-        self._chat_read_service_factory = chat_read_service_factory or _default_chat_read_service_factory
+        self._chat_read_service_factory = (
+            chat_read_service_factory or _default_chat_read_service_factory
+        )
         self._runtime_trace_store = runtime_trace_store
         self._chat_outcome_writer = ChatOutcomeWriter(
             chat_store=chat_store,
@@ -193,7 +203,9 @@ class ChatPostProcessService(
         await self._chat_store.bump_history_version(session_id)
         return record
 
-    async def handle(self, context: ChatRuntimeContext, result: ExecutionResult) -> ChatParseOutcome:
+    async def handle(
+        self, context: ChatRuntimeContext, result: ExecutionResult
+    ) -> ChatParseOutcome:
         event_emitter = self._get_event_emitter()
         latest_fact = context.latest_fact
         if not isinstance(latest_fact, FactRecord):
@@ -228,7 +240,10 @@ class ChatPostProcessService(
             if isinstance(execution_outcome, dict) and execution_outcome.get("status") == "failed":
                 failure_reason = str(execution_outcome.get("failure_reason") or "EXECUTION_ERROR")
                 response_text = f"Execution failed: {failure_reason}"
-            elif isinstance(execution_outcome, dict) and execution_outcome.get("status") == "detached":
+            elif (
+                isinstance(execution_outcome, dict)
+                and execution_outcome.get("status") == "detached"
+            ):
                 # A detached outcome reaches postprocess only when the
                 # background hand-off declined or failed. Surface that so
                 # the user does not silently lose the turn.
@@ -271,7 +286,9 @@ class ChatPostProcessService(
             memory_updated = True
 
         correlation_id = result.correlation_id or latest_fact.correlation_id
-        turn_id = result.turn_id or self._resolve_turn_id(context, latest_fact.payload if isinstance(latest_fact.payload, dict) else {})
+        turn_id = result.turn_id or self._resolve_turn_id(
+            context, latest_fact.payload if isinstance(latest_fact.payload, dict) else {}
+        )
         now_ms = now_wall_ms()
         started_at_ms = self._resolve_started_at_ms(result, latest_fact)
 
@@ -334,14 +351,24 @@ class ChatPostProcessService(
             turn_id=turn_id,
             ux_plan=ux_plan,
         )
-        notification_message_id = notification_message.message_id if notification_message is not None else None
-        notification_message_kind = notification_message.message_kind if notification_message is not None else None
+        notification_message_id = (
+            notification_message.message_id if notification_message is not None else None
+        )
+        notification_message_kind = (
+            notification_message.message_kind if notification_message is not None else None
+        )
         notification_response_text = response_text
         if str((ux_plan or {}).get("assistant_surface_mode") or "").strip() == "reaction_only":
-            notification_response_text = self._resolve_reaction_notification_text(ux_plan, fallback=response_text)
+            notification_response_text = self._resolve_reaction_notification_text(
+                ux_plan, fallback=response_text
+            )
             notification_message_id = None
             notification_message_kind = "assistant_reaction"
-        final_message = notification_message if notification_message and notification_message.message_kind == "assistant_final" else None
+        final_message = (
+            notification_message
+            if notification_message and notification_message.message_kind == "assistant_final"
+            else None
+        )
         await self._project_final_chat_message(context=context, final_message=final_message)
         if getattr(result, "streamed", False) and final_message is not None:
             await self._runtime_notifier.emit_chat_message_upsert(
@@ -429,7 +456,9 @@ class ChatPostProcessService(
         latest_fact = context.latest_fact
         if self._runtime_trace_store is None or not isinstance(latest_fact, FactRecord):
             return
-        turn_id = self._resolve_turn_id(context, latest_fact.payload if isinstance(latest_fact.payload, dict) else {})
+        turn_id = self._resolve_turn_id(
+            context, latest_fact.payload if isinstance(latest_fact.payload, dict) else {}
+        )
         if not turn_id:
             return
         trace_id = self._build_trace_id(turn_id)
@@ -477,7 +506,12 @@ class ChatPostProcessService(
                     recommended_tools=list(getattr(decision, "recommended_tools", []) or []),
                 ),
                 selected_worker_type=(
-                    str(getattr(getattr(decision, "orchestration_plan", None), "default_leaf_type", "") or "")
+                    str(
+                        getattr(
+                            getattr(decision, "orchestration_plan", None), "default_leaf_type", ""
+                        )
+                        or ""
+                    )
                     or None
                 ),
             )
@@ -525,11 +559,15 @@ class ChatPostProcessService(
             timestamp_ms=turn_ux_message.created_at_ms if turn_ux_message is not None else None,
         )
 
-    async def record_tool_selection(self, context: ChatRuntimeContext, decision: Any, tool_selection: Any) -> None:
+    async def record_tool_selection(
+        self, context: ChatRuntimeContext, decision: Any, tool_selection: Any
+    ) -> None:
         latest_fact = context.latest_fact
         if self._runtime_trace_store is None or not isinstance(latest_fact, FactRecord):
             return
-        turn_id = self._resolve_turn_id(context, latest_fact.payload if isinstance(latest_fact.payload, dict) else {})
+        turn_id = self._resolve_turn_id(
+            context, latest_fact.payload if isinstance(latest_fact.payload, dict) else {}
+        )
         if not turn_id:
             return
         span_id = self._build_span_id(turn_id, "intent_resolution")
@@ -545,11 +583,17 @@ class ChatPostProcessService(
                 selected_tools_json=self._serialize_selected_tools_payload(
                     router_tools=list(getattr(decision, "tools", []) or []),
                     selected_tools=list(getattr(tool_selection, "tools", []) or []),
-                    task_hint=getattr(tool_selection, "task_hint", None) or getattr(decision, "task_hint", None),
+                    task_hint=getattr(tool_selection, "task_hint", None)
+                    or getattr(decision, "task_hint", None),
                     recommended_tools=list(getattr(tool_selection, "recommended_tools", []) or []),
                 ),
                 selected_worker_type=(
-                    str(getattr(getattr(decision, "orchestration_plan", None), "default_leaf_type", "") or "")
+                    str(
+                        getattr(
+                            getattr(decision, "orchestration_plan", None), "default_leaf_type", ""
+                        )
+                        or ""
+                    )
                     or None
                 ),
             )
@@ -579,7 +623,12 @@ class ChatPostProcessService(
 
         task_id = str(
             result.orchestration_id
-            or (context.latest_fact.payload.get("orchestration_id") if isinstance(context.latest_fact, FactRecord) and isinstance(context.latest_fact.payload, dict) else "")
+            or (
+                context.latest_fact.payload.get("orchestration_id")
+                if isinstance(context.latest_fact, FactRecord)
+                and isinstance(context.latest_fact.payload, dict)
+                else ""
+            )
             or f"task_reflection_{int(time.time())}"
         ).strip()
         packet = TaskOutcomePacket(
@@ -607,7 +656,9 @@ class ChatPostProcessService(
     ) -> bool:
         if context.incoming_fact_kind == IncomingFactKind.EXPLORE_TASK_COMPLETED:
             return True
-        return context.incoming_fact_kind == IncomingFactKind.WORKER_UPDATE and bool(result.orchestration_id)
+        return context.incoming_fact_kind == IncomingFactKind.WORKER_UPDATE and bool(
+            result.orchestration_id
+        )
 
     async def _collect_reflection_event_ids(
         self,
@@ -629,7 +680,11 @@ class ChatPostProcessService(
         except Exception as exc:
             logger.debug("Failed to query reflection evidence events: %s", exc)
             return []
-        return [str(event.get("event_id") or "").strip() for event in events if str(event.get("event_id") or "").strip()]
+        return [
+            str(event.get("event_id") or "").strip()
+            for event in events
+            if str(event.get("event_id") or "").strip()
+        ]
 
     def _schedule_background_memory_updates(
         self,
@@ -657,7 +712,9 @@ class ChatPostProcessService(
                         user_id=user_id,
                         user_message=user_message,
                         response_text=response_text,
-                        allow_state_transition=self._allows_state_transition(context=context, result=result),
+                        allow_state_transition=self._allows_state_transition(
+                            context=context, result=result
+                        ),
                         incoming_fact_kind=self._enum_value(context.incoming_fact_kind),
                         execution_mode=self._enum_value(result.mode),
                         session_id=context.session_id,
@@ -708,7 +765,9 @@ class ChatPostProcessService(
         ):
             return False
 
-        effective_state_transition = bool(allow_state_transition and features.state_transition_enabled)
+        effective_state_transition = bool(
+            allow_state_transition and features.state_transition_enabled
+        )
         logger.info(
             "[chat.memory] interaction analysis scope user_id=%s session_id=%s turn_id=%s "
             "incoming_fact_kind=%s execution_mode=%s state_transition_enabled=%s",
@@ -747,7 +806,8 @@ class ChatPostProcessService(
                 pass
 
         analysis = await analyze_interaction(
-            user_message, response_text,
+            user_message,
+            response_text,
             stp_rules=stp_rules,
             milestone_conditions=milestone_conditions,
         )
@@ -790,158 +850,3 @@ class ChatPostProcessService(
             return typed_turn_id
         raw_turn_id = str(payload.get("turn_id") or "").strip()
         return raw_turn_id or None
-
-    async def _persist_turn_ux_plan(
-        self,
-        *,
-        turn_id: str,
-        execution_mode: str | None,
-        ux_plan: dict[str, Any] | None,
-        updated_at_ms: int,
-        run_id: str | None = None,
-        run_revision: int = 0,
-        run_disposition: str | None = None,
-    ) -> None:
-        await self._chat_outcome_writer.persist_turn_ux_plan(
-            turn_id=turn_id,
-            execution_mode=execution_mode,
-            ux_plan=ux_plan,
-            updated_at_ms=updated_at_ms,
-            run_id=run_id,
-            run_revision=run_revision,
-            run_disposition=run_disposition,
-        )
-
-    async def _persist_final_chat_outcome(
-        self,
-        *,
-        turn_id: str | None,
-        response_text: str,
-        attachments: list[dict[str, Any]] | None = None,
-        message_payload: dict[str, Any] | None = None,
-        started_at_ms: int,
-        completed_at_ms: int,
-        orchestration_id: str | None,
-        execution_mode: str | None,
-        ux_plan: dict[str, Any] | None,
-        run_id: str | None = None,
-        run_revision: int = 0,
-        run_disposition: str | None = None,
-        reply_to_message_id: str | None = None,
-    ) -> None:
-        await self._chat_outcome_writer.persist_final_chat_outcome(
-            turn_id=turn_id,
-            orchestration_id=orchestration_id,
-            execution_mode=execution_mode,
-            ux_plan=ux_plan,
-            response_text=response_text,
-            attachments=attachments,
-            message_payload=message_payload,
-            started_at_ms=started_at_ms,
-            completed_at_ms=completed_at_ms,
-            run_id=run_id,
-            run_revision=run_revision,
-            run_disposition=run_disposition,
-            reply_to_message_id=reply_to_message_id,
-        )
-
-    async def _resolve_result_reply_anchor_message_id(
-        self,
-        *,
-        context: ChatRuntimeContext,
-        turn_id: str | None,
-    ) -> str | None:
-        normalized_turn_id = str(turn_id or "").strip()
-        if self._chat_store is None or not normalized_turn_id:
-            return None
-        if context.incoming_fact_kind not in {
-            IncomingFactKind.WORKER_UPDATE,
-            IncomingFactKind.EXPLORE_TASK_COMPLETED,
-        }:
-            return None
-        turn = await self._chat_store.get_turn(normalized_turn_id)
-        anchor_turn_id = str(
-            (turn.response_anchor_turn_id if turn is not None else normalized_turn_id) or normalized_turn_id
-        ).strip()
-        if not anchor_turn_id:
-            return None
-        anchor_message = await self._chat_store.get_latest_message_for_turn(
-            anchor_turn_id,
-            message_kind="user_text",
-        )
-        if anchor_message is None:
-            return None
-        return anchor_message.message_id
-
-    async def _get_chat_message(
-        self,
-        *,
-        turn_id: str | None,
-        message_kind: str,
-    ) -> ChatMessageRecord | None:
-        return await self._chat_outcome_writer.get_chat_message(
-            turn_id=turn_id,
-            message_kind=message_kind,
-        )
-
-    async def _get_final_chat_message(self, turn_id: str | None) -> ChatMessageRecord | None:
-        return await self._get_chat_message(
-            turn_id=turn_id,
-            message_kind="assistant_final",
-        )
-
-    async def _get_notification_chat_message(
-        self,
-        *,
-        turn_id: str | None,
-        ux_plan: dict[str, Any] | None,
-    ) -> ChatMessageRecord | None:
-        return await self._chat_outcome_writer.get_notification_chat_message(
-            turn_id=turn_id,
-            ux_plan=ux_plan,
-        )
-
-    async def _get_turn_ux_chat_message(
-        self,
-        *,
-        turn_id: str | None,
-        ux_plan: dict[str, Any] | None,
-    ) -> ChatMessageRecord | None:
-        return await self._chat_outcome_writer.get_turn_ux_chat_message(
-            turn_id=turn_id,
-            ux_plan=ux_plan,
-        )
-
-    @staticmethod
-    def _resolve_reaction_text(ux_plan: dict[str, Any] | None) -> str:
-        return ChatOutcomeWriter.resolve_reaction_text(ux_plan)
-
-    @staticmethod
-    def _serialize_selected_tools_payload(
-        *,
-        router_tools: list[str],
-        selected_tools: list[str],
-        task_hint: Any,
-        recommended_tools: list[dict[str, Any]],
-    ) -> str:
-        return json.dumps(
-            {
-                "router_tools": list(router_tools or []),
-                "selected_tools": list(selected_tools or []),
-                "task_hint": dict(task_hint or {}),
-                "recommended_tools": list(recommended_tools or []),
-            },
-            ensure_ascii=False,
-        )
-
-    async def _project_final_chat_message(
-        self,
-        *,
-        context: ChatRuntimeContext,
-        final_message: ChatMessageRecord | None,
-    ) -> None:
-        await self._chat_outcome_writer.project_final_chat_message(
-            user_id=context.user_id,
-            session_id=context.session_id,
-            final_message=final_message,
-        )

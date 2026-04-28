@@ -136,6 +136,7 @@ Recent progress:
 - Provider bridge tool-call streaming now lives in `provider_bridge_streaming.py`.
 - Chat post-processing session-run finalization helpers now live in `postprocess_session.py`.
 - Chat post-processing tool event helpers now live in `postprocess_tool_events.py`.
+- Chat post-processing outcome writer helpers now live in `postprocess_outcomes.py`.
 
 Candidates to review next:
 
