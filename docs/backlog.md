@@ -139,6 +139,7 @@ Recent progress:
 - Chat post-processing session-run finalization helpers now live in `postprocess_session.py`.
 - Chat post-processing tool event helpers now live in `postprocess_tool_events.py`.
 - Chat post-processing outcome writer helpers now live in `postprocess_outcomes.py`.
+- Chat post-processing intent-routing trace helpers now live in `postprocess_intent.py`.
 - Chat post-processing background completion helpers now live in `postprocess_background.py`.
 - Chat post-processing memory/reflection helpers now live in `postprocess_memory.py`.
 - Worker prompt and tool-profile helpers now live in `worker_prompting.py`.
