@@ -125,6 +125,7 @@ Recent progress:
 - L2 rule-based candidate extraction now lives in `store_candidates.py`.
 - L2 contradiction hint application now lives in `store_contradictions.py`.
 - L2 ToM snapshot persistence now lives in `store_snapshots.py`.
+- L2 ToM assertion upsert flow now lives in `store_assertions.py`.
 
 Candidates to review next:
 
