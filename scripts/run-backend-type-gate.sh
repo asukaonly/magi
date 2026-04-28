@@ -61,6 +61,7 @@ export PYTHONPATH="$ROOT_DIR/backend/src:$ROOT_DIR/sdk/src${PYTHONPATH:+:$PYTHON
   src/magi/memory/l2/entity_maintenance_embeddings.py \
   src/magi/memory/l2/entity_maintenance_episodes.py \
   src/magi/memory/l2/entity_maintenance_predicates.py \
+  src/magi/memory/l2/entity_catalog_embeddings.py \
   src/magi/memory/l2/entity_models.py \
   src/magi/memory/l2/episode_models.py \
   src/magi/memory/l2/phase_models.py \

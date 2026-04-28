@@ -10,21 +10,18 @@ from typing import Any, Callable, Optional
 
 import aiosqlite
 
-from ...config.models import EmbeddingBackend
 from ...core.sqlite import sqlite_connection_async
-from ..embedding.chunking import ChunkedText
-from ..embedding.embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
-from ..embedding.embedding_service import EmbeddingProfile
-from ..embedding.embedding_text_builders import build_l2_entity_embedding_text
 from ..embedding.embedding_service import MemoryEmbeddingService
 from ..embedding.sqlite_vec_index import SqliteVecIndex
+from .entity_catalog_embeddings import (
+    EMBEDDING_STATUS_DISABLED,
+    EMBEDDING_STATUS_READY,
+    EMBEDDING_TEXT_BUILDER_VERSION,
+    L2EntityCatalogEmbeddingMixin,
+)
 from .ontology import coerce_unknown_entity_type
 
 logger = logging.getLogger(__name__)
-
-EMBEDDING_TEXT_BUILDER_VERSION = "l2_entity_v1"
-EMBEDDING_STATUS_READY = "ready"
-EMBEDDING_STATUS_DISABLED = "disabled"
 
 
 def _normalize_alias(text: str) -> str:
@@ -49,7 +46,7 @@ def _normalize_entity_ref(entity_id: Optional[str], entity_type: Optional[str]) 
     return f"{entity_type}:{suffix}"
 
 
-class L2EntityCatalog:
+class L2EntityCatalog(L2EntityCatalogEmbeddingMixin):
     """Stores canonical entities, aliases, and mention evidence."""
 
     def __init__(
@@ -270,7 +267,9 @@ class L2EntityCatalog:
     ) -> int:
         await self.initialize()
         normalized_entity_type = _normalize_catalog_entity_type(entity_type)
-        normalized_resolved_entity_id = _normalize_entity_ref(resolved_entity_id, normalized_entity_type)
+        normalized_resolved_entity_id = _normalize_entity_ref(
+            resolved_entity_id, normalized_entity_type
+        )
         now = time.time()
         async with sqlite_connection_async(self.db_path) as db:
             cursor = await db.execute(
@@ -384,9 +383,15 @@ class L2EntityCatalog:
             for row in rows
         ]
 
-    async def list_entities_by_type(self, *, entity_type: str, limit: int = 100, order_by_recency: bool = False) -> list[dict[str, Any]]:
+    async def list_entities_by_type(
+        self, *, entity_type: str, limit: int = 100, order_by_recency: bool = False
+    ) -> list[dict[str, Any]]:
         await self.initialize()
-        return await self._list_entities(limit=limit, entity_type=_normalize_catalog_entity_type(entity_type), order_by_recency=order_by_recency)
+        return await self._list_entities(
+            limit=limit,
+            entity_type=_normalize_catalog_entity_type(entity_type),
+            order_by_recency=order_by_recency,
+        )
 
     async def find_by_canonical_name(
         self,
@@ -514,192 +519,6 @@ class L2EntityCatalog:
             await db.commit()
         return count
 
-    async def rebuild_embeddings(self, *, batch_size: int = 100) -> int:
-        """Rebuild all L2 entity vectors from canonical catalog rows."""
-        await self.initialize()
-        normalized_batch_size = max(1, int(batch_size))
-        if not self._vectors_enabled() or self._embedding_service is None or self._vector_index is None:
-            return 0
-
-        await self._vector_index.clear()
-        async with sqlite_connection_async(self.db_path) as db:
-            await db.execute(
-                """
-                UPDATE entity_catalog
-                SET embedding_status = ?, embedding_profile_id = NULL, last_embedded_at = NULL
-                """,
-                (EMBEDDING_STATUS_DISABLED,),
-            )
-            await db.commit()
-
-        processed = 0
-        offset = 0
-        while True:
-            async with sqlite_connection_async(self.db_path) as db:
-                db.row_factory = aiosqlite.Row
-                async with db.execute(
-                    """
-                    SELECT entity_id
-                    FROM entity_catalog
-                    ORDER BY updated_at DESC, entity_id ASC
-                    LIMIT ? OFFSET ?
-                    """,
-                    (normalized_batch_size, offset),
-                ) as cursor:
-                    rows = await cursor.fetchall()
-            if not rows:
-                break
-            entity_ids = [str(row["entity_id"]) for row in rows]
-            for entity_id in entity_ids:
-                await self._maybe_embed_entity(entity_id)
-            processed += len(entity_ids)
-            offset += len(rows)
-        return processed
-
-    # ------------------------------------------------------------------
-    # Vector helpers
-    # ------------------------------------------------------------------
-
-    def _vectors_enabled(self) -> bool:
-        if self._embedding_service is None:
-            return False
-        config = self._current_memory_config()
-        if config is None:
-            return self._default_vector_enabled
-        return bool(
-            config.embedding.backend == EmbeddingBackend.SQLITE_VEC
-            and config.l2.enabled
-            and config.l2.vectors_enabled
-        )
-
-    def _current_memory_config(self) -> Any:
-        if self._memory_config_getter is None:
-            return None
-        try:
-            return self._memory_config_getter()
-        except Exception:
-            return None
-
-    async def _maybe_embed_entity(self, entity_id: str) -> None:
-        if not self._vectors_enabled():
-            return
-        pipeline = self._build_embedding_pipeline()
-        if pipeline is None:
-            return
-        try:
-            text = await self._build_entity_embedding_text(entity_id)
-            if not text:
-                return
-            results = await pipeline.upsert_items(
-                [
-                    EmbeddingPipelineItem(
-                        parent_id=entity_id,
-                        chunks=[
-                            ChunkedText(
-                                chunk_id=entity_id,
-                                text=text,
-                                chunk_index=0,
-                                char_start=0,
-                                char_end=len(text),
-                                token_estimate=max(1, len(text) // 4),
-                            )
-                        ],
-                        metadata={"kind": "entity"},
-                    )
-                ]
-            )
-            if not results:
-                return
-            profile = self._profile_from_embedding_result(results[0].embeddings[0])
-            await self._update_entity_embedding_state(
-                entity_id=entity_id,
-                status=EMBEDDING_STATUS_READY,
-                profile_id=profile.profile_id,
-                embedded_at=results[0].embedded_at,
-            )
-        except Exception as exc:
-            logger.debug("Failed to embed L2 entity %s: %s", entity_id, exc)
-
-    def _build_embedding_pipeline(self) -> MemoryEmbeddingPipeline | None:
-        if self._embedding_service is None or self._vector_index is None:
-            return None
-        return MemoryEmbeddingPipeline(
-            embedding_service=self._embedding_service,
-            vector_index=self._vector_index,
-        )
-
-    async def _build_entity_embedding_text(self, entity_id: str) -> str:
-        entities = await self._list_entities(limit=1, entity_ids=[entity_id])
-        if not entities:
-            return ""
-        entity = entities[0]
-        return build_l2_entity_embedding_text(
-            canonical_name=str(entity.get("canonical_name") or ""),
-            entity_type=str(entity.get("entity_type") or ""),
-            aliases=[str(alias) for alias in entity.get("aliases", [])],
-        )
-
-    def _profile_from_embedding_result(self, result) -> EmbeddingProfile:
-        getter = getattr(self._embedding_service, "profile_from_result", None)
-        if callable(getter):
-            return getter(result, text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION)
-        return EmbeddingProfile.build(
-            provider_name="unknown",
-            model_name=result.model_name,
-            dimension=result.dimension,
-            text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION,
-        )
-
-    async def _update_entity_embedding_state(
-        self,
-        *,
-        entity_id: str,
-        status: str,
-        profile_id: str | None,
-        embedded_at: float | None,
-    ) -> None:
-        async with sqlite_connection_async(self.db_path) as db:
-            await db.execute(
-                """
-                UPDATE entity_catalog
-                SET embedding_status = ?, embedding_profile_id = ?, last_embedded_at = ?, updated_at = updated_at
-                WHERE entity_id = ?
-                """,
-                (status, profile_id, embedded_at, entity_id),
-            )
-            await db.commit()
-
-    async def search_entities_semantic(
-        self,
-        query_text: str,
-        *,
-        limit: int = 10,
-    ) -> list[dict[str, Any]]:
-        """Search entities using vector similarity. Returns [] if vectors are disabled."""
-        if not self._vectors_enabled() or self._embedding_service is None or self._vector_index is None:
-            return []
-        query_text = query_text.strip()
-        if not query_text:
-            return []
-        try:
-            embedding = await self._embedding_service.embed_text(query_text)
-            if embedding is None:
-                return []
-            hits = await self._vector_index.search(embedding=embedding, limit=limit)
-        except Exception as exc:
-            logger.debug("L2 entity semantic search failed: %s", exc)
-            return []
-        if not hits:
-            return []
-
-        hit_ids = [hit.entity_id for hit in hits]
-        distance_by_id = {hit.entity_id: hit.distance for hit in hits}
-        entities = await self._list_entities(limit=len(hit_ids), entity_ids=hit_ids)
-        for entity in entities:
-            entity["distance"] = distance_by_id.get(entity["entity_id"])
-        entities.sort(key=lambda e: e.get("distance") or float("inf"))
-        return entities[:limit]
-
     async def _search_entities_by_substring(
         self,
         normalized_query: str,
@@ -735,7 +554,13 @@ class L2EntityCatalog:
               )
             LIMIT ?
         """
-        args = [normalized_query] + type_args + [normalized_query] + type_args + [normalized_query, limit]
+        args = (
+            [normalized_query]
+            + type_args
+            + [normalized_query]
+            + type_args
+            + [normalized_query, limit]
+        )
 
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
@@ -745,14 +570,16 @@ class L2EntityCatalog:
         matches: list[dict[str, Any]] = []
         for row in rows:
             match_source = str(row["match_source"])
-            matches.append({
-                "entity_id": str(row["entity_id"]),
-                "entity_type": str(row["entity_type"]),
-                "canonical_name": str(row["canonical_name"]),
-                "match_source": match_source,
-                "matched_text": str(row["matched_text"]),
-                "confidence": 0.95 if match_source == "canonical_name" else 0.9,
-            })
+            matches.append(
+                {
+                    "entity_id": str(row["entity_id"]),
+                    "entity_type": str(row["entity_type"]),
+                    "canonical_name": str(row["canonical_name"]),
+                    "match_source": match_source,
+                    "matched_text": str(row["matched_text"]),
+                    "confidence": 0.95 if match_source == "canonical_name" else 0.9,
+                }
+            )
         return matches
 
     async def _list_entities(
@@ -814,11 +641,18 @@ class L2EntityCatalog:
                 "entity_type": str(row["entity_type"]),
                 "embedding_status": str(row["embedding_status"] or EMBEDDING_STATUS_DISABLED),
                 "embedding_profile_id": row["embedding_profile_id"],
-                "last_embedded_at": float(row["last_embedded_at"]) if row["last_embedded_at"] is not None else None,
+                "last_embedded_at": float(row["last_embedded_at"])
+                if row["last_embedded_at"] is not None
+                else None,
                 "aliases": aliases_by_entity.get(str(row["entity_id"]), []),
             }
             for row in entities
         ]
 
 
-__all__ = ["L2EntityCatalog"]
+__all__ = [
+    "EMBEDDING_STATUS_DISABLED",
+    "EMBEDDING_STATUS_READY",
+    "EMBEDDING_TEXT_BUILDER_VERSION",
+    "L2EntityCatalog",
+]
