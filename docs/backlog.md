@@ -157,6 +157,7 @@ Recent progress:
 - L2 pipeline extract/reconcile/snapshot worker loops now live in `pipeline_workers.py`.
 - L2 pipeline normalization/slug/stat bucket helpers now live in `pipeline_utils.py`.
 - L2 validation structured entity/graph hint helpers now live in `pipeline_structured_hints.py`.
+- L2 validation graph candidate preparation and graph endpoint resolution now live in `pipeline_graph_validation.py`.
 - L2 validation assertion normalization, scope, and decay helpers now live in `pipeline_assertions.py`.
 - L2 entity maintenance assertion expiry/snapshot/reconcile helpers now live in `entity_maintenance_assertions.py`.
 - L2 entity maintenance edge embedding helpers now live in `entity_maintenance_embeddings.py`.
