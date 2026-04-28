@@ -154,6 +154,7 @@ Recent progress:
 - L2 pipeline staging, projection claiming, and microbatch flush helpers now live in `pipeline_staging.py`.
 - L2 pipeline context loading and history recall helpers now live in `pipeline_context.py`.
 - L2 pipeline extract/reconcile/snapshot worker loops now live in `pipeline_workers.py`.
+- L2 pipeline normalization/slug/stat bucket helpers now live in `pipeline_utils.py`.
 - L2 validation structured entity/graph hint helpers now live in `pipeline_structured_hints.py`.
 - L2 validation assertion normalization, scope, and decay helpers now live in `pipeline_assertions.py`.
 - L2 entity maintenance assertion expiry/snapshot/reconcile helpers now live in `entity_maintenance_assertions.py`.

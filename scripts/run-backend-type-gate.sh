@@ -76,6 +76,7 @@ export PYTHONPATH="$ROOT_DIR/backend/src:$ROOT_DIR/sdk/src${PYTHONPATH:+:$PYTHON
   src/magi/memory/l2/pipeline_entity_helpers.py \
   src/magi/memory/l2/pipeline_staging.py \
   src/magi/memory/l2/pipeline_structured_hints.py \
+  src/magi/memory/l2/pipeline_utils.py \
   src/magi/memory/l2/pipeline_workers.py \
   src/magi/memory/l2/projection_queue_claiming.py \
   src/magi/memory/l2/workflow_prompts.py \

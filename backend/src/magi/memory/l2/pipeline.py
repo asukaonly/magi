@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import re
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Optional
@@ -12,7 +11,6 @@ from ...core.logger import get_logger
 from ..event_contracts import MemoryEvent
 from ..l1.event_store import L1EventStore
 from .models import (
-    ContradictionHint,
     L2BatchJob,
     L2ConflictArbitrationResult,
     L2EventWindow,
@@ -26,34 +24,17 @@ from .store import L2CognitionStore
 from .evidence_classifier import classify_event_evidence
 from .evidence_policy import resolve_l2_policy
 from .entity_catalog import L2EntityCatalog
-from .extraction_profiles import ExtractionProfile, resolve_extraction_profile
+from .extraction_profiles import resolve_extraction_profile
 from .llm_service import L2LLMService
-from .ontology import coerce_unknown_entity_type
 from .pipeline_conflict import L2ConflictArbitrationMixin
-from .pipeline_context import (
-    DEFAULT_L2_HISTORY_CONTEXT_LIMIT,
-    DEFAULT_L2_HISTORY_ENTITY_MATCH_LIMIT,
-    DEFAULT_L2_HISTORY_SEARCH_LIMIT,
-    L2PipelineContextMixin,
-)
+from .pipeline_context import L2PipelineContextMixin
 from .pipeline_entity import L2EntityResolutionMixin
-from .pipeline_staging import (
-    DEFAULT_L2_FLUSH_POLL_INTERVAL_SECONDS,
-    DEFAULT_L2_MAX_ESTIMATED_TOKENS_PER_BATCH,
-    DEFAULT_L2_MAX_EVENTS_PER_BATCH,
-    L2PipelineStagingMixin,
-)
+from .pipeline_staging import DEFAULT_L2_MAX_EVENTS_PER_BATCH, L2PipelineStagingMixin
+from .pipeline_utils import L2PipelineUtilityMixin
 from .pipeline_validation import L2ValidationMixin
 from .pipeline_workers import L2PipelineWorkerMixin
 from ..hybrid_retrieval.entity_semantic_builder import EntityScopedSemanticBuilder
 
-_GENERIC_PREFERENCE_OBJECT_SUFFIXES = {
-    "weather",
-    "weather-state",
-    "food",
-    "music",
-    "place",
-}
 logger = get_logger(__name__)
 DEFAULT_L2_EXTRACT_WORKER_COUNT = 5
 DEFAULT_L2_BATCH_FLUSH_INTERVAL_SECONDS = 60
@@ -98,6 +79,7 @@ class L2PipelineStats:
 
 
 class L2Pipeline(
+    L2PipelineUtilityMixin,
     L2PipelineStagingMixin,
     L2PipelineContextMixin,
     L2PipelineWorkerMixin,
@@ -764,126 +746,6 @@ class L2Pipeline(
             await lock.acquire()
             locks.append(lock)
         return locks
-
-    def _increment_bucket(self, bucket: dict[str, int], key: str | None) -> None:
-        if not key:
-            return
-        bucket[key] = int(bucket.get(key, 0)) + 1
-
-    def _normalize_entity_type(self, raw_value: Any) -> Optional[str]:
-        text = self._non_empty_text(raw_value)
-        if text is None:
-            return None
-        return coerce_unknown_entity_type(text)
-
-    def _normalize_predicate(self, raw_value: Any) -> Optional[str]:
-        text = self._non_empty_text(raw_value)
-        return text.upper() if text else None
-
-    def _normalize_structured_graph_hint_origin_mode(self, raw_value: Any) -> str:
-        return str(self._non_empty_text(raw_value) or "source_structured").casefold()
-
-    def _normalize_structured_graph_hint_page_kind(
-        self, attributes: dict[str, Any] | None
-    ) -> str | None:
-        if not isinstance(attributes, dict):
-            return None
-        return str(self._non_empty_text(attributes.get("page_kind")) or "").casefold() or None
-
-    def _extract_structured_graph_hint_facets(
-        self,
-        attributes: dict[str, Any] | None,
-    ) -> list[tuple[str, str]]:
-        if not isinstance(attributes, dict):
-            return []
-
-        raw_values: list[str] = []
-        direct_value = self._non_empty_text(attributes.get("category"))
-        if direct_value:
-            raw_values.append(direct_value)
-        raw_categories = attributes.get("categories")
-        if isinstance(raw_categories, list):
-            raw_values.extend(str(item).strip() for item in raw_categories if str(item).strip())
-
-        facets: list[tuple[str, str]] = []
-        seen: set[str] = set()
-        for raw_value in raw_values:
-            normalized = str(raw_value).strip().casefold()
-            if not normalized or normalized in seen:
-                continue
-            seen.add(normalized)
-            facets.append(("category", normalized))
-        return facets
-
-    def _build_concept_node(self, *, entity_type: str, normalized_surface: str) -> Optional[str]:
-        surface = self._non_empty_text(normalized_surface)
-        if not surface:
-            return None
-        slug = self._slugify(surface)
-        return f"{entity_type}:{slug}"
-
-    def _looks_like_interrogative_preference_query(self, text: str | None) -> bool:
-        normalized = str(text or "").strip().casefold()
-        if not normalized:
-            return False
-        if any(
-            marker in normalized
-            for marker in ("?", "？", "什么", "哪种", "哪类", "是不是", "吗", "么")
-        ):
-            return True
-        if any(
-            marker in normalized
-            for marker in ("你觉得", "你记得", "你知道", "guess", "do i ", "what ", "which ")
-        ):
-            return True
-        return False
-
-    def _is_generic_preference_object_id(self, value: str | None) -> bool:
-        normalized = str(value or "").strip().casefold()
-        if not normalized:
-            return False
-        _, _, suffix = normalized.partition(":")
-        candidate = suffix or normalized
-        return candidate in _GENERIC_PREFERENCE_OBJECT_SUFFIXES
-
-    def _is_self_like_preference_object(
-        self, *, subject_id: str, object_id: str, object_type: str
-    ) -> bool:
-        if object_id == subject_id:
-            return True
-        if object_type != "person":
-            return False
-        subject_prefix, _, subject_suffix = subject_id.partition(":")
-        object_prefix, _, object_suffix = object_id.partition(":")
-        if (
-            subject_prefix != "user"
-            or object_prefix != "person"
-            or not subject_suffix
-            or not object_suffix
-        ):
-            return False
-        return self._slugify(subject_suffix) == object_suffix
-
-    def _build_canonical_entity_id(self, *, entity_type: str, canonical_name: str) -> str:
-        slug = self._slugify(canonical_name)
-        return f"{entity_type}:{slug}"
-
-    def _slugify(self, value: str) -> str:
-        normalized = value.strip().casefold()
-        slug = re.sub(r"[^a-z0-9]+", "-", normalized).strip("-")
-        if slug:
-            return slug
-        return uuid.uuid5(uuid.NAMESPACE_URL, normalized).hex[:12]
-
-    def _non_empty_text(self, value: Any) -> Optional[str]:
-        if value is None:
-            return None
-        text = str(value).strip()
-        return text or None
-
-    def _entity_type_from_id(self, entity_id: str) -> str:
-        prefix, _, _ = entity_id.partition(":")
-        return prefix or "entity"
 
 
 __all__ = ["L2Pipeline", "L2PipelineStats"]
