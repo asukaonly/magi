@@ -12,7 +12,6 @@ import { useSettings } from '@/hooks/useSettings';
 import { NAV_ITEMS, isNavGroup } from '@/constants/settings';
 import type { SettingsPageHandle, SettingsPageProps } from '@/types/settings';
 import {
-  LabeledSelectField,
   MemoryEventsSettingsSection,
   MemoryGeneralSettingsSection,
   MemoryKnowledgeSettingsSection,
@@ -24,10 +23,10 @@ import {
 } from '@/components/settings';
 import LLMForm from '@/components/config-forms/LLMForm';
 import ChannelsSection from '@/components/settings/ChannelsSection';
-import { DesktopUpdateSection } from '@/components/settings/DesktopUpdateSection';
 import PluginsSection from '@/components/settings/PluginsSection';
 import { PluginMarketplace } from '@/components/settings/PluginMarketplace';
 import { SettingsNavigationSidebar } from '@/components/settings/SettingsNavigationSidebar';
+import { SettingsPreferencesSection } from '@/components/settings/SettingsPreferencesSection';
 import { SettingsGroup, SettingsSectionShell, SettingsSwitchRow } from '@/components/settings/SettingsSectionPrimitives';
 import { SettingsToolsSection } from '@/components/settings/SettingsToolsSection';
 import TimelineSourcesSection from '@/components/settings/TimelineSourcesSection';
@@ -213,132 +212,13 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     switch (effectiveActiveSection) {
       case 'preferences':
         return (
-          <SettingsSectionShell>
-            <SettingsGroup title={t('settings.fields.language')}>
-              <LabeledSelectField
-                label=""
-                ariaLabel={t('settings.fields.language')}
-                value={draftConfig.preferences.language}
-                options={[
-                  { label: t('language.zhHans', { ns: 'onboarding' }), value: 'zh' },
-                  { label: t('language.en', { ns: 'onboarding' }), value: 'en' },
-                ]}
-                onChange={handleLanguagePreviewChange}
-              />
-            </SettingsGroup>
-
-            <SettingsGroup
-              title={t('settings.fields.theme')}
-              description={t('settings.themeDesc')}
-            >
-              <LabeledSelectField
-                label=""
-                ariaLabel={t('settings.fields.theme')}
-                value={draftThemeMode}
-                options={[
-                  { label: t('settings.theme.light'), value: 'light' },
-                  { label: t('settings.theme.dark'), value: 'dark' },
-                  { label: t('settings.theme.system'), value: 'system' },
-                ]}
-                onChange={(value) => handleThemePreviewChange(value as typeof draftThemeMode)}
-              />
-            </SettingsGroup>
-
-            <SettingsGroup title={t('settings.fields.windowSettings')}>
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-sm">{t('settings.closeToTrayLabel')}</span>
-                <Switch
-                  aria-label={t('settings.closeToTrayLabel')}
-                  checked={draftConfig.preferences.close_to_tray_enabled}
-                  onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                    draft.preferences.close_to_tray_enabled = checked;
-                  })}
-                />
-              </div>
-            </SettingsGroup>
-
-            <SettingsGroup title={t('settings.startupSettings')}>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-sm">{t('settings.autoStartLabel')}</span>
-                  <Switch
-                    aria-label={t('settings.autoStartLabel')}
-                    checked={draftConfig.preferences.auto_start_enabled}
-                    onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                      draft.preferences.auto_start_enabled = checked;
-                    })}
-                  />
-                </div>
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-sm">{t('settings.startMinimizedLabel')}</span>
-                  <Switch
-                    aria-label={t('settings.startMinimizedLabel')}
-                    checked={draftConfig.preferences.start_minimized}
-                    onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                      draft.preferences.start_minimized = checked;
-                    })}
-                  />
-                </div>
-              </div>
-            </SettingsGroup>
-
-            <SettingsGroup title={t('settings.fields.networkProxy')}>
-              <div className="space-y-4">
-                <LabeledSelectField
-                  label=""
-                  ariaLabel={t('settings.fields.networkProxy')}
-                  value={draftConfig.network.enabled ? draftConfig.network.proxy_type : 'off'}
-                  options={[
-                    { label: t('settings.proxyOff'), value: 'off' },
-                    { label: 'HTTP', value: 'http' },
-                    { label: 'SOCKS5', value: 'socks5' },
-                  ]}
-                  onChange={(value) => patchDraftConfig((draft) => {
-                    if (value === 'off') {
-                      draft.network.enabled = false;
-                    } else {
-                      draft.network.enabled = true;
-                      draft.network.proxy_type = value as 'http' | 'socks5';
-                    }
-                  })}
-                />
-                {draftConfig.network.enabled && (
-                  <div className="grid grid-cols-[1fr_auto] gap-3">
-                    <label className="space-y-1.5">
-                      <span className="text-xs text-muted-foreground">{t('settings.fields.proxyHost')}</span>
-                      <Input
-                        aria-label={t('settings.fields.proxyHost')}
-                        value={draftConfig.network.host}
-                        placeholder="127.0.0.1"
-                        onChange={(e) => patchDraftConfig((draft) => {
-                          draft.network.host = e.target.value;
-                        })}
-                      />
-                    </label>
-                    <label className="space-y-1.5 w-28">
-                      <span className="text-xs text-muted-foreground">{t('settings.fields.proxyPort')}</span>
-                      <Input
-                        type="number"
-                        aria-label={t('settings.fields.proxyPort')}
-                        value={draftConfig.network.port}
-                        min={1}
-                        max={65535}
-                        placeholder="7890"
-                        onChange={(e) => patchDraftConfig((draft) => {
-                          const port = parseInt(e.target.value, 10);
-                          if (!isNaN(port) && port >= 1 && port <= 65535) {
-                            draft.network.port = port;
-                          }
-                        })}
-                      />
-                    </label>
-                  </div>
-                )}
-              </div>
-            </SettingsGroup>
-
-            <DesktopUpdateSection />
-          </SettingsSectionShell>
+          <SettingsPreferencesSection
+            draftConfig={draftConfig}
+            draftThemeMode={draftThemeMode}
+            patchDraftConfig={patchDraftConfig}
+            onThemePreviewChange={handleThemePreviewChange}
+            onLanguagePreviewChange={handleLanguagePreviewChange}
+          />
         );
 
       case 'conversation':
