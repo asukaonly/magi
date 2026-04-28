@@ -24,7 +24,6 @@ import type {
 import {
   buildPluginDraftSnapshotFromPackages,
   buildPluginDraftSnapshotFromSensors,
-  buildToolDraftSnapshot,
   applyMemoryToggle,
   diffFlatMaps,
   mergeDraftMaps,
@@ -33,6 +32,7 @@ import {
   serialize,
 } from '@/utils/settings-helpers';
 import { useSettingsNavigation } from './useSettingsNavigation';
+import { useSettingsTools } from './useSettingsTools';
 
 // ============================================================================
 // Hook Return Type
@@ -151,12 +151,6 @@ export function useSettings(): UseSettingsReturn {
   const [savedPluginDrafts, setSavedPluginDrafts] = useState<PluginDraftMap>({});
   const [draftPluginDrafts, setDraftPluginDrafts] = useState<PluginDraftMap>({});
 
-  // Tools state
-  const [tools, setTools] = useState<ToolConfig[]>([]);
-  const [toolsLoading, setToolsLoading] = useState(false);
-  const [toolsError, setToolsError] = useState<string | null>(null);
-  const [savedToolDrafts, setSavedToolDrafts] = useState<ToolDraftMap>({});
-  const [draftToolDrafts, setDraftToolDrafts] = useState<ToolDraftMap>({});
   const [reloadingActionPlugins, setReloadingActionPlugins] = useState<Record<string, boolean>>({});
 
   const {
@@ -172,6 +166,18 @@ export function useSettings(): UseSettingsReturn {
     channelsSelection,
     setChannelsSelection,
   } = useSettingsNavigation();
+  const {
+    tools,
+    toolsLoading,
+    toolsError,
+    savedToolDrafts,
+    setSavedToolDrafts,
+    draftToolDrafts,
+    setDraftToolDrafts,
+    loadTools,
+    handleToolDraftChange,
+    handleToolEnabledChange,
+  } = useSettingsTools();
 
   // ========================================
   // Config Mutation Helpers
@@ -262,44 +268,6 @@ export function useSettings(): UseSettingsReturn {
     await loadPlugins();
     await fetchTimelineStatuses();
   }, [loadPlugins, fetchTimelineStatuses]);
-
-  const loadTools = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
-    if (!silent) {
-      setToolsLoading(true);
-      setToolsError(null);
-    }
-    try {
-      const response = await toolsApi.listWithConfig();
-      const nextTools = response.tools || [];
-      const nextDrafts = buildToolDraftSnapshot(nextTools);
-      setTools(nextTools);
-      setSavedToolDrafts(nextDrafts);
-      setDraftToolDrafts((prev) => {
-        if (Object.keys(prev).length === 0) {
-          return nextDrafts;
-        }
-        const merged = structuredClone(prev);
-        for (const [toolName, snapshot] of Object.entries(nextDrafts)) {
-          merged[toolName] = {
-            enabled: merged[toolName]?.enabled ?? snapshot.enabled,
-            values: {
-              ...snapshot.values,
-              ...(merged[toolName]?.values || {}),
-            },
-          };
-        }
-        return merged;
-      });
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : t('settings.errorUnknown');
-      setToolsError(t('settings.loadToolsFailed', { message }));
-      toast.error(t('settings.loadToolsFailed', { message }));
-    } finally {
-      if (!silent) {
-        setToolsLoading(false);
-      }
-    }
-  }, [t]);
 
   const fetchConfig = useCallback(async () => {
     setLoading(true);
@@ -411,31 +379,6 @@ export function useSettings(): UseSettingsReturn {
       },
     }));
   }, []);
-
-  const handleToolDraftChange = useCallback((toolName: string, path: string, value: unknown) => {
-    setDraftToolDrafts((prev) => ({
-      ...prev,
-      [toolName]: {
-        enabled: prev[toolName]?.enabled ?? tools.find((tool) => tool.name === toolName)?.enabled ?? true,
-        values: {
-          ...(prev[toolName]?.values || {}),
-          [path]: value,
-        },
-      },
-    }));
-  }, [tools]);
-
-  const handleToolEnabledChange = useCallback((toolName: string, enabled: boolean) => {
-    setDraftToolDrafts((prev) => ({
-      ...prev,
-      [toolName]: {
-        enabled,
-        values: {
-          ...(prev[toolName]?.values || tools.find((tool) => tool.name === toolName)?.current_values || {}),
-        },
-      },
-    }));
-  }, [tools]);
 
   const handlePluginAction = useCallback(async (pluginId: string, action: 'enable' | 'disable' | 'reload') => {
     setPluginProcessingIds((prev) => ({ ...prev, [pluginId]: action }));
