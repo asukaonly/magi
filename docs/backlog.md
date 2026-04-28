@@ -163,6 +163,7 @@ Recent progress:
 - L2 entity maintenance open predicate consolidation helpers now live in `entity_maintenance_predicates.py`.
 - L2 entity maintenance episode consolidation helpers now live in `entity_maintenance_episodes.py`.
 - L2 episode dataclass contracts now live in `episode_models.py` with old `models.py` exports preserved.
+- L2 phase/structured/reconciled outcome dataclass contracts now live in `phase_models.py` with old `models.py` exports preserved.
 
 Candidates to review next:
 
