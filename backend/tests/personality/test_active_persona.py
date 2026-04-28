@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 
 from magi.personality import active_persona
-from magi.personality import current_state
 from magi.personality.loader import PersonalityConfig
 
 
@@ -31,12 +30,3 @@ async def test_resolve_persona_config_uses_active_cache() -> None:
     resolved = await active_persona.resolve_persona_config("nova_assistant")
 
     assert resolved is config
-
-
-def test_current_state_facade_uses_active_persona_cache() -> None:
-    config = PersonalityConfig()
-
-    current_state.set_current_personality("echo_ai_ssistant", config=config)
-
-    assert active_persona.get_current_personality() == "echo_ai_ssistant"
-    assert current_state.get_current_personality_config() is config

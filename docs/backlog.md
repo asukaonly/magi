@@ -41,11 +41,11 @@ Why it is still open:
 - The main frontend personality surface and onboarding flow now use the persona registry path.
 - Quick onboarding now selects the default persona from locale-aware seed metadata instead of a hardcoded seed slug.
 - Existing file-based persona JSON configs can be imported into the registry with `scripts/migrate-personas-to-registry.py`.
-- Some legacy personality/config routes and the in-memory `current_state.py` bridge still exist while older call sites are retired.
+- The old in-memory `current_state.py` bridge has been retired; active persona runtime state lives in `active_persona.py`.
 
 Remaining work:
 
-- Retire `current_state.py` once remaining in-tree callers use registry-backed active persona state directly or a thin runtime cache.
+- Audit remaining legacy personality/config routes and remove any routes that no longer match the registry-backed product path.
 
 ### 3. Finish the lifecycle-based memory implementation
 
