@@ -130,6 +130,7 @@ Recent progress:
 - L2 user assertion feedback and correction helpers now live in `store_feedback.py`.
 - L2 assertion/snapshot/relationship read queries now live in `store_queries.py`.
 - L2 edge embedding status and vector search helpers now live in `store_edge_embeddings.py`.
+- L2 knowledge-graph upsert and corroboration helpers now live in `store_graph_writes.py`.
 
 Candidates to review next:
 

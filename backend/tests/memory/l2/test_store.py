@@ -1879,7 +1879,8 @@ async def test_corroborate_keeps_longer_evidence_text(tmp_path):
 @pytest.mark.asyncio
 async def test_future_intent_auto_sets_expires_at(tmp_path):
     """Edges with fact_kind='future_intent' should auto-populate expires_at."""
-    from magi.memory.l2.store import L2CognitionStore, DEFAULT_FUTURE_INTENT_TTL_SECONDS
+    from magi.memory.l2.store import L2CognitionStore
+    from magi.memory.l2.store_utils import DEFAULT_FUTURE_INTENT_TTL_SECONDS
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()
