@@ -119,6 +119,7 @@ Recent progress:
 - Provider bridge thinking-option and concurrency helpers now live in `provider_bridge_options.py`.
 - L2 snapshot evolution and ToM reconciliation helpers now live in `store_reconcile.py`.
 - L2 graph-conflict resolution and rule reload helpers now live in `store_graph_conflicts.py`.
+- L2 SQLite row-to-dict helpers now live in `store_rows.py`.
 
 Candidates to review next:
 
