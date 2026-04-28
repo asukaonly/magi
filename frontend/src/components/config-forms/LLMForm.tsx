@@ -1,5 +1,5 @@
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -11,8 +11,6 @@ import {
   type LLMScenario,
   type TestLLMProviderConnectionResponse,
 } from '@/api/modules/config';
-import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 
 import { FormContext } from '../onboarding/simple-form';
@@ -31,6 +29,7 @@ import {
   resolveSelectionDefaultMaxConcurrency,
   type ScenarioConcurrencyState,
 } from './llm-form-state';
+import { LLMEmbeddingDimensionConfirmDialog } from './LLMEmbeddingDimensionConfirmDialog';
 import { LLMModelSelectionSection } from './LLMModelSelectionSection';
 import { LLMProviderConfigurationSection } from './LLMProviderConfigurationSection';
 
@@ -690,42 +689,13 @@ const LLMForm: React.FC<LLMFormProps> = ({
         />
       ) : null}
 
-      <Dialog
+      <LLMEmbeddingDimensionConfirmDialog
         open={Boolean(pendingEmbeddingDimensionChange)}
-        onOpenChange={(open) => {
-          if (!open) {
-            setPendingEmbeddingDimensionChange(null);
-          }
-        }}
-      >
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-destructive" />
-              {t('llm.embeddingDimensionConfirm.title')}
-            </DialogTitle>
-            <DialogDescription>
-              {t('llm.embeddingDimensionConfirm.description', {
-                current: pendingEmbeddingDimensionChange?.previousDimension ?? '',
-                next: pendingEmbeddingDimensionChange?.nextDimension ?? '',
-              })}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="px-6 pb-2">
-            <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm leading-6 text-muted-foreground">
-              {t('llm.embeddingDimensionConfirm.warning')}
-            </div>
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => setPendingEmbeddingDimensionChange(null)}>
-              {t('llm.embeddingDimensionConfirm.cancel')}
-            </Button>
-            <Button type="button" variant="destructive" onClick={handleConfirmEmbeddingDimensionChange}>
-              {t('llm.embeddingDimensionConfirm.confirm')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        previousDimension={pendingEmbeddingDimensionChange?.previousDimension ?? null}
+        nextDimension={pendingEmbeddingDimensionChange?.nextDimension ?? null}
+        onCancel={() => setPendingEmbeddingDimensionChange(null)}
+        onConfirm={handleConfirmEmbeddingDimensionChange}
+      />
     </div>
   );
 };
