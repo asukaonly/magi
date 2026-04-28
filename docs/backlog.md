@@ -122,6 +122,7 @@ Recent progress:
 - L2 SQLite row-to-dict helpers now live in `store_rows.py`.
 - L2 knowledge-graph schema backfills now live with the other store migrations.
 - L2 graph `fact_kind` admission rules now live in `store_fact_kind.py`.
+- L2 rule-based candidate extraction now lives in `store_candidates.py`.
 
 Candidates to review next:
 

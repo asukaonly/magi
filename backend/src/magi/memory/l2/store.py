@@ -12,11 +12,12 @@ import aiosqlite
 
 from ...core.logger import get_logger
 from ...core.sqlite import sqlite_connection_async
-from ..event_contracts import MemoryEvent, TomDepth
+from ..event_contracts import MemoryEvent
 from .graph_conflicts import GraphConflictRule, build_exclusive_group_index, build_graph_conflict_matrix
 from .models import ContradictionHint, L2KnowledgeEdgeWrite, L2TomAssertionWrite, ReconciledTraitOutcome
 from .ontology import are_predicates_synonymous
 from .projection_queue import ProjectionJobQueue
+from .store_candidates import L2StoreCandidateExtractionMixin
 from .store_episodes import L2EpisodeStoreMixin
 from .store_facets import L2EntityFacetStoreMixin
 from .store_fact_kind import L2StoreFactKindMixin
@@ -27,12 +28,10 @@ from .store_reconcile import L2StoreReconcileMixin
 from .store_rows import L2StoreRowMappingMixin
 from .store_schema import L2_COGNITION_SCHEMA_SQL
 from .store_utils import (
-    CALM_KEYWORDS as _CALM_KEYWORDS,
     DEFAULT_FUTURE_INTENT_TTL_SECONDS,
     MAX_EVIDENCE_EVENT_IDS,
     MOOD_TRAJECTORY_FAMILIES as _MOOD_TRAJECTORY_FAMILIES,
     MOOD_TRAJECTORY_LIMIT as _MOOD_TRAJECTORY_LIMIT,
-    STRESS_KEYWORDS as _STRESS_KEYWORDS,
     accumulate_confidence as _accumulate_confidence,
     normalize_store_entity_ref as _normalize_store_entity_ref,
     normalize_store_entity_type as _normalize_store_entity_type,
@@ -49,6 +48,7 @@ class L2CognitionStore(
     L2StoreReconcileMixin,
     L2StoreRowMappingMixin,
     L2StoreFactKindMixin,
+    L2StoreCandidateExtractionMixin,
 ):
     """Persists structured cognition artifacts derived from L1 events."""
 
@@ -1577,72 +1577,6 @@ class L2CognitionStore(
                 snapshot_version=snapshot.get("snapshot_version"),
             )
         return snapshot
-
-    def _extract_graph_candidates(self, event: MemoryEvent) -> list[L2KnowledgeEdgeWrite]:
-        content = event.content.lower()
-        if " like " not in f" {content} ":
-            return []
-        subject_id, subject_type = self._entity_identity(event)
-        if subject_id is None:
-            return []
-        return [
-            L2KnowledgeEdgeWrite(
-                subject_id=subject_id,
-                subject_type=subject_type,
-                predicate="LIKES",
-                object_id="topic:mentioned_preference",
-                object_type="topic",
-                evidence_event_ids=[event.event_id],
-                confidence=0.7,
-                observed_at=event.timestamp,
-                source_type=event.source,
-                extraction_method="keyword_rule",
-            )
-        ]
-
-    def _extract_assertion_candidates(self, event: MemoryEvent) -> list[L2TomAssertionWrite]:
-        subject_id, subject_type = self._entity_identity(event)
-        if subject_id is None:
-            return []
-        if not event.cognition_eligible or event.tom_depth != TomDepth.DEFENSIVE_PSYCHOLOGY:
-            return []
-
-        text = event.content.lower()
-        if any(keyword in text for keyword in _STRESS_KEYWORDS):
-            return [
-                L2TomAssertionWrite(
-                    entity_id=subject_id,
-                    entity_type=subject_type,
-                    trait_name="stress_level",
-                    trait_value="high",
-                    confidence_score=0.3,
-                    evidence_events=[event.event_id],
-                    volatility_index=0.7,
-                    source_domain=event.memory_domain.label,
-                    inference_depth=event.tom_depth.label,
-                    validation_state="tentative",
-                    first_inferred_at=event.timestamp,
-                    last_validated_at=event.timestamp,
-                )
-            ]
-        if any(keyword in text for keyword in _CALM_KEYWORDS):
-            return [
-                L2TomAssertionWrite(
-                    entity_id=subject_id,
-                    entity_type=subject_type,
-                    trait_name="stress_level",
-                    trait_value="low",
-                    confidence_score=0.3,
-                    evidence_events=[event.event_id],
-                    volatility_index=0.7,
-                    source_domain=event.memory_domain.label,
-                    inference_depth=event.tom_depth.label,
-                    validation_state="tentative",
-                    first_inferred_at=event.timestamp,
-                    last_validated_at=event.timestamp,
-                )
-            ]
-        return []
 
     async def _upsert_assertion(self, candidate: Dict[str, Any]) -> str:
         now = time.time()
