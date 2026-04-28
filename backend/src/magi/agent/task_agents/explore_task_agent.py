@@ -1,6 +1,8 @@
 """Task agent dedicated to large Explore-style decompositions."""
 from __future__ import annotations
 
+from typing import Any, Callable
+
 from ...agent.orchestration import get_orchestration_store
 from ...agent.task_orchestrator import TaskOrchestrator
 from ...agent.runtime.contracts import FactRecord
@@ -37,7 +39,13 @@ from .explore.prompt_service import ExplorePromptService
 class ExploreTaskAgent(TaskAgent[ExploreRuntimeContext, ExploreIntentDecision, ToolSelection, ExecutionRequest, ExecutionResult]):
     """Parent task agent for large Explore tasks composed of leaf Explore workers."""
 
-    def __init__(self, agent_id: str, llm_adapter=None, llm_pool=None) -> None:
+    def __init__(
+        self,
+        agent_id: str,
+        llm_adapter=None,
+        llm_pool=None,
+        control_session_store_provider: Callable[[], Any] | None = None,
+    ) -> None:
         super().__init__(agent_type=TaskAgentType.EXPLORE, agent_id=agent_id)
         self.llm = llm_adapter
         self._llm_pool = llm_pool
@@ -55,6 +63,7 @@ class ExploreTaskAgent(TaskAgent[ExploreRuntimeContext, ExploreIntentDecision, T
             aggregate_orchestration=self._aggregation_service.aggregate_orchestration,
             register_user_message=self._session_service.append_request,
             parent_task_agent_type=TaskAgentType.EXPLORE.value,
+            control_session_store_provider=control_session_store_provider,
         )
         self._postprocess_service = ExplorePostProcessService(
             get_task_agent_manager=lambda: self._task_agent_manager,

@@ -241,6 +241,7 @@ def test_runtime_domain_code_does_not_import_core_runtime_package() -> None:
     chat_handlers = (BACKEND_SRC / "agent/task_agents/chat/handlers.py").read_text(encoding="utf-8")
     worker_manager = (BACKEND_SRC / "agent/workers/worker_manager.py").read_text(encoding="utf-8")
     function_calling = (BACKEND_SRC / "agent/execution/function_calling.py").read_text(encoding="utf-8")
+    task_orchestrator = (BACKEND_SRC / "agent/task_orchestrator.py").read_text(encoding="utf-8")
     task_factory = (BACKEND_SRC / "agent/task_agents/factory.py").read_text(encoding="utf-8")
     event_emitter = (BACKEND_SRC / "awareness/event_emitter.py").read_text(encoding="utf-8")
     awareness_contracts = (BACKEND_SRC / "awareness/contracts.py").read_text(encoding="utf-8")
@@ -267,6 +268,7 @@ def test_runtime_domain_code_does_not_import_core_runtime_package() -> None:
     assert "core.runtime_bindings" not in chat_handlers
     assert "core.runtime_bindings" not in worker_manager
     assert "core.runtime_bindings" not in function_calling
+    assert "core.runtime_bindings" not in task_orchestrator
     assert "core.container" not in worker_manager
     assert "core.runtime.types" not in task_factory
     assert "core.runtime.contracts" not in event_emitter

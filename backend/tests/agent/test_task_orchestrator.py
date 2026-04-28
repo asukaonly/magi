@@ -27,6 +27,15 @@ def _fake_register_user_message(*args, **kwargs) -> None:  # type: ignore[no-unt
     _ = (args, kwargs)
 
 
+class _FakeControlSessionStore:
+    def __init__(self) -> None:
+        self.replace_calls: list[tuple[str, list[dict[str, object]]]] = []
+
+    async def replace_todos(self, session_id: str, items: list[dict[str, object]]):
+        self.replace_calls.append((session_id, items))
+        return []
+
+
 @pytest.mark.asyncio
 async def test_build_agent_tool_context_includes_workspace_and_agent_metadata() -> None:
     orchestrator = TaskOrchestrator(
@@ -54,6 +63,63 @@ async def test_build_agent_tool_context_includes_workspace_and_agent_metadata() 
         "run_id": "",
         "run_revision": "0",
     }
+
+
+@pytest.mark.asyncio
+async def test_publish_session_todos_uses_injected_control_session_store() -> None:
+    store = _FakeControlSessionStore()
+    orchestrator = TaskOrchestrator(
+        runtime_key="chat:user-1",
+        tool_registry=ToolRegistry(),
+        plan_subtasks=_fake_plan_subtasks,
+        aggregate_orchestration=_fake_aggregate,
+        register_user_message=_fake_register_user_message,
+        parent_task_agent_type="chat",
+        control_session_store_provider=lambda: store,
+    )
+    state = TaskOrchestrationState(
+        orchestration_id="orch-1",
+        user_id="user-1",
+        session_id="session-1",
+        root_user_message="do it",
+        planner="task_agent",
+        subtasks=[
+            SubtaskDefinition(
+                subtask_id="subtask-1",
+                description="Inspect logs",
+                subagent_type="Explore",
+                prompt="Inspect logs",
+                status="running",
+            ),
+            SubtaskDefinition(
+                subtask_id="subtask-2",
+                description="Patch fix",
+                subagent_type="Explore",
+                prompt="Patch fix",
+                status="running",
+            ),
+        ],
+    )
+
+    await orchestrator._publish_session_todos(state)
+
+    assert store.replace_calls == [
+        (
+            "session-1",
+            [
+                {
+                    "id": "subtask-1",
+                    "content": "Inspect logs",
+                    "status": "in_progress",
+                },
+                {
+                    "id": "subtask-2",
+                    "content": "Patch fix",
+                    "status": "not_started",
+                },
+            ],
+        )
+    ]
 
 
 @pytest.mark.asyncio

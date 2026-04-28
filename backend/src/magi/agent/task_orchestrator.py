@@ -30,6 +30,7 @@ WorkerPlanCallback = Callable[[str, list[dict[str, Any]], dict[str, Any], str, s
 AggregateCallback = Callable[[TaskOrchestrationState], Awaitable[str]]
 HistoryCallback = Callable[[str, str], None]
 SessionWorkspaceProvider = Callable[..., Awaitable[str | None] | str | None]
+ControlSessionStoreProvider = Callable[[], Any]
 
 DEFAULT_WORKER_RETRY_BUDGET = 1
 LLM_RATE_LIMIT_RETRY_BUDGET = 10
@@ -55,6 +56,7 @@ class TaskOrchestrator:
         register_user_message: HistoryCallback,
         parent_task_agent_type: str = "chat",
         session_workspace_provider: SessionWorkspaceProvider | None = None,
+        control_session_store_provider: ControlSessionStoreProvider | None = None,
     ) -> None:
         self._runtime_key = runtime_key
         self._tool_registry = tool_registry
@@ -63,6 +65,7 @@ class TaskOrchestrator:
         self._register_user_message = register_user_message
         self._parent_task_agent_type = parent_task_agent_type
         self._session_workspace_provider = session_workspace_provider
+        self._control_session_store_provider = control_session_store_provider
         self._orchestration_store = get_orchestration_store()
 
     async def start_orchestration(
@@ -740,10 +743,10 @@ class TaskOrchestrator:
         session_id = str(getattr(state, "session_id", "") or "").strip()
         if not session_id or not state.subtasks:
             return
+        if self._control_session_store_provider is None:
+            return
         try:
-            from ..core.runtime_bindings import require_control_session_store
-
-            store = require_control_session_store()
+            store = self._control_session_store_provider()
         except Exception:
             # Control plane not wired (e.g. unit tests) — todo mirror is
             # purely a UX concern, never block orchestration on it.

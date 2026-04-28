@@ -33,6 +33,7 @@ def create_chat_agent_factory(
     background_dispatcher: Any | None = None,
     background_launch_service: Any | None = None,
     permission_gateway_provider: Callable[[], Any] | None = None,
+    control_session_store_provider: Callable[[], Any] | None = None,
 ) -> Callable[[str], ChatTaskAgent]:
     """Return a factory callable that creates ChatTaskAgent instances."""
 
@@ -56,6 +57,7 @@ def create_chat_agent_factory(
             background_dispatcher=background_dispatcher,
             background_launch_service=background_launch_service,
             permission_gateway_provider=permission_gateway_provider,
+            control_session_store_provider=control_session_store_provider,
         )
 
     return _create
@@ -69,12 +71,18 @@ def create_default_agent_factory(
     unified_memory: UnifiedMemoryStore,
     plugin_manager: Any,
     sensor_registry: Any,
+    control_session_store_provider: Callable[[], Any] | None = None,
 ) -> Callable[[str, str], Any]:
     """Return a factory callable that creates non-chat task agent instances."""
 
     def _create(agent_type: str, agent_id: str) -> Any:
         if agent_type == TaskAgentType.EXPLORE.value:
-            return ExploreTaskAgent(agent_id=agent_id, llm_adapter=llm_adapter, llm_pool=llm_pool)
+            return ExploreTaskAgent(
+                agent_id=agent_id,
+                llm_adapter=llm_adapter,
+                llm_pool=llm_pool,
+                control_session_store_provider=control_session_store_provider,
+            )
         if agent_type == TaskAgentType.TIMELINE.value:
             return TimelineTaskAgent(
                 agent_id=agent_id,

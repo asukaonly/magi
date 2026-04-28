@@ -97,6 +97,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         background_dispatcher: Any | None = None,
         background_launch_service: Any | None = None,
         permission_gateway_provider: Callable[[], Any] | None = None,
+        control_session_store_provider: Callable[[], Any] | None = None,
     ) -> None:
         super().__init__(agent_type=TaskAgentType.CHAT, agent_id=agent_id)
         self.llm = llm_adapter
@@ -173,6 +174,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             register_user_message=self._history_service.append_user_message,
             parent_task_agent_type=TaskAgentType.CHAT.value,
             session_workspace_provider=self._resolve_session_workspace_path,
+            control_session_store_provider=control_session_store_provider,
         )
         # Initialize trace read service for enriching AI_RESPONSE events
         from ...api.services.chat_trace_read_service import ChatTraceReadService
