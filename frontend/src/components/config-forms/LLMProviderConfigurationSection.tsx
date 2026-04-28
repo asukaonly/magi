@@ -2,13 +2,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-import { LLMProviderChatModelFields } from '@/components/config-forms/LLMProviderChatModelFields';
 import { LLMProviderConnectionFields } from '@/components/config-forms/LLMProviderConnectionFields';
 import { LLMProviderDetailHeader } from '@/components/config-forms/LLMProviderDetailHeader';
-import { LLMProviderEmbeddingModelFields } from '@/components/config-forms/LLMProviderEmbeddingModelFields';
-import { LLMProviderImageModelFields } from '@/components/config-forms/LLMProviderImageModelFields';
 import { LLMProviderListPane } from '@/components/config-forms/LLMProviderListPane';
-import { LLMProviderModelEditorHeader, type LLMProviderModelEditorKind } from '@/components/config-forms/LLMProviderModelEditorHeader';
+import { LLMProviderModelEditor } from '@/components/config-forms/LLMProviderModelEditor';
 import { LLMProviderModelListPane } from '@/components/config-forms/LLMProviderModelListPane';
 import { LLMProviderModelToolbar, type LLMProviderModelKind } from '@/components/config-forms/LLMProviderModelToolbar';
 import { LLMProviderTestStatus } from '@/components/config-forms/LLMProviderTestStatus';
@@ -55,9 +52,6 @@ interface LLMProviderConfigurationSectionProps {
     }
   >;
 }
-
-const fieldClassName =
-  'h-11 w-full rounded-xl bg-background px-3 text-sm ring-1 ring-inset ring-border/55 shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45';
 
 export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationSectionProps> = ({
   registry,
@@ -351,74 +345,15 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       onSelectedModelChange={setSelectedModelId}
                     />
 
-                    <div
-                      data-testid="llm-provider-model-editor"
-                      className={cn(
-                        'space-y-4 rounded-[18px] bg-muted/25 p-4',
-                        isSettingsSurface && 'rounded-lg bg-[hsl(var(--settings-shell-elevated)/0.22)]'
-                      )}
-                    >
-                      {activeWorkbenchModel ? (() => {
-                        const activeKind: LLMProviderModelEditorKind =
-                          activeWorkbenchModel.kinds.includes('image') &&
-                          !activeWorkbenchModel.kinds.includes('chat') &&
-                          !activeWorkbenchModel.kinds.includes('embedding')
-                            ? 'image'
-                            : activeWorkbenchModel.kinds.includes('embedding') &&
-                              !activeWorkbenchModel.kinds.includes('chat')
-                            ? 'embedding'
-                            : 'chat';
-                        return (
-                          <>
-                            <LLMProviderModelEditorHeader
-                              providerId={activeProviderId}
-                              model={activeWorkbenchModel}
-                              activeKind={activeKind}
-                              onProviderChange={onProviderChange}
-                              onRemoveProviderModel={onRemoveProviderModel}
-                            />
-
-                            <div className="grid gap-4">
-                              <label className="space-y-2">
-                                <span className="text-sm font-medium">{t('llm.fields.displayName')}</span>
-                                <input
-                                  aria-label={t('llm.fields.displayName')}
-                                  className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
-                                  value={activeModelOverride?.label ?? activeWorkbenchModel.label}
-                                  onChange={(event) =>
-                                    updateModelOverride(activeWorkbenchModel.id, (draft) => {
-                                      draft.label = event.target.value.trim() || undefined;
-                                    })
-                                  }
-                                />
-                              </label>
-                            </div>
-
-                            {activeKind === 'chat' ? (
-                              <LLMProviderChatModelFields
-                                model={activeWorkbenchModel}
-                                modelOverride={activeModelOverride}
-                                isSettingsSurface={isSettingsSurface}
-                                onModelOverrideChange={updateModelOverride}
-                              />
-                            ) : activeKind === 'embedding' ? (
-                              <LLMProviderEmbeddingModelFields
-                                model={activeWorkbenchModel}
-                                modelOverride={activeModelOverride}
-                                isSettingsSurface={isSettingsSurface}
-                                onModelOverrideChange={updateModelOverride}
-                              />
-                            ) : (
-                              <LLMProviderImageModelFields />
-                            )}
-                          </>
-                        );
-                      })() : (
-                        <div className="rounded-lg bg-background/80 px-3 py-3 text-sm text-muted-foreground">
-                          {t('llm.providerConfiguration.noModelSelected')}
-                        </div>
-                      )}
-                    </div>
+                    <LLMProviderModelEditor
+                      providerId={activeProviderId}
+                      model={activeWorkbenchModel}
+                      modelOverride={activeModelOverride}
+                      isSettingsSurface={isSettingsSurface}
+                      onProviderChange={onProviderChange}
+                      onRemoveProviderModel={onRemoveProviderModel}
+                      onModelOverrideChange={updateModelOverride}
+                    />
                   </div>
                 </div>
               </div>
