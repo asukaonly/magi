@@ -128,6 +128,7 @@ Recent progress:
 - L2 ToM assertion upsert flow now lives in `store_assertions.py`.
 - L2 user rejection and forgetting helpers now live in `store_forgetting.py`.
 - L2 user assertion feedback and correction helpers now live in `store_feedback.py`.
+- L2 assertion/snapshot/relationship read queries now live in `store_queries.py`.
 
 Candidates to review next:
 
