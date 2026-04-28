@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 
 import { useManagedEmbeddingModels, useManagedRerankerModels } from './llm-model-download-hooks';
 import { LLMRerankerModelPanel } from './LLMRerankerModelPanel';
+import { LLMScenarioAdvancedSettings } from './LLMScenarioAdvancedSettings';
 
 interface LLMModelSelectionSectionProps {
   registry: LLMProviderRegistry;
@@ -211,72 +212,22 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
     );
   }
 
-  const renderAdvancedSettings = (scenario: LLMScenario) => {
-    const concurrencyState = scenarioConcurrency[scenario];
-    const sharedScenarioTitles = concurrencyState.sharedScenarios.map((sharedScenario) =>
-      t(`llm.scenarios.${sharedScenario}.title`)
-    );
-
-    return (
-      <div
-        className={cn(
-          'mt-3 space-y-3',
-          isSettingsSurface ? 'pt-1' : 'border-t border-border/60 pt-3'
-        )}
-      >
-        <button
-          type="button"
-          className="text-sm font-medium text-primary underline-offset-4 hover:underline"
-          onClick={() =>
-            setExpandedAdvanced((current) => ({
-              ...current,
-              [scenario]: !current[scenario],
-            }))
-          }
-        >
-          {expandedAdvanced[scenario] ? t('llm.hideAdvanced') : t('llm.showAdvanced')}
-        </button>
-
-        {expandedAdvanced[scenario] ? (
-          <div className="space-y-2">
-            <label className="space-y-2">
-              <span className="text-sm font-medium">{t('llm.fields.maxConcurrency')}</span>
-              <input
-                aria-label={t('llm.fields.maxConcurrency')}
-                className={inputClassName}
-                type="number"
-                min={1}
-                step={1}
-                value={
-                  concurrencyState.effectiveMaxConcurrency !== null
-                    ? String(concurrencyState.effectiveMaxConcurrency)
-                    : ''
-                }
-                placeholder={t('llm.modelSelection.maxConcurrencyPlaceholder')}
-                onChange={(event) => {
-                  const nextValue = event.target.value.trim();
-                  onScenarioMaxConcurrencyChange(
-                    scenario,
-                    nextValue ? Number(nextValue) : null
-                  );
-                }}
-              />
-            </label>
-            <p className="text-xs leading-5 text-muted-foreground">
-              {t('llm.modelSelection.maxConcurrencyHelp')}
-            </p>
-            {sharedScenarioTitles.length > 0 ? (
-              <p className="text-xs leading-5 text-muted-foreground">
-                {t('llm.modelSelection.sharedConcurrencyHint', {
-                  scenarios: sharedScenarioTitles.join(', '),
-                })}
-              </p>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
-    );
-  };
+  const renderAdvancedSettings = (scenario: LLMScenario) => (
+    <LLMScenarioAdvancedSettings
+      scenario={scenario}
+      concurrencyState={scenarioConcurrency[scenario]}
+      expanded={expandedAdvanced[scenario]}
+      isSettingsSurface={isSettingsSurface}
+      inputClassName={inputClassName}
+      onToggle={() =>
+        setExpandedAdvanced((current) => ({
+          ...current,
+          [scenario]: !current[scenario],
+        }))
+      }
+      onMaxConcurrencyChange={onScenarioMaxConcurrencyChange}
+    />
+  );
 
   const renderEmbeddingScenarioContent = (scenario: LLMScenario) => {
     const selection = value.selections[scenario];
