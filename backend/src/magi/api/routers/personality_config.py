@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import json
 import random
-import re
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -34,6 +33,8 @@ from ...llm import create_llm_adapter
 from ...personality.loader import PersonalityConfig
 from ...utils.runtime import get_runtime_paths
 from ...core.logger import get_logger
+from ..services.personality_compare import build_personality_diffs, flatten_dict
+from ..services.personality_registry import sanitize_persona_slug, save_personality_config_to_registry
 from .personality_config_schemas import (
     AIGenerateRequest,
     BasicProfileModel,
@@ -256,8 +257,7 @@ async def _persist_bootstrap_assistant_message(
 
 
 def sanitize_filename(name: str) -> str:
-    name = re.sub(r'[<>:"/\\|?*]', "_", name).replace(" ", "_")
-    return (name[:50] or "unnamed").strip("_") or "unnamed"
+    return sanitize_persona_slug(name)
 
 
 async def save_personality_to_registry(name: str, config: PersonalityConfigModel) -> str:
@@ -265,47 +265,20 @@ async def save_personality_to_registry(name: str, config: PersonalityConfigModel
 
     Creates a new persona or updates an existing one.  Returns the final slug.
     """
-    import json as _json
-    config_json = _json.dumps(config.model_dump(), ensure_ascii=False)
-    repo = PersonaRepository(str(get_runtime_paths().persona_registry_db_path))
-    await repo.init()
-    try:
-        record = await repo.get_by_slug(name)
-        await repo.update(record.persona_id, config_json=config_json, slug=name)
-        return name
-    except (KeyError, Exception):
-        persona_id = await repo.create(config_json=config_json, slug=name)
-        logger.info("Created new persona in registry: %s (%s)", name, persona_id)
-        return name
+    return await save_personality_config_to_registry(
+        name,
+        config,
+        repo_factory=PersonaRepository,
+        runtime_paths_loader=get_runtime_paths,
+    )
 
 
 def _flatten_dict(value: Any, prefix: str = "") -> Dict[str, Any]:
-    flat: Dict[str, Any] = {}
-    if isinstance(value, dict):
-        for key, child in value.items():
-            next_prefix = f"{prefix}.{key}" if prefix else key
-            flat.update(_flatten_dict(child, next_prefix))
-    else:
-        flat[prefix] = value
-    return flat
+    return flatten_dict(value, prefix)
 
 
 def _build_diffs(from_data: Dict[str, Any], to_data: Dict[str, Any]) -> List[PersonalityDiff]:
-    from_flat = _flatten_dict(from_data)
-    to_flat = _flatten_dict(to_data)
-    keys = sorted(set(from_flat) | set(to_flat))
-    diffs: List[PersonalityDiff] = []
-    for key in keys:
-        if from_flat.get(key) != to_flat.get(key):
-            diffs.append(
-                PersonalityDiff(
-                    field=key,
-                    field_label=FIELD_LABELS.get(key, key),
-                    old_value=from_flat.get(key),
-                    new_value=to_flat.get(key),
-                )
-            )
-    return diffs
+    return build_personality_diffs(from_data, to_data, FIELD_LABELS)
 
 
 def _normalize_avatar_in_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
