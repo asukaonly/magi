@@ -490,10 +490,20 @@ def test_render_temporal_summary_prompt_includes_period_focus() -> None:
         source_event_ids=["evt-1"],
         events=[TemporalEvidenceItem(event_id="evt-1", event_type="TimelineEvent", content="Played music")],
     )
+    month_pack = TemporalEvidencePack(
+        summary_category="month",
+        period_start=100.0,
+        period_end=200.0,
+        source_event_count=1,
+        source_event_ids=["evt-1"],
+        events=[TemporalEvidenceItem(event_id="evt-1", event_type="TimelineEvent", content="Worked on Magi memory")],
+    )
 
     assert "Hour focus" in service._render_temporal_summary_prompt(hour_pack)
     assert "Day focus" in service._render_temporal_summary_prompt(day_pack)
     assert "Week focus" in service._render_temporal_summary_prompt(week_pack)
+    assert "Month focus" in service._render_temporal_summary_prompt(month_pack)
+    assert "timeline-oriented month recap" in service._render_temporal_summary_prompt(month_pack)
     assert "Do not lead with raw event counts" in service._render_temporal_summary_prompt(week_pack)
 
 

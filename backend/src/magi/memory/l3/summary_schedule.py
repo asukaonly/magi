@@ -17,13 +17,22 @@ logger = get_logger(__name__)
 SCHEDULE_ID_L3_HOUR = "memory-l3-summary:hour"
 SCHEDULE_ID_L3_DAY = "memory-l3-summary:day"
 SCHEDULE_ID_L3_WEEK = "memory-l3-summary:week"
+SCHEDULE_ID_L3_MONTH = "memory-l3-summary:month"
 TARGET_KEY_L3_SUMMARY = "memory_l3_summary"
 SCHEDULE_ID_L3_ACTIVITY_PREFIX = "memory-l3-activity:"
+
+_CORE_PERIOD_SCHEDULES: tuple[tuple[str, str], ...] = (
+    ("hour", SCHEDULE_ID_L3_HOUR),
+    ("day", SCHEDULE_ID_L3_DAY),
+    ("week", SCHEDULE_ID_L3_WEEK),
+    ("month", SCHEDULE_ID_L3_MONTH),
+)
 
 _PERIOD_INTERVALS: dict[str, float] = {
     "hour": 3600.0,
     "day": 86400.0,
     "week": 604800.0,
+    "month": 2592000.0,
 }
 
 
@@ -88,7 +97,7 @@ def _activity_schedule_id(summary_category: str, window: str) -> str:
 
 
 class L3SummaryScheduleContrib:
-    """Registers MEMORY_L3_SUMMARY handler and interval schedules for hour/day/week."""
+    """Registers MEMORY_L3_SUMMARY handler and interval schedules for core periods."""
 
     def __init__(self) -> None:
         self._activity_schedule_ids: list[str] = []
@@ -98,7 +107,7 @@ class L3SummaryScheduleContrib:
 
         l3_cfg = get_config().agent.memory.l3
         if not l3_cfg.enabled:
-            for sid in (SCHEDULE_ID_L3_HOUR, SCHEDULE_ID_L3_DAY, SCHEDULE_ID_L3_WEEK):
+            for _period_type, sid in _CORE_PERIOD_SCHEDULES:
                 await scheduler.unschedule(
                     sid,
                     target_type=ScheduledTargetType.MEMORY_L3_SUMMARY,
@@ -114,11 +123,7 @@ class L3SummaryScheduleContrib:
             logger.info("L3 summary schedules disabled by config")
             return
 
-        for period_type, schedule_id in [
-            ("hour", SCHEDULE_ID_L3_HOUR),
-            ("day", SCHEDULE_ID_L3_DAY),
-            ("week", SCHEDULE_ID_L3_WEEK),
-        ]:
+        for period_type, schedule_id in _CORE_PERIOD_SCHEDULES:
             await scheduler.schedule_interval(
                 schedule_id=schedule_id,
                 target_type=ScheduledTargetType.MEMORY_L3_SUMMARY,
@@ -126,7 +131,7 @@ class L3SummaryScheduleContrib:
                 seconds=_PERIOD_INTERVALS[period_type],
                 target_payload={"period_type": period_type},
             )
-        logger.info("L3 summary schedules registered (hour/day/week)")
+        logger.info("L3 summary schedules registered (hour/day/week/month)")
 
         await self._register_activity_schedules(scheduler)
 
@@ -184,7 +189,7 @@ class L3SummaryScheduleContrib:
             )
 
     async def unregister_schedules(self, scheduler: SchedulerService) -> None:
-        for sid in (SCHEDULE_ID_L3_HOUR, SCHEDULE_ID_L3_DAY, SCHEDULE_ID_L3_WEEK):
+        for _period_type, sid in _CORE_PERIOD_SCHEDULES:
             await scheduler.unschedule(
                 sid,
                 target_type=ScheduledTargetType.MEMORY_L3_SUMMARY,

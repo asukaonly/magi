@@ -118,8 +118,8 @@ _PERIOD_FOCUS_INSTRUCTIONS = {
         "- Prefer pattern-level interpretation over listing events one by one."
     ),
     "month": (
-        "- Long-window focus: synthesize durable themes, recurring interests, cross-source patterns, and notable changes across the window.\n"
-        "- Prefer pattern-level interpretation over listing events one by one."
+        "- Month focus: synthesize cross-week themes, stage changes, sustained interests, project progress, and unusually frequent activities across the month.\n"
+        "- Prefer a timeline-oriented month recap over listing weekly summaries one by one."
     ),
     "quarter": (
         "- Long-window focus: synthesize durable themes, recurring interests, cross-source patterns, and notable changes across the window.\n"
