@@ -32,6 +32,11 @@ from ..services.config_onboarding import (
     quick_mode_personality_sort_key,
     resolve_personality_language_code,
 )
+from ..services.config_secrets import (
+    is_masked_api_key,
+    mask_api_key,
+    normalize_masked_secrets,
+)
 from ..services.llm_testing_service import get_llm_provider_registry as _load_llm_provider_registry
 from .config_schemas import (
     AgentConfigModel,
@@ -437,28 +442,7 @@ def _build_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
 
 
 def _normalize_masked_secrets(config: SystemConfigModel) -> SystemConfigModel:
-    normalized = SystemConfigModel.model_validate(config.model_dump())
-    runtime_config = get_config()
-
-    for provider_id, provider in normalized.llm.providers.items():
-        if not _is_masked_api_key(provider.api_key):
-            continue
-        runtime_provider = runtime_config.llm.providers.get(provider_id)
-        provider.api_key = runtime_provider.api_key if runtime_provider is not None else None
-
-    weather_api_key = normalized.tools.builtIn.weather.apiKey
-    if _is_masked_api_key(weather_api_key):
-        weather_provider = normalized.tools.builtIn.weather.provider
-        runtime_weather = runtime_config.tools.weather.providers.get(weather_provider)
-        normalized.tools.builtIn.weather.apiKey = runtime_weather.api_key if runtime_weather is not None else None
-
-    web_search_api_key = normalized.tools.builtIn.webSearch.apiKey
-    if _is_masked_api_key(web_search_api_key):
-        web_search_provider = normalized.tools.builtIn.webSearch.provider
-        runtime_web_search = runtime_config.tools.web_search.providers.get(web_search_provider)
-        normalized.tools.builtIn.webSearch.apiKey = runtime_web_search.api_key if runtime_web_search is not None else None
-
-    return normalized
+    return normalize_masked_secrets(config, get_config())
 
 
 def _prune_sparse_value(value: Any) -> Any:
@@ -573,14 +557,7 @@ def _build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
 
 
 def _mask_api_key(api_key: str) -> str:
-    """Mask API key, showing only first few characters."""
-    if not api_key:
-        return ""
-    # Show first 6 characters (e.g., "sk-abc") followed by "****"
-    visible_chars = 6
-    if len(api_key) <= visible_chars:
-        return api_key[:3] + "***" if len(api_key) > 3 else "***"
-    return api_key[:visible_chars] + "****"
+    return mask_api_key(api_key)
 
 
 async def _enqueue_runtime_llm_refresh_command(*, reason: str) -> None:
@@ -618,17 +595,7 @@ async def _enqueue_runtime_channels_refresh_command(*, reason: str) -> None:
 
 
 def _is_masked_api_key(api_key: Optional[str]) -> bool:
-    """Check if API key is a masked/placeholder value."""
-    if not api_key:
-        return True
-    # Check for common masked patterns
-    masked_patterns = ["***", "****", "*****"]
-    if api_key in masked_patterns:
-        return True
-    # Check for partial mask pattern like "sk-abc****"
-    if api_key.endswith("****") or api_key.endswith("***"):
-        return True
-    return False
+    return is_masked_api_key(api_key)
 
 
 def _build_onboarding_template() -> SystemConfigModel:
