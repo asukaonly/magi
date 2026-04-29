@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 import aiosqlite
 
-from ...core.sqlite import sqlite_connection_async
+from ....core.sqlite import sqlite_connection_async
 
 
 class L2EpisodeStoreMixin:

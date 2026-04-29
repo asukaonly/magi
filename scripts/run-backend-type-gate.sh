@@ -89,17 +89,17 @@ export PYTHONPATH="$ROOT_DIR/backend/src:$ROOT_DIR/sdk/src${PYTHONPATH:+:$PYTHON
   src/magi/memory/l2/pipeline_workers.py \
   src/magi/memory/l2/projection_queue_claiming.py \
   src/magi/memory/l2/workflow_prompts.py \
-  src/magi/memory/l2/store_assertions.py \
-  src/magi/memory/l2/store_candidates.py \
-  src/magi/memory/l2/store_contradictions.py \
-  src/magi/memory/l2/store_edge_embeddings.py \
-  src/magi/memory/l2/store_fact_kind.py \
-  src/magi/memory/l2/store_feedback.py \
-  src/magi/memory/l2/store_forgetting.py \
-  src/magi/memory/l2/store_migrations.py \
-  src/magi/memory/l2/store_queries.py \
-  src/magi/memory/l2/store_graph_conflicts.py \
-  src/magi/memory/l2/store_graph_writes.py \
-  src/magi/memory/l2/store_reconcile.py \
-  src/magi/memory/l2/store_rows.py \
-  src/magi/memory/l2/store_snapshots.py
+  src/magi/memory/l2/store_parts/assertions.py \
+  src/magi/memory/l2/store_parts/candidates.py \
+  src/magi/memory/l2/store_parts/contradictions.py \
+  src/magi/memory/l2/store_parts/edge_embeddings.py \
+  src/magi/memory/l2/store_parts/fact_kind.py \
+  src/magi/memory/l2/store_parts/feedback.py \
+  src/magi/memory/l2/store_parts/forgetting.py \
+  src/magi/memory/l2/store_parts/graph_conflicts.py \
+  src/magi/memory/l2/store_parts/graph_writes.py \
+  src/magi/memory/l2/store_parts/migrations.py \
+  src/magi/memory/l2/store_parts/queries.py \
+  src/magi/memory/l2/store_parts/reconcile.py \
+  src/magi/memory/l2/store_parts/rows.py \
+  src/magi/memory/l2/store_parts/snapshots.py

@@ -7,8 +7,8 @@ from typing import Any, Dict, Optional, Protocol, cast
 
 import aiosqlite
 
-from ...core.logger import get_logger
-from ...core.sqlite import sqlite_connection_async
+from ....core.logger import get_logger
+from ....core.sqlite import sqlite_connection_async
 
 logger = get_logger(__name__)
 

@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional, Protocol, cast
 
 import aiosqlite
 
-from ...core.sqlite import sqlite_connection_async
+from ....core.sqlite import sqlite_connection_async
 
 
 class _QueryHostProtocol(Protocol):

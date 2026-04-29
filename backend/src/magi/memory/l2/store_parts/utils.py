@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .ontology import coerce_unknown_entity_type
+from ..ontology import coerce_unknown_entity_type
 
 
 STRESS_KEYWORDS = ("stress", "stressed", "anxious", "anxiety", "pressure")

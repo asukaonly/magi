@@ -9,10 +9,10 @@ from typing import Any, Dict, List, Protocol, cast
 
 import aiosqlite
 
-from ...core.logger import get_logger
-from ...core.sqlite import sqlite_connection_async
-from .ontology import are_predicates_synonymous
-from .store_utils import (
+from ....core.logger import get_logger
+from ....core.sqlite import sqlite_connection_async
+from ..ontology import are_predicates_synonymous
+from .utils import (
     DEFAULT_FUTURE_INTENT_TTL_SECONDS,
     MAX_EVIDENCE_EVENT_IDS,
     accumulate_confidence,

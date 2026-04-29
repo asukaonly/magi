@@ -9,9 +9,9 @@ from typing import Any, Dict, List, Protocol, cast
 
 import aiosqlite
 
-from ...core.logger import get_logger
-from ...core.sqlite import sqlite_connection_async
-from .store_utils import (
+from ....core.logger import get_logger
+from ....core.sqlite import sqlite_connection_async
+from .utils import (
     MAX_EVIDENCE_EVENT_IDS,
     normalize_store_entity_ref,
     normalize_store_entity_type,

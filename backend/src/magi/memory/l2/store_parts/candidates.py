@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Optional, Protocol, cast
 
-from ..event_contracts import MemoryEvent, TomDepth
-from .models import L2KnowledgeEdgeWrite, L2TomAssertionWrite
-from .store_utils import CALM_KEYWORDS, STRESS_KEYWORDS
+from ...event_contracts import MemoryEvent, TomDepth
+from ..models import L2KnowledgeEdgeWrite, L2TomAssertionWrite
+from .utils import CALM_KEYWORDS, STRESS_KEYWORDS
 
 
 class _CandidateHostProtocol(Protocol):

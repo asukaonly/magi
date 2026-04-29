@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, List, Optional
 
-from .store_utils import (
+from .utils import (
     MOMENTARY_TRAITS as _MOMENTARY_TRAITS,
     SNAPSHOT_HISTORY_LIMIT as _SNAPSHOT_HISTORY_LIMIT,
 )

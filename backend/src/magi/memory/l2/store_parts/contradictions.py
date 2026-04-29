@@ -7,9 +7,9 @@ from typing import Any, Dict, Protocol, cast
 
 import aiosqlite
 
-from ...core.logger import get_logger
-from ...core.sqlite import sqlite_connection_async
-from .models import ContradictionHint
+from ....core.logger import get_logger
+from ....core.sqlite import sqlite_connection_async
+from ..models import ContradictionHint
 
 logger = get_logger(__name__)
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from .projection_queue import ProjectionJobQueue
+from ..projection_queue import ProjectionJobQueue
 
 
 class L2ProjectionJobStoreMixin:

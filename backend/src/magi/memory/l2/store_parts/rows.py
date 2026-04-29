@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional
 
 import aiosqlite
 
-from ..event_contracts import MemoryEvent
+from ...event_contracts import MemoryEvent
 
 
 class L2StoreRowMappingMixin:
