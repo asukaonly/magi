@@ -22,13 +22,19 @@ from ...memory.eval_support.reader import EvalMemoryReader
 from ...memory.eval_support.writer import EvalMemoryWriter
 from ...memory.hybrid_retrieval import build_query
 from ...memory.l2.models import ManualL2EventRequest
-from ...runtime_defaults import DEFAULT_USER_ID
 from .memory_eval_answering import (
     EVAL_ANSWER_TIMEOUT as _EVAL_ANSWER_TIMEOUT,
     format_l2_context as _format_l2_context,
     is_counting_or_aggregation_question as _is_counting_or_aggregation_question,
     is_temporal_reasoning_question as _is_temporal_reasoning_question,
     synthesize_eval_answer,
+)
+from .memory_l0_sessions import (
+    build_l0_session_list_items,
+    empty_l0_sessions_response,
+    filter_l0_session_ids_by_query,
+    session_ids_by_user,
+    sorted_l0_session_ids,
 )
 from .memory_route_helpers import (
     build_clear_result as _build_clear_result,
@@ -56,7 +62,6 @@ from .memory_schemas import (
     ProcedureResponse,
     RetrievalRequest,
 )
-from .memory_session_display import derive_l0_session_display
 
 logger = get_logger(__name__)
 
@@ -113,103 +118,42 @@ async def list_l0_sessions(
     """List L0 sessions with pagination, sorted by last_active_at descending."""
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l0:
-        return {"items": [], "total": 0, "limit": limit, "offset": offset, "stats": {"active_sessions": 0, "total_goals": 0, "total_entities": 0, "total_tactics": 0}}
+        return empty_l0_sessions_response(limit=limit, offset=offset)
 
     chat_read_service = get_chat_read_service()
     l0_sessions = unified_memory.l0._sessions
-
-    # Sort all sessions by last_active_at descending (most recent first).
-    sorted_ids = sorted(
-        l0_sessions.keys(),
-        key=lambda sid: l0_sessions[sid].get("last_active_at", 0),
-        reverse=True,
-    )
-
-    # Apply status filter before pagination.
-    if status:
-        sorted_ids = [sid for sid in sorted_ids if l0_sessions[sid].get("status") == status]
+    sorted_ids = sorted_l0_session_ids(l0_sessions, status_filter=status)
 
     total = len(sorted_ids)
-
-    # Slice for the requested page.
     page_ids = sorted_ids[offset : offset + limit]
 
-    # Only batch-fetch chat summaries for the page slice (not all sessions).
-    user_ids_by_session = {
-        sid: str(l0_sessions[sid].get("user_id") or DEFAULT_USER_ID)
-        for sid in page_ids
-    }
-    sessions_by_user: dict[str, list[str]] = {}
-    for sid, uid in user_ids_by_session.items():
-        sessions_by_user.setdefault(uid, []).append(sid)
-
     summary_map: dict[str, Any] = {}
-    for uid, sids in sessions_by_user.items():
-        batch = await chat_read_service.aget_session_summaries_batch(uid, sids)
+    for user_id, session_ids in session_ids_by_user(l0_sessions, page_ids).items():
+        batch = await chat_read_service.aget_session_summaries_batch(user_id, session_ids)
         summary_map.update(batch)
 
-    # Apply text query filter if provided (needs summaries for display text matching).
-    if query:
-        q_lower = query.lower()
-        filtered_page_ids = []
-        for sid in page_ids:
-            session = l0_sessions[sid]
-            goals = unified_memory.l0._goal_stack.get(sid, [])
-            chat_summary = summary_map.get(sid)
-            display = derive_l0_session_display(session_id=sid, goals=goals, chat_summary=chat_summary)
-            searchable = " ".join(filter(None, [
-                sid,
-                display.get("display_title", ""),
-                display.get("display_subtitle", ""),
-                session.get("status", ""),
-            ])).lower()
-            if q_lower in searchable:
-                filtered_page_ids.append(sid)
-        page_ids = filtered_page_ids
-
-    items = []
-    total_goals = 0
-    total_entities = 0
-    total_tactics = 0
-
-    for session_id in page_ids:
-        session = l0_sessions[session_id]
-        goals = unified_memory.l0._goal_stack.get(session_id, [])
-        entities = unified_memory.l0._active_entities.get(session_id, {})
-        tactics = unified_memory.l0._temporary_tactics.get(session_id, {})
-        chat_summary = summary_map.get(session_id)
-        display = derive_l0_session_display(
-            session_id=session_id,
-            goals=goals,
-            chat_summary=chat_summary,
-        )
-        total_goals += len(goals)
-        total_entities += len(entities)
-        total_tactics += len(tactics)
-
-        items.append({
-            "session_id": session_id,
-            "user_id": session.get("user_id"),
-            "status": session.get("status"),
-            "started_at": session.get("started_at"),
-            "last_active_at": session.get("last_active_at"),
-            "goal_count": len(goals),
-            "entity_count": len(entities),
-            "tactic_count": len(tactics),
-            **display,
-        })
+    page_ids = filter_l0_session_ids_by_query(
+        session_ids=page_ids,
+        query=query,
+        sessions=l0_sessions,
+        goals_by_session=unified_memory.l0._goal_stack,
+        summary_map=summary_map,
+    )
+    items, stats = build_l0_session_list_items(
+        session_ids=page_ids,
+        sessions=l0_sessions,
+        goals_by_session=unified_memory.l0._goal_stack,
+        entities_by_session=unified_memory.l0._active_entities,
+        tactics_by_session=unified_memory.l0._temporary_tactics,
+        summary_map=summary_map,
+    )
 
     return {
         "items": items,
         "total": total,
         "limit": limit,
         "offset": offset,
-        "stats": {
-            "active_sessions": len([s for s in items if s["status"] == "active"]),
-            "total_goals": total_goals,
-            "total_entities": total_entities,
-            "total_tactics": total_tactics,
-        },
+        "stats": stats,
     }
 
 
