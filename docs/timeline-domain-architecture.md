@@ -78,6 +78,8 @@ Assembled by `TimelineViewportBuilder`. Contains:
 
 - `viewport` — metadata: scale, start, end, focus, query, timezone
 - `summary` — cluster count, event count, dominant modes
+- `overview` — user-facing title, summary, key takeaways, and confidence
+- `state_summary` — aggregated mood, stress, engagement, and notable changes
 - `state_bands` — valence/stress/engagement bands with confidence
 - `state_markers` — detected state shift points
 - `source_mix` — source contribution aggregate for UI distribution panels

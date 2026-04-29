@@ -122,6 +122,10 @@ async def test_timeline_service_returns_month_viewport() -> None:
     viewport = await service.get_viewport(scale="month", start=940_000.0, end=960_000.0, focus="self")
 
     assert viewport["viewport"]["scale"] == "month"
+    assert viewport["overview"]["summary"] == "A low evening centered on games."
+    assert viewport["overview"]["key_takeaways"]
+    assert viewport["state_summary"]["mood_label"] == "Low"
+    assert viewport["state_summary"]["stress_label"] == "Moderate stress"
     assert viewport["reflections"][0]["summary"] == "A low evening centered on games."
     assert viewport["state_bands"][0]["source_summary_ids"] == ["summary-1"]
     assert viewport["source_mix"][0]["source_type"] == "chrome_history"
@@ -152,6 +156,7 @@ async def test_timeline_service_interprets_natural_language_query() -> None:
 
     assert l1_store.last_query is not None
     assert l1_store.last_query["start_time"] == (14 - 7) * 24 * 60 * 60.0
+    assert viewport["overview"]["title"] == "Day overview"
     assert viewport["summary"]["event_count"] == 1
     assert viewport["clusters"][0]["label"] == "Game"
 

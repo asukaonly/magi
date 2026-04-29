@@ -75,6 +75,30 @@ export interface TimelineSourceMixItem {
   duration_seconds?: number;
 }
 
+export interface TimelineOverview {
+  title: string;
+  summary: string;
+  key_takeaways: string[];
+  confidence: number;
+}
+
+export interface TimelineStateChange {
+  label: string;
+  summary: string;
+  timestamp?: number;
+  anchor?: Record<string, unknown>;
+}
+
+export interface TimelineStateSummary {
+  mood_label: string;
+  stress_label: string;
+  engagement_label: string;
+  mood_value?: number | null;
+  stress_value?: number | null;
+  engagement_value?: number | null;
+  notable_changes: TimelineStateChange[];
+}
+
 export interface TimelineViewportResponse {
   viewport: {
     scale: 'month' | 'week' | 'day' | 'hour';
@@ -89,6 +113,8 @@ export interface TimelineViewportResponse {
     event_count: number;
     dominant_modes: string[];
   };
+  overview: TimelineOverview;
+  state_summary: TimelineStateSummary;
   state_bands: TimelineStateBand[];
   state_markers: TimelineStateMarker[];
   source_mix: TimelineSourceMixItem[];

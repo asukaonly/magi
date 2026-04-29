@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { TimelineViewportResponse } from '@/api/modules/timeline';
@@ -21,35 +21,6 @@ const hasViewportContent = (viewport: TimelineViewportResponse): boolean =>
   || viewport.state_bands.length > 0
   || viewport.state_markers.length > 0;
 
-const buildOverview = (
-  viewport: TimelineViewportResponse,
-  scale: TimelineViewportProps['scale'],
-  t: (key: string, params?: Record<string, unknown>) => string,
-) => {
-  const topReflection = viewport.reflections[0];
-  const topCluster = [...viewport.clusters].sort((a, b) => b.event_count - a.event_count)[0];
-  const topEvent = viewport.raw_events[0];
-  const title = t(`timeline.overview.${scale}`);
-
-  const summary = topReflection
-    ? t('timeline.overview.reflectionSummary', { count: viewport.reflections.length })
-    : topCluster?.summary
-    || topEvent?.summary
-    || t('timeline.overview.fallback');
-
-  const takeaways = [
-    viewport.summary.dominant_modes[0]
-      ? t('timeline.overview.primaryMode', { mode: viewport.summary.dominant_modes[0] })
-      : null,
-    viewport.state_markers[0]?.summary || null,
-    viewport.summary.event_count > 0
-      ? t('timeline.overview.eventCount', { count: viewport.summary.event_count })
-      : null,
-  ].filter(Boolean) as string[];
-
-  return { title, summary, takeaways: takeaways.slice(0, 3) };
-};
-
 const EmptyViewport: React.FC = () => {
   const { t } = useTranslation('app');
 
@@ -64,11 +35,6 @@ const EmptyViewport: React.FC = () => {
 export const TimelineViewport: React.FC<TimelineViewportProps> = ({ scale, viewport, onOpenContext }) => {
   const { t } = useTranslation('app');
 
-  const overview = useMemo(
-    () => buildOverview(viewport, scale, t),
-    [scale, t, viewport],
-  );
-
   if (!hasViewportContent(viewport)) {
     return <EmptyViewport />;
   }
@@ -78,7 +44,7 @@ export const TimelineViewport: React.FC<TimelineViewportProps> = ({ scale, viewp
       <section className="space-y-3 border-b border-border/40 pb-5">
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            <span className="font-medium text-foreground">{overview.title}</span>
+            <span className="font-medium text-foreground">{viewport.overview.title}</span>
             <span>
               <span className="font-medium tabular-nums text-foreground">{viewport.summary.event_count}</span>{' '}
               {t('timeline.summary.totalEvents')}
@@ -89,12 +55,12 @@ export const TimelineViewport: React.FC<TimelineViewportProps> = ({ scale, viewp
             </span>
           </div>
           <p className="max-w-4xl text-sm leading-7 text-muted-foreground">
-            {overview.summary}
+            {viewport.overview.summary}
           </p>
         </div>
-        {overview.takeaways.length > 0 && (
+        {viewport.overview.key_takeaways.length > 0 && (
           <div className="flex flex-wrap gap-2">
-            {overview.takeaways.map((takeaway) => (
+            {viewport.overview.key_takeaways.slice(0, 3).map((takeaway) => (
               <span key={takeaway} className="rounded-md bg-secondary/70 px-2 py-1 text-xs text-secondary-foreground">
                 {takeaway}
               </span>
@@ -103,7 +69,7 @@ export const TimelineViewport: React.FC<TimelineViewportProps> = ({ scale, viewp
         )}
       </section>
 
-      <StateBandOverlay bands={viewport.state_bands} markers={viewport.state_markers} scale={scale} />
+      <StateBandOverlay bands={viewport.state_bands} stateSummary={viewport.state_summary} scale={scale} />
 
       {scale === 'month' && (
         <MonthOverviewLane

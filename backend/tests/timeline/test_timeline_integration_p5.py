@@ -318,6 +318,8 @@ class TestViewportEpisodes:
         result = await builder.build_viewport(scale="day", start=0.0, end=2000.0)
 
         assert "episodes" in result
+        assert "overview" in result
+        assert "state_summary" in result
         assert "state_transitions" in result
         assert "source_mix" in result
         assert "state_bands" in result

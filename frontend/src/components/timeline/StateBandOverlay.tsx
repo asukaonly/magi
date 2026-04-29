@@ -1,11 +1,11 @@
 import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import type { TimelineStateBand, TimelineStateMarker } from '@/api/modules/timeline';
+import type { TimelineStateBand, TimelineStateChange, TimelineStateSummary } from '@/api/modules/timeline';
 
 interface StateBandOverlayProps {
   bands: TimelineStateBand[];
-  markers: TimelineStateMarker[];
+  stateSummary: TimelineStateSummary;
   scale: 'month' | 'week' | 'day' | 'hour';
 }
 
@@ -53,27 +53,39 @@ const MetricCell: React.FC<{ label: string; percent: number; color: string; capt
   </div>
 );
 
-export const StateBandOverlay: React.FC<StateBandOverlayProps> = ({ bands, markers, scale: _scale }) => {
+const isNumber = (value: number | null | undefined): value is number =>
+  typeof value === 'number' && !Number.isNaN(value);
+
+const changeKey = (change: TimelineStateChange, index: number): string => {
+  const anchor = change.anchor;
+  if (anchor && typeof anchor.anchor_id === 'string' && anchor.anchor_id) {
+    return anchor.anchor_id;
+  }
+  return `${change.label}-${index}`;
+};
+
+export const StateBandOverlay: React.FC<StateBandOverlayProps> = ({ bands, stateSummary, scale: _scale }) => {
   const { t } = useTranslation('app');
 
   const summary = useMemo(() => {
-    if (bands.length === 0) return null;
-    const avg = (fn: (b: TimelineStateBand) => number) =>
-      bands.reduce((s, b) => s + fn(b), 0) / bands.length;
+    const hasValues = isNumber(stateSummary.mood_value)
+      || isNumber(stateSummary.stress_value)
+      || isNumber(stateSummary.engagement_value);
+    if (!hasValues) return null;
     return {
-      valence: avg((b) => b.valence),
-      stress: avg((b) => b.stress_level),
-      engagement: avg((b) => b.engagement),
-      label: bands
-        .map((band) => band.label)
-        .find((label) => typeof label === 'string' && label.trim().length > 0),
+      valence: stateSummary.mood_value ?? undefined,
+      stress: stateSummary.stress_value ?? undefined,
+      engagement: stateSummary.engagement_value ?? undefined,
+      label: stateSummary.mood_label,
+      stressLabel: stateSummary.stress_label,
+      engagementLabel: stateSummary.engagement_label,
     };
-  }, [bands]);
+  }, [stateSummary]);
 
-  const visibleMarkers = markers.slice(0, 3);
+  const visibleChanges = stateSummary.notable_changes.slice(0, 3);
   const stripBands = bands.slice(0, 36);
 
-  if (bands.length === 0 && markers.length === 0) return null;
+  if (bands.length === 0 && visibleChanges.length === 0 && !summary) return null;
 
   return (
     <section className="space-y-4">
@@ -89,11 +101,13 @@ export const StateBandOverlay: React.FC<StateBandOverlayProps> = ({ bands, marke
             label={t('timeline.metrics.stress')}
             percent={pct(summary.stress)}
             color="hsl(0 50% 58%)"
+            caption={summary.stressLabel}
           />
           <MetricCell
             label={t('timeline.metrics.engagement')}
             percent={pct(summary.engagement)}
             color="hsl(152 40% 46%)"
+            caption={summary.engagementLabel}
           />
         </div>
       )}
@@ -120,13 +134,13 @@ export const StateBandOverlay: React.FC<StateBandOverlayProps> = ({ bands, marke
         </div>
       )}
 
-      {visibleMarkers.length > 0 && (
+      {visibleChanges.length > 0 && (
         <div className="flex flex-col gap-2 border-l-2 border-primary/20 pl-4">
-          {visibleMarkers.map((marker) => (
-            <div key={marker.marker_id} className="text-sm">
-              <span className="font-medium text-foreground">{marker.label}</span>
+          {visibleChanges.map((change, index) => (
+            <div key={changeKey(change, index)} className="text-sm">
+              <span className="font-medium text-foreground">{change.label}</span>
               <span className="mx-1.5 text-muted-foreground/40">·</span>
-              <span className="text-muted-foreground">{marker.summary}</span>
+              <span className="text-muted-foreground">{change.summary}</span>
             </div>
           ))}
         </div>

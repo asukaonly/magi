@@ -75,6 +75,20 @@ class TimelineViewportBuilder:
             self._enrich_cluster_states(clusters, summaries, start=interpreted_query.start, end=interpreted_query.end)
         raw_events = [self._to_raw_event(event) for event in events] if scale == "hour" else []
         source_mix = self._build_source_mix(events=events, clusters=clusters)
+        overview = self._build_overview(
+            scale=scale,
+            events=events,
+            clusters=clusters,
+            reflections=reflections,
+            raw_events=raw_events,
+            state_markers=state_markers,
+            source_mix=source_mix,
+        )
+        state_summary = self._build_state_summary(
+            state_bands=state_bands,
+            state_markers=state_markers,
+            state_transitions=state_transitions,
+        )
 
         return {
             "viewport": {
@@ -90,6 +104,8 @@ class TimelineViewportBuilder:
                 "event_count": len(events),
                 "dominant_modes": [cluster["dominant_mode"] for cluster in clusters[:3]],
             },
+            "overview": overview,
+            "state_summary": state_summary,
             "state_bands": state_bands,
             "state_markers": state_markers,
             "state_transitions": state_transitions,
@@ -186,6 +202,151 @@ class TimelineViewportBuilder:
             })
         transitions.sort(key=lambda t: t["changed_at"])
         return transitions
+
+    def _build_overview(
+        self,
+        *,
+        scale: str,
+        events: list[dict[str, Any]],
+        clusters: list[dict[str, Any]],
+        reflections: list[dict[str, Any]],
+        raw_events: list[dict[str, Any]],
+        state_markers: list[dict[str, Any]],
+        source_mix: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        title_by_scale = {
+            "month": "Window overview",
+            "week": "Week overview",
+            "day": "Day overview",
+            "hour": "Evidence overview",
+        }
+        top_reflection = reflections[0] if reflections else None
+        top_cluster = max(clusters, key=lambda item: int(item.get("event_count") or 0), default=None)
+        top_event = raw_events[0] if raw_events else None
+        summary = str(
+            (top_reflection or {}).get("summary")
+            or (top_cluster or {}).get("summary")
+            or (top_event or {}).get("summary")
+            or "Magi has activity in this window, but there is not enough summarized context yet."
+        )
+        takeaways: list[str] = []
+        if source_mix:
+            primary_source = source_mix[0]
+            takeaways.append(f"Main source: {primary_source.get('label') or self._humanize_label(primary_source.get('source_type'))}")
+        if state_markers:
+            takeaways.append(str(state_markers[0].get("summary") or state_markers[0].get("label") or "State changed"))
+        if events:
+            takeaways.append(f"{len(events)} events captured")
+        confidence = 0.35
+        if top_reflection is not None:
+            confidence += 0.25
+        if top_cluster is not None or top_event is not None:
+            confidence += 0.2
+        if state_markers:
+            confidence += 0.1
+        return {
+            "title": title_by_scale.get(scale, "Window overview"),
+            "summary": summary,
+            "key_takeaways": takeaways[:3],
+            "confidence": min(0.95, confidence),
+        }
+
+    def _build_state_summary(
+        self,
+        *,
+        state_bands: list[dict[str, Any]],
+        state_markers: list[dict[str, Any]],
+        state_transitions: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        mood_value = self._average_state_value(state_bands, "valence")
+        stress_value = self._average_state_value(state_bands, "stress_level")
+        engagement_value = self._average_state_value(state_bands, "engagement")
+        mood_label = self._dominant_state_label(state_bands)
+        notable_changes: list[dict[str, Any]] = []
+        for marker in state_markers[:3]:
+            timestamp = float(marker.get("timestamp") or 0.0)
+            notable_changes.append(
+                {
+                    "label": str(marker.get("label") or "State shift"),
+                    "summary": str(marker.get("summary") or "State changed."),
+                    "timestamp": timestamp,
+                    "anchor": {
+                        "anchor_type": "state_marker",
+                        "anchor_id": str(marker.get("marker_id") or ""),
+                        "time_start": timestamp,
+                        "time_end": timestamp,
+                    },
+                }
+            )
+        for transition in state_transitions:
+            if len(notable_changes) >= 3:
+                break
+            trait = self._humanize_label(transition.get("trait_name"))
+            old_value = str(transition.get("old_value") or "unknown")
+            new_value = str(transition.get("new_value") or "unknown")
+            timestamp = float(transition.get("changed_at") or 0.0)
+            notable_changes.append(
+                {
+                    "label": f"{trait} changed",
+                    "summary": f"{trait} changed from {old_value} to {new_value}.",
+                    "timestamp": timestamp,
+                    "anchor": {
+                        "anchor_type": "state_transition",
+                        "anchor_id": str(transition.get("new_assertion_id") or transition.get("old_assertion_id") or ""),
+                        "time_start": timestamp,
+                        "time_end": timestamp,
+                    },
+                }
+            )
+        return {
+            "mood_label": mood_label,
+            "stress_label": self._stress_label(stress_value),
+            "engagement_label": self._engagement_label(engagement_value),
+            "mood_value": mood_value,
+            "stress_value": stress_value,
+            "engagement_value": engagement_value,
+            "notable_changes": notable_changes,
+        }
+
+    @staticmethod
+    def _average_state_value(state_bands: list[dict[str, Any]], key: str) -> float | None:
+        values = [float(band[key]) for band in state_bands if isinstance(band.get(key), (int, float))]
+        if not values:
+            return None
+        return sum(values) / len(values)
+
+    def _dominant_state_label(self, state_bands: list[dict[str, Any]]) -> str:
+        labels = [str(band.get("label") or "").strip() for band in state_bands if str(band.get("label") or "").strip()]
+        if not labels:
+            return "Unknown"
+        return self._humanize_label(Counter(labels).most_common(1)[0][0])
+
+    @staticmethod
+    def _stress_label(value: float | None) -> str:
+        if value is None:
+            return "Unknown"
+        if value >= 0.67:
+            return "High stress"
+        if value >= 0.4:
+            return "Moderate stress"
+        return "Low stress"
+
+    @staticmethod
+    def _engagement_label(value: float | None) -> str:
+        if value is None:
+            return "Unknown"
+        if value >= 0.67:
+            return "High engagement"
+        if value >= 0.4:
+            return "Steady engagement"
+        return "Low engagement"
+
+    @staticmethod
+    def _humanize_label(value: Any) -> str:
+        text = str(value or "").replace("_", " ").replace("-", " ").strip()
+        if not text:
+            return "Unknown"
+        return text.title()
 
     def _build_source_mix(
         self,

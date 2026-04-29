@@ -63,11 +63,14 @@ export { timelineApi } from './modules/timeline';
 export type {
   TimelineClusterBlock,
   TimelineContextBundle,
+  TimelineOverview,
   TimelineRawEvent,
   TimelineReflectionWindow,
   TimelineSourceMixItem,
+  TimelineStateChange,
   TimelineStateBand,
   TimelineStateMarker,
+  TimelineStateSummary,
   TimelineViewportResponse,
 } from './modules/timeline';
 

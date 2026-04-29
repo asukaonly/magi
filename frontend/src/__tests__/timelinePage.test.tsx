@@ -31,6 +31,30 @@ const localTimestamp = (year: number, monthIndex: number, day: number, hour: num
 
 const addMinutes = (timestamp: number, minutes: number): number => timestamp + minutes * 60;
 
+const makeOverview = (title: string, summary: string) => ({
+  title,
+  summary,
+  key_takeaways: ['Backend takeaway'],
+  confidence: 0.8,
+});
+
+const STATE_SUMMARY = {
+  mood_label: 'Focused',
+  stress_label: 'Moderate stress',
+  engagement_label: 'High engagement',
+  mood_value: 0.3,
+  stress_value: 0.6,
+  engagement_value: 0.8,
+  notable_changes: [
+    {
+      label: 'State shift',
+      summary: 'Stress rose around midday.',
+      timestamp: 1710003600,
+      anchor: { anchor_type: 'state_marker', anchor_id: 'marker-1' },
+    },
+  ],
+};
+
 const MONTH_VIEWPORT = {
   viewport: {
     scale: 'month',
@@ -45,6 +69,8 @@ const MONTH_VIEWPORT = {
     event_count: 8,
     dominant_modes: ['deep_work'],
   },
+  overview: makeOverview('Backend month overview', 'Backend month summary.'),
+  state_summary: STATE_SUMMARY,
   state_bands: [
     {
       band_id: 'band-1',
@@ -107,6 +133,8 @@ const DAY_VIEWPORT = {
     event_count: 3,
     dominant_modes: ['deep_work'],
   },
+  overview: makeOverview('Backend day overview', 'Backend day summary.'),
+  state_summary: STATE_SUMMARY,
   state_bands: MONTH_VIEWPORT.state_bands,
   state_markers: [
     {
@@ -173,6 +201,8 @@ const WEEK_VIEWPORT = {
     event_count: 3,
     dominant_modes: ['deep_work'],
   },
+  overview: makeOverview('Backend week overview', 'Backend week summary.'),
+  state_summary: STATE_SUMMARY,
   state_bands: MONTH_VIEWPORT.state_bands,
   state_markers: [],
   source_mix: [],
@@ -225,6 +255,8 @@ const HOUR_VIEWPORT = {
     event_count: 2,
     dominant_modes: [],
   },
+  overview: makeOverview('Backend hour overview', 'Backend hour summary.'),
+  state_summary: STATE_SUMMARY,
   state_bands: MONTH_VIEWPORT.state_bands,
   state_markers: [],
   source_mix: [],
@@ -254,6 +286,13 @@ const EMPTY_VIEWPORT = {
     cluster_count: 0,
     event_count: 0,
     dominant_modes: [],
+  },
+  overview: makeOverview('Empty overview', ''),
+  state_summary: {
+    mood_label: 'Unknown',
+    stress_label: 'Unknown',
+    engagement_label: 'Unknown',
+    notable_changes: [],
   },
   state_bands: [],
   state_markers: [],
@@ -299,9 +338,12 @@ describe('timeline page', () => {
   it('loads the month viewport first and renders reflection windows', async () => {
     render(<TimelinePage />);
 
+    expect(await screen.findByText('Backend month overview')).toBeInTheDocument();
+    expect(screen.getByText('Backend month summary.')).toBeInTheDocument();
+    expect(screen.getByText('Backend takeaway')).toBeInTheDocument();
     expect(await screen.findByText('March reflection')).toBeInTheDocument();
     expect(screen.getByText('A steady month of focused work.')).toBeInTheDocument();
-    expect(screen.getAllByText('focused').length).toBeGreaterThan(0);
+    expect(screen.getByText('Focused')).toBeInTheDocument();
     expect(screen.getByText('timeline.sources.manual_journal')).toBeInTheDocument();
     expect(screen.getByText('timeline.sources.chat')).toBeInTheDocument();
     expect(screen.getByText('work')).toBeInTheDocument();
