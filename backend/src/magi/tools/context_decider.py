@@ -10,7 +10,6 @@ This replaces the old ToolSelector for better tool selection.
 """
 import json
 import logging
-from dataclasses import dataclass
 from typing import Dict, Any, Optional, List
 
 from ..config.models import LLMScenario, ThinkingDepth
@@ -20,86 +19,22 @@ from ..config.constants import DEFAULT_MAX_TOKENS, DEFAULT_THINKING_TOKENS
 from .registry import ToolRegistry
 from .context_decider_context import ContextDeciderContext
 from .context_decider_prompt import build_context_decider_prompt
+from .context_routing import (
+    MEMORY_RETRIEVAL_TRIGGERS,
+    ContextDecision,
+    MemoryGuidance,
+    apply_memory_guidance,
+    apply_research_guardrail,
+    default_orchestration_strategy,
+    evaluate_memory_need,
+    is_complex_research_request,
+    needs_fetch_for_request,
+    normalize_orchestration_strategy,
+)
 from ..utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
 
 logger = logging.getLogger(__name__)
 llm_logger = get_llm_logger('context_decider')
-
-
-class ContextDecision:
-    """Context decision result"""
-
-    def __init__(
-        self,
-        intent: str,
-        tools: List[str],
-        deep_thinking: bool = False,
-        reasoning: str = "",
-        orchestration_strategy: Optional[Dict[str, Any]] = None,
-        memory_layer: Optional[str] = None,  # TODO: implement memory layer selection
-        memory_route: str = "none",
-        llm_trace: Optional[Dict[str, Any]] = None,
-        thinking_depth: Optional[ThinkingDepth] = None,
-    ):
-        self.intent = intent  # User's intent (e.g., "file_read", "web_search", "chat")
-        self.tools = tools  # List of up to 5 tool names
-        self.reasoning = reasoning  # Why these tools were selected
-        self.orchestration_strategy = orchestration_strategy or {}
-        self.memory_layer = memory_layer  # Which memory layer to use (L1-L4)
-        self.memory_route = memory_route
-        self.llm_trace = dict(llm_trace or {})
-
-        # Thinking depth: use explicit value if provided, otherwise derive from legacy bool
-        if thinking_depth is not None:
-            self.thinking_depth = thinking_depth
-        elif deep_thinking:
-            self.thinking_depth = ThinkingDepth.HIGH
-        else:
-            self.thinking_depth = ThinkingDepth.NONE
-
-    @property
-    def deep_thinking(self) -> bool:
-        """Legacy accessor: True when thinking_depth is MEDIUM or above."""
-        return self.thinking_depth not in (ThinkingDepth.NONE, ThinkingDepth.LOW)
-
-
-@dataclass
-class MemoryGuidance:
-    """Memory retrieval guidance from ContextDecider.
-
-    Boolean recommendation only. The core chat LLM is the single decision
-    point for ``memory_query`` parameters and reads them from the tool
-    schema directly. No pre-call parameter injection.
-    """
-    recommended: bool
-    route: str = "none"
-
-
-# Memory retrieval trigger keywords. The boolean promotion lives here so
-# we still surface ``memory_query`` for recall-flavored requests; the chat
-# LLM is the single decision point for the actual tool parameters
-# (``query_mode`` etc.) via the tool schema.
-MEMORY_RETRIEVAL_TRIGGERS = [
-    # English recall / activity phrasing
-    "what did i", "what was i", "what have i",
-    "do you remember", "remember when", "i remember",
-    "i like", "i prefer", "my preference", "my favorite",
-    "yesterday", "last week", "last month", "recently",
-    "browsing", "browse", "visited", "watched", "read",
-    "my history", "my activity", "my notes", "my chat",
-    "my default", "my settings",
-    "we agreed", "we promised", "you promised",
-    "photo", "picture", "image of",
-    # Chinese recall / preference / relationship / asset phrasing.
-    # NOTE: avoid generic time markers like "之前"/"以前" — they collide
-    # with workflow-reuse intent ("按之前那套流程..."). Keep triggers
-    # focused on recall verbs, preference markers, and asset nouns.
-    "最近", "刚才", "刚刚", "昨天", "上周", "上个月",
-    "浏览", "拍",
-    "我喜欢", "我爱", "我讨厌", "偏好", "默认",
-    "记得", "约定", "答应",
-    "照片", "图片",
-]
 
 
 class ContextDecider:
@@ -535,23 +470,12 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
         decision: ContextDecision,
         available_tools: List[Dict[str, Any]],
     ) -> ContextDecision:
-        user_lower = user_message.lower()
-        if not self._is_complex_research_request(user_lower):
-            return decision
-        available_names = {str(item.get("name", "")).strip() for item in available_tools}
-        tools: list[str] = []
-        if "web-search" in available_names:
-            tools.append("web-search")
-        if self._needs_fetch_for_request(user_lower) and "web-fetch" in available_names:
-            tools.append("web-fetch")
-        if not tools and "bash" in available_names:
-            tools.append("bash")
-        return ContextDecision(
-            intent="planning",
-            tools=tools[: self.max_tools],
-            deep_thinking=True,
-            reasoning="Complex research request guardrail: force bounded generic decomposition with explicit retrieval steps.",
-            orchestration_strategy=self._default_orchestration_strategy(tools[: self.max_tools], user_lower),
+        return apply_research_guardrail(
+            user_message=user_message,
+            decision=decision,
+            available_tools=available_tools,
+            max_tools=self.max_tools,
+            strategy_factory=self._default_orchestration_strategy,
         )
 
     def _rule_based_fallback(
@@ -731,23 +655,12 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
         decision: ContextDecision,
         available_tools: List[Dict[str, Any]],
     ) -> ContextDecision:
-        guidance = self.evaluate_memory_need(user_message, context or {})
-        if guidance is None or not guidance.recommended:
-            return decision
-        available_names = {str(item.get("name", "")).strip() for item in available_tools}
-        if "memory_query" not in available_names:
-            return decision
-        tools = list(decision.tools)
-        tools = [tool for tool in tools if tool != "memory_query"]
-        tools.insert(0, "memory_query")
-        return ContextDecision(
-            intent=decision.intent,
-            tools=tools[: self.max_tools],
-            deep_thinking=decision.deep_thinking,
-            reasoning=decision.reasoning,
-            orchestration_strategy=decision.orchestration_strategy,
-            memory_layer=decision.memory_layer,
-            memory_route=guidance.route,
+        return apply_memory_guidance(
+            user_message=user_message,
+            context=context,
+            decision=decision,
+            available_tools=available_tools,
+            max_tools=self.max_tools,
         )
 
 
@@ -756,133 +669,16 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
         tools: Optional[List[str]] = None,
         user_lower: str = "",
     ) -> Dict[str, Any]:
-        selected_tools = tools or []
-        if self._is_complex_research_request(user_lower):
-            return {
-                "mode": "decompose",
-                "planner": "task_agent",
-                "default_leaf_type": "general-purpose",
-                "allow_parallel": True,
-            }
-        if "agent" in selected_tools:
-            if any(kw in user_lower for kw in ["migration", "migrate", "实施方案", "design doc", "implementation plan"]):
-                return {
-                    "mode": "decompose",
-                    "planner": "plan_worker",
-                    "default_leaf_type": "Explore",
-                    "allow_parallel": True,
-                }
-            if any(
-                kw in user_lower
-                for kw in ["架构", "architecture", "设计", "方案", "codebase", "repo", "代码结构", "代码库", "跨模块", "跨子系统"]
-            ):
-                return {
-                    "mode": "decompose",
-                    "planner": "task_agent",
-                    "default_leaf_type": "Explore",
-                    "allow_parallel": True,
-                }
-            if any(kw in user_lower for kw in ["explore", "scan", "搜索", "定位", "查找", "find"]):
-                return {
-                    "mode": "direct",
-                    "planner": "task_agent",
-                    "default_leaf_type": "Explore",
-                    "allow_parallel": False,
-                }
-        return {
-            "mode": "direct",
-            "planner": "task_agent",
-            "default_leaf_type": "general-purpose",
-            "allow_parallel": False,
-        }
+        return default_orchestration_strategy(tools, user_lower)
 
     def _is_complex_research_request(self, user_lower: str) -> bool:
-        has_research_domain = any(
-            kw in user_lower
-            for kw in [
-                "news",
-                "新闻",
-                "头条",
-                "最新动态",
-                "最近",
-                "过去",
-                "近",
-                "资料",
-                "信息汇总",
-                "source",
-                "来源",
-                "link",
-                "链接",
-                "核实",
-                "verify",
-                "compare",
-                "对比",
-            ]
-        )
-        has_complex_constraint = any(
-            kw in user_lower
-            for kw in [
-                "最近7天",
-                "最近 7 天",
-                "近7天",
-                "过去7天",
-                "最近一周",
-                "近一周",
-                "本月",
-                "这个月",
-                "top",
-                "前",
-                "条",
-                "sources",
-                "多来源",
-                "交叉验证",
-                "详情",
-                "展开",
-                "完整链接",
-                "排序",
-                "筛选",
-            ]
-        )
-        return has_research_domain and has_complex_constraint
+        return is_complex_research_request(user_lower)
 
     def _needs_fetch_for_request(self, user_lower: str) -> bool:
-        return any(
-            kw in user_lower
-            for kw in [
-                "详情",
-                "展开",
-                "全文",
-                "原文",
-                "核实",
-                "verify",
-                "交叉验证",
-                "具体看",
-                "深挖",
-            ]
-        )
+        return needs_fetch_for_request(user_lower)
 
     def _normalize_orchestration_strategy(self, payload: Any) -> Dict[str, Any]:
-        strategy = self._default_orchestration_strategy()
-        if not isinstance(payload, dict):
-            return strategy
-        mode = str(payload.get("mode", strategy["mode"])).strip()
-        planner = str(payload.get("planner", strategy["planner"])).strip()
-        default_leaf_type = str(payload.get("default_leaf_type", strategy["default_leaf_type"])).strip()
-        allow_parallel = bool(payload.get("allow_parallel", strategy["allow_parallel"]))
-        if mode not in {"direct", "decompose"}:
-            mode = strategy["mode"]
-        if planner not in {"task_agent", "plan_worker"}:
-            planner = strategy["planner"]
-        if default_leaf_type not in {"Explore", "general-purpose"}:
-            default_leaf_type = strategy["default_leaf_type"]
-        if mode == "direct":
-            allow_parallel = False
-        return {
-            "mode": mode,
-            "planner": planner,
-            "default_leaf_type": default_leaf_type,
-            "allow_parallel": allow_parallel,
-        }
+        return normalize_orchestration_strategy(payload)
 
     def evaluate_memory_need(
         self,
@@ -908,9 +704,5 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
             the message looks like a recall / preference / activity-recap
             request; otherwise ``None``.
         """
-        del context  # unused
-        message_lower = user_message.lower()
-        if not any(trigger in message_lower for trigger in MEMORY_RETRIEVAL_TRIGGERS):
-            return None
-        return MemoryGuidance(recommended=True, route="explicit_query")
+        return evaluate_memory_need(user_message, context)
 
