@@ -1,0 +1,100 @@
+{
+  "version": 1,
+  "description": "Allowed production SQLite write and index operations performed directly by the Rust gateway.",
+  "allowed_gateway_sql": [
+    {
+      "file": "crates/magi-gateway/src/api/messages.rs",
+      "operation": "insert",
+      "table": "chat_sessions",
+      "purpose": "Create lightweight chat session rows from native desktop session routes."
+    },
+    {
+      "file": "crates/magi-gateway/src/api/messages.rs",
+      "operation": "update",
+      "table": "chat_sessions",
+      "purpose": "Update session presentation fields such as title, workspace, and history version."
+    },
+    {
+      "file": "crates/magi-gateway/src/api/messages.rs",
+      "operation": "update",
+      "table": "chat_messages",
+      "purpose": "Apply user-facing message labels and soft-delete visibility flags."
+    },
+    {
+      "file": "crates/magi-gateway/src/api/schedules.rs",
+      "operation": "insert",
+      "table": "schedules",
+      "purpose": "Create product schedule records through native schedule routes."
+    },
+    {
+      "file": "crates/magi-gateway/src/api/schedules.rs",
+      "operation": "update",
+      "table": "schedules",
+      "purpose": "Update product schedule CRUD fields through native schedule routes."
+    },
+    {
+      "file": "crates/magi-gateway/src/api/schedules.rs",
+      "operation": "delete",
+      "table": "schedules",
+      "purpose": "Delete product schedule records through native schedule routes."
+    },
+    {
+      "file": "crates/magi-gateway/src/api/schedules.rs",
+      "operation": "update",
+      "table": "target_state",
+      "purpose": "Reset scheduler target state after product-facing schedule edits."
+    },
+    {
+      "file": "crates/magi-gateway/src/api/tasks.rs",
+      "operation": "insert",
+      "table": "tasks",
+      "purpose": "Create product task rows through native task routes."
+    },
+    {
+      "file": "crates/magi-gateway/src/api/tasks.rs",
+      "operation": "update",
+      "table": "tasks",
+      "purpose": "Update product task CRUD fields through native task routes."
+    },
+    {
+      "file": "crates/magi-gateway/src/api/tasks.rs",
+      "operation": "delete",
+      "table": "tasks",
+      "purpose": "Delete product task rows through native task routes."
+    },
+    {
+      "file": "crates/magi-gateway/src/db.rs",
+      "operation": "insert",
+      "table": "runtime_notifications",
+      "purpose": "Emit gateway-owned live notifications after native mutations."
+    },
+    {
+      "file": "crates/magi-gateway/src/db.rs",
+      "operation": "create_index",
+      "table": "knowledge_graph",
+      "index": "idx_kg_status_updated",
+      "purpose": "Create documented idempotent memory read-performance index."
+    },
+    {
+      "file": "crates/magi-gateway/src/db.rs",
+      "operation": "create_index",
+      "table": "tom_trait_assertions",
+      "index": "idx_tom_assertions_updated",
+      "purpose": "Create documented idempotent memory read-performance index."
+    },
+    {
+      "file": "crates/magi-gateway/src/db.rs",
+      "operation": "create_index",
+      "table": "summaries",
+      "index": "idx_summaries_updated",
+      "purpose": "Create documented idempotent memory read-performance index."
+    },
+    {
+      "file": "crates/magi-gateway/src/db.rs",
+      "operation": "create_index",
+      "table": "fact_events",
+      "index": "idx_fact_events_deleted_at",
+      "purpose": "Create documented idempotent L1 read-performance index."
+    }
+  ]
+}
