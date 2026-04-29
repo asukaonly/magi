@@ -15,6 +15,7 @@ import {
   type ScheduleTriggerType,
 } from '@/api';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import {
   Sheet,
@@ -22,6 +23,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
+import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import {
@@ -494,6 +496,9 @@ const secondsToLocalInput = (seconds: number | null): string => {
   return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
 };
 
+const drawerFieldLabelClass = 'text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground';
+const drawerSectionClass = 'rounded-xl border border-border/60 bg-muted/20 p-4';
+
 const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({ schedule, onClose, onSaved }) => {
   const { t } = useTranslation('app');
   const [enabled, setEnabled] = useState(true);
@@ -558,76 +563,105 @@ const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({ schedule, onClo
 
   return (
     <Sheet open={Boolean(schedule)} onOpenChange={(next) => { if (!next) onClose(); }}>
-      <SheetContent className="w-full overflow-y-auto sm:max-w-lg">
+      <SheetContent className="w-full overflow-hidden sm:max-w-xl">
         <SheetHeader>
           <SheetTitle>{schedule ? getScheduleTitle(schedule) : t('tasks.scheduled.edit.title')}</SheetTitle>
         </SheetHeader>
         {schedule ? (
-          <div className="mt-5 space-y-5 text-sm">
-            <label className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-3 py-2">
-              <span className="font-medium text-foreground">{t('tasks.scheduled.fields.enabled')}</span>
-              <input
-                type="checkbox"
-                checked={enabled}
-                onChange={(event) => setEnabled(event.target.checked)}
-                className="h-4 w-4 accent-primary"
-              />
-            </label>
-            <label className="block space-y-2">
-              <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                {t('tasks.scheduled.fields.triggerType')}
-              </span>
-              <select
-                value={triggerType}
-                onChange={(event) => setTriggerType(event.target.value as ScheduleTriggerType)}
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-              >
-                <option value="interval">{t('tasks.scheduled.triggerTypes.interval')}</option>
-                <option value="once">{t('tasks.scheduled.triggerTypes.once')}</option>
-                <option value="cron">{t('tasks.scheduled.triggerTypes.cron')}</option>
-              </select>
-            </label>
-            {triggerType === 'interval' ? (
-              <label className="block space-y-2">
-                <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  {t('tasks.scheduled.fields.intervalSeconds')}
-                </span>
-                <input
-                  type="number"
-                  min={1}
-                  value={intervalSeconds}
-                  onChange={(event) => setIntervalSeconds(event.target.value)}
-                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                />
-              </label>
-            ) : null}
-            {triggerType === 'once' ? (
-              <label className="block space-y-2">
-                <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  {t('tasks.scheduled.fields.runAt')}
-                </span>
-                <input
-                  type="datetime-local"
-                  value={onceRunAt}
-                  onChange={(event) => setOnceRunAt(event.target.value)}
-                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                />
-              </label>
-            ) : null}
-            {triggerType === 'cron' ? (
-              <label className="block space-y-2">
-                <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  {t('tasks.scheduled.fields.cronConfig')}
-                </span>
-                <textarea
-                  value={cronConfig}
-                  onChange={(event) => setCronConfig(event.target.value)}
-                  rows={8}
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs"
-                />
-              </label>
-            ) : null}
-            <div className="flex justify-end gap-2 pt-2">
+          <div className="flex h-full flex-col text-sm">
+            <div className="flex-1 space-y-5 overflow-y-auto px-6 pb-6">
+              <div className="grid gap-3 rounded-xl border border-border/60 bg-background/80 p-4 shadow-sm sm:grid-cols-2">
+                <div className="min-w-0">
+                  <div className={drawerFieldLabelClass}>Schedule ID</div>
+                  <div className="mt-1 truncate font-mono text-xs text-foreground">{schedule.schedule_id}</div>
+                </div>
+                <div>
+                  <div className={drawerFieldLabelClass}>{t('tasks.scheduled.columns.type')}</div>
+                  <div className="mt-1 text-sm text-foreground">
+                    {t(`tasks.scheduled.targetTypes.${schedule.target_type}`, { defaultValue: schedule.target_type })}
+                  </div>
+                </div>
+              </div>
+
+              <section className={drawerSectionClass}>
+                <label className="flex items-start justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="font-medium text-foreground">{t('tasks.scheduled.fields.enabled')}</div>
+                    <p className="text-xs text-muted-foreground">
+                      {t('tasks.scheduled.fields.triggerType')}: {t(`tasks.scheduled.triggerTypes.${triggerType}`)}
+                    </p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={enabled}
+                    onChange={(event) => setEnabled(event.target.checked)}
+                    className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+                  />
+                </label>
+              </section>
+
+              <section className={drawerSectionClass}>
+                <div className="grid gap-4">
+                  <label className="block space-y-2">
+                    <span className={drawerFieldLabelClass}>
+                      {t('tasks.scheduled.fields.triggerType')}
+                    </span>
+                    <select
+                      value={triggerType}
+                      onChange={(event) => setTriggerType(event.target.value as ScheduleTriggerType)}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    >
+                      <option value="interval">{t('tasks.scheduled.triggerTypes.interval')}</option>
+                      <option value="once">{t('tasks.scheduled.triggerTypes.once')}</option>
+                      <option value="cron">{t('tasks.scheduled.triggerTypes.cron')}</option>
+                    </select>
+                  </label>
+
+                  {triggerType === 'interval' ? (
+                    <label className="block space-y-2">
+                      <span className={drawerFieldLabelClass}>
+                        {t('tasks.scheduled.fields.intervalSeconds')}
+                      </span>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={intervalSeconds}
+                        onChange={(event) => setIntervalSeconds(event.target.value)}
+                      />
+                    </label>
+                  ) : null}
+
+                  {triggerType === 'once' ? (
+                    <label className="block space-y-2">
+                      <span className={drawerFieldLabelClass}>
+                        {t('tasks.scheduled.fields.runAt')}
+                      </span>
+                      <Input
+                        type="datetime-local"
+                        value={onceRunAt}
+                        onChange={(event) => setOnceRunAt(event.target.value)}
+                      />
+                    </label>
+                  ) : null}
+
+                  {triggerType === 'cron' ? (
+                    <label className="block space-y-2">
+                      <span className={drawerFieldLabelClass}>
+                        {t('tasks.scheduled.fields.cronConfig')}
+                      </span>
+                      <Textarea
+                        value={cronConfig}
+                        onChange={(event) => setCronConfig(event.target.value)}
+                        rows={8}
+                        className="min-h-[180px] font-mono text-xs"
+                      />
+                    </label>
+                  ) : null}
+                </div>
+              </section>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t border-border/60 px-6 py-4">
               <Button type="button" variant="ghost" size="sm" onClick={onClose}>
                 {t('tasks.scheduled.actions.cancelEdit')}
               </Button>
