@@ -14,9 +14,8 @@ import aiosqlite
 
 from ...core.sqlite import sqlite_connection_async
 from ...config.models import EmbeddingBackend
-from ..embedding.chunking import ChunkedText, chunk_text
+from ..embedding.chunking import ChunkedText
 from ..embedding.embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
-from ..embedding.embedding_text_builders import build_l4_embedding_text
 from ..embedding.embedding_service import EmbeddingProfile, MemoryEmbeddingService
 from ..event_contracts import MemoryEvent
 from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
@@ -42,6 +41,14 @@ from .procedural_memory_serialization import (
     rolling_average,
     row_to_skill_dict,
     truncate_value as _truncate,
+)
+from .procedural_memory_embeddings import (
+    build_embedding_pipeline,
+    build_skill_embedding_chunks,
+    build_skill_embedding_text,
+    chunk_id_for_skill,
+    fold_skill_chunk_hits,
+    profile_from_embedding_result,
 )
 from .strategy_extraction import ExtractedStrategy, L4StrategyExtractor
 
@@ -1221,9 +1228,7 @@ class L4ProceduralMemoryStore:
         )
 
     def _build_embedding_pipeline(self) -> MemoryEmbeddingPipeline | None:
-        if self._embedding_service is None or self._vector_index is None:
-            return None
-        return MemoryEmbeddingPipeline(
+        return build_embedding_pipeline(
             embedding_service=self._embedding_service,
             vector_index=self._vector_index,
         )
@@ -1273,7 +1278,7 @@ class L4ProceduralMemoryStore:
         skill_category: str,
         optimized_prompt: Optional[str],
     ) -> str:
-        return build_l4_embedding_text(
+        return build_skill_embedding_text(
             skill_name=skill_name,
             skill_category=skill_category,
             optimized_prompt=optimized_prompt,
@@ -1325,21 +1330,10 @@ class L4ProceduralMemoryStore:
                 self._embedding_queue.task_done()
 
     def _build_skill_embedding_chunks(self, *, skill_id: str, text: str) -> list[ChunkedText]:
-        chunks = chunk_text(text)
-        return [
-            ChunkedText(
-                chunk_id=self._chunk_id_for_skill(skill_id, chunk.chunk_index),
-                text=chunk.text,
-                chunk_index=chunk.chunk_index,
-                char_start=chunk.char_start,
-                char_end=chunk.char_end,
-                token_estimate=chunk.token_estimate,
-            )
-            for chunk in chunks
-        ]
+        return build_skill_embedding_chunks(skill_id=skill_id, text=text)
 
     def _chunk_id_for_skill(self, skill_id: str, chunk_index: int) -> str:
-        return f"{skill_id}::chunk-{chunk_index}"
+        return chunk_id_for_skill(skill_id, chunk_index)
 
     async def _replace_skill_chunks(self, *, skill_id: str, chunks: list[ChunkedText], embedded_at: float) -> None:
         async with sqlite_connection_async(self.db_path) as db:
@@ -1392,14 +1386,9 @@ class L4ProceduralMemoryStore:
             await db.commit()
 
     def _profile_from_embedding_result(self, result) -> EmbeddingProfile:
-        getter = getattr(self._embedding_service, "profile_from_result", None)
-        if callable(getter):
-            return getter(result, text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION)
-        return EmbeddingProfile.build(
-            provider_name="unknown",
-            model_name=result.model_name,
-            dimension=result.dimension,
-            text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION,
+        return profile_from_embedding_result(
+            embedding_service=self._embedding_service,
+            result=result,
         )
 
     async def _fetch_skill_chunk_rows_by_ids(self, chunk_ids: list[str]) -> list[aiosqlite.Row]:
@@ -1424,28 +1413,7 @@ class L4ProceduralMemoryStore:
     ) -> tuple[list[str], dict[str, list[dict[str, Any]]]]:
         chunk_ids = [hit.entity_id for hit in hits]
         chunk_rows = await self._fetch_skill_chunk_rows_by_ids(chunk_ids)
-        chunk_by_id = {str(row["chunk_id"]): row for row in chunk_rows}
-        skill_ids: list[str] = []
-        matched_chunks: dict[str, list[dict[str, Any]]] = {}
-        for hit in hits:
-            row = chunk_by_id.get(hit.entity_id)
-            if row is None:
-                continue
-            skill_id = str(row["skill_id"])
-            if skill_id not in matched_chunks:
-                skill_ids.append(skill_id)
-                matched_chunks[skill_id] = []
-            matched_chunks[skill_id].append(
-                {
-                    "chunk_id": str(row["chunk_id"]),
-                    "chunk_index": int(row["chunk_index"]),
-                    "text": str(row["chunk_text"]),
-                    "char_start": int(row["char_start"]),
-                    "char_end": int(row["char_end"]),
-                    "distance": float(hit.distance),
-                }
-            )
-        return skill_ids, matched_chunks
+        return fold_skill_chunk_hits(hits=hits, chunk_rows=chunk_rows)
 
 
 __all__ = ["L4ProceduralMemoryStore"]
