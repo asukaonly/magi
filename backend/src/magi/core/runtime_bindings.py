@@ -71,11 +71,6 @@ def require_sensor_scheduler_contrib():
     return _require_binding("sensor_scheduler_contrib")
 
 
-def require_user_message_sensor():
-    """Return the shared user-message sensor binding."""
-    return _require_binding("user_message_sensor")
-
-
 def require_plugin_manager():
     """Return the active plugin manager binding."""
     return _require_binding("plugin_manager")
@@ -89,11 +84,6 @@ def require_sensor_registry():
 def require_skill_indexer():
     """Return the shared skill indexer binding."""
     return _require_binding("skill_indexer")
-
-
-def require_skill_loader():
-    """Return the shared skill loader binding."""
-    return _require_binding("skill_loader")
 
 
 def require_skill_runner():

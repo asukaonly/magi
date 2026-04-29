@@ -74,6 +74,10 @@ Open items:
 - keep the chat and chat-trace read-service singletons container-owned instead of adding module-scoped service globals back to their implementation modules
 - review legacy packages such as `processing/` and other dormant runtime leftovers, then either integrate them into the current layered model or delete them
 
+Recent progress:
+
+- Removed unused runtime binding accessors for the user-message sensor and skill loader; those objects remain lifecycle/container-owned without being public boundary helpers.
+
 ### 5. Keep service and transport boundaries thin
 
 Status: active
