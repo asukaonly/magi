@@ -186,6 +186,7 @@ Recent progress:
 - L0 memory session display helpers now live in `memory_session_display.py`.
 - Memory API Pydantic schemas now live in `memory_schemas.py`.
 - L4 procedural memory schema constants now live in `procedural_memory_schema.py`.
+- L4 procedural memory serialization helpers now live in `procedural_memory_serialization.py`.
 - Worker prompt and tool-profile helpers now live in `worker_prompting.py`.
 - Worker status, await, and run-state serialization helpers now live in `worker_status.py`.
 - Worker tool schema definition now lives in `worker_schema.py`.
