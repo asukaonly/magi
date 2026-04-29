@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import asyncio
 import time
@@ -63,13 +62,6 @@ from .embeddings.skills import (
     replace_skill_chunks,
     update_skill_embedding_state,
 )
-from .traces.analysis import (
-    apply_recovery_annotations,
-    duration_baseline_from_row,
-    failure_turn_ids,
-    merge_stratified_trace_rows,
-    recovery_map_from_rows,
-)
 from .learning.updates import (
     build_new_skill_record_state,
     build_updated_skill_record_state,
@@ -81,6 +73,13 @@ from .storage.records import (
 )
 from .traces.store import insert_execution_trace
 from .strategy_extraction import ExtractedStrategy, L4StrategyExtractor
+from .strategy_operations import (
+    enrich_with_recovery,
+    get_duration_baseline,
+    maybe_extract_strategy,
+    persist_strategy,
+    stratified_traces,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -648,51 +647,7 @@ class L4ProceduralMemoryStore:
         high success rates, and vice versa.
         """
         await self.initialize()
-        bucket_size = max(1, limit // 3)
-        remainder = limit - bucket_size * 2
-
-        async with sqlite_connection_async(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-
-            # Bucket 1: recent failures
-            async with db.execute(
-                f"""
-                SELECT * FROM {EXECUTION_TRACES_TABLE}
-                WHERE skill_id = ? AND success = 0
-                ORDER BY created_at DESC LIMIT ?
-                """,
-                (skill_id, bucket_size),
-            ) as cursor:
-                failures = await cursor.fetchall()
-
-            # Bucket 2: recent successes
-            async with db.execute(
-                f"""
-                SELECT * FROM {EXECUTION_TRACES_TABLE}
-                WHERE skill_id = ? AND success = 1
-                ORDER BY created_at DESC LIMIT ?
-                """,
-                (skill_id, bucket_size),
-            ) as cursor:
-                successes = await cursor.fetchall()
-
-            # Bucket 3: most recent traces (fills remaining after dedup)
-            async with db.execute(
-                f"""
-                SELECT * FROM {EXECUTION_TRACES_TABLE}
-                WHERE skill_id = ?
-                ORDER BY created_at DESC LIMIT ?
-                """,
-                (skill_id, limit),
-            ) as cursor:
-                recent = await cursor.fetchall()
-
-        return merge_stratified_trace_rows(
-            failures=failures,
-            successes=successes,
-            recent=recent,
-            limit=limit,
-        )
+        return await stratified_traces(db_path=self.db_path, skill_id=skill_id, limit=limit)
 
     def _extract_skill_identity(
         self,
@@ -735,45 +690,19 @@ class L4ProceduralMemoryStore:
         success_rate: float,
     ) -> None:
         """Conditionally run LLM strategy extraction and persist the result."""
-        if self._strategy_extractor is None:
-            return
-        traces = await self._stratified_traces(skill_id, limit=20)
-        if not traces:
-            return
-
-        # Fetch skill-level duration baselines for context.
-        duration_baseline = await self._get_duration_baseline(skill_id)
-
-        # Enrich failure traces with same-turn recovery information.
-        await self._enrich_with_recovery(traces, skill_id)
-
-        strategy = await self._strategy_extractor.extract_strategy(
+        await maybe_extract_strategy(
+            db_path=self.db_path,
+            strategy_extractor=self._strategy_extractor,
+            skill_id=skill_id,
             skill_name=skill_name,
             skill_category=skill_category,
             total_attempts=total_attempts,
             success_rate=success_rate,
-            traces=traces,
-            duration_baseline=duration_baseline,
-        )
-        if strategy is None:
-            return
-        await self._persist_strategy(
-            skill_id=skill_id,
-            strategy=strategy,
         )
 
     async def _get_duration_baseline(self, skill_id: str) -> Dict[str, float]:
         """Return avg and p95 execution times for a skill."""
-        async with sqlite_connection_async(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                "SELECT avg_execution_time_ms, p95_execution_time_ms FROM procedural_skills WHERE skill_id = ?",
-                (skill_id,),
-            ) as cursor:
-                row = await cursor.fetchone()
-        if row is None:
-            return {}
-        return duration_baseline_from_row(row)
+        return await get_duration_baseline(db_path=self.db_path, skill_id=skill_id)
 
     async def _enrich_with_recovery(
         self,
@@ -786,29 +715,11 @@ class L4ProceduralMemoryStore:
         success from a *different* skill in the same turn.  If found, add
         ``recovery_tool`` and ``recovery_output`` keys to the trace dict.
         """
-        unique_turn_ids = failure_turn_ids(traces)
-        if not unique_turn_ids:
-            return
-
-        placeholders = ", ".join("?" for _ in unique_turn_ids)
-        async with sqlite_connection_async(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                f"""
-                SELECT t.turn_id, t.created_at, t.output_summary,
-                       s.skill_name
-                FROM {EXECUTION_TRACES_TABLE} t
-                JOIN procedural_skills s ON t.skill_id = s.skill_id
-                WHERE t.turn_id IN ({placeholders})
-                  AND t.skill_id != ?
-                  AND t.success = 1
-                ORDER BY t.turn_id, t.created_at ASC
-                """,
-                (*unique_turn_ids, current_skill_id),
-            ) as cursor:
-                rows = await cursor.fetchall()
-
-        apply_recovery_annotations(traces, recovery_map_from_rows(rows))
+        await enrich_with_recovery(
+            db_path=self.db_path,
+            traces=traces,
+            current_skill_id=current_skill_id,
+        )
 
     async def _persist_strategy(
         self,
@@ -817,34 +728,7 @@ class L4ProceduralMemoryStore:
         strategy: ExtractedStrategy,
     ) -> None:
         """Write extracted strategy to the procedural_skills row and reset pending count."""
-        now = time.time()
-        strategy_json = strategy.to_json()
-        context_affinity_json = json.dumps(strategy.context_preferences, ensure_ascii=False)
-        async with sqlite_connection_async(self.db_path) as db:
-            await db.execute(
-                """
-                UPDATE procedural_skills
-                SET optimized_prompt = ?,
-                    context_affinity = ?,
-                    optimization_score = ?,
-                    pending_trace_count = 0,
-                    updated_at = ?
-                WHERE skill_id = ?
-                """,
-                (
-                    strategy_json,
-                    context_affinity_json,
-                    strategy.confidence,
-                    now,
-                    skill_id,
-                ),
-            )
-            await db.commit()
-        logger.info(
-            "L4 strategy persisted for skill %s (confidence=%.2f)",
-            skill_id,
-            strategy.confidence,
-        )
+        await persist_strategy(db_path=self.db_path, skill_id=skill_id, strategy=strategy)
 
     def _row_to_dict(self, row: aiosqlite.Row) -> Dict[str, Any]:
         return row_to_skill_dict(row)
