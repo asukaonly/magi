@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Any, Optional
 from ..agent.orchestration import get_orchestration_store
 from ..core.logger import get_logger
 from ..core.sqlite import connect_sqlite
-from ..memory.l1.chat_sessions import create_chat_session_record
 from ..utils.runtime import get_runtime_paths
 from ..api.services.chat_trace.read_service import AI_RESPONSE_EVENT_TYPES, USER_EVENT_TYPES, get_chat_trace_read_service
 from .read.models import (
@@ -18,6 +17,7 @@ from .read.models import (
     ChatSessionSummary,
     SessionWorkspaceUpdateResult,
 )
+from .read.session_operations import ChatSessionOperationsMixin
 from .read.schema import (
     CHAT_ATTACHMENTS_TABLE,
     CHAT_MESSAGES_TABLE,
@@ -45,7 +45,7 @@ logger = get_logger(__name__)
 FACT_EVENTS_TABLE = "fact_events"
 
 
-class ChatReadService:
+class ChatReadService(ChatSessionOperationsMixin):
     """Query chat session and history from persistent storage."""
 
     def __init__(self) -> None:
@@ -162,262 +162,11 @@ class ChatReadService:
         """Clear all sessions without blocking the event loop."""
         return await self._run_threaded("clear_all_sessions")
 
-    def create_new_session(self, user_id: str, workspace_path: str | None = None) -> str:
-        normalized_user_id = str(user_id).strip()
-        if not normalized_user_id:
-            raise ValueError("User ID is required")
-        record = create_chat_session_record(
-            user_id=normalized_user_id,
-            workspace_path=self._normalize_workspace_path(workspace_path),
-        )
-        conn = self._get_conn()
-        conn.execute(
-            f"""
-            INSERT INTO {CHAT_SESSIONS_TABLE} (
-                session_id, user_id, title, title_overridden, summary, created_at_ms, updated_at_ms,
-                last_message_at_ms, last_user_message_at_ms, last_message_preview,
-                last_user_message_preview, message_count, workspace_path, archived_at_ms, deleted_at_ms
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                record.session_id,
-                record.user_id,
-                record.title,
-                1 if record.title_overridden else 0,
-                record.summary,
-                int(record.created_at * 1000),
-                int(record.updated_at * 1000),
-                int(record.last_message_at * 1000) if record.last_message_at is not None else None,
-                int(record.last_user_message_at * 1000) if record.last_user_message_at is not None else None,
-                record.last_message_preview,
-                record.last_user_message_preview,
-                record.message_count,
-                record.workspace_path,
-                int(record.archived_at * 1000) if record.archived_at is not None else None,
-                int(record.deleted_at * 1000) if record.deleted_at is not None else None,
-            ),
-        )
-        conn.commit()
-        return record.session_id
-
     def get_worker_result(self, worker_id: str) -> Optional[dict[str, Any]]:
         if not worker_id.strip():
             return None
         store = get_orchestration_store()
         return store.get_worker_result_sync(worker_id)
-
-    def get_session_summary(self, user_id: str, session_id: str) -> ChatSessionSummary | None:
-        normalized_user_id = str(user_id).strip()
-        normalized_session_id = str(session_id).strip()
-        if not normalized_user_id or not normalized_session_id:
-            raise ValueError("User ID and session ID are required")
-        if not self._chat_db_path.exists():
-            return None
-        row = self._get_conn().execute(
-            f"""
-            SELECT
-                session_id,
-                title,
-                title_overridden,
-                last_message_preview,
-                last_user_message_preview,
-                workspace_path,
-                updated_at_ms,
-                last_message_at_ms,
-                message_count
-            FROM {CHAT_SESSIONS_TABLE}
-            WHERE user_id = ?
-              AND session_id = ?
-              AND deleted_at_ms IS NULL
-              AND archived_at_ms IS NULL
-            """,
-            (normalized_user_id, normalized_session_id),
-        ).fetchone()
-        return self._row_to_session_summary(row) if row is not None else None
-
-    def get_session_summaries_batch(
-        self,
-        user_id: str,
-        session_ids: list[str],
-    ) -> dict[str, ChatSessionSummary]:
-        """Fetch multiple session summaries in one query.
-
-        Returns a dict mapping session_id -> ChatSessionSummary for found sessions.
-        """
-        normalized_user_id = str(user_id).strip()
-        if not normalized_user_id or not session_ids:
-            return {}
-        if not self._chat_db_path.exists():
-            return {}
-        clean_ids = [str(sid).strip() for sid in session_ids if str(sid).strip()]
-        if not clean_ids:
-            return {}
-        placeholders = ", ".join("?" for _ in clean_ids)
-        rows = self._get_conn().execute(
-            f"""
-            SELECT
-                session_id,
-                title,
-                title_overridden,
-                last_message_preview,
-                last_user_message_preview,
-                workspace_path,
-                updated_at_ms,
-                last_message_at_ms,
-                message_count
-            FROM {CHAT_SESSIONS_TABLE}
-            WHERE user_id = ?
-              AND session_id IN ({placeholders})
-              AND deleted_at_ms IS NULL
-              AND archived_at_ms IS NULL
-            """,
-            (normalized_user_id, *clean_ids),
-        ).fetchall()
-        return {
-            str(row["session_id"]): self._row_to_session_summary(row)
-            for row in rows
-        }
-
-    def list_sessions(self, user_id: str, limit: int = 30) -> list[ChatSessionSummary]:
-        """List recent chat sessions for a user."""
-        safe_limit = max(1, min(limit, 200))
-        if not self._chat_db_path.exists():
-            return []
-        try:
-            conn = self._get_conn()
-            rows = conn.execute(
-                f"""
-                SELECT
-                    session_id,
-                    title,
-                    title_overridden,
-                    last_message_preview,
-                    last_user_message_preview,
-                    workspace_path,
-                    updated_at_ms,
-                    last_message_at_ms,
-                    message_count
-                FROM {CHAT_SESSIONS_TABLE}
-                WHERE user_id = ?
-                  AND deleted_at_ms IS NULL
-                  AND archived_at_ms IS NULL
-                ORDER BY updated_at_ms DESC, created_at_ms DESC
-                LIMIT ?
-                """,
-                (user_id, safe_limit),
-            ).fetchall()
-        except Exception as exc:
-            logger.exception(f"Failed to query session list: {exc}")
-            return []
-
-        return [self._row_to_session_summary(row) for row in rows]
-
-    def rename_session(self, user_id: str, session_id: str, title: str) -> ChatSessionRenameResult:
-        normalized_user_id = str(user_id).strip()
-        normalized_session_id = str(session_id).strip()
-        normalized_title = str(title).strip()
-        if not normalized_user_id or not normalized_session_id:
-            raise ValueError("User ID and session ID are required")
-        if not normalized_title:
-            raise ValueError("Session title cannot be empty")
-        conn = self._get_conn()
-        cur = conn.execute(
-            f"""
-            UPDATE {CHAT_SESSIONS_TABLE}
-            SET title = ?, title_overridden = 1, updated_at_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000
-            WHERE session_id = ?
-              AND user_id = ?
-              AND deleted_at_ms IS NULL
-            """,
-            (normalized_title, normalized_session_id, normalized_user_id),
-        )
-        conn.commit()
-        if cur.rowcount <= 0:
-            raise ValueError("Session not found")
-        return ChatSessionRenameResult(session_id=normalized_session_id, title=normalized_title)
-
-    def update_session_workspace(
-        self,
-        user_id: str,
-        session_id: str,
-        workspace_path: str | None,
-    ) -> SessionWorkspaceUpdateResult:
-        normalized_user_id = str(user_id).strip()
-        normalized_session_id = str(session_id).strip()
-        normalized_workspace_path = self._normalize_workspace_path(workspace_path)
-        if not normalized_user_id or not normalized_session_id:
-            raise ValueError("User ID and session ID are required")
-        conn = self._get_conn()
-        cur = conn.execute(
-            f"""
-            UPDATE {CHAT_SESSIONS_TABLE}
-            SET workspace_path = ?,
-                updated_at_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000
-            WHERE session_id = ?
-              AND user_id = ?
-              AND deleted_at_ms IS NULL
-            """,
-            (normalized_workspace_path, normalized_session_id, normalized_user_id),
-        )
-        conn.commit()
-        if cur.rowcount <= 0:
-            raise ValueError("Session not found")
-        return SessionWorkspaceUpdateResult(
-            session_id=normalized_session_id,
-            workspace_path=normalized_workspace_path,
-        )
-
-    def delete_session(self, user_id: str, session_id: str) -> None:
-        normalized_user_id = str(user_id).strip()
-        normalized_session_id = str(session_id).strip()
-        if not normalized_user_id or not normalized_session_id:
-            raise ValueError("User ID and session ID are required")
-
-        if self._l1_db_path.exists():
-            try:
-                conn = connect_sqlite(self._l1_db_path, profile="hot_write")
-                cur = conn.cursor()
-                cur.execute(
-                    f"""
-                    DELETE FROM {FACT_EVENTS_TABLE}
-                    WHERE user_id = ?
-                      AND session_id = ?
-                    """,
-                    (normalized_user_id, normalized_session_id),
-                )
-                conn.commit()
-                conn.close()
-            except Exception as exc:
-                logger.exception(f"Failed to delete session: {exc}")
-        self._delete_runtime_trace_rows(user_id=normalized_user_id, session_id=normalized_session_id)
-
-        conn = self._get_conn()
-        conn.execute(
-            f"DELETE FROM {CHAT_MESSAGES_TABLE} WHERE user_id = ? AND session_id = ?",
-            (normalized_user_id, normalized_session_id),
-        )
-        conn.execute(
-            f"DELETE FROM {CHAT_ATTACHMENTS_TABLE} WHERE user_id = ? AND session_id = ?",
-            (normalized_user_id, normalized_session_id),
-        )
-        conn.execute(
-            f"DELETE FROM {CHAT_TURNS_TABLE} WHERE user_id = ? AND session_id = ?",
-            (normalized_user_id, normalized_session_id),
-        )
-        conn.execute(
-            f"""
-            UPDATE {CHAT_SESSIONS_TABLE}
-            SET deleted_at_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000,
-                updated_at_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000,
-                history_version = history_version + 1
-            WHERE user_id = ?
-              AND session_id = ?
-              AND deleted_at_ms IS NULL
-            """,
-            (normalized_user_id, normalized_session_id),
-        )
-        conn.commit()
-        return None
 
     def get_conversation_history(self, user_id: str, session_id: str, limit: int = 200) -> list[ChatDisplayMessage]:
         if not self._chat_db_path.exists():
@@ -756,21 +505,6 @@ class ChatReadService:
             conn.close()
         except Exception as exc:
             logger.exception(f"Failed to delete runtime trace rows: {exc}")
-
-    def clear_all_sessions(self) -> int:
-        """Clear all chat session rows and return removed count."""
-        if not self._chat_db_path.exists():
-            return 0
-        conn = self._get_conn()
-        row = conn.execute(
-            f"SELECT COUNT(*) AS total FROM {CHAT_SESSIONS_TABLE} WHERE deleted_at_ms IS NULL"
-        ).fetchone()
-        removed = int((row["total"] if row is not None else 0) or 0)
-        conn.execute(f"DELETE FROM {CHAT_MESSAGES_TABLE}")
-        conn.execute(f"DELETE FROM {CHAT_TURNS_TABLE}")
-        conn.execute(f"DELETE FROM {CHAT_SESSIONS_TABLE}")
-        conn.commit()
-        return removed
 
     def _query_chat_message_rows(
         self,
