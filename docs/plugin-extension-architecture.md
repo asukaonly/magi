@@ -155,6 +155,12 @@ When a plugin wants the assistant to send back local files such as photos, keep 
 - source plugins own domain resolution and selection
 - the host runtime owns chat attachment import, persistence, and display
 
+The long-term resolver design is documented in
+[Unified Asset Resolver Architecture](./unified-asset-resolver-architecture.md).
+Plugins should prefer that generic `asset_resolve` contract for reusable
+`asset_refs` instead of adding source-specific resolver tools to the
+agent-visible tool list.
+
 Current intended flow:
 
 1. a source plugin resolves memory or sensor metadata into stable local file paths or source-owned asset refs

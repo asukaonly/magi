@@ -32,7 +32,12 @@ Local-only working drafts, design spikes, and execution plans belong under `docs
 8. [Plugin Development Guide](./plugin-development-guide.md)
   Practical guide for authoring built-in or external plugins.
 
-9. [Backlog](./backlog.md)
+9. [Unified Asset Resolver Architecture](./unified-asset-resolver-architecture.md)
+  Read this when working on reusable `asset_refs`, source-specific asset
+  resolution, chat attachments, or follow-up routing from memory recall to
+  plugin-owned evidence.
+
+10. [Backlog](./backlog.md)
   Current development and maintenance follow-ups that are intentionally not mixed into the design docs.
 
 ## Audience Guide
@@ -50,7 +55,7 @@ Local-only working drafts, design spikes, and execution plans belong under `docs
   Read [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md), then [Memory System Design](./memory-system-design.md).
 
 - Plugin maintainers
-  Read [Unified Plugin Architecture](./plugin-extension-architecture.md) and [Plugin Development Guide](./plugin-development-guide.md).
+  Read [Unified Plugin Architecture](./plugin-extension-architecture.md), [Plugin Development Guide](./plugin-development-guide.md), and [Unified Asset Resolver Architecture](./unified-asset-resolver-architecture.md) when contributing reusable local assets.
 
 - Release maintainers
   Start with [Project Overview](./project-overview.md) for the current desktop distribution and GitHub Release automation flow.
