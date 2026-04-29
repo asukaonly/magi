@@ -33,6 +33,7 @@ from .procedural_memory_schema import (
     TRACE_TURN_ID_MIGRATION_SQL,
     TRACE_TURN_INDEX_SQL,
     _ADAPTIVE_MAX_THRESHOLD,
+    ensure_procedural_memory_schema,
 )
 from .procedural_memory_serialization import (
     adaptive_extraction_threshold,
@@ -106,19 +107,7 @@ class L4ProceduralMemoryStore:
 
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         async with sqlite_connection_async(self.db_path) as db:
-            await db.executescript(PROCEDURAL_MEMORY_SCHEMA_SQL)
-            # Add pending_trace_count column if missing (migration-safe).
-            try:
-                await db.execute(PENDING_TRACE_COUNT_MIGRATION_SQL)
-            except Exception:
-                pass  # Column already exists
-            # Add turn_id column to execution traces if missing (migration-safe).
-            try:
-                await db.execute(TRACE_TURN_ID_MIGRATION_SQL)
-            except Exception:
-                pass  # Column already exists
-            # Ensure turn-based index exists (safe if already present).
-            await db.execute(TRACE_TURN_INDEX_SQL)
+            await ensure_procedural_memory_schema(db)
             if self._vector_index is not None:
                 await self._vector_index.initialize()
             await db.commit()

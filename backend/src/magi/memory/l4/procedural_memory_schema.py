@@ -1,6 +1,8 @@
 """SQLite schema constants for L4 procedural memory."""
 from __future__ import annotations
 
+import aiosqlite
+
 SKILL_CHUNKS_TABLE = "l4_skill_chunks"
 EXECUTION_TRACES_TABLE = "l4_execution_traces"
 EMBEDDING_TEXT_BUILDER_VERSION = "l4_skill_v1"
@@ -92,3 +94,16 @@ TRACE_TURN_ID_MIGRATION_SQL = f"ALTER TABLE {EXECUTION_TRACES_TABLE} ADD COLUMN 
 TRACE_TURN_INDEX_SQL = (
     f"CREATE INDEX IF NOT EXISTS idx_l4_traces_turn ON {EXECUTION_TRACES_TABLE}(turn_id, created_at ASC)"
 )
+
+
+async def ensure_procedural_memory_schema(db: aiosqlite.Connection) -> None:
+    await db.executescript(PROCEDURAL_MEMORY_SCHEMA_SQL)
+    try:
+        await db.execute(PENDING_TRACE_COUNT_MIGRATION_SQL)
+    except Exception:
+        pass
+    try:
+        await db.execute(TRACE_TURN_ID_MIGRATION_SQL)
+    except Exception:
+        pass
+    await db.execute(TRACE_TURN_INDEX_SQL)
