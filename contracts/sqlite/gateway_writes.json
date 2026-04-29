@@ -21,25 +21,25 @@
       "purpose": "Apply user-facing message labels and soft-delete visibility flags."
     },
     {
-      "file": "crates/magi-gateway/src/api/schedules.rs",
+      "file": "crates/magi-gateway/src/api/schedules/write.rs",
       "operation": "insert",
       "table": "schedules",
       "purpose": "Create product schedule records through native schedule routes."
     },
     {
-      "file": "crates/magi-gateway/src/api/schedules.rs",
+      "file": "crates/magi-gateway/src/api/schedules/write.rs",
       "operation": "update",
       "table": "schedules",
       "purpose": "Update product schedule CRUD fields through native schedule routes."
     },
     {
-      "file": "crates/magi-gateway/src/api/schedules.rs",
+      "file": "crates/magi-gateway/src/api/schedules/write.rs",
       "operation": "delete",
       "table": "schedules",
       "purpose": "Delete product schedule records through native schedule routes."
     },
     {
-      "file": "crates/magi-gateway/src/api/schedules.rs",
+      "file": "crates/magi-gateway/src/api/schedules/write.rs",
       "operation": "update",
       "table": "target_state",
       "purpose": "Reset scheduler target state after product-facing schedule edits."
