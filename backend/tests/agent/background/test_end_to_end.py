@@ -97,7 +97,7 @@ async def test_background_task_end_to_end_pipeline(
     # Stand-in runtime-trace store wired into the transport broadcaster.
     trace_store = _RecordingTraceStore()
     monkeypatch.setattr(
-        chat_events_module, "require_runtime_trace_store", lambda: trace_store
+        chat_events_module, "resolve_runtime_trace_store", lambda: trace_store
     )
 
     # Fake chat post-process pipeline so we can assert the handshake listener
@@ -186,7 +186,7 @@ async def test_background_task_failure_broadcasts_and_delivers(
     store = BackgroundTaskStore(db_path=str(tmp_path / "bg.db"))
     trace_store = _RecordingTraceStore()
     monkeypatch.setattr(
-        chat_events_module, "require_runtime_trace_store", lambda: trace_store
+        chat_events_module, "resolve_runtime_trace_store", lambda: trace_store
     )
     postprocess = _CapturingPostProcess()
     task_agent_manager = _FakeTaskAgentManager(_FakeChatAgent(postprocess))

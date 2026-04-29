@@ -276,7 +276,7 @@ async def test_session_plan_and_todos_and_ask(wiring):
 def test_session_plan_falls_back_to_runtime_notifications(wiring, monkeypatch):
     monkeypatch.setattr(
         control_module,
-        "require_runtime_trace_store",
+        "resolve_runtime_trace_store",
         lambda: _FakeRuntimeTraceStore(
             [
                 RuntimeNotificationRecord(
@@ -314,7 +314,7 @@ def test_session_plan_falls_back_to_runtime_notifications(wiring, monkeypatch):
 def test_session_todos_fall_back_to_runtime_notifications(wiring, monkeypatch):
     monkeypatch.setattr(
         control_module,
-        "require_runtime_trace_store",
+        "resolve_runtime_trace_store",
         lambda: _FakeRuntimeTraceStore(
             [
                 RuntimeNotificationRecord(

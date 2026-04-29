@@ -174,7 +174,7 @@ async def _persist_bootstrap_assistant_message(
 
     from ...chat.contracts import ChatMessageRecord, ChatTurnRecord
     from ...chat.provider import get_chat_store
-    from ...core.runtime_bindings import require_runtime_trace_store
+    from ...runtime_trace.provider import resolve_runtime_trace_store
     from ...runtime_trace.contracts import RuntimeNotificationRecord
     from ...transport.chat_events import broadcast_chat_message_upsert
 
@@ -225,7 +225,7 @@ async def _persist_bootstrap_assistant_message(
     )
 
     try:
-        trace_store = require_runtime_trace_store()
+        trace_store = resolve_runtime_trace_store()
         await trace_store.append_notification(RuntimeNotificationRecord(
             notification_id=0,
             channel="agent_response",

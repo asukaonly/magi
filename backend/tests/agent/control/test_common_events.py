@@ -9,7 +9,6 @@ from typing import Any
 import pytest
 
 from magi.agent.control.common import events as events_module
-from magi.core import runtime_bindings
 from magi.runtime_trace.contracts import RuntimeNotificationRecord
 
 
@@ -24,23 +23,13 @@ class _FakeStore:
         return len(self.records)
 
 
-class _FakeContainer:
-    """Container-shaped object exposing `.runtime_trace_store()`."""
-
-    def __init__(self, store: Any) -> None:
-        self._store = store
-
-    def runtime_trace_store(self) -> Any:
-        return self._store
-
-
 @pytest.fixture
 def fake_store(monkeypatch: pytest.MonkeyPatch) -> _FakeStore:
     store = _FakeStore()
     monkeypatch.setattr(
-        runtime_bindings,
-        "get_container",
-        lambda: _FakeContainer(store),
+        events_module,
+        "resolve_runtime_trace_store",
+        lambda: store,
     )
     return store
 
@@ -91,7 +80,7 @@ async def test_publish_control_event_tolerates_missing_trace_store(
     def _raise() -> Any:
         raise RuntimeError("no container")
 
-    monkeypatch.setattr(runtime_bindings, "get_container", _raise)
+    monkeypatch.setattr(events_module, "resolve_runtime_trace_store", _raise)
 
     # Must not raise even when trace store cannot be resolved.
     await events_module.publish_control_event(

@@ -50,9 +50,9 @@ from ...core.runtime_bindings import (
     require_control_settings_manager,
     require_pending_permission_registry,
     require_permission_rule_store,
-    require_runtime_trace_store,
 )
 from ...agent.control.session_store import TodoItem
+from ...runtime_trace.provider import resolve_runtime_trace_store
 
 control_router = APIRouter()
 
@@ -109,7 +109,7 @@ async def _load_latest_control_notification(
     limit: int = 200,
 ) -> dict[str, Any] | None:
     try:
-        trace_store = require_runtime_trace_store()
+        trace_store = resolve_runtime_trace_store()
     except RuntimeError:
         return None
 

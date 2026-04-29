@@ -337,9 +337,9 @@ class SensorSchedulerContrib:
     ) -> None:
         """Write a sensor_sync_progress notification for the Tauri event bridge."""
         try:
-            from ..core.runtime_bindings import require_runtime_trace_store
+            from ..runtime_trace.provider import resolve_runtime_trace_store
 
-            store = require_runtime_trace_store()
+            store = resolve_runtime_trace_store()
             payload = {
                 "source_type": source_type,
                 "processed": processed,

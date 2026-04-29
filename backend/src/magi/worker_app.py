@@ -16,10 +16,11 @@ from pathlib import Path
 
 from .core.container import get_container, wire_container
 from .core.logger import configure_logging, get_logger
-from .core.runtime_bindings import require_runtime_command_queue, require_runtime_trace_store
+from .core.runtime_bindings import require_runtime_command_queue
 from .bootstrap import initialize_agent_runtime, shutdown_agent_runtime
 from .bootstrap.runtime_startup_state import get_runtime_startup_snapshot
 from .runtime_trace import RuntimeHeartbeatRecord
+from .runtime_trace.provider import resolve_runtime_trace_store
 from .utils.runtime import get_runtime_paths
 
 logger = get_logger(__name__, category="WORKER")
@@ -224,7 +225,7 @@ async def _publish_runtime_heartbeat(
     last_error: str | None = None,
 ) -> None:
     try:
-        store = require_runtime_trace_store()
+        store = resolve_runtime_trace_store()
         queue_backlog = await _load_pending_command_count()
         await store.upsert_runtime_heartbeat(
             RuntimeHeartbeatRecord(
