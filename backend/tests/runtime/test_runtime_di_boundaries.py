@@ -217,6 +217,7 @@ def test_runtime_bindings_only_expose_boundary_consumed_services() -> None:
     assert "require_message_bus" not in runtime_bindings
     assert "require_user_message_sensor" not in runtime_bindings
     assert "require_skill_loader" not in runtime_bindings
+    assert "require_skill_indexer" not in runtime_bindings
     assert "require_skill_runner" not in runtime_bindings
     assert "require_chat_store" not in runtime_bindings
     assert "require_chat_projector" not in runtime_bindings

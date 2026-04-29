@@ -26,11 +26,6 @@ def require_agent_runtime():
     return _require_binding("agent_runtime")
 
 
-def require_skill_indexer():
-    """Return the shared skill indexer binding."""
-    return _require_binding("skill_indexer")
-
-
 def require_runtime_trace_store():
     """Return the active runtime trace store binding."""
     return _require_binding("runtime_trace_store")

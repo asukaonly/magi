@@ -9,9 +9,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 import logging
 
-from ...core.runtime_bindings import (
-    require_skill_indexer as _require_skill_indexer_service,
-)
+from ...skills.provider import resolve_skill_indexer as _resolve_skill_indexer_service
 from ...skills.service_access import (
     get_enabled_skill_names as _get_enabled_skill_names_service,
 )
@@ -48,7 +46,7 @@ async def list_skills():
         List of skill metadata.
     """
     try:
-        skill_indexer = _require_skill_indexer_service()
+        skill_indexer = _resolve_skill_indexer_service()
     except RuntimeError:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
