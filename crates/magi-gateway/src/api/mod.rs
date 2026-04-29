@@ -84,6 +84,14 @@ pub fn build_router(state: ApiState) -> Router {
         )
         // Schedules
         .route(
+            "/api/schedules/activity/{activity_id}/cancel",
+            axum::routing::post(schedules::cancel_activity),
+        )
+        .route(
+            "/api/schedules/activity",
+            axum::routing::get(schedules::list_activity),
+        )
+        .route(
             "/api/schedules/executions/recent",
             axum::routing::get(schedules::list_recent_executions),
         )

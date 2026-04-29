@@ -91,6 +91,23 @@ export type {
   RetryBackgroundTaskResponse,
 } from './modules/backgroundTasks';
 
+export { schedulesApi } from './modules/schedules';
+export type {
+  CancelScheduleActivityResponse,
+  ListScheduleActivityResponse,
+  ListSchedulesResponse,
+  ScheduleActivityDTO,
+  ScheduleActivityStatus,
+  ScheduleDTO,
+  ScheduleSettingsLinkDTO,
+  ScheduleTargetStateDTO,
+  ScheduleTargetType,
+  ScheduleTriggerDTO,
+  ScheduleTriggerType,
+  UpdateScheduleRequest,
+  UpdateScheduleResponse,
+} from './modules/schedules';
+
 export * as controlApi from './modules/control';
 export type {
   AskStateDTO,

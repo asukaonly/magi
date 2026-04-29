@@ -140,6 +140,12 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/{task_id}/retry": {"POST"},
         "/{task_id}/dismiss": {"POST"},
     },
+    "schedules": {
+        "": {"GET"},
+        "/activity": {"GET"},
+        "/activity/{activity_id:path}/cancel": {"POST"},
+        "/{schedule_id}": {"PATCH"},
+    },
     "control": {
         "/settings": {"GET", "PUT"},
         "/sessions/{session_id}/settings": {"GET", "PUT"},
@@ -189,6 +195,7 @@ def register_api_routes(app: FastAPI) -> None:
         local_embedding_router,
         local_reranker_router,
         background_tasks_router,
+        schedules_router,
         control_router,
     )
 
@@ -265,6 +272,11 @@ def register_api_routes(app: FastAPI) -> None:
         _build_public_router(background_tasks_router, _PUBLIC_ROUTE_METHODS["background_tasks"]),
         prefix="/api/background-tasks",
         tags=["Background Tasks"],
+    )
+    app.include_router(
+        _build_public_router(schedules_router, _PUBLIC_ROUTE_METHODS["schedules"]),
+        prefix="/api/schedules",
+        tags=["Schedules"],
     )
     app.include_router(
         _build_public_router(control_router, _PUBLIC_ROUTE_METHODS["control"]),

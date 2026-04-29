@@ -639,6 +639,82 @@ class ScheduleRepository:
             return None
         return self._row_to_sensor_sync_job(row)
 
+    async def list_outstanding_sensor_sync_jobs(
+        self,
+        *,
+        limit: int = 100,
+    ) -> list[dict[str, object]]:
+        async with self._connect() as db:
+            cursor = await db.execute(
+                """
+                SELECT *
+                FROM sensor_sync_jobs
+                WHERE status IN ('queued', 'running')
+                ORDER BY created_at ASC
+                LIMIT ?
+                """,
+                (max(1, int(limit)),),
+            )
+            rows = await cursor.fetchall()
+        return [self._row_to_sensor_sync_job(row) for row in rows]
+
+    async def cancel_queued_sensor_sync_job(
+        self,
+        job_id: str,
+        *,
+        reason: str = "cancelled_by_user",
+        finished_at: float | None = None,
+    ) -> Optional[dict[str, object]]:
+        finished_at = finished_at or time.time()
+        async with self._connect() as db:
+            cursor = await db.execute(
+                """
+                SELECT execution_id, started_at
+                FROM sensor_sync_jobs
+                WHERE job_id = ? AND status = 'queued'
+                """,
+                (job_id,),
+            )
+            row = await cursor.fetchone()
+            if row is None:
+                return None
+
+            execution_id = str(row["execution_id"])
+            started_at = (
+                float(row["started_at"])
+                if row["started_at"] is not None
+                else finished_at
+            )
+            await db.execute(
+                """
+                UPDATE sensor_sync_jobs
+                SET status = 'cancelled',
+                    finished_at = ?,
+                    error = NULL,
+                    result_message = ?
+                WHERE job_id = ? AND status = 'queued'
+                """,
+                (finished_at, reason, job_id),
+            )
+            await db.execute(
+                """
+                UPDATE schedule_executions
+                SET status = 'cancelled',
+                    finished_at = ?,
+                    duration_ms = ?,
+                    result_message = ?
+                WHERE execution_id = ? AND status = 'running'
+                """,
+                (
+                    finished_at,
+                    max(0.0, (finished_at - started_at) * 1000.0),
+                    reason,
+                    execution_id,
+                ),
+            )
+            await db.commit()
+        return await self.get_sensor_sync_job(job_id)
+
     async def claim_next_sensor_sync_job(self, *, claimed_by: str) -> Optional[dict[str, object]]:
         now = time.time()
         async with self._connect() as db:

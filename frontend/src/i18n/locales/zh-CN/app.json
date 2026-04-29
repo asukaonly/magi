@@ -58,10 +58,14 @@
   },
   "tasks": {
     "page": {
-      "title": "后台任务",
-      "subtitle": "从对话中分派出去的长耗时工作。可在不离开对话的情况下取消、重试或清理任务。",
+      "title": "任务",
+      "subtitle": "查看后台任务和调度任务的运行状态，处理取消、重试、编辑和排队停止。",
       "refresh": "刷新",
       "refreshing": "刷新中..."
+    },
+    "tabs": {
+      "background": "后台任务",
+      "scheduled": "调度任务"
     },
     "sections": {
       "running": "进行中",
@@ -108,6 +112,75 @@
       "dismissSuccess": "已清理。",
       "dismissFailed": "清理失败。",
       "loadFailed": "后台任务加载失败。"
+    },
+    "scheduled": {
+      "sections": {
+        "enabled": "已开启的调度任务",
+        "enabledHint": "当前启用的周期、一次性和系统维护调度。",
+        "activity": "执行中与即将执行",
+        "activityHint": "正在运行、排队中和已有下次执行时间的调度任务。"
+      },
+      "columns": {
+        "name": "名称",
+        "type": "类型",
+        "rule": "规则",
+        "lastRun": "最近运行",
+        "nextRun": "下次运行",
+        "status": "状态",
+        "plannedAt": "计划时间",
+        "startedAt": "开始时间",
+        "duration": "执行时长",
+        "actions": "操作"
+      },
+      "targetTypes": {
+        "sensor_sync": "传感器同步",
+        "memory_l2_maintenance": "L2 记忆维护",
+        "memory_l3_summary": "L3 摘要生成"
+      },
+      "activityStatus": {
+        "running": "执行中",
+        "queued": "排队中",
+        "upcoming": "即将执行",
+        "cancelled": "已停止"
+      },
+      "triggerTypes": {
+        "interval": "间隔",
+        "once": "一次性",
+        "cron": "Cron"
+      },
+      "fields": {
+        "enabled": "启用",
+        "triggerType": "触发类型",
+        "intervalSeconds": "间隔秒数",
+        "runAt": "执行时间",
+        "cronConfig": "Cron 配置"
+      },
+      "actions": {
+        "edit": "编辑",
+        "openSettings": "去设置更新",
+        "sensorEditTitle": "传感器调度请在设置中更新",
+        "stop": "停止",
+        "stopUnavailable": "当前执行项暂不支持直接停止",
+        "save": "保存",
+        "cancelEdit": "取消"
+      },
+      "edit": {
+        "title": "编辑调度"
+      },
+      "empty": {
+        "enabled": "暂无已开启的调度任务。",
+        "activity": "暂无执行中或即将执行的调度任务。"
+      },
+      "feedback": {
+        "loadFailed": "调度任务加载失败。",
+        "saveSuccess": "调度任务已更新。",
+        "saveFailed": "调度任务更新失败。",
+        "stopSuccess": "已停止排队任务。",
+        "stopFailed": "停止任务失败。",
+        "invalidInterval": "请输入有效的间隔秒数。",
+        "invalidRunAt": "请输入有效的执行时间。",
+        "invalidCron": "Cron 配置不是有效 JSON。"
+      }
     },
     "chatCard": {
       "eyebrow": "后台任务",

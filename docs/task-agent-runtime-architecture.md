@@ -226,6 +226,12 @@ Persistence is separated the same way:
   Runtime command queue only
   Current path: `~/.magi/runtime/message_queue.db`
 
+- `scheduler.db`
+  Unified scheduler definitions, target runtime state, schedule execution records, and queued sensor-sync jobs
+  Current path: `~/.magi/runtime/scheduler.db`
+
+  Product task surfaces read this store through `/api/schedules` to display enabled schedules and current/upcoming scheduler activity. Sensor-owned schedules remain derived from timeline source settings and must be updated through the sensor settings UI instead of direct schedule edits.
+
 - `cache/plugins/<plugin_id>/`
   Rebuildable plugin-owned runtime state such as in-progress sensor aggregation files
   Current path pattern: `~/.magi/cache/plugins/<plugin_id>/`

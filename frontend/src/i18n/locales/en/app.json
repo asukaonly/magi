@@ -58,10 +58,14 @@
   },
   "tasks": {
     "page": {
-      "title": "Background Tasks",
-      "subtitle": "Long-running work that was split off from your conversations. Cancel, retry, or dismiss tasks without leaving the thread.",
+      "title": "Tasks",
+      "subtitle": "Review background work and scheduled jobs, then cancel, retry, edit, or stop queued execution where available.",
       "refresh": "Refresh",
       "refreshing": "Refreshing..."
+    },
+    "tabs": {
+      "background": "Background Tasks",
+      "scheduled": "Scheduled Tasks"
     },
     "sections": {
       "running": "Running",
@@ -108,6 +112,75 @@
       "dismissSuccess": "Task dismissed.",
       "dismissFailed": "Could not dismiss this task.",
       "loadFailed": "Failed to load background tasks."
+    },
+    "scheduled": {
+      "sections": {
+        "enabled": "Enabled Scheduled Tasks",
+        "enabledHint": "Active interval, one-shot, and system maintenance schedules.",
+        "activity": "Running And Upcoming",
+        "activityHint": "Schedules currently running, queued, or waiting for their next run time."
+      },
+      "columns": {
+        "name": "Name",
+        "type": "Type",
+        "rule": "Rule",
+        "lastRun": "Last Run",
+        "nextRun": "Next Run",
+        "status": "Status",
+        "plannedAt": "Planned",
+        "startedAt": "Started",
+        "duration": "Duration",
+        "actions": "Actions"
+      },
+      "targetTypes": {
+        "sensor_sync": "Sensor Sync",
+        "memory_l2_maintenance": "L2 Memory Maintenance",
+        "memory_l3_summary": "L3 Summary Generation"
+      },
+      "activityStatus": {
+        "running": "Running",
+        "queued": "Queued",
+        "upcoming": "Upcoming",
+        "cancelled": "Stopped"
+      },
+      "triggerTypes": {
+        "interval": "Interval",
+        "once": "One Shot",
+        "cron": "Cron"
+      },
+      "fields": {
+        "enabled": "Enabled",
+        "triggerType": "Trigger Type",
+        "intervalSeconds": "Interval Seconds",
+        "runAt": "Run At",
+        "cronConfig": "Cron Config"
+      },
+      "actions": {
+        "edit": "Edit",
+        "openSettings": "Open Settings",
+        "sensorEditTitle": "Sensor schedules are updated in Settings",
+        "stop": "Stop",
+        "stopUnavailable": "This execution item cannot be stopped directly yet",
+        "save": "Save",
+        "cancelEdit": "Cancel"
+      },
+      "edit": {
+        "title": "Edit Schedule"
+      },
+      "empty": {
+        "enabled": "No enabled scheduled tasks.",
+        "activity": "No running or upcoming scheduled tasks."
+      },
+      "feedback": {
+        "loadFailed": "Failed to load scheduled tasks.",
+        "saveSuccess": "Scheduled task updated.",
+        "saveFailed": "Failed to update scheduled task.",
+        "stopSuccess": "Queued task stopped.",
+        "stopFailed": "Failed to stop this task.",
+        "invalidInterval": "Enter a valid interval in seconds.",
+        "invalidRunAt": "Enter a valid run time.",
+        "invalidCron": "Cron config must be valid JSON."
+      }
     },
     "chatCard": {
       "eyebrow": "Background task",
