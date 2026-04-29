@@ -293,7 +293,7 @@ async def test_generate_temporal_candidate_falls_back_on_language_mismatch(monke
     )
 
     assert result.used_fallback is True
-    assert result.candidate.content.startswith("本时间窗口记录了 2 条可用于记忆的事件")
+    assert result.candidate.content.startswith("这一小时的记忆主要围绕")
     assert "The session began" not in result.candidate.content
 
 
@@ -350,6 +350,83 @@ async def test_call_temporal_model_parses_json_from_llm_target(monkeypatch: pyte
     assert payload == {"content": "LLM day summary", "key_topics": ["job_search"]}
 
 
+def test_temporal_period_profiles_use_requested_defaults() -> None:
+    service = TemporalSummaryLLMService()
+
+    hour_pack = TemporalEvidencePack(
+        summary_category="hour",
+        period_start=100.0,
+        period_end=200.0,
+        source_event_count=2,
+        source_event_ids=["evt-1", "evt-2"],
+    )
+    day_pack = TemporalEvidencePack(
+        summary_category="day",
+        period_start=100.0,
+        period_end=200.0,
+        source_event_count=2,
+        source_event_ids=["evt-1", "evt-2"],
+    )
+    week_pack = TemporalEvidencePack(
+        summary_category="week",
+        period_start=100.0,
+        period_end=200.0,
+        source_event_count=2,
+        source_event_ids=["evt-1", "evt-2"],
+    )
+
+    assert service._timeout_seconds_for_pack(hour_pack) == 180.0
+    assert service._timeout_seconds_for_pack(day_pack) == 300.0
+    assert service._timeout_seconds_for_pack(week_pack) == 600.0
+    assert service._disable_thinking_for_pack(hour_pack) is True
+    assert service._disable_thinking_for_pack(day_pack) is False
+    assert service._disable_thinking_for_pack(week_pack) is False
+
+
+def test_temporal_timeout_override_still_applies_to_all_periods() -> None:
+    service = TemporalSummaryLLMService(llm_timeout_seconds=1.5)
+    pack = TemporalEvidencePack(
+        summary_category="week",
+        period_start=100.0,
+        period_end=200.0,
+        source_event_count=2,
+        source_event_ids=["evt-1", "evt-2"],
+    )
+
+    assert service._timeout_seconds_for_pack(pack) == 1.5
+
+
+@pytest.mark.asyncio
+async def test_call_temporal_model_uses_week_timeout_and_thinking(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = TemporalSummaryLLMService()
+    pack = TemporalEvidencePack(
+        summary_category="week",
+        period_start=100.0,
+        period_end=200.0,
+        source_event_count=2,
+        source_event_ids=["evt-1", "evt-2"],
+        events=[
+            TemporalEvidenceItem(event_id="evt-1", event_type="TimelineEvent", content="Visited yoasobi-heaven.com"),
+            TemporalEvidenceItem(event_id="evt-2", event_type="TimelineEvent", content="Played music"),
+        ],
+    )
+    seen: dict[str, object] = {}
+
+    class _FakeBridge:
+        async def chat_response(self, **kwargs: object) -> SimpleNamespace:
+            seen.update(kwargs)
+            return SimpleNamespace(content='{"content":"LLM week summary"}')
+
+    fake_adapter = SimpleNamespace(provider_name="fake", model_name="fake-model")
+    monkeypatch.setattr(service, "_get_llm_target", lambda: (fake_adapter, _FakeBridge()))
+
+    payload = await service._call_temporal_model(pack)
+
+    assert payload == {"content": "LLM week summary"}
+    assert seen["timeout_seconds"] == 600.0
+    assert seen["disable_thinking"] is False
+
+
 def test_render_temporal_summary_prompt_includes_rule_hints() -> None:
     service = TemporalSummaryLLMService()
     pack = TemporalEvidencePack(
@@ -385,6 +462,81 @@ def test_render_temporal_summary_prompt_includes_rule_hints() -> None:
     assert '"recurring_constraints"' in prompt
     assert '"content"' in prompt
     assert '"change_and_pattern"' in prompt
+
+
+def test_render_temporal_summary_prompt_includes_period_focus() -> None:
+    service = TemporalSummaryLLMService()
+    hour_pack = TemporalEvidencePack(
+        summary_category="hour",
+        period_start=100.0,
+        period_end=200.0,
+        source_event_count=1,
+        source_event_ids=["evt-1"],
+        events=[TemporalEvidenceItem(event_id="evt-1", event_type="TimelineEvent", content="Visited Gmail")],
+    )
+    day_pack = TemporalEvidencePack(
+        summary_category="day",
+        period_start=100.0,
+        period_end=200.0,
+        source_event_count=1,
+        source_event_ids=["evt-1"],
+        events=[TemporalEvidenceItem(event_id="evt-1", event_type="UserMessage", content="I need remote work")],
+    )
+    week_pack = TemporalEvidencePack(
+        summary_category="week",
+        period_start=100.0,
+        period_end=200.0,
+        source_event_count=1,
+        source_event_ids=["evt-1"],
+        events=[TemporalEvidenceItem(event_id="evt-1", event_type="TimelineEvent", content="Played music")],
+    )
+
+    assert "Hour focus" in service._render_temporal_summary_prompt(hour_pack)
+    assert "Day focus" in service._render_temporal_summary_prompt(day_pack)
+    assert "Week focus" in service._render_temporal_summary_prompt(week_pack)
+    assert "Do not lead with raw event counts" in service._render_temporal_summary_prompt(week_pack)
+
+
+def test_zh_week_fallback_is_theme_first_and_hides_debug_stats(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = TemporalSummaryLLMService()
+    pack = TemporalEvidencePack(
+        summary_category="week",
+        period_start=100.0,
+        period_end=200.0,
+        source_event_count=115,
+        source_event_ids=["evt-1", "evt-2"],
+        events=[
+            TemporalEvidenceItem(event_id="evt-1", event_type="SENSOR_EVENT", content="visited yoasobi-heaven.com"),
+            TemporalEvidenceItem(event_id="evt-2", event_type="SENSOR_EVENT", content="played music"),
+        ],
+        event_type_distribution={"SENSOR_EVENT": 115},
+        source_distribution={"chrome_history": 90, "netease_music": 25},
+        plugin_summary_features={
+            "chrome_history": {
+                "focus_domain": "yoasobi-heaven.com",
+                "visit_count": 458,
+                "top_domains": [
+                    {"domain": "yoasobi-heaven.com", "count": 120},
+                    {"domain": "bilibili.com", "count": 60},
+                    {"domain": "xiaohongshu.com", "count": 40},
+                ],
+            }
+        },
+    )
+    monkeypatch.setattr(
+        "magi.memory.l3.temporal_llm_service.get_user_preference",
+        lambda key, default=None: "zh" if key == "language" else default,
+    )
+
+    content = service._build_fallback_result(pack, "raw fallback").candidate.content
+
+    assert content.startswith("这一周的记忆主要围绕浏览记录和网易云音乐展开")
+    assert "浏览活动主要集中在 yoasobi-heaven.com" in content
+    assert "高频访问还包括 bilibili.com、xiaohongshu.com" in content
+    assert "SENSOR_EVENT" not in content
+    assert "事件类型" not in content
+    assert "本时间窗口记录" not in content
+    assert "共压缩" not in content
 
 
 def test_render_temporal_summary_prompt_uses_current_language() -> None:
