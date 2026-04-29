@@ -29,6 +29,7 @@ from .memory_eval_answering import (
     is_temporal_reasoning_question as _is_temporal_reasoning_question,
     synthesize_eval_answer,
 )
+from .memory_clear import build_clear_memory_response as _build_clear_memory_response
 from .memory_l0_sessions import (
     build_l0_session_list_items,
     empty_l0_sessions_response,
@@ -53,7 +54,6 @@ from .memory_l2_status import (
 )
 from .memory_procedures import build_procedure_list_response as _build_procedure_list_response
 from .memory_route_helpers import (
-    build_clear_result as _build_clear_result,
     canonical_self_id as _canonical_self_id,
     serialize_memory_event as _serialize_memory_event,
 )
@@ -716,17 +716,14 @@ async def clear_memory_layers():
         l0_count, l1_count, l2_count, l3_count, l4_count, chat_context_count,
     )
 
-    return {
-        "success": True,
-        "results": {
-            "l0": _build_clear_result(l0_count),
-            "l1": _build_clear_result(l1_count),
-            "l2": _build_clear_result(l2_count),
-            "l3": _build_clear_result(l3_count),
-            "l4": _build_clear_result(l4_count),
-            "chat_context": _build_clear_result(chat_context_count),
-        },
-    }
+    return _build_clear_memory_response(
+        l0_count=l0_count,
+        l1_count=l1_count,
+        l2_count=l2_count,
+        l3_count=l3_count,
+        l4_count=l4_count,
+        chat_context_count=chat_context_count,
+    )
 
 
 @memory_router.get("/l1/events")

@@ -195,6 +195,7 @@ Recent progress:
 - L0 working-memory checkpoint schema helpers now live in `working_memory_schema.py`.
 - L0 working-memory checkpoint serialization helpers now live in `working_memory_serialization.py`.
 - L0 memory session display helpers now live in `memory_session_display.py`.
+- Memory API clear response helpers now live in `memory_clear.py`.
 - Memory API statistics helpers now live in `memory_statistics.py`.
 - Memory API L0 session list helpers now live in `memory_l0_sessions.py`.
 - Memory API L1 event list helpers now live in `memory_l1_events.py`.

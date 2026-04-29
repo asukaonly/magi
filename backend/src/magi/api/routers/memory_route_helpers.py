@@ -16,13 +16,6 @@ def canonical_self_id(unified_memory: Any) -> str:
     return str(getattr(resolver, "default_memory_owner_id", "user:self"))
 
 
-def build_clear_result(count: int) -> Dict[str, Any]:
-    return {
-        "cleared": True,
-        "count": int(count),
-    }
-
-
 def build_l2_pending_breakdown(
     pipeline_stats: Dict[str, Any],
     projection_backlog: Dict[str, Any] | None = None,
