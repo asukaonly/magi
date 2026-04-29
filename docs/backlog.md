@@ -231,6 +231,7 @@ Recent progress:
 - Worker launch/start/batch lifecycle helpers now live in `worker_launch.py`.
 - Worker fact, bus-event, and trace-notification publication helpers now live in `worker_publication.py`.
 - Chat execution guidance, UX-plan, and workspace helpers now live in `handler_helpers.py`.
+- Chat trace runtime tree reshape helpers now live in `chat_trace_tree.py`.
 - L1 event/entity linkage helpers now live in `event_store_entities.py`.
 - L1 event-store schema migration helpers now live in `event_store_schema.py`.
 - L1 event-store row serialization and timeline projection helpers now live in `event_store_rows.py`.
