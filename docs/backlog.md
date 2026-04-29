@@ -191,6 +191,7 @@ Recent progress:
 - Chat read-side serialization helpers now live in `chat/read_serialization.py`.
 - Chat read-store schema helpers now live in `chat/read_schema.py`.
 - Chat write-store serialization helpers now live in `chat/store_serialization.py`.
+- Chat write-store schema helpers now live in `chat/store_schema.py`.
 - L0 memory session display helpers now live in `memory_session_display.py`.
 - Memory eval answer synthesis helpers now live in `memory_eval_answering.py`.
 - Memory route utility helpers now live in `memory_route_helpers.py`.
