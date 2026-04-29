@@ -133,6 +133,16 @@
       "refresh": "刷新时间线",
       "openContext": "打开上下文"
     },
+    "feedback": {
+      "confirm": "确认这条解释",
+      "reject": "驳回这条解释",
+      "confirmed": "已确认这条解释。",
+      "rejected": "已驳回这条解释。",
+      "status": {
+        "confirmed": "你已确认",
+        "rejected": "你已驳回"
+      }
+    },
     "filters": {
       "query": "搜索时段、情绪或活动"
     },
@@ -255,7 +265,8 @@
     },
     "errors": {
       "loadFailed": "时间线加载失败：{{message}}",
-      "detailFailed": "时间线上下文加载失败：{{message}}"
+      "detailFailed": "时间线上下文加载失败：{{message}}",
+      "feedbackFailed": "时间线反馈保存失败：{{message}}"
     }
   },
   "dashboard": {

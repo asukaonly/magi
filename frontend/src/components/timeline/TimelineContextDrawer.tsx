@@ -1,5 +1,5 @@
 import React from 'react';
-import { X } from 'lucide-react';
+import { Check, X, XCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import type { TimelineContextBundle } from '@/api/modules/timeline';
@@ -9,6 +9,8 @@ interface TimelineContextDrawerProps {
   selectedAnchorId: string | null;
   loading: boolean;
   contextBundle: TimelineContextBundle | null;
+  feedbackPendingId?: string | null;
+  onAssertionFeedback?: (assertionId: string, feedback: 'confirmed' | 'rejected') => void;
   onClose?: () => void;
 }
 
@@ -54,6 +56,8 @@ export const TimelineContextDrawer: React.FC<TimelineContextDrawerProps> = ({
   selectedAnchorId,
   loading,
   contextBundle,
+  feedbackPendingId,
+  onAssertionFeedback,
   onClose,
 }) => {
   const { t } = useTranslation('app');
@@ -146,10 +150,57 @@ export const TimelineContextDrawer: React.FC<TimelineContextDrawerProps> = ({
                     const record = item as Record<string, unknown>;
                     const label = stringValue(record, ['trait_name', 'predicate', 'relation_type'], t('timeline.drawer.evidenceItem'));
                     const value = stringValue(record, ['trait_value', 'object_id', 'object_label', 'summary']);
+                    const assertionId = stringValue(record, ['assertion_id']);
+                    const feedback = stringValue(record, ['user_feedback']);
+                    const pending = assertionId ? feedbackPendingId === assertionId : false;
                     return (
-                      <div key={`${record.assertion_id || record.triple_id || i}`} className="text-sm text-muted-foreground">
-                        <span className="font-medium text-foreground">{label.replace(/[_-]+/g, ' ')}</span>
-                        {value ? <span className="ml-1.5">{value}</span> : null}
+                      <div
+                        key={`${record.assertion_id || record.triple_id || i}`}
+                        className="rounded-md border border-border/35 px-3 py-2.5 text-sm text-muted-foreground"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <span className="font-medium text-foreground">{label.replace(/[_-]+/g, ' ')}</span>
+                            {value ? <span className="ml-1.5">{value}</span> : null}
+                            {feedback ? (
+                              <div className="mt-1 text-xs text-muted-foreground/70">
+                                {t(`timeline.feedback.status.${feedback}`, feedback)}
+                              </div>
+                            ) : null}
+                          </div>
+                          {assertionId && onAssertionFeedback ? (
+                            <div className="flex shrink-0 items-center gap-1">
+                              <button
+                                type="button"
+                                aria-label={t('timeline.feedback.confirm')}
+                                title={t('timeline.feedback.confirm')}
+                                disabled={pending}
+                                onClick={() => onAssertionFeedback(assertionId, 'confirmed')}
+                                className={`inline-flex h-7 w-7 items-center justify-center rounded-md border transition-colors disabled:opacity-50 ${
+                                  feedback === 'confirmed'
+                                    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-600'
+                                    : 'border-border/50 text-muted-foreground hover:text-foreground'
+                                }`}
+                              >
+                                <Check className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                aria-label={t('timeline.feedback.reject')}
+                                title={t('timeline.feedback.reject')}
+                                disabled={pending}
+                                onClick={() => onAssertionFeedback(assertionId, 'rejected')}
+                                className={`inline-flex h-7 w-7 items-center justify-center rounded-md border transition-colors disabled:opacity-50 ${
+                                  feedback === 'rejected'
+                                    ? 'border-destructive/40 bg-destructive/10 text-destructive'
+                                    : 'border-border/50 text-muted-foreground hover:text-foreground'
+                                }`}
+                              >
+                                <XCircle className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
                       </div>
                     );
                   })}

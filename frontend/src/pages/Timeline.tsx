@@ -7,6 +7,7 @@ import {
   type TimelineContextBundle,
   type TimelineViewportResponse,
 } from '@/api/modules/timeline';
+import { memoryApi, type L2Assertion } from '@/api/modules/memory';
 import TimelineContextDrawer from '@/components/timeline/TimelineContextDrawer';
 import TimelineToolbar from '@/components/timeline/TimelineToolbar';
 import TimelineViewport from '@/components/timeline/TimelineViewport';
@@ -44,6 +45,7 @@ export const TimelinePage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingContext, setLoadingContext] = useState(false);
+  const [feedbackPendingId, setFeedbackPendingId] = useState<string | null>(null);
 
   const viewportEnd = viewportStart + windowSecondsByScale[scale];
 
@@ -91,6 +93,20 @@ export const TimelinePage: React.FC = () => {
       toast.error(t('timeline.errors.detailFailed', { message: error?.message || 'unknown' }));
     } finally {
       setLoadingContext(false);
+    }
+  };
+
+  const handleAssertionFeedback = async (assertionId: string, feedback: 'confirmed' | 'rejected') => {
+    setFeedbackPendingId(assertionId);
+    try {
+      const updated = await memoryApi.submitAssertionFeedback(assertionId, feedback);
+      setContextBundle((current) => mergeAssertionFeedback(current, updated));
+      toast.success(t(feedback === 'confirmed' ? 'timeline.feedback.confirmed' : 'timeline.feedback.rejected'));
+      await loadViewport('refresh');
+    } catch (error: any) {
+      toast.error(t('timeline.errors.feedbackFailed', { message: error?.message || 'unknown' }));
+    } finally {
+      setFeedbackPendingId(null);
     }
   };
 
@@ -145,11 +161,30 @@ export const TimelinePage: React.FC = () => {
           selectedAnchorId={selectedAnchorId}
           loading={loadingContext}
           contextBundle={contextBundle}
+          feedbackPendingId={feedbackPendingId}
+          onAssertionFeedback={(assertionId, feedback) => void handleAssertionFeedback(assertionId, feedback)}
           onClose={() => setSelectedAnchorId(null)}
         />
       </div>
     </div>
   );
+};
+
+const mergeAssertionFeedback = (
+  bundle: TimelineContextBundle | null,
+  updated: L2Assertion
+): TimelineContextBundle | null => {
+  if (!bundle) return bundle;
+  return {
+    ...bundle,
+    l2_state_evidence: bundle.l2_state_evidence.map((item) => {
+      const record = item as Record<string, unknown>;
+      if (record.assertion_id !== updated.assertion_id) {
+        return item;
+      }
+      return { ...record, ...updated };
+    }),
+  };
 };
 
 export default TimelinePage;

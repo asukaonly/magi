@@ -133,6 +133,16 @@
       "refresh": "Refresh timeline",
       "openContext": "Open context"
     },
+    "feedback": {
+      "confirm": "Confirm interpretation",
+      "reject": "Reject interpretation",
+      "confirmed": "Interpretation confirmed.",
+      "rejected": "Interpretation rejected.",
+      "status": {
+        "confirmed": "Confirmed by you",
+        "rejected": "Rejected by you"
+      }
+    },
     "filters": {
       "query": "Search moments, moods, or activities"
     },
@@ -255,7 +265,8 @@
     },
     "errors": {
       "loadFailed": "Failed to load timeline: {{message}}",
-      "detailFailed": "Failed to load timeline context: {{message}}"
+      "detailFailed": "Failed to load timeline context: {{message}}",
+      "feedbackFailed": "Failed to save timeline feedback: {{message}}"
     }
   },
   "dashboard": {

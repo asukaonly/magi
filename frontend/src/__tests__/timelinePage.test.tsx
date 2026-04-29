@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TimelinePage } from '@/pages/Timeline';
 import { timelineApi } from '@/api/modules/timeline';
+import { memoryApi } from '@/api/modules/memory';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -23,6 +24,19 @@ vi.mock('@/api/modules/timeline', () => ({
   timelineApi: {
     getViewport: vi.fn(),
     getContext: vi.fn(),
+  },
+}));
+
+vi.mock('@/api/modules/memory', () => ({
+  memoryApi: {
+    submitAssertionFeedback: vi.fn(),
+  },
+}));
+
+vi.mock('sonner', () => ({
+  toast: {
+    error: vi.fn(),
+    success: vi.fn(),
   },
 }));
 
@@ -330,7 +344,7 @@ const CONTEXT_BUNDLE = {
     summary: 'A long focused stretch across coding and note-taking.',
   },
   l1_events: [{ event_id: 'evt-1', title: 'Opened design note', summary: 'Reviewing implementation notes.', source_type: 'manual_journal' }],
-  l2_state_evidence: [{ assertion_id: 'assertion-1', trait_name: 'mood', trait_value: 'focused' }],
+  l2_state_evidence: [{ assertion_id: 'assertion-1', trait_name: 'mood', trait_value: 'focused', user_feedback: null }],
   l3_reflections: [{ summary_id: 'summary-1', content: 'Focus remained high despite rising stress.' }],
   l4_related_procedures: [{ skill_id: 'skill-1', skill_name: 'Deep work loop' }],
   chat_excerpts: [{ event_id: 'evt-2', content: "Let's restructure the timeline around semantic zoom." }],
@@ -353,6 +367,23 @@ describe('timeline page', () => {
       return MONTH_VIEWPORT as any;
     });
     vi.mocked(timelineApi.getContext).mockResolvedValue(CONTEXT_BUNDLE as any);
+    vi.mocked(memoryApi.submitAssertionFeedback).mockResolvedValue({
+      assertion_id: 'assertion-1',
+      entity_id: 'user:u1',
+      entity_type: 'user',
+      trait_name: 'mood',
+      trait_value: 'focused',
+      confidence_score: 0.95,
+      evidence_events: ['evt-1'],
+      validation_state: 'stable',
+      volatility_index: 0.1,
+      source_domain: 'timeline',
+      inference_depth: 'derived',
+      first_inferred_at: 1710000000,
+      last_validated_at: 1710000000,
+      user_feedback: 'confirmed',
+      user_feedback_at: 1710001000,
+    });
   });
 
   it('loads the month viewport first and renders reflection windows', async () => {
@@ -459,6 +490,18 @@ describe('timeline page', () => {
     expect(screen.getByText('timeline.drawer.relatedChat')).toBeInTheDocument();
     expect(await screen.findByText('Focus remained high despite rising stress.')).toBeInTheDocument();
     expect(screen.getByText('Deep work loop')).toBeInTheDocument();
+  });
+
+  it('submits assertion feedback from derived timeline evidence', async () => {
+    const user = userEvent.setup();
+    render(<TimelinePage />);
+
+    await user.click(await screen.findByRole('button', { name: 'timeline.scale.day' }));
+    await user.click(await screen.findByRole('button', { name: /Deep Work/ }));
+    await user.click(await screen.findByRole('button', { name: 'timeline.feedback.confirm' }));
+
+    await waitFor(() => expect(memoryApi.submitAssertionFeedback).toHaveBeenCalledWith('assertion-1', 'confirmed'));
+    expect(await screen.findByText('timeline.feedback.status.confirmed')).toBeInTheDocument();
   });
 
   it('renders an empty state when the viewport has no reviewable content', async () => {
