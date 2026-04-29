@@ -1,0 +1,339 @@
+"""Trace turn, span, and detail row persistence."""
+
+from __future__ import annotations
+
+from typing import Any, TypeVar
+
+import aiosqlite
+
+from ..core.sqlite import sqlite_connection_async
+from .contracts import (
+    TraceIntentResolutionRecord,
+    TraceLlmCallRecord,
+    TraceSpanRecord,
+    TraceToolRecord,
+    TraceTurnRecord,
+)
+
+T = TypeVar("T")
+
+
+class TraceRecordPersistenceMixin:
+    """Persist trace turns, spans, and span detail rows."""
+
+    db_path: str
+
+    async def _upsert_detail(self, sql: str, params: tuple[Any, ...]) -> None:
+        raise NotImplementedError
+
+    async def _fetchone(self, sql: str, params: tuple[Any, ...]) -> aiosqlite.Row | None:
+        raise NotImplementedError
+
+    def _row_to_record(self, record_type: type[T], row: aiosqlite.Row | None) -> T | None:
+        raise NotImplementedError
+
+    @staticmethod
+    def _now_ms() -> int:
+        raise NotImplementedError
+
+    async def upsert_turn(self, record: TraceTurnRecord) -> None:
+        now_ms = max(0, int(record.updated_at_ms or self._now_ms()))
+        created_at_ms = max(0, int(record.created_at_ms or now_ms))
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
+            await db.execute(
+                """
+                INSERT INTO trace_turns (
+                    trace_id,
+                    turn_id,
+                    session_id,
+                    user_id,
+                    status,
+                    mode,
+                    orchestration_id,
+                    started_at_ms,
+                    ended_at_ms,
+                    duration_ms,
+                    user_message_preview,
+                    response_preview,
+                    error_summary,
+                    continued_from_turn_id,
+                    continued_from_trace_id,
+                    superseded_by_turn_id,
+                    supersession_reason,
+                    created_at_ms,
+                    updated_at_ms
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(trace_id) DO UPDATE SET
+                    status = excluded.status,
+                    mode = excluded.mode,
+                    orchestration_id = COALESCE(excluded.orchestration_id, trace_turns.orchestration_id),
+                    started_at_ms = MIN(trace_turns.started_at_ms, excluded.started_at_ms),
+                    ended_at_ms = COALESCE(excluded.ended_at_ms, trace_turns.ended_at_ms),
+                    duration_ms = COALESCE(excluded.duration_ms, trace_turns.duration_ms),
+                    user_message_preview = COALESCE(excluded.user_message_preview, trace_turns.user_message_preview),
+                    response_preview = COALESCE(excluded.response_preview, trace_turns.response_preview),
+                    error_summary = COALESCE(excluded.error_summary, trace_turns.error_summary),
+                    continued_from_turn_id = COALESCE(excluded.continued_from_turn_id, trace_turns.continued_from_turn_id),
+                    continued_from_trace_id = COALESCE(excluded.continued_from_trace_id, trace_turns.continued_from_trace_id),
+                    superseded_by_turn_id = COALESCE(excluded.superseded_by_turn_id, trace_turns.superseded_by_turn_id),
+                    supersession_reason = COALESCE(excluded.supersession_reason, trace_turns.supersession_reason),
+                    updated_at_ms = excluded.updated_at_ms
+                """,
+                (
+                    record.trace_id,
+                    record.turn_id,
+                    record.session_id,
+                    record.user_id,
+                    record.status,
+                    record.mode,
+                    record.orchestration_id,
+                    record.started_at_ms,
+                    record.ended_at_ms,
+                    record.duration_ms,
+                    record.user_message_preview,
+                    record.response_preview,
+                    record.error_summary,
+                    record.continued_from_turn_id,
+                    record.continued_from_trace_id,
+                    record.superseded_by_turn_id,
+                    record.supersession_reason,
+                    created_at_ms,
+                    now_ms,
+                ),
+            )
+            await db.commit()
+
+    async def upsert_span(self, record: TraceSpanRecord) -> None:
+        now_ms = max(0, int(record.updated_at_ms or self._now_ms()))
+        created_at_ms = max(0, int(record.created_at_ms or now_ms))
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
+            await db.execute(
+                """
+                INSERT INTO trace_spans (
+                    span_id,
+                    trace_id,
+                    turn_id,
+                    parent_span_id,
+                    node_type,
+                    name,
+                    status,
+                    attempt_index,
+                    retry_count,
+                    iteration,
+                    execution_agent_id,
+                    result_preview,
+                    error_text,
+                    started_at_ms,
+                    ended_at_ms,
+                    duration_ms,
+                    created_at_ms,
+                    updated_at_ms
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(span_id) DO UPDATE SET
+                    parent_span_id = COALESCE(excluded.parent_span_id, trace_spans.parent_span_id),
+                    status = excluded.status,
+                    attempt_index = excluded.attempt_index,
+                    retry_count = excluded.retry_count,
+                    iteration = COALESCE(excluded.iteration, trace_spans.iteration),
+                    execution_agent_id = COALESCE(excluded.execution_agent_id, trace_spans.execution_agent_id),
+                    result_preview = COALESCE(excluded.result_preview, trace_spans.result_preview),
+                    error_text = COALESCE(excluded.error_text, trace_spans.error_text),
+                    started_at_ms = MIN(trace_spans.started_at_ms, excluded.started_at_ms),
+                    ended_at_ms = COALESCE(excluded.ended_at_ms, trace_spans.ended_at_ms),
+                    duration_ms = COALESCE(excluded.duration_ms, trace_spans.duration_ms),
+                    updated_at_ms = excluded.updated_at_ms
+                """,
+                (
+                    record.span_id,
+                    record.trace_id,
+                    record.turn_id,
+                    record.parent_span_id,
+                    record.node_type,
+                    record.name,
+                    record.status,
+                    record.attempt_index,
+                    record.retry_count,
+                    record.iteration,
+                    record.execution_agent_id,
+                    record.result_preview,
+                    record.error_text,
+                    record.started_at_ms,
+                    record.ended_at_ms,
+                    record.duration_ms,
+                    created_at_ms,
+                    now_ms,
+                ),
+            )
+            await db.commit()
+
+    async def upsert_intent_resolution(self, record: TraceIntentResolutionRecord) -> None:
+        await self._upsert_detail(
+            """
+            INSERT INTO trace_intent_resolutions (
+                span_id,
+                trace_id,
+                turn_id,
+                intent,
+                execution_mode,
+                route_reason,
+                selected_tools_json,
+                selected_worker_type
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(span_id) DO UPDATE SET
+                intent = excluded.intent,
+                execution_mode = excluded.execution_mode,
+                route_reason = excluded.route_reason,
+                selected_tools_json = excluded.selected_tools_json,
+                selected_worker_type = excluded.selected_worker_type
+            """,
+            (
+                record.span_id,
+                record.trace_id,
+                record.turn_id,
+                record.intent,
+                record.execution_mode,
+                record.route_reason,
+                record.selected_tools_json,
+                record.selected_worker_type,
+            ),
+        )
+
+    async def upsert_llm_call(self, record: TraceLlmCallRecord) -> None:
+        await self._upsert_detail(
+            """
+            INSERT INTO trace_llm_calls (
+                span_id,
+                trace_id,
+                turn_id,
+                provider,
+                model,
+                input_tokens,
+                output_tokens,
+                reasoning_tokens,
+                cache_read_tokens,
+                cache_write_tokens,
+                thinking_enabled,
+                request_preview,
+                response_preview,
+                thinking_content
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(span_id) DO UPDATE SET
+                provider = excluded.provider,
+                model = excluded.model,
+                input_tokens = excluded.input_tokens,
+                output_tokens = excluded.output_tokens,
+                reasoning_tokens = excluded.reasoning_tokens,
+                cache_read_tokens = excluded.cache_read_tokens,
+                cache_write_tokens = excluded.cache_write_tokens,
+                thinking_enabled = excluded.thinking_enabled,
+                request_preview = excluded.request_preview,
+                response_preview = excluded.response_preview,
+                thinking_content = excluded.thinking_content
+            """,
+            (
+                record.span_id,
+                record.trace_id,
+                record.turn_id,
+                record.provider,
+                record.model,
+                record.input_tokens,
+                record.output_tokens,
+                record.reasoning_tokens,
+                record.cache_read_tokens,
+                record.cache_write_tokens,
+                int(record.thinking_enabled),
+                record.request_preview,
+                record.response_preview,
+                record.thinking_content,
+            ),
+        )
+
+    async def upsert_tool_call(self, record: TraceToolRecord) -> None:
+        await self._upsert_detail(
+            """
+            INSERT INTO trace_tools (
+                span_id,
+                trace_id,
+                turn_id,
+                tool_name,
+                tool_call_id,
+                arguments_json,
+                success,
+                execution_time_ms,
+                error_code,
+                error_message,
+                result_preview,
+                result_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(span_id) DO UPDATE SET
+                tool_name = excluded.tool_name,
+                tool_call_id = excluded.tool_call_id,
+                arguments_json = excluded.arguments_json,
+                success = excluded.success,
+                execution_time_ms = excluded.execution_time_ms,
+                error_code = excluded.error_code,
+                error_message = excluded.error_message,
+                result_preview = excluded.result_preview,
+                result_json = excluded.result_json
+            """,
+            (
+                record.span_id,
+                record.trace_id,
+                record.turn_id,
+                record.tool_name,
+                record.tool_call_id,
+                record.arguments_json,
+                int(record.success),
+                record.execution_time_ms,
+                record.error_code,
+                record.error_message,
+                record.result_preview,
+                record.result_json,
+            ),
+        )
+
+    async def get_turn(self, turn_id: str) -> TraceTurnRecord | None:
+        row = await self._fetchone(
+            "SELECT * FROM trace_turns WHERE turn_id = ?",
+            (turn_id,),
+        )
+        return self._row_to_record(TraceTurnRecord, row)
+
+    async def get_span(self, span_id: str) -> TraceSpanRecord | None:
+        row = await self._fetchone(
+            "SELECT * FROM trace_spans WHERE span_id = ?",
+            (span_id,),
+        )
+        return self._row_to_record(TraceSpanRecord, row)
+
+    async def get_intent_resolution(self, span_id: str) -> TraceIntentResolutionRecord | None:
+        row = await self._fetchone(
+            "SELECT * FROM trace_intent_resolutions WHERE span_id = ?",
+            (span_id,),
+        )
+        return self._row_to_record(TraceIntentResolutionRecord, row)
+
+    async def get_llm_call(self, span_id: str) -> TraceLlmCallRecord | None:
+        row = await self._fetchone(
+            "SELECT * FROM trace_llm_calls WHERE span_id = ?",
+            (span_id,),
+        )
+        record = self._row_to_record(TraceLlmCallRecord, row)
+        if record is not None:
+            record.thinking_enabled = bool(record.thinking_enabled)
+        return record
+
+    async def get_tool_call(self, span_id: str) -> TraceToolRecord | None:
+        row = await self._fetchone(
+            "SELECT * FROM trace_tools WHERE span_id = ?",
+            (span_id,),
+        )
+        record = self._row_to_record(TraceToolRecord, row)
+        if record is not None:
+            record.success = bool(record.success)
+        return record
