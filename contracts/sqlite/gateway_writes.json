@@ -45,19 +45,19 @@
       "purpose": "Reset scheduler target state after product-facing schedule edits."
     },
     {
-      "file": "crates/magi-gateway/src/api/tasks.rs",
+      "file": "crates/magi-gateway/src/api/tasks/write.rs",
       "operation": "insert",
       "table": "tasks",
       "purpose": "Create product task rows through native task routes."
     },
     {
-      "file": "crates/magi-gateway/src/api/tasks.rs",
+      "file": "crates/magi-gateway/src/api/tasks/write.rs",
       "operation": "update",
       "table": "tasks",
       "purpose": "Update product task CRUD fields through native task routes."
     },
     {
-      "file": "crates/magi-gateway/src/api/tasks.rs",
+      "file": "crates/magi-gateway/src/api/tasks/write.rs",
       "operation": "delete",
       "table": "tasks",
       "purpose": "Delete product task rows through native task routes."
