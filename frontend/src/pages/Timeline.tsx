@@ -34,6 +34,7 @@ const formatWindowLabel = (start: number, end: number): string => {
 
 export const TimelinePage: React.FC = () => {
   const { t, i18n } = useTranslation('app');
+  const timelineLocale = i18n.resolvedLanguage || i18n.language || 'en';
   const setActivePanel = useChatShellStore((state) => state.setActivePanel);
   const [scale, setScale] = useState<TimelineScale>('month');
   const [viewportStart, setViewportStart] = useState<number>(() => Math.floor(Date.now() / 1000) - windowSecondsByScale.month);
@@ -63,7 +64,7 @@ export const TimelinePage: React.FC = () => {
         start: viewportStart,
         end: viewportEnd,
         query: query || undefined,
-        locale: i18n.language,
+        locale: timelineLocale,
         focus: 'self',
       });
       setViewport(response);
@@ -84,7 +85,7 @@ export const TimelinePage: React.FC = () => {
 
   useEffect(() => {
     void loadViewport('initial');
-  }, [scale, viewportStart, query]);
+  }, [scale, viewportStart, query, timelineLocale]);
 
   const handleOpenContext = async (anchorId: string) => {
     setSelectedAnchorId(anchorId);

@@ -102,6 +102,7 @@ class TimelineViewportBuilder:
             else []
         )
         if clusters:
+            self._localize_cluster_labels(clusters, locale=locale)
             self._enrich_cluster_states(clusters, summaries, start=interpreted_query.start, end=interpreted_query.end)
         raw_events = [self._to_raw_event(event) for event in events] if scale == "hour" else []
         source_mix = self._build_source_mix(events=events, clusters=clusters, locale=locale)
@@ -376,6 +377,30 @@ class TimelineViewportBuilder:
         if not labels:
             return "Unknown"
         return self._humanize_label(Counter(labels).most_common(1)[0][0], locale=locale)
+
+    def _localize_cluster_labels(self, clusters: list[dict[str, Any]], *, locale: str) -> None:
+        if not self._is_zh_locale(locale):
+            return
+        for cluster in clusters:
+            label = str(cluster.get("label") or "").strip()
+            if not label:
+                continue
+            source_candidates = [str(cluster.get("dominant_mode") or "")]
+            source_candidates.extend(str(source) for source in cluster.get("source_types") or [])
+            for source in source_candidates:
+                if self._is_generated_source_label(label, source):
+                    cluster["label"] = self._source_label(source, locale)
+                    break
+
+    @staticmethod
+    def _is_generated_source_label(label: str, source_type: str) -> bool:
+        normalized_label = TimelineViewportBuilder._normalize_display_text(label)
+        normalized_source = TimelineViewportBuilder._normalize_display_text(source_type)
+        return bool(normalized_label and normalized_label == normalized_source)
+
+    @staticmethod
+    def _normalize_display_text(value: Any) -> str:
+        return " ".join(str(value or "").replace("_", " ").replace("-", " ").split()).lower()
 
     @staticmethod
     def _stress_label(value: float | None, *, locale: str = "en") -> str:

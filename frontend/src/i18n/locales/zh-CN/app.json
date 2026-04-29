@@ -184,7 +184,9 @@
       "screen_time": "应用使用情况",
       "system_media": "听歌/视频记录",
       "terminal_history": "终端历史",
-      "git_activity": "Git 活动"
+      "git_activity": "Git 活动",
+      "calendar": "日历",
+      "netease_music": "网易云音乐"
     },
     "feed": {
       "showDetails": "查看详情",

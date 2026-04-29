@@ -165,6 +165,40 @@ async def test_timeline_service_localizes_viewport_chrome() -> None:
     assert viewport["source_mix"][0]["label"] == "Chrome 历史"
 
 
+async def test_timeline_service_localizes_source_generated_cluster_labels() -> None:
+    class _SourceOnlyL1Store(_FakeL1Store):
+        async def query_events(self, **kwargs):  # type: ignore[no-untyped-def]
+            self.last_query = kwargs
+            return [
+                {
+                    "event_id": "evt-source-only",
+                    "timestamp": 100.0,
+                    "source": "chrome_history",
+                    "content": "Opened a browser page.",
+                    "metadata": {},
+                }
+            ]
+
+    service = TimelineService(
+        SimpleNamespace(
+            l1=_SourceOnlyL1Store(),
+            l2=_FakeL2Store(),
+            l3=_FakeL3Store(),
+            l4=_FakeL4Store(),
+        )
+    )
+
+    viewport = await service.get_viewport(
+        scale="day",
+        start=90.0,
+        end=120.0,
+        focus="self",
+        locale="zh-CN",
+    )
+
+    assert viewport["clusters"][0]["label"] == "Chrome 历史"
+
+
 async def test_timeline_service_interprets_natural_language_query() -> None:
     l1_store = _FakeL1Store()
     service = TimelineService(

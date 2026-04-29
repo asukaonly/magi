@@ -6,6 +6,8 @@ import { TimelinePage } from '@/pages/Timeline';
 import { timelineApi } from '@/api/modules/timeline';
 import { memoryApi } from '@/api/modules/memory';
 
+let mockedLanguage = 'en';
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, params?: Record<string, any>) => {
@@ -15,7 +17,8 @@ vi.mock('react-i18next', () => ({
       return key;
     },
     i18n: {
-      language: 'en',
+      language: mockedLanguage,
+      resolvedLanguage: mockedLanguage,
     },
   }),
 }));
@@ -361,6 +364,7 @@ const CONTEXT_BUNDLE = {
 
 describe('timeline page', () => {
   beforeEach(() => {
+    mockedLanguage = 'en';
     vi.clearAllMocks();
     vi.mocked(timelineApi.getViewport).mockImplementation(async ({ scale }) => {
       if (scale === 'week') {
@@ -446,6 +450,25 @@ describe('timeline page', () => {
         scale: 'month',
         locale: 'en',
       })
+    );
+  });
+
+  it('reloads the viewport when the app language changes', async () => {
+    const { rerender } = render(<TimelinePage />);
+
+    await waitFor(() =>
+      expect(timelineApi.getViewport).toHaveBeenLastCalledWith(
+        expect.objectContaining({ locale: 'en' }),
+      ),
+    );
+
+    mockedLanguage = 'zh-CN';
+    rerender(<TimelinePage />);
+
+    await waitFor(() =>
+      expect(timelineApi.getViewport).toHaveBeenLastCalledWith(
+        expect.objectContaining({ locale: 'zh-CN' }),
+      ),
     );
   });
 

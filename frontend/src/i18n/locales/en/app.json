@@ -184,7 +184,9 @@
       "screen_time": "App Usage",
       "system_media": "Media Playback",
       "terminal_history": "Terminal History",
-      "git_activity": "Git Activity"
+      "git_activity": "Git Activity",
+      "calendar": "Calendar",
+      "netease_music": "NetEase Cloud Music"
     },
     "feed": {
       "showDetails": "Show details",
