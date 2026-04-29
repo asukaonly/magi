@@ -466,10 +466,13 @@ describe('timeline page', () => {
   });
 
   it('lets users jump to a specific month period', async () => {
+    const user = userEvent.setup();
     render(<TimelinePage />);
 
     await screen.findByText('Backend month overview');
-    fireEvent.change(screen.getByLabelText('timeline.period.label'), { target: { value: '2024-02' } });
+    await user.click(screen.getByRole('button', { name: 'timeline.period.label' }));
+    fireEvent.change(screen.getByLabelText('timeline.period.jump'), { target: { value: '2024-02' } });
+    await user.click(screen.getByRole('button', { name: 'timeline.period.apply' }));
 
     await waitFor(() =>
       expect(timelineApi.getViewport).toHaveBeenLastCalledWith(

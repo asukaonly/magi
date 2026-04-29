@@ -241,7 +241,15 @@
       "queryInWindow": "筛选当前时段"
     },
     "period": {
-      "label": "时间线时段"
+      "label": "时间线时段",
+      "jump": "跳转到时段",
+      "apply": "前往",
+      "placeholder": {
+        "month": "YYYY-MM",
+        "week": "YYYY-Www",
+        "day": "YYYY-MM-DD",
+        "hour": "YYYY-MM-DD HH"
+      }
     },
     "scale": {
       "month": "月",

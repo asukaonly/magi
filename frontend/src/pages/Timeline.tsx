@@ -75,13 +75,6 @@ const isoWeekValue = (date: Date): string => {
   return `${isoYear}-W${padNumber(week)}`;
 };
 
-const periodInputType = (scale: TimelineScale): 'month' | 'week' | 'date' | 'datetime-local' => {
-  if (scale === 'month') return 'month';
-  if (scale === 'week') return 'week';
-  if (scale === 'hour') return 'datetime-local';
-  return 'date';
-};
-
 const periodInputValue = (scale: TimelineScale, start: number): string => {
   const date = new Date(start * 1000);
   const datePart = `${date.getFullYear()}-${padNumber(date.getMonth() + 1)}-${padNumber(date.getDate())}`;
@@ -275,9 +268,9 @@ export const TimelinePage: React.FC = () => {
           <TimelineToolbar
             scale={scale}
             draftQuery={draftQuery}
-            periodInputType={periodInputType(scale)}
             periodInputValue={periodInputValue(scale, viewportStart)}
             periodInputMax={periodInputValue(scale, latestPeriodStart)}
+            periodDisplayLabel={formatWindowLabel(scale, viewportStart, viewportEnd, timelineLocale)}
             canGoNext={canGoNext}
             refreshing={refreshing}
             onDraftQueryChange={setDraftQuery}

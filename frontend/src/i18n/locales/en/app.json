@@ -241,7 +241,15 @@
       "queryInWindow": "Filter this period"
     },
     "period": {
-      "label": "Timeline period"
+      "label": "Timeline period",
+      "jump": "Jump to period",
+      "apply": "Go",
+      "placeholder": {
+        "month": "YYYY-MM",
+        "week": "YYYY-Www",
+        "day": "YYYY-MM-DD",
+        "hour": "YYYY-MM-DD HH"
+      }
     },
     "scale": {
       "month": "Month",
