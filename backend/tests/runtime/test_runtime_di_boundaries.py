@@ -72,6 +72,7 @@ def test_events_package_does_not_keep_unused_enhanced_backend_variant() -> None:
 
 def test_api_and_tools_use_runtime_bindings_instead_of_runtime_getters() -> None:
     memory_router = (BACKEND_SRC / "api/routers/memory/__init__.py").read_text(encoding="utf-8")
+    memory_dependencies = (BACKEND_SRC / "api/routers/memory/dependencies.py").read_text(encoding="utf-8")
     timeline_router = (BACKEND_SRC / "api/routers/timeline.py").read_text(encoding="utf-8")
     memory_query_tool = (BACKEND_SRC / "tools/builtin/memory_query_tool.py").read_text(encoding="utf-8")
 
@@ -82,10 +83,11 @@ def test_api_and_tools_use_runtime_bindings_instead_of_runtime_getters() -> None
     assert "from ..routers.memory import get_unified_memory" not in timeline_router
     assert "from ...scheduler import (\n    ScheduledTargetType,\n    get_scheduler_service," not in timeline_router
     assert "from ..agent import get_unified_memory" not in memory_query_tool
-    assert "memory.provider" in memory_router
+    assert "memory.provider" in memory_dependencies
     assert "memory.provider" in timeline_router
     assert "memory.provider" in memory_query_tool
     assert "require_unified_memory" not in memory_router
+    assert "require_unified_memory" not in memory_dependencies
     assert "require_unified_memory" not in timeline_router
     assert "require_hybrid_retrieval_service" not in memory_query_tool
     assert "plugins.provider" in memory_query_tool
