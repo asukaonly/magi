@@ -177,6 +177,7 @@ Recent progress:
 - LLM model selection reranker panel now lives in `LLMRerankerModelPanel.tsx`.
 - LLM model selection advanced/max-concurrency panel now lives in `LLMScenarioAdvancedSettings.tsx`.
 - LLM model selection local embedding panel now lives in `LLMLocalEmbeddingModelPanel.tsx`.
+- LLM model selection remote embedding model/dimension selector now lives in `LLMRemoteEmbeddingModelSelector.tsx`.
 - Worker prompt and tool-profile helpers now live in `worker_prompting.py`.
 - Worker status, await, and run-state serialization helpers now live in `worker_status.py`.
 - Worker tool schema definition now lives in `worker_schema.py`.

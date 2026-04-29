@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 
 import { useManagedEmbeddingModels, useManagedRerankerModels } from './llm-model-download-hooks';
 import { LLMLocalEmbeddingModelPanel } from './LLMLocalEmbeddingModelPanel';
+import { LLMRemoteEmbeddingModelSelector } from './LLMRemoteEmbeddingModelSelector';
 import { LLMRerankerModelPanel } from './LLMRerankerModelPanel';
 import { LLMScenarioAdvancedSettings } from './LLMScenarioAdvancedSettings';
 
@@ -232,15 +233,6 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
   const renderEmbeddingScenarioContent = (scenario: LLMScenario) => {
     const selection = value.selections[scenario];
     if (!selection) return null;
-    const currentEmbeddingModel = allEmbeddingModels.find(
-      (m) => m.providerId === selection.provider_id && m.modelId === selection.model
-    );
-    const activeEmbeddingModel = currentEmbeddingModel || allEmbeddingModels[0];
-    const availableDimensions = activeEmbeddingModel?.dimensions || [];
-    const selectedDimension =
-      availableDimensions.includes(selection.embedding_dimension || -1)
-        ? selection.embedding_dimension
-        : (availableDimensions[0] ?? null);
 
     return (
       <>
@@ -283,75 +275,16 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
             onPickDirectory={handlePickDirectory}
           />
         ) : (
-          <>
-            {allEmbeddingModels.length > 0 ? (
-              <label className="space-y-2">
-                <span className="text-sm font-medium">{t('llm.fields.model')}</span>
-                <SelectField
-                  className="w-full"
-                  triggerClassName={inputClassName}
-                  value={selection.provider_id && selection.model ? `${selection.provider_id}::${selection.model}` : ''}
-                  allowEmpty={false}
-                  placeholder={t('llm.modelSelection.selectEmbeddingModel')}
-                  searchable
-                  searchThreshold={10}
-                  searchPlaceholder={t('llm.modelSelection.searchPlaceholder')}
-                  noResultsText={t('llm.modelSelection.noSearchResults')}
-                  options={allEmbeddingModels.map((m) => ({
-                    label: `${m.modelLabel} (${m.providerName})`,
-                    value: `${m.providerId}::${m.modelId}`,
-                  }))}
-                  onChange={(nextValue) => {
-                    const [providerId, modelId] = nextValue.split('::');
-                    onScenarioProviderChange(scenario, providerId);
-                    onScenarioModelChange(scenario, modelId);
-                    const matched = allEmbeddingModels.find(
-                      (item) => item.providerId === providerId && item.modelId === modelId
-                    );
-                    onScenarioEmbeddingDimensionChange(
-                      scenario,
-                      matched?.dimensions?.[0] ?? null,
-                      'model-sync'
-                    );
-                  }}
-                />
-              </label>
-            ) : (
-              <div
-                className={cn(
-                  'flex items-start gap-2 rounded-lg border border-info/40 bg-info/5 px-3 py-2.5 text-sm text-info-foreground',
-                  isSettingsSurface && 'rounded-none border-x-0 border-b-0 border-t border-[hsl(var(--settings-subnav-border)/0.72)] bg-transparent px-0 pb-0 pt-4 text-muted-foreground'
-                )}
-              >
-                <Info className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>{t('llm.modelSelection.noEmbeddingModels')}</span>
-              </div>
-            )}
-
-            {allEmbeddingModels.length > 0 ? (
-              <label className="space-y-2 mt-3">
-                <span className="text-sm font-medium">{t('llm.fields.embeddingDimension')}</span>
-                <SelectField
-                  className="w-full"
-                  triggerClassName={inputClassName}
-                  value={selectedDimension ? String(selectedDimension) : ''}
-                  allowEmpty={false}
-                  placeholder={t('llm.modelSelection.selectEmbeddingDimension')}
-                  options={availableDimensions.map((dimension) => ({
-                    label: String(dimension),
-                    value: String(dimension),
-                  }))}
-                  onChange={(nextValue) =>
-                    onScenarioEmbeddingDimensionChange(
-                      scenario,
-                      nextValue ? Number(nextValue) : null,
-                      'manual'
-                    )
-                  }
-                />
-              </label>
-            ) : null}
-          </>
+          <LLMRemoteEmbeddingModelSelector
+            scenario={scenario}
+            selection={selection}
+            embeddingModels={allEmbeddingModels}
+            inputClassName={inputClassName}
+            isSettingsSurface={isSettingsSurface}
+            onScenarioProviderChange={onScenarioProviderChange}
+            onScenarioModelChange={onScenarioModelChange}
+            onScenarioEmbeddingDimensionChange={onScenarioEmbeddingDimensionChange}
+          />
         )}
 
         {embeddingConfig?.mode !== 'off' ? renderAdvancedSettings(scenario) : null}
