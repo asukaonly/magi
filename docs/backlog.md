@@ -185,6 +185,7 @@ Recent progress:
 - Chat execution trace DTOs now live in `chat_trace_models.py`.
 - Chat execution trace pure helpers now live in `chat_trace_utils.py`.
 - L0 memory session display helpers now live in `memory_session_display.py`.
+- Memory eval answer synthesis helpers now live in `memory_eval_answering.py`.
 - Memory API Pydantic schemas now live in `memory_schemas.py`.
 - L4 procedural memory schema constants now live in `procedural_memory_schema.py`.
 - L4 procedural memory serialization helpers now live in `procedural_memory_serialization.py`.
