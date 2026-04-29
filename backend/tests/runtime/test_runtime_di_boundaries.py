@@ -177,7 +177,7 @@ def test_shared_skills_runtime_uses_skill_runner_binding_name() -> None:
     assert "skill_runner" in lifecycle_source
     assert "skill_runner" in container_source
     assert "skill_runner" in exports_source
-    assert "require_skill_runner" in runtime_bindings
+    assert "require_skill_runner" not in runtime_bindings
 
 
 def test_plugin_runtime_uses_container_bindings_instead_of_runtime_globals() -> None:
@@ -207,8 +207,10 @@ def test_plugin_runtime_uses_container_bindings_instead_of_runtime_globals() -> 
 def test_runtime_bindings_only_expose_boundary_consumed_services() -> None:
     runtime_bindings = (BACKEND_SRC / "core/runtime_bindings.py").read_text(encoding="utf-8")
 
+    assert "require_message_bus" not in runtime_bindings
     assert "require_user_message_sensor" not in runtime_bindings
     assert "require_skill_loader" not in runtime_bindings
+    assert "require_skill_runner" not in runtime_bindings
 
 
 def test_legacy_backend_app_is_removed() -> None:

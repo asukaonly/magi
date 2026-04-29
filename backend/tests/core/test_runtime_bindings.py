@@ -1,25 +1,14 @@
 from __future__ import annotations
 
-from dependency_injector import providers
 import pytest
 
 from magi.core.container import get_container
 
 
-def test_require_message_bus_binding_returns_bound_object() -> None:
-    from magi.core.runtime_bindings import require_message_bus
-
-    container = get_container()
-    token = object()
-    container.message_bus.override(providers.Object(token))
-    try:
-        assert require_message_bus() is token
-    finally:
-        container.message_bus.reset_override()
-
-
 def test_require_agent_runtime_binding_returns_bound_object() -> None:
     from magi.core.runtime_bindings import require_agent_runtime
+
+    from dependency_injector import providers
 
     container = get_container()
     token = object()
@@ -46,6 +35,8 @@ def test_require_hybrid_retrieval_service_binding_raises_when_unbound() -> None:
 
 def test_require_hybrid_retrieval_service_binding_returns_bound_object() -> None:
     from magi.core.runtime_bindings import require_hybrid_retrieval_service
+
+    from dependency_injector import providers
 
     container = get_container()
     token = object()

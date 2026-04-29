@@ -76,7 +76,7 @@ Open items:
 
 Recent progress:
 
-- Removed unused runtime binding accessors for the user-message sensor and skill loader; those objects remain lifecycle/container-owned without being public boundary helpers.
+- Removed unused runtime binding accessors for message bus, user-message sensor, skill loader, and skill runner; those objects remain lifecycle/container-owned without being public boundary helpers.
 
 ### 5. Keep service and transport boundaries thin
 

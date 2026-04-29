@@ -16,11 +16,6 @@ def _require_binding(provider_name: str):
     return instance
 
 
-def require_message_bus():
-    """Return the active message bus binding."""
-    return _require_binding("message_bus")
-
-
 def require_runtime_command_queue():
     """Return the active runtime command queue binding."""
     return _require_binding("runtime_command_queue")
@@ -84,11 +79,6 @@ def require_sensor_registry():
 def require_skill_indexer():
     """Return the shared skill indexer binding."""
     return _require_binding("skill_indexer")
-
-
-def require_skill_runner():
-    """Return the shared skill runner binding."""
-    return _require_binding("skill_runner")
 
 
 def require_runtime_trace_store():
