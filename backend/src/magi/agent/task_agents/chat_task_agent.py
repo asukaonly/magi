@@ -19,7 +19,7 @@ from ...tools.registry import tool_registry
 from ...runtime_trace import RuntimeTraceStore
 from ...utils.runtime import get_runtime_paths
 from ..execution.function_calling import FunctionCallingOrchestrator
-from ...llm.streaming_events import LLMStreamEvent, stream_scope
+from ...llm.streaming_events import stream_scope
 from .chat.interruption_classifier import InterruptionClassifier
 from .chat import (
     ChatExecutionCoordinator,
@@ -46,12 +46,10 @@ from .chat.handlers import (
 )
 from .chat.reply_context import ChatReplyContextMixin
 from .chat.session_control import ChatSessionControlMixin
+from .chat.streaming import ChatStreamingMixin, format_llm_error as _format_llm_error
 from .common import FactOnlyHandler, OrchestrationLaunchHandler, OrchestrationUpdateHandler
 
 logger = get_logger(__name__)
-
-_RATE_LIMIT_CODES = {"429", "1302", "rate_limit_exceeded"}
-
 
 def _default_chat_read_service_factory() -> ChatReadService:
     from ...chat import get_chat_read_service
@@ -59,21 +57,9 @@ def _default_chat_read_service_factory() -> ChatReadService:
     return get_chat_read_service()
 
 
-def _format_llm_error(exc: Exception) -> str:
-    """Return a concise user-facing error string for an LLM call failure."""
-    exc_str = str(exc)
-    status_code = str(getattr(exc, "status_code", "") or "")
-    if status_code == "429" or any(code in exc_str for code in _RATE_LIMIT_CODES):
-        return "⚠️ The AI service is rate-limited. Please wait a moment and try again."
-    if status_code in ("401", "403"):
-        return "⚠️ Authentication failed. Please check your API key configuration."
-    if status_code in ("500", "502", "503"):
-        return "⚠️ The AI service is temporarily unavailable. Please try again later."
-    return f"⚠️ The AI service returned an error. Please try again. ({exc.__class__.__name__})"
-
-
 class ChatTaskAgent(
     ChatSessionControlMixin,
+    ChatStreamingMixin,
     ChatReplyContextMixin,
     TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection, ExecutionRequest, ExecutionResult],
 ):
@@ -287,41 +273,6 @@ class ChatTaskAgent(
             updated_at_ms=updated_at_ms,
         )
 
-    async def _emit_stream_event(
-        self,
-        *,
-        event: LLMStreamEvent,
-        user_id: str,
-        session_id: str,
-        turn_id: str | None,
-    ) -> None:
-        """Forward an LLM stream event to the runtime notifier wire."""
-        await self._postprocess_service._runtime_notifier.emit_stream_event(
-            event=event,
-            user_id=user_id,
-            session_id=session_id,
-            turn_id=turn_id,
-        )
-
-    def _build_stream_sink(
-        self,
-        *,
-        user_id: str,
-        session_id: str,
-        turn_id: str | None,
-    ):
-        agent = self
-
-        async def sink(event: LLMStreamEvent) -> None:
-            await agent._emit_stream_event(
-                event=event,
-                user_id=user_id,
-                session_id=session_id,
-                turn_id=turn_id,
-            )
-
-        return sink
-
     async def _resolve_session_workspace_path(self, *, user_id: str, session_id: str) -> str | None:
         summary = await self._chat_read_service.aget_session_summary(user_id, session_id)
         return summary.workspace_path if summary is not None else None
@@ -478,25 +429,6 @@ class ChatTaskAgent(
             return bool(get_user_preference("streaming_chat_enabled", False))
         except Exception:
             return False
-
-    async def _emit_llm_error(self, context: ChatRuntimeContext, exc: Exception) -> None:
-        """Emit a user-visible error message when LLM call fails."""
-        turn_id = str(getattr(context.latest_payload, "turn_id", "") or "").strip()
-        if not (context.user_id and context.session_id and turn_id):
-            return
-        error_text = _format_llm_error(exc)
-        await self._emit_stream_event(
-            event=LLMStreamEvent(kind="text_delta", text=error_text),
-            user_id=context.user_id,
-            session_id=context.session_id,
-            turn_id=turn_id,
-        )
-        await self._emit_stream_event(
-            event=LLMStreamEvent(kind="text_flush"),
-            user_id=context.user_id,
-            session_id=context.session_id,
-            turn_id=turn_id,
-        )
 
     async def parse_result(self, context: ChatRuntimeContext, raw_result: ExecutionResult) -> None:
         await self._postprocess_service.handle(context, raw_result)
