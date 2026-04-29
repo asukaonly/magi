@@ -36,6 +36,10 @@ from .memory_l0_sessions import (
     session_ids_by_user,
     sorted_l0_session_ids,
 )
+from .memory_l1_events import (
+    build_l1_event_query_args as _build_l1_event_query_args,
+    build_l1_events_response as _build_l1_events_response,
+)
 from .memory_l2_status import (
     build_background_pending_response as _build_background_pending_response,
     build_embedding_pending_from_store as _build_embedding_pending_from_store,
@@ -50,8 +54,6 @@ from .memory_l2_status import (
 from .memory_route_helpers import (
     build_clear_result as _build_clear_result,
     canonical_self_id as _canonical_self_id,
-    parse_day_boundary as _parse_day_boundary,
-    serialize_l1_event_list_item as _serialize_l1_event_list_item,
     serialize_memory_event as _serialize_memory_event,
 )
 from .memory_schemas import (
@@ -775,43 +777,36 @@ async def get_l1_events(
     if not unified_memory or not unified_memory.l1:
         return {"items": [], "total": 0, "limit": limit, "offset": offset}
 
-    start_time = _parse_day_boundary(start_date, end_of_day=False)
-    end_time = _parse_day_boundary(end_date, end_of_day=True)
-
-    source_filters = [str(source).strip()] if str(source or "").strip() else None
-    cleaned_query = str(query or "").strip() or None
-    cleaned_source_item_id = str(source_item_id or "").strip() or None
-    cleaned_idempotency_key = str(idempotency_key or "").strip() or None
+    query_args = _build_l1_event_query_args(
+        session_id=session_id,
+        user_id=user_id,
+        event_type=event_type,
+        query=query,
+        source=source,
+        source_item_id=source_item_id,
+        idempotency_key=idempotency_key,
+        start_date=start_date,
+        end_date=end_date,
+    )
 
     events, total = await asyncio.gather(
         unified_memory.l1.query_events(
-            session_id=session_id,
-            user_id=user_id,
-            event_type=event_type,
-            query=cleaned_query,
-            source_filters=source_filters,
-            source_item_id=cleaned_source_item_id,
-            idempotency_key=cleaned_idempotency_key,
-            start_time=start_time,
-            end_time=end_time,
+            **query_args,
             limit=limit,
             offset=offset,
             include_metadata_json=False,
             include_embedding_fields=False,
         ),
         unified_memory.l1.count_events(
-            session_id=session_id,
-            user_id=user_id,
-            event_type=event_type,
-            query=cleaned_query,
-            source_filters=source_filters,
-            source_item_id=cleaned_source_item_id,
-            idempotency_key=cleaned_idempotency_key,
-            start_time=start_time,
-            end_time=end_time,
+            **query_args,
         ),
     )
-    return {"items": [_serialize_l1_event_list_item(event) for event in events], "total": total, "limit": limit, "offset": offset}
+    return _build_l1_events_response(
+        events=events,
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @memory_router.post("/search")

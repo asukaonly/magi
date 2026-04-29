@@ -196,6 +196,7 @@ Recent progress:
 - L0 working-memory checkpoint serialization helpers now live in `working_memory_serialization.py`.
 - L0 memory session display helpers now live in `memory_session_display.py`.
 - Memory API L0 session list helpers now live in `memory_l0_sessions.py`.
+- Memory API L1 event list helpers now live in `memory_l1_events.py`.
 - Memory API L2 status and pending helpers now live in `memory_l2_status.py`.
 - Memory eval answer synthesis helpers now live in `memory_eval_answering.py`.
 - Memory route utility helpers now live in `memory_route_helpers.py`.
