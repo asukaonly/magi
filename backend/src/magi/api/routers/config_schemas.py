@@ -11,7 +11,7 @@ from ...config.models import (
     LLMModelMetadataOverrideSettings,
     LLMSelectionLimitsSettings,
 )
-from .personality_config import PersonalityConfigModel as FullPersonalityConfigModel
+from .personality_config_schemas import PersonalityConfigModel as FullPersonalityConfigModel
 
 
 class AgentConfigModel(BaseModel):
