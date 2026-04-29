@@ -188,6 +188,7 @@ Recent progress:
 - Chat legacy trace fallback builders now live in `chat_trace_legacy_builder.py`.
 - Chat runtime trace row-to-node helpers now live in `chat_trace_row_builder.py`.
 - Chat read-side DTOs now live in `chat/read_models.py`.
+- Chat read-side serialization helpers now live in `chat/read_serialization.py`.
 - L0 memory session display helpers now live in `memory_session_display.py`.
 - Memory eval answer synthesis helpers now live in `memory_eval_answering.py`.
 - Memory route utility helpers now live in `memory_route_helpers.py`.
