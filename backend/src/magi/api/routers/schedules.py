@@ -68,11 +68,12 @@ def _serialize_state(state) -> dict[str, Any]:
 def _serialize_schedule(schedule: ScheduleDefinition, state=None) -> dict[str, Any]:
     metadata = dict(schedule.metadata or {})
     editable = schedule.target_type is not ScheduledTargetType.SENSOR_SYNC
-    owner_kind = (
-        "sensor_settings"
-        if schedule.target_type is ScheduledTargetType.SENSOR_SYNC
-        else "system"
-    )
+    if schedule.target_type is ScheduledTargetType.SENSOR_SYNC:
+        owner_kind = "sensor_settings"
+    elif schedule.target_type is ScheduledTargetType.USER_AGENT_TASK:
+        owner_kind = "agent_created"
+    else:
+        owner_kind = "system"
     payload = dict(schedule.target_payload or {})
     source_name = payload.get("source_type") or metadata.get("source_type")
     settings_link = (

@@ -87,17 +87,18 @@ The current runtime-worker sequence in `bootstrap/runtime_worker_builder.py` is:
 18. `runtime_plugin_ingress_processor`
 19. `runtime_timeline`
 20. `runtime_scheduler`
-21. `runtime_sensor_scheduler`
-22. `runtime_sensor_sync_executor`
+21. `runtime_agent_schedule_registration`
+22. `runtime_sensor_scheduler`
+23. `runtime_sensor_sync_executor`
 
 ### Phase 4: exports and maintenance registration
 
-23. `runtime_exports`
-24. `runtime_l2_maintenance_scheduler`
-25. `runtime_l3_summary_scheduler`
-26. `runtime_l3_digest_scheduler`
-27. `runtime_other_dependencies`
-28. `runtime_channels`
+24. `runtime_exports`
+25. `runtime_l2_maintenance_scheduler`
+26. `runtime_l3_summary_scheduler`
+27. `runtime_l3_digest_scheduler`
+28. `runtime_other_dependencies`
+29. `runtime_channels`
 
 Important rule: bootstrap order is dependency order, not ownership order. For example, the scheduler engine is infrastructure even though it is started after timeline services that will register schedules into it.
 
@@ -232,6 +233,8 @@ Persistence is separated the same way:
 
   Product task surfaces read this store through `/api/schedules` to display enabled schedules and current/upcoming scheduler activity. Sensor-owned schedules remain derived from timeline source settings and must be updated through the sensor settings UI instead of direct schedule edits.
 
+  Agent-created schedules use the `user_agent_task` scheduler target. They are created and managed through the builtin `schedule` tool, store an `agent_task` payload, and enqueue a background task when fired. The scheduler owns timing and execution bookkeeping; the background-task runtime owns the actual LLM/tool execution.
+
 - `cache/plugins/<plugin_id>/`
   Rebuildable plugin-owned runtime state such as in-progress sensor aggregation files
   Current path pattern: `~/.magi/cache/plugins/<plugin_id>/`
@@ -243,6 +246,8 @@ Important rule: the runtime message bus is process-local to `runtime_worker`. It
 ## Agent Runtime
 
 The L11 runtime lives under `backend/src/magi/agent/`.
+
+Agent-owned scheduler targets are registered by `AgentScheduleRegistrationModule` after `runtime_scheduler` starts. The current supported target is `user_agent_task`; its handler converts the persisted schedule payload into a `BackgroundTaskSpec` and enqueues it through `BackgroundTaskManager` with `trigger_source=schedule`.
 
 ### `TaskAgent`
 

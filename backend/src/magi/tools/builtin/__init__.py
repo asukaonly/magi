@@ -17,6 +17,7 @@ from .weather_tool import WeatherTool
 from .system_settings_tool import SystemSettingsTool
 from .agent_tool import AgentTool
 from .memory_query_tool import MemoryQueryTool
+from .schedule_tool import ScheduleTool
 from .trace_query_tool import TraceQueryTool
 
 __all__ = [
@@ -36,5 +37,6 @@ __all__ = [
     "SystemSettingsTool",
     "AgentTool",
     "MemoryQueryTool",
+    "ScheduleTool",
     "TraceQueryTool",
 ]

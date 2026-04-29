@@ -54,6 +54,7 @@ class BackgroundTaskTriggerSource(str, Enum):
     USER = "user"                  # user message explicitly asked for background
     MANUAL = "manual"              # UI "move to background" action
     RULE = "rule"                  # dispatcher rule fast-path match
+    SCHEDULE = "schedule"          # scheduler-created agent task
 
 
 @dataclass(slots=True)

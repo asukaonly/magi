@@ -12,7 +12,7 @@ from .control_plane import ControlPlaneModule
 from .lifecycle import LifecycleModule
 from .maintenance import OtherDependenciesModule
 
-from ..agent.lifecycle import AgentRuntimeModule
+from ..agent.lifecycle import AgentRuntimeModule, AgentScheduleRegistrationModule
 from ..awareness.lifecycle import (
     SensorModule,
     SensorScheduleRegistrationModule,
@@ -133,6 +133,7 @@ def _build_processing_modules(context: RuntimeBootstrapContext) -> list[Lifecycl
         PluginIngressProcessorModule(context),
         TimelineModule(context),
         SchedulerModule(context),
+        AgentScheduleRegistrationModule(context),
         SensorScheduleRegistrationModule(context),
         SensorSyncExecutorModule(context),
     ]

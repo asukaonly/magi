@@ -18,6 +18,7 @@ from ..tools import tool_registry
 from ..transport.chat_events import broadcast_background_task_state_changed
 from ..utils.runtime import get_runtime_paths
 from .runtime import AgentRuntime, RouterAgent, TaskAgentManager
+from .scheduled_agent_task import UserAgentTaskScheduleContributor
 from .task_agents.factory import create_chat_agent_factory, create_default_agent_factory
 
 logger = get_logger(__name__)
@@ -162,3 +163,30 @@ class AgentRuntimeModule(LifecycleModule):
             await self._context.agent_runtime.agent_runtime.stop()
             self._context.agent_runtime.agent_runtime = None
         self._context.agent_runtime.task_agent_manager = None
+
+
+class AgentScheduleRegistrationModule(LifecycleModule):
+    """Register agent-owned scheduler target handlers."""
+
+    def __init__(self, context: RuntimeBootstrapContext):
+        super().__init__(
+            name="runtime_agent_schedule_registration",
+            dependencies=("runtime_agent_core", "runtime_scheduler"),
+        )
+        self._context = context
+        self._contrib: UserAgentTaskScheduleContributor | None = None
+
+    async def init(self) -> None:
+        scheduler_service = require_initialized(self._context.scheduler.scheduler_service, "scheduler service")
+        background_task_manager = require_initialized(
+            self._context.agent_runtime.background_task_manager,
+            "background task manager",
+        )
+        self._contrib = UserAgentTaskScheduleContributor(background_task_manager)
+        await self._contrib.register_schedules(scheduler_service)
+        logger.info("Agent schedule handler registered")
+
+    async def shutdown(self) -> None:
+        if self._contrib is not None and self._context.scheduler.scheduler_service is not None:
+            await self._contrib.unregister_schedules(self._context.scheduler.scheduler_service)
+        self._contrib = None

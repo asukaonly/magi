@@ -107,6 +107,13 @@ fn serialize_schedule(row: &rusqlite::Row) -> rusqlite::Result<Value> {
     } else {
         None
     };
+    let owner_kind = if target_type == "sensor_sync" {
+        "sensor_settings"
+    } else if target_type == "user_agent_task" {
+        "agent_created"
+    } else {
+        "system"
+    };
     Ok(json!({
         "schedule_id": row.get::<_, String>(0)?,
         "target_type": target_type,
@@ -120,7 +127,7 @@ fn serialize_schedule(row: &rusqlite::Row) -> rusqlite::Result<Value> {
         "metadata": metadata_value,
         "job_id": row.get::<_, Option<String>>(8)?,
         "editable": row.get::<_, String>(1)? != "sensor_sync",
-        "owner_kind": if row.get::<_, String>(1)? == "sensor_sync" { "sensor_settings" } else { "system" },
+        "owner_kind": owner_kind,
         "settings_link": settings_link,
     }))
 }
