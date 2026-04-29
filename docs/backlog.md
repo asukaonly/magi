@@ -184,6 +184,7 @@ Recent progress:
 - Dynamic config field rendering now lives in `DynamicConfigField.tsx`.
 - Chat execution trace DTOs now live in `chat_trace_models.py`.
 - L0 memory session display helpers now live in `memory_session_display.py`.
+- Memory API Pydantic schemas now live in `memory_schemas.py`.
 - Worker prompt and tool-profile helpers now live in `worker_prompting.py`.
 - Worker status, await, and run-state serialization helpers now live in `worker_status.py`.
 - Worker tool schema definition now lives in `worker_schema.py`.
