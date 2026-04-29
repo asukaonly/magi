@@ -1,7 +1,6 @@
 """Session-scoped execution coordination for chat task-agent turns."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
 
@@ -16,46 +15,10 @@ from .interruption_classifier import (
     StepState,
 )
 from .run_contracts import ActiveRun, PendingTurn, RunResult, RunResultDisposition
+from .session_run_decisions import CheckpointDecision, SessionFactDecision, TurnSupersession
 from .run_store import SessionRunStore
 
 _CHECKPOINT_EVENT_TYPES = {"CHAT_TOOL_LOOP_STEP"}
-
-
-@dataclass(slots=True)
-class SessionFactDecision:
-    """Normalized session-run decision for one incoming chat fact batch."""
-
-    active_run: ActiveRun | None
-    planner_fact: FactRecord | None
-    planner_fact_kind: IncomingFactKind
-    planner_user_message: str
-    latest_payload: TaskFactPayload
-    user_id: str
-    session_id: str
-    run_disposition: str | None = None
-    interruption_disposition: InterruptionDisposition | None = None
-    checkpoint_pending_turns: list[PendingTurn] = field(default_factory=list)
-    superseded_turns: list["TurnSupersession"] = field(default_factory=list)
-
-
-@dataclass(slots=True)
-class TurnSupersession:
-    """A turn that was superseded by a newer visible turn."""
-
-    turn_id: str
-    anchor_turn_id: str
-    reason: str
-
-
-@dataclass(slots=True)
-class CheckpointDecision:
-    """Visible pending-turn merge for one session checkpoint."""
-
-    session_id: str
-    run_id: str
-    revision: int
-    pending_turns: list[PendingTurn] = field(default_factory=list)
-    visible_user_message: str = ""
 
 
 class SessionRunCoordinator:
