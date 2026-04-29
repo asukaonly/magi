@@ -183,6 +183,7 @@ Recent progress:
 - Dynamic tool config spec normalization now lives in `dynamic-config-specs.ts`.
 - Dynamic config field rendering now lives in `DynamicConfigField.tsx`.
 - Chat execution trace DTOs now live in `chat_trace_models.py`.
+- L0 memory session display helpers now live in `memory_session_display.py`.
 - Worker prompt and tool-profile helpers now live in `worker_prompting.py`.
 - Worker status, await, and run-state serialization helpers now live in `worker_status.py`.
 - Worker tool schema definition now lives in `worker_schema.py`.
