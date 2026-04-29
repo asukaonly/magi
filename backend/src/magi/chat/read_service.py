@@ -11,7 +11,7 @@ from ..core.logger import get_logger
 from ..core.sqlite import connect_sqlite
 from ..memory.l1.chat_sessions import create_chat_session_record
 from ..utils.runtime import get_runtime_paths
-from ..api.services.chat_trace_read_service import AI_RESPONSE_EVENT_TYPES, USER_EVENT_TYPES, get_chat_trace_read_service
+from ..api.services.chat_trace.read_service import AI_RESPONSE_EVENT_TYPES, USER_EVENT_TYPES, get_chat_trace_read_service
 from .read_models import (
     ChatDisplayMessage,
     ChatSessionRenameResult,

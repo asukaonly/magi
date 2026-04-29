@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from .chat_trace_models import ExecutionTraceNode
-from .chat_trace_utils import (
+from ..models import ExecutionTraceNode
+from ..utils import (
     default_trace_label,
     derive_children_status,
     map_trace_kind,

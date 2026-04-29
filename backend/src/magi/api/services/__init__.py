@@ -1,5 +1,5 @@
 """API read/write services."""
-from .chat_trace_read_service import ChatTraceReadService, get_chat_trace_read_service
+from .chat_trace.read_service import ChatTraceReadService, get_chat_trace_read_service
 from .message_dispatch_service import MessageDispatchOutcome, dispatch_user_message
 from .runtime_status_service import get_runtime_system_status
 

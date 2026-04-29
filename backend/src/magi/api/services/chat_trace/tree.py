@@ -3,9 +3,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from .chat_trace_models import ExecutionTraceNode
-from .chat_trace_row_builder import build_trace_row_node
-from .chat_trace_utils import derive_children_status, is_terminal_status, ms_to_seconds
+from .models import ExecutionTraceNode
+from .builders.rows import build_trace_row_node
+from .utils import derive_children_status, is_terminal_status, ms_to_seconds
 
 
 def build_runtime_trace_root(

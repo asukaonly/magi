@@ -177,7 +177,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             control_session_store_provider=control_session_store_provider,
         )
         # Initialize trace read service for enriching AI_RESPONSE events
-        from ...api.services.chat_trace_read_service import ChatTraceReadService
+        from ...api.services.chat_trace.read_service import ChatTraceReadService
         try:
             trace_read_service = ChatTraceReadService()
         except Exception:

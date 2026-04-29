@@ -190,11 +190,11 @@ Recent progress:
 - LLM model selection image generation scenario panel now lives in `LLMImageGenerationScenarioPanel.tsx`.
 - Dynamic tool config spec normalization now lives in `dynamic-config-specs.ts`.
 - Dynamic config field rendering now lives in `DynamicConfigField.tsx`.
-- Chat execution trace DTOs now live in `chat_trace_models.py`.
-- Chat execution trace pure helpers now live in `chat_trace_utils.py`.
-- Chat normalized trace builders now live in `chat_trace_normalized_builder.py`.
-- Chat legacy trace fallback builders now live in `chat_trace_legacy_builder.py`.
-- Chat runtime trace row-to-node helpers now live in `chat_trace_row_builder.py`.
+- Chat execution trace DTOs now live in `api/services/chat_trace/models.py`.
+- Chat execution trace pure helpers now live in `api/services/chat_trace/utils.py`.
+- Chat normalized trace builders now live in `api/services/chat_trace/builders/normalized.py`.
+- Chat legacy trace fallback builders now live in `api/services/chat_trace/builders/legacy.py`.
+- Chat runtime trace row-to-node helpers now live in `api/services/chat_trace/builders/rows.py`.
 - Chat read-side DTOs now live in `chat/read_models.py`.
 - Chat read-side serialization helpers now live in `chat/read_serialization.py`.
 - Chat read-store schema helpers now live in `chat/read_schema.py`.
@@ -241,7 +241,7 @@ Recent progress:
 - Worker launch/start/batch lifecycle helpers now live in `worker_launch.py`.
 - Worker fact, bus-event, and trace-notification publication helpers now live in `worker_publication.py`.
 - Chat execution guidance, UX-plan, and workspace helpers now live in `handler_helpers.py`.
-- Chat trace runtime tree reshape helpers now live in `chat_trace_tree.py`.
+- Chat trace runtime tree reshape helpers now live in `api/services/chat_trace/tree.py`.
 - L1 event/entity linkage helpers now live in `l1/entities/links.py`.
 - L1 event-store schema migration helpers now live in `l1/storage/schema.py`.
 - L1 event-store row serialization and timeline projection helpers now live in `l1/storage/rows.py`.

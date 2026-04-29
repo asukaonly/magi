@@ -34,7 +34,7 @@ from .postprocess.trace import ChatPostprocessTraceMixin
 from .session_run_coordinator import TurnSupersession
 
 if TYPE_CHECKING:
-    from ....api.services.chat_trace_read_service import ChatTraceReadService
+    from ....api.services.chat_trace.read_service import ChatTraceReadService
 
 logger = get_logger(__name__)
 

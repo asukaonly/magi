@@ -7,38 +7,38 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Optional
 
-from ...core.logger import get_logger
-from ...core.sqlite import connect_sqlite
-from ...utils.runtime import get_runtime_paths
-from .chat_trace_models import (
+from ....core.logger import get_logger
+from ....core.sqlite import connect_sqlite
+from ....utils.runtime import get_runtime_paths
+from .models import (
     ExecutionPlanStepSummary,
     ExecutionPlanSummary,
     ExecutionTraceNode,
     ExecutionTraceSnapshot,
     ExecutionTraceSummary,
 )
-from .chat_trace_legacy_builder import (
+from .builders.legacy import (
     build_function_root,
     build_orchestration_root,
     build_worker_tool_node,
 )
-from .chat_trace_normalized_builder import (
+from .builders.normalized import (
     build_normalized_trace_root,
     build_trace_span_node,
     collapse_trace_spans,
     merge_trace_payload,
 )
-from .chat_trace_row_builder import (
+from .builders.rows import (
     build_trace_row_node,
     resolve_result_preview,
 )
-from .chat_trace_tree import (
+from .tree import (
     build_runtime_trace_root,
     deduplicate_response_emit,
     reshape_orchestration_trace_root,
     with_dispatch_label,
 )
-from .chat_trace_utils import (
+from .utils import (
     compact_value,
     default_trace_label,
     derive_children_status,
@@ -897,7 +897,7 @@ class ChatTraceReadService:
 
 def get_chat_trace_read_service() -> ChatTraceReadService:
     """Get the shared ChatTraceReadService instance."""
-    from .chat_trace_read_service_provider import (
+    from .provider import (
         get_chat_trace_read_service as _get_chat_trace_read_service,
     )
 
