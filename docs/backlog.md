@@ -194,6 +194,7 @@ Recent progress:
 - L4 procedural memory schema constants now live in `procedural_memory_schema.py`.
 - L4 procedural memory serialization, trace row, and skill identity helpers now live in `procedural_memory_serialization.py`.
 - L4 procedural memory embedding helpers now live in `procedural_memory_embeddings.py`.
+- L3 summary store embedding helpers now live in `summary_store_embeddings.py`.
 - Worker prompt and tool-profile helpers now live in `worker_prompting.py`.
 - Worker status, await, and run-state serialization helpers now live in `worker_status.py`.
 - Worker tool schema definition now lives in `worker_schema.py`.

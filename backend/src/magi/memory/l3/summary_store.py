@@ -15,10 +15,9 @@ import aiosqlite
 from ...core.sqlite import sqlite_connection_async
 from ...config.models import EmbeddingBackend
 from ...llm import ScenarioLLMPool
-from ..embedding.chunking import ChunkedText, chunk_text
+from ..embedding.chunking import ChunkedText
 from ..embedding.embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
 from ..embedding.embedding_service import EmbeddingProfile, MemoryEmbeddingService
-from ..embedding.embedding_text_builders import build_l3_embedding_text
 from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
 from ..hybrid_retrieval.handlers import rrf_fuse
 from ..l1.event_store import L1EventStore
@@ -28,6 +27,15 @@ from .models import L3Candidate
 from .topic_llm_service import TopicSummaryLLMService
 from .temporal_llm_service import TemporalSummaryLLMService
 from .validator import validate_candidate
+from .summary_store_embeddings import (
+    EMBEDDING_TEXT_BUILDER_VERSION,
+    build_embedding_pipeline,
+    build_summary_embedding_chunks,
+    chunk_id_for_summary,
+    fold_summary_chunk_hits,
+    get_embedding_text,
+    profile_from_embedding_result,
+)
 
 if TYPE_CHECKING:
     from .models import L3Candidate
@@ -35,7 +43,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 SUMMARY_CHUNKS_TABLE = "l3_summary_chunks"
-EMBEDDING_TEXT_BUILDER_VERSION = "l3_summary_v1"
 EMBEDDING_STATUS_READY = "ready"
 EMBEDDING_STATUS_DISABLED = "disabled"
 
@@ -941,9 +948,7 @@ class L3SummaryStore:
                 logger.warning("Failed to update summary embedding state for %s: %s", summary.get("summary_id"), exc)
 
     def _build_embedding_pipeline(self) -> MemoryEmbeddingPipeline | None:
-        if self._embedding_service is None or self._vector_index is None:
-            return None
-        return MemoryEmbeddingPipeline(
+        return build_embedding_pipeline(
             embedding_service=self._embedding_service,
             vector_index=self._vector_index,
         )
@@ -1083,13 +1088,13 @@ class L3SummaryStore:
 
     def get_embedding_text(self, summary: Dict[str, Any]) -> str:
         """Return the canonical L3 text used for embedding."""
-        return build_l3_embedding_text(summary)
+        return get_embedding_text(summary)
 
     def _build_summary_embedding_chunks(self, summary: Dict[str, Any]) -> list[ChunkedText]:
-        return chunk_text(self.get_embedding_text(summary))
+        return build_summary_embedding_chunks(summary)
 
     def _chunk_id_for_summary(self, summary_id: str, chunk_index: int) -> str:
-        return f"{summary_id}::chunk-{chunk_index}"
+        return chunk_id_for_summary(summary_id, chunk_index)
 
     async def _replace_summary_chunks(
         self,
@@ -1150,14 +1155,9 @@ class L3SummaryStore:
             await db.commit()
 
     def _profile_from_embedding_result(self, result) -> EmbeddingProfile:
-        getter = getattr(self._embedding_service, "profile_from_result", None)
-        if callable(getter):
-            return getter(result, text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION)
-        return EmbeddingProfile.build(
-            provider_name="unknown",
-            model_name=result.model_name,
-            dimension=result.dimension,
-            text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION,
+        return profile_from_embedding_result(
+            embedding_service=self._embedding_service,
+            result=result,
         )
 
     async def _fetch_summary_chunk_rows_by_ids(self, chunk_ids: list[str]) -> list[aiosqlite.Row]:
@@ -1182,28 +1182,7 @@ class L3SummaryStore:
     ) -> tuple[list[str], dict[str, list[dict[str, Any]]]]:
         chunk_ids = [hit.entity_id for hit in hits]
         chunk_rows = await self._fetch_summary_chunk_rows_by_ids(chunk_ids)
-        chunk_by_id = {str(row["chunk_id"]): row for row in chunk_rows}
-        summary_ids: list[str] = []
-        matched_chunks: dict[str, list[dict[str, Any]]] = {}
-        for hit in hits:
-            row = chunk_by_id.get(hit.entity_id)
-            if row is None:
-                continue
-            summary_id = str(row["summary_id"])
-            if summary_id not in matched_chunks:
-                summary_ids.append(summary_id)
-                matched_chunks[summary_id] = []
-            matched_chunks[summary_id].append(
-                {
-                    "chunk_id": str(row["chunk_id"]),
-                    "chunk_index": int(row["chunk_index"]),
-                    "text": str(row["chunk_text"]),
-                    "char_start": int(row["char_start"]),
-                    "char_end": int(row["char_end"]),
-                    "distance": float(hit.distance),
-                }
-            )
-        return summary_ids, matched_chunks
+        return fold_summary_chunk_hits(hits=hits, chunk_rows=chunk_rows)
 
 
 __all__ = ["L3SummaryStore"]
