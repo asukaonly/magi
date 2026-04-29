@@ -27,10 +27,9 @@ from .models import (
 )
 from .manifest_selector import ManifestSelector
 from .result_fusion import ResultFusion
-from .timeline_condense import build_timeline_summary
+from .service_postprocessing import HybridRetrievalPostProcessingMixin
 from .service_policy import (
     comparison_backstop_queries,
-    count_payload_results,
     plan_signature,
     rule_backstop_reason,
 )
@@ -51,7 +50,7 @@ def build_retrieval_config_from_app_config(app_config: AppConfig) -> RetrievalCo
     )
 
 
-class HybridRetrievalService(EvidenceBundleMixin):
+class HybridRetrievalService(EvidenceBundleMixin, HybridRetrievalPostProcessingMixin):
     """Intent-driven hybrid retrieval across L0-L4 memory layers."""
 
     def __init__(
@@ -231,38 +230,6 @@ class HybridRetrievalService(EvidenceBundleMixin):
         # 5+6. Post-processing (fusion, manifest selection, evidence bundles)
         return await self._apply_post_processing(payload, request=request, mode_plan=mode_plan)
 
-    async def _supplement_activity_summary(
-        self,
-        *,
-        request: RetrievalQuery,
-        payload: RetrievalPayload,
-        time_range: Any,
-    ) -> None:
-        """Backfill L3 reflections by summary_category for activity_summary queries."""
-        l3_store = getattr(self._l3, "_store", None)
-        if l3_store is None:
-            return
-        period_start = getattr(time_range, "start", None) if time_range is not None else None
-        period_end = getattr(time_range, "end", None) if time_range is not None else None
-        try:
-            summaries = await l3_store.list_summaries_by_category(
-                summary_categories=list(request.summary_categories),
-                period_start=period_start,
-                period_end=period_end,
-                limit=request.limit,
-            )
-        except Exception as exc:
-            logger.warning("Activity summary supplement failed: %s", exc)
-            return
-        if not summaries:
-            return
-        existing_ids = {str(item.get("summary_id") or "") for item in payload.l3_reflections}
-        for summary in summaries:
-            sid = str(summary.get("summary_id") or "")
-            if sid and sid in existing_ids:
-                continue
-            payload.l3_reflections.append(summary)
-
     async def _execute_and_merge_plans(
         self,
         plans: List[LayerQueryPlan],
@@ -397,60 +364,6 @@ class HybridRetrievalService(EvidenceBundleMixin):
             )
             if fallback_plans:
                 payload.trace["fallback_triggered"] = True
-
-    async def _apply_post_processing(
-        self,
-        payload: RetrievalPayload,
-        *,
-        request: RetrievalQuery,
-        mode_plan: Any = None,
-    ) -> RetrievalPayload:
-        """Apply fusion, manifest selection, evidence bundling, and timeline summary."""
-        # Save pre-truncation L1 events for evidence bundling (fusion
-        # truncates the list, but bundles need full session coverage).
-        pre_fusion_l1_events = list(payload.l1_events)
-
-        # Result fusion (dedup + token budget)
-        payload = self._result_fusion.apply(payload, max_tokens=self._config.default_max_tokens)
-
-        # Cross-layer manifest selection (optional LLM step)
-        if self._config.manifest_selector_enabled:
-            payload = await self._manifest_selector.select(
-                payload, query=request.query, llm_bridge=self._llm_provider_bridge,
-            )
-
-        payload.l1_evidence_bundles = await self._build_l1_evidence_bundles(
-            pre_fusion_l1_events,
-            query=request.query,
-        )
-        payload.trace["l1_evidence_bundle_count"] = len(payload.l1_evidence_bundles)
-        payload.trace["l1_evidence_bundle_sessions_total"] = len(
-            {str(h.get("session_id") or "").strip() for h in pre_fusion_l1_events if h.get("session_id")}
-        )
-        payload.l1_timeline_summary = build_timeline_summary(
-            question=request.query,
-            evidence_bundles=payload.l1_evidence_bundles,
-        )
-        payload.trace["l1_timeline_summary_count"] = len(payload.l1_timeline_summary)
-        payload.trace["l2_entity_card_count"] = len(payload.l2_entity_cards)
-        payload.trace["l2_relationship_count"] = len(payload.l2_relationships)
-        payload.trace["l2_assertion_count"] = len(payload.l2_assertions)
-
-        # Evidence assembly + reducer (mode-driven pipeline)
-        if mode_plan is not None:
-            from .evidence import ASSEMBLER_REGISTRY
-            from .reducers import REDUCER_REGISTRY
-
-            assembler = ASSEMBLER_REGISTRY.get(mode_plan.evidence_shape)
-            reducer = REDUCER_REGISTRY.get(mode_plan.reducer_type)
-            if assembler is not None and reducer is not None:
-                evidence = assembler.assemble(payload, request)
-                reduced = reducer.reduce(evidence)
-                payload.trace["evidence_shape"] = mode_plan.evidence_shape
-                payload.trace["reducer_type"] = mode_plan.reducer_type
-                payload.trace["evidence_reduced"] = reduced
-
-        return payload
 
     @staticmethod
     def _plan_signature(plan: Any) -> tuple[str, str, bool]:
@@ -620,46 +533,6 @@ class HybridRetrievalService(EvidenceBundleMixin):
             time_range=plan.time_range,
             is_fallback=False,
         )
-
-    async def _load_l0(self, session_id: str) -> List[Dict[str, Any]]:
-        """Load L0 workbench data."""
-        try:
-            projection = await self._memory.l0.get_prompt_workbench_projection(session_id)
-            if projection.session is not None:
-                return [projection.to_retrieval_entry()]
-        except Exception:
-            logger.debug("L0 workbench load failed", exc_info=True)
-        return []
-
-    @staticmethod
-    def _merge_result(payload: RetrievalPayload, layer: str, result: Any) -> None:
-        """Merge handler result into payload."""
-        if layer == "L1":
-            payload.l1_events.extend(result if isinstance(result, list) else [])
-        elif layer == "L2":
-            if isinstance(result, dict):
-                payload.l2_entity_cards.extend(result.get("entity_cards", []))
-                payload.l2_relationships.extend(result.get("relationships", []))
-                payload.l2_assertions.extend(result.get("assertions", []))
-                payload.l2_episodes.extend(result.get("episodes", []))
-                payload.l2_state_facts.extend(result.get("state_facts", []))
-                payload.l2_state_history.extend(result.get("state_history", []))
-                if isinstance(result.get("trace"), dict):
-                    payload.trace["l2_query_trace"] = result["trace"]
-        elif layer == "L3":
-            payload.l3_reflections.extend(result if isinstance(result, list) else [])
-        elif layer == "L4":
-            payload.l4_procedures.extend(result if isinstance(result, list) else [])
-
-    @staticmethod
-    def _count_results(payload: RetrievalPayload) -> int:
-        """Count total non-L0 retrieval results.
-
-        Only counts items populated during the retrieval phase.
-        ``l1_evidence_bundles`` and ``l1_timeline_summary`` are assembled
-        *after* retrieval and should not influence fallback decisions.
-        """
-        return count_payload_results(payload)
 
     async def _run_query_expansion(
         self,
