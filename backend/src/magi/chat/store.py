@@ -8,7 +8,7 @@ import uuid
 import aiosqlite
 
 from ..core.sqlite import sqlite_connection_async
-from .contracts import ChatMessageLabel, ChatMessageRecord, ChatSessionRecord
+from .contracts import ChatMessageRecord, ChatSessionRecord
 from .storage.schema import (
     CHAT_STORE_SCHEMA_SQL,
     ensure_chat_message_columns,
@@ -17,17 +17,12 @@ from .storage.schema import (
     ensure_chat_turn_columns,
 )
 from .storage.attachments import ChatAttachmentPersistenceMixin
-from .storage.serialization import (
-    build_user_message_payload_json,
-    normalize_message_label,
-    parse_message_label,
-    row_to_message,
-    serialize_message_label,
-)
+from .storage.messages import ChatMessagePersistenceMixin
+from .storage.serialization import build_user_message_payload_json
 from .storage.turns import ChatTurnPersistenceMixin
 
 
-class ChatStore(ChatAttachmentPersistenceMixin, ChatTurnPersistenceMixin):
+class ChatStore(ChatAttachmentPersistenceMixin, ChatMessagePersistenceMixin, ChatTurnPersistenceMixin):
     """Own chat-domain persistence for sessions, turns, and messages."""
 
     def __init__(self, *, db_path: str = "~/.magi/data/chat/chat.db") -> None:
@@ -256,156 +251,6 @@ class ChatStore(ChatAttachmentPersistenceMixin, ChatTurnPersistenceMixin):
     def _build_user_message_payload_json(attachment_payloads: list[dict[str, object]] | None) -> str:
         return build_user_message_payload_json(attachment_payloads)
 
-    async def append_message(
-        self,
-        record: ChatMessageRecord,
-        *,
-        attachment_payloads: list[dict[str, object]] | None = None,
-    ) -> None:
-        """Insert or replace one transcript message row."""
-        await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            await db.execute(
-                """
-                INSERT OR REPLACE INTO chat_messages (
-                    message_id,
-                    session_id,
-                    turn_id,
-                    user_id,
-                    role,
-                    message_kind,
-                    content_text,
-                    payload_json,
-                    is_final,
-                    is_visible,
-                    created_at_ms,
-                    sequence_no,
-                    replaces_message_id,
-                    replaced_by_message_id,
-                    reply_to_message_id,
-                    label_json
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    record.message_id,
-                    record.session_id,
-                    record.turn_id,
-                    record.user_id,
-                    record.role,
-                    record.message_kind,
-                    record.content_text,
-                    record.payload_json,
-                    1 if record.is_final else 0,
-                    1 if record.is_visible else 0,
-                    record.created_at_ms,
-                    record.sequence_no,
-                    record.replaces_message_id,
-                    record.replaced_by_message_id,
-                    record.reply_to_message_id,
-                    self._serialize_message_label(record.label),
-                ),
-            )
-            await self._replace_message_attachments(
-                db,
-                message=record,
-                attachment_payloads=(
-                    attachment_payloads
-                    if attachment_payloads is not None
-                    else self._extract_attachment_payloads(record.payload_json)
-                ),
-            )
-            await db.commit()
-
-    async def mark_message_replaced(self, *, message_id: str, replaced_by_message_id: str) -> None:
-        """Mark one message as replaced by another message."""
-        await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            await db.execute(
-                """
-                UPDATE chat_messages
-                SET replaced_by_message_id = ?
-                WHERE message_id = ?
-                """,
-                (replaced_by_message_id, message_id),
-            )
-            await db.commit()
-
-    async def get_latest_message_for_turn(
-        self,
-        turn_id: str,
-        *,
-        message_kind: str | None = None,
-    ) -> ChatMessageRecord | None:
-        """Return the latest transcript message for one turn."""
-        sql = """
-            SELECT message_id, session_id, turn_id, user_id, role, message_kind,
-                   content_text, payload_json, is_final, is_visible, created_at_ms,
-                   sequence_no, replaces_message_id, replaced_by_message_id, reply_to_message_id,
-                   label_json
-            FROM chat_messages
-            WHERE turn_id = ?
-        """
-        params: tuple[object, ...]
-        if message_kind:
-            sql += " AND message_kind = ?"
-            params = (turn_id, message_kind)
-        else:
-            params = (turn_id,)
-        sql += " ORDER BY created_at_ms DESC, sequence_no DESC LIMIT 1"
-        row = await self._fetchone(sql, params)
-        if row is None:
-            return None
-        return self._row_to_message(row)
-
-    async def get_latest_message_for_session(
-        self,
-        session_id: str,
-        *,
-        role: str | None = None,
-        message_kind: str | None = None,
-        exclude_turn_id: str | None = None,
-    ) -> ChatMessageRecord | None:
-        """Return the latest transcript message for one session."""
-        sql = """
-            SELECT message_id, session_id, turn_id, user_id, role, message_kind,
-                   content_text, payload_json, is_final, is_visible, created_at_ms,
-                   sequence_no, replaces_message_id, replaced_by_message_id, reply_to_message_id,
-                   label_json
-            FROM chat_messages
-            WHERE session_id = ?
-              AND is_visible = 1
-        """
-        params: list[object] = [session_id]
-        if role:
-            sql += " AND role = ?"
-            params.append(role)
-        if message_kind:
-            sql += " AND message_kind = ?"
-            params.append(message_kind)
-        if exclude_turn_id:
-            sql += " AND (turn_id IS NULL OR turn_id != ?)"
-            params.append(exclude_turn_id)
-        sql += " ORDER BY created_at_ms DESC, sequence_no DESC LIMIT 1"
-        row = await self._fetchone(sql, tuple(params))
-        if row is None:
-            return None
-        return self._row_to_message(row)
-
-    async def next_sequence_no(self, *, session_id: str) -> int:
-        """Return the next display sequence number for one session."""
-        row = await self._fetchone(
-            """
-            SELECT COALESCE(MAX(sequence_no), 0) AS max_sequence_no
-            FROM chat_messages
-            WHERE session_id = ?
-            """,
-            (session_id,),
-        )
-        if row is None:
-            return 1
-        return int(row["max_sequence_no"] or 0) + 1
-
     async def _ensure_chat_turn_columns(self, db: aiosqlite.Connection) -> None:
         await ensure_chat_turn_columns(db)
 
@@ -414,114 +259,6 @@ class ChatStore(ChatAttachmentPersistenceMixin, ChatTurnPersistenceMixin):
 
     async def _ensure_chat_message_columns(self, db: aiosqlite.Connection) -> None:
         await ensure_chat_message_columns(db)
-
-    async def get_message(self, message_id: str) -> ChatMessageRecord | None:
-        """Return one transcript message by ID."""
-        row = await self._fetchone(
-            """
-            SELECT message_id, session_id, turn_id, user_id, role, message_kind,
-                   content_text, payload_json, is_final, is_visible, created_at_ms,
-                   sequence_no, replaces_message_id, replaced_by_message_id, reply_to_message_id,
-                   label_json
-            FROM chat_messages
-            WHERE message_id = ?
-            """,
-            (message_id,),
-        )
-        if row is None:
-            return None
-        return self._row_to_message(row)
-
-    async def list_messages(self, *, session_id: str) -> list[ChatMessageRecord]:
-        """List transcript messages for one session in display order."""
-        await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            db.row_factory = aiosqlite.Row
-            cur = await db.execute(
-                """
-                SELECT message_id, session_id, turn_id, user_id, role, message_kind,
-                       content_text, payload_json, is_final, is_visible, created_at_ms,
-                       sequence_no, replaces_message_id, replaced_by_message_id, reply_to_message_id,
-                       label_json
-                FROM chat_messages
-                WHERE session_id = ?
-                ORDER BY created_at_ms ASC, sequence_no ASC
-                """,
-                (session_id,),
-            )
-            rows = await cur.fetchall()
-        return [self._row_to_message(row) for row in rows]
-
-    async def update_message_label(
-        self,
-        *,
-        session_id: str,
-        message_id: str,
-        label: dict[str, object] | ChatMessageLabel | None,
-    ) -> ChatMessageRecord | None:
-        """Replace the durable label payload for one message and return the updated row."""
-        await self.initialize()
-        normalized_label = self._normalize_message_label(label)
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            await db.execute(
-                """
-                UPDATE chat_messages
-                SET label_json = ?
-                WHERE session_id = ?
-                  AND message_id = ?
-                """,
-                (
-                    self._serialize_message_label(normalized_label),
-                    session_id,
-                    message_id,
-                ),
-            )
-            await db.execute(
-                """
-                UPDATE chat_sessions
-                SET history_version = history_version + 1
-                WHERE session_id = ?
-                """,
-                (session_id,),
-            )
-            await db.commit()
-        return await self.get_message(message_id)
-
-    async def hide_message(
-        self,
-        *,
-        session_id: str,
-        message_id: str,
-    ) -> ChatMessageRecord | None:
-        """Soft-delete one transcript message from display history."""
-        await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            cur = await db.execute(
-                """
-                UPDATE chat_messages
-                SET is_visible = 0
-                WHERE session_id = ?
-                  AND message_id = ?
-                  AND is_visible = 1
-                """,
-                (
-                    session_id,
-                    message_id,
-                ),
-            )
-            if int(cur.rowcount or 0) <= 0:
-                await db.rollback()
-                return None
-            await db.execute(
-                """
-                UPDATE chat_sessions
-                SET history_version = history_version + 1
-                WHERE session_id = ?
-                """,
-                (session_id,),
-            )
-            await db.commit()
-        return await self.get_message(message_id)
 
     async def _fetchone(self, sql: str, params: tuple[object, ...]) -> aiosqlite.Row | None:
         await self.initialize()
@@ -602,21 +339,3 @@ class ChatStore(ChatAttachmentPersistenceMixin, ChatTurnPersistenceMixin):
                 record.deleted_at_ms,
             ),
         )
-
-    @staticmethod
-    def _row_to_message(row: aiosqlite.Row) -> ChatMessageRecord:
-        return row_to_message(row)
-
-    @staticmethod
-    def _normalize_message_label(
-        label: dict[str, object] | ChatMessageLabel | None,
-    ) -> ChatMessageLabel | None:
-        return normalize_message_label(label)
-
-    @staticmethod
-    def _serialize_message_label(label: ChatMessageLabel | None) -> str | None:
-        return serialize_message_label(label)
-
-    @staticmethod
-    def _parse_message_label(raw_label_json: object) -> ChatMessageLabel | None:
-        return parse_message_label(raw_label_json)
