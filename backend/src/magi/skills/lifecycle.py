@@ -5,7 +5,7 @@ from __future__ import annotations
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..bootstrap.lifecycle import LifecycleModule
 from ..core.logger import get_logger
-from ..core.runtime_bindings import require_permission_gateway
+from ..agent.control.permission.provider import get_permission_gateway
 from .service_access import build_skills_runtime
 
 logger = get_logger(__name__)
@@ -29,7 +29,7 @@ class SkillsModule(LifecycleModule):
         llm_adapter = require_initialized(self._context.llm.llm_adapter, "llm adapter")
         bindings = build_skills_runtime(
             llm_adapter,
-            permission_gateway_provider=require_permission_gateway,
+            permission_gateway_provider=get_permission_gateway,
         )
         self._context.skills.skill_indexer = bindings.skill_indexer
         self._context.skills.skill_loader = bindings.skill_loader

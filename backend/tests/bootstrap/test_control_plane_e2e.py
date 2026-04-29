@@ -28,9 +28,7 @@ from magi.agent.control.permission.contracts import (
 from magi.api.routers.control import control_router
 from magi.bootstrap.context import RuntimeBootstrapContext
 from magi.bootstrap.control_plane import ControlPlaneModule
-from magi.core.runtime_bindings import (
-    require_permission_gateway,
-)
+from magi.agent.control.permission.provider import get_permission_gateway
 
 
 class _FakeRuntimePaths:
@@ -45,7 +43,7 @@ async def test_e2e_gate_prompts_then_rest_resolves_then_rule_cached(tmp_path) ->
     module = ControlPlaneModule(context)
     await module.init()
     try:
-        gateway = require_permission_gateway()
+        gateway = get_permission_gateway()
 
         app = FastAPI()
         app.include_router(control_router, prefix="/api/control")
@@ -122,7 +120,7 @@ async def test_e2e_gate_rest_denies_blocks_tool(tmp_path) -> None:
     module = ControlPlaneModule(context)
     await module.init()
     try:
-        gateway = require_permission_gateway()
+        gateway = get_permission_gateway()
         app = FastAPI()
         app.include_router(control_router, prefix="/api/control")
         transport = ASGITransport(app=app)

@@ -56,16 +56,6 @@ def require_scenario_llm_pool():
     return _require_binding("scenario_llm_pool")
 
 
-def require_scheduler_service():
-    """Return the active scheduler service binding."""
-    return _require_binding("scheduler_service")
-
-
-def require_sensor_scheduler_contrib():
-    """Return the active sensor scheduler contributor binding."""
-    return _require_binding("sensor_scheduler_contrib")
-
-
 def require_plugin_manager():
     """Return the active plugin manager binding."""
     return _require_binding("plugin_manager")
@@ -99,11 +89,6 @@ def require_control_session_store():
 def require_control_settings_manager():
     """Return the active control-plane settings manager binding."""
     return _require_binding("control_settings_manager")
-
-
-def require_permission_gateway():
-    """Return the active permission gateway binding."""
-    return _require_binding("permission_gateway")
 
 
 def require_permission_rule_store():

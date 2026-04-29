@@ -71,7 +71,7 @@ def test_events_package_does_not_keep_unused_enhanced_backend_variant() -> None:
 
 
 def test_api_and_tools_use_runtime_bindings_instead_of_runtime_getters() -> None:
-    memory_router = (BACKEND_SRC / "api/routers/memory.py").read_text(encoding="utf-8")
+    memory_router = (BACKEND_SRC / "api/routers/memory/__init__.py").read_text(encoding="utf-8")
     timeline_router = (BACKEND_SRC / "api/routers/timeline.py").read_text(encoding="utf-8")
     memory_query_tool = (BACKEND_SRC / "tools/builtin/memory_query_tool.py").read_text(encoding="utf-8")
 
@@ -211,6 +211,9 @@ def test_runtime_bindings_only_expose_boundary_consumed_services() -> None:
     assert "require_user_message_sensor" not in runtime_bindings
     assert "require_skill_loader" not in runtime_bindings
     assert "require_skill_runner" not in runtime_bindings
+    assert "require_scheduler_service" not in runtime_bindings
+    assert "require_sensor_scheduler_contrib" not in runtime_bindings
+    assert "require_permission_gateway" not in runtime_bindings
 
 
 def test_legacy_backend_app_is_removed() -> None:
