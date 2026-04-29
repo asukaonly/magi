@@ -19,7 +19,7 @@ def _normalize_alias(text: str) -> str:
 def _normalize_catalog_entity_type(entity_type: Optional[str]) -> Optional[str]:
     if entity_type is None:
         return None
-    return coerce_unknown_entity_type(entity_type)
+    return cast(str, coerce_unknown_entity_type(entity_type))
 
 
 class _EntityCatalogQueryHostProtocol(Protocol):

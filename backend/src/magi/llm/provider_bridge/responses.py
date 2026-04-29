@@ -74,7 +74,7 @@ class ProviderBridgeResponseMixin:
         )
 
     def _convert_messages_to_anthropic(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        converted = []
+        converted: list[dict[str, Any]] = []
         for message in messages:
             if message.get("role") == "tool":
                 converted.append({

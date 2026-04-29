@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 from ..ontology import coerce_unknown_entity_type
 
 
@@ -23,7 +25,7 @@ def normalize_store_entity_type(entity_type: str | None) -> str | None:
         return None
     if text in {"user", "assistant", "system"}:
         return text
-    return coerce_unknown_entity_type(text)
+    return cast(str, coerce_unknown_entity_type(text))
 
 
 def normalize_store_entity_ref(entity_id: str | None, entity_type: str | None) -> str | None:

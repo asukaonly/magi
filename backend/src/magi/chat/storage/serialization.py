@@ -10,6 +10,15 @@ from ...utils.runtime import get_runtime_paths
 from ..contracts import ChatMessageLabel, ChatMessageRecord
 
 
+def _coerce_int(value: object, default: int = 0) -> int:
+    if value is None:
+        return default
+    try:
+        return int(str(value))
+    except (TypeError, ValueError):
+        return default
+
+
 def build_user_message_payload_json(
     attachment_payloads: list[dict[str, object]] | None,
 ) -> str:
@@ -111,7 +120,7 @@ def normalize_message_label(
     text = str(label.get("text") or "").strip()
     applied_by = str(label.get("applied_by") or "").strip()
     source = str(label.get("source") or "").strip()
-    created_at_ms = int(label.get("created_at_ms") or 0)
+    created_at_ms = _coerce_int(label.get("created_at_ms"))
     if not kind or not text or not applied_by or not source or created_at_ms <= 0:
         return None
     return ChatMessageLabel(

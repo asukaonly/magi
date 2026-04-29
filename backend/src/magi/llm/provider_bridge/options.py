@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Any, Awaitable, Callable, Dict
+from typing import Any, Awaitable, Callable, Dict, cast
 
 from ..anthropic import AnthropicAdapter
 from ..base import LLMAdapter
@@ -37,7 +37,7 @@ class ProviderBridgeOptionsMixin:
     _concurrency_limiter: LLMConcurrencyLimiter
 
     def _provider_name(self) -> str:
-        return (getattr(self.llm, "provider_name", "") or "").lower()
+        return str(getattr(self.llm, "provider_name", "") or "").lower()
 
     def is_anthropic(self) -> bool:
         return isinstance(self.llm, AnthropicAdapter)
@@ -145,12 +145,12 @@ class ProviderBridgeOptionsMixin:
 
     def _build_concurrency_key(self, request_family: str) -> str:
         base_url = getattr(self.llm, "base_url", None)
-        return LLMConcurrencyLimiter.build_key(
+        return cast(str, LLMConcurrencyLimiter.build_key(
             provider_name=self._provider_name(),
             model_name=str(getattr(self.llm, "model_name", "unknown")),
             request_family=request_family,
             base_url=base_url,
-        )
+        ))
 
     def _resolve_chat_concurrency_limit(self) -> int:
         """Resolve the effective concurrency cap for chat requests."""
@@ -181,4 +181,4 @@ class ProviderBridgeOptionsMixin:
         limit: int | None = None,
     ) -> ProviderResponse:
         key = self._build_concurrency_key(request_family)
-        return await self._concurrency_limiter.run_with_limit(key, operation, limit=limit)
+        return cast(ProviderResponse, await self._concurrency_limiter.run_with_limit(key, operation, limit=limit))

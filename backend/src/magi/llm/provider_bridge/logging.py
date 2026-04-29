@@ -71,7 +71,7 @@ def truncate_provider_response(provider_response: ProviderResponse) -> dict[str,
                 "name": tool_call.name,
                 "arguments": sanitize_log_value(tool_call.arguments),
             }
-            for tool_call in provider_response.tool_calls
+            for tool_call in provider_response.tool_calls or []
         ],
         "assistant_message": sanitize_log_value(provider_response.assistant_message),
         "metadata": sanitize_log_value(provider_response.metadata),

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from typing import Any
+from typing import Any, cast
 
 from ..contracts import ChatMessageLabel, ChatReplyPreview
 from .models import ChatDisplayMessage, ChatSessionSummary
@@ -36,7 +36,8 @@ def row_to_display_message(row: sqlite3.Row) -> ChatDisplayMessage | None:
     message_kind = str(row["message_kind"] or "")
     content = str(row["content_text"] or "").strip()
     payload = parse_message_payload_json(row["payload_json"])
-    attachments = payload.get("attachments") if isinstance(payload.get("attachments"), list) else []
+    raw_attachments = payload.get("attachments")
+    attachments = cast(list[dict[str, Any]], raw_attachments) if isinstance(raw_attachments, list) else []
     if not content and not attachments:
         return None
 
@@ -108,12 +109,12 @@ def build_reply_preview(target_row: sqlite3.Row | None) -> dict[str, Any] | None
     if target_row is None:
         return None
     content = str(target_row["content_text"] or "").strip()
-    return ChatReplyPreview(
+    return cast(dict[str, Any], ChatReplyPreview(
         message_id=str(target_row["message_id"]),
         role=str(target_row["role"] or "assistant"),
         message_kind=str(target_row["message_kind"] or "").strip() or None,
         content_excerpt=content[:160],
-    ).to_dict()
+    ).to_dict())
 
 
 def row_to_session_summary(row: sqlite3.Row) -> ChatSessionSummary:

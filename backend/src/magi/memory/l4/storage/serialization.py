@@ -152,7 +152,7 @@ def extract_skill_identity(event: MemoryEvent) -> Optional[dict[str, Any]]:
 
     if event.event_type == "TaskCompleted":
         skill_name = str(event.task_id or "task").strip()
-        content_str = str(event.content or "").strip() or None
+        task_content_text = str(event.content or "").strip() or None
         return {
             "skill_name": skill_name,
             "skill_category": "workflow",
@@ -160,23 +160,23 @@ def extract_skill_identity(event: MemoryEvent) -> Optional[dict[str, Any]]:
             "success": True,
             "duration_ms": 0.0,
             "error_summary": None,
-            "optimized_prompt": content_str,
+            "optimized_prompt": task_content_text,
             "input_summary": None,
-            "output_summary": truncate_value(content_str, 500),
+            "output_summary": truncate_value(task_content_text, 500),
             "task_context": event.task_id,
         }
 
     if event.event_type == "TaskFailed":
         skill_name = str(event.task_id or "task").strip()
-        content_str = str(event.content or "").strip() or None
+        task_content_text = str(event.content or "").strip() or None
         return {
             "skill_name": skill_name,
             "skill_category": "workflow",
             "skill_type": "composite",
             "success": False,
             "duration_ms": 0.0,
-            "error_summary": truncate_value(content_str, 500),
-            "optimized_prompt": content_str,
+            "error_summary": truncate_value(task_content_text, 500),
+            "optimized_prompt": task_content_text,
             "input_summary": None,
             "output_summary": None,
             "task_context": event.task_id,

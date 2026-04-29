@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from ..ontology import coerce_unknown_entity_type
 
@@ -29,7 +29,7 @@ class L2PipelineUtilityMixin:
         text = self._non_empty_text(raw_value)
         if text is None:
             return None
-        return coerce_unknown_entity_type(text)
+        return cast(str, coerce_unknown_entity_type(text))
 
     def _normalize_predicate(self, raw_value: Any) -> Optional[str]:
         text = self._non_empty_text(raw_value)

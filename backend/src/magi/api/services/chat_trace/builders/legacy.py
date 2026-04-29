@@ -82,7 +82,8 @@ def build_orchestration_root(
                 group_nodes[group_key] = group_node
             worker_id = str(subtask.get("worker_id") or "").strip()
             worker_status = normalize_status(str(subtask.get("status") or "pending"))
-            worker_result = subtask.get("worker_result") if isinstance(subtask.get("worker_result"), dict) else {}
+            raw_worker_result = subtask.get("worker_result")
+            worker_result: dict[str, Any] = raw_worker_result if isinstance(raw_worker_result, dict) else {}
             worker_node = ExecutionTraceNode(
                 id=str(subtask.get("subtask_id") or f"{turn_id}:worker:{worker_id or group_key}"),
                 kind="worker",

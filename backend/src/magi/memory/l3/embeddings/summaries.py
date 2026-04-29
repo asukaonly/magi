@@ -1,7 +1,7 @@
 """Embedding helper functions for L3 summary storage."""
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, cast
 
 import aiosqlite
 
@@ -30,11 +30,11 @@ def build_embedding_pipeline(
 
 
 def get_embedding_text(summary: Dict[str, Any]) -> str:
-    return build_l3_embedding_text(summary)
+    return cast(str, build_l3_embedding_text(summary))
 
 
 def build_summary_embedding_chunks(summary: Dict[str, Any]) -> list[ChunkedText]:
-    return chunk_text(get_embedding_text(summary))
+    return cast(list[ChunkedText], chunk_text(get_embedding_text(summary)))
 
 
 def chunk_id_for_summary(summary_id: str, chunk_index: int) -> str:
@@ -161,4 +161,4 @@ async def fetch_summary_chunk_rows_by_ids(*, db_path: str, chunk_ids: list[str])
             """,
             tuple(chunk_ids),
         ) as cursor:
-            return await cursor.fetchall()
+            return cast(list[aiosqlite.Row], await cursor.fetchall())
