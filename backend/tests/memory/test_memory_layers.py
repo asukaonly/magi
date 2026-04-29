@@ -198,6 +198,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         await self.store.initialize()
 
     async def asyncTearDown(self) -> None:
+        await self.store.shutdown()
         self.temp_dir.cleanup()
 
     async def _get_l0_active_entities(self, store: UnifiedMemoryStore, session_id: str):

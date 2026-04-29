@@ -136,6 +136,47 @@ async def test_upsert_candidate_persists_event_and_task_links(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_upsert_candidate_merges_existing_insight_key(tmp_path):
+    from magi.memory.l3.summary_store import L3SummaryStore
+
+    l3_store = L3SummaryStore(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
+    await l3_store.initialize()
+
+    first = await l3_store.upsert_candidate(
+        candidate=L3Candidate(
+            summary_type="insight",
+            summary_category="state_change",
+            content="Music preference signal emerged.",
+            source_event_ids=["evt-1"],
+            insight_key="state_change:user:self:music",
+            review_state="pending_confirmation",
+            insight_metadata={"kind": "state_change"},
+        ),
+    )
+    second = await l3_store.upsert_candidate(
+        candidate=L3Candidate(
+            summary_type="insight",
+            summary_category="state_change",
+            content="Music preference signal emerged with stronger evidence.",
+            source_event_ids=["evt-2", "evt-1"],
+            insight_key="state_change:user:self:music",
+            review_state="pending_confirmation",
+            insight_metadata={"kind": "state_change", "policy": "state_change_gate_v1"},
+        ),
+    )
+
+    assert second["summary_id"] == first["summary_id"]
+    assert await l3_store.count_summaries() == 1
+    assert second["source_event_ids"] == ["evt-1", "evt-2"]
+    assert second["source_event_count"] == 2
+    assert second["insight_key"] == "state_change:user:self:music"
+    assert second["review_state"] == "pending_confirmation"
+    assert second["insight_metadata"]["policy"] == "state_change_gate_v1"
+    event_links = await l3_store.list_summary_event_links(second["summary_id"])
+    assert {link["event_id"] for link in event_links} == {"evt-1", "evt-2"}
+
+
+@pytest.mark.asyncio
 async def test_search_summaries_fuses_bm25_and_vector_hits(tmp_path, monkeypatch: pytest.MonkeyPatch):
     from magi.memory.l3.summary_store import L3SummaryStore
 

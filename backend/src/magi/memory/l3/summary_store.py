@@ -547,6 +547,9 @@ class L3SummaryStore:
             "generated_by_model": "rule-summary",
             "generation_prompt": None,
             "generation_reason": f"{candidate.summary_type}:{candidate.summary_category}",
+            "insight_key": candidate.insight_key,
+            "review_state": candidate.review_state,
+            "insight_metadata": dict(candidate.insight_metadata),
             "created_at": now,
             "updated_at": now,
         }
@@ -554,11 +557,65 @@ class L3SummaryStore:
             summary.update(summary_overrides)
         summary.setdefault("summary_id", f"summary_{uuid.uuid4().hex}")
         summary.setdefault("created_at", now)
+        insight_key = str(summary.get("insight_key") or "").strip() or None
+        summary["insight_key"] = insight_key
+        if insight_key is not None:
+            existing = await self.get_summary_by_insight_key(insight_key)
+            if existing is not None:
+                existing_event_ids = [str(event_id) for event_id in existing.get("source_event_ids") or []]
+                incoming_event_ids = [str(event_id) for event_id in summary.get("source_event_ids") or []]
+                merged_event_ids = self._merge_source_event_ids(existing_event_ids, incoming_event_ids)
+                existing_metadata = existing.get("insight_metadata") if isinstance(existing.get("insight_metadata"), dict) else {}
+                incoming_metadata = summary.get("insight_metadata") if isinstance(summary.get("insight_metadata"), dict) else {}
+                next_review_state = summary.get("review_state") or existing.get("review_state")
+                if (
+                    str(existing.get("content") or "") == str(summary.get("content") or "")
+                    and merged_event_ids == existing_event_ids
+                    and next_review_state == existing.get("review_state")
+                ):
+                    return existing
+                summary["summary_id"] = existing["summary_id"]
+                summary["created_at"] = existing["created_at"]
+                summary["review_state"] = next_review_state
+                summary["insight_metadata"] = {
+                    **existing_metadata,
+                    **incoming_metadata,
+                    "previous_updated_at": existing.get("updated_at"),
+                }
+                summary["source_event_ids"] = merged_event_ids
+                summary["source_event_count"] = len(merged_event_ids)
         summary["updated_at"] = float(summary.get("updated_at") or now)
+        if summary.get("review_state") is None and insight_key is not None:
+            summary["review_state"] = "pending_confirmation"
+        if summary.get("insight_metadata") is None:
+            summary["insight_metadata"] = {}
         await self._store_summary(summary)
-        await self._replace_summary_event_links(summary["summary_id"], candidate.source_event_ids)
+        await self._replace_summary_event_links(summary["summary_id"], list(summary.get("source_event_ids") or []))
         await self._replace_summary_task_links(summary["summary_id"], source_task_ids or [])
         return summary
+
+    async def get_summary_by_insight_key(self, insight_key: str) -> Dict[str, Any] | None:
+        """Return the current summary for a deterministic insight key."""
+        await self.initialize()
+        normalized = str(insight_key or "").strip()
+        if not normalized:
+            return None
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM summaries WHERE insight_key = ? LIMIT 1",
+                (normalized,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        return self._row_to_dict(row) if row is not None else None
+
+    def _merge_source_event_ids(self, existing: list[str], incoming: list[str]) -> list[str]:
+        merged: list[str] = []
+        for event_id in [*existing, *incoming]:
+            normalized = str(event_id).strip()
+            if normalized and normalized not in merged:
+                merged.append(normalized)
+        return merged
 
     async def list_summary_event_links(self, summary_id: str) -> List[Dict[str, Any]]:
         """Return event links for a summary."""
@@ -711,8 +768,9 @@ class L3SummaryStore:
                     content, key_topics, key_entities, sentiment_summary, change_and_pattern, source_event_ids,
                     source_event_count, importance_aggregate, event_type_distribution,
                     generated_by_model, generation_prompt, generation_reason,
+                    insight_key, review_state, insight_metadata,
                     embedding_chunk_count, last_embedded_at, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     summary["summary_id"],
@@ -732,6 +790,9 @@ class L3SummaryStore:
                     summary["generated_by_model"],
                     summary["generation_prompt"],
                     summary["generation_reason"],
+                    summary.get("insight_key"),
+                    summary.get("review_state"),
+                    self._encode_optional_json(summary.get("insight_metadata") or {}),
                     int(summary.get("embedding_chunk_count") or 0),
                     float(summary["last_embedded_at"]) if summary.get("last_embedded_at") is not None else None,
                     float(summary["created_at"]),

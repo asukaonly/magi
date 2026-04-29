@@ -274,6 +274,9 @@ export interface L3Summary {
   importance_aggregate?: number;
   event_type_distribution?: Record<string, number>;
   generated_by_model?: string | null;
+  insight_key?: string | null;
+  review_state?: string | null;
+  insight_metadata?: Record<string, unknown>;
   created_at: number;
   updated_at?: number;
 }

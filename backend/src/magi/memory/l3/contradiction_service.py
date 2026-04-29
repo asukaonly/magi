@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+
 from .models import ContradictionPacket, L3Candidate
 
 
@@ -34,7 +37,40 @@ class ContradictionInsightService:
             content=content,
             source_event_ids=source_event_ids,
             subtypes=["contradiction_resolved"],
+            insight_key=self._build_insight_key(contradictions),
+            review_state="pending_confirmation",
+            insight_metadata={
+                "kind": "conflict_resolution",
+                "policy": "conflict_resolution_gate_v1",
+                "trigger_reason": packet.trigger_reason,
+                "contradictions": contradictions,
+            },
         )
+
+    def _build_insight_key(self, contradictions: list[dict[str, object]]) -> str:
+        key_material = sorted(
+            [
+                {
+                    "trait_name": str(item.get("trait_name") or "").strip(),
+                    "winning_value": self._normalize_value(str(item.get("winning_value") or "")),
+                }
+                for item in contradictions
+            ],
+            key=lambda item: (str(item["trait_name"]), str(item["winning_value"])),
+        )
+        digest = hashlib.sha256(
+            json.dumps(key_material, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        ).hexdigest()[:16]
+        return f"conflict_resolution:{digest}"
+
+    def _normalize_value(self, value: str) -> str:
+        try:
+            decoded = json.loads(value)
+        except json.JSONDecodeError:
+            decoded = value
+        if isinstance(decoded, str):
+            decoded = " ".join(decoded.casefold().split())
+        return json.dumps(decoded, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
     def _render_contradiction_fragment(self, contradiction: dict[str, object]) -> str:
         trait_name = str(contradiction["trait_name"])

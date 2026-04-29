@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+
 from ..l2.models import ReconciledTraitOutcome
 from .models import L3Candidate, TrendShiftPacket
 
@@ -46,7 +49,74 @@ class TrendShiftService:
             content=content,
             source_event_ids=source_event_ids,
             subtypes=["change_over_time"],
+            insight_key=self._build_insight_key(packet, normalized_outcomes),
+            review_state="pending_confirmation",
+            insight_metadata={
+                "kind": "trend_shift",
+                "policy": "trend_shift_gate_v1",
+                "entity_id": packet.entity_id,
+                "entity_type": packet.entity_type,
+                "trigger_reason": packet.trigger_reason,
+                "outcomes": [self._outcome_metadata(outcome) for outcome in normalized_outcomes],
+            },
         )
+
+    def _build_insight_key(
+        self,
+        packet: TrendShiftPacket,
+        outcomes: list[ReconciledTraitOutcome],
+    ) -> str:
+        key_material = {
+            "kind": "trend_shift",
+            "entity_id": packet.entity_id,
+            "outcomes": sorted(
+                [
+                    {
+                        "trait_name": str(outcome.trait_name).strip(),
+                        "winning_value": self._normalize_value(str(outcome.winning_value)),
+                    }
+                    for outcome in outcomes
+                ],
+                key=lambda item: (str(item["trait_name"]), str(item["winning_value"])),
+            ),
+        }
+        digest = hashlib.sha256(
+            json.dumps(key_material, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        ).hexdigest()[:16]
+        return f"trend_shift:{packet.entity_id}:{digest}"
+
+    def _outcome_metadata(self, outcome: ReconciledTraitOutcome) -> dict[str, object]:
+        return {
+            "trait_name": str(outcome.trait_name),
+            "winning_value": self._decode_value(str(outcome.winning_value)),
+            "status": str(outcome.status),
+            "confidence": float(outcome.confidence),
+            "evidence_count": len(outcome.evidence_event_ids),
+            "time_span_hours": float(outcome.time_span_hours),
+            "stability_kind": str(outcome.stability_kind),
+        }
+
+    def _normalize_value(self, value: str) -> str:
+        decoded = self._decode_value(value)
+        return json.dumps(self._canonicalize(decoded), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+    def _decode_value(self, value: str) -> object:
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return value
+
+    def _canonicalize(self, value: object) -> object:
+        if isinstance(value, str):
+            return " ".join(value.casefold().split())
+        if isinstance(value, list):
+            return sorted(
+                (self._canonicalize(item) for item in value),
+                key=lambda item: json.dumps(item, ensure_ascii=False, sort_keys=True),
+            )
+        if isinstance(value, dict):
+            return {str(key): self._canonicalize(item) for key, item in sorted(value.items())}
+        return value
 
     def _render_outcome_fragment(self, outcome: ReconciledTraitOutcome) -> str:
         trait_name = str(outcome.trait_name)

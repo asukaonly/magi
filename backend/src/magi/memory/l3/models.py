@@ -90,6 +90,9 @@ class L3Candidate:
     summary_category: SummaryCategory
     summary_type: SummaryType | None = None
     subtypes: list[str] = field(default_factory=list)
+    insight_key: str | None = None
+    review_state: str | None = None
+    insight_metadata: dict[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.summary_type is None:
