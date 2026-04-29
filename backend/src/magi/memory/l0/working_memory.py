@@ -12,14 +12,14 @@ import aiosqlite
 from ...core.sqlite import sqlite_connection_async
 from ..event_contracts import MemoryEvent
 from .contracts import L0PromptWorkbenchProjection
-from .projection_builder import build_execution_summary
-from .working_memory_schema import (
+from .working.projection import build_execution_summary
+from .working.schema import (
     clear_l0_checkpoint_tables,
     ensure_execution_pending_turn_columns,
     ensure_execution_run_columns,
     ensure_l0_checkpoint_schema,
 )
-from .working_memory_serialization import (
+from .working.serialization import (
     active_entity_key,
     encode_json,
     row_to_active_entity,

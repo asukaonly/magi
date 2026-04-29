@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .contracts import L0ExecutionSummary
+from ..contracts import L0ExecutionSummary
 
 
 def build_execution_summary(

@@ -200,8 +200,8 @@ Recent progress:
 - Chat read-store schema helpers now live in `chat/read_schema.py`.
 - Chat write-store serialization helpers now live in `chat/store_serialization.py`.
 - Chat write-store schema helpers now live in `chat/store_schema.py`.
-- L0 working-memory checkpoint schema helpers now live in `working_memory_schema.py`.
-- L0 working-memory checkpoint serialization helpers now live in `working_memory_serialization.py`.
+- L0 working-memory checkpoint schema helpers now live in `l0/working/schema.py`.
+- L0 working-memory checkpoint serialization helpers now live in `l0/working/serialization.py`.
 - L0 memory session display helpers now live in `memory_session_display.py`.
 - Memory API clear response helpers now live in `memory_clear.py`.
 - Memory API statistics helpers now live in `memory_statistics.py`.
