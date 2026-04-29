@@ -26,7 +26,7 @@ from .models import (
     L2EventWindow,
     ReconciledTraitOutcome,
 )
-from .prompts import (
+from .pipeline.prompts import (
     BATCH_ENTITY_RESOLUTION_SYSTEM_PROMPT,
     CONFLICT_ARBITRATION_SYSTEM_PROMPT,
     ENTITY_RECONCILE_SYSTEM_PROMPT,

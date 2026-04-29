@@ -4,19 +4,19 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...core.logger import get_logger
-from ..event_contracts import MemoryEvent
-from .models import (
+from ....core.logger import get_logger
+from ...event_contracts import MemoryEvent
+from ..models import (
     L2BatchJob,
     L2ConflictArbitrationResult,
     L2EventWindow,
     L2EventWindowSummary,
     ResolvedEntityMention,
 )
-from .evidence_classifier import classify_event_evidence
-from .evidence_policy import resolve_l2_policy
-from .extraction_profiles import resolve_extraction_profile
-from .pipeline_lifecycle import (
+from ..evidence_classifier import classify_event_evidence
+from ..evidence_policy import resolve_l2_policy
+from ..extraction_profiles import resolve_extraction_profile
+from .lifecycle import (
     DEFAULT_ENABLE_L2_CONFLICT_ARBITRATION,
     DEFAULT_L2_BATCH_FLUSH_INTERVAL_SECONDS,
     DEFAULT_L2_BATCH_SHUTDOWN_TIMEOUT_SECONDS,
@@ -28,22 +28,22 @@ from .pipeline_lifecycle import (
     L2PipelineLifecycleMixin,
     L2PipelineStats,
 )
-from .pipeline_conflict import L2ConflictArbitrationMixin
-from .pipeline_context import L2PipelineContextMixin
-from .pipeline_entity import L2EntityResolutionMixin
-from .pipeline_entity_side_effects import L2EntitySideEffectMixin
-from .pipeline_persistence import L2PipelinePersistenceMixin
-from .pipeline_staging import (
+from .conflict import L2ConflictArbitrationMixin
+from .context import L2PipelineContextMixin
+from .entities.resolution import L2EntityResolutionMixin
+from .entities.side_effects import L2EntitySideEffectMixin
+from .persistence import L2PipelinePersistenceMixin
+from .staging import (
     DEFAULT_L2_FLUSH_POLL_INTERVAL_SECONDS,
     DEFAULT_L2_MAX_ESTIMATED_TOKENS_PER_BATCH,
     DEFAULT_L2_MAX_EVENTS_PER_BATCH,
     L2PipelineStagingMixin,
 )
-from .pipeline_utils import L2PipelineUtilityMixin
-from .pipeline_validation import L2ValidationMixin
-from .pipeline_workers import L2PipelineWorkerMixin
+from .utils import L2PipelineUtilityMixin
+from .validation import L2ValidationMixin
+from .workers import L2PipelineWorkerMixin
 
-logger = get_logger(__name__)
+logger = get_logger("magi.memory.l2.pipeline")
 
 
 class L2Pipeline(

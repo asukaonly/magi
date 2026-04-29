@@ -4,20 +4,20 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Optional
 
-from ...core.logger import get_logger
-from ..event_contracts import MemoryEvent
-from .models import (
+from .....core.logger import get_logger
+from ....event_contracts import MemoryEvent
+from ...models import (
     L2BatchEntityResolutionItem,
     L2EntityCandidate,
     L2EntityResolutionMention,
     L2Phase1Result,
     ResolvedEntityMention,
 )
-from .pipeline_entity_id_resolution import L2EntityIdResolutionMixin
+from .id_resolution import L2EntityIdResolutionMixin
 
 if TYPE_CHECKING:
-    from .entity_catalog import L2EntityCatalog
-    from .llm_service import L2LLMService
+    from ...entity_catalog import L2EntityCatalog
+    from ...llm_service import L2LLMService
 
 logger = get_logger(__name__)
 

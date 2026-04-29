@@ -4,16 +4,16 @@ from __future__ import annotations
 
 from typing import Any, Optional, Protocol
 
-from ...core.logger import get_logger
-from ..event_contracts import MemoryEvent
-from .extraction_profiles import ExtractionProfile
-from .models import (
+from .....core.logger import get_logger
+from ....event_contracts import MemoryEvent
+from ...extraction_profiles import ExtractionProfile
+from ...models import (
     L2Phase1FactClaim,
     L2Phase1Result,
     ResolvedEntityMention,
     StructuredGraphHint,
 )
-from .ontology import validate_graph_candidate
+from ...ontology import validate_graph_candidate
 
 logger = get_logger(__name__)
 

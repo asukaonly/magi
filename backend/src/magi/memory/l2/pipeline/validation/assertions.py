@@ -5,11 +5,11 @@ from __future__ import annotations
 import json
 from typing import Any, Optional, Protocol
 
-from ..event_contracts import MemoryEvent
-from .context_bundle import ResolvedContextRef
-from .extraction_profiles import ExtractionProfile
-from .models import L2AssertionCandidate
-from .ontology import is_leaf_fact_duplicate, validate_assertion_candidate
+from ....event_contracts import MemoryEvent
+from ...context_bundle import ResolvedContextRef
+from ...extraction_profiles import ExtractionProfile
+from ...models import L2AssertionCandidate
+from ...ontology import is_leaf_fact_duplicate, validate_assertion_candidate
 
 _TOPOLOGY_ONLY_TRAIT_FAMILIES = {"public_sentiment", "group_atmosphere", "relationship_shift"}
 _SEMANTIC_TEMPORAL_SCOPES = {"persistent", "stable", ""}

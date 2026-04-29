@@ -5,11 +5,11 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
-from ...core.logger import get_logger
-from ..event_contracts import MemoryEvent
+from ....core.logger import get_logger
+from ...event_contracts import MemoryEvent
 
 if TYPE_CHECKING:
-    from .store import L2CognitionStore
+    from ..store import L2CognitionStore
 
 logger = get_logger(__name__)
 

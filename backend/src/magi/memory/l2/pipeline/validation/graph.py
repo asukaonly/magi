@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from ..event_contracts import MemoryEvent
-from .context_bundle import ResolvedContextRef
-from .extraction_profiles import ExtractionProfile
-from .models import (
+from ....event_contracts import MemoryEvent
+from ...context_bundle import ResolvedContextRef
+from ...extraction_profiles import ExtractionProfile
+from ...models import (
     ContradictionHint,
     L2GraphCandidate,
     L2Phase1Result,
@@ -15,7 +15,7 @@ from .models import (
     L2Phase2GraphEdge,
     ResolvedEntityMention,
 )
-from .ontology import (
+from ...ontology import (
     OPEN_PREDICATE_CONFIDENCE_PENALTY,
     PREDICATE_REGISTRY,
     is_valid_open_predicate,

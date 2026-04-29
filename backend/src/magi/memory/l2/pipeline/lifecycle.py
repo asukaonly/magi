@@ -7,20 +7,20 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable, Optional, Protocol
 
-from ...core.logger import get_logger
-from ..event_contracts import MemoryEvent
-from ..hybrid_retrieval.entity_semantic_builder import EntityScopedSemanticBuilder
-from ..l1.event_store import L1EventStore
-from .entity_catalog import L2EntityCatalog
-from .llm_service import L2LLMService
-from .models import (
+from ....core.logger import get_logger
+from ...event_contracts import MemoryEvent
+from ...hybrid_retrieval.entity_semantic_builder import EntityScopedSemanticBuilder
+from ...l1.event_store import L1EventStore
+from ..entity_catalog import L2EntityCatalog
+from ..llm_service import L2LLMService
+from ..models import (
     L2BatchJob,
     L2FocalEntityRef,
     L2PendingBatchBucket,
     ReconciledTraitOutcome,
 )
-from .pipeline_staging import DEFAULT_L2_MAX_EVENTS_PER_BATCH
-from .store import L2CognitionStore
+from ..store import L2CognitionStore
+from .staging import DEFAULT_L2_MAX_EVENTS_PER_BATCH
 
 logger = get_logger(__name__)
 

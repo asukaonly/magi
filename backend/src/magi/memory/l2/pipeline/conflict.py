@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Optional
 
-from ...core.logger import get_logger
-from ..event_contracts import MemoryEvent
-from .models import (
+from ....core.logger import get_logger
+from ...event_contracts import MemoryEvent
+from ..models import (
     ContradictionHint,
     L2CandidateSet,
     L2ConflictArbitrationResult,

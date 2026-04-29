@@ -14,7 +14,7 @@ from ...core.sqlite import sqlite_connection_async
 from ..event_contracts import MemoryEvent
 from .graph_conflicts import GraphConflictRule, build_exclusive_group_index, build_graph_conflict_matrix
 from .models import L2KnowledgeEdgeWrite, L2TomAssertionWrite, ReconciledTraitOutcome
-from .projection_queue import ProjectionJobQueue
+from .projection.queue import ProjectionJobQueue
 from .assertions.contradictions import L2StoreContradictionMixin
 from .assertions.feedback import L2StoreFeedbackMixin
 from .assertions.reconcile import L2StoreReconcileMixin

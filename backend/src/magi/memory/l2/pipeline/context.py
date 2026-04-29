@@ -5,19 +5,19 @@ from __future__ import annotations
 import time
 from typing import Any, Optional, Protocol
 
-from ..event_contracts import (
+from ...event_contracts import (
     IngestTarget,
     MemoryDomain,
     MemoryEvent,
     RetentionClass,
     TomDepth,
 )
-from ..l1.event_store import L1EventStore
-from .context_bundle import ContextBundle, ResolvedContextRef
-from .context_collector import collect_context_bundle
-from .entity_catalog import L2EntityCatalog
-from .models import L2BatchJob, L2FocalEntityRef, L2HistoryContext
-from .store import L2CognitionStore
+from ...l1.event_store import L1EventStore
+from ..context_bundle import ContextBundle, ResolvedContextRef
+from ..context_collector import collect_context_bundle
+from ..entity_catalog import L2EntityCatalog
+from ..models import L2BatchJob, L2FocalEntityRef, L2HistoryContext
+from ..store import L2CognitionStore
 
 DEFAULT_L2_HISTORY_ENTITY_MATCH_LIMIT = 3
 DEFAULT_L2_HISTORY_CONTEXT_LIMIT = 3

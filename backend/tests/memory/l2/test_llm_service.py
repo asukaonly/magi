@@ -116,7 +116,7 @@ def _make_event_window(**overrides):  # type: ignore[no-untyped-def]
 
 
 def test_phase1_prompt_includes_entity_types_and_predicates():
-    from magi.memory.l2.prompts import PHASE1_EXTRACT_SYSTEM_PROMPT, render_phase1_extract_prompt
+    from magi.memory.l2.pipeline.prompts import PHASE1_EXTRACT_SYSTEM_PROMPT, render_phase1_extract_prompt
 
     prompt = render_phase1_extract_prompt(
         event_window=_make_event_window(event_ids=["evt-1"], texts=["Visited GitHub"]),
@@ -132,7 +132,7 @@ def test_phase1_prompt_includes_entity_types_and_predicates():
 
 
 def test_phase1_system_prompt_describes_food_mapping_and_none_status():
-    from magi.memory.l2.prompts import PHASE1_EXTRACT_SYSTEM_PROMPT
+    from magi.memory.l2.pipeline.prompts import PHASE1_EXTRACT_SYSTEM_PROMPT
 
     assert "food" in PHASE1_EXTRACT_SYSTEM_PROMPT
     assert "dish" in PHASE1_EXTRACT_SYSTEM_PROMPT
@@ -143,7 +143,7 @@ def test_phase1_system_prompt_describes_food_mapping_and_none_status():
 
 
 def test_phase1_system_prompt_discourages_question_preferences():
-    from magi.memory.l2.prompts import PHASE1_EXTRACT_SYSTEM_PROMPT
+    from magi.memory.l2.pipeline.prompts import PHASE1_EXTRACT_SYSTEM_PROMPT
 
     assert "question" in PHASE1_EXTRACT_SYSTEM_PROMPT.lower()
     assert "Do NOT extract preferences from questions" in PHASE1_EXTRACT_SYSTEM_PROMPT
@@ -151,7 +151,7 @@ def test_phase1_system_prompt_discourages_question_preferences():
 
 
 def test_phase1_prompt_includes_context_and_resolved_ref_schema():
-    from magi.memory.l2.prompts import PHASE1_EXTRACT_SYSTEM_PROMPT, render_phase1_extract_prompt
+    from magi.memory.l2.pipeline.prompts import PHASE1_EXTRACT_SYSTEM_PROMPT, render_phase1_extract_prompt
 
     prompt = render_phase1_extract_prompt(
         event_window=_make_event_window(
@@ -173,7 +173,7 @@ def test_phase1_prompt_includes_context_and_resolved_ref_schema():
 
 def test_phase1_prompt_includes_batch_window_events():
     from magi.memory.l2.models import L2BatchEvent, L2EventWindow, L2EventWindowSummary
-    from magi.memory.l2.prompts import render_phase1_extract_prompt
+    from magi.memory.l2.pipeline.prompts import render_phase1_extract_prompt
 
     prompt = render_phase1_extract_prompt(
         event_window=L2EventWindow(

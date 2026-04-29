@@ -802,7 +802,7 @@ def test_reconcile_prompt_rendering_is_deterministic():
         L2ReconcileGraphFact,
         L2SourceEvent,
     )
-    from magi.memory.l2.prompts import (
+    from magi.memory.l2.pipeline.prompts import (
         render_entity_reconcile_prompt,
     )
 
@@ -1239,7 +1239,7 @@ async def test_prepare_unified_graph_candidates_rejects_generic_preference_domai
 
 @pytest.mark.asyncio
 async def test_extract_worker_uses_recent_session_context_in_mention_prompt():
-    from magi.memory.l2.prompts import PHASE1_EXTRACT_SYSTEM_PROMPT
+    from magi.memory.l2.pipeline.prompts import PHASE1_EXTRACT_SYSTEM_PROMPT
 
     adapter = _FakeAdapter(
         [
@@ -1326,7 +1326,7 @@ async def test_extract_worker_uses_recent_session_context_in_mention_prompt():
 
 @pytest.mark.asyncio
 async def test_extract_worker_uses_related_cross_session_history_in_unified_prompt():
-    from magi.memory.l2.prompts import PHASE1_EXTRACT_SYSTEM_PROMPT
+    from magi.memory.l2.pipeline.prompts import PHASE1_EXTRACT_SYSTEM_PROMPT
 
     adapter = _FakeAdapter(
         [
@@ -1404,7 +1404,7 @@ async def test_extract_worker_uses_related_cross_session_history_in_unified_prom
 
 @pytest.mark.asyncio
 async def test_extract_worker_orders_history_contexts_chronologically_in_prompt():
-    from magi.memory.l2.prompts import PHASE1_EXTRACT_SYSTEM_PROMPT
+    from magi.memory.l2.pipeline.prompts import PHASE1_EXTRACT_SYSTEM_PROMPT
 
     adapter = _FakeAdapter(
         [
@@ -4003,7 +4003,7 @@ class TestExtractionInstructions:
         assert "direct user-authored chat messages" in profile.extraction_instructions
 
     def test_prompt_includes_extraction_instructions(self):
-        from magi.memory.l2.prompts import render_phase1_extract_prompt
+        from magi.memory.l2.pipeline.prompts import render_phase1_extract_prompt
         from magi.memory.l2.models import L2EventWindow
 
         prompt = render_phase1_extract_prompt(
@@ -4015,7 +4015,7 @@ class TestExtractionInstructions:
         assert "Use VIEWED for videos" in prompt
 
     def test_prompt_omits_section_when_no_instructions(self):
-        from magi.memory.l2.prompts import render_phase1_extract_prompt
+        from magi.memory.l2.pipeline.prompts import render_phase1_extract_prompt
         from magi.memory.l2.models import L2EventWindow
 
         prompt = render_phase1_extract_prompt(

@@ -7,7 +7,7 @@ from typing import Any, Dict, Protocol, cast
 
 import aiosqlite
 
-from ...core.sqlite import sqlite_connection_async
+from ....core.sqlite import sqlite_connection_async
 
 
 class _ProjectionQueueClaimingHostProtocol(Protocol):
@@ -19,7 +19,7 @@ class _ProjectionQueueClaimingHostProtocol(Protocol):
 
 
 def _projection_queue_module() -> Any:
-    from . import projection_queue as projection_queue_module
+    from . import queue as projection_queue_module
 
     return projection_queue_module
 

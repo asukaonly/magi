@@ -54,7 +54,7 @@ export PYTHONPATH="$ROOT_DIR/backend/src:$ROOT_DIR/sdk/src${PYTHONPATH:+:$PYTHON
   src/magi/memory/l2/batch_models.py \
   src/magi/memory/l2/candidate_models.py \
   src/magi/memory/l2/ontology.py \
-  src/magi/memory/l2/pipeline_assertions.py \
+  src/magi/memory/l2/pipeline/validation/assertions.py \
   src/magi/memory/l2/evidence_policy.py \
   src/magi/memory/l2/graph_conflicts.py \
   src/magi/memory/l2/llm_json_client.py \
@@ -75,20 +75,20 @@ export PYTHONPATH="$ROOT_DIR/backend/src:$ROOT_DIR/sdk/src${PYTHONPATH:+:$PYTHON
   src/magi/memory/l2/phase_aux_models.py \
   src/magi/memory/l2/phase_model_utils.py \
   src/magi/memory/l2/phase_models.py \
-  src/magi/memory/l2/pipeline_context.py \
-  src/magi/memory/l2/pipeline_entity_id_resolution.py \
-  src/magi/memory/l2/pipeline_entity_helpers.py \
-  src/magi/memory/l2/pipeline_entity_side_effects.py \
-  src/magi/memory/l2/pipeline_graph_validation.py \
-  src/magi/memory/l2/pipeline_lifecycle.py \
-  src/magi/memory/l2/pipeline_persistence.py \
-  src/magi/memory/l2/pipeline_projection.py \
-  src/magi/memory/l2/pipeline_staging.py \
-  src/magi/memory/l2/pipeline_structured_hints.py \
-  src/magi/memory/l2/pipeline_utils.py \
-  src/magi/memory/l2/pipeline_workers.py \
-  src/magi/memory/l2/projection_queue_claiming.py \
-  src/magi/memory/l2/workflow_prompts.py \
+  src/magi/memory/l2/pipeline/context.py \
+  src/magi/memory/l2/pipeline/entities/id_resolution.py \
+  src/magi/memory/l2/pipeline/entities/helpers.py \
+  src/magi/memory/l2/pipeline/entities/side_effects.py \
+  src/magi/memory/l2/pipeline/validation/graph.py \
+  src/magi/memory/l2/pipeline/lifecycle.py \
+  src/magi/memory/l2/pipeline/persistence.py \
+  src/magi/memory/l2/pipeline/projection.py \
+  src/magi/memory/l2/pipeline/staging.py \
+  src/magi/memory/l2/pipeline/validation/structured_hints.py \
+  src/magi/memory/l2/pipeline/utils.py \
+  src/magi/memory/l2/pipeline/workers.py \
+  src/magi/memory/l2/projection/claiming.py \
+  src/magi/memory/l2/pipeline/prompts/workflows.py \
   src/magi/memory/l2/assertions/contradictions.py \
   src/magi/memory/l2/assertions/feedback.py \
   src/magi/memory/l2/assertions/reconcile.py \

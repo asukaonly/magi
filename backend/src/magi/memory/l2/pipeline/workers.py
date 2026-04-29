@@ -5,16 +5,16 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Awaitable, Callable, Protocol
 
-from ...core.logger import get_logger
-from ..event_contracts import MemoryEvent
-from .episode_formation import assign_events_to_episode
-from .models import (
+from ....core.logger import get_logger
+from ...event_contracts import MemoryEvent
+from ..episode_formation import assign_events_to_episode
+from ..models import (
     EpisodeCandidateJob,
     L2BatchJob,
     L2FocalEntityRef,
     ReconciledTraitOutcome,
 )
-from .store import L2CognitionStore
+from ..store import L2CognitionStore
 
 logger = get_logger("magi.memory.l2.pipeline")
 

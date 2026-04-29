@@ -5,8 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from .models import L2EventWindow
-from .workflow_prompts import (
+from ...models import L2EventWindow
+from .workflows import (
     BATCH_ENTITY_RESOLUTION_SYSTEM_PROMPT,
     CONFLICT_ARBITRATION_SYSTEM_PROMPT,
     ENTITY_RECONCILE_SYSTEM_PROMPT,

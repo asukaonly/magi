@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, cast
 
-from ...core.logger import get_logger
-from ..event_contracts import MemoryEvent
-from .models import ResolvedEntityMention
+from .....core.logger import get_logger
+from ....event_contracts import MemoryEvent
+from ...models import ResolvedEntityMention
 
 if TYPE_CHECKING:
-    from ..hybrid_retrieval.entity_semantic_builder import EntityScopedSemanticBuilder
-    from ..l1.event_store import L1EventStore
+    from ....hybrid_retrieval.entity_semantic_builder import EntityScopedSemanticBuilder
+    from ....l1.event_store import L1EventStore
 
 logger = get_logger(__name__)
 

@@ -11,9 +11,9 @@ from typing import Any, Dict, List
 
 import aiosqlite
 
-from ...core.logger import get_logger
-from ...core.sqlite import sqlite_connection_async
-from .projection_queue_claiming import ProjectionQueueClaimingMixin
+from ....core.logger import get_logger
+from ....core.sqlite import sqlite_connection_async
+from .claiming import ProjectionQueueClaimingMixin
 
 DEFAULT_L2_CATCH_UP_PENDING_THRESHOLD = 300
 DEFAULT_L2_STEADY_STATE_MAX_WAIT_SECONDS = 45.0

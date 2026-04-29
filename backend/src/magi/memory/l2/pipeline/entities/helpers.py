@@ -6,8 +6,8 @@ import re
 import unicodedata
 from typing import Any, Protocol, cast
 
-from ..event_contracts import MemoryEvent
-from .models import L2FocalEntityRef, ResolvedEntityMention
+from ....event_contracts import MemoryEvent
+from ...models import L2FocalEntityRef, ResolvedEntityMention
 
 
 class _EntityResolutionHelperHostProtocol(Protocol):

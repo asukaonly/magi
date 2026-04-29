@@ -6,7 +6,7 @@ import re
 import uuid
 from typing import Any, Optional
 
-from .ontology import coerce_unknown_entity_type
+from ..ontology import coerce_unknown_entity_type
 
 _GENERIC_PREFERENCE_OBJECT_SUFFIXES = {
     "weather",

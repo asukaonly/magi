@@ -249,16 +249,8 @@ Recent progress:
 - L1 event-store FTS/BM25 helpers now live in `event_store_fts.py`.
 - L1 event-store embedding, chunk, and vector-search helpers now live in `event_store_embeddings.py`.
 - L1 event-store read/query helpers now live in `event_store_queries.py`.
-- L2 pipeline staging, projection claiming, and microbatch flush helpers now live in `pipeline_staging.py`.
-- L2 durable projection claim/batch construction helpers now live in `pipeline_projection.py`.
-- L2 pipeline context loading and history recall helpers now live in `pipeline_context.py`.
-- L2 pipeline extract/reconcile/snapshot worker loops now live in `pipeline_workers.py`.
-- L2 pipeline runtime defaults, stats, initialization, lifecycle, and entity lock helpers now live in `pipeline_lifecycle.py`.
-- L2 pipeline graph/facet/assertion persistence helpers now live in `pipeline_persistence.py`.
-- L2 pipeline normalization/slug/stat bucket helpers now live in `pipeline_utils.py`.
-- L2 validation structured entity/graph hint helpers now live in `pipeline_structured_hints.py`.
-- L2 validation graph candidate preparation and graph endpoint resolution now live in `pipeline_graph_validation.py`.
-- L2 validation assertion normalization, scope, and decay helpers now live in `pipeline_assertions.py`.
+- L2 pipeline flow helpers now live under `pipeline/` by role: `staging.py`, `projection.py`, `context.py`, `workers.py`, `lifecycle.py`, `persistence.py`, `utils.py`, and `conflict.py`.
+- L2 pipeline validation helpers now live under `pipeline/validation/` by candidate domain: `structured_hints.py`, `graph.py`, and `assertions.py`.
 - L2 entity maintenance assertion expiry/snapshot/reconcile helpers now live in `entity_maintenance_assertions.py`.
 - L2 entity maintenance edge embedding helpers now live in `entity_maintenance_embeddings.py`.
 - L2 entity maintenance edge expiry/archive/purge helpers now live in `entity_maintenance_edges.py`.
@@ -272,14 +264,12 @@ Recent progress:
 - L2 entity/reconcile dataclass contracts now live in `entity_models.py` with old `models.py` exports preserved.
 - L2 candidate/unified extraction dataclass contracts now live in `candidate_models.py` with old `models.py` exports preserved.
 - L2 batch/window/job/request dataclass contracts now live in `batch_models.py` with old `models.py` exports preserved.
-- L2 auxiliary workflow prompt renderers now live in `workflow_prompts.py` with old `prompts.py` exports preserved.
+- L2 extraction and auxiliary workflow prompt renderers now live under `pipeline/prompts/`.
 - L2 LLM JSON-mode generation/retry helpers now live in `llm_json_client.py` with old `L2LLMService` method access preserved.
 - L2 entity catalog embedding rebuild/search helpers now live in `entity_catalog_embeddings.py`.
 - L2 entity catalog read/query helpers now live in `entity_catalog_queries.py`.
-- L2 projection queue ready-claim batching now lives in `projection_queue_claiming.py` with old constants patchable through `projection_queue.py`.
-- L2 pipeline single-mention entity ID resolution and catalog finalization now live in `pipeline_entity_id_resolution.py`.
-- L2 pipeline entity quality/type/focal helper methods now live in `pipeline_entity_helpers.py` with old `L2Pipeline` method access preserved.
-- L2 pipeline post-resolution L1 entity links and entity semantic edge side effects now live in `pipeline_entity_side_effects.py`.
+- L2 projection queue ready-claim batching now lives in `projection/claiming.py`, with queue defaults owned by `projection/queue.py`.
+- L2 pipeline entity resolution helpers now live under `pipeline/entities/` by responsibility: `id_resolution.py`, `helpers.py`, `side_effects.py`, and `resolution.py`.
 
 Candidates to review next:
 

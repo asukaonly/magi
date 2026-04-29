@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Optional
 
-from ...core.logger import get_logger
-from ..event_contracts import MemoryEvent
-from .models import L2EntityCandidate, L2EntityResolutionMention
-from .pipeline_entity_helpers import L2EntityResolutionHelperMixin
+from .....core.logger import get_logger
+from ....event_contracts import MemoryEvent
+from ...models import L2EntityCandidate, L2EntityResolutionMention
+from .helpers import L2EntityResolutionHelperMixin
 
 if TYPE_CHECKING:
-    from .entity_catalog import L2EntityCatalog
-    from .llm_service import L2LLMService
+    from ...entity_catalog import L2EntityCatalog
+    from ...llm_service import L2LLMService
 
 logger = get_logger(__name__)
 
