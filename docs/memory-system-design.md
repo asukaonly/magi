@@ -497,7 +497,9 @@ The gate must be rule-based and inspect structured state such as:
 
 LLMs may rewrite accepted insight content for readability, but must not decide whether an insight exists, what confidence/status it has, or which evidence supports it. Template text must remain available as a fallback.
 
-Each recurring insight carries a stable `insight_key` derived from entity, category, trait, and normalized value. Writes are upserts by that key: repeated reconciliation of the same state updates evidence metadata or returns the existing record instead of creating another row. User-review fields such as `review_state` and `insight_metadata` belong to the L3 record so the frontend can present insights as reviewable cards rather than raw debug logs.
+Each recurring insight carries a stable `insight_key`. State-change and trend-shift keys are scoped to the entity and reviewable trait group, not to every currently observed value or every exact low-level trait in the packet, so an accumulating preference signal updates one reviewable card instead of creating a new row every time another value or adjacent preference facet appears. Writes are upserts by that key: repeated reconciliation of the same state updates evidence metadata or returns the existing record instead of creating another row. User-review fields such as `review_state` and `insight_metadata` belong to the L3 record so the frontend can present insights as reviewable cards rather than raw debug logs.
+
+Trend-shift insights are reserved for durable long-span signals. Sparse or volatile outcomes should remain L2 evidence and should not become L3 trend cards until they have enough evidence, enough elapsed time, and a non-volatile stability kind.
 
 #### Temporal Summary Generation
 
