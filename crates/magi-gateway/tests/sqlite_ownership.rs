@@ -9,8 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 const ALLOWED_SQLITE_WRITE_FILES: &[&str] = &[
-    "src/api/messages.rs",
-    "src/api/metrics.rs",
+    "src/api/messages/mutations.rs",
     "src/api/schedules.rs",
     "src/api/tasks.rs",
     "src/db.rs",

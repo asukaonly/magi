@@ -3,19 +3,19 @@
   "description": "Allowed production SQLite write and index operations performed directly by the Rust gateway.",
   "allowed_gateway_sql": [
     {
-      "file": "crates/magi-gateway/src/api/messages.rs",
+      "file": "crates/magi-gateway/src/api/messages/mutations.rs",
       "operation": "insert",
       "table": "chat_sessions",
       "purpose": "Create lightweight chat session rows from native desktop session routes."
     },
     {
-      "file": "crates/magi-gateway/src/api/messages.rs",
+      "file": "crates/magi-gateway/src/api/messages/mutations.rs",
       "operation": "update",
       "table": "chat_sessions",
       "purpose": "Update session presentation fields such as title, workspace, and history version."
     },
     {
-      "file": "crates/magi-gateway/src/api/messages.rs",
+      "file": "crates/magi-gateway/src/api/messages/mutations.rs",
       "operation": "update",
       "table": "chat_messages",
       "purpose": "Apply user-facing message labels and soft-delete visibility flags."
