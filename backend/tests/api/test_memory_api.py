@@ -328,11 +328,28 @@ class _FakeUnifiedMemory:
         }
 
 
-def test_memory_statistics_api_reports_new_layers(monkeypatch):
+def test_memory_statistics_api_reports_new_layers(monkeypatch, tmp_path):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
 
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory())
+    fake_memory = _FakeUnifiedMemory()
+    l0_path = tmp_path / "l0.db"
+    l1_path = tmp_path / "l1.db"
+    memory_path = tmp_path / "memory.db"
+    memory_wal_path = tmp_path / "memory.db-wal"
+    memory_shm_path = tmp_path / "memory.db-shm"
+    l0_path.write_bytes(b"12")
+    l1_path.write_bytes(b"123")
+    memory_path.write_bytes(b"12345")
+    memory_wal_path.write_bytes(b"1234567")
+    memory_shm_path.write_bytes(b"12345678901")
+    fake_memory.l0.checkpoint_db_path = str(l0_path)
+    fake_memory.l1.db_path = str(l1_path)
+    fake_memory.l2.db_path = str(memory_path)
+    fake_memory.l3.db_path = str(memory_path)
+    fake_memory.l4.db_path = str(memory_path)
+
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: fake_memory)
     monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
 
     client = TestClient(app)
@@ -342,6 +359,8 @@ def test_memory_statistics_api_reports_new_layers(monkeypatch):
     body = response.json()
     assert body["l1"]["event_count"] == 12
     assert "l4" in body
+    assert body["total_memories"] == 16
+    assert body["disk_usage_bytes"] == 28
 
 
 def test_l0_sessions_api_prefers_chat_summary_titles_and_short_ids(monkeypatch):

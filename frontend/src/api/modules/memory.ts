@@ -334,8 +334,14 @@ export interface ClearMemoryResponse {
 export interface MemorySearchResultPayload {
   l0_workbench: Array<Record<string, unknown>>;
   l1_events: Array<Record<string, unknown>>;
+  l1_evidence_bundles?: Array<Record<string, unknown>>;
+  l1_timeline_summary?: Array<Record<string, unknown>>;
   l2_entity_cards: Array<Record<string, unknown>>;
   l2_relationships: Array<Record<string, unknown>>;
+  l2_assertions?: Array<Record<string, unknown>>;
+  l2_episodes?: Array<Record<string, unknown>>;
+  l2_state_facts?: Array<Record<string, unknown>>;
+  l2_state_history?: Array<Record<string, unknown>>;
   l3_reflections: Array<Record<string, unknown>>;
   l4_procedures: Array<Record<string, unknown>>;
   trace: Record<string, unknown>;

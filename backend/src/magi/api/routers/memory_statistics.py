@@ -1,7 +1,35 @@
 """Statistics response helpers for the memory API."""
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
+
+
+SQLITE_SIDE_FILE_SUFFIXES = ("", "-wal", "-shm")
+
+
+def storage_usage_bytes(paths: list[str | None]) -> int:
+    total = 0
+    seen_paths: set[str] = set()
+
+    for raw_path in paths:
+        if not raw_path:
+            continue
+
+        for suffix in SQLITE_SIDE_FILE_SUFFIXES:
+            path = Path(f"{raw_path}{suffix}")
+            path_key = str(path.resolve(strict=False))
+            if path_key in seen_paths:
+                continue
+            seen_paths.add(path_key)
+
+            try:
+                if path.is_file():
+                    total += path.stat().st_size
+            except OSError:
+                continue
+
+    return total
 
 
 def build_l0_statistics(l0_store: Any) -> dict[str, Any]:
@@ -54,5 +82,19 @@ def build_layer_statistics(
         stats["l4"]["db_path"] = unified_memory.l4.db_path
     if integration_stats is not None:
         stats["integration"] = integration_stats
+
+    stats["l4"].setdefault("open_circuit_breakers", 0)
+    stats["total_memories"] = l1_count + l2_relation_count + l2_assertion_count + l3_count + l4_count
+    stats["disk_usage_bytes"] = storage_usage_bytes([
+        stats["l0"].get("db_path"),
+        stats["l1"].get("db_path"),
+        stats["l2"].get("db_path"),
+        stats["l3"].get("db_path"),
+        stats["l4"].get("db_path"),
+    ])
+    stats["attention"] = {
+        "pending_assertions": 0,
+        "open_circuit_breakers": stats["l4"].get("open_circuit_breakers", 0),
+    }
 
     return stats

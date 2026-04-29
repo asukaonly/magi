@@ -14,6 +14,12 @@ const TRANSLATION_MAP: Record<string, string> = {
   'memory.pages.reflection.types.insight': 'Insight',
   'memory.pages.reflection.categories.task_reflection': 'Task Reflection',
   'memory.search': 'Search',
+  'memory.overview.searchResultsTitle': 'Search results',
+  'memory.overview.resultKinds.event': 'Event',
+  'memory.overview.resultKinds.entity': 'Entity',
+  'memory.overview.resultKinds.reflection': 'Reflection',
+  'memory.overview.totalMemoriesLabel': 'Memories',
+  'memory.overview.diskUsageLabel': 'Storage',
   'memory.pages.events.resetButton': 'Reset',
   'memory.pages.reflection.cadenceTitle': 'Summary cadence',
   'memory.pages.reflection.topicsTitle': 'Topic fragments',
@@ -41,10 +47,11 @@ vi.mock('@/components/memory', async () => {
 });
 
 const mockUseMemory = vi.mocked(useMemory);
+let memoryState: any;
 
 describe('memory page design', () => {
   beforeEach(() => {
-    mockUseMemory.mockReturnValue({
+    memoryState = {
       loading: false,
       stats: {
         l0: { active_sessions: 12, total_goals: 28, total_entities: 45, total_tactics: 8 },
@@ -164,7 +171,8 @@ describe('memory page design', () => {
       handleClearConfirm: vi.fn(),
       refresh: vi.fn(),
       refreshAll: vi.fn(),
-    } as any);
+    } as any;
+    mockUseMemory.mockImplementation(() => memoryState);
   });
 
   it('renders the overview as a focused dashboard with search and attention surfaces', () => {
@@ -177,12 +185,31 @@ describe('memory page design', () => {
     expect(screen.getByTestId('memory-theme-root').className).toContain('memory-theme-surface');
     expect(screen.queryByTestId('memory-page-hero')).not.toBeInTheDocument();
     expect(screen.getByTestId('memory-page-header')).toBeInTheDocument();
+    expect(screen.getByTestId('memory-overview-stats')).toHaveTextContent('Memories');
+    expect(screen.getByTestId('memory-overview-stats')).toHaveTextContent('338');
+    expect(screen.getByTestId('memory-overview-stats')).toHaveTextContent('Storage');
+    expect(screen.getByTestId('memory-overview-stats')).toHaveTextContent('0 B');
     expect(screen.getByTestId('memory-overview-search')).toBeInTheDocument();
     expect(screen.getByTestId('memory-overview-attention')).toBeInTheDocument();
     expect(screen.queryByTestId('memory-overview-search-results')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.refresh' })).toBeInTheDocument();
     expect(screen.getByPlaceholderText('memory.searchPlaceholder')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'memory.overview.openBreakers' })).toHaveAttribute('href', '/memory/skills');
+  });
+
+  it('renders search hits as readable memory previews instead of raw identifiers', () => {
+    memoryState.searchQuery = 'lake';
+
+    render(
+      <MemoryRouter>
+        <MemoryOverviewPage />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByTestId('memory-overview-search-results')).toHaveTextContent('Search results');
+    expect(screen.getByTestId('memory-overview-search-results')).toHaveTextContent('User mentioned a strong preference for calm lake walks');
+    expect(screen.getByTestId('memory-overview-search-results')).toHaveTextContent('West Lake');
+    expect(screen.getByTestId('memory-overview-search-results')).not.toHaveTextContent('app_usage:2026-03-27T10:00:00+08:00:com.apple.Safari');
   });
 
   it('renders the workbench page as an operational layout without the shared hero shell', () => {
