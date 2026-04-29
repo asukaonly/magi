@@ -71,6 +71,23 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_PREVIOUS_PERIOD_CONTEXT_LIMITS = {
+    "hour": 1,
+    "day": 1,
+    "week": 2,
+    "month": 2,
+    "quarter": 2,
+    "year": 2,
+}
+_CHILD_PERIOD_CONTEXT_CATEGORIES = {
+    "week": ["day"],
+    "month": ["week"],
+    "quarter": ["month"],
+    "year": ["quarter"],
+}
+_CHILD_PERIOD_CONTEXT_LIMIT = 6
+
+
 class L3SummaryStore:
     """Stores reflection-oriented summaries that remain traceable to L1 evidence."""
 
@@ -222,6 +239,7 @@ class L3SummaryStore:
                 logger.warning("L3 temporal summary features builder failed: %s", exc)
         if not evidence_pack.source_event_ids:
             return None
+        await self._attach_temporal_summary_context(evidence_pack)
 
         fallback_summary = " ".join(event["content"] for event in events[:6]).strip()
         generation = await self._temporal_llm_service.generate_temporal_candidate(
@@ -268,6 +286,96 @@ class L3SummaryStore:
             summary_overrides=summary_overrides,
         )
         return summary
+
+    async def _attach_temporal_summary_context(self, pack: Any) -> None:
+        category = str(pack.summary_category)
+        previous_limit = _PREVIOUS_PERIOD_CONTEXT_LIMITS.get(category, 0)
+        if previous_limit:
+            pack.previous_period_summaries = await self._list_previous_temporal_context(
+                summary_category=category,
+                before=float(pack.period_start),
+                limit=previous_limit,
+            )
+        child_categories = _CHILD_PERIOD_CONTEXT_CATEGORIES.get(category, [])
+        if child_categories:
+            pack.child_period_summaries = await self._list_child_temporal_context(
+                summary_categories=child_categories,
+                period_start=float(pack.period_start),
+                period_end=float(pack.period_end),
+                limit=_CHILD_PERIOD_CONTEXT_LIMIT,
+            )
+
+    async def _list_previous_temporal_context(
+        self,
+        *,
+        summary_category: str,
+        before: float,
+        limit: int,
+    ) -> list[dict[str, object]]:
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """
+                SELECT * FROM summaries
+                WHERE summary_type = 'temporal'
+                  AND summary_category = ?
+                  AND period_end <= ?
+                ORDER BY period_end DESC, updated_at DESC
+                LIMIT ?
+                """,
+                (summary_category, float(before), int(limit)),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [self._summary_context_item(self._row_to_dict(row)) for row in rows]
+
+    async def _list_child_temporal_context(
+        self,
+        *,
+        summary_categories: list[str],
+        period_start: float,
+        period_end: float,
+        limit: int,
+    ) -> list[dict[str, object]]:
+        normalized = [str(category).strip() for category in summary_categories if str(category).strip()]
+        if not normalized:
+            return []
+        await self.initialize()
+        placeholders = ", ".join("?" for _ in normalized)
+        args: list[object] = [*normalized, float(period_start), float(period_end), int(limit)]
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                f"""
+                SELECT * FROM summaries
+                WHERE summary_type = 'temporal'
+                  AND summary_category IN ({placeholders})
+                  AND period_end >= ?
+                  AND period_start <= ?
+                ORDER BY period_start ASC, period_end ASC, updated_at DESC
+                LIMIT ?
+                """,
+                tuple(args),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [self._summary_context_item(self._row_to_dict(row)) for row in rows]
+
+    def _summary_context_item(self, summary: dict[str, Any]) -> dict[str, object]:
+        item: dict[str, object] = {
+            "summary_id": str(summary.get("summary_id") or ""),
+            "summary_category": str(summary.get("summary_category") or ""),
+            "period_start": float(summary.get("period_start") or 0.0),
+            "period_end": float(summary.get("period_end") or 0.0),
+            "content": str(summary.get("content") or ""),
+            "generated_by_model": str(summary.get("generated_by_model") or ""),
+        }
+        key_topics = summary.get("key_topics")
+        if isinstance(key_topics, list) and key_topics:
+            item["key_topics"] = [str(topic) for topic in key_topics[:6] if str(topic).strip()]
+        change_and_pattern = summary.get("change_and_pattern")
+        if isinstance(change_and_pattern, dict) and change_and_pattern:
+            item["change_and_pattern"] = change_and_pattern
+        return item
 
     async def generate_thematic_summary(
         self,

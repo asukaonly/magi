@@ -289,9 +289,10 @@ class TemporalSummaryLLMService:
             "key_topics": list(output.key_topics),
             "key_entities": list(output.key_entities),
             "sentiment_summary": output.sentiment_summary,
-            "importance_aggregate": output.importance_aggregate,
             "change_and_pattern": output.change_and_pattern,
         }
+        if output.importance_aggregate is not None:
+            summary_overrides["importance_aggregate"] = output.importance_aggregate
         return candidate, summary_overrides
 
     async def generate_temporal_candidate(
@@ -597,6 +598,8 @@ class TemporalSummaryLLMService:
             "plugin_summary_features": pack.plugin_summary_features,
             "source_distribution": pack.source_distribution,
             "selection_policy": pack.selection_policy,
+            "previous_period_summaries": pack.previous_period_summaries,
+            "child_period_summaries": pack.child_period_summaries,
             "events": [
                 {
                     "event_id": item.event_id,
@@ -619,6 +622,8 @@ class TemporalSummaryLLMService:
             "When plugin_summary_features are present, use them to surface source-specific behavior patterns such as concentration, revisits, and session structure.\n"
             "Use source_distribution, window_event_count, and omitted_event_count to understand coverage and avoid treating representative events as exhaustive.\n"
             "Prioritize explicit changes, recurring constraints, and high-importance events.\n"
+            "Use previous_period_summaries and child_period_summaries only for comparison and timeline continuity; the current evidence pack remains the source of truth.\n"
+            "Do not promote old summary content into a current-window fact unless current evidence also supports it.\n"
             "Do not lead with raw event counts or internal event type names; mention counts only when they change the interpretation.\n\n"
             "Period Focus:\n"
             f"{period_focus}\n\n"
@@ -643,7 +648,7 @@ class TemporalSummaryLLMService:
         if self._scenario_llm_pool is None:
             return None
         try:
-            return self._scenario_llm_pool.get(LLMScenario.CONTEXT_DECIDER)
+            return self._scenario_llm_pool.get(LLMScenario.MEMORY_SUMMARIZER)
         except Exception as exc:
             logger.debug("L3 temporal LLM adapter unavailable: %s", exc)
             return None

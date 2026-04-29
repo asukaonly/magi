@@ -166,6 +166,7 @@ class LLMScenario(str, Enum):
     CONTEXT_COMPACT = "context_compact"
     CONTEXT_DECIDER = "context_decider"
     CORE = "core"
+    MEMORY_SUMMARIZER = "memory_summarizer"
     EMBEDDING = "embedding"
     IMAGE_GENERATION = "image_generation"
 

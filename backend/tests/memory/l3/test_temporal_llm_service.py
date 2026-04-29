@@ -427,6 +427,24 @@ async def test_call_temporal_model_uses_week_timeout_and_thinking(monkeypatch: p
     assert seen["disable_thinking"] is False
 
 
+def test_temporal_service_uses_memory_summarizer_scenario() -> None:
+    from magi.config.models import LLMScenario
+
+    class _FakeScenarioPool:
+        def __init__(self) -> None:
+            self.calls: list[LLMScenario] = []
+
+        def get(self, scenario: LLMScenario) -> object:
+            self.calls.append(scenario)
+            return "adapter"
+
+    pool = _FakeScenarioPool()
+    service = TemporalSummaryLLMService(scenario_llm_pool=pool)
+
+    assert service._get_adapter() == "adapter"
+    assert pool.calls == [LLMScenario.MEMORY_SUMMARIZER]
+
+
 def test_render_temporal_summary_prompt_includes_rule_hints() -> None:
     service = TemporalSummaryLLMService()
     pack = TemporalEvidencePack(
@@ -444,6 +462,24 @@ def test_render_temporal_summary_prompt_includes_rule_hints() -> None:
             "window_change_candidates": [{"kind": "first_last_focus_shift"}],
             "recurring_constraints": [{"keyword": "remote", "event_ids": ["evt-1", "evt-2"]}],
         },
+        previous_period_summaries=[
+            {
+                "summary_id": "summary-prev-day",
+                "summary_category": "day",
+                "period_start": 0.0,
+                "period_end": 100.0,
+                "content": "The previous day was mostly exploratory.",
+            }
+        ],
+        child_period_summaries=[
+            {
+                "summary_id": "summary-child-hour",
+                "summary_category": "hour",
+                "period_start": 120.0,
+                "period_end": 130.0,
+                "content": "A focused portfolio hour.",
+            }
+        ],
         events=[
             TemporalEvidenceItem(event_id="evt-1", event_type="UserMessage", content="growth matters"),
             TemporalEvidenceItem(event_id="evt-2", event_type="UserMessage", content="finish portfolio"),
@@ -462,6 +498,10 @@ def test_render_temporal_summary_prompt_includes_rule_hints() -> None:
     assert '"recurring_constraints"' in prompt
     assert '"content"' in prompt
     assert '"change_and_pattern"' in prompt
+    assert '"previous_period_summaries"' in prompt
+    assert '"child_period_summaries"' in prompt
+    assert "only for comparison and timeline continuity" in prompt
+    assert "The previous day was mostly exploratory" in prompt
 
 
 def test_render_temporal_summary_prompt_includes_period_focus() -> None:

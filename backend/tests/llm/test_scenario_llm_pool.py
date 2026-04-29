@@ -84,6 +84,23 @@ def test_scenario_llm_pool_returns_distinct_adapters_for_distinct_scenarios():
     assert created == [("openai", "gpt-5-mini"), ("anthropic", "claude-sonnet-4-6")]
 
 
+def test_scenario_llm_pool_falls_back_to_core_for_memory_summarizer():
+    from magi.llm.scenario_pool import LLMScenario, ScenarioLLMPool
+
+    created: list[tuple[str, str]] = []
+
+    def adapter_factory(**kwargs) -> DummyAdapter:  # type: ignore[no-untyped-def]
+        created.append((str(kwargs["provider_type"]), str(kwargs["model"])))
+        return DummyAdapter(provider_name=str(kwargs["provider_type"]), model_name=str(kwargs["model"]))
+
+    pool = ScenarioLLMPool(config=_build_test_config(), adapter_factory=adapter_factory)
+
+    memory_llm = pool.get(LLMScenario.MEMORY_SUMMARIZER)
+
+    assert memory_llm.model_name == "claude-sonnet-4-6"
+    assert created == [("anthropic", "claude-sonnet-4-6")]
+
+
 def test_scenario_llm_pool_rejects_disabled_provider_reference():
     from magi.llm.scenario_pool import LLMScenario, ScenarioLLMPool
 

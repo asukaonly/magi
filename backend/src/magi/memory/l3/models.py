@@ -137,6 +137,8 @@ class TemporalEvidencePack:
     plugin_summary_features: dict[str, object] = field(default_factory=dict)
     source_distribution: dict[str, object] = field(default_factory=dict)
     selection_policy: dict[str, object] = field(default_factory=dict)
+    previous_period_summaries: list[dict[str, object]] = field(default_factory=list)
+    child_period_summaries: list[dict[str, object]] = field(default_factory=list)
 
 
 @dataclass(slots=True)

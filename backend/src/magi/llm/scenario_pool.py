@@ -11,6 +11,10 @@ from ..config.models import LLMScenario
 
 AdapterFactory = Callable[..., object]
 
+_OPTIONAL_SCENARIO_FALLBACKS = {
+    LLMScenario.MEMORY_SUMMARIZER: LLMScenario.CORE,
+}
+
 
 class ScenarioLLMPool:
     """Resolves and caches LLM adapters by runtime scenario."""
@@ -36,7 +40,7 @@ class ScenarioLLMPool:
             configurator(adapter)
 
     def _build_adapter(self, scenario: LLMScenario) -> object:
-        selection = self._config.llm.selections.get(scenario.value)
+        selection = self._selection_for_scenario(scenario)
         if selection is None:
             raise ValueError(f"Missing LLM selection for scenario '{scenario.value}'")
 
@@ -68,6 +72,15 @@ class ScenarioLLMPool:
         for configurator in self._adapter_configurators:
             configurator(adapter)
         return adapter
+
+    def _selection_for_scenario(self, scenario: LLMScenario) -> object | None:
+        selection = self._config.llm.selections.get(scenario.value)
+        if selection is not None:
+            return selection
+        fallback = _OPTIONAL_SCENARIO_FALLBACKS.get(scenario)
+        if fallback is None:
+            return None
+        return self._config.llm.selections.get(fallback.value)
 
     @staticmethod
     def _resolve_runtime_provider_type(provider: object, selected_model: str | None = None) -> str:

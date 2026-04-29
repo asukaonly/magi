@@ -395,6 +395,106 @@ async def test_generate_temporal_summary_uses_llm_candidate_when_available(tmp_p
 
 
 @pytest.mark.asyncio
+async def test_generate_temporal_summary_includes_period_context(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    from magi.memory.l1.event_store import L1EventStore
+    from magi.memory.l3.summary_store import L3SummaryStore
+
+    l1_store = L1EventStore(db_path=str(tmp_path / "l1_events.db"))
+    l3_store = L3SummaryStore(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
+    await l1_store.initialize()
+    await l3_store.initialize()
+
+    await l3_store.upsert_candidate(
+        candidate=L3Candidate(
+            summary_type="temporal",
+            summary_category="month",
+            content="The previous month stayed exploratory.",
+            source_event_ids=[],
+        ),
+        summary_overrides={
+            "summary_id": "summary-prev-month",
+            "summary_type": "temporal",
+            "summary_category": "month",
+            "period_start": 200.0,
+            "period_end": 300.0,
+            "key_topics": ["exploration"],
+            "generated_by_model": "temporal-llm",
+        },
+    )
+    await l3_store.upsert_candidate(
+        candidate=L3Candidate(
+            summary_type="temporal",
+            summary_category="week",
+            content="The first week focused on portfolio execution.",
+            source_event_ids=[],
+        ),
+        summary_overrides={
+            "summary_id": "summary-child-week",
+            "summary_type": "temporal",
+            "summary_category": "week",
+            "period_start": 310.0,
+            "period_end": 330.0,
+            "key_topics": ["portfolio"],
+            "generated_by_model": "temporal-llm",
+        },
+    )
+
+    await l1_store.store(
+        normalize_runtime_event(
+            Event(
+                type=EventTypes.USER_MESSAGE,
+                data={"user_id": "u1", "session_id": "s1", "content": "This month I started building the portfolio."},
+                source="chat",
+                level=EventLevel.INFO,
+                correlation_id="evt-current-1",
+                timestamp=320.0,
+            ),
+            event_id="evt-current-1",
+        )
+    )
+    await l1_store.store(
+        normalize_runtime_event(
+            Event(
+                type=EventTypes.AI_RESPONSE,
+                data={"user_id": "u1", "session_id": "s1", "content": "The work moved from exploration into execution."},
+                source="chat",
+                level=EventLevel.INFO,
+                correlation_id="evt-current-2",
+                timestamp=325.0,
+            ),
+            event_id="evt-current-2",
+        )
+    )
+    captured: dict[str, object] = {}
+
+    async def _fake_model(pack, **_kwargs):  # type: ignore[no-untyped-def]
+        captured["previous"] = list(pack.previous_period_summaries)
+        captured["children"] = list(pack.child_period_summaries)
+        return {
+            "content": "The month shifted from exploration toward portfolio execution.",
+            "key_topics": ["portfolio"],
+            "change_and_pattern": {"changes": ["exploration shifted toward execution"], "patterns": []},
+        }
+
+    monkeypatch.setattr(l3_store._temporal_llm_service, "_call_temporal_model", _fake_model)
+
+    summary = await l3_store.generate_temporal_summary(
+        l1_store=l1_store,
+        summary_category="month",
+        period_start=300.0,
+        period_end=400.0,
+    )
+
+    assert summary is not None
+    previous = captured["previous"]
+    children = captured["children"]
+    assert isinstance(previous, list)
+    assert isinstance(children, list)
+    assert previous[0]["summary_id"] == "summary-prev-month"
+    assert children[0]["summary_id"] == "summary-child-week"
+
+
+@pytest.mark.asyncio
 async def test_generate_temporal_summary_falls_back_when_llm_disabled(tmp_path, monkeypatch: pytest.MonkeyPatch):
     from magi.memory.l1.event_store import L1EventStore
     from magi.memory.l3.summary_store import L3SummaryStore

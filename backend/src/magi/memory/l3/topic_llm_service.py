@@ -147,11 +147,13 @@ class TopicSummaryLLMService:
             content=output.content,
             source_event_ids=list(pack.source_event_ids),
         )
-        return candidate, {
+        summary_overrides: dict[str, Any] = {
             "key_topics": list(output.key_topics),
             "key_entities": list(output.key_entities),
-            "importance_aggregate": output.importance_aggregate,
         }
+        if output.importance_aggregate is not None:
+            summary_overrides["importance_aggregate"] = output.importance_aggregate
+        return candidate, summary_overrides
 
     async def generate_topic_candidate(
         self,
@@ -295,7 +297,7 @@ class TopicSummaryLLMService:
         if self._scenario_llm_pool is None:
             return None
         try:
-            return self._scenario_llm_pool.get(LLMScenario.CONTEXT_DECIDER)
+            return self._scenario_llm_pool.get(LLMScenario.MEMORY_SUMMARIZER)
         except Exception as exc:
             logger.debug("L3 thematic topic LLM adapter unavailable: %s", exc)
             return None
