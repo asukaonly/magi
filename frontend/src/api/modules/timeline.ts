@@ -99,6 +99,24 @@ export interface TimelineStateSummary {
   notable_changes: TimelineStateChange[];
 }
 
+export interface TimelineAnchor {
+  anchor_type: string;
+  anchor_id?: string;
+  representative_event_ids?: string[];
+  episode_id?: string | null;
+  time_start: number;
+  time_end: number;
+}
+
+export interface TimelineThemeCard {
+  theme_id: string;
+  title: string;
+  summary: string;
+  source_types: string[];
+  event_count: number;
+  anchor: TimelineAnchor;
+}
+
 export interface TimelineViewportResponse {
   viewport: {
     scale: 'month' | 'week' | 'day' | 'hour';
@@ -118,6 +136,7 @@ export interface TimelineViewportResponse {
   state_bands: TimelineStateBand[];
   state_markers: TimelineStateMarker[];
   source_mix: TimelineSourceMixItem[];
+  theme_cards: TimelineThemeCard[];
   clusters: TimelineClusterBlock[];
   reflections: TimelineReflectionWindow[];
   raw_events: TimelineRawEvent[];

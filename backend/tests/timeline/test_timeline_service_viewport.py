@@ -130,6 +130,8 @@ async def test_timeline_service_returns_month_viewport() -> None:
     assert viewport["state_bands"][0]["source_summary_ids"] == ["summary-1"]
     assert viewport["source_mix"][0]["source_type"] == "chrome_history"
     assert viewport["source_mix"][0]["event_count"] == 1
+    assert viewport["theme_cards"][0]["title"] == "Game, Recovery"
+    assert viewport["theme_cards"][0]["anchor"]["anchor_id"] == "evt-1"
     # Month view now includes clusters
     assert viewport["summary"]["cluster_count"] >= 1
     assert len(viewport["clusters"]) >= 1

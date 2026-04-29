@@ -71,6 +71,8 @@ export type {
   TimelineStateBand,
   TimelineStateMarker,
   TimelineStateSummary,
+  TimelineAnchor,
+  TimelineThemeCard,
   TimelineViewportResponse,
 } from './modules/timeline';
 

@@ -100,6 +100,22 @@ const MONTH_VIEWPORT = {
       duration_seconds: 1200,
     },
   ],
+  theme_cards: [
+    {
+      theme_id: 'reflection:reflection-1',
+      title: 'March reflection',
+      summary: 'A steady month of focused work.',
+      source_types: ['manual_journal'],
+      event_count: 1,
+      anchor: {
+        anchor_type: 'event',
+        anchor_id: 'evt-1',
+        representative_event_ids: ['evt-1'],
+        time_start: 1710000000,
+        time_end: 1712592000,
+      },
+    },
+  ],
   clusters: [],
   reflections: [
     {
@@ -148,6 +164,7 @@ const DAY_VIEWPORT = {
     },
   ],
   source_mix: [],
+  theme_cards: [],
   clusters: [
     {
       block_id: 'cluster-1',
@@ -206,6 +223,7 @@ const WEEK_VIEWPORT = {
   state_bands: MONTH_VIEWPORT.state_bands,
   state_markers: [],
   source_mix: [],
+  theme_cards: [],
   clusters: [
     {
       block_id: 'episode:ep-week-1',
@@ -260,6 +278,7 @@ const HOUR_VIEWPORT = {
   state_bands: MONTH_VIEWPORT.state_bands,
   state_markers: [],
   source_mix: [],
+  theme_cards: [],
   clusters: [],
   reflections: [],
   raw_events: [
@@ -297,6 +316,7 @@ const EMPTY_VIEWPORT = {
   state_bands: [],
   state_markers: [],
   source_mix: [],
+  theme_cards: [],
   clusters: [],
   reflections: [],
   raw_events: [],
@@ -344,15 +364,22 @@ describe('timeline page', () => {
     expect(await screen.findByText('March reflection')).toBeInTheDocument();
     expect(screen.getByText('A steady month of focused work.')).toBeInTheDocument();
     expect(screen.getByText('Focused')).toBeInTheDocument();
-    expect(screen.getByText('timeline.sources.manual_journal')).toBeInTheDocument();
+    expect(screen.getAllByText('timeline.sources.manual_journal').length).toBeGreaterThan(0);
     expect(screen.getByText('timeline.sources.chat')).toBeInTheDocument();
-    expect(screen.getByText('work')).toBeInTheDocument();
-    expect(screen.getByText('recovery')).toBeInTheDocument();
     expect(timelineApi.getViewport).toHaveBeenCalledWith(
       expect.objectContaining({
         scale: 'month',
       })
     );
+  });
+
+  it('opens stable evidence anchors for month theme cards', async () => {
+    const user = userEvent.setup();
+    render(<TimelinePage />);
+
+    await user.click(await screen.findByRole('button', { name: /March reflection/ }));
+
+    await waitFor(() => expect(timelineApi.getContext).toHaveBeenCalledWith('evt-1'));
   });
 
   it('switches semantic units when the scale changes', async () => {

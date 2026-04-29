@@ -75,6 +75,7 @@ class TimelineViewportBuilder:
             self._enrich_cluster_states(clusters, summaries, start=interpreted_query.start, end=interpreted_query.end)
         raw_events = [self._to_raw_event(event) for event in events] if scale == "hour" else []
         source_mix = self._build_source_mix(events=events, clusters=clusters)
+        theme_cards = self._build_theme_cards(reflections=reflections, clusters=clusters)
         overview = self._build_overview(
             scale=scale,
             events=events,
@@ -110,6 +111,7 @@ class TimelineViewportBuilder:
             "state_markers": state_markers,
             "state_transitions": state_transitions,
             "source_mix": source_mix,
+            "theme_cards": theme_cards,
             "clusters": clusters,
             "episodes": episodes if scale in ("day", "week") else [],
             "reflections": reflections if scale == "month" else [],
@@ -347,6 +349,98 @@ class TimelineViewportBuilder:
         if not text:
             return "Unknown"
         return text.title()
+
+    def _build_theme_cards(
+        self,
+        *,
+        reflections: list[dict[str, Any]],
+        clusters: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        cards: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+        for reflection in reflections:
+            title = str(reflection.get("title") or "Reflection window")
+            summary = str(reflection.get("summary") or "")
+            key = (title, summary)
+            if key in seen:
+                continue
+            seen.add(key)
+            event_ids = [str(event_id) for event_id in reflection.get("source_event_ids") or [] if str(event_id).strip()]
+            time_start = float(reflection.get("time_start") or 0.0)
+            time_end = float(reflection.get("time_end") or time_start)
+            cards.append(
+                {
+                    "theme_id": f"reflection:{reflection.get('reflection_id')}",
+                    "title": title,
+                    "summary": summary,
+                    "source_types": self._source_types_for_event_ids(event_ids, clusters),
+                    "event_count": len(event_ids),
+                    "anchor": {
+                        "anchor_type": "event" if event_ids else "reflection",
+                        "anchor_id": event_ids[0] if event_ids else "",
+                        "representative_event_ids": event_ids[:5],
+                        "time_start": time_start,
+                        "time_end": time_end,
+                    },
+                }
+            )
+            if len(cards) >= 6:
+                return cards
+
+        for cluster in sorted(clusters, key=lambda item: int(item.get("event_count") or 0), reverse=True):
+            if len(cards) >= 6:
+                break
+            title = str(cluster.get("label") or "Activity")
+            summary = str(cluster.get("summary") or "")
+            key = (title, summary)
+            if key in seen:
+                continue
+            seen.add(key)
+            cards.append(
+                {
+                    "theme_id": str(cluster.get("block_id") or f"cluster:{len(cards)}"),
+                    "title": title,
+                    "summary": summary,
+                    "source_types": [str(source) for source in cluster.get("source_types") or [] if str(source).strip()],
+                    "event_count": int(cluster.get("event_count") or 0),
+                    "anchor": self._cluster_anchor(cluster),
+                }
+            )
+        return cards
+
+    def _source_types_for_event_ids(self, event_ids: list[str], clusters: list[dict[str, Any]]) -> list[str]:
+        event_id_set = set(event_ids)
+        source_types: list[str] = []
+        if not event_id_set:
+            return source_types
+        for cluster in clusters:
+            representative_ids = {str(event_id) for event_id in cluster.get("representative_event_ids") or []}
+            if not (representative_ids & event_id_set):
+                continue
+            source_types.extend(str(source) for source in cluster.get("source_types") or [] if str(source).strip())
+        return list(dict.fromkeys(source_types))
+
+    @staticmethod
+    def _cluster_anchor(cluster: dict[str, Any]) -> dict[str, Any]:
+        episode_id = str(cluster.get("episode_id") or "")
+        representative_ids = [str(event_id) for event_id in cluster.get("representative_event_ids") or [] if str(event_id).strip()]
+        if episode_id:
+            anchor_type = "episode"
+            anchor_id = f"episode:{episode_id}"
+        elif representative_ids:
+            anchor_type = "event"
+            anchor_id = representative_ids[0]
+        else:
+            anchor_type = "cluster"
+            anchor_id = ""
+        return {
+            "anchor_type": anchor_type,
+            "anchor_id": anchor_id,
+            "representative_event_ids": representative_ids[:5],
+            "episode_id": episode_id or None,
+            "time_start": float(cluster.get("time_start") or 0.0),
+            "time_end": float(cluster.get("time_end") or cluster.get("time_start") or 0.0),
+        }
 
     def _build_source_mix(
         self,

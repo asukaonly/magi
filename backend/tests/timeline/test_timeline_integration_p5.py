@@ -322,5 +322,6 @@ class TestViewportEpisodes:
         assert "state_summary" in result
         assert "state_transitions" in result
         assert "source_mix" in result
+        assert "theme_cards" in result
         assert "state_bands" in result
         assert "clusters" in result

@@ -73,10 +73,9 @@ export const TimelineViewport: React.FC<TimelineViewportProps> = ({ scale, viewp
 
       {scale === 'month' && (
         <MonthOverviewLane
-          reflections={viewport.reflections}
-          stateBands={viewport.state_bands}
-          clusters={viewport.clusters}
           sourceMix={viewport.source_mix}
+          themeCards={viewport.theme_cards}
+          onOpenContext={onOpenContext}
         />
       )}
       {(scale === 'week' || scale === 'day') && (

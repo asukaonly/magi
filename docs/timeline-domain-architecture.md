@@ -83,6 +83,7 @@ Assembled by `TimelineViewportBuilder`. Contains:
 - `state_bands` — valence/stress/engagement bands with confidence
 - `state_markers` — detected state shift points
 - `source_mix` — source contribution aggregate for UI distribution panels
+- `theme_cards` — prioritized review cards with source counts and evidence anchors
 - `clusters` — grouped event blocks (transient or episode-backed)
 - `reflections` — L3 temporal summaries (month scale)
 - `raw_events` — individual events (hour scale)
