@@ -48,6 +48,14 @@ from ..explore.constants import EXPLORE_TASK_REQUEST
 from .history_service import ChatHistoryService
 from .planning_service import ChatPlanningService
 from .prompt_service import ChatPromptService
+from .handler_helpers import (
+    build_attachment_preparation_guidance_block as _build_attachment_preparation_guidance_block,
+    build_memory_query_guidance_block as _build_memory_query_guidance_block,
+    build_scope_guidance_block as _build_scope_guidance_block,
+    resolve_execution_workspace as _resolve_execution_workspace,
+    resolve_turn_workspace_path as _resolve_turn_workspace_path,
+    serialize_ux_plan as _serialize_ux_plan,
+)
 from ...task_orchestrator import TaskOrchestrator
 
 logger = get_logger(__name__)
@@ -64,95 +72,6 @@ _BACKGROUND_TRIGGER_SOURCE_BY_DECISION: dict[
     BackgroundDecisionSource.LLM: BackgroundTaskTriggerSource.CLASSIFIER,
     BackgroundDecisionSource.FALLBACK: BackgroundTaskTriggerSource.RULE,
 }
-
-
-def _build_attachment_preparation_guidance_block(selected_tools: list[str]) -> str:
-    tool_names = set(selected_tools)
-    if "prepare_chat_attachments" not in tool_names:
-        return ""
-    lines = [
-        "# Attachment Preparation Guidance",
-        "Use `memory_query` as the source of truth for historical recall when it is available for this turn.",
-        "Only prepare chat attachments after the relevant entities or assets have already been identified by recall results or reusable reply context.",
-        "If the user wants matched local assets sent in chat, first use the appropriate source resolver tool to obtain concrete `file_paths`, then call `prepare_chat_attachments`.",
-        "Do not pass raw local file paths to the user. Use `prepare_chat_attachments` to import resolved `file_paths` into managed chat attachments.",
-        "After `prepare_chat_attachments` succeeds, the backend attaches the returned `chat_attachments` to the assistant turn as structured message metadata.",
-        "Return normal assistant text only. Do not emit attachment JSON, `attachment_id` values, raw `file_paths`, or any other transport markup in the assistant message.",
-    ]
-    return "\n".join(lines)
-
-
-def _build_memory_query_guidance_block(routing_memory_hint: dict | None) -> str:
-    lines = [
-        "# Memory Query Guidance",
-        "Use `memory_query` before broader search or filesystem tools when the turn is primarily asking for historical recall.",
-        "Use the memory-query result to ground later tool calls instead of re-discovering the same context from scratch.",
-    ]
-    if not isinstance(routing_memory_hint, dict) or not routing_memory_hint:
-        return "\n".join(lines)
-
-    preferred_scope = str(routing_memory_hint.get("preferred_scope") or "").strip()
-    preferred_query = str(routing_memory_hint.get("preferred_query") or "").strip()
-    recall_target = str(routing_memory_hint.get("recall_target") or "").strip()
-    if preferred_scope:
-        lines.append(f"Preferred scope: {preferred_scope}")
-    if preferred_query:
-        lines.append(f"Preferred memory query: {preferred_query}")
-    if recall_target:
-        lines.append(f"Recall target: {recall_target}")
-    return "\n".join(lines)
-
-
-def _build_scope_guidance_block(task_hint: dict | None) -> str:
-    if not isinstance(task_hint, dict) or not task_hint:
-        return ""
-
-    target_locality = str(task_hint.get("target_locality") or "").strip()
-    preferred_resolution_order = str(task_hint.get("preferred_resolution_order") or "").strip()
-    requires_clarification = bool(task_hint.get("requires_clarification"))
-    if not any([target_locality, preferred_resolution_order, requires_clarification]):
-        return ""
-
-    lines = [
-        "# Scope Guidance",
-        "Treat the current workspace as the default search boundary unless the user explicitly names another path.",
-    ]
-    if target_locality:
-        lines.append(f"Target locality: {target_locality}")
-    if preferred_resolution_order:
-        lines.append(f"Preferred resolution order: {preferred_resolution_order}")
-    if requires_clarification:
-        lines.append(
-            "If leaving the workspace would be required and the target location is still ambiguous, ask the user for a path or use web-search before any external local scan."
-        )
-    elif target_locality == "web":
-        lines.append(
-            "Prefer web-search or web-fetch over local repo discovery unless the user explicitly points to a local path."
-        )
-    return "\n".join(lines)
-
-
-def _serialize_ux_plan(intent: object) -> dict | None:
-    plan = getattr(intent, "ux_plan", None)
-    if plan is None:
-        return None
-    to_dict = getattr(plan, "to_dict", None)
-    return to_dict() if callable(to_dict) else plan
-
-
-def _resolve_execution_workspace(request: FunctionCallingRequest) -> str | None:
-    prompt_context = getattr(request, "prompt_context", None)
-    runtime_system = getattr(prompt_context, "runtime_system", None)
-    prompt_cwd = str(getattr(runtime_system, "cwd", "") or "").strip()
-    if prompt_cwd:
-        return prompt_cwd
-    return _resolve_turn_workspace_path(request.context)
-
-
-def _resolve_turn_workspace_path(context: object) -> str | None:
-    latest_payload = getattr(context, "latest_payload", None)
-    workspace_path = str(getattr(latest_payload, "workspace_path", "") or "").strip()
-    return workspace_path or None
 
 
 @dataclass(slots=True)
@@ -661,7 +580,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
             )
             return None
 
-    def _build_detach_signal(self, *, session_id: str) -> DetachSignal | None:
+    def _build_detach_signal(self, *, session_id: str = "") -> DetachSignal | None:
         """Return a fresh :class:`DetachSignal` for this turn, or ``None``.
 
         The signal is only useful when a :class:`BackgroundLaunchService`
@@ -673,7 +592,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
         if self._deps.background_launch_service is None:
             return None
         signal = DetachSignal()
-        coordinator = self._deps.session_run_coordinator
+        coordinator = getattr(self._deps, "session_run_coordinator", None)
         bind_signal = getattr(coordinator, "bind_detach_signal", None)
         if coordinator is not None and callable(bind_signal) and session_id:
             bind_signal(session_id, signal)

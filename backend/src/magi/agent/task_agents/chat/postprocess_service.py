@@ -28,6 +28,7 @@ from .postprocess_intent import ChatPostprocessIntentMixin
 from .postprocess_memory import ChatPostprocessMemoryMixin
 from .postprocess_outcomes import ChatPostprocessOutcomeMixin
 from .postprocess_session import ChatPostprocessSessionMixin
+from .postprocess_constants import CHAT_TOOL_LOOP_STEP_EVENT_TYPE
 from .postprocess_tool_events import ChatPostprocessToolEventMixin
 from .postprocess_trace import ChatPostprocessTraceMixin
 from .session_run_coordinator import TurnSupersession
