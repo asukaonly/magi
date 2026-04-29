@@ -5,13 +5,13 @@ from typing import Any
 
 import aiosqlite
 
-from ...core.sqlite import sqlite_connection_async
-from ..embedding.chunking import ChunkedText, chunk_text
-from ..embedding.embedding_pipeline import MemoryEmbeddingPipeline
-from ..embedding.embedding_service import EmbeddingProfile, MemoryEmbeddingService
-from ..embedding.embedding_text_builders import build_l4_embedding_text
-from ..embedding.sqlite_vec_index import SqliteVecIndex, VectorSearchHit
-from .procedural_memory_schema import EMBEDDING_TEXT_BUILDER_VERSION, SKILL_CHUNKS_TABLE
+from ....core.sqlite import sqlite_connection_async
+from ...embedding.chunking import ChunkedText, chunk_text
+from ...embedding.embedding_pipeline import MemoryEmbeddingPipeline
+from ...embedding.embedding_service import EmbeddingProfile, MemoryEmbeddingService
+from ...embedding.embedding_text_builders import build_l4_embedding_text
+from ...embedding.sqlite_vec_index import SqliteVecIndex, VectorSearchHit
+from ..storage.schema import EMBEDDING_TEXT_BUILDER_VERSION, SKILL_CHUNKS_TABLE
 
 
 def build_embedding_pipeline(

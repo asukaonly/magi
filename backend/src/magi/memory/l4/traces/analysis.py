@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections.abc import Iterable, MutableMapping
 from typing import Any, Mapping
 
-from .procedural_memory_serialization import row_to_execution_trace_dict, truncate_value
+from ..storage.serialization import row_to_execution_trace_dict, truncate_value
 
 
 def merge_stratified_trace_rows(

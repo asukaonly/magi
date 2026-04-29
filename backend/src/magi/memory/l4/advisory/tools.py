@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from .procedural_memory_serialization import compute_context_fit, extract_strategy_hint
+from ..storage.serialization import compute_context_fit, extract_strategy_hint
 
 
 def build_tool_advisory(

@@ -215,16 +215,15 @@ Recent progress:
 - Config API Pydantic schemas now live in `config_schemas.py`.
 - Personality API Pydantic schemas now live in `personality_config_schemas.py`.
 - Chat planning request-profile and seed-subtask heuristics now live in `planning_heuristics.py`.
-- L4 procedural memory schema constants now live in `procedural_memory_schema.py`.
-- L4 procedural memory schema initialization now lives in `procedural_memory_schema.py`.
-- L4 procedural memory serialization, trace row, and skill identity helpers now live in `procedural_memory_serialization.py`.
-- L4 procedural memory tool advisory helpers now live in `procedural_memory_advisory.py`.
-- L4 procedural memory execution trace merge and recovery helpers now live in `procedural_memory_traces.py`.
-- L4 procedural memory record write helpers now live in `procedural_memory_records.py`.
-- L4 procedural memory execution trace write helpers now live in `procedural_memory_trace_store.py`.
-- L4 procedural memory search result helpers now live in `procedural_memory_search.py`.
-- L4 procedural memory record update-state helpers now live in `procedural_memory_updates.py`.
-- L4 procedural memory embedding and chunk persistence helpers now live in `procedural_memory_embeddings.py`.
+- L4 procedural memory schema constants and initialization now live in `l4/storage/schema.py`.
+- L4 procedural memory serialization, trace row, and skill identity helpers now live in `l4/storage/serialization.py`.
+- L4 procedural memory tool advisory helpers now live in `l4/advisory/tools.py`.
+- L4 procedural memory execution trace merge and recovery helpers now live in `l4/traces/analysis.py`.
+- L4 procedural memory record write helpers now live in `l4/storage/records.py`.
+- L4 procedural memory execution trace write helpers now live in `l4/traces/store.py`.
+- L4 procedural memory search result helpers now live in `l4/retrieval/search.py`.
+- L4 procedural memory record update-state helpers now live in `l4/learning/updates.py`.
+- L4 procedural memory embedding and chunk persistence helpers now live in `l4/embeddings/skills.py`.
 - L3 summary store schema helpers now live in `l3/storage/schema.py`.
 - L3 summary store serialization helpers now live in `l3/storage/serialization.py`.
 - L3 summary evidence link helpers now live in `l3/evidence/links.py`.

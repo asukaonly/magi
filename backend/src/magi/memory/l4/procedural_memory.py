@@ -19,11 +19,11 @@ from ..embedding.embedding_service import MemoryEmbeddingService
 from ..event_contracts import MemoryEvent
 from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
 from ..embedding.sqlite_vec_index import SqliteVecIndex
-from .procedural_memory_advisory import (
+from .advisory.tools import (
     build_tool_advisory,
     is_tool_advisory_notable,
 )
-from .procedural_memory_schema import (
+from .storage.schema import (
     DEFAULT_STRATEGY_EXTRACTION_THRESHOLD,
     EMBEDDING_STATUS_DISABLED,
     EMBEDDING_STATUS_READY,
@@ -38,7 +38,7 @@ from .procedural_memory_schema import (
     _ADAPTIVE_MAX_THRESHOLD,
     ensure_procedural_memory_schema,
 )
-from .procedural_memory_search import (
+from .retrieval.search import (
     escaped_skill_like_pattern,
     fts_backfill_row,
     ids_from_rows,
@@ -47,13 +47,13 @@ from .procedural_memory_search import (
     ranked_semantic_skills,
     rows_to_bm25_pairs,
 )
-from .procedural_memory_serialization import (
+from .storage.serialization import (
     adaptive_extraction_threshold,
     extract_skill_identity,
     row_to_execution_trace_dict,
     row_to_skill_dict,
 )
-from .procedural_memory_embeddings import (
+from .embeddings.skills import (
     build_embedding_pipeline,
     build_skill_embedding_chunks,
     build_skill_embedding_text,
@@ -63,23 +63,23 @@ from .procedural_memory_embeddings import (
     replace_skill_chunks,
     update_skill_embedding_state,
 )
-from .procedural_memory_traces import (
+from .traces.analysis import (
     apply_recovery_annotations,
     duration_baseline_from_row,
     failure_turn_ids,
     merge_stratified_trace_rows,
     recovery_map_from_rows,
 )
-from .procedural_memory_updates import (
+from .learning.updates import (
     build_new_skill_record_state,
     build_updated_skill_record_state,
 )
-from .procedural_memory_records import (
+from .storage.records import (
     insert_new_skill_record,
     sync_skill_fts,
     update_skill_record,
 )
-from .procedural_memory_trace_store import insert_execution_trace
+from .traces.store import insert_execution_trace
 from .strategy_extraction import ExtractedStrategy, L4StrategyExtractor
 
 logger = logging.getLogger(__name__)

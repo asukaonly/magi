@@ -5,9 +5,9 @@ import time
 import uuid
 from typing import Any
 
-from ...core.sqlite import sqlite_connection_async
-from ..event_contracts import MemoryEvent
-from .procedural_memory_schema import EXECUTION_TRACES_TABLE, MAX_TRACES_PER_SKILL
+from ....core.sqlite import sqlite_connection_async
+from ...event_contracts import MemoryEvent
+from ..storage.schema import EXECUTION_TRACES_TABLE, MAX_TRACES_PER_SKILL
 
 
 async def insert_execution_trace(

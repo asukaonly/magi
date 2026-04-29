@@ -5,7 +5,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from .procedural_memory_serialization import rolling_average
+from ..storage.serialization import rolling_average
 
 
 @dataclass(frozen=True)

@@ -4,8 +4,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from ..hybrid_retrieval.fts_utils import tokenize_for_fts
-from .procedural_memory_serialization import row_to_skill_dict
+from ...hybrid_retrieval.fts_utils import tokenize_for_fts
+from ..storage.serialization import row_to_skill_dict
 
 
 def plain_skill_like_pattern(query: str) -> str:

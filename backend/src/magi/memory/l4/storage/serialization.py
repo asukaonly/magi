@@ -5,8 +5,8 @@ import json
 import math
 from typing import Any, Mapping, Optional
 
-from ..event_contracts import MemoryEvent
-from .procedural_memory_schema import EMBEDDING_STATUS_DISABLED, _ADAPTIVE_MAX_THRESHOLD
+from ...event_contracts import MemoryEvent
+from .schema import EMBEDDING_STATUS_DISABLED, _ADAPTIVE_MAX_THRESHOLD
 
 
 def truncate_value(value: Any, max_chars: int) -> Optional[str]:

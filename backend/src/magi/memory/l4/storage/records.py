@@ -6,8 +6,8 @@ from typing import Any
 
 import aiosqlite
 
-from ..hybrid_retrieval.fts_utils import tokenize_for_fts
-from .procedural_memory_updates import NewSkillRecordState, UpdatedSkillRecordState
+from ...hybrid_retrieval.fts_utils import tokenize_for_fts
+from ..learning.updates import NewSkillRecordState, UpdatedSkillRecordState
 
 
 async def insert_new_skill_record(
