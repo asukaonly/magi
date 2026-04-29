@@ -19,7 +19,6 @@ from ..embedding.chunking import ChunkedText
 from ..embedding.embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
 from ..embedding.embedding_service import EmbeddingProfile, MemoryEmbeddingService
 from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
-from ..hybrid_retrieval.handlers import rrf_fuse
 from ..l1.event_store import L1EventStore
 from ..embedding.sqlite_vec_index import SqliteVecIndex, VectorSearchHit
 from .evidence_selector import select_temporal_evidence
@@ -42,6 +41,17 @@ from .summary_store_schema import (
     L3_SUMMARY_SCHEMA_SQL,
     SUMMARY_CHUNKS_TABLE,
     ensure_summary_store_schema,
+)
+from .summary_store_search import (
+    build_fetch_by_ids_query,
+    build_keyword_search_query,
+    fts_backfill_row,
+    fused_summary_ids,
+    ids_from_rows,
+    ordered_summary_dicts_from_rows,
+    ranked_vector_summaries,
+    rows_to_bm25_pairs,
+    search_path_ids,
 )
 from .summary_store_links import (
     build_summary_event_link_rows,
@@ -378,9 +388,7 @@ class L3SummaryStore:
 
         results_or_errors = await asyncio.gather(bm25_task, semantic_task, keyword_task, return_exceptions=True)
 
-        bm25_ids: List[str] = [summary_id for summary_id, _score in results_or_errors[0]] if isinstance(results_or_errors[0], list) else []
-        semantic_ids: List[str] = [item["summary_id"] for item in results_or_errors[1]] if isinstance(results_or_errors[1], list) else []
-        keyword_ids: List[str] = list(results_or_errors[2]) if isinstance(results_or_errors[2], list) else []
+        bm25_ids, semantic_ids, keyword_ids = search_path_ids(results_or_errors)
 
         for index, result in enumerate(results_or_errors):
             if isinstance(result, BaseException):
@@ -389,12 +397,12 @@ class L3SummaryStore:
         if not bm25_ids and not semantic_ids and not keyword_ids:
             return []
 
-        fused = rrf_fuse(
-            [bm25_ids, semantic_ids, keyword_ids],
-            [1.0, 1.0, 1.0],
-            k=60,
+        summary_ids = fused_summary_ids(
+            bm25_ids=bm25_ids,
+            semantic_ids=semantic_ids,
+            keyword_ids=keyword_ids,
+            fetch_k=fetch_k,
         )
-        summary_ids = [summary_id for summary_id, _score in fused[:fetch_k]]
         if not summary_ids:
             return []
         summaries = await self.fetch_by_ids(
@@ -649,7 +657,7 @@ class L3SummaryStore:
                     ),
                 ) as cursor:
                     rows = await cursor.fetchall()
-                return [(str(row[0]), float(row[1])) for row in rows]
+                return rows_to_bm25_pairs(rows)
             except Exception as exc:
                 logger.warning("FTS5 BM25 search failed for L3 summaries: %s", exc)
                 return []
@@ -667,9 +675,7 @@ class L3SummaryStore:
             ) as cursor:
                 batch: list[tuple[str, str]] = []
                 async for row in cursor:
-                    summary_id = str(row[0])
-                    raw = str(row[1])
-                    batch.append((summary_id, tokenize_for_fts(raw)))
+                    batch.append(fts_backfill_row(row))
                     if len(batch) >= batch_size:
                         await db.executemany(
                             "INSERT INTO l3_summaries_fts(summary_id, content) VALUES (?, ?)",
@@ -871,19 +877,12 @@ class L3SummaryStore:
             summary_type=summary_type,
             summary_category=summary_category,
         )
-        summaries_by_id = {str(summary["summary_id"]): summary for summary in summaries}
-        ranked: List[Dict[str, Any]] = []
-        for summary_id in summary_ids:
-            summary = summaries_by_id.get(summary_id)
-            if summary is None:
-                continue
-            summary["matched_chunks"] = matched_chunks.get(summary_id, [])
-            if summary["matched_chunks"]:
-                summary["distance"] = float(summary["matched_chunks"][0]["distance"])
-            ranked.append(summary)
-            if len(ranked) >= limit:
-                break
-        return ranked
+        return ranked_vector_summaries(
+            summaries=summaries,
+            summary_ids=summary_ids,
+            matched_chunks=matched_chunks,
+            limit=limit,
+        )
 
     async def keyword_search(
         self,
@@ -894,21 +893,16 @@ class L3SummaryStore:
         limit: int = 50,
     ) -> List[str]:
         """Return summary IDs matching *query* via LIKE keyword search."""
-        escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        sql = "SELECT summary_id FROM summaries WHERE content LIKE ? ESCAPE '\\'"
-        args: List[Any] = [f"%{escaped}%"]
-        if summary_type:
-            sql += " AND summary_type = ?"
-            args.append(summary_type)
-        if summary_category:
-            sql += " AND summary_category = ?"
-            args.append(summary_category)
-        sql += " ORDER BY updated_at DESC LIMIT ?"
-        args.append(int(limit))
+        sql, args = build_keyword_search_query(
+            query=query,
+            summary_type=summary_type,
+            summary_category=summary_category,
+            limit=limit,
+        )
         async with sqlite_connection_async(self.db_path) as db:
             async with db.execute(sql, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
-        return [str(row[0]) for row in rows]
+        return ids_from_rows(rows)
 
     async def fetch_by_ids(
         self,
@@ -919,21 +913,16 @@ class L3SummaryStore:
     ) -> List[Dict[str, Any]]:
         if not summary_ids:
             return []
-        placeholders = ", ".join("?" for _ in summary_ids)
-        sql = f"SELECT * FROM summaries WHERE summary_id IN ({placeholders})"
-        args: List[Any] = list(summary_ids)
-        if summary_type:
-            sql += " AND summary_type = ?"
-            args.append(summary_type)
-        if summary_category:
-            sql += " AND summary_category = ?"
-            args.append(summary_category)
+        sql, args = build_fetch_by_ids_query(
+            summary_ids=summary_ids,
+            summary_type=summary_type,
+            summary_category=summary_category,
+        )
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(sql, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
-        summaries_by_id = {str(row["summary_id"]): self._row_to_dict(row) for row in rows}
-        return [summaries_by_id[summary_id] for summary_id in summary_ids if summary_id in summaries_by_id]
+        return ordered_summary_dicts_from_rows(rows=rows, summary_ids=summary_ids)
 
     async def _schedule_summary_embedding(self, summary: Dict[str, Any]) -> None:
         if not self._vectors_enabled():

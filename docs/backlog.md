@@ -218,6 +218,7 @@ Recent progress:
 - L3 summary store schema helpers now live in `summary_store_schema.py`.
 - L3 summary store serialization helpers now live in `summary_store_serialization.py`.
 - L3 summary evidence link helpers now live in `summary_store_links.py`.
+- L3 summary store search result helpers now live in `summary_store_search.py`.
 - L3 summary store embedding helpers now live in `summary_store_embeddings.py`.
 - Worker prompt and tool-profile helpers now live in `worker_prompting.py`.
 - Worker status, await, and run-state serialization helpers now live in `worker_status.py`.
