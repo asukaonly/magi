@@ -3,26 +3,21 @@ import { useTranslation } from 'react-i18next';
 import {
   AlertTriangle,
   ArrowRight,
-  Brain,
   CheckCircle2,
-  Clock,
   Database,
-  FileText,
   HardDrive,
-  Layers,
   Search,
-  Sparkles,
-  Wrench,
-  type LucideIcon,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { SelectField } from '@/components/config-forms/fields';
 import { useMemory } from '@/hooks/useMemory';
 import type { MemorySearchQueryMode } from '@/api/modules/memory';
 import MemoryPageFrame, {
   MEMORY_FILTER_INPUT_CLASS,
+  MEMORY_FILTER_SELECT_CLASS,
   MEMORY_EMPTY_PANEL_CLASS,
 } from './MemoryPageFrame';
 
@@ -51,14 +46,9 @@ const SEARCH_MODE_QUERY_MODE: Record<MemoryWorkbenchSearchMode, MemorySearchQuer
   episodes: 'episode_recall',
 };
 
-const SEARCH_MODE_ICONS: Record<MemoryWorkbenchSearchMode, LucideIcon> = {
-  auto: Sparkles,
-  events: Database,
-  knowledge: Brain,
-  summaries: FileText,
-  skills: Wrench,
-  state: Layers,
-  episodes: Clock,
+type SearchSubmission = {
+  query: string;
+  mode: MemoryWorkbenchSearchMode;
 };
 
 type SearchResultKind =
@@ -117,6 +107,7 @@ const MemoryOverviewMetric = ({
 export const MemoryOverviewPage = () => {
   const { t } = useTranslation('app');
   const [searchMode, setSearchMode] = useState<MemoryWorkbenchSearchMode>('auto');
+  const [submittedSearch, setSubmittedSearch] = useState<SearchSubmission | null>(null);
   const {
     loading,
     stats,
@@ -129,7 +120,20 @@ export const MemoryOverviewPage = () => {
   } = useMemory({ initialLoadScope: 'overview' });
 
   const selectedQueryMode = SEARCH_MODE_QUERY_MODE[searchMode];
-  const runSearch = () => void handleSearch(selectedQueryMode);
+  const normalizedSearchQuery = searchQuery.trim();
+  const searchModeOptions = SEARCH_MODES.map((mode) => ({
+    value: mode,
+    label: t(`memory.overview.searchModes.${mode}.label`),
+  }));
+  const runSearch = () => {
+    if (!normalizedSearchQuery) {
+      setSubmittedSearch(null);
+      void handleSearch(selectedQueryMode);
+      return;
+    }
+    setSubmittedSearch({ query: normalizedSearchQuery, mode: searchMode });
+    void handleSearch(selectedQueryMode);
+  };
 
   const eventItems = toSearchEntries(searchResults.l1_events, 'event');
   const knowledgeItems = [
@@ -179,7 +183,11 @@ export const MemoryOverviewPage = () => {
   ];
 
   const totalSearchHits = searchSections.reduce((sum, section) => sum + section.count, 0);
-  const hasSearched = searchQuery.trim().length > 0;
+  const hasSearched = submittedSearch !== null
+    && submittedSearch.query === normalizedSearchQuery
+    && submittedSearch.mode === searchMode;
+  const submittedQuery = submittedSearch?.query ?? normalizedSearchQuery;
+  const submittedMode = submittedSearch?.mode ?? searchMode;
   const curatedEvidence = rankSearchEntries([
     ...eventItems,
     ...knowledgeItems,
@@ -253,7 +261,19 @@ export const MemoryOverviewPage = () => {
       }
     >
       <section data-testid="memory-overview-search" className="space-y-4">
-        <div className="flex gap-2">
+        <div className="grid gap-2 md:grid-cols-[168px_minmax(0,1fr)_auto]">
+          <div data-testid="memory-overview-search-modes">
+            <SelectField
+              ariaLabel={t('memory.overview.searchModeLabel')}
+              value={searchMode}
+              onChange={(value) => setSearchMode((value || 'auto') as MemoryWorkbenchSearchMode)}
+              options={searchModeOptions}
+              placeholder={t('memory.overview.searchModes.auto.label')}
+              allowEmpty={false}
+              triggerClassName={`${MEMORY_FILTER_SELECT_CLASS} justify-between shadow-none`}
+              menuClassName="rounded-sm border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))] shadow-[0_10px_20px_rgba(15,23,42,0.06)]"
+            />
+          </div>
           <Input
             id="memory-overview-search"
             className={`flex-1 ${MEMORY_FILTER_INPUT_CLASS}`}
@@ -265,7 +285,7 @@ export const MemoryOverviewPage = () => {
             }}
           />
           <Button
-            className="h-9 shrink-0 rounded-xl px-5"
+            className="h-9 shrink-0 rounded-sm border border-[hsl(var(--memory-accent)/0.42)] bg-[hsl(var(--memory-accent))] px-4 text-sm text-[hsl(var(--memory-accent-foreground))] shadow-none hover:bg-[hsl(var(--memory-accent)/0.92)]"
             onClick={runSearch}
             disabled={searching}
           >
@@ -274,32 +294,14 @@ export const MemoryOverviewPage = () => {
           </Button>
         </div>
 
-        <div data-testid="memory-overview-search-modes" className="flex flex-wrap gap-2">
-          {SEARCH_MODES.map((mode) => {
-            const Icon = SEARCH_MODE_ICONS[mode];
-            const selected = searchMode === mode;
-            return (
-              <button
-                key={mode}
-                type="button"
-                aria-pressed={selected}
-                title={t(`memory.overview.searchModes.${mode}.description`)}
-                className={`flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors ${selected
-                  ? 'border-[hsl(var(--memory-accent)/0.62)] bg-[hsl(var(--memory-accent-soft)/0.72)] text-[hsl(var(--memory-accent))]'
-                  : 'border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.48)] text-[hsl(var(--memory-body))] hover:border-[hsl(var(--memory-accent)/0.38)] hover:bg-[hsl(var(--memory-panel-subtle)/0.68)]'
-                }`}
-                onClick={() => setSearchMode(mode)}
-              >
-                <Icon className="h-3.5 w-3.5" />
-                <span>{t(`memory.overview.searchModes.${mode}.label`)}</span>
-              </button>
-            );
-          })}
-        </div>
-
         {hasSearched && (
           <div data-testid="memory-overview-search-results" className="space-y-3">
-            {totalSearchHits > 0 ? (
+            {searching ? (
+              <div className={`${MEMORY_EMPTY_PANEL_CLASS} flex items-center gap-2`}>
+                <LoadingSpinner className="h-4 w-4" />
+                {t('memory.overview.searchingResults')}
+              </div>
+            ) : totalSearchHits > 0 ? (
               <>
                 <div className="rounded-xl border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.58)] px-4 py-3">
                   <div className="flex flex-wrap items-start justify-between gap-3">
@@ -310,14 +312,14 @@ export const MemoryOverviewPage = () => {
                       <div className="mt-1 text-xs leading-5 text-[hsl(var(--memory-muted))]">
                         {t('memory.overview.searchOverviewBody', {
                           total: totalSearchHits,
-                          query: searchQuery.trim(),
-                          mode: t(`memory.overview.searchModes.${searchMode}.label`),
+                          query: submittedQuery,
+                          mode: t(`memory.overview.searchModes.${submittedMode}.label`),
                         })}
                       </div>
                     </div>
                     <span className="rounded-sm bg-[hsl(var(--memory-accent-soft)/0.72)] px-2 py-1 text-xs font-medium text-[hsl(var(--memory-accent))]">
                       {t('memory.overview.modeBadge', {
-                        mode: t(`memory.overview.searchModes.${searchMode}.label`),
+                        mode: t(`memory.overview.searchModes.${submittedMode}.label`),
                       })}
                     </span>
                   </div>

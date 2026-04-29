@@ -15,6 +15,7 @@ const TRANSLATION_MAP: Record<string, string> = {
   'memory.pages.reflection.categories.task_reflection': 'Task Reflection',
   'memory.search': 'Search',
   'memory.overview.searchResultsTitle': 'Search results',
+  'memory.overview.searchModeLabel': 'Search scope',
   'memory.overview.searchOverviewTitle': 'Memory signals',
   'memory.overview.curatedEvidenceTitle': 'Curated evidence',
   'memory.overview.layeredResultsTitle': 'Layered results',
@@ -41,6 +42,8 @@ const TRANSLATION_MAP: Record<string, string> = {
   'memory.overview.resolvedModeLabel': 'Resolved',
   'memory.overview.executedLayersLabel': 'Executed',
   'memory.overview.noneValue': 'None',
+  'memory.overview.searchingResults': 'Searching memory signals...',
+  'memory.overview.noSearchResults': 'No matching memory surfaced yet.',
   'memory.overview.resultKinds.event': 'Event',
   'memory.overview.resultKinds.entity': 'Entity',
   'memory.overview.resultKinds.reflection': 'Reflection',
@@ -222,12 +225,33 @@ describe('memory page design', () => {
     expect(screen.getByTestId('memory-overview-stats')).toHaveTextContent('0 B');
     expect(screen.getByTestId('memory-overview-search')).toBeInTheDocument();
     expect(screen.getByTestId('memory-overview-search-modes')).toHaveTextContent('Smart');
-    expect(screen.getByTestId('memory-overview-search-modes')).toHaveTextContent('Events');
     expect(screen.getByTestId('memory-overview-attention')).toBeInTheDocument();
     expect(screen.queryByTestId('memory-overview-search-results')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.refresh' })).toBeInTheDocument();
     expect(screen.getByPlaceholderText('memory.searchPlaceholder')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'memory.overview.openBreakers' })).toHaveAttribute('href', '/memory/skills');
+  });
+
+  it('does not render empty search results before the user submits the query', () => {
+    memoryState.searchQuery = 'lake';
+    memoryState.searchResults = {
+      l0_workbench: [],
+      l1_events: [],
+      l2_entity_cards: [],
+      l2_relationships: [],
+      l3_reflections: [],
+      l4_procedures: [],
+      trace: {},
+    };
+
+    render(
+      <MemoryRouter>
+        <MemoryOverviewPage />
+      </MemoryRouter>
+    );
+
+    expect(screen.queryByTestId('memory-overview-search-results')).not.toBeInTheDocument();
+    expect(screen.queryByText('No matching memory surfaced yet.')).not.toBeInTheDocument();
   });
 
   it('renders search hits as readable memory previews instead of raw identifiers', () => {
@@ -238,6 +262,8 @@ describe('memory page design', () => {
         <MemoryOverviewPage />
       </MemoryRouter>
     );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 
     expect(screen.getByTestId('memory-overview-search-results')).toHaveTextContent('Memory signals');
     expect(screen.getByTestId('memory-overview-search-results')).toHaveTextContent('Curated evidence');
@@ -255,6 +281,7 @@ describe('memory page design', () => {
       </MemoryRouter>
     );
 
+    fireEvent.click(screen.getByRole('button', { name: 'Search scope' }));
     fireEvent.click(screen.getByRole('button', { name: 'Events' }));
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 
