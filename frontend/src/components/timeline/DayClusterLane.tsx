@@ -1,12 +1,20 @@
 import React from 'react';
+import { Pencil, Pin } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import type { TimelineClusterBlock } from '@/api/modules/timeline';
+import type { EpisodeAnnotationPayload } from '@/api/modules/memory';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { Textarea } from '@/components/ui/textarea';
 
 interface DayClusterLaneProps {
   scale: 'week' | 'day';
   clusters: TimelineClusterBlock[];
+  episodeAnnotationPendingId?: string | null;
   onOpenContext: (anchorId: string) => void;
+  onAnnotateEpisode?: (episodeId: string, payload: EpisodeAnnotationPayload) => Promise<void> | void;
 }
 
 type SegmentKey = 'night' | 'morning' | 'afternoon' | 'evening';
@@ -105,10 +113,40 @@ const groupDayClusters = (
 
 const ClusterRow: React.FC<{
   cluster: TimelineClusterBlock;
+  episodeAnnotationPendingId?: string | null;
   onOpenContext: (anchorId: string) => void;
-}> = ({ cluster, onOpenContext }) => {
+  onAnnotateEpisode?: (episodeId: string, payload: EpisodeAnnotationPayload) => Promise<void> | void;
+}> = ({ cluster, episodeAnnotationPendingId, onOpenContext, onAnnotateEpisode }) => {
   const { t } = useTranslation('app');
+  const [editing, setEditing] = React.useState(false);
+  const [labelDraft, setLabelDraft] = React.useState('');
+  const [noteDraft, setNoteDraft] = React.useState('');
   const anchorId = resolveClusterAnchorId(cluster);
+  const pending = cluster.episode_id ? episodeAnnotationPendingId === cluster.episode_id : false;
+  const canAnnotate = Boolean(cluster.episode_id && onAnnotateEpisode);
+
+  const openEditor = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    setLabelDraft(cluster.user_label || cluster.label || '');
+    setNoteDraft(cluster.user_note || '');
+    setEditing(true);
+  };
+
+  const handlePin = async (event: React.MouseEvent) => {
+    event.stopPropagation();
+    if (!cluster.episode_id || !onAnnotateEpisode) return;
+    await onAnnotateEpisode(cluster.episode_id, { user_pinned: !cluster.user_pinned });
+  };
+
+  const handleSaveAnnotation = async (event: React.MouseEvent) => {
+    event.stopPropagation();
+    if (!cluster.episode_id || !onAnnotateEpisode) return;
+    await onAnnotateEpisode(cluster.episode_id, {
+      user_label: labelDraft.trim(),
+      user_note: noteDraft.trim(),
+    });
+    setEditing(false);
+  };
 
   return (
     <article
@@ -140,6 +178,39 @@ const ClusterRow: React.FC<{
           <span className="shrink-0 text-xs text-muted-foreground/60">
             {cluster.event_count} {t('timeline.cluster.events')}
           </span>
+          {cluster.user_pinned ? (
+            <span className="shrink-0 rounded-md bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary">
+              {t('timeline.episode.pinned')}
+            </span>
+          ) : null}
+          {canAnnotate ? (
+            <div className="ml-auto flex shrink-0 items-center gap-1 opacity-80 transition-opacity group-hover:opacity-100">
+              <button
+                type="button"
+                aria-label={t(cluster.user_pinned ? 'timeline.episode.unpin' : 'timeline.episode.pin')}
+                title={t(cluster.user_pinned ? 'timeline.episode.unpin' : 'timeline.episode.pin')}
+                disabled={pending}
+                onClick={handlePin}
+                className={`inline-flex h-7 w-7 items-center justify-center rounded-md border transition-colors disabled:opacity-50 ${
+                  cluster.user_pinned
+                    ? 'border-primary/35 bg-primary/10 text-primary'
+                    : 'border-border/50 text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {pending ? <LoadingSpinner className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
+              </button>
+              <button
+                type="button"
+                aria-label={t('timeline.episode.edit')}
+                title={t('timeline.episode.edit')}
+                disabled={pending}
+                onClick={openEditor}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/50 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ) : null}
         </div>
 
         {cluster.summary && (
@@ -163,12 +234,55 @@ const ClusterRow: React.FC<{
             </span>
           ))}
         </div>
+        {cluster.user_note ? (
+          <p className="rounded-md bg-muted/35 px-2 py-1.5 text-xs leading-relaxed text-muted-foreground">
+            {cluster.user_note}
+          </p>
+        ) : null}
+        {editing ? (
+          <div className="space-y-2 rounded-md border border-border/40 bg-background/70 p-3" onClick={(event) => event.stopPropagation()}>
+            <Input
+              aria-label={t('timeline.episode.label')}
+              value={labelDraft}
+              onChange={(event) => setLabelDraft(event.target.value)}
+            />
+            <Textarea
+              aria-label={t('timeline.episode.note')}
+              value={noteDraft}
+              onChange={(event) => setNoteDraft(event.target.value)}
+              className="min-h-[72px] resize-none"
+            />
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setEditing(false);
+                }}
+              >
+                {t('timeline.episode.cancel')}
+              </Button>
+              <Button type="button" size="sm" disabled={pending} onClick={(event) => void handleSaveAnnotation(event)}>
+                {pending ? <LoadingSpinner className="h-3.5 w-3.5" /> : null}
+                {t('timeline.episode.save')}
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </div>
     </article>
   );
 };
 
-export const DayClusterLane: React.FC<DayClusterLaneProps> = ({ scale, clusters, onOpenContext }) => {
+export const DayClusterLane: React.FC<DayClusterLaneProps> = ({
+  scale,
+  clusters,
+  episodeAnnotationPendingId,
+  onOpenContext,
+  onAnnotateEpisode,
+}) => {
   const { t } = useTranslation('app');
   const sortedClusters = [...clusters].sort((a, b) => a.time_start - b.time_start);
   const groups = scale === 'week'
@@ -189,7 +303,13 @@ export const DayClusterLane: React.FC<DayClusterLaneProps> = ({ scale, clusters,
             </div>
             <div className="space-y-1">
               {group.clusters.map((cluster) => (
-                <ClusterRow key={cluster.block_id} cluster={cluster} onOpenContext={onOpenContext} />
+                <ClusterRow
+                  key={cluster.block_id}
+                  cluster={cluster}
+                  episodeAnnotationPendingId={episodeAnnotationPendingId}
+                  onOpenContext={onOpenContext}
+                  onAnnotateEpisode={onAnnotateEpisode}
+                />
               ))}
             </div>
           </section>

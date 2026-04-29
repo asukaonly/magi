@@ -2,6 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { TimelineViewportResponse } from '@/api/modules/timeline';
+import type { EpisodeAnnotationPayload } from '@/api/modules/memory';
 import DayClusterLane from '@/components/timeline/DayClusterLane';
 import HourDetailLane from '@/components/timeline/HourDetailLane';
 import MonthOverviewLane from '@/components/timeline/MonthOverviewLane';
@@ -10,7 +11,9 @@ import StateBandOverlay from '@/components/timeline/StateBandOverlay';
 interface TimelineViewportProps {
   scale: 'month' | 'week' | 'day' | 'hour';
   viewport: TimelineViewportResponse;
+  episodeAnnotationPendingId?: string | null;
   onOpenContext: (anchorId: string) => void;
+  onAnnotateEpisode?: (episodeId: string, payload: EpisodeAnnotationPayload) => Promise<void> | void;
 }
 
 const hasViewportContent = (viewport: TimelineViewportResponse): boolean =>
@@ -32,7 +35,13 @@ const EmptyViewport: React.FC = () => {
   );
 };
 
-export const TimelineViewport: React.FC<TimelineViewportProps> = ({ scale, viewport, onOpenContext }) => {
+export const TimelineViewport: React.FC<TimelineViewportProps> = ({
+  scale,
+  viewport,
+  episodeAnnotationPendingId,
+  onOpenContext,
+  onAnnotateEpisode,
+}) => {
   const { t } = useTranslation('app');
 
   if (!hasViewportContent(viewport)) {
@@ -84,7 +93,13 @@ export const TimelineViewport: React.FC<TimelineViewportProps> = ({ scale, viewp
             {t(scale === 'week' ? 'timeline.week.periods' : 'timeline.day.periods')}
           </h3>
           {viewport.clusters.length > 0 ? (
-            <DayClusterLane scale={scale} clusters={viewport.clusters} onOpenContext={onOpenContext} />
+            <DayClusterLane
+              scale={scale}
+              clusters={viewport.clusters}
+              episodeAnnotationPendingId={episodeAnnotationPendingId}
+              onOpenContext={onOpenContext}
+              onAnnotateEpisode={onAnnotateEpisode}
+            />
           ) : (
             <div className="rounded-lg border border-dashed border-border/60 px-4 py-6 text-sm text-muted-foreground">
               {t('timeline.empty.window')}

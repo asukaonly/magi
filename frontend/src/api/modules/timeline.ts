@@ -44,6 +44,7 @@ export interface TimelineClusterBlock {
   episode_id?: string;
   user_label?: string | null;
   user_note?: string | null;
+  user_pinned?: boolean;
 }
 
 export interface TimelineReflectionWindow {

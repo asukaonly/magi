@@ -249,6 +249,17 @@
         "evening": "Evening"
       }
     },
+    "episode": {
+      "pin": "Pin period",
+      "unpin": "Unpin period",
+      "edit": "Edit period annotation",
+      "label": "Period label",
+      "note": "Period note",
+      "save": "Save annotation",
+      "cancel": "Cancel",
+      "pinned": "Pinned",
+      "annotationSaved": "Period annotation saved."
+    },
     "empty": {
       "window": "No high-signal items are available for this window yet. Try another range or enable more timeline sources."
     },

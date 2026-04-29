@@ -108,6 +108,7 @@ class TimelineClusterBuilder:
             "episode_id": str(episode.get("episode_id", "")),
             "user_label": episode.get("user_label"),
             "user_note": episode.get("user_note"),
+            "user_pinned": bool(episode.get("user_pinned")),
         }
 
     @staticmethod

@@ -174,6 +174,27 @@ export interface L2Snapshot {
   current_engagement?: number;
 }
 
+export interface L2Episode {
+  episode_id: string;
+  episode_type?: string;
+  status?: string;
+  time_start?: number;
+  time_end?: number;
+  label?: string | null;
+  summary?: string | null;
+  dominant_mode?: string | null;
+  source_event_count?: number;
+  user_label?: string | null;
+  user_note?: string | null;
+  user_pinned?: boolean;
+}
+
+export interface EpisodeAnnotationPayload {
+  user_label?: string;
+  user_note?: string;
+  user_pinned?: boolean;
+}
+
 export interface L2GraphConflictRule {
   predicate: string;
   opposite_predicates: string[];
@@ -359,6 +380,8 @@ export const memoryApi = {
     unwrapMemoryResponse(await api.post<L2QueuedActionResponse>('/memory/l2/reconcile', { entity_ids: entityIds })),
   refreshL2Snapshots: async (entityIds: string[]): Promise<L2QueuedActionResponse> =>
     unwrapMemoryResponse(await api.post<L2QueuedActionResponse>('/memory/l2/snapshot-refresh', { entity_ids: entityIds })),
+  annotateEpisode: async (episodeId: string, payload: EpisodeAnnotationPayload): Promise<L2Episode> =>
+    unwrapMemoryResponse(await api.patch<L2Episode>(`/memory/l2/episodes/${episodeId}`, payload)),
   upsertL2ConflictRule: async (payload: L2GraphConflictRulePayload): Promise<L2GraphConflictRule> =>
     unwrapMemoryResponse(await api.put<L2GraphConflictRule>(`/memory/l2/conflict-rules/${payload.predicate}`, {
       opposite_predicates: payload.opposite_predicates,

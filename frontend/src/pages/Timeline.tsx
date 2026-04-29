@@ -7,7 +7,7 @@ import {
   type TimelineContextBundle,
   type TimelineViewportResponse,
 } from '@/api/modules/timeline';
-import { memoryApi, type L2Assertion } from '@/api/modules/memory';
+import { memoryApi, type EpisodeAnnotationPayload, type L2Assertion, type L2Episode } from '@/api/modules/memory';
 import TimelineContextDrawer from '@/components/timeline/TimelineContextDrawer';
 import TimelineToolbar from '@/components/timeline/TimelineToolbar';
 import TimelineViewport from '@/components/timeline/TimelineViewport';
@@ -47,6 +47,7 @@ export const TimelinePage: React.FC = () => {
   const [loadingContext, setLoadingContext] = useState(false);
   const [feedbackPendingId, setFeedbackPendingId] = useState<string | null>(null);
   const [correctionPendingId, setCorrectionPendingId] = useState<string | null>(null);
+  const [episodeAnnotationPendingId, setEpisodeAnnotationPendingId] = useState<string | null>(null);
 
   const viewportEnd = viewportStart + windowSecondsByScale[scale];
 
@@ -126,6 +127,21 @@ export const TimelinePage: React.FC = () => {
     }
   };
 
+  const handleEpisodeAnnotation = async (episodeId: string, payload: EpisodeAnnotationPayload) => {
+    setEpisodeAnnotationPendingId(episodeId);
+    try {
+      const updated = await memoryApi.annotateEpisode(episodeId, payload);
+      setViewport((current) => mergeEpisodeAnnotation(current, updated));
+      toast.success(t('timeline.episode.annotationSaved'));
+      await loadViewport('refresh');
+    } catch (error: any) {
+      toast.error(t('timeline.errors.feedbackFailed', { message: error?.message || 'unknown' }));
+      throw error;
+    } finally {
+      setEpisodeAnnotationPendingId(null);
+    }
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
       {/* Header */}
@@ -168,7 +184,9 @@ export const TimelinePage: React.FC = () => {
             <TimelineViewport
               scale={scale}
               viewport={viewport}
+              episodeAnnotationPendingId={episodeAnnotationPendingId}
               onOpenContext={(anchorId) => void handleOpenContext(anchorId)}
+              onAnnotateEpisode={(episodeId, payload) => handleEpisodeAnnotation(episodeId, payload)}
             />
           ) : null}
         </section>
@@ -186,6 +204,29 @@ export const TimelinePage: React.FC = () => {
       </div>
     </div>
   );
+};
+
+const mergeEpisodeAnnotation = (
+  viewport: TimelineViewportResponse | null,
+  episode: L2Episode
+): TimelineViewportResponse | null => {
+  if (!viewport) return viewport;
+  return {
+    ...viewport,
+    clusters: viewport.clusters.map((cluster) => {
+      if (cluster.episode_id !== episode.episode_id) {
+        return cluster;
+      }
+      return {
+        ...cluster,
+        label: episode.user_label || episode.label || cluster.label,
+        summary: episode.summary || cluster.summary,
+        user_label: episode.user_label ?? null,
+        user_note: episode.user_note ?? null,
+        user_pinned: Boolean(episode.user_pinned),
+      };
+    }),
+  };
 };
 
 const mergeAssertionEvidence = (

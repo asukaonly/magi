@@ -139,6 +139,9 @@ drawer, timeline should route that action back to the owning memory layer rather
 than storing a timeline-local override. L2 assertion feedback uses the memory
 feedback and correction APIs so confidence, validation state, replacement
 assertions, and future snapshots stay aligned with the user's correction.
+Episode-backed review periods expose durable user label, note, and pin metadata
+from L2 episodes; transient clusters remain read-only until they are promoted to
+durable episodes.
 
 Detailed execution plans, delivery sequencing, and temporary UI workups for the
 review surface belong in `docs/dev/` rather than this root architecture

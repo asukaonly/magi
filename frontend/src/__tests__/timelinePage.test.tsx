@@ -31,6 +31,7 @@ vi.mock('@/api/modules/memory', () => ({
   memoryApi: {
     submitAssertionFeedback: vi.fn(),
     correctAssertion: vi.fn(),
+    annotateEpisode: vi.fn(),
   },
 }));
 
@@ -254,6 +255,9 @@ const WEEK_VIEWPORT = {
       representative_event_ids: ['evt-4'],
       keywords: ['planning'],
       media_refs: [],
+      user_label: null,
+      user_note: null,
+      user_pinned: false,
     },
     {
       block_id: 'week-cluster-2',
@@ -402,6 +406,20 @@ describe('timeline page', () => {
       user_feedback: 'confirmed',
       user_feedback_at: 1710001000,
     });
+    vi.mocked(memoryApi.annotateEpisode).mockResolvedValue({
+      episode_id: 'ep-week-1',
+      episode_type: 'activity',
+      status: 'user_pinned',
+      time_start: localTimestamp(2024, 2, 10, 9),
+      time_end: addMinutes(localTimestamp(2024, 2, 10, 9), 90),
+      label: 'Week Planning',
+      summary: 'Mapped the timeline review surface milestones.',
+      dominant_mode: 'manual_journal',
+      source_event_count: 2,
+      user_label: 'Pinned Planning',
+      user_note: 'Keep this in review.',
+      user_pinned: true,
+    });
   });
 
   it('loads the month viewport first and renders reflection windows', async () => {
@@ -488,6 +506,27 @@ describe('timeline page', () => {
     await user.click(await screen.findByRole('button', { name: /Week Planning/ }));
 
     await waitFor(() => expect(timelineApi.getContext).toHaveBeenCalledWith('episode:ep-week-1'));
+  });
+
+  it('pins and annotates episode-backed review periods', async () => {
+    const user = userEvent.setup();
+    render(<TimelinePage />);
+
+    await user.click(await screen.findByRole('button', { name: 'timeline.scale.week' }));
+    await user.click(await screen.findByRole('button', { name: 'timeline.episode.pin' }));
+
+    await waitFor(() => expect(memoryApi.annotateEpisode).toHaveBeenCalledWith('ep-week-1', { user_pinned: true }));
+
+    await user.click(await screen.findByRole('button', { name: 'timeline.episode.edit' }));
+    await user.clear(await screen.findByLabelText('timeline.episode.label'));
+    await user.type(screen.getByLabelText('timeline.episode.label'), 'Pinned Planning');
+    await user.type(screen.getByLabelText('timeline.episode.note'), 'Keep this in review.');
+    await user.click(screen.getByRole('button', { name: 'timeline.episode.save' }));
+
+    await waitFor(() => expect(memoryApi.annotateEpisode).toHaveBeenCalledWith('ep-week-1', {
+      user_label: 'Pinned Planning',
+      user_note: 'Keep this in review.',
+    }));
   });
 
   it('opens the context drawer when a cluster is selected', async () => {
