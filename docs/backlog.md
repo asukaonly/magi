@@ -221,6 +221,7 @@ Recent progress:
 - L3 summary store search result helpers now live in `summary_store_search.py`.
 - L3 summary store embedding helpers now live in `summary_store_embeddings.py`.
 - Hybrid retrieval intent time parsing helpers now live in `intent_time.py`.
+- Hybrid retrieval default summary routing and graph assertion fallback behavior are covered by focused tests.
 - Worker prompt and tool-profile helpers now live in `worker_prompting.py`.
 - Worker status, await, and run-state serialization helpers now live in `worker_status.py`.
 - Worker tool schema definition now lives in `worker_schema.py`.

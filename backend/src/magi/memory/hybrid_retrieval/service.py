@@ -115,6 +115,8 @@ class HybridRetrievalService:
         mode_explicit = resolved_mode is not None and resolved_mode in VALID_MODES
         if not mode_explicit:
             resolved_mode = "exact_fact"
+        raw_query_mode = str(request.query_mode or "").strip().lower()
+        intent_query_mode_hint = "graph" if raw_query_mode == "graph" else (resolved_mode if mode_explicit else None)
 
         mode_plan = MODE_REGISTRY[resolved_mode]
 
@@ -140,7 +142,7 @@ class HybridRetrievalService:
             source_filters=request.source_filters,
             domain_filters=request.domain_filters,
             summary_categories=list(request.summary_categories or []),
-            query_mode_hint=resolved_mode,
+            query_mode_hint=intent_query_mode_hint,
             l1_limit=request.limit,
         )
         decision = await self._intent_decider.decide(intent_input)

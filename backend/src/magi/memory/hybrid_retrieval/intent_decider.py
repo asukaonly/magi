@@ -30,7 +30,7 @@ from .models import (
     SemanticConstraint,
     TimeRange,
 )
-from .mode_registry import MODE_REGISTRY, VALID_MODES
+from .mode_registry import MODE_REGISTRY
 from .intent_time import (
     day_range,
     end_of_day,
@@ -53,6 +53,16 @@ _VALID_ANSWER_KINDS = {"creator", "place", "topic", "person", "software", "unkno
 _VALID_ANSWER_UNITS = {"identity", "presence", "place", "topic", "mixed"}
 _VALID_CONSTRAINT_SCOPES = {"target", "interaction"}
 _VALID_CONSTRAINT_FACETS = {"platform", "located_in", "category"}
+_SUMMARY_MODE_KEYWORDS = (
+    "总结",
+    "汇总",
+    "概括",
+    "回顾",
+    "summary",
+    "summarize",
+    "recap",
+    "digest",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -148,7 +158,7 @@ class RuleBasedIntentDecider:
         """
         mode = inp.query_mode_hint
         if not mode or mode not in MODE_REGISTRY:
-            mode = "exact_fact"
+            mode = _infer_default_query_mode(inp.query)
 
         plan_def = MODE_REGISTRY[mode]
 
@@ -290,6 +300,13 @@ def enrich_l2_conditions(
             subject_hint=conditions.subject_hint or "none",
             predicate_family=conditions.predicate_family or "unknown",
         )
+
+
+def _infer_default_query_mode(query: str) -> str:
+    lowered = query.lower()
+    if any(keyword in lowered for keyword in _SUMMARY_MODE_KEYWORDS):
+        return "summary"
+    return "exact_fact"
 
 
 def _infer_predicate_family(
