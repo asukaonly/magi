@@ -8,7 +8,7 @@ import uuid
 import aiosqlite
 
 from ..core.sqlite import sqlite_connection_async
-from .contracts import ChatMessageLabel, ChatMessageRecord, ChatSessionRecord, ChatTurnRecord
+from .contracts import ChatMessageLabel, ChatMessageRecord, ChatSessionRecord
 from .storage.schema import (
     CHAT_STORE_SCHEMA_SQL,
     ensure_chat_message_columns,
@@ -24,9 +24,10 @@ from .storage.serialization import (
     row_to_message,
     serialize_message_label,
 )
+from .storage.turns import ChatTurnPersistenceMixin
 
 
-class ChatStore(ChatAttachmentPersistenceMixin):
+class ChatStore(ChatAttachmentPersistenceMixin, ChatTurnPersistenceMixin):
     """Own chat-domain persistence for sessions, turns, and messages."""
 
     def __init__(self, *, db_path: str = "~/.magi/data/chat/chat.db") -> None:
@@ -255,77 +256,6 @@ class ChatStore(ChatAttachmentPersistenceMixin):
     def _build_user_message_payload_json(attachment_payloads: list[dict[str, object]] | None) -> str:
         return build_user_message_payload_json(attachment_payloads)
 
-    async def upsert_turn(self, record: ChatTurnRecord) -> None:
-        """Insert or update one chat turn row."""
-        await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            await db.execute(
-                """
-                INSERT INTO chat_turns (
-                    turn_id,
-                    session_id,
-                    user_id,
-                    trace_id,
-                    orchestration_id,
-                    status,
-                    response_mode,
-                    execution_mode,
-                    ux_plan_json,
-                    created_at_ms,
-                    updated_at_ms,
-                    completed_at_ms,
-                    error_text,
-                    run_id,
-                    run_revision,
-                    run_disposition,
-                    response_anchor_turn_id,
-                    superseded_by_turn_id,
-                    supersession_reason
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(turn_id) DO UPDATE SET
-                    session_id = excluded.session_id,
-                    user_id = excluded.user_id,
-                    trace_id = excluded.trace_id,
-                    orchestration_id = excluded.orchestration_id,
-                    status = excluded.status,
-                    response_mode = excluded.response_mode,
-                    execution_mode = excluded.execution_mode,
-                    ux_plan_json = excluded.ux_plan_json,
-                    updated_at_ms = excluded.updated_at_ms,
-                    completed_at_ms = excluded.completed_at_ms,
-                    error_text = excluded.error_text,
-                    run_id = excluded.run_id,
-                    run_revision = excluded.run_revision,
-                    run_disposition = excluded.run_disposition,
-                    response_anchor_turn_id = excluded.response_anchor_turn_id,
-                    superseded_by_turn_id = excluded.superseded_by_turn_id,
-                    supersession_reason = excluded.supersession_reason
-                """,
-                (
-                    record.turn_id,
-                    record.session_id,
-                    record.user_id,
-                    record.trace_id,
-                    record.orchestration_id,
-                    record.status,
-                    record.response_mode,
-                    record.execution_mode,
-                    record.ux_plan_json,
-                    record.created_at_ms,
-                    record.updated_at_ms,
-                    record.completed_at_ms,
-                    record.error_text,
-                    record.run_id,
-                    record.run_revision,
-                    record.run_disposition,
-                    record.response_anchor_turn_id,
-                    record.superseded_by_turn_id,
-                    record.supersession_reason,
-                ),
-            )
-            await db.commit()
-
     async def append_message(
         self,
         record: ChatMessageRecord,
@@ -475,84 +405,6 @@ class ChatStore(ChatAttachmentPersistenceMixin):
         if row is None:
             return 1
         return int(row["max_sequence_no"] or 0) + 1
-
-    async def get_turn(self, turn_id: str) -> ChatTurnRecord | None:
-        """Return one chat turn by ID."""
-        row = await self._fetchone(
-            """
-            SELECT turn_id, session_id, user_id, trace_id, orchestration_id, status,
-                   response_mode, execution_mode, ux_plan_json, created_at_ms,
-                   updated_at_ms, completed_at_ms, error_text, run_id,
-                   run_revision, run_disposition, response_anchor_turn_id,
-                   superseded_by_turn_id, supersession_reason
-            FROM chat_turns
-            WHERE turn_id = ?
-            """,
-            (turn_id,),
-        )
-        if row is None:
-            return None
-        return ChatTurnRecord(
-            turn_id=str(row["turn_id"]),
-            session_id=str(row["session_id"]),
-            user_id=str(row["user_id"]),
-            trace_id=row["trace_id"],
-            orchestration_id=row["orchestration_id"],
-            status=str(row["status"]),
-            response_mode=str(row["response_mode"]),
-            execution_mode=row["execution_mode"],
-            ux_plan_json=str(row["ux_plan_json"]),
-            created_at_ms=int(row["created_at_ms"]),
-            updated_at_ms=int(row["updated_at_ms"]),
-            completed_at_ms=int(row["completed_at_ms"]) if row["completed_at_ms"] is not None else None,
-            error_text=row["error_text"],
-            run_id=row["run_id"],
-            run_revision=int(row["run_revision"] or 0),
-            run_disposition=row["run_disposition"],
-            response_anchor_turn_id=row["response_anchor_turn_id"],
-            superseded_by_turn_id=row["superseded_by_turn_id"],
-            supersession_reason=row["supersession_reason"],
-        )
-
-    async def get_latest_superseded_turn(self, *, anchor_turn_id: str) -> ChatTurnRecord | None:
-        """Return the most recent turn superseded by one anchor turn."""
-        row = await self._fetchone(
-            """
-            SELECT turn_id, session_id, user_id, trace_id, orchestration_id, status,
-                   response_mode, execution_mode, ux_plan_json, created_at_ms,
-                   updated_at_ms, completed_at_ms, error_text, run_id,
-                   run_revision, run_disposition, response_anchor_turn_id,
-                   superseded_by_turn_id, supersession_reason
-            FROM chat_turns
-            WHERE superseded_by_turn_id = ?
-            ORDER BY updated_at_ms DESC, created_at_ms DESC
-            LIMIT 1
-            """,
-            (anchor_turn_id,),
-        )
-        if row is None:
-            return None
-        return ChatTurnRecord(
-            turn_id=str(row["turn_id"]),
-            session_id=str(row["session_id"]),
-            user_id=str(row["user_id"]),
-            trace_id=row["trace_id"],
-            orchestration_id=row["orchestration_id"],
-            status=str(row["status"]),
-            response_mode=str(row["response_mode"]),
-            execution_mode=row["execution_mode"],
-            ux_plan_json=str(row["ux_plan_json"]),
-            created_at_ms=int(row["created_at_ms"]),
-            updated_at_ms=int(row["updated_at_ms"]),
-            completed_at_ms=int(row["completed_at_ms"]) if row["completed_at_ms"] is not None else None,
-            error_text=row["error_text"],
-            run_id=row["run_id"],
-            run_revision=int(row["run_revision"] or 0),
-            run_disposition=row["run_disposition"],
-            response_anchor_turn_id=row["response_anchor_turn_id"],
-            superseded_by_turn_id=row["superseded_by_turn_id"],
-            supersession_reason=row["supersession_reason"],
-        )
 
     async def _ensure_chat_turn_columns(self, db: aiosqlite.Connection) -> None:
         await ensure_chat_turn_columns(db)
