@@ -66,9 +66,9 @@ async def test_memory_layers_create_dedicated_vector_tables(tmp_path):
         await l3_store.initialize()
         await l4_store.initialize()
 
-        assert _has_table(str(l1_db), "l1_event_vectors")
-        assert _has_table(str(l3_db), "l3_summary_vectors")
-        assert _has_table(str(l4_db), "l4_skill_vectors")
+        assert _has_table(str(l1_db), "l1_event_chunk_vectors")
+        assert _has_table(str(l3_db), "l3_summary_chunk_vectors")
+        assert _has_table(str(l4_db), "l4_skill_chunk_vectors")
     finally:
         await l1_store.shutdown()
         await l3_store.shutdown()
@@ -99,7 +99,7 @@ async def test_memory_layers_create_sqlite_vec_virtual_tables_on_insert(tmp_path
         event = normalize_runtime_event(
             Event(
                 type=EventTypes.USER_MESSAGE,
-                data={"user_id": "u1", "session_id": "s1", "message": "stress journal"},
+                data={"user_id": "u1", "session_id": "s1", "content": "stress journal"},
                 source="chat",
                 level=EventLevel.INFO,
                 correlation_id="corr-1",
@@ -143,8 +143,8 @@ async def test_memory_layers_create_sqlite_vec_virtual_tables_on_insert(tmp_path
         )
 
         assert _has_virtual_table_with_prefix(str(l1_db), "l1_event_vec_")
-        assert _has_virtual_table_with_prefix(str(shared_db), "l3_summary_vec_")
-        assert _has_virtual_table_with_prefix(str(shared_db), "l4_skill_vec_")
+        assert _has_virtual_table_with_prefix(str(shared_db), "l3_summary_chunk_vec_")
+        assert _has_virtual_table_with_prefix(str(shared_db), "l4_skill_chunk_vec_")
     finally:
         await l1_store.shutdown()
         await l3_store.shutdown()

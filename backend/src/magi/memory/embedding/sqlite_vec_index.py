@@ -134,17 +134,17 @@ class SqliteVecIndex:
             if not await self._table_exists(db, vec_table):
                 return []
 
-            clauses = ['embedding MATCH ?']
-            params: list[Any] = [sqlite_vec.serialize_float32(embedding.vector)]
+            search_limit = max(1, int(limit))
+            clauses = ['embedding MATCH ?', 'k = ?']
+            params: list[Any] = [sqlite_vec.serialize_float32(embedding.vector), search_limit]
             if max_distance is not None:
                 clauses.append('distance < ?')
                 params.append(float(max_distance))
             if partition_value is not None and self._partition_key_column:
                 clauses.append(f'{self._partition_key_column} = ?')
                 params.append(partition_value)
-            params.append(int(limit))
             where = ' AND '.join(clauses)
-            sql = f'SELECT rowid, distance FROM "{vec_table}" WHERE {where} ORDER BY distance LIMIT ?'
+            sql = f'SELECT rowid, distance FROM "{vec_table}" WHERE {where} ORDER BY distance'
 
             async with db.execute(sql, tuple(params)) as cursor:
                 vector_rows = await cursor.fetchall()
