@@ -15,12 +15,11 @@ import aiosqlite
 from ...core.sqlite import sqlite_connection_async
 from ...config.models import EmbeddingBackend
 from ...llm import ScenarioLLMPool
-from ..embedding.chunking import ChunkedText
-from ..embedding.embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
-from ..embedding.embedding_service import EmbeddingProfile, MemoryEmbeddingService
+from ..embedding.embedding_pipeline import EmbeddingPipelineItem
+from ..embedding.embedding_service import MemoryEmbeddingService
 from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
 from ..l1.event_store import L1EventStore
-from ..embedding.sqlite_vec_index import SqliteVecIndex, VectorSearchHit
+from ..embedding.sqlite_vec_index import SqliteVecIndex
 from .evidence_selector import select_temporal_evidence
 from .models import L3Candidate
 from .topic_llm_service import TopicSummaryLLMService
@@ -30,10 +29,11 @@ from .summary_store_embeddings import (
     EMBEDDING_TEXT_BUILDER_VERSION,
     build_embedding_pipeline,
     build_summary_embedding_chunks,
-    chunk_id_for_summary,
+    fetch_summary_chunk_rows_by_ids,
     fold_summary_chunk_hits,
-    get_embedding_text,
     profile_from_embedding_result,
+    replace_summary_chunks,
+    update_summary_embedding_state,
 )
 from .summary_store_schema import (
     EMBEDDING_STATUS_DISABLED,
@@ -804,14 +804,17 @@ class L3SummaryStore:
     async def _maybe_upsert_summary_embeddings(self, summaries: List[Dict[str, Any]]) -> None:
         if not self._vectors_enabled():
             return
-        pipeline = self._build_embedding_pipeline()
+        pipeline = build_embedding_pipeline(
+            embedding_service=self._embedding_service,
+            vector_index=self._vector_index,
+        )
         if pipeline is None:
             return
         results = await pipeline.upsert_items(
             [
                 EmbeddingPipelineItem(
                     parent_id=str(summary["summary_id"]),
-                    chunks=self._build_summary_embedding_chunks(summary),
+                    chunks=build_summary_embedding_chunks(summary),
                     metadata={
                         "summary_id": str(summary["summary_id"]),
                         "summary_type": summary.get("summary_type"),
@@ -825,15 +828,20 @@ class L3SummaryStore:
         if not results:
             return
         embedded_at = results[0].embedded_at
-        await self._replace_summary_chunks(
-            [(result.payload, result.chunks) for result in results],
+        await replace_summary_chunks(
+            db_path=self.db_path,
+            entries=[(result.payload, result.chunks) for result in results],
             embedded_at=embedded_at,
         )
         for result in results:
             summary = result.payload
-            profile = self._profile_from_embedding_result(result.embeddings[0])
+            profile = profile_from_embedding_result(
+                embedding_service=self._embedding_service,
+                result=result.embeddings[0],
+            )
             try:
-                await self._update_summary_embedding_state(
+                await update_summary_embedding_state(
+                    db_path=self.db_path,
                     summary_id=result.parent_id,
                     status=EMBEDDING_STATUS_READY,
                     profile_id=profile.profile_id,
@@ -842,12 +850,6 @@ class L3SummaryStore:
                 )
             except Exception as exc:
                 logger.warning("Failed to update summary embedding state for %s: %s", summary.get("summary_id"), exc)
-
-    def _build_embedding_pipeline(self) -> MemoryEmbeddingPipeline | None:
-        return build_embedding_pipeline(
-            embedding_service=self._embedding_service,
-            vector_index=self._vector_index,
-        )
 
     async def vector_search(
         self,
@@ -869,7 +871,11 @@ class L3SummaryStore:
             return []
         if not hits:
             return []
-        summary_ids, matched_chunks = await self._fold_summary_chunk_hits(hits)
+        chunk_rows = await fetch_summary_chunk_rows_by_ids(
+            db_path=self.db_path,
+            chunk_ids=[hit.entity_id for hit in hits],
+        )
+        summary_ids, matched_chunks = fold_summary_chunk_hits(hits=hits, chunk_rows=chunk_rows)
         if not summary_ids:
             return []
         summaries = await self.fetch_by_ids(
@@ -964,104 +970,6 @@ class L3SummaryStore:
                     self._embedding_queue.task_done()
             if should_stop:
                 break
-
-    def get_embedding_text(self, summary: Dict[str, Any]) -> str:
-        """Return the canonical L3 text used for embedding."""
-        return get_embedding_text(summary)
-
-    def _build_summary_embedding_chunks(self, summary: Dict[str, Any]) -> list[ChunkedText]:
-        return build_summary_embedding_chunks(summary)
-
-    def _chunk_id_for_summary(self, summary_id: str, chunk_index: int) -> str:
-        return chunk_id_for_summary(summary_id, chunk_index)
-
-    async def _replace_summary_chunks(
-        self,
-        entries: list[tuple[Dict[str, Any], list[ChunkedText]]],
-        *,
-        embedded_at: float,
-    ) -> None:
-        if not entries:
-            return
-        async with sqlite_connection_async(self.db_path) as db:
-            for summary, chunks in entries:
-                await db.execute(
-                    f"DELETE FROM {SUMMARY_CHUNKS_TABLE} WHERE summary_id = ?",
-                    (str(summary["summary_id"]),),
-                )
-                await db.executemany(
-                    f"""
-                    INSERT INTO {SUMMARY_CHUNKS_TABLE}(
-                        chunk_id, summary_id, chunk_index, chunk_text, char_start, char_end,
-                        token_estimate, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    [
-                        (
-                            self._chunk_id_for_summary(str(summary["summary_id"]), chunk.chunk_index),
-                            str(summary["summary_id"]),
-                            chunk.chunk_index,
-                            chunk.text,
-                            chunk.char_start,
-                            chunk.char_end,
-                            chunk.token_estimate,
-                            embedded_at,
-                            embedded_at,
-                        )
-                        for chunk in chunks
-                    ],
-                )
-            await db.commit()
-
-    async def _update_summary_embedding_state(
-        self,
-        *,
-        summary_id: str,
-        status: str,
-        profile_id: str | None,
-        chunk_count: int,
-        embedded_at: float,
-    ) -> None:
-        async with sqlite_connection_async(self.db_path) as db:
-            await db.execute(
-                """
-                UPDATE summaries
-                SET embedding_status = ?, embedding_profile_id = ?, embedding_chunk_count = ?, last_embedded_at = ?, updated_at = updated_at
-                WHERE summary_id = ?
-                """,
-                (status, profile_id, int(chunk_count), float(embedded_at), summary_id),
-            )
-            await db.commit()
-
-    def _profile_from_embedding_result(self, result) -> EmbeddingProfile:
-        return profile_from_embedding_result(
-            embedding_service=self._embedding_service,
-            result=result,
-        )
-
-    async def _fetch_summary_chunk_rows_by_ids(self, chunk_ids: list[str]) -> list[aiosqlite.Row]:
-        if not chunk_ids:
-            return []
-        placeholders = ", ".join("?" for _ in chunk_ids)
-        async with sqlite_connection_async(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                f"""
-                SELECT chunk_id, summary_id, chunk_index, chunk_text, char_start, char_end
-                FROM {SUMMARY_CHUNKS_TABLE}
-                WHERE chunk_id IN ({placeholders})
-                """,
-                tuple(chunk_ids),
-            ) as cursor:
-                return await cursor.fetchall()
-
-    async def _fold_summary_chunk_hits(
-        self,
-        hits: list[VectorSearchHit],
-    ) -> tuple[list[str], dict[str, list[dict[str, Any]]]]:
-        chunk_ids = [hit.entity_id for hit in hits]
-        chunk_rows = await self._fetch_summary_chunk_rows_by_ids(chunk_ids)
-        return fold_summary_chunk_hits(hits=hits, chunk_rows=chunk_rows)
 
 
 __all__ = ["L3SummaryStore"]
