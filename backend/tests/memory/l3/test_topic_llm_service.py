@@ -9,6 +9,7 @@ import pytest
 
 from magi.memory.l3.models import ThematicEvidenceItem, ThematicEvidencePack
 from magi.memory.l3.topic_llm_service import TopicSummaryLLMService
+from magi_plugin_sdk.i18n import set_current_language
 
 
 def test_build_topic_evidence_pack_preserves_topic_and_ids() -> None:
@@ -168,3 +169,22 @@ def test_render_topic_prompt_includes_rule_hints() -> None:
     assert '"growth"' in prompt
     assert '"repeated_event_types"' in prompt
     assert '"content"' in prompt
+
+
+def test_render_topic_prompt_uses_current_language() -> None:
+    service = TopicSummaryLLMService()
+    pack = ThematicEvidencePack(
+        topic="music",
+        source_event_count=1,
+        source_event_ids=["evt-1"],
+        events=[ThematicEvidenceItem(event_id="evt-1", event_type="Music", content="听了中文歌")],
+    )
+
+    try:
+        set_current_language("zh")
+        prompt = service.render_topic_prompt(pack)
+    finally:
+        set_current_language(None)
+
+    assert "Simplified Chinese (zh-CN)" in prompt
+    assert "Preserve event ids" in prompt

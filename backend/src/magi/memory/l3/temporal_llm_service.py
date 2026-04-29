@@ -11,6 +11,7 @@ from collections import Counter
 from typing import Any
 
 from ...llm import LLMProviderBridge, LLMScenario, ScenarioLLMPool
+from magi_plugin_sdk.i18n import get_current_language
 from .models import (
     L3Candidate,
     TemporalEvidenceItem,
@@ -67,6 +68,19 @@ _CONSTRAINT_KEYWORDS = {
     "should",
     "time",
 }
+
+
+def _target_language_instruction() -> str:
+    language = str(get_current_language() or "en").lower()
+    if language.startswith("zh"):
+        target = "Simplified Chinese (zh-CN)"
+    else:
+        target = "English"
+    return (
+        f"- Write user-facing generated fields in {target}: content, key_topics, "
+        "sentiment_summary natural-language strings, and change_and_pattern strings.\n"
+        "- Preserve event ids, entity ids, URLs, file paths, source names, product names, song titles, and quoted user text as evidence presents them."
+    )
 
 TEMPORAL_SUMMARY_SYSTEM_PROMPT = """You generate temporal memory summaries for a local-first agent.
 
@@ -352,6 +366,7 @@ class TemporalSummaryLLMService:
             "Output Requirements:\n"
             "- Return one JSON object only.\n"
             "- Keep content concise and evidence-grounded.\n"
+            f"{_target_language_instruction()}\n"
             "- Use empty lists or nulls when a field has no support.\n\n"
             "Output JSON Schema:\n"
             f"{schema}\n\n"

@@ -93,6 +93,9 @@ such as overview titles, fallback summaries, source labels, state labels, and
 rule-generated takeaways must honor that locale. Generated memory artifacts
 loaded from L3, such as historical reflection content, remain in the language in
 which they were originally generated and require regeneration to change language.
+New L3 summary generation prompts should honor the active language context so
+freshly generated reflections align with the user's selected language while
+preserving source names, ids, URLs, file paths, and quoted evidence text.
 
 ### Cluster Block
 

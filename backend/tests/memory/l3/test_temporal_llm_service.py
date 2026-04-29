@@ -9,6 +9,7 @@ import pytest
 
 from magi.memory.l3.models import TemporalEvidenceItem, TemporalEvidencePack
 from magi.memory.l3.temporal_llm_service import TemporalSummaryLLMService
+from magi_plugin_sdk.i18n import set_current_language
 
 
 def test_temporal_evidence_pack_keeps_window_and_event_ids() -> None:
@@ -311,6 +312,27 @@ def test_render_temporal_summary_prompt_includes_rule_hints() -> None:
     assert '"recurring_constraints"' in prompt
     assert '"content"' in prompt
     assert '"change_and_pattern"' in prompt
+
+
+def test_render_temporal_summary_prompt_uses_current_language() -> None:
+    service = TemporalSummaryLLMService()
+    pack = TemporalEvidencePack(
+        summary_category="day",
+        period_start=100.0,
+        period_end=200.0,
+        source_event_count=1,
+        source_event_ids=["evt-1"],
+        events=[TemporalEvidenceItem(event_id="evt-1", event_type="UserMessage", content="今天很忙")],
+    )
+
+    try:
+        set_current_language("zh")
+        prompt = service._render_temporal_summary_prompt(pack)
+    finally:
+        set_current_language(None)
+
+    assert "Simplified Chinese (zh-CN)" in prompt
+    assert "Preserve event ids" in prompt
 
 
 @pytest.mark.asyncio
