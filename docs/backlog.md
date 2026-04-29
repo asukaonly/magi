@@ -33,7 +33,7 @@ Deferred unless profiling or product validation says otherwise:
 
 ### 2. Persona registry migration and frontend integration
 
-Status: active
+Status: done
 
 Why it is still open:
 
@@ -44,9 +44,9 @@ Why it is still open:
 - The old in-memory `current_state.py` bridge has been retired; active persona runtime state lives in `active_persona.py`.
 - Legacy `/api/personality` slug/list reads now stay registry-backed; bundled JSON preset reads remain isolated behind `/api/personalities/*`.
 
-Remaining work:
+Completed:
 
-- Audit remaining legacy personality/config routes and remove any routes that no longer match the registry-backed product path.
+- Legacy slug/list/current personality routes are no longer part of the public API surface; registry-backed product flows use `/api/personas/*` and bundled preset reads use `/api/personalities/*`.
 
 ### 3. Finish the lifecycle-based memory implementation
 

@@ -24,6 +24,13 @@ def test_register_api_routes_keeps_only_supported_public_surfaces() -> None:
     assert "/api/config/" in paths
     assert "/api/llm/providers/catalog" in paths
     assert "/api/llm/providers/custom-template" in paths
+    assert "/api/personality/generate" in paths
+    assert "/api/personality/greeting" in paths
+    assert "/api/personality/bootstrap/init" in paths
+    assert "/api/personas/" in paths
+    assert "/api/personas/active" in paths
+    assert "/api/personas/seed-previews" in paths
+    assert "/api/personalities/" in paths
     assert "/api/plugins" in paths
     assert "/api/plugins/{plugin_id}/update" in paths
     assert "/api/plugins/{plugin_id}/settings/resources/{resource_name}" in paths
@@ -71,3 +78,8 @@ def test_register_api_routes_excludes_deprecated_and_internal_surfaces() -> None
 
     assert "/api/config/reset" not in paths
     assert "/api/config/llm-providers" not in paths
+
+    assert "/api/personality/" not in paths
+    assert "/api/personality/current" not in paths
+    assert "/api/personality/compare/{from_name}/{to_name}" not in paths
+    assert "/api/personality/{name}" not in paths

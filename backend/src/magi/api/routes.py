@@ -111,15 +111,10 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/models/{model_id}": {"DELETE"},
     },
     "personality_config": {
-        "/": {"GET"},
-        "/current": {"GET", "PUT"},
         "/greeting": {"GET"},
         "/generate": {"POST"},
         "/bootstrap/init": {"POST"},
         "/journal/reflect": {"POST"},
-        "/compare/{from_name}/{to_name}": {"GET"},
-        "/new": {"PUT"},
-        "/{name}": {"GET", "PUT", "DELETE"},
     },
     "personality_presets": {
         "/": {"GET"},
