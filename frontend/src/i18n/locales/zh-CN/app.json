@@ -152,7 +152,13 @@
     "drawer": {
       "empty": "选择一个时段，查看它的跨层上下文。",
       "reflections": "反思摘要",
-      "procedures": "程序经验"
+      "procedures": "程序经验",
+      "sourceEvidence": "来源证据",
+      "derivedEvidence": "推断依据",
+      "relatedChat": "相关对话",
+      "noEvidence": "这个时段暂时没有可展示的来源证据。",
+      "untitledEvent": "未命名事件",
+      "evidenceItem": "证据"
     },
     "sources": {
       "chrome_history": "Chrome 历史",
@@ -187,6 +193,20 @@
       "stress": "压力",
       "engagement": "参与度"
     },
+    "overview": {
+      "month": "窗口概览",
+      "week": "本周概览",
+      "day": "当日概览",
+      "hour": "证据概览",
+      "fallback": "这个时间窗口里已有活动记录，但还没有足够的摘要上下文。",
+      "reflectionSummary": "Magi 在这个窗口里找到了 {{count}} 条反思信号。可以先看下面的关键主题，再打开主题查看证据。",
+      "primaryMode": "主要活动：{{mode}}",
+      "eventCount": "已捕获 {{count}} 条事件"
+    },
+    "stateSummary": {
+      "periods": "{{count}} 个状态窗口",
+      "sampled": "已采样"
+    },
     "highlights": {
       "title": "亮点"
     },
@@ -196,8 +216,22 @@
     "activity": {
       "distribution": "活动分布"
     },
+    "month": {
+      "themes": "关键主题",
+      "moreSignals": "还有 {{count}} 条信号已折叠进当前视图。"
+    },
+    "week": {
+      "periods": "关键时段"
+    },
+    "day": {
+      "periods": "关键时段"
+    },
+    "empty": {
+      "window": "这个时间窗口暂时没有高信号内容。可以换个时间范围，或开启更多时间线来源。"
+    },
     "reflection": {
-      "patternSignal": "模式"
+      "patternSignal": "模式",
+      "window": "反思窗口"
     },
     "summary": {
       "totalEvents": "事件",

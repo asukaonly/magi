@@ -154,6 +154,27 @@ const HOUR_VIEWPORT = {
   ],
 };
 
+const EMPTY_VIEWPORT = {
+  viewport: {
+    scale: 'month',
+    start: 1710000000,
+    end: 1712592000,
+    focus: 'self',
+    query: null,
+    timezone: null,
+  },
+  summary: {
+    cluster_count: 0,
+    event_count: 0,
+    dominant_modes: [],
+  },
+  state_bands: [],
+  state_markers: [],
+  clusters: [],
+  reflections: [],
+  raw_events: [],
+};
+
 const CONTEXT_BUNDLE = {
   anchor: {
     anchor_id: 'cluster-1',
@@ -161,7 +182,7 @@ const CONTEXT_BUNDLE = {
     title: 'Deep Work',
     summary: 'A long focused stretch across coding and note-taking.',
   },
-  l1_events: [{ event_id: 'evt-1', title: 'Opened design note', summary: 'Reviewing implementation notes.' }],
+  l1_events: [{ event_id: 'evt-1', title: 'Opened design note', summary: 'Reviewing implementation notes.', source_type: 'manual_journal' }],
   l2_state_evidence: [{ assertion_id: 'assertion-1', trait_name: 'mood', trait_value: 'focused' }],
   l3_reflections: [{ summary_id: 'summary-1', content: 'Focus remained high despite rising stress.' }],
   l4_related_procedures: [{ skill_id: 'skill-1', skill_name: 'Deep work loop' }],
@@ -239,7 +260,21 @@ describe('timeline page', () => {
     await user.click(await screen.findByRole('button', { name: /Deep Work/ }));
 
     await waitFor(() => expect(timelineApi.getContext).toHaveBeenCalledWith('cluster-1'));
+    expect(await screen.findByText('timeline.drawer.sourceEvidence')).toBeInTheDocument();
+    expect(screen.getByText('Opened design note')).toBeInTheDocument();
+    expect(screen.getByText('timeline.drawer.derivedEvidence')).toBeInTheDocument();
+    expect(screen.getByText('mood')).toBeInTheDocument();
+    expect(screen.getByText('timeline.drawer.relatedChat')).toBeInTheDocument();
     expect(await screen.findByText('Focus remained high despite rising stress.')).toBeInTheDocument();
     expect(screen.getByText('Deep work loop')).toBeInTheDocument();
+  });
+
+  it('renders an empty state when the viewport has no reviewable content', async () => {
+    vi.mocked(timelineApi.getViewport).mockResolvedValueOnce(EMPTY_VIEWPORT as any);
+
+    render(<TimelinePage />);
+
+    expect(await screen.findByText('timeline.feed.emptyTitle')).toBeInTheDocument();
+    expect(screen.getByText('timeline.feed.emptyBody')).toBeInTheDocument();
   });
 });

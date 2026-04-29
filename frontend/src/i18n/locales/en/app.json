@@ -152,7 +152,13 @@
     "drawer": {
       "empty": "Select a period to inspect its cross-layer context.",
       "reflections": "Reflections",
-      "procedures": "Procedures"
+      "procedures": "Procedures",
+      "sourceEvidence": "Source evidence",
+      "derivedEvidence": "Derived reasoning",
+      "relatedChat": "Related chat",
+      "noEvidence": "No source evidence is available for this period yet.",
+      "untitledEvent": "Untitled event",
+      "evidenceItem": "Evidence"
     },
     "sources": {
       "chrome_history": "Chrome history",
@@ -187,6 +193,20 @@
       "stress": "Stress",
       "engagement": "Engagement"
     },
+    "overview": {
+      "month": "Window overview",
+      "week": "Week overview",
+      "day": "Day overview",
+      "hour": "Evidence overview",
+      "fallback": "Magi has activity in this window, but there is not enough summarized context yet.",
+      "reflectionSummary": "Magi found {{count}} reflection signal for this window. Review the key themes below and open a theme to inspect the evidence.",
+      "primaryMode": "Main activity: {{mode}}",
+      "eventCount": "{{count}} events captured"
+    },
+    "stateSummary": {
+      "periods": "{{count}} state window",
+      "sampled": "sampled"
+    },
     "highlights": {
       "title": "Highlights"
     },
@@ -196,8 +216,22 @@
     "activity": {
       "distribution": "Activity distribution"
     },
+    "month": {
+      "themes": "Key themes",
+      "moreSignals": "{{count}} more signals are folded into this view."
+    },
+    "week": {
+      "periods": "Key periods"
+    },
+    "day": {
+      "periods": "Key periods"
+    },
+    "empty": {
+      "window": "No high-signal items are available for this window yet. Try another range or enable more timeline sources."
+    },
     "reflection": {
-      "patternSignal": "Pattern"
+      "patternSignal": "Pattern",
+      "window": "Reflection window"
     },
     "summary": {
       "totalEvents": "events",
