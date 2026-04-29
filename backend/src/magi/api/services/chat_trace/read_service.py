@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sqlite3
 from pathlib import Path
 from typing import Any, Optional
 
@@ -17,6 +16,7 @@ from .models import (
     ExecutionTraceSnapshot,
     ExecutionTraceSummary,
 )
+from .runtime_rows import TraceRuntimeRowsMixin
 from .builders.legacy import (
     build_function_root,
     build_orchestration_root,
@@ -73,7 +73,7 @@ TRACE_EVENT_TYPES = WORKER_EVENT_TYPES + LEGACY_TRACE_EVENT_TYPES + TURN_TRACE_E
 MAX_PLAN_PREVIEW_STEPS = 3
 
 
-class ChatTraceReadService:
+class ChatTraceReadService(TraceRuntimeRowsMixin):
     """Build per-turn execution snapshots from persisted events and orchestration state."""
 
     def __init__(self) -> None:
@@ -320,64 +320,6 @@ class ChatTraceReadService:
         tool_call: dict[str, Any] | None,
     ) -> str:
         return resolve_result_preview(span=span, llm_call=llm_call, tool_call=tool_call)
-
-    def _load_trace_turn(self, *, user_id: str, session_id: str, turn_id: str) -> Optional[dict[str, Any]]:
-        rows = self._query_trace_rows(
-            """
-            SELECT *
-            FROM trace_turns
-            WHERE user_id = ? AND session_id = ? AND turn_id = ?
-            LIMIT 1
-            """,
-            (user_id, session_id, turn_id),
-        )
-        return rows[0] if rows else None
-
-    def _load_session_turns(self, *, user_id: str, session_id: str) -> list[dict[str, Any]]:
-        return self._query_trace_rows(
-            """
-            SELECT *
-            FROM trace_turns
-            WHERE user_id = ? AND session_id = ?
-            ORDER BY updated_at_ms ASC
-            """,
-            (user_id, session_id),
-        )
-
-    def _load_trace_spans(self, *, trace_id: str) -> list[dict[str, Any]]:
-        if not trace_id:
-            return []
-        return self._query_trace_rows(
-            """
-            SELECT *
-            FROM trace_spans
-            WHERE trace_id = ?
-            ORDER BY started_at_ms ASC, span_id ASC
-            """,
-            (trace_id,),
-        )
-
-    def _load_detail_rows(self, *, table: str, trace_id: str) -> list[dict[str, Any]]:
-        if not trace_id:
-            return []
-        return self._query_trace_rows(
-            f"""
-            SELECT *
-            FROM {table}
-            WHERE trace_id = ?
-            """,
-            (trace_id,),
-        )
-
-    def _query_trace_rows(self, query: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:
-        if not self._runtime_trace_db_path.exists():
-            return []
-        conn = connect_sqlite(self._runtime_trace_db_path, profile="hot_write")
-        cur = conn.cursor()
-        cur.execute(query, params)
-        rows = [dict(row) for row in cur.fetchall()]
-        conn.close()
-        return rows
 
     @staticmethod
     def _parse_json_object(raw_value: Any) -> dict[str, Any]:
