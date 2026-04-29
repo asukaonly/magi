@@ -189,6 +189,7 @@ Recent progress:
 - Chat runtime trace row-to-node helpers now live in `chat_trace_row_builder.py`.
 - L0 memory session display helpers now live in `memory_session_display.py`.
 - Memory eval answer synthesis helpers now live in `memory_eval_answering.py`.
+- Memory route utility helpers now live in `memory_route_helpers.py`.
 - Memory API Pydantic schemas now live in `memory_schemas.py`.
 - L4 procedural memory schema constants now live in `procedural_memory_schema.py`.
 - L4 procedural memory serialization, trace row, and skill identity helpers now live in `procedural_memory_serialization.py`.

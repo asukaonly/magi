@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import asdict
-from datetime import date, datetime, time as datetime_time
 import time
 from typing import Any, Dict, Optional
 
@@ -21,7 +20,6 @@ from ...core.runtime_bindings import (
 from ...memory.eval_support.contracts import EvalMemoryQuery, EvalMemoryWriteRecord
 from ...memory.eval_support.reader import EvalMemoryReader
 from ...memory.eval_support.writer import EvalMemoryWriter
-from ...memory.event_contracts import MemoryEvent
 from ...memory.hybrid_retrieval import build_query
 from ...memory.l2.models import ManualL2EventRequest
 from ...runtime_defaults import DEFAULT_USER_ID
@@ -31,6 +29,15 @@ from .memory_eval_answering import (
     is_counting_or_aggregation_question as _is_counting_or_aggregation_question,
     is_temporal_reasoning_question as _is_temporal_reasoning_question,
     synthesize_eval_answer,
+)
+from .memory_route_helpers import (
+    build_clear_result as _build_clear_result,
+    build_embedding_pending as _build_embedding_pending,
+    build_l2_pending_breakdown as _build_l2_pending_breakdown,
+    canonical_self_id as _canonical_self_id,
+    parse_day_boundary as _parse_day_boundary,
+    serialize_l1_event_list_item as _serialize_l1_event_list_item,
+    serialize_memory_event as _serialize_memory_event,
 )
 from .memory_schemas import (
     AssertionCorrectionRequest,
@@ -84,91 +91,12 @@ def _resolve_scenario_llm_pool():
         return None
 
 
-def _canonical_self_id(unified_memory: Any) -> str:
-    resolver = getattr(unified_memory, "identity_resolver", None)
-    if resolver is None:
-        return "user:self"
-    return str(getattr(resolver, "default_memory_owner_id", "user:self"))
-
-
-def _build_clear_result(count: int) -> Dict[str, Any]:
-    return {
-        "cleared": True,
-        "count": int(count),
-    }
-
-
 async def _synthesize_eval_answer(**kwargs: Any) -> tuple[str, dict[str, Any]]:
     return await synthesize_eval_answer(
         **kwargs,
         llm_pool=_resolve_scenario_llm_pool(),
         log=logger,
     )
-
-
-def _build_l2_pending_breakdown(
-    pipeline_stats: Dict[str, Any],
-    projection_backlog: Dict[str, Any] | None = None,
-) -> Dict[str, int]:
-    durable_projection = dict(projection_backlog or {})
-    return {
-        "extract_pending": max(int(durable_projection.get("pending", 0)) + int(durable_projection.get("claimed", 0)), 0),
-        "reconcile_pending": max(
-            int(pipeline_stats.get("reconcile_enqueued", 0))
-            - int(pipeline_stats.get("reconcile_completed", 0))
-            - int(pipeline_stats.get("reconcile_failed", 0)),
-            0,
-        ),
-        "snapshot_pending": max(
-            int(pipeline_stats.get("snapshot_enqueued", 0))
-            - int(pipeline_stats.get("snapshot_completed", 0))
-            - int(pipeline_stats.get("snapshot_failed", 0)),
-            0,
-        ),
-        "projection_pending": max(int(durable_projection.get("pending", 0)), 0),
-        "projection_claimed": max(int(durable_projection.get("claimed", 0)), 0),
-        "projection_failed": max(int(durable_projection.get("failed", 0)), 0),
-    }
-
-
-def _build_embedding_pending(stats: Dict[str, Any] | None) -> Dict[str, Any]:
-    payload = dict(stats or {})
-    pending = int(payload.get("embedding_queue_size", 0) or 0)
-    return {
-        "pending": max(pending, 0),
-        "worker_running": bool(payload.get("embedding_worker_running", False)),
-        "vector_enabled": bool(payload.get("vector_enabled", False)),
-        "async_embeddings": bool(payload.get("async_embeddings", False)),
-    }
-
-
-def _serialize_memory_event(event: MemoryEvent | Dict[str, Any]) -> Dict[str, Any]:
-    if isinstance(event, MemoryEvent):
-        return event.to_dict()
-    return dict(event)
-
-
-def _serialize_l1_event_list_item(event: MemoryEvent | Dict[str, Any]) -> Dict[str, Any]:
-    payload = _serialize_memory_event(event)
-    payload.pop("metadata_json", None)
-    payload.pop("embedding_status", None)
-    payload.pop("embedding_profile_id", None)
-    return payload
-
-
-def _parse_day_boundary(value: str | None, *, end_of_day: bool) -> float | None:
-    normalized = str(value or "").strip()
-    if not normalized:
-        return None
-    try:
-        parsed = date.fromisoformat(normalized)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Invalid date value: {normalized}",
-        ) from exc
-    boundary = datetime_time.max if end_of_day else datetime_time.min
-    return datetime.combine(parsed, boundary).timestamp()
 
 
 # =============================================================================
