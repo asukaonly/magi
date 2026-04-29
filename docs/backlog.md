@@ -225,11 +225,11 @@ Recent progress:
 - L4 procedural memory search result helpers now live in `procedural_memory_search.py`.
 - L4 procedural memory record update-state helpers now live in `procedural_memory_updates.py`.
 - L4 procedural memory embedding and chunk persistence helpers now live in `procedural_memory_embeddings.py`.
-- L3 summary store schema helpers now live in `summary_store_schema.py`.
-- L3 summary store serialization helpers now live in `summary_store_serialization.py`.
-- L3 summary evidence link helpers now live in `summary_store_links.py`.
-- L3 summary store search result helpers now live in `summary_store_search.py`.
-- L3 summary store embedding and chunk persistence helpers now live in `summary_store_embeddings.py`.
+- L3 summary store schema helpers now live in `l3/storage/schema.py`.
+- L3 summary store serialization helpers now live in `l3/storage/serialization.py`.
+- L3 summary evidence link helpers now live in `l3/evidence/links.py`.
+- L3 summary store search result helpers now live in `l3/retrieval/search.py`.
+- L3 summary store embedding and chunk persistence helpers now live in `l3/embeddings/summaries.py`.
 - Hybrid retrieval intent time parsing helpers now live in `intent_time.py`.
 - Hybrid retrieval default summary routing and graph assertion fallback behavior are covered by focused tests.
 - L2 retrieval time filtering, global-scan gating, and trace helpers now live in `l2_handler_utils.py`.

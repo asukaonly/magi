@@ -25,7 +25,7 @@ from .models import L3Candidate
 from .topic_llm_service import TopicSummaryLLMService
 from .temporal_llm_service import TemporalSummaryLLMService
 from .validator import validate_candidate
-from .summary_store_embeddings import (
+from .embeddings.summaries import (
     EMBEDDING_TEXT_BUILDER_VERSION,
     build_embedding_pipeline,
     build_summary_embedding_chunks,
@@ -35,14 +35,14 @@ from .summary_store_embeddings import (
     replace_summary_chunks,
     update_summary_embedding_state,
 )
-from .summary_store_schema import (
+from .storage.schema import (
     EMBEDDING_STATUS_DISABLED,
     EMBEDDING_STATUS_READY,
     L3_SUMMARY_SCHEMA_SQL,
     SUMMARY_CHUNKS_TABLE,
     ensure_summary_store_schema,
 )
-from .summary_store_search import (
+from .retrieval.search import (
     build_fetch_by_ids_query,
     build_keyword_search_query,
     fts_backfill_row,
@@ -53,14 +53,14 @@ from .summary_store_search import (
     rows_to_bm25_pairs,
     search_path_ids,
 )
-from .summary_store_links import (
+from .evidence.links import (
     build_summary_event_link_rows,
     build_summary_task_link_rows,
     normalize_event_ids,
     row_to_summary_event_link,
     row_to_summary_task_link,
 )
-from .summary_store_serialization import (
+from .storage.serialization import (
     decode_optional_json,
     encode_optional_json,
     row_to_summary_dict,

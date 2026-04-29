@@ -6,7 +6,7 @@ from typing import Any, Dict
 
 import aiosqlite
 
-from .summary_store_schema import EMBEDDING_STATUS_DISABLED
+from .schema import EMBEDDING_STATUS_DISABLED
 
 
 def row_to_summary_dict(row: aiosqlite.Row) -> Dict[str, Any]:

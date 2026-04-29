@@ -4,9 +4,9 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from ..hybrid_retrieval.fts_utils import tokenize_for_fts
-from ..hybrid_retrieval.handlers import rrf_fuse
-from .summary_store_serialization import row_to_summary_dict
+from ...hybrid_retrieval.fts_utils import tokenize_for_fts
+from ...hybrid_retrieval.handlers import rrf_fuse
+from ..storage.serialization import row_to_summary_dict
 
 
 def rows_to_bm25_pairs(rows: Sequence[Sequence[Any]]) -> list[tuple[str, float]]:
