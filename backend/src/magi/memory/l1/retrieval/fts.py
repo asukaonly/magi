@@ -8,10 +8,10 @@ from typing import Any, List, Protocol, Tuple, cast
 
 import aiosqlite
 
-from ...core.sqlite import sqlite_connection_async
-from ..embedding.embedding_text_builders import build_l1_retrieval_terms_text
-from ..event_contracts import MemoryEvent
-from ..hybrid_retrieval.fts_utils import (
+from ....core.sqlite import sqlite_connection_async
+from ...embedding.embedding_text_builders import build_l1_retrieval_terms_text
+from ...event_contracts import MemoryEvent
+from ...hybrid_retrieval.fts_utils import (
     build_exact_fts_query,
     build_or_fts_query,
     build_stemmed_fts_query,

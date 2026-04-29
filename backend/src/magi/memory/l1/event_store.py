@@ -22,12 +22,12 @@ from ..event_contracts import (
 )
 from ..hybrid_retrieval.fts_utils import tokenize_for_fts
 from .chat_sessions import ensure_chat_sessions_schema_async, project_chat_event_to_session
-from .event_store_embeddings import L1EventEmbeddingMixin
-from .event_store_entities import L1EventEntityMixin
-from .event_store_fts import L1EventFtsMixin
-from .event_store_queries import L1EventQueryMixin
-from .event_store_rows import L1EventRowMixin
-from .event_store_schema import L1EventSchemaMixin
+from .embeddings.events import L1EventEmbeddingMixin
+from .entities.links import L1EventEntityMixin
+from .retrieval.fts import L1EventFtsMixin
+from .retrieval.queries import L1EventQueryMixin
+from .storage.rows import L1EventRowMixin
+from .storage.schema import L1EventSchemaMixin
 
 FACT_EVENTS_TABLE = "fact_events"
 EMBEDDING_PROFILES_TABLE = "embedding_profiles"

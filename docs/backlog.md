@@ -243,12 +243,12 @@ Recent progress:
 - Worker fact, bus-event, and trace-notification publication helpers now live in `worker_publication.py`.
 - Chat execution guidance, UX-plan, and workspace helpers now live in `handler_helpers.py`.
 - Chat trace runtime tree reshape helpers now live in `chat_trace_tree.py`.
-- L1 event/entity linkage helpers now live in `event_store_entities.py`.
-- L1 event-store schema migration helpers now live in `event_store_schema.py`.
-- L1 event-store row serialization and timeline projection helpers now live in `event_store_rows.py`.
-- L1 event-store FTS/BM25 helpers now live in `event_store_fts.py`.
-- L1 event-store embedding, chunk, and vector-search helpers now live in `event_store_embeddings.py`.
-- L1 event-store read/query helpers now live in `event_store_queries.py`.
+- L1 event/entity linkage helpers now live in `l1/entities/links.py`.
+- L1 event-store schema migration helpers now live in `l1/storage/schema.py`.
+- L1 event-store row serialization and timeline projection helpers now live in `l1/storage/rows.py`.
+- L1 event-store FTS/BM25 helpers now live in `l1/retrieval/fts.py`.
+- L1 event-store embedding, chunk, and vector-search helpers now live in `l1/embeddings/events.py`.
+- L1 event-store read/query helpers now live in `l1/retrieval/queries.py`.
 - L2 pipeline flow helpers now live under `pipeline/` by role: `staging.py`, `projection.py`, `context.py`, `workers.py`, `lifecycle.py`, `persistence.py`, `utils.py`, and `conflict.py`.
 - L2 pipeline validation helpers now live under `pipeline/validation/` by candidate domain: `structured_hints.py`, `graph.py`, and `assertions.py`.
 - L2 entity maintenance helpers now live under `entities/maintenance/` by domain: `assertions.py`, `embeddings.py`, `edges.py`, `catalog.py`, `ghosts.py`, `predicates.py`, and `episodes.py`.

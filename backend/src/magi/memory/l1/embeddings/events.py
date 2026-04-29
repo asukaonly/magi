@@ -9,13 +9,13 @@ from typing import Any, Dict, List, Optional, Protocol, cast
 
 import aiosqlite
 
-from ...core.sqlite import sqlite_connection_async
-from ..embedding.chunking import ChunkedText, chunk_sentences
-from ..embedding.embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
-from ..embedding.embedding_service import EmbeddingProfile, MemoryEmbeddingService
-from ..embedding.embedding_text_builders import build_l1_embedding_text
-from ..embedding.sqlite_vec_index import SqliteVecIndex, VectorSearchHit
-from ..event_contracts import MemoryDomain, MemoryEvent
+from ....core.sqlite import sqlite_connection_async
+from ...embedding.chunking import ChunkedText, chunk_sentences
+from ...embedding.embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
+from ...embedding.embedding_service import EmbeddingProfile, MemoryEmbeddingService
+from ...embedding.embedding_text_builders import build_l1_embedding_text
+from ...embedding.sqlite_vec_index import SqliteVecIndex, VectorSearchHit
+from ...event_contracts import MemoryDomain, MemoryEvent
 
 FACT_EVENTS_TABLE = "fact_events"
 EMBEDDING_PROFILES_TABLE = "embedding_profiles"

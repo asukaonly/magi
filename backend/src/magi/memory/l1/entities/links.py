@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, List, Optional, Protocol, Tuple, cast
 
-from ...core.sqlite import sqlite_connection_async
+from ....core.sqlite import sqlite_connection_async
 
 
 class _L1EventEntityHostProtocol(Protocol):

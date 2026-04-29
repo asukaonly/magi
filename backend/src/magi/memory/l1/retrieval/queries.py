@@ -6,8 +6,8 @@ from typing import Any, Dict, List, Literal, Optional, Protocol, cast
 
 import aiosqlite
 
-from ...core.sqlite import sqlite_connection_async
-from ..event_contracts import MemoryDomain, MemoryEvent, RetentionClass
+from ....core.sqlite import sqlite_connection_async
+from ...event_contracts import MemoryDomain, MemoryEvent, RetentionClass
 
 FACT_EVENTS_TABLE = "fact_events"
 

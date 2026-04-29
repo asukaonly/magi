@@ -45,12 +45,12 @@ export PYTHONPATH="$ROOT_DIR/backend/src:$ROOT_DIR/sdk/src${PYTHONPATH:+:$PYTHON
   src/magi/llm/usage_events.py \
   src/magi/llm/parsers/content_sanitizer.py \
   src/magi/llm/parsers/tool_call_parser.py \
-  src/magi/memory/l1/event_store_embeddings.py \
-  src/magi/memory/l1/event_store_entities.py \
-  src/magi/memory/l1/event_store_fts.py \
-  src/magi/memory/l1/event_store_queries.py \
-  src/magi/memory/l1/event_store_rows.py \
-  src/magi/memory/l1/event_store_schema.py \
+  src/magi/memory/l1/embeddings/events.py \
+  src/magi/memory/l1/entities/links.py \
+  src/magi/memory/l1/retrieval/fts.py \
+  src/magi/memory/l1/retrieval/queries.py \
+  src/magi/memory/l1/storage/rows.py \
+  src/magi/memory/l1/storage/schema.py \
   src/magi/memory/l2/batch_models.py \
   src/magi/memory/l2/candidate_models.py \
   src/magi/memory/l2/ontology.py \

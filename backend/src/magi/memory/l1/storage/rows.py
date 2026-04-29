@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional, Protocol, cast
 
 import aiosqlite
 
-from ..event_contracts import IngestTarget, MemoryDomain, MemoryEvent, RetentionClass, TomDepth
+from ...event_contracts import IngestTarget, MemoryDomain, MemoryEvent, RetentionClass, TomDepth
 
 EMBEDDING_STATUS_DISABLED = "disabled"
 EMBEDDING_STATUS_READY = "ready"

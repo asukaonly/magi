@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import aiosqlite
 
-from ...runtime_defaults import DEFAULT_USER_ID
+from ....runtime_defaults import DEFAULT_USER_ID
 
 FACT_EVENTS_TABLE = "fact_events"
 EMBEDDING_STATUS_DISABLED = "disabled"
