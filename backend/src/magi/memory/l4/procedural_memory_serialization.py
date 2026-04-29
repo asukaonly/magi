@@ -5,6 +5,7 @@ import json
 import math
 from typing import Any, Mapping, Optional
 
+from ..event_contracts import MemoryEvent
 from .procedural_memory_schema import EMBEDDING_STATUS_DISABLED, _ADAPTIVE_MAX_THRESHOLD
 
 
@@ -108,3 +109,61 @@ def row_to_skill_dict(row: Mapping[str, Any]) -> dict[str, Any]:
         "updated_at": float(row["updated_at"]),
         "pending_trace_count": int(row["pending_trace_count"]) if row["pending_trace_count"] is not None else 0,
     }
+
+
+def extract_skill_identity(event: MemoryEvent) -> Optional[dict[str, Any]]:
+    """Extract skill identity and trace data from a memory event."""
+    if event.event_type == "ActionExecuted":
+        skill_name = str(event.source_item_id or event.content or "").strip()
+        if not skill_name:
+            return None
+        meta = event.metadata_json or {}
+        content_str = str(event.content or "").strip()
+        optimized_prompt = content_str if content_str and content_str != skill_name else None
+        success = int(event.level) < 3
+        return {
+            "skill_name": skill_name,
+            "skill_category": "tool",
+            "skill_type": "external_tool",
+            "success": success,
+            "duration_ms": float(meta.get("duration_ms", 0.0)),
+            "error_summary": truncate_value(meta.get("error"), 500) if not success else None,
+            "optimized_prompt": optimized_prompt,
+            "input_summary": truncate_value(meta.get("input") or meta.get("params"), 500),
+            "output_summary": truncate_value(meta.get("output") or meta.get("result"), 500),
+            "task_context": meta.get("task_category") or event.task_id,
+        }
+
+    if event.event_type == "TaskCompleted":
+        skill_name = str(event.task_id or "task").strip()
+        content_str = str(event.content or "").strip() or None
+        return {
+            "skill_name": skill_name,
+            "skill_category": "workflow",
+            "skill_type": "composite",
+            "success": True,
+            "duration_ms": 0.0,
+            "error_summary": None,
+            "optimized_prompt": content_str,
+            "input_summary": None,
+            "output_summary": truncate_value(content_str, 500),
+            "task_context": event.task_id,
+        }
+
+    if event.event_type == "TaskFailed":
+        skill_name = str(event.task_id or "task").strip()
+        content_str = str(event.content or "").strip() or None
+        return {
+            "skill_name": skill_name,
+            "skill_category": "workflow",
+            "skill_type": "composite",
+            "success": False,
+            "duration_ms": 0.0,
+            "error_summary": truncate_value(content_str, 500),
+            "optimized_prompt": content_str,
+            "input_summary": None,
+            "output_summary": None,
+            "task_context": event.task_id,
+        }
+
+    return None

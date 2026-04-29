@@ -37,6 +37,7 @@ from .procedural_memory_schema import (
 from .procedural_memory_serialization import (
     adaptive_extraction_threshold,
     compute_context_fit,
+    extract_skill_identity,
     extract_strategy_hint,
     rolling_average,
     row_to_skill_dict,
@@ -872,67 +873,7 @@ class L4ProceduralMemoryStore:
         self,
         event: MemoryEvent,
     ) -> Optional[Dict[str, Any]]:
-        """Extract skill identity and trace data from a MemoryEvent.
-
-        Returns a dict with keys:
-            skill_name, skill_category, skill_type, success, duration_ms,
-            error_summary, optimized_prompt, input_summary, output_summary,
-            task_context
-        """
-        if event.event_type == "ActionExecuted":
-            skill_name = str(event.source_item_id or event.content or "").strip()
-            if not skill_name:
-                return None
-            meta = event.metadata_json or {}
-            content_str = str(event.content or "").strip()
-            optimized_prompt = content_str if content_str and content_str != skill_name else None
-            success = int(event.level) < 3
-            return {
-                "skill_name": skill_name,
-                "skill_category": "tool",
-                "skill_type": "external_tool",
-                "success": success,
-                "duration_ms": float(meta.get("duration_ms", 0.0)),
-                "error_summary": _truncate(meta.get("error"), 500) if not success else None,
-                "optimized_prompt": optimized_prompt,
-                "input_summary": _truncate(meta.get("input") or meta.get("params"), 500),
-                "output_summary": _truncate(meta.get("output") or meta.get("result"), 500),
-                "task_context": meta.get("task_category") or event.task_id,
-            }
-
-        if event.event_type == "TaskCompleted":
-            skill_name = str(event.task_id or "task").strip()
-            content_str = str(event.content or "").strip() or None
-            return {
-                "skill_name": skill_name,
-                "skill_category": "workflow",
-                "skill_type": "composite",
-                "success": True,
-                "duration_ms": 0.0,
-                "error_summary": None,
-                "optimized_prompt": content_str,
-                "input_summary": None,
-                "output_summary": _truncate(content_str, 500),
-                "task_context": event.task_id,
-            }
-
-        if event.event_type == "TaskFailed":
-            skill_name = str(event.task_id or "task").strip()
-            content_str = str(event.content or "").strip() or None
-            return {
-                "skill_name": skill_name,
-                "skill_category": "workflow",
-                "skill_type": "composite",
-                "success": False,
-                "duration_ms": 0.0,
-                "error_summary": _truncate(content_str, 500),
-                "optimized_prompt": content_str,
-                "input_summary": None,
-                "output_summary": None,
-                "task_context": event.task_id,
-            }
-
-        return None
+        return extract_skill_identity(event)
 
     async def _insert_execution_trace(
         self,
