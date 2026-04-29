@@ -21,9 +21,28 @@ from .protocols import (
     L2StoreProtocol,
 )
 from .l2_handler_utils import (
+    allows_object_id_filter,
+    allows_object_type_filter,
     build_l2_trace,
+    build_query_frame,
+    collect_candidate_object_ids,
+    collect_candidate_subject_ids,
+    dedupe_relationships,
     filter_items_by_time_range,
+    filter_target_entities_for_family,
+    find_constraint,
     has_global_query_constraints,
+    infer_assertion_states,
+    infer_relation_direction,
+    infer_status_filters,
+    infer_target_entity_id,
+    infer_trait_families,
+    is_generic_entity_ref,
+    make_self_entity,
+    predicates_for_semantic_frame,
+    select_exact_target_entity_id,
+    select_semantic_target_entity_id,
+    select_target_entity_types,
 )
 
 logger = logging.getLogger(__name__)
@@ -679,41 +698,23 @@ class L2Handler:
 
     @staticmethod
     def _predicates_for_semantic_frame(semantic_frame: L2SemanticFrame) -> list[str]:
-        if semantic_frame.query_family == "affinity" and semantic_frame.answer_kind == "creator":
-            return ["FOLLOWS", "LIKES", "DISLIKES", "INTERESTED_IN"]
-        if semantic_frame.query_family == "affinity" and semantic_frame.answer_kind == "place":
-            return ["VISITED", "LIKES", "DISLIKES"]
-        if semantic_frame.query_family == "affinity" and semantic_frame.answer_kind == "software":
-            return ["USES", "LIKES", "DISLIKES"]
-        if semantic_frame.query_family == "affinity" and semantic_frame.answer_kind == "topic":
-            return ["INTERESTED_IN", "LIKES", "DISLIKES"]
-        return []
+        return predicates_for_semantic_frame(semantic_frame)
 
-    def _infer_status_filters(self, query: str) -> list[str]:
-        query_lower = query.lower()
-        if "冲突" in query_lower or "conflict" in query_lower:
-            return ["conflicted"]
-        return ["active", "conflicted"]
+    @staticmethod
+    def _infer_status_filters(query: str) -> list[str]:
+        return infer_status_filters(query)
 
-    def _infer_relation_direction(self, query: str) -> str:
-        query_lower = query.lower()
-        if "谁认识我" in query or "who knows me" in query_lower:
-            return "incoming"
-        if "关系" in query or "relationship" in query_lower:
-            return "both"
-        return "outgoing"
+    @staticmethod
+    def _infer_relation_direction(query: str) -> str:
+        return infer_relation_direction(query)
 
-    def _infer_assertion_states(self, status_filters: list[str] | None) -> list[str] | None:
-        if not status_filters:
-            return ["stable", "corroborated", "tentative"]
-        if status_filters == ["conflicted"]:
-            return ["contradicted"]
-        return ["stable", "corroborated", "tentative"]
+    @staticmethod
+    def _infer_assertion_states(status_filters: list[str] | None) -> list[str] | None:
+        return infer_assertion_states(status_filters)
 
-    def _infer_trait_families(self, predicate_family: str) -> list[str] | None:
-        if predicate_family == "preference":
-            return ["preference_profile"]
-        return None
+    @staticmethod
+    def _infer_trait_families(predicate_family: str) -> list[str] | None:
+        return infer_trait_families(predicate_family)
 
     def _infer_target_entity_id(
         self,
@@ -721,15 +722,11 @@ class L2Handler:
         query_frame: dict[str, Any],
         predicate_family: str,
     ) -> str | None:
-        if predicate_family != "preference":
-            return None
-        if query_frame["target_entity_id_exact"]:
-            return str(query_frame["target_entity_id_exact"])
-        return None
+        return infer_target_entity_id(query_frame=query_frame, predicate_family=predicate_family)
 
     @staticmethod
     def _make_self_entity(user_id: str) -> dict[str, str]:
-        return {"entity_id": f"user:{user_id}", "entity_type": "user"}
+        return make_self_entity(user_id)
 
     def _build_query_frame(
         self,
@@ -741,67 +738,14 @@ class L2Handler:
         user_id: Optional[str],
         relation_direction: str,
     ) -> dict[str, Any]:
-        explicit_entities = [dict(entity) for entity in resolved_entities]
-        subject_entities: list[dict[str, str]] = []
-        target_entities: list[dict[str, str]] = []
-        subject_binding_source = "none"
-
-        if conditions.subject_hint == "self" and user_id:
-            subject_entities = [self._make_self_entity(user_id)]
-            target_entities = self._filter_target_entities_for_family(
-                entities=explicit_entities,
-                predicate_family=predicate_family,
-            )
-            subject_binding_source = "self_anchor"
-        elif conditions.subject_hint == "explicit" and explicit_entities:
-            subject_entities = [dict(explicit_entities[0])]
-            target_entities = self._filter_target_entities_for_family(
-                entities=[dict(entity) for entity in explicit_entities[1:]],
-                predicate_family=predicate_family,
-            )
-            subject_binding_source = "explicit_entity"
-        elif explicit_entities:
-            subject_entities = [dict(entity) for entity in explicit_entities]
-            subject_binding_source = "resolved_entity"
-
-        if relation_direction == "incoming" and user_id:
-            subject_entities = [self._make_self_entity(user_id)]
-            target_entities = explicit_entities
-            subject_binding_source = "self_anchor"
-
-        relationship_entities = subject_entities or explicit_entities
-        snapshot_entities = subject_entities or explicit_entities
-        assertion_entities = subject_entities or explicit_entities
-
-        target_entity_id_exact = self._select_exact_target_entity_id(
+        return build_query_frame(
             conditions=conditions,
+            resolved_entities=resolved_entities,
+            predicates=predicates,
             predicate_family=predicate_family,
-            target_entities=target_entities,
+            user_id=user_id,
+            relation_direction=relation_direction,
         )
-        relationship_object_types = self._select_target_entity_types(
-            conditions=conditions,
-            predicate_family=predicate_family,
-            target_entities=target_entities,
-        )
-        relationship_object_id = target_entity_id_exact
-        if relationship_object_id is not None and relationship_object_types:
-            relationship_object_types = None
-
-        chosen_subject_entity_id = subject_entities[0]["entity_id"] if subject_entities else None
-        chosen_target_entity_id = target_entities[0]["entity_id"] if target_entities else None
-        return {
-            "subject_entities": subject_entities,
-            "target_entities": target_entities,
-            "relationship_entities": relationship_entities,
-            "snapshot_entities": snapshot_entities,
-            "assertion_entities": assertion_entities,
-            "chosen_subject_entity_id": chosen_subject_entity_id,
-            "chosen_target_entity_id": chosen_target_entity_id,
-            "subject_binding_source": subject_binding_source,
-            "target_entity_id_exact": target_entity_id_exact,
-            "relationship_object_id": relationship_object_id,
-            "relationship_object_types": relationship_object_types,
-        }
 
     def _filter_target_entities_for_family(
         self,
@@ -809,14 +753,10 @@ class L2Handler:
         entities: list[dict[str, str]],
         predicate_family: str,
     ) -> list[dict[str, str]]:
-        if predicate_family != "preference":
-            return [dict(entity) for entity in entities]
-        filtered = [
-            dict(entity)
-            for entity in entities
-            if str(entity.get("entity_type") or "").strip() not in {"person", "user"}
-        ]
-        return filtered or [dict(entity) for entity in entities]
+        return filter_target_entities_for_family(
+            entities=entities,
+            predicate_family=predicate_family,
+        )
 
     def _select_exact_target_entity_id(
         self,
@@ -825,17 +765,11 @@ class L2Handler:
         predicate_family: str,
         target_entities: list[dict[str, str]],
     ) -> str | None:
-        if not target_entities:
-            return None
-        if predicate_family != "preference":
-            return str(target_entities[0]["entity_id"])
-        for entity in target_entities:
-            # Vector-only resolution is unreliable for exact target filtering.
-            if str(entity.get("match_source") or "") == "vector":
-                continue
-            if not self._is_generic_entity_ref(entity):
-                return str(entity["entity_id"])
-        return None
+        return select_exact_target_entity_id(
+            conditions=conditions,
+            predicate_family=predicate_family,
+            target_entities=target_entities,
+        )
 
     def _select_target_entity_types(
         self,
@@ -844,45 +778,23 @@ class L2Handler:
         predicate_family: str,
         target_entities: list[dict[str, str]],
     ) -> list[str] | None:
-        if predicate_family != "preference" or not target_entities:
-            return None
-        # When all target entities came from vector-only resolution, skip
-        # type filtering to avoid excluding valid results.
-        if all(str(e.get("match_source") or "") == "vector" for e in target_entities):
-            return None
-        types: list[str] = []
-        for entity in target_entities:
-            entity_type = str(entity.get("entity_type") or "").strip()
-            if entity_type and entity_type not in types:
-                types.append(entity_type)
-        return types or None
+        return select_target_entity_types(
+            conditions=conditions,
+            predicate_family=predicate_family,
+            target_entities=target_entities,
+        )
 
     @staticmethod
     def _is_generic_entity_ref(entity: dict[str, str]) -> bool:
-        """Detect generic/category entities structurally.
-
-        An entity is generic when its ID suffix is (a substring of) its type
-        name or vice-versa, e.g. ``weather_state:weather``, ``food:food``.
-        Specific instances like ``weather_state:rainy-hangzhou`` won't match.
-        """
-        entity_id = str(entity.get("entity_id") or "")
-        entity_type = str(entity.get("entity_type") or "")
-        if not entity_id or not entity_type:
-            return False
-        _, _, suffix = entity_id.partition(":")
-        if not suffix:
-            return False
-        normalized_suffix = suffix.replace("_", "-").casefold()
-        normalized_type = entity_type.replace("_", "-").casefold()
-        return normalized_suffix in normalized_type or normalized_type in normalized_suffix
+        return is_generic_entity_ref(entity)
 
     @staticmethod
     def _allows_object_id_filter(*, entity_type: str, direction: str) -> bool:
-        return direction == "outgoing" and entity_type == "user"
+        return allows_object_id_filter(entity_type=entity_type, direction=direction)
 
     @staticmethod
     def _allows_object_type_filter(*, entity_type: str, direction: str) -> bool:
-        return direction == "outgoing" and entity_type == "user"
+        return allows_object_type_filter(entity_type=entity_type, direction=direction)
 
     @staticmethod
     def _find_constraint(
@@ -891,49 +803,19 @@ class L2Handler:
         scope: str,
         facet: str,
     ) -> SemanticConstraint | None:
-        for constraint in constraints:
-            if constraint.scope == scope and constraint.facet == facet:
-                return constraint
-        return None
+        return find_constraint(constraints, scope=scope, facet=facet)
 
     @staticmethod
     def _collect_candidate_subject_ids(relationships: list[dict[str, Any]]) -> list[str]:
-        seen: set[str] = set()
-        candidates: list[str] = []
-        for relationship in relationships:
-            subject_id = str(relationship.get("subject_id") or "").strip()
-            if subject_id and subject_id not in seen:
-                seen.add(subject_id)
-                candidates.append(subject_id)
-        return candidates
+        return collect_candidate_subject_ids(relationships)
 
     @staticmethod
     def _collect_candidate_object_ids(relationships: list[dict[str, Any]]) -> list[str]:
-        seen: set[str] = set()
-        candidates: list[str] = []
-        for relationship in relationships:
-            object_id = str(relationship.get("object_id") or "").strip()
-            if object_id and object_id not in seen:
-                seen.add(object_id)
-                candidates.append(object_id)
-        return candidates
+        return collect_candidate_object_ids(relationships)
 
     @staticmethod
     def _dedupe_relationships(relationships: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        seen: set[str] = set()
-        deduped: list[dict[str, Any]] = []
-        for relationship in relationships:
-            triple_id = str(relationship.get("triple_id") or "").strip()
-            key = triple_id or (
-                f"{relationship.get('subject_id')}:"
-                f"{relationship.get('predicate')}:"
-                f"{relationship.get('object_id')}"
-            )
-            if key in seen:
-                continue
-            seen.add(key)
-            deduped.append(relationship)
-        return deduped
+        return dedupe_relationships(relationships)
 
     async def _lift_creator_presence_relationships(
         self,
@@ -976,14 +858,7 @@ class L2Handler:
         semantic_frame: L2SemanticFrame,
         resolved_entities: list[dict[str, str]],
     ) -> str | None:
-        expected_type = semantic_frame.answer_kind
-        for entity in resolved_entities:
-            entity_type = str(entity.get("entity_type") or "").strip()
-            if entity_type != expected_type:
-                continue
-            if str(entity.get("match_source") or "") == "vector":
-                continue
-            entity_id = str(entity.get("entity_id") or "").strip()
-            if entity_id:
-                return entity_id
-        return None
+        return select_semantic_target_entity_id(
+            semantic_frame=semantic_frame,
+            resolved_entities=resolved_entities,
+        )
