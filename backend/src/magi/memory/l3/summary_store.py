@@ -43,6 +43,11 @@ from .summary_store_schema import (
     SUMMARY_CHUNKS_TABLE,
     ensure_summary_store_schema,
 )
+from .summary_store_serialization import (
+    decode_optional_json,
+    encode_optional_json,
+    row_to_summary_dict,
+)
 
 if TYPE_CHECKING:
     from .models import L3Candidate
@@ -789,48 +794,13 @@ class L3SummaryStore:
             await db.commit()
 
     def _row_to_dict(self, row: aiosqlite.Row) -> Dict[str, Any]:
-        return {
-            "summary_id": str(row["summary_id"]),
-            "summary_type": str(row["summary_type"]),
-            "summary_category": str(row["summary_category"]),
-            "period_start": float(row["period_start"]),
-            "period_end": float(row["period_end"]),
-            "content": str(row["content"]),
-            "key_topics": json.loads(row["key_topics"] or "[]"),
-            "key_entities": json.loads(row["key_entities"] or "[]"),
-            "sentiment_summary": self._decode_optional_json(row["sentiment_summary"]),
-            "change_and_pattern": self._decode_optional_json(row["change_and_pattern"]),
-            "source_event_ids": json.loads(row["source_event_ids"] or "[]"),
-            "source_event_count": int(row["source_event_count"]),
-            "importance_aggregate": float(row["importance_aggregate"] or 0.0),
-            "event_type_distribution": json.loads(row["event_type_distribution"] or "{}"),
-            "generated_by_model": row["generated_by_model"],
-            "generation_prompt": row["generation_prompt"],
-            "generation_reason": row["generation_reason"],
-            "embedding_status": str(row["embedding_status"] or EMBEDDING_STATUS_DISABLED),
-            "embedding_profile_id": row["embedding_profile_id"],
-            "embedding_chunk_count": int(row["embedding_chunk_count"] or 0),
-            "last_embedded_at": float(row["last_embedded_at"]) if row["last_embedded_at"] is not None else None,
-            "created_at": float(row["created_at"]),
-            "updated_at": float(row["updated_at"]),
-        }
+        return row_to_summary_dict(row)
 
     def _encode_optional_json(self, value: Any) -> str | None:
-        if value is None:
-            return None
-        if isinstance(value, (dict, list)):
-            return json.dumps(value, ensure_ascii=False)
-        return str(value)
+        return encode_optional_json(value)
 
     def _decode_optional_json(self, value: Any) -> Any:
-        if value is None:
-            return None
-        if isinstance(value, str):
-            try:
-                return json.loads(value)
-            except json.JSONDecodeError:
-                return value
-        return value
+        return decode_optional_json(value)
 
     async def _maybe_upsert_summary_embedding(self, summary: Dict[str, Any]) -> None:
         await self._maybe_upsert_summary_embeddings([summary])
