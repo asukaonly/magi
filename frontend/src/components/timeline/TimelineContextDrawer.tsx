@@ -1,16 +1,20 @@
 import React from 'react';
-import { Check, X, XCircle } from 'lucide-react';
+import { Check, Pencil, X, XCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import type { TimelineContextBundle } from '@/api/modules/timeline';
+import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { Textarea } from '@/components/ui/textarea';
 
 interface TimelineContextDrawerProps {
   selectedAnchorId: string | null;
   loading: boolean;
   contextBundle: TimelineContextBundle | null;
   feedbackPendingId?: string | null;
+  correctionPendingId?: string | null;
   onAssertionFeedback?: (assertionId: string, feedback: 'confirmed' | 'rejected') => void;
+  onAssertionCorrection?: (assertionId: string, newValue: string) => Promise<void> | void;
   onClose?: () => void;
 }
 
@@ -57,10 +61,14 @@ export const TimelineContextDrawer: React.FC<TimelineContextDrawerProps> = ({
   loading,
   contextBundle,
   feedbackPendingId,
+  correctionPendingId,
   onAssertionFeedback,
+  onAssertionCorrection,
   onClose,
 }) => {
   const { t } = useTranslation('app');
+  const [editingAssertionId, setEditingAssertionId] = React.useState<string | null>(null);
+  const [correctionValue, setCorrectionValue] = React.useState('');
   const anchorRecord = contextBundle?.anchor as Record<string, unknown> | undefined;
   const anchorRange = anchorRecord ? formatAnchorRange(anchorRecord) : null;
   const anchorSources = Array.isArray(anchorRecord?.source_types)
@@ -73,6 +81,14 @@ export const TimelineContextDrawer: React.FC<TimelineContextDrawerProps> = ({
       || (contextBundle.l4_related_procedures || []).length > 0
       || (contextBundle.chat_excerpts || []).length > 0
     : false;
+
+  const handleSubmitCorrection = async (assertionId: string) => {
+    const nextValue = correctionValue.trim();
+    if (!nextValue || !onAssertionCorrection) return;
+    await onAssertionCorrection(assertionId, nextValue);
+    setEditingAssertionId(null);
+    setCorrectionValue('');
+  };
 
   return (
     <aside className="min-h-0 border-t border-border/60 xl:border-l xl:border-t-0">
@@ -153,6 +169,8 @@ export const TimelineContextDrawer: React.FC<TimelineContextDrawerProps> = ({
                     const assertionId = stringValue(record, ['assertion_id']);
                     const feedback = stringValue(record, ['user_feedback']);
                     const pending = assertionId ? feedbackPendingId === assertionId : false;
+                    const correctionPending = assertionId ? correctionPendingId === assertionId : false;
+                    const editing = assertionId ? editingAssertionId === assertionId : false;
                     return (
                       <div
                         key={`${record.assertion_id || record.triple_id || i}`}
@@ -198,9 +216,56 @@ export const TimelineContextDrawer: React.FC<TimelineContextDrawerProps> = ({
                               >
                                 <XCircle className="h-3.5 w-3.5" />
                               </button>
+                              {onAssertionCorrection ? (
+                                <button
+                                  type="button"
+                                  aria-label={t('timeline.feedback.correct')}
+                                  title={t('timeline.feedback.correct')}
+                                  disabled={correctionPending}
+                                  onClick={() => {
+                                    setEditingAssertionId(assertionId);
+                                    setCorrectionValue(value);
+                                  }}
+                                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/50 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </button>
+                              ) : null}
                             </div>
                           ) : null}
                         </div>
+                        {editing ? (
+                          <div className="mt-3 space-y-2">
+                            <Textarea
+                              aria-label={t('timeline.feedback.correctValue')}
+                              value={correctionValue}
+                              onChange={(event) => setCorrectionValue(event.target.value)}
+                              className="min-h-[72px] resize-none"
+                            />
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  setEditingAssertionId(null);
+                                  setCorrectionValue('');
+                                }}
+                              >
+                                {t('timeline.feedback.cancel')}
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                disabled={!correctionValue.trim() || correctionPending}
+                                onClick={() => void handleSubmitCorrection(assertionId)}
+                              >
+                                {correctionPending ? <LoadingSpinner className="h-3.5 w-3.5" /> : null}
+                                {t('timeline.feedback.saveCorrection')}
+                              </Button>
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
                     );
                   })}

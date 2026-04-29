@@ -30,6 +30,7 @@ vi.mock('@/api/modules/timeline', () => ({
 vi.mock('@/api/modules/memory', () => ({
   memoryApi: {
     submitAssertionFeedback: vi.fn(),
+    correctAssertion: vi.fn(),
   },
 }));
 
@@ -384,6 +385,23 @@ describe('timeline page', () => {
       user_feedback: 'confirmed',
       user_feedback_at: 1710001000,
     });
+    vi.mocked(memoryApi.correctAssertion).mockResolvedValue({
+      assertion_id: 'assertion-2',
+      entity_id: 'user:u1',
+      entity_type: 'user',
+      trait_name: 'mood',
+      trait_value: 'calm',
+      confidence_score: 0.95,
+      evidence_events: ['evt-1'],
+      validation_state: 'stable',
+      volatility_index: 0.1,
+      source_domain: 'user_correction',
+      inference_depth: 'explicit',
+      first_inferred_at: 1710000000,
+      last_validated_at: 1710001000,
+      user_feedback: 'confirmed',
+      user_feedback_at: 1710001000,
+    });
   });
 
   it('loads the month viewport first and renders reflection windows', async () => {
@@ -502,6 +520,21 @@ describe('timeline page', () => {
 
     await waitFor(() => expect(memoryApi.submitAssertionFeedback).toHaveBeenCalledWith('assertion-1', 'confirmed'));
     expect(await screen.findByText('timeline.feedback.status.confirmed')).toBeInTheDocument();
+  });
+
+  it('submits assertion corrections from derived timeline evidence', async () => {
+    const user = userEvent.setup();
+    render(<TimelinePage />);
+
+    await user.click(await screen.findByRole('button', { name: 'timeline.scale.day' }));
+    await user.click(await screen.findByRole('button', { name: /Deep Work/ }));
+    await user.click(await screen.findByRole('button', { name: 'timeline.feedback.correct' }));
+    await user.clear(await screen.findByLabelText('timeline.feedback.correctValue'));
+    await user.type(screen.getByLabelText('timeline.feedback.correctValue'), 'calm');
+    await user.click(screen.getByRole('button', { name: 'timeline.feedback.saveCorrection' }));
+
+    await waitFor(() => expect(memoryApi.correctAssertion).toHaveBeenCalledWith('assertion-1', 'calm'));
+    expect(await screen.findByText('calm')).toBeInTheDocument();
   });
 
   it('renders an empty state when the viewport has no reviewable content', async () => {

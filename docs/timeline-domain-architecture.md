@@ -134,11 +134,11 @@ memory artifacts. Raw L1 events, L2 assertions, L3 summaries, and L4 procedures
 remain available as evidence, but the primary viewport should present a clear
 overview first, then prioritized review units, then drill-down evidence.
 
-When the user confirms or rejects a derived interpretation from the evidence
+When the user confirms, rejects, or corrects a derived interpretation from the evidence
 drawer, timeline should route that action back to the owning memory layer rather
 than storing a timeline-local override. L2 assertion feedback uses the memory
-feedback API so confidence, validation state, and future snapshots stay aligned
-with the user's correction.
+feedback and correction APIs so confidence, validation state, replacement
+assertions, and future snapshots stay aligned with the user's correction.
 
 Detailed execution plans, delivery sequencing, and temporary UI workups for the
 review surface belong in `docs/dev/` rather than this root architecture

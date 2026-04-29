@@ -136,8 +136,13 @@
     "feedback": {
       "confirm": "Confirm interpretation",
       "reject": "Reject interpretation",
+      "correct": "Correct value",
+      "correctValue": "Corrected value",
+      "saveCorrection": "Save correction",
+      "cancel": "Cancel",
       "confirmed": "Interpretation confirmed.",
       "rejected": "Interpretation rejected.",
+      "corrected": "Correction saved.",
       "status": {
         "confirmed": "Confirmed by you",
         "rejected": "Rejected by you"

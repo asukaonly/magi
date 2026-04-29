@@ -136,8 +136,13 @@
     "feedback": {
       "confirm": "确认这条解释",
       "reject": "驳回这条解释",
+      "correct": "修正取值",
+      "correctValue": "修正后的取值",
+      "saveCorrection": "保存修正",
+      "cancel": "取消",
       "confirmed": "已确认这条解释。",
       "rejected": "已驳回这条解释。",
+      "corrected": "已保存修正。",
       "status": {
         "confirmed": "你已确认",
         "rejected": "你已驳回"

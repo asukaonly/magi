@@ -339,6 +339,8 @@ export const memoryApi = {
     unwrapMemoryResponse(await api.get<PaginatedResponse<L2Assertion>>('/memory/l2/assertions', { params })),
   submitAssertionFeedback: async (assertionId: string, feedback: 'confirmed' | 'rejected'): Promise<L2Assertion> =>
     unwrapMemoryResponse(await api.patch<L2Assertion>(`/memory/l2/assertions/${assertionId}/feedback`, { feedback })),
+  correctAssertion: async (assertionId: string, newValue: string, reason?: string): Promise<L2Assertion> =>
+    unwrapMemoryResponse(await api.post<L2Assertion>(`/memory/l2/assertions/${assertionId}/correct`, { new_value: newValue, reason })),
   getL2Entities: async (params?: PaginationParams): Promise<PaginatedResponse<L2Entity>> =>
     unwrapMemoryResponse(await api.get<PaginatedResponse<L2Entity>>('/memory/l2/entities', { params })),
   getL2Mentions: async (params?: PaginationParams): Promise<PaginatedResponse<L2Mention>> =>

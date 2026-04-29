@@ -46,6 +46,7 @@ export const TimelinePage: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [loadingContext, setLoadingContext] = useState(false);
   const [feedbackPendingId, setFeedbackPendingId] = useState<string | null>(null);
+  const [correctionPendingId, setCorrectionPendingId] = useState<string | null>(null);
 
   const viewportEnd = viewportStart + windowSecondsByScale[scale];
 
@@ -100,13 +101,28 @@ export const TimelinePage: React.FC = () => {
     setFeedbackPendingId(assertionId);
     try {
       const updated = await memoryApi.submitAssertionFeedback(assertionId, feedback);
-      setContextBundle((current) => mergeAssertionFeedback(current, updated));
+      setContextBundle((current) => mergeAssertionEvidence(current, assertionId, updated));
       toast.success(t(feedback === 'confirmed' ? 'timeline.feedback.confirmed' : 'timeline.feedback.rejected'));
       await loadViewport('refresh');
     } catch (error: any) {
       toast.error(t('timeline.errors.feedbackFailed', { message: error?.message || 'unknown' }));
     } finally {
       setFeedbackPendingId(null);
+    }
+  };
+
+  const handleAssertionCorrection = async (assertionId: string, newValue: string) => {
+    setCorrectionPendingId(assertionId);
+    try {
+      const updated = await memoryApi.correctAssertion(assertionId, newValue);
+      setContextBundle((current) => mergeAssertionEvidence(current, assertionId, updated));
+      toast.success(t('timeline.feedback.corrected'));
+      await loadViewport('refresh');
+    } catch (error: any) {
+      toast.error(t('timeline.errors.feedbackFailed', { message: error?.message || 'unknown' }));
+      throw error;
+    } finally {
+      setCorrectionPendingId(null);
     }
   };
 
@@ -162,7 +178,9 @@ export const TimelinePage: React.FC = () => {
           loading={loadingContext}
           contextBundle={contextBundle}
           feedbackPendingId={feedbackPendingId}
+          correctionPendingId={correctionPendingId}
           onAssertionFeedback={(assertionId, feedback) => void handleAssertionFeedback(assertionId, feedback)}
+          onAssertionCorrection={(assertionId, newValue) => handleAssertionCorrection(assertionId, newValue)}
           onClose={() => setSelectedAnchorId(null)}
         />
       </div>
@@ -170,8 +188,9 @@ export const TimelinePage: React.FC = () => {
   );
 };
 
-const mergeAssertionFeedback = (
+const mergeAssertionEvidence = (
   bundle: TimelineContextBundle | null,
+  targetAssertionId: string,
   updated: L2Assertion
 ): TimelineContextBundle | null => {
   if (!bundle) return bundle;
@@ -179,7 +198,7 @@ const mergeAssertionFeedback = (
     ...bundle,
     l2_state_evidence: bundle.l2_state_evidence.map((item) => {
       const record = item as Record<string, unknown>;
-      if (record.assertion_id !== updated.assertion_id) {
+      if (record.assertion_id !== targetAssertionId && record.assertion_id !== updated.assertion_id) {
         return item;
       }
       return { ...record, ...updated };
