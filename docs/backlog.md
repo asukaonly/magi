@@ -183,6 +183,7 @@ Recent progress:
 - Dynamic tool config spec normalization now lives in `dynamic-config-specs.ts`.
 - Dynamic config field rendering now lives in `DynamicConfigField.tsx`.
 - Chat execution trace DTOs now live in `chat_trace_models.py`.
+- Chat execution trace pure helpers now live in `chat_trace_utils.py`.
 - L0 memory session display helpers now live in `memory_session_display.py`.
 - Memory API Pydantic schemas now live in `memory_schemas.py`.
 - L4 procedural memory schema constants now live in `procedural_memory_schema.py`.

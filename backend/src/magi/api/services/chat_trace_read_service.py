@@ -17,6 +17,25 @@ from .chat_trace_models import (
     ExecutionTraceSnapshot,
     ExecutionTraceSummary,
 )
+from .chat_trace_utils import (
+    compact_value,
+    default_trace_label,
+    derive_children_status,
+    is_terminal_status,
+    map_trace_kind,
+    ms_to_seconds,
+    normalize_status,
+    optional_text,
+    parse_json_object,
+    parse_json_value,
+    safe_int,
+    status_from_worker_event,
+    tool_event_arguments,
+    tool_event_result_preview,
+    tool_event_status,
+    trace_span_error,
+    trace_span_result_preview,
+)
 
 logger = get_logger(__name__)
 
@@ -542,24 +561,11 @@ class ChatTraceReadService:
 
     @staticmethod
     def _parse_json_object(raw_value: Any) -> dict[str, Any]:
-        if not raw_value:
-            return {}
-        try:
-            parsed = json.loads(str(raw_value))
-        except Exception:
-            return {}
-        return parsed if isinstance(parsed, dict) else {}
+        return parse_json_object(raw_value)
 
     @staticmethod
     def _parse_json_value(raw_value: Any) -> Any:
-        if not raw_value:
-            return None
-        if not isinstance(raw_value, str):
-            return raw_value
-        try:
-            return json.loads(raw_value)
-        except Exception:
-            return raw_value
+        return parse_json_value(raw_value)
 
     def _build_snapshot(
         self,
@@ -1007,41 +1013,16 @@ class ChatTraceReadService:
         )
 
     def _map_trace_kind(self, node_type: str) -> str:
-        mapping = {
-            "intent_resolution": "intent",
-            "llm_call": "llm",
-            "tool_call": "tool",
-            "worker_dispatch": "dispatch",
-            "worker_attempt": "attempt",
-            "response_emit": "response",
-        }
-        return mapping.get(node_type, node_type or "step")
+        return map_trace_kind(node_type)
 
     def _default_trace_label(self, node_type: str) -> str:
-        return str(node_type or "step").replace("_", " ").strip().title() or "Step"
+        return default_trace_label(node_type)
 
     def _trace_span_result_preview(self, payload: dict[str, Any]) -> str:
-        output = payload.get("output")
-        if isinstance(output, dict):
-            preview = self._compact_value(output.get("response_preview"))
-            if preview:
-                return preview
-            preview = self._compact_value(output.get("result_preview"))
-            if preview:
-                return preview
-            preview = self._compact_value(output.get("intent"))
-            if preview:
-                return preview
-            preview = self._compact_value(output.get("result"))
-            if preview:
-                return preview
-        return ""
+        return trace_span_result_preview(payload)
 
     def _trace_span_error(self, payload: dict[str, Any]) -> Optional[str]:
-        error = payload.get("error")
-        if isinstance(error, dict):
-            return str(error.get("message") or error.get("failure_reason") or "").strip() or None
-        return str(error or "").strip() or None
+        return trace_span_error(payload)
 
     def _resolve_normalized_mode(
         self,
@@ -1074,33 +1055,16 @@ class ChatTraceReadService:
         return any(item["type"] in TRACE_NODE_EVENT_TYPES for item in events)
 
     def _ms_to_seconds(self, value: Any) -> Optional[float]:
-        if value is None:
-            return None
-        try:
-            return max(0.0, float(value) / 1000.0)
-        except (TypeError, ValueError):
-            return None
+        return ms_to_seconds(value)
 
     def _tool_event_status(self, payload: dict[str, Any]) -> str:
-        if "success" in payload:
-            return "completed" if bool(payload.get("success")) else "failed"
-        result = str(payload.get("result") or "").strip().lower()
-        return "completed" if result == "success" else "failed" if result == "failed" else "running"
+        return tool_event_status(payload)
 
     def _tool_event_result_preview(self, payload: dict[str, Any]) -> str:
-        if "data" in payload:
-            return self._compact_value(payload.get("data"))
-        result = str(payload.get("result") or "").strip()
-        if result:
-            return result
-        return self._compact_value(payload.get("tool_params"))
+        return tool_event_result_preview(payload)
 
     def _tool_event_arguments(self, payload: dict[str, Any]) -> dict[str, Any]:
-        if isinstance(payload.get("arguments"), dict):
-            return payload["arguments"]
-        if isinstance(payload.get("tool_params"), dict):
-            return payload["tool_params"]
-        return {}
+        return tool_event_arguments(payload)
 
     def _build_worker_tool_node(
         self,
@@ -1145,28 +1109,10 @@ class ChatTraceReadService:
         return "running"
 
     def _derive_parent_status(self, children: list[ExecutionTraceNode]) -> str:
-        if not children:
-            return "running"
-        statuses = {child.status for child in children}
-        if "running" in statuses or "pending" in statuses:
-            return "running"
-        if "completed" in statuses:
-            return "completed"
-        if "failed" in statuses:
-            return "failed"
-        return "completed"
+        return derive_children_status(children)
 
     def _derive_rollup_status(self, children: list[ExecutionTraceNode]) -> str:
-        if not children:
-            return "running"
-        statuses = {child.status for child in children}
-        if "running" in statuses or "pending" in statuses:
-            return "running"
-        if "completed" in statuses:
-            return "completed"
-        if "failed" in statuses:
-            return "failed"
-        return "completed"
+        return derive_children_status(children)
 
     def _count_steps(self, root: ExecutionTraceNode) -> tuple[int, int, int]:
         active = 0
@@ -1389,28 +1335,10 @@ class ChatTraceReadService:
         return raw_state if isinstance(raw_state, dict) else None
 
     def _status_from_worker_event(self, event_type: str, payload: dict[str, Any]) -> str:
-        if event_type == "WORKER_AGENT_COMPLETED":
-            return "completed"
-        if event_type == "WORKER_AGENT_FAILED":
-            return "failed"
-        stage = str(payload.get("stage") or "")
-        if stage == "tool_result":
-            return "completed" if bool(payload.get("success")) else "failed"
-        return "running"
+        return status_from_worker_event(event_type, payload)
 
     def _normalize_status(self, status: str) -> str:
-        lowered = str(status or "running").strip().lower()
-        if lowered in {"completed", "success"}:
-            return "completed"
-        if lowered in {"failed", "error"}:
-            return "failed"
-        if lowered == "interrupted":
-            return "interrupted"
-        if lowered == "merged":
-            return "merged"
-        if lowered in {"pending"}:
-            return "pending"
-        return "running"
+        return normalize_status(status)
 
     def _walk_nodes(self, node: ExecutionTraceNode) -> list[ExecutionTraceNode]:
         nodes = [node]
@@ -1432,31 +1360,17 @@ class ChatTraceReadService:
 
     @staticmethod
     def _is_terminal_status(status: str) -> bool:
-        return status in {"completed", "failed", "interrupted", "merged"}
+        return is_terminal_status(status)
 
     @staticmethod
     def _optional_text(value: Any) -> Optional[str]:
-        text = str(value or "").strip()
-        return text or None
+        return optional_text(value)
 
     def _compact_value(self, value: Any) -> str:
-        if isinstance(value, dict):
-            summary = str(value.get("summary") or value.get("result_preview") or "").strip()
-            if summary:
-                return summary[:240]
-            content_preview = str(value.get("content_preview") or value.get("stdout_preview") or "").strip()
-            if content_preview:
-                return content_preview[:240]
-        if isinstance(value, list):
-            return f"{len(value)} items"
-        text = str(value or "").strip()
-        return text[:240]
+        return compact_value(value)
 
     def _safe_int(self, value: Any, *, default: int) -> int:
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return default
+        return safe_int(value, default=default)
 
 
 def get_chat_trace_read_service() -> ChatTraceReadService:
