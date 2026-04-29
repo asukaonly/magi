@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from ..asset_refs import normalize_asset_ref_payload
-from .function_calling_types import ToolCallResult
+from ...asset_refs import normalize_asset_ref_payload
+from .types import ToolCallResult
 
 
 class FunctionCallingResponseMixin:
@@ -221,7 +221,7 @@ class FunctionCallingResponseMixin:
 
     def _build_parent_context_summary(self) -> str:
         """Build a concise summary of the current conversation for a child worker."""
-        from .context_compactor import ContextCompactor
+        from ..context_compactor import ContextCompactor
 
         messages = self._current_messages
         if not messages:

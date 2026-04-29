@@ -12,18 +12,18 @@ export PYTHONPATH="$ROOT_DIR/backend/src:$ROOT_DIR/sdk/src${PYTHONPATH:+:$PYTHON
 "$PYTHON_BIN" -m mypy \
   --config-file pyproject.toml \
   --follow-imports=skip \
-  src/magi/agent/execution/function_calling_failures.py \
-  src/magi/agent/execution/function_calling_fallback.py \
-  src/magi/agent/execution/function_calling_guardrails.py \
-  src/magi/agent/execution/function_calling_llm.py \
-  src/magi/agent/execution/function_calling_messages.py \
-  src/magi/agent/execution/function_calling_permission.py \
-  src/magi/agent/execution/function_calling_postprocessor.py \
-  src/magi/agent/execution/function_calling_responses.py \
-  src/magi/agent/execution/function_calling_step_executor.py \
-  src/magi/agent/execution/function_calling_tool_execution.py \
-  src/magi/agent/execution/function_calling_tracing.py \
-  src/magi/agent/execution/function_calling_types.py \
+  src/magi/agent/execution/function_calling/failures.py \
+  src/magi/agent/execution/function_calling/fallback.py \
+  src/magi/agent/execution/function_calling/guardrails.py \
+  src/magi/agent/execution/function_calling/llm.py \
+  src/magi/agent/execution/function_calling/messages.py \
+  src/magi/agent/execution/function_calling/permission.py \
+  src/magi/agent/execution/function_calling/postprocessor.py \
+  src/magi/agent/execution/function_calling/responses.py \
+  src/magi/agent/execution/function_calling/step_executor.py \
+  src/magi/agent/execution/function_calling/tool_execution.py \
+  src/magi/agent/execution/function_calling/tracing.py \
+  src/magi/agent/execution/function_calling/types.py \
   src/magi/agent/task_agents/chat/postprocess/background.py \
   src/magi/agent/task_agents/chat/postprocess/intent.py \
   src/magi/agent/task_agents/chat/postprocess/memory.py \

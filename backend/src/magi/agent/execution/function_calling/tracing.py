@@ -9,8 +9,8 @@ import time
 from collections.abc import Callable
 from typing import Any, Dict, Protocol, cast
 
-from ...runtime_trace import RuntimeTraceStore, TraceLlmCallRecord, TraceSpanRecord, TraceToolRecord
-from .function_calling_types import ToolCall, ToolCallResult
+from ....runtime_trace import RuntimeTraceStore, TraceLlmCallRecord, TraceSpanRecord, TraceToolRecord
+from .types import ToolCall, ToolCallResult
 
 logger = logging.getLogger(__name__)
 

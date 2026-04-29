@@ -8,7 +8,7 @@ import os
 import time
 from typing import Any, Protocol, cast
 
-from .function_calling_types import ToolCall, ToolCallResult
+from .types import ToolCall, ToolCallResult
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +91,7 @@ class FunctionCallingToolExecutionMixin:
         workspace_root = host._resolve_execution_workspace(execution_workspace)
 
         try:
-            from ...tools.schema import ToolExecutionContext
+            from ....tools.schema import ToolExecutionContext
 
             if tool_name.startswith("skill_"):
                 skill_name = tool_name.replace("skill_", "")

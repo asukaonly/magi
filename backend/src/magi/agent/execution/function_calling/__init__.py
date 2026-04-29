@@ -10,42 +10,42 @@ Handles tool execution using LLM's native function calling capability:
 import logging
 from typing import Callable, Dict, Any, List, Optional, TYPE_CHECKING
 
-from ...llm.base import LLMAdapter
-from ...llm.provider_bridge import LLMProviderBridge, _coerce_thinking_depth
-from ...llm.streaming_events import LLMStreamEvent, emit_stream_event, get_stream_sink
-from ...config.models import LLMScenario, ThinkingDepth
-from ..cancel import CancelToken, null_cancel_token
-from ..message_utils import append_latest_user_message
-from ..run_control import (
+from ....llm.base import LLMAdapter
+from ....llm.provider_bridge import LLMProviderBridge, _coerce_thinking_depth
+from ....llm.streaming_events import LLMStreamEvent, emit_stream_event, get_stream_sink
+from ....config.models import LLMScenario, ThinkingDepth
+from ...cancel import CancelToken, null_cancel_token
+from ...message_utils import append_latest_user_message
+from ...run_control import (
     DetachSignal,
     OrchestratorSnapshot,
     SteerInbox,
     bind_detach_signal,
 )
-from ...runtime_trace import RuntimeTraceStore
-from .context_compactor import ContextCompactor
-from .function_calling_failures import FunctionCallingFailureMixin
-from .function_calling_fallback import FunctionCallingFallbackMixin
-from .function_calling_guardrails import FunctionCallingGuardrailsMixin
-from .function_calling_llm import FunctionCallingLlmMixin
-from .function_calling_messages import FunctionCallingMessageHistoryMixin
-from .function_calling_permission import FunctionCallingPermissionMixin
-from .function_calling_postprocessor import FunctionCallingPostprocessor
-from .function_calling_responses import FunctionCallingResponseMixin
-from .function_calling_step_executor import (
+from ....runtime_trace import RuntimeTraceStore
+from ..context_compactor import ContextCompactor
+from .failures import FunctionCallingFailureMixin
+from .fallback import FunctionCallingFallbackMixin
+from .guardrails import FunctionCallingGuardrailsMixin
+from .llm import FunctionCallingLlmMixin
+from .messages import FunctionCallingMessageHistoryMixin
+from .permission import FunctionCallingPermissionMixin
+from .postprocessor import FunctionCallingPostprocessor
+from .responses import FunctionCallingResponseMixin
+from .step_executor import (
     FunctionCallingStepExecutor,
     FunctionCallingStepState,
 )
-from .function_calling_tool_execution import FunctionCallingToolExecutionMixin
-from .function_calling_tools import (
+from .tool_execution import FunctionCallingToolExecutionMixin
+from .tools import (
     build_tool_description,
     build_tools_parameter,
 )
-from .function_calling_tracing import FunctionCallingTracingMixin
-from .function_calling_types import ExecutionOutcome, ToolCall, ToolCallResult
+from .tracing import FunctionCallingTracingMixin
+from .types import ExecutionOutcome, ToolCall, ToolCallResult
 
 if TYPE_CHECKING:
-    from ...tools.registry import ToolRegistry
+    from ....tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 

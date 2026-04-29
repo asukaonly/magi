@@ -5,14 +5,13 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from ...chat.workspace import get_default_chat_workspace_path
+from ....chat.workspace import get_default_chat_workspace_path
 
 
 def _resolve_default_chat_workspace_path() -> str:
     try:
-        from . import function_calling as function_calling_module
+        from . import get_default_chat_workspace_path as resolver
 
-        resolver = getattr(function_calling_module, "get_default_chat_workspace_path", None)
         if callable(resolver):
             return str(resolver())
     except Exception:
@@ -172,7 +171,7 @@ class FunctionCallingGuardrailsMixin:
     def _classify_guardrail_error_code(*, tool_name: str, error_text: str) -> str:
         if tool_name in {"glob", "grep"} and str(error_text or "").startswith("File scan guardrail:"):
             return "AMBIGUOUS_SCOPE"
-        from ...tools.schema import ToolErrorCode
+            from ....tools.schema import ToolErrorCode
 
         return str(ToolErrorCode.INVALID_PARAMETERS.value)
 

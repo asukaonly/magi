@@ -116,10 +116,10 @@ Status: active
 
 Recent progress:
 
-- `function_calling.py` no longer owns permission-gateway formatting/resolution logic directly; it delegates that slice to `function_calling_permission.py`.
+- `function_calling.py` no longer owns permission-gateway formatting/resolution logic directly; it delegates that slice to `function_calling/permission.py`.
 - The backend type gate now covers extracted function-calling execution helpers in addition to LLM and L2 support modules.
-- Function-calling callback and runtime-trace persistence helpers now live in `function_calling_tracing.py`.
-- Function-calling LLM request/response helpers now live in `function_calling_llm.py`.
+- Function-calling callback and runtime-trace persistence helpers now live in `function_calling/tracing.py`.
+- Function-calling LLM request/response helpers now live in `function_calling/llm.py`.
 - Provider bridge thinking-option and concurrency helpers now live in `provider_bridge/options.py`.
 - L2 snapshot evolution and ToM reconciliation helpers now live in `store_reconcile.py`.
 - L2 graph-conflict resolution and rule reload helpers now live in `store_graph_conflicts.py`.
@@ -139,8 +139,9 @@ Recent progress:
 - Provider bridge non-streaming request implementations now live in `provider_bridge/requests.py`.
 - Provider bridge plain chat streaming now lives in `provider_bridge/streaming.py`.
 - Provider bridge tool-call streaming now lives in `provider_bridge/streaming.py`.
-- Function-calling fallback final-response and rescue-pass logic now lives in `function_calling_fallback.py`.
-- Function-calling concrete tool and skill execution now lives in `function_calling_tool_execution.py`.
+- Function-calling fallback final-response and rescue-pass logic now lives in `function_calling/fallback.py`.
+- Function-calling concrete tool and skill execution now lives in `function_calling/tool_execution.py`.
+- Function-calling orchestrator helpers now live under the `function_calling/` package, with `magi.agent.execution.function_calling` kept as the public facade.
 - Chat post-processing session-run finalization helpers now live in `postprocess_session.py`.
 - Chat post-processing tool event helpers now live in `postprocess_tool_events.py`.
 - Chat post-processing outcome writer helpers now live in `postprocess_outcomes.py`.

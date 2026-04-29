@@ -7,7 +7,7 @@ import time
 from collections.abc import Callable
 from typing import Any, Dict, Optional, Protocol, cast
 
-from .function_calling_types import ToolCall, ToolCallResult
+from .types import ToolCall, ToolCallResult
 
 logger = logging.getLogger(__name__)
 
@@ -53,11 +53,11 @@ class FunctionCallingPermissionMixin:
     ) -> Optional[ToolCallResult]:
         """Run the permission gateway; return a failure result if blocked."""
         try:
-            from ..control.permission import (
+            from ...control.permission import (
                 PermissionOutcome,
                 ToolOrigin,
             )
-            from ...tools.schema import ToolErrorCode
+            from ....tools.schema import ToolErrorCode
         except Exception as exc:  # defensive -- should never fire post-wiring
             logger.error(f"[FunctionCalling] permission gateway import failed: {exc}")
             return None

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .function_calling_types import ToolMessageBlock
+from .types import ToolMessageBlock
 
 
 class FunctionCallingMessageHistoryMixin:

@@ -9,14 +9,14 @@ import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any, Dict, List, Optional, Protocol, cast
 
-from ...config.constants import DEFAULT_MAX_TOKENS
-from ...config.models import ThinkingDepth
-from ...llm.base import LLMAdapter
-from ...llm.provider_bridge import LLMProviderBridge, ToolStreamResult
-from ...llm.streaming_events import get_stream_sink
-from ...utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
-from .context_compactor import ContextCompactor
-from .function_calling_types import ToolCall
+from ....config.constants import DEFAULT_MAX_TOKENS
+from ....config.models import ThinkingDepth
+from ....llm.base import LLMAdapter
+from ....llm.provider_bridge import LLMProviderBridge, ToolStreamResult
+from ....llm.streaming_events import get_stream_sink
+from ....utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
+from ..context_compactor import ContextCompactor
+from .types import ToolCall
 
 logger = logging.getLogger(__name__)
 llm_logger = get_llm_logger("function_calling")
