@@ -11,7 +11,7 @@ import aiosqlite
 
 from ....core.logger import get_logger
 from ....core.sqlite import sqlite_connection_async
-from .utils import (
+from ..storage.utils import (
     MAX_EVIDENCE_EVENT_IDS,
     normalize_store_entity_ref,
     normalize_store_entity_type,

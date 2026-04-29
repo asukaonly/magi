@@ -1,0 +1,1 @@
+"""Projection queue persistence helpers for L2 cognition."""

@@ -89,17 +89,17 @@ export PYTHONPATH="$ROOT_DIR/backend/src:$ROOT_DIR/sdk/src${PYTHONPATH:+:$PYTHON
   src/magi/memory/l2/pipeline_workers.py \
   src/magi/memory/l2/projection_queue_claiming.py \
   src/magi/memory/l2/workflow_prompts.py \
-  src/magi/memory/l2/store_parts/assertions.py \
-  src/magi/memory/l2/store_parts/candidates.py \
-  src/magi/memory/l2/store_parts/contradictions.py \
-  src/magi/memory/l2/store_parts/edge_embeddings.py \
-  src/magi/memory/l2/store_parts/fact_kind.py \
-  src/magi/memory/l2/store_parts/feedback.py \
-  src/magi/memory/l2/store_parts/forgetting.py \
-  src/magi/memory/l2/store_parts/graph_conflicts.py \
-  src/magi/memory/l2/store_parts/graph_writes.py \
-  src/magi/memory/l2/store_parts/migrations.py \
-  src/magi/memory/l2/store_parts/queries.py \
-  src/magi/memory/l2/store_parts/reconcile.py \
-  src/magi/memory/l2/store_parts/rows.py \
-  src/magi/memory/l2/store_parts/snapshots.py
+  src/magi/memory/l2/assertions/contradictions.py \
+  src/magi/memory/l2/assertions/feedback.py \
+  src/magi/memory/l2/assertions/reconcile.py \
+  src/magi/memory/l2/assertions/snapshots.py \
+  src/magi/memory/l2/assertions/write.py \
+  src/magi/memory/l2/extraction/candidates.py \
+  src/magi/memory/l2/governance/forgetting.py \
+  src/magi/memory/l2/graph/conflicts.py \
+  src/magi/memory/l2/graph/edge_embeddings.py \
+  src/magi/memory/l2/graph/fact_kind.py \
+  src/magi/memory/l2/graph/writes.py \
+  src/magi/memory/l2/retrieval/queries.py \
+  src/magi/memory/l2/storage/migrations.py \
+  src/magi/memory/l2/storage/rows.py \

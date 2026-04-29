@@ -6,7 +6,7 @@ from typing import Optional, Protocol, cast
 
 from ...event_contracts import MemoryEvent, TomDepth
 from ..models import L2KnowledgeEdgeWrite, L2TomAssertionWrite
-from .utils import CALM_KEYWORDS, STRESS_KEYWORDS
+from ..storage.utils import CALM_KEYWORDS, STRESS_KEYWORDS
 
 
 class _CandidateHostProtocol(Protocol):

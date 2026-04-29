@@ -1880,7 +1880,7 @@ async def test_corroborate_keeps_longer_evidence_text(tmp_path):
 async def test_future_intent_auto_sets_expires_at(tmp_path):
     """Edges with fact_kind='future_intent' should auto-populate expires_at."""
     from magi.memory.l2.store import L2CognitionStore
-    from magi.memory.l2.store_parts.utils import DEFAULT_FUTURE_INTENT_TTL_SECONDS
+    from magi.memory.l2.storage.utils import DEFAULT_FUTURE_INTENT_TTL_SECONDS
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()
@@ -2771,7 +2771,7 @@ async def test_snapshot_mood_trajectory_excludes_non_temporal_families(tmp_path)
 async def test_snapshot_mood_trajectory_capped_at_limit(tmp_path):
     """Mood trajectory should keep only the most recent entries when exceeding limit."""
     from magi.memory.l2.store import L2CognitionStore
-    from magi.memory.l2.store_parts.utils import MOOD_TRAJECTORY_LIMIT
+    from magi.memory.l2.storage.utils import MOOD_TRAJECTORY_LIMIT
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()

@@ -224,6 +224,12 @@ L2 holds:
 - Episodes (bounded activity segments formed from L1 events)
 - Durable projection job queue
 
+Implementation boundary: `L2CognitionStore` remains the public storage facade
+and transaction coordinator in `memory/l2/store.py`, while its mixins are grouped
+by L2 domain rather than by generic helper status: `storage/`, `graph/`,
+`assertions/`, `entities/`, `episodes/`, `projection/`, `extraction/`,
+`retrieval/`, and `governance/`.
+
 For user-authored chat, durable self-descriptive profile facts such as naming and
 addressing preferences should land in L2 semantic memory, not in bootstrap-only
 state. For example, "call me Hakimi", "don't call me teacher", and explicit

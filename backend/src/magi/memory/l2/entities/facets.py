@@ -10,7 +10,7 @@ from typing import Any, Dict, List
 import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
-from .utils import (
+from ..storage.utils import (
     MAX_EVIDENCE_EVENT_IDS,
     accumulate_confidence,
     normalize_store_entity_ref,
