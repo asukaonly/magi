@@ -36,6 +36,13 @@ const formatTimestamp = (value: unknown): string | null => {
   }).format(new Date(timestamp));
 };
 
+const formatAnchorRange = (record: Record<string, unknown>): string | null => {
+  const start = formatTimestamp(record.time_start || record.start);
+  const end = formatTimestamp(record.time_end || record.end);
+  if (start && end) return `${start} - ${end}`;
+  return start || end;
+};
+
 const EvidenceSection: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
   <section className="space-y-2">
     <h3 className="text-xs font-medium text-muted-foreground">{title}</h3>
@@ -50,6 +57,18 @@ export const TimelineContextDrawer: React.FC<TimelineContextDrawerProps> = ({
   onClose,
 }) => {
   const { t } = useTranslation('app');
+  const anchorRecord = contextBundle?.anchor as Record<string, unknown> | undefined;
+  const anchorRange = anchorRecord ? formatAnchorRange(anchorRecord) : null;
+  const anchorSources = Array.isArray(anchorRecord?.source_types)
+    ? anchorRecord.source_types.filter((item): item is string => typeof item === 'string')
+    : [];
+  const hasEvidence = contextBundle
+    ? (contextBundle.l1_events || []).length > 0
+      || (contextBundle.l2_state_evidence || []).length > 0
+      || (contextBundle.l3_reflections || []).length > 0
+      || (contextBundle.l4_related_procedures || []).length > 0
+      || (contextBundle.chat_excerpts || []).length > 0
+    : false;
 
   return (
     <aside className="min-h-0 border-t border-border/60 xl:border-l xl:border-t-0">
@@ -71,26 +90,28 @@ export const TimelineContextDrawer: React.FC<TimelineContextDrawerProps> = ({
                 <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
                   {contextBundle.anchor.summary}
                 </p>
+                {(anchorRange || anchorSources.length > 0) && (
+                  <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-muted-foreground/70">
+                    {anchorRange ? <span>{anchorRange}</span> : null}
+                    {anchorSources.map((source) => (
+                      <span key={source} className="rounded-md bg-secondary/60 px-1.5 py-0.5 text-secondary-foreground">
+                        {t(`timeline.sources.${source}`, source)}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
               {onClose && (
-                <button onClick={onClose} className="shrink-0 text-muted-foreground/50 hover:text-foreground">
+                <button
+                  type="button"
+                  aria-label={t('timeline.drawer.close')}
+                  onClick={onClose}
+                  className="shrink-0 text-muted-foreground/50 hover:text-foreground"
+                >
                   <X className="h-4 w-4" />
                 </button>
               )}
             </div>
-
-            {(contextBundle.l3_reflections || []).length > 0 && (
-              <EvidenceSection title={t('timeline.drawer.reflections')}>
-                {contextBundle.l3_reflections.map((reflection, i) => (
-                  <div
-                    key={`${(reflection as Record<string, unknown>).summary_id || i}`}
-                    className="rounded-md bg-muted/40 px-3 py-2.5 text-sm text-muted-foreground"
-                  >
-                    {String((reflection as Record<string, unknown>).content || (reflection as Record<string, unknown>).summary || '')}
-                  </div>
-                ))}
-              </EvidenceSection>
-            )}
 
             {(contextBundle.l1_events || []).length > 0 && (
               <EvidenceSection title={t('timeline.drawer.sourceEvidence')}>
@@ -136,6 +157,19 @@ export const TimelineContextDrawer: React.FC<TimelineContextDrawerProps> = ({
               </EvidenceSection>
             )}
 
+            {(contextBundle.l3_reflections || []).length > 0 && (
+              <EvidenceSection title={t('timeline.drawer.reflections')}>
+                {contextBundle.l3_reflections.map((reflection, i) => (
+                  <div
+                    key={`${(reflection as Record<string, unknown>).summary_id || i}`}
+                    className="rounded-md bg-muted/40 px-3 py-2.5 text-sm text-muted-foreground"
+                  >
+                    {String((reflection as Record<string, unknown>).content || (reflection as Record<string, unknown>).summary || '')}
+                  </div>
+                ))}
+              </EvidenceSection>
+            )}
+
             {(contextBundle.l4_related_procedures || []).length > 0 && (
               <EvidenceSection title={t('timeline.drawer.procedures')}>
                 {contextBundle.l4_related_procedures.map((proc, i) => (
@@ -164,14 +198,11 @@ export const TimelineContextDrawer: React.FC<TimelineContextDrawerProps> = ({
               </EvidenceSection>
             )}
 
-            {(contextBundle.l1_events || []).length === 0
-              && (contextBundle.l2_state_evidence || []).length === 0
-              && (contextBundle.l3_reflections || []).length === 0
-              && (contextBundle.chat_excerpts || []).length === 0 ? (
-                <div className="rounded-md border border-dashed border-border/60 px-3 py-4 text-sm text-muted-foreground">
-                  {t('timeline.drawer.noEvidence')}
-                </div>
-              ) : null}
+            {!hasEvidence ? (
+              <div className="rounded-md border border-dashed border-border/60 px-3 py-4 text-sm text-muted-foreground">
+                {t('timeline.drawer.noEvidence')}
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>

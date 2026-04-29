@@ -26,6 +26,11 @@ vi.mock('@/api/modules/timeline', () => ({
   },
 }));
 
+const localTimestamp = (year: number, monthIndex: number, day: number, hour: number, minute = 0): number =>
+  Math.floor(new Date(year, monthIndex, day, hour, minute).getTime() / 1000);
+
+const addMinutes = (timestamp: number, minutes: number): number => timestamp + minutes * 60;
+
 const MONTH_VIEWPORT = {
   viewport: {
     scale: 'month',
@@ -77,8 +82,8 @@ const MONTH_VIEWPORT = {
 const DAY_VIEWPORT = {
   viewport: {
     scale: 'day',
-    start: 1710000000,
-    end: 1710086400,
+    start: localTimestamp(2024, 2, 11, 0),
+    end: localTimestamp(2024, 2, 12, 0),
     focus: 'self',
     query: null,
     timezone: null,
@@ -103,8 +108,8 @@ const DAY_VIEWPORT = {
   clusters: [
     {
       block_id: 'cluster-1',
-      time_start: 1710000000,
-      time_end: 1710007200,
+      time_start: localTimestamp(2024, 2, 11, 9),
+      time_end: localTimestamp(2024, 2, 11, 11),
       duration_seconds: 7200,
       label: 'Deep Work',
       summary: 'A long focused stretch across coding and note-taking.',
@@ -119,6 +124,70 @@ const DAY_VIEWPORT = {
         stress_level: 0.61,
         engagement: 0.83,
       },
+    },
+    {
+      block_id: 'cluster-2',
+      time_start: localTimestamp(2024, 2, 11, 14),
+      time_end: localTimestamp(2024, 2, 11, 15),
+      duration_seconds: 3600,
+      label: 'Review Pass',
+      summary: 'Reviewed timeline implementation notes and follow-up tasks.',
+      dominant_mode: 'terminal_history',
+      source_types: ['terminal_history'],
+      event_count: 1,
+      representative_event_ids: ['evt-3'],
+      keywords: ['review'],
+      media_refs: [],
+    },
+  ],
+  reflections: [],
+  raw_events: [],
+};
+
+const WEEK_VIEWPORT = {
+  viewport: {
+    scale: 'week',
+    start: localTimestamp(2024, 2, 10, 0),
+    end: localTimestamp(2024, 2, 17, 0),
+    focus: 'self',
+    query: null,
+    timezone: null,
+  },
+  summary: {
+    cluster_count: 2,
+    event_count: 3,
+    dominant_modes: ['deep_work'],
+  },
+  state_bands: MONTH_VIEWPORT.state_bands,
+  state_markers: [],
+  clusters: [
+    {
+      block_id: 'week-cluster-1',
+      time_start: localTimestamp(2024, 2, 10, 9),
+      time_end: addMinutes(localTimestamp(2024, 2, 10, 9), 90),
+      duration_seconds: 5400,
+      label: 'Week Planning',
+      summary: 'Mapped the timeline review surface milestones.',
+      dominant_mode: 'manual_journal',
+      source_types: ['manual_journal'],
+      event_count: 2,
+      representative_event_ids: ['evt-4'],
+      keywords: ['planning'],
+      media_refs: [],
+    },
+    {
+      block_id: 'week-cluster-2',
+      time_start: localTimestamp(2024, 2, 12, 15),
+      time_end: localTimestamp(2024, 2, 12, 16),
+      duration_seconds: 3600,
+      label: 'Implementation Review',
+      summary: 'Checked the evidence drawer behavior.',
+      dominant_mode: 'chat',
+      source_types: ['chat'],
+      event_count: 1,
+      representative_event_ids: ['evt-5'],
+      keywords: ['evidence'],
+      media_refs: [],
     },
   ],
   reflections: [],
@@ -194,6 +263,9 @@ describe('timeline page', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(timelineApi.getViewport).mockImplementation(async ({ scale }) => {
+      if (scale === 'week') {
+        return WEEK_VIEWPORT as any;
+      }
       if (scale === 'day') {
         return DAY_VIEWPORT as any;
       }
@@ -224,7 +296,21 @@ describe('timeline page', () => {
     const user = userEvent.setup();
     render(<TimelinePage />);
 
-    await user.click(await screen.findByRole('button', { name: 'timeline.scale.day' }));
+    await user.click(await screen.findByRole('button', { name: 'timeline.scale.week' }));
+
+    await waitFor(() =>
+      expect(timelineApi.getViewport).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          scale: 'week',
+        })
+      )
+    );
+    expect(await screen.findByText('Week Planning')).toBeInTheDocument();
+    expect(screen.getByText('Implementation Review')).toBeInTheDocument();
+    expect(screen.getByText('timeline.cluster.groupSummary:2')).toBeInTheDocument();
+    expect(screen.getByText('timeline.cluster.groupSummary:1')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'timeline.scale.day' }));
 
     await waitFor(() =>
       expect(timelineApi.getViewport).toHaveBeenLastCalledWith(
@@ -234,6 +320,9 @@ describe('timeline page', () => {
       )
     );
     expect(await screen.findByText('Deep Work')).toBeInTheDocument();
+    expect(screen.getByText('Review Pass')).toBeInTheDocument();
+    expect(screen.getByText('timeline.day.segments.morning')).toBeInTheDocument();
+    expect(screen.getByText('timeline.day.segments.afternoon')).toBeInTheDocument();
     expect(screen.getByText('#coding')).toBeInTheDocument();
     expect(screen.getByText('#notes')).toBeInTheDocument();
     expect(screen.getByText('timeline.sources.chat')).toBeInTheDocument();
@@ -260,9 +349,12 @@ describe('timeline page', () => {
     await user.click(await screen.findByRole('button', { name: /Deep Work/ }));
 
     await waitFor(() => expect(timelineApi.getContext).toHaveBeenCalledWith('cluster-1'));
-    expect(await screen.findByText('timeline.drawer.sourceEvidence')).toBeInTheDocument();
+    const sourceEvidence = await screen.findByText('timeline.drawer.sourceEvidence');
+    const derivedEvidence = screen.getByText('timeline.drawer.derivedEvidence');
+    const reflections = screen.getByText('timeline.drawer.reflections');
+    expect(sourceEvidence.compareDocumentPosition(derivedEvidence) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(derivedEvidence.compareDocumentPosition(reflections) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByText('Opened design note')).toBeInTheDocument();
-    expect(screen.getByText('timeline.drawer.derivedEvidence')).toBeInTheDocument();
     expect(screen.getByText('mood')).toBeInTheDocument();
     expect(screen.getByText('timeline.drawer.relatedChat')).toBeInTheDocument();
     expect(await screen.findByText('Focus remained high despite rising stress.')).toBeInTheDocument();

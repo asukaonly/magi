@@ -158,7 +158,8 @@
       "relatedChat": "Related chat",
       "noEvidence": "No source evidence is available for this period yet.",
       "untitledEvent": "Untitled event",
-      "evidenceItem": "Evidence"
+      "evidenceItem": "Evidence",
+      "close": "Close context panel"
     },
     "sources": {
       "chrome_history": "Chrome history",
@@ -211,7 +212,8 @@
       "title": "Highlights"
     },
     "cluster": {
-      "events": "events"
+      "events": "events",
+      "groupSummary": "{{count}} events"
     },
     "activity": {
       "distribution": "Activity distribution"
@@ -224,7 +226,13 @@
       "periods": "Key periods"
     },
     "day": {
-      "periods": "Key periods"
+      "periods": "Key periods",
+      "segments": {
+        "night": "Night",
+        "morning": "Morning",
+        "afternoon": "Afternoon",
+        "evening": "Evening"
+      }
     },
     "empty": {
       "window": "No high-signal items are available for this window yet. Try another range or enable more timeline sources."

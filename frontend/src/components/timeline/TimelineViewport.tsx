@@ -118,7 +118,7 @@ export const TimelineViewport: React.FC<TimelineViewportProps> = ({ scale, viewp
             {t(scale === 'week' ? 'timeline.week.periods' : 'timeline.day.periods')}
           </h3>
           {viewport.clusters.length > 0 ? (
-            <DayClusterLane clusters={viewport.clusters} onOpenContext={onOpenContext} />
+            <DayClusterLane scale={scale} clusters={viewport.clusters} onOpenContext={onOpenContext} />
           ) : (
             <div className="rounded-lg border border-dashed border-border/60 px-4 py-6 text-sm text-muted-foreground">
               {t('timeline.empty.window')}

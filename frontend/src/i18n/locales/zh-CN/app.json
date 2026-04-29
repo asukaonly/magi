@@ -158,7 +158,8 @@
       "relatedChat": "相关对话",
       "noEvidence": "这个时段暂时没有可展示的来源证据。",
       "untitledEvent": "未命名事件",
-      "evidenceItem": "证据"
+      "evidenceItem": "证据",
+      "close": "关闭上下文面板"
     },
     "sources": {
       "chrome_history": "Chrome 历史",
@@ -211,7 +212,8 @@
       "title": "亮点"
     },
     "cluster": {
-      "events": "事件"
+      "events": "事件",
+      "groupSummary": "{{count}} 条事件"
     },
     "activity": {
       "distribution": "活动分布"
@@ -224,7 +226,13 @@
       "periods": "关键时段"
     },
     "day": {
-      "periods": "关键时段"
+      "periods": "关键时段",
+      "segments": {
+        "night": "夜间",
+        "morning": "上午",
+        "afternoon": "下午",
+        "evening": "晚上"
+      }
     },
     "empty": {
       "window": "这个时间窗口暂时没有高信号内容。可以换个时间范围，或开启更多时间线来源。"
