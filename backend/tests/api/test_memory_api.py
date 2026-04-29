@@ -16,6 +16,7 @@ from magi.memory.event_contracts import (
     TomDepth,
 )
 from magi.memory.hybrid_retrieval import RetrievalPayload
+from magi.runtime_defaults import DEFAULT_USER_ID
 
 
 class _FakeL0Store:
@@ -1222,6 +1223,7 @@ def test_memory_search_api_uses_runtime_hybrid_retrieval_service(monkeypatch):
     class _FakeHybridRetrievalService:
         async def query(self, request):
             assert request.query == "switch jobs"
+            assert request.user_id == DEFAULT_USER_ID
             return RetrievalPayload(
                 l0_workbench=[{"summary": "Current goal"}],
                 l1_events=[],

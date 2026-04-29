@@ -511,10 +511,50 @@ class TestL2Handler:
         results = await handler.execute(conds, user_id="local_user")
 
         _, relationship_kwargs = store.batch_get_relationships.call_args
-        assert relationship_kwargs["entity_ids"] == ["user:local_user"]
+        assert relationship_kwargs["entity_ids"] == ["user:local_user", "user:self"]
         assert relationship_kwargs["object_types"] == ["weather_state"]
         assert relationship_kwargs.get("target_object_id") is None
         assert results["trace"]["query_frame"]["chosen_target_entity_id"] == "weather_state:weather-state"
+        assert results["trace"]["query_frame"]["target_entity_id_exact"] is None
+
+    @pytest.mark.asyncio
+    async def test_self_activity_uses_local_self_alias_without_vector_target_filter(self):
+        store = AsyncMock()
+        store.batch_get_relationships.return_value = {
+            "user:local_user": [{"triple_id": "uses-1", "subject_id": "user:local_user"}],
+            "user:self": [{"triple_id": "viewed-1", "subject_id": "user:self"}],
+        }
+        store.batch_list_tom_assertions.return_value = {
+            "user:local_user": [],
+            "user:self": [],
+        }
+        entity_catalog = AsyncMock()
+        entity_catalog.resolve_query_entities.return_value = [
+            {
+                "entity_id": "activity:drinking-water",
+                "entity_type": "activity",
+                "canonical_name": "Drinking water",
+                "match_source": "vector",
+            }
+        ]
+
+        handler = L2Handler(store, entity_catalog=entity_catalog)
+        conds = L2Conditions(
+            content_query="我最近3天的活动",
+            subject_hint="self",
+            predicate_family="activity",
+            include_tom_snapshot=False,
+            include_relationships=True,
+            include_assertions=True,
+        )
+
+        results = await handler.execute(conds, user_id="local_user")
+
+        _, relationship_kwargs = store.batch_get_relationships.call_args
+        assert relationship_kwargs["entity_ids"] == ["user:local_user", "user:self"]
+        assert relationship_kwargs.get("target_object_id") is None
+        assert len(results["relationships"]) == 2
+        assert results["trace"]["query_frame"]["subject_binding_source"] == "self_anchor"
         assert results["trace"]["query_frame"]["target_entity_id_exact"] is None
 
     @pytest.mark.asyncio

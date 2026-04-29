@@ -17,6 +17,7 @@ from ...core.runtime_bindings import (
     require_scenario_llm_pool,
     require_unified_memory,
 )
+from ...runtime_defaults import DEFAULT_USER_ID
 from ...memory.eval_support.contracts import EvalMemoryQuery, EvalMemoryWriteRecord
 from ...memory.eval_support.reader import EvalMemoryReader
 from ...memory.eval_support.writer import EvalMemoryWriter
@@ -788,7 +789,7 @@ async def search_memory(request: RetrievalRequest):
     payload = await retrieval_service.query(
         build_query(
             query=request.query,
-            user_id=request.user_id,
+            user_id=request.user_id or DEFAULT_USER_ID,
             session_id=request.session_id,
             time_range=request.time_range,
             query_mode=request.query_mode,

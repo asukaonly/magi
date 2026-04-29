@@ -21,6 +21,7 @@ from .protocols import (
     EntityCatalogProtocol,
     L2StoreProtocol,
 )
+from ...runtime_defaults import DEFAULT_USER_ID
 
 logger = logging.getLogger(__name__)
 
@@ -769,6 +770,18 @@ class L2Handler:
     def _make_self_entity(user_id: str) -> dict[str, str]:
         return {"entity_id": f"user:{user_id}", "entity_type": "user"}
 
+    @staticmethod
+    def _make_self_entities(user_id: str) -> list[dict[str, str]]:
+        primary = L2Handler._make_self_entity(user_id)
+        entities = [primary]
+        if user_id == DEFAULT_USER_ID and primary["entity_id"] != "user:self":
+            entities.append({
+                "entity_id": "user:self",
+                "entity_type": "user",
+                "match_source": "self_alias",
+            })
+        return entities
+
     def _build_query_frame(
         self,
         *,
@@ -785,7 +798,7 @@ class L2Handler:
         subject_binding_source = "none"
 
         if conditions.subject_hint == "self" and user_id:
-            subject_entities = [self._make_self_entity(user_id)]
+            subject_entities = self._make_self_entities(user_id)
             target_entities = self._filter_target_entities_for_family(
                 entities=explicit_entities,
                 predicate_family=predicate_family,
@@ -803,7 +816,7 @@ class L2Handler:
             subject_binding_source = "resolved_entity"
 
         if relation_direction == "incoming" and user_id:
-            subject_entities = [self._make_self_entity(user_id)]
+            subject_entities = self._make_self_entities(user_id)
             target_entities = explicit_entities
             subject_binding_source = "self_anchor"
 
@@ -865,14 +878,13 @@ class L2Handler:
     ) -> str | None:
         if not target_entities:
             return None
-        if predicate_family != "preference":
-            return str(target_entities[0]["entity_id"])
         for entity in target_entities:
             # Vector-only resolution is unreliable for exact target filtering.
             if str(entity.get("match_source") or "") == "vector":
                 continue
-            if not self._is_generic_entity_ref(entity):
-                return str(entity["entity_id"])
+            if predicate_family == "preference" and self._is_generic_entity_ref(entity):
+                continue
+            return str(entity["entity_id"])
         return None
 
     def _select_target_entity_types(
