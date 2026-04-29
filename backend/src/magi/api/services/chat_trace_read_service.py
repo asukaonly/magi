@@ -17,6 +17,10 @@ from .chat_trace_models import (
     ExecutionTraceSnapshot,
     ExecutionTraceSummary,
 )
+from .chat_trace_row_builder import (
+    build_trace_row_node,
+    resolve_result_preview,
+)
 from .chat_trace_utils import (
     compact_value,
     default_trace_label,
@@ -403,82 +407,11 @@ class ChatTraceReadService:
         tool_call: dict[str, Any] | None,
         intent_resolution: dict[str, Any] | None = None,
     ) -> ExecutionTraceNode:
-        node_type = str(span.get("node_type") or "step")
-        metadata = {
-            "trace_id": span.get("trace_id"),
-            "span_id": span.get("span_id"),
-            "parent_span_id": span.get("parent_span_id"),
-            "node_type": node_type,
-            "attempt_index": self._safe_int(span.get("attempt_index"), default=1),
-            "retry_count": self._safe_int(span.get("retry_count"), default=0),
-            "iteration": self._safe_int(span.get("iteration"), default=0),
-            "duration_ms": self._safe_int(span.get("duration_ms"), default=0),
-            "execution_agent_id": span.get("execution_agent_id"),
-        }
-        if llm_call is not None:
-            metadata.update(
-                {
-                    "provider": llm_call.get("provider"),
-                    "model": llm_call.get("model"),
-                    "input_tokens": self._safe_int(llm_call.get("input_tokens"), default=0),
-                    "output_tokens": self._safe_int(llm_call.get("output_tokens"), default=0),
-                    "reasoning_tokens": self._safe_int(llm_call.get("reasoning_tokens"), default=0),
-                    "cache_read_tokens": self._safe_int(llm_call.get("cache_read_tokens"), default=0),
-                    "cache_write_tokens": self._safe_int(llm_call.get("cache_write_tokens"), default=0),
-                    "thinking_enabled": bool(llm_call.get("thinking_enabled")),
-                    "request_preview": llm_call.get("request_preview") or None,
-                    "response_preview": llm_call.get("response_preview") or None,
-                    "thinking_content": llm_call.get("thinking_content") or None,
-                }
-            )
-        if tool_call is not None:
-            metadata.update(
-                {
-                    "tool_call_id": tool_call.get("tool_call_id"),
-                    "tool_name": tool_call.get("tool_name"),
-                    "arguments": self._parse_json_object(tool_call.get("arguments_json")),
-                    "execution_time": tool_call.get("execution_time_ms"),
-                    "result_json": self._parse_json_value(tool_call.get("result_json")),
-                }
-            )
-        if intent_resolution is not None:
-            selected_tools = self._parse_json_value(intent_resolution.get("selected_tools_json"))
-            selected_tool_list = selected_tools if isinstance(selected_tools, list) else None
-            router_tools = None
-            task_hint = None
-            recommended_tools = None
-            if isinstance(selected_tools, dict):
-                selected_tool_list = selected_tools.get("selected_tools") if isinstance(selected_tools.get("selected_tools"), list) else None
-                router_tools = selected_tools.get("router_tools") if isinstance(selected_tools.get("router_tools"), list) else None
-                task_hint = selected_tools.get("task_hint") if isinstance(selected_tools.get("task_hint"), dict) else None
-                recommended_tools = selected_tools.get("recommended_tools") if isinstance(selected_tools.get("recommended_tools"), list) else None
-            metadata.update(
-                {
-                    "intent_label": intent_resolution.get("intent") or None,
-                    "execution_mode": intent_resolution.get("execution_mode") or None,
-                    "route_reason": intent_resolution.get("route_reason") or None,
-                    "selected_tools": selected_tool_list,
-                    "router_tools": router_tools,
-                    "task_hint": task_hint,
-                    "recommended_tools": recommended_tools,
-                    "selected_worker_type": intent_resolution.get("selected_worker_type") or None,
-                }
-            )
-
-        return ExecutionTraceNode(
-            id=str(span.get("span_id") or ""),
-            kind=self._map_trace_kind(node_type),
-            label=str(span.get("name") or self._default_trace_label(node_type)),
-            status=self._normalize_status(str(span.get("status") or "running")),
-            started_at=self._ms_to_seconds(span.get("started_at_ms")),
-            ended_at=self._ms_to_seconds(span.get("ended_at_ms")),
-            result_preview=self._resolve_result_preview(
-                span=span,
-                llm_call=llm_call,
-                tool_call=tool_call,
-            ),
-            error=str(span.get("error_text") or (tool_call or {}).get("error_message") or "").strip() or None,
-            metadata=metadata,
+        return build_trace_row_node(
+            span=span,
+            llm_call=llm_call,
+            tool_call=tool_call,
+            intent_resolution=intent_resolution,
         )
 
     @staticmethod
@@ -488,18 +421,7 @@ class ChatTraceReadService:
         llm_call: dict[str, Any] | None,
         tool_call: dict[str, Any] | None,
     ) -> str:
-        preview = str(span.get("result_preview") or "").strip()
-        if preview:
-            return preview
-        if tool_call is not None:
-            preview = str(tool_call.get("result_preview") or "").strip()
-            if preview:
-                return preview
-        if llm_call is not None:
-            preview = str(llm_call.get("response_preview") or "").strip()
-            if preview:
-                return preview
-        return ""
+        return resolve_result_preview(span=span, llm_call=llm_call, tool_call=tool_call)
 
     def _load_trace_turn(self, *, user_id: str, session_id: str, turn_id: str) -> Optional[dict[str, Any]]:
         rows = self._query_trace_rows(
