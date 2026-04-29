@@ -50,17 +50,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class FunctionCallingOrchestrator(
-    FunctionCallingFailureMixin,
-    FunctionCallingFallbackMixin,
-    FunctionCallingGuardrailsMixin,
-    FunctionCallingLlmMixin,
-    FunctionCallingMessageHistoryMixin,
-    FunctionCallingPermissionMixin,
-    FunctionCallingResponseMixin,
-    FunctionCallingToolExecutionMixin,
-    FunctionCallingTracingMixin,
-):
+class FunctionCallingOrchestrator:
     """
     Function Calling Orchestrator
 
@@ -124,6 +114,7 @@ class FunctionCallingOrchestrator(
         self.runtime_trace_store = runtime_trace_store
         self.permission_gateway = permission_gateway
         self._permission_gateway_provider = permission_gateway_provider
+        self._operations = _FunctionCallingOperations(self)
         self.step_executor = FunctionCallingStepExecutor(self)
         self._current_messages: List[Dict[str, Any]] = []
         self._context_compactor = ContextCompactor(
@@ -131,6 +122,15 @@ class FunctionCallingOrchestrator(
             context_window=context_window,
             on_event=loop_event_callback,
         )
+
+    def __getattr__(self, name: str) -> Any:
+        operations = self.__dict__.get("_operations")
+        if operations is not None:
+            try:
+                return object.__getattribute__(operations, name)
+            except AttributeError:
+                pass
+        raise AttributeError(f"{type(self).__name__!s} object has no attribute {name!r}")
 
     def build_step_state(
         self,
@@ -441,6 +441,33 @@ class FunctionCallingOrchestrator(
         return build_tools_parameter(self.tool_registry, selected_tools)
 
     _build_tool_description = staticmethod(build_tool_description)
+
+
+class _FunctionCallingOperations(
+    FunctionCallingFailureMixin,
+    FunctionCallingFallbackMixin,
+    FunctionCallingGuardrailsMixin,
+    FunctionCallingLlmMixin,
+    FunctionCallingMessageHistoryMixin,
+    FunctionCallingPermissionMixin,
+    FunctionCallingResponseMixin,
+    FunctionCallingToolExecutionMixin,
+    FunctionCallingTracingMixin,
+):
+    def __init__(self, host: FunctionCallingOrchestrator) -> None:
+        self._host = host
+
+    def __getattribute__(self, name: str) -> Any:
+        if name not in {"_host", "__dict__", "__class__", "__getattribute__", "__getattr__"}:
+            host = object.__getattribute__(self, "_host")
+            override = host.__dict__.get(name)
+            if override is not None:
+                return override
+        return object.__getattribute__(self, name)
+
+    def __getattr__(self, name: str) -> Any:
+        host = object.__getattribute__(self, "_host")
+        return object.__getattribute__(host, name)
 
 
 __all__ = ["FunctionCallingOrchestrator", "ToolCall", "ToolCallResult"]
