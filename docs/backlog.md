@@ -191,7 +191,7 @@ Recent progress:
 - Memory eval answer synthesis helpers now live in `memory_eval_answering.py`.
 - Memory API Pydantic schemas now live in `memory_schemas.py`.
 - L4 procedural memory schema constants now live in `procedural_memory_schema.py`.
-- L4 procedural memory serialization and skill identity helpers now live in `procedural_memory_serialization.py`.
+- L4 procedural memory serialization, trace row, and skill identity helpers now live in `procedural_memory_serialization.py`.
 - L4 procedural memory embedding helpers now live in `procedural_memory_embeddings.py`.
 - Worker prompt and tool-profile helpers now live in `worker_prompting.py`.
 - Worker status, await, and run-state serialization helpers now live in `worker_status.py`.

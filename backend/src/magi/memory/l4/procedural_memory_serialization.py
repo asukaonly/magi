@@ -111,6 +111,22 @@ def row_to_skill_dict(row: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def row_to_execution_trace_dict(row: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "trace_id": str(row["trace_id"]),
+        "skill_id": str(row["skill_id"]),
+        "event_id": str(row["event_id"]),
+        "turn_id": row["turn_id"],
+        "success": bool(row["success"]),
+        "duration_ms": float(row["duration_ms"] or 0.0),
+        "error_summary": row["error_summary"],
+        "input_summary": row["input_summary"],
+        "output_summary": row["output_summary"],
+        "task_context": row["task_context"],
+        "created_at": float(row["created_at"]),
+    }
+
+
 def extract_skill_identity(event: MemoryEvent) -> Optional[dict[str, Any]]:
     """Extract skill identity and trace data from a memory event."""
     if event.event_type == "ActionExecuted":

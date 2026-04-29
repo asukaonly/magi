@@ -40,6 +40,7 @@ from .procedural_memory_serialization import (
     extract_skill_identity,
     extract_strategy_hint,
     rolling_average,
+    row_to_execution_trace_dict,
     row_to_skill_dict,
     truncate_value as _truncate,
 )
@@ -849,19 +850,7 @@ class L4ProceduralMemoryStore:
             if tid in seen:
                 continue
             seen.add(tid)
-            result.append({
-                "trace_id": tid,
-                "skill_id": str(row["skill_id"]),
-                "event_id": str(row["event_id"]),
-                "turn_id": row["turn_id"],
-                "success": bool(row["success"]),
-                "duration_ms": float(row["duration_ms"] or 0.0),
-                "error_summary": row["error_summary"],
-                "input_summary": row["input_summary"],
-                "output_summary": row["output_summary"],
-                "task_context": row["task_context"],
-                "created_at": float(row["created_at"]),
-            })
+            result.append(row_to_execution_trace_dict(row))
             if len(result) >= limit:
                 break
 
@@ -951,22 +940,7 @@ class L4ProceduralMemoryStore:
                 (skill_id, int(limit)),
             ) as cursor:
                 rows = await cursor.fetchall()
-        return [
-            {
-                "trace_id": str(row["trace_id"]),
-                "skill_id": str(row["skill_id"]),
-                "event_id": str(row["event_id"]),
-                "turn_id": row["turn_id"],
-                "success": bool(row["success"]),
-                "duration_ms": float(row["duration_ms"] or 0.0),
-                "error_summary": row["error_summary"],
-                "input_summary": row["input_summary"],
-                "output_summary": row["output_summary"],
-                "task_context": row["task_context"],
-                "created_at": float(row["created_at"]),
-            }
-            for row in rows
-        ]
+        return [row_to_execution_trace_dict(row) for row in rows]
 
     async def _maybe_extract_strategy(
         self,
