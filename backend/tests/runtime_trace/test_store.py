@@ -336,7 +336,7 @@ async def test_runtime_trace_store_creates_plugin_ingress_events_table(tmp_path:
 
 @pytest.mark.asyncio
 async def test_runtime_trace_store_claims_and_updates_plugin_ingress_events(tmp_path: Path) -> None:
-    from magi.runtime_trace import PluginIngressEventRecord, RuntimeTraceStore
+    from magi.runtime_trace import RuntimeTraceStore, StoredPluginIngressEventRecord
 
     db_path = tmp_path / "runtime_trace.db"
     store = RuntimeTraceStore(db_path=str(db_path))
@@ -344,7 +344,7 @@ async def test_runtime_trace_store_claims_and_updates_plugin_ingress_events(tmp_
 
     try:
         event_id = await store.append_plugin_ingress_event(
-            PluginIngressEventRecord(
+            StoredPluginIngressEventRecord(
                 event_id=0,
                 source_kind="desktop",
                 producer="frontmost_app_monitor",
@@ -369,7 +369,7 @@ async def test_runtime_trace_store_claims_and_updates_plugin_ingress_events(tmp_
         assert completed.processed_at_ms is not None
 
         failed_event_id = await store.append_plugin_ingress_event(
-            PluginIngressEventRecord(
+            StoredPluginIngressEventRecord(
                 event_id=0,
                 source_kind="desktop",
                 producer="frontmost_app_monitor",
