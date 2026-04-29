@@ -20,7 +20,7 @@ def rrf_fuse(
 ) -> List[Tuple[str, float]]:
     """Reciprocal Rank Fusion over multiple ranked ID lists.
 
-    score(d) = Σ w_r / (k + rank_r(d))
+    score(d) = sum(w_r / (k + rank_r(d)))
 
     where rank_r(d) is 1-based position in ranked list r.
 
