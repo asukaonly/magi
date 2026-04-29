@@ -47,7 +47,6 @@ from .procedural_memory_serialization import (
     rolling_average,
     row_to_execution_trace_dict,
     row_to_skill_dict,
-    truncate_value as _truncate,
 )
 from .procedural_memory_embeddings import (
     build_embedding_pipeline,
@@ -56,6 +55,13 @@ from .procedural_memory_embeddings import (
     chunk_id_for_skill,
     fold_skill_chunk_hits,
     profile_from_embedding_result,
+)
+from .procedural_memory_traces import (
+    apply_recovery_annotations,
+    duration_baseline_from_row,
+    failure_turn_ids,
+    merge_stratified_trace_rows,
+    recovery_map_from_rows,
 )
 from .procedural_memory_updates import (
     build_new_skill_record_state,
@@ -742,22 +748,12 @@ class L4ProceduralMemoryStore:
             ) as cursor:
                 recent = await cursor.fetchall()
 
-        # Merge and deduplicate, preserving bucket priority.
-        seen: set[str] = set()
-        result: List[Dict[str, Any]] = []
-
-        for row in list(failures) + list(successes) + list(recent):
-            tid = str(row["trace_id"])
-            if tid in seen:
-                continue
-            seen.add(tid)
-            result.append(row_to_execution_trace_dict(row))
-            if len(result) >= limit:
-                break
-
-        # Sort chronologically (newest first) for the extraction prompt.
-        result.sort(key=lambda t: t["created_at"], reverse=True)
-        return result
+        return merge_stratified_trace_rows(
+            failures=failures,
+            successes=successes,
+            recent=recent,
+            limit=limit,
+        )
 
     def _extract_skill_identity(
         self,
@@ -891,10 +887,7 @@ class L4ProceduralMemoryStore:
                 row = await cursor.fetchone()
         if row is None:
             return {}
-        return {
-            "avg_ms": float(row["avg_execution_time_ms"] or 0.0),
-            "p95_ms": float(row["p95_execution_time_ms"] or 0.0),
-        }
+        return duration_baseline_from_row(row)
 
     async def _enrich_with_recovery(
         self,
@@ -907,15 +900,10 @@ class L4ProceduralMemoryStore:
         success from a *different* skill in the same turn.  If found, add
         ``recovery_tool`` and ``recovery_output`` keys to the trace dict.
         """
-        failure_turn_ids = [
-            t["turn_id"]
-            for t in traces
-            if not t["success"] and t.get("turn_id")
-        ]
-        if not failure_turn_ids:
+        unique_turn_ids = failure_turn_ids(traces)
+        if not unique_turn_ids:
             return
 
-        unique_turn_ids = list(set(failure_turn_ids))
         placeholders = ", ".join("?" for _ in unique_turn_ids)
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
@@ -934,22 +922,7 @@ class L4ProceduralMemoryStore:
             ) as cursor:
                 rows = await cursor.fetchall()
 
-        # Build turn_id → first recovery info.
-        recovery_map: Dict[str, Dict[str, str]] = {}
-        for row in rows:
-            tid = str(row["turn_id"])
-            if tid not in recovery_map:
-                recovery_map[tid] = {
-                    "recovery_tool": str(row["skill_name"]),
-                    "recovery_output": _truncate(row["output_summary"], 200) or "",
-                }
-
-        # Annotate matching failure traces.
-        for t in traces:
-            if not t["success"] and t.get("turn_id") in recovery_map:
-                info = recovery_map[t["turn_id"]]
-                t["recovery_tool"] = info["recovery_tool"]
-                t["recovery_output"] = info["recovery_output"]
+        apply_recovery_annotations(traces, recovery_map_from_rows(rows))
 
     async def _persist_strategy(
         self,
