@@ -51,6 +51,7 @@ from .memory_l2_status import (
     empty_l2_pending_response as _empty_l2_pending_response,
     empty_l2_statistics_response as _empty_l2_statistics_response,
 )
+from .memory_procedures import build_procedure_list_response as _build_procedure_list_response
 from .memory_route_helpers import (
     build_clear_result as _build_clear_result,
     canonical_self_id as _canonical_self_id,
@@ -70,7 +71,6 @@ from .memory_schemas import (
     GraphConflictRuleBody,
     L2EntityActionBody,
     ManualL2EventBody,
-    ProcedureResponse,
     RetrievalRequest,
 )
 from .memory_statistics import build_layer_statistics as _build_layer_statistics
@@ -816,22 +816,12 @@ async def list_procedures(
         unified_memory.l4.get_all_skills(limit=limit, offset=offset),
         unified_memory.l4.count_skills(),
     )
-    return {
-        "items": [
-            ProcedureResponse(
-                skill_id=str(item["skill_id"]),
-                skill_name=str(item["skill_name"]),
-                skill_category=str(item["skill_category"]),
-                success_rate=float(item["success_rate"]),
-                total_attempts=int(item["total_attempts"]),
-                circuit_breaker_state=str(item["circuit_breaker_state"]),
-            )
-            for item in items
-        ],
-        "total": total,
-        "limit": limit,
-        "offset": offset,
-    }
+    return _build_procedure_list_response(
+        items=items,
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @memory_router.get("/tom/{entity_id}")
