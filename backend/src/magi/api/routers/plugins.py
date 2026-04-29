@@ -10,7 +10,6 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
 
-from ...core.runtime_bindings import require_plugin_manager
 from ...plugins.contracts import (
     ExtensionFieldSpec,
     PluginContribution,
@@ -21,6 +20,7 @@ from ...plugins.contracts import (
     PluginSettingsResourcePayload,
 )
 from ...plugins.i18n import PluginI18n
+from ...plugins.provider import resolve_plugin_manager
 from ...plugins.registry_client import PluginRegistryClient
 
 logger = logging.getLogger(__name__)
@@ -41,7 +41,7 @@ def _get_registry_client() -> PluginRegistryClient:
 def _try_plugin_manager():
     """Return the plugin manager if initialized, otherwise ``None``."""
     try:
-        return require_plugin_manager()
+        return resolve_plugin_manager()
     except RuntimeError:
         return None
 
@@ -317,7 +317,7 @@ def _serialize_package_lightweight(state: PluginPackageState) -> PluginPackageRe
 
 
 def _require_package(plugin_id: str):
-    manager = require_plugin_manager()
+    manager = resolve_plugin_manager()
     package = manager.get_package(plugin_id)
     if package is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plugin not found")
@@ -327,7 +327,7 @@ def _require_package(plugin_id: str):
 @plugins_router.get("", response_model=PluginsListResponse)
 async def list_plugins():
     try:
-        manager = require_plugin_manager()
+        manager = resolve_plugin_manager()
     except RuntimeError:
         return PluginsListResponse(plugins=[], total=0)
     packages = manager.list_packages()
@@ -339,7 +339,7 @@ async def list_plugins():
 
 @plugins_router.post("/rescan", response_model=PluginsListResponse)
 async def rescan_plugins():
-    manager = require_plugin_manager()
+    manager = resolve_plugin_manager()
     packages = manager.rescan_runtime()
     return PluginsListResponse(
         plugins=[_serialize_package(item) for item in packages],
@@ -410,7 +410,7 @@ async def install_plugin_from_upload(file: UploadFile):
     if not (name.endswith(".tar.gz") or name.endswith(".tgz") or name.endswith(".zip")):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Archive must be .tar.gz, .tgz, or .zip")
 
-    manager = require_plugin_manager()
+    manager = resolve_plugin_manager()
     with tempfile.TemporaryDirectory(prefix="magi-upload-") as tmp:
         archive_path = Path(tmp) / file.filename
         content = await file.read()
@@ -456,7 +456,7 @@ async def install_plugin_from_registry(request: PluginInstallRequest):
 @plugins_router.delete("/{plugin_id}", status_code=status.HTTP_200_OK)
 async def uninstall_plugin(plugin_id: str):
     """Uninstall a user-installed plugin."""
-    manager = require_plugin_manager()
+    manager = resolve_plugin_manager()
     try:
         manager.uninstall_plugin(plugin_id)
     except KeyError as exc:
@@ -519,7 +519,7 @@ async def list_registry_plugins():
 @plugins_router.get("/updates", response_model=list[PluginUpdateCheckResponse])
 async def check_plugin_updates():
     """Check all installed plugins for available updates."""
-    manager = require_plugin_manager()
+    manager = resolve_plugin_manager()
     registry = _get_registry_client()
 
     installed = {

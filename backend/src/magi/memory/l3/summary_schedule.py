@@ -132,9 +132,9 @@ class L3SummaryScheduleContrib:
 
     async def _register_activity_schedules(self, scheduler: SchedulerService) -> None:
         try:
-            from ...core.runtime_bindings import require_plugin_manager
+            from ...plugins.provider import resolve_plugin_manager
 
-            plugin_manager = require_plugin_manager()
+            plugin_manager = resolve_plugin_manager()
         except (RuntimeError, ImportError):
             logger.debug("Plugin manager unavailable; skipping activity summary schedules")
             return

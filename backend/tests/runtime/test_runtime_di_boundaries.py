@@ -88,7 +88,8 @@ def test_api_and_tools_use_runtime_bindings_instead_of_runtime_getters() -> None
     assert "require_unified_memory" not in memory_router
     assert "require_unified_memory" not in timeline_router
     assert "require_hybrid_retrieval_service" not in memory_query_tool
-    assert "core.runtime_bindings" in memory_query_tool
+    assert "plugins.provider" in memory_query_tool
+    assert "core.runtime_bindings" not in memory_query_tool
 
 
 def test_timeline_handler_does_not_use_plugin_runtime_globals() -> None:
@@ -203,8 +204,10 @@ def test_plugin_runtime_uses_container_bindings_instead_of_runtime_globals() -> 
     assert "get_plugin_manager" not in plugins_router
     assert "reload_plugin_manager" not in plugins_router
     assert "get_plugin_manager" not in tools_router
-    assert "require_plugin_manager" in plugins_router
-    assert "require_plugin_manager" in tools_router
+    assert "plugins.provider" in plugins_router
+    assert "plugins.provider" in tools_router
+    assert "require_plugin_manager" not in plugins_router
+    assert "require_plugin_manager" not in tools_router
     assert "require_action_registry" not in runtime_bindings
 
 
@@ -220,6 +223,8 @@ def test_runtime_bindings_only_expose_boundary_consumed_services() -> None:
     assert "require_memory_integration" not in runtime_bindings
     assert "require_unified_memory" not in runtime_bindings
     assert "require_hybrid_retrieval_service" not in runtime_bindings
+    assert "require_plugin_manager" not in runtime_bindings
+    assert "require_sensor_registry" not in runtime_bindings
     assert "require_scheduler_service" not in runtime_bindings
     assert "require_sensor_scheduler_contrib" not in runtime_bindings
     assert "require_permission_gateway" not in runtime_bindings

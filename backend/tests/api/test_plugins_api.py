@@ -103,7 +103,7 @@ def test_plugins_api_lists_and_updates_plugin_settings(monkeypatch):
     app = FastAPI()
     app.include_router(plugins_router, prefix="/api/plugins")
     manager = _FakeManager()
-    monkeypatch.setattr("magi.api.routers.plugins.require_plugin_manager", lambda: manager)
+    monkeypatch.setattr("magi.api.routers.plugins.resolve_plugin_manager", lambda: manager)
     client = TestClient(app)
 
     response = client.get("/api/plugins")
@@ -119,7 +119,7 @@ def test_plugins_api_supports_enable_disable_reload_rescan_and_settings(monkeypa
     app = FastAPI()
     app.include_router(plugins_router, prefix="/api/plugins")
     manager = _FakeManager()
-    monkeypatch.setattr("magi.api.routers.plugins.require_plugin_manager", lambda: manager)
+    monkeypatch.setattr("magi.api.routers.plugins.resolve_plugin_manager", lambda: manager)
     client = TestClient(app)
 
     disable_response = client.post("/api/plugins/core-tools/disable")
@@ -159,7 +159,7 @@ def test_plugins_api_reads_plugin_settings_resources(monkeypatch):
     app = FastAPI()
     app.include_router(plugins_router, prefix="/api/plugins")
     manager = _FakeManager()
-    monkeypatch.setattr("magi.api.routers.plugins.require_plugin_manager", lambda: manager)
+    monkeypatch.setattr("magi.api.routers.plugins.resolve_plugin_manager", lambda: manager)
     client = TestClient(app)
 
     response = client.get("/api/plugins/core-tools/settings/resources/calendar_lists")

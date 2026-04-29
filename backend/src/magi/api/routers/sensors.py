@@ -9,12 +9,9 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 
 from ...config import get_config
-from ...core.runtime_bindings import (
-    require_plugin_manager,
-    require_runtime_command_queue,
-    require_sensor_registry,
-)
+from ...core.runtime_bindings import require_runtime_command_queue
 from ...events.contracts import SensorStateFlushCommand, SensorSyncCommand
+from ...plugins.provider import resolve_plugin_manager, resolve_sensor_registry
 from ...scheduler import ScheduledTargetType
 from ...scheduler.contracts import build_sensor_schedule_id, build_sensor_target_key
 from ...scheduler.repository import ScheduleRepository
@@ -88,10 +85,10 @@ async def get_sensor_source_status():
     repository = ScheduleRepository(scheduler_db_path)
     await repository.initialize()
     try:
-        manager = require_plugin_manager()
+        manager = resolve_plugin_manager()
     except RuntimeError:
         return []
-    sensor_registry = require_sensor_registry()
+    sensor_registry = resolve_sensor_registry()
     packages = {state.manifest.plugin_id: state for state in manager.list_packages()}
     contributions = sensor_registry.list_contributions()
     sources = []
@@ -231,7 +228,7 @@ async def get_sensor_source_status():
 @sensors_router.post("/{source_name}/sync")
 async def trigger_sensor_source_sync(source_name: str):
     _ = get_config()
-    sensor_registry = require_sensor_registry()
+    sensor_registry = resolve_sensor_registry()
     resolved = sensor_registry.resolve_source_sensor(source_name)
     if resolved is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sensor source not found")
@@ -257,7 +254,7 @@ async def trigger_sensor_source_sync(source_name: str):
 @sensors_router.post("/{source_name}/flush-state")
 async def trigger_sensor_state_flush(source_name: str):
     _ = get_config()
-    sensor_registry = require_sensor_registry()
+    sensor_registry = resolve_sensor_registry()
     resolved = sensor_registry.resolve_source_sensor(source_name)
     if resolved is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sensor source not found")
@@ -283,7 +280,7 @@ async def trigger_sensor_state_flush(source_name: str):
 @sensors_router.post("/{source_name}/authorize")
 async def authorize_sensor_source(source_name: str, request: SensorSourceAuthorizationRequest):
     _ = get_config()
-    sensor_registry = require_sensor_registry()
+    sensor_registry = resolve_sensor_registry()
     resolved = sensor_registry.resolve_source_sensor(source_name)
     if resolved is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sensor source not found")
