@@ -36,10 +36,19 @@ from .memory_l0_sessions import (
     session_ids_by_user,
     sorted_l0_session_ids,
 )
+from .memory_l2_status import (
+    build_background_pending_response as _build_background_pending_response,
+    build_embedding_pending_from_store as _build_embedding_pending_from_store,
+    build_l2_pending_payload as _build_l2_pending_payload,
+    build_l2_pending_response as _build_l2_pending_response,
+    build_l2_statistics_response as _build_l2_statistics_response,
+    default_projection_backlog as _default_projection_backlog,
+    empty_background_pending_response as _empty_background_pending_response,
+    empty_l2_pending_response as _empty_l2_pending_response,
+    empty_l2_statistics_response as _empty_l2_statistics_response,
+)
 from .memory_route_helpers import (
     build_clear_result as _build_clear_result,
-    build_embedding_pending as _build_embedding_pending,
-    build_l2_pending_breakdown as _build_l2_pending_breakdown,
     canonical_self_id as _canonical_self_id,
     parse_day_boundary as _parse_day_boundary,
     serialize_l1_event_list_item as _serialize_l1_event_list_item,
@@ -185,27 +194,7 @@ async def get_l2_statistics():
     """Get L2 cognition statistics."""
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
-        return {
-            "is_running": False,
-            "relation_count": 0,
-            "assertion_count": 0,
-            "extract_enqueued": 0,
-            "extract_completed": 0,
-            "extract_failed": 0,
-            "extract_skipped": 0,
-            "reconcile_enqueued": 0,
-            "reconcile_completed": 0,
-            "reconcile_failed": 0,
-            "snapshot_enqueued": 0,
-            "snapshot_completed": 0,
-            "snapshot_failed": 0,
-            "relations_written": 0,
-            "assertions_written": 0,
-            "extract_by_evidence_class": {},
-            "skip_by_reason": {},
-            "projection_backlog": {"pending": 0, "claimed": 0, "completed": 0, "failed": 0},
-            "db_path": None,
-        }
+        return _empty_l2_statistics_response()
 
     rel_count, tom_count = await asyncio.gather(
         unified_memory.l2.count_relationships(),
@@ -215,29 +204,15 @@ async def get_l2_statistics():
     projection_backlog = (
         await unified_memory.get_l2_projection_backlog()
         if hasattr(unified_memory, "get_l2_projection_backlog")
-        else {"pending": 0, "claimed": 0, "completed": 0, "failed": 0}
+        else _default_projection_backlog()
     )
-    return {
-        "is_running": bool(pipeline_stats.get("is_running", False)),
-        "relation_count": rel_count,
-        "assertion_count": tom_count,
-        "extract_enqueued": int(pipeline_stats.get("extract_enqueued", 0)),
-        "extract_completed": int(pipeline_stats.get("extract_completed", 0)),
-        "extract_failed": int(pipeline_stats.get("extract_failed", 0)),
-        "extract_skipped": int(pipeline_stats.get("extract_skipped", 0)),
-        "reconcile_enqueued": int(pipeline_stats.get("reconcile_enqueued", 0)),
-        "reconcile_completed": int(pipeline_stats.get("reconcile_completed", 0)),
-        "reconcile_failed": int(pipeline_stats.get("reconcile_failed", 0)),
-        "snapshot_enqueued": int(pipeline_stats.get("snapshot_enqueued", 0)),
-        "snapshot_completed": int(pipeline_stats.get("snapshot_completed", 0)),
-        "snapshot_failed": int(pipeline_stats.get("snapshot_failed", 0)),
-        "relations_written": int(pipeline_stats.get("relations_written", 0)),
-        "assertions_written": int(pipeline_stats.get("assertions_written", 0)),
-        "extract_by_evidence_class": dict(pipeline_stats.get("extract_by_evidence_class", {})),
-        "skip_by_reason": dict(pipeline_stats.get("skip_by_reason", {})),
-        "projection_backlog": projection_backlog,
-        "db_path": unified_memory.l2.db_path,
-    }
+    return _build_l2_statistics_response(
+        relation_count=rel_count,
+        assertion_count=tom_count,
+        pipeline_stats=pipeline_stats,
+        projection_backlog=projection_backlog,
+        db_path=unified_memory.l2.db_path,
+    )
 
 
 @memory_router.get("/l2/pending")
@@ -245,27 +220,18 @@ async def get_l2_pending():
     """Get calculated L2 queue backlog for quick polling."""
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
-        return {
-            "is_running": False,
-            "extract_pending": 0,
-            "reconcile_pending": 0,
-            "snapshot_pending": 0,
-            "projection_pending": 0,
-            "projection_claimed": 0,
-            "projection_failed": 0,
-        }
+        return _empty_l2_pending_response()
 
     pipeline_stats = unified_memory.get_l2_pipeline_stats() if hasattr(unified_memory, "get_l2_pipeline_stats") else {}
     projection_backlog = (
         await unified_memory.get_l2_projection_backlog()
         if hasattr(unified_memory, "get_l2_projection_backlog")
-        else {"pending": 0, "claimed": 0, "completed": 0, "failed": 0}
+        else _default_projection_backlog()
     )
-    pending = _build_l2_pending_breakdown(pipeline_stats, projection_backlog)
-    return {
-        "is_running": bool(pipeline_stats.get("is_running", False)),
-        **pending,
-    }
+    return _build_l2_pending_response(
+        pipeline_stats=pipeline_stats,
+        projection_backlog=projection_backlog,
+    )
 
 
 @memory_router.get("/background/pending")
@@ -273,52 +239,25 @@ async def get_background_pending():
     """Get lightweight backlog stats for background memory workers."""
     unified_memory = _resolve_unified_memory()
     if not unified_memory:
-        return {
-            "l2": {
-                "extract_pending": 0,
-                "reconcile_pending": 0,
-                "snapshot_pending": 0,
-                "projection_pending": 0,
-                "projection_claimed": 0,
-                "projection_failed": 0,
-            },
-            "l1_embeddings": {"pending": 0, "worker_running": False, "vector_enabled": False, "async_embeddings": False},
-            "l3_embeddings": {"pending": 0, "worker_running": False, "vector_enabled": False, "async_embeddings": False},
-            "l4_embeddings": {"pending": 0, "worker_running": False, "vector_enabled": False, "async_embeddings": False},
-            "all_idle": True,
-        }
+        return _empty_background_pending_response()
 
     pipeline_stats = unified_memory.get_l2_pipeline_stats() if hasattr(unified_memory, "get_l2_pipeline_stats") else {}
     projection_backlog = (
         await unified_memory.get_l2_projection_backlog()
         if hasattr(unified_memory, "get_l2_projection_backlog")
-        else {"pending": 0, "claimed": 0, "completed": 0, "failed": 0}
+        else _default_projection_backlog()
     )
-    l2_pending = _build_l2_pending_breakdown(pipeline_stats, projection_backlog)
-    l1_pending = _build_embedding_pending(
-        unified_memory.l1.get_statistics() if getattr(unified_memory, "l1", None) and hasattr(unified_memory.l1, "get_statistics") else None
+    return _build_background_pending_response(
+        l2_pending=_build_l2_pending_payload(
+            pipeline_stats=pipeline_stats,
+            projection_backlog=projection_backlog,
+        ),
+        l1_pending=_build_embedding_pending_from_store(getattr(unified_memory, "l1", None)),
+        l3_pending=_build_embedding_pending_from_store(getattr(unified_memory, "l3", None)),
+        l4_pending=_build_embedding_pending_from_store(getattr(unified_memory, "l4", None)),
     )
-    l3_pending = _build_embedding_pending(
-        unified_memory.l3.get_statistics() if getattr(unified_memory, "l3", None) and hasattr(unified_memory.l3, "get_statistics") else None
-    )
-    l4_pending = _build_embedding_pending(
-        unified_memory.l4.get_statistics() if getattr(unified_memory, "l4", None) and hasattr(unified_memory.l4, "get_statistics") else None
-    )
-    all_idle = (
-        l2_pending["extract_pending"] == 0
-        and l2_pending["reconcile_pending"] == 0
-        and l2_pending["snapshot_pending"] == 0
-        and l1_pending["pending"] == 0
-        and l3_pending["pending"] == 0
-        and l4_pending["pending"] == 0
-    )
-    return {
-        "l2": l2_pending,
-        "l1_embeddings": l1_pending,
-        "l3_embeddings": l3_pending,
-        "l4_embeddings": l4_pending,
-        "all_idle": all_idle,
-    }
+
+
 @memory_router.get("/l2/relations")
 async def list_l2_relations(
     limit: int = Query(default=50, ge=1, le=500),
