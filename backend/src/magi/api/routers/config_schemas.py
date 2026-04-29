@@ -1,0 +1,288 @@
+"""Pydantic schemas for the system configuration API."""
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, Field
+
+from ...config.models import (
+    LLMCapabilitiesSettings,
+    LLMConcurrencyOverrideSettings,
+    LLMModelMetadataOverrideSettings,
+    LLMSelectionLimitsSettings,
+)
+from .personality_config_schemas import PersonalityConfigModel as FullPersonalityConfigModel
+
+
+class AgentConfigModel(BaseModel):
+    name: str = Field(default="magi-agent")
+    description: Optional[str] = Field(default="Magi AI Agent Framework")
+
+
+class LLMProviderConfigModel(BaseModel):
+    enabled: bool = Field(default=True)
+    provider_type: str = Field(default="openai")
+    display_name: str = Field(default="OpenAI")
+    api_key: Optional[str] = Field(default=None)
+    base_url: Optional[str] = Field(default=None)
+    api_format: Optional[str] = Field(default=None)
+    custom_models: List[str] = Field(default_factory=list)
+    custom_default_model: Optional[str] = Field(default=None)
+    model_metadata_overrides: Dict[str, LLMModelMetadataOverrideSettings] = Field(default_factory=dict)
+
+
+class LLMSelectionConfigModel(BaseModel):
+    provider_id: str = Field(default="openai")
+    model: str = Field(default="gpt-4o-mini")
+    embedding_dimension: Optional[int] = Field(default=None, ge=1)
+    capability_override_enabled: bool = Field(default=False)
+    capabilities: LLMCapabilitiesSettings = Field(default_factory=LLMCapabilitiesSettings)
+    limits: LLMSelectionLimitsSettings = Field(default_factory=LLMSelectionLimitsSettings)
+    provider_options: Dict[str, Any] = Field(default_factory=dict)
+
+
+class LLMConfigModel(BaseModel):
+    providers: Dict[str, LLMProviderConfigModel] = Field(
+        default_factory=lambda: {
+            "openai": LLMProviderConfigModel()
+        }
+    )
+    selections: Dict[str, LLMSelectionConfigModel] = Field(
+        default_factory=lambda: {
+            "context_decider": LLMSelectionConfigModel(),
+            "core": LLMSelectionConfigModel(),
+            "embedding": LLMSelectionConfigModel(
+                capabilities=LLMCapabilitiesSettings(
+                    vision=False,
+                    image_output=False,
+                    tool_calling=False,
+                    reasoning=False,
+                    embedding=True,
+                ),
+            ),
+        }
+    )
+    model_runtime_overrides: Dict[str, LLMConcurrencyOverrideSettings] = Field(default_factory=dict)
+
+
+class MemoryL0ConfigModel(BaseModel):
+    enabled: bool = Field(default=True)
+    checkpoint_interval_seconds: int = Field(default=30, ge=1)
+
+
+class MemoryL1ConfigModel(BaseModel):
+    enabled: bool = Field(default=True)
+    vectors_enabled: bool = Field(default=True)
+
+
+class MemoryL2ConfigModel(BaseModel):
+    enabled: bool = Field(default=True)
+    batch_flush_interval_seconds: int = Field(default=60, ge=30)
+    auto_extract_relations: bool = Field(default=True)
+    conflict_arbitration_enabled: bool = Field(default=True)
+    conflict_arbitration_min_confidence: float = Field(default=0.85, ge=0.0, le=1.0)
+
+
+class MemoryL3ConfigModel(BaseModel):
+    enabled: bool = Field(default=True)
+    vectors_enabled: bool = Field(default=True)
+    llm_summary_enabled: bool = Field(default=True)
+    temporal_llm_timeout_seconds: float = Field(default=3.0, ge=0.1)
+    temporal_llm_min_event_count: int = Field(default=2, ge=1)
+    summary_interval_minutes: int = Field(default=60, ge=1)
+
+
+class MemoryL4ConfigModel(BaseModel):
+    enabled: bool = Field(default=True)
+    vectors_enabled: bool = Field(default=True)
+
+
+class CrossEncoderConfigModel(BaseModel):
+    enabled: bool = Field(default=False)
+    managed_model_id: Optional[str] = Field(default=None)
+
+
+class MemoryRerankerConfigModel(BaseModel):
+    top_k: int = Field(default=8, ge=1)
+    cross_encoder: CrossEncoderConfigModel = Field(default_factory=CrossEncoderConfigModel)
+
+
+class EmbeddingLocalConfigModel(BaseModel):
+    model_source: str = Field(default="managed")
+    managed_model_id: Optional[str] = Field(default=None)
+    model_dir_path: Optional[str] = Field(default=None)
+    idle_timeout_seconds: int = Field(default=1800, ge=60)
+
+
+class EmbeddingConfigModel(BaseModel):
+    mode: str = Field(default="remote")
+    local: EmbeddingLocalConfigModel = Field(default_factory=EmbeddingLocalConfigModel)
+
+
+class QueryExpansionConfigModel(BaseModel):
+    enabled: bool = Field(default=True)
+
+
+class GraphSpreadingConfigModel(BaseModel):
+    enabled: bool = Field(default=False)
+
+
+class EntitySemanticEdgeConfigModel(BaseModel):
+    enabled: bool = Field(default=False)
+
+
+class MemoryConfigModel(BaseModel):
+    db_path: Optional[str] = Field(default="~/.magi/data/memory")
+    retention_days: int = Field(default=90, ge=1)
+    history_behavior: str = Field(default="delete")
+    embedding: EmbeddingConfigModel = Field(default_factory=EmbeddingConfigModel)
+    reranker: MemoryRerankerConfigModel = Field(default_factory=MemoryRerankerConfigModel)
+    query_expansion: QueryExpansionConfigModel = Field(default_factory=QueryExpansionConfigModel)
+    graph_spreading: GraphSpreadingConfigModel = Field(default_factory=GraphSpreadingConfigModel)
+    entity_semantic_edges: EntitySemanticEdgeConfigModel = Field(default_factory=EntitySemanticEdgeConfigModel)
+    l0: MemoryL0ConfigModel = Field(default_factory=MemoryL0ConfigModel)
+    l1: MemoryL1ConfigModel = Field(default_factory=MemoryL1ConfigModel)
+    l2: MemoryL2ConfigModel = Field(default_factory=MemoryL2ConfigModel)
+    l3: MemoryL3ConfigModel = Field(default_factory=MemoryL3ConfigModel)
+    l4: MemoryL4ConfigModel = Field(default_factory=MemoryL4ConfigModel)
+
+
+class UserPreferencesModel(BaseModel):
+    onboarding_completed: bool = Field(default=False)
+    user_mode: Optional[str] = Field(default=None)
+    scenario: Optional[str] = Field(default=None)
+    language: str = Field(default="zh")
+    close_to_tray_enabled: bool = Field(default=True)
+    auto_start_enabled: bool = Field(default=False)
+    start_minimized: bool = Field(default=False)
+    default_chat_workspace_path: Optional[str] = Field(default="~/.magi/chat-workspace")
+    streaming_chat_enabled: bool = Field(default=False)
+    allow_media_grounding_for_conversation: bool = Field(default=False)
+    allow_interjection: bool = Field(default=True)
+    allow_ask_in_background: bool = Field(default=False)
+
+
+class NetworkProxyConfigModel(BaseModel):
+    enabled: bool = Field(default=False)
+    proxy_type: str = Field(default="http")
+    host: str = Field(default="127.0.0.1")
+    port: int = Field(default=7890, ge=1, le=65535)
+
+
+class PersonalitySettingsModel(BaseModel):
+    state_memory_enabled: bool = Field(default=True)
+    state_transition_enabled: bool = Field(default=True)
+    deep_persona_enabled: bool = Field(default=True)
+
+    def normalized(self) -> "PersonalitySettingsModel":
+        """Apply dependency rules so child features never outlive state memory."""
+        if not self.state_memory_enabled:
+            return PersonalitySettingsModel(
+                state_memory_enabled=False,
+                state_transition_enabled=False,
+                deep_persona_enabled=False,
+            )
+        return self
+
+
+class WeatherToolConfigModel(BaseModel):
+    enabled: bool = Field(default=True)
+    provider: str = Field(default="qweather")
+    apiKey: Optional[str] = Field(default=None)
+    apiUrl: Optional[str] = Field(default=None)
+
+
+class WebSearchToolConfigModel(BaseModel):
+    enabled: bool = Field(default=True)
+    provider: str = Field(default="duckduckgo")
+    apiKey: Optional[str] = Field(default=None)
+
+
+class WebFetchToolConfigModel(BaseModel):
+    enabled: bool = Field(default=True)
+    usePlaywright: bool = Field(default=False)
+
+
+class BuiltInToolsConfigModel(BaseModel):
+    weather: WeatherToolConfigModel = Field(default_factory=WeatherToolConfigModel)
+    webSearch: WebSearchToolConfigModel = Field(default_factory=WebSearchToolConfigModel)
+    webFetch: WebFetchToolConfigModel = Field(default_factory=WebFetchToolConfigModel)
+
+
+class ToolsConfigModel(BaseModel):
+    builtIn: BuiltInToolsConfigModel = Field(default_factory=BuiltInToolsConfigModel)
+    skills: List[str] = Field(default_factory=list)
+
+
+class TimelineSourceConfigModel(BaseModel):
+    enabled: bool = Field(default=True)
+    sync_mode: str = Field(default="interval")
+    sync_interval_minutes: int = Field(default=15, ge=1)
+    default_retention_mode: str = Field(default="analyze_only")
+    storage_mode: str = Field(default="managed")
+    source_path: Optional[str] = Field(default=None)
+    fetch_page_content: bool = Field(default=False)
+    edge_whitelist: List[str] = Field(default_factory=list)
+
+
+class TimelineSourcesConfigModel(BaseModel):
+    photo_library: TimelineSourceConfigModel = Field(
+        default_factory=lambda: TimelineSourceConfigModel(
+            enabled=False,
+            sync_mode="manual",
+            sync_interval_minutes=60,
+            default_retention_mode="analyze_only",
+            storage_mode="external_reference",
+            edge_whitelist=["CAPTURED", "RELATED_TO", "INTERACTED_WITH", "CREATED"],
+        )
+    )
+    calendar: Optional[TimelineSourceConfigModel] = Field(default=None)
+    chrome_history: Optional[TimelineSourceConfigModel] = Field(default=None)
+    git_activity: Optional[TimelineSourceConfigModel] = Field(default=None)
+    screen_time: Optional[TimelineSourceConfigModel] = Field(default=None)
+    terminal_history: Optional[TimelineSourceConfigModel] = Field(default=None)
+    netease_music: Optional[TimelineSourceConfigModel] = Field(default=None)
+
+
+class TimelineConfigModel(BaseModel):
+    sources: TimelineSourcesConfigModel = Field(default_factory=TimelineSourcesConfigModel)
+
+
+class SystemConfigModel(BaseModel):
+    agent: AgentConfigModel = Field(default_factory=AgentConfigModel)
+    llm: LLMConfigModel = Field(default_factory=LLMConfigModel)
+    memory: MemoryConfigModel = Field(default_factory=MemoryConfigModel)
+    preferences: UserPreferencesModel = Field(default_factory=UserPreferencesModel)
+    network: NetworkProxyConfigModel = Field(default_factory=NetworkProxyConfigModel)
+    personality: FullPersonalityConfigModel = Field(default_factory=FullPersonalityConfigModel)
+    personalitySettings: PersonalitySettingsModel = Field(default_factory=PersonalitySettingsModel)
+    tools: ToolsConfigModel = Field(default_factory=ToolsConfigModel)
+    timeline: TimelineConfigModel = Field(default_factory=TimelineConfigModel)
+
+
+class ConfigResponse(BaseModel):
+    success: bool
+    message: str
+    data: Optional[SystemConfigModel] = None
+
+
+class OnboardingTemplateDataModel(BaseModel):
+    config: SystemConfigModel
+
+
+class OnboardingTemplateResponse(BaseModel):
+    success: bool
+    message: str
+    data: Optional[OnboardingTemplateDataModel] = None
+
+
+class TestTelegramConnectionRequest(BaseModel):
+    bot_token: str
+    proxy: str = ""
+
+
+class TestTelegramConnectionResponse(BaseModel):
+    success: bool
+    message: str
+    bot_username: str = ""
+    bot_id: int = 0

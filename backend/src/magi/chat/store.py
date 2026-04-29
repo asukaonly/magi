@@ -2,15 +2,30 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 import uuid
 
 import aiosqlite
 
 from ..core.sqlite import sqlite_connection_async
-from ..utils.runtime import get_runtime_paths
 from .contracts import ChatMessageLabel, ChatMessageRecord, ChatSessionRecord, ChatTurnRecord
+from .store_schema import (
+    CHAT_STORE_SCHEMA_SQL,
+    ensure_chat_message_columns,
+    ensure_chat_session_columns,
+    ensure_chat_store_schema,
+    ensure_chat_turn_columns,
+)
+from .store_serialization import (
+    build_user_message_payload_json,
+    extract_attachment_payloads,
+    normalize_message_label,
+    parse_message_label,
+    public_attachment_payloads,
+    row_to_message,
+    serialize_message_label,
+    storage_rel_path,
+)
 
 
 class ChatStore:
@@ -27,101 +42,7 @@ class ChatStore:
 
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            await db.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS chat_sessions (
-                    session_id TEXT PRIMARY KEY,
-                    user_id TEXT NOT NULL,
-                    title TEXT NOT NULL,
-                    title_overridden INTEGER NOT NULL DEFAULT 0,
-                    summary TEXT NOT NULL DEFAULT '',
-                    created_at_ms INTEGER NOT NULL,
-                    updated_at_ms INTEGER NOT NULL,
-                    last_message_at_ms INTEGER,
-                    last_user_message_at_ms INTEGER,
-                    last_message_preview TEXT NOT NULL DEFAULT '',
-                    last_user_message_preview TEXT NOT NULL DEFAULT '',
-                    message_count INTEGER NOT NULL DEFAULT 0,
-                    workspace_path TEXT,
-                    history_version INTEGER NOT NULL DEFAULT 0,
-                    archived_at_ms INTEGER,
-                    deleted_at_ms INTEGER
-                );
-                CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_updated
-                    ON chat_sessions(user_id, updated_at_ms DESC);
-
-                CREATE TABLE IF NOT EXISTS chat_turns (
-                    turn_id TEXT PRIMARY KEY,
-                    session_id TEXT NOT NULL,
-                    user_id TEXT NOT NULL,
-                    trace_id TEXT,
-                    orchestration_id TEXT,
-                    status TEXT NOT NULL,
-                    response_mode TEXT NOT NULL,
-                    execution_mode TEXT,
-                    ux_plan_json TEXT NOT NULL DEFAULT '{}',
-                    created_at_ms INTEGER NOT NULL,
-                    updated_at_ms INTEGER NOT NULL,
-                    completed_at_ms INTEGER,
-                    error_text TEXT,
-                    run_id TEXT,
-                    run_revision INTEGER NOT NULL DEFAULT 0,
-                    run_disposition TEXT,
-                    response_anchor_turn_id TEXT,
-                    superseded_by_turn_id TEXT,
-                    supersession_reason TEXT
-                );
-                CREATE INDEX IF NOT EXISTS idx_chat_turns_session_created
-                    ON chat_turns(session_id, created_at_ms ASC);
-                CREATE INDEX IF NOT EXISTS idx_chat_turns_user_updated
-                    ON chat_turns(user_id, updated_at_ms DESC);
-
-                CREATE TABLE IF NOT EXISTS chat_messages (
-                    message_id TEXT PRIMARY KEY,
-                    session_id TEXT NOT NULL,
-                    turn_id TEXT,
-                    user_id TEXT NOT NULL,
-                    role TEXT NOT NULL,
-                    message_kind TEXT NOT NULL,
-                    content_text TEXT,
-                    payload_json TEXT NOT NULL DEFAULT '{}',
-                    is_final INTEGER NOT NULL DEFAULT 1,
-                    is_visible INTEGER NOT NULL DEFAULT 1,
-                    created_at_ms INTEGER NOT NULL,
-                    sequence_no INTEGER NOT NULL,
-                    replaces_message_id TEXT,
-                    replaced_by_message_id TEXT,
-                    reply_to_message_id TEXT,
-                    label_json TEXT
-                );
-                CREATE INDEX IF NOT EXISTS idx_chat_messages_session_created
-                    ON chat_messages(session_id, created_at_ms ASC, sequence_no ASC);
-                CREATE INDEX IF NOT EXISTS idx_chat_messages_turn_sequence
-                    ON chat_messages(turn_id, sequence_no ASC);
-
-                CREATE TABLE IF NOT EXISTS chat_attachments (
-                    attachment_id TEXT PRIMARY KEY,
-                    session_id TEXT NOT NULL,
-                    turn_id TEXT,
-                    message_id TEXT NOT NULL,
-                    user_id TEXT NOT NULL,
-                    kind TEXT NOT NULL,
-                    original_name TEXT NOT NULL DEFAULT '',
-                    mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
-                    size_bytes INTEGER NOT NULL DEFAULT 0,
-                    storage_rel_path TEXT NOT NULL,
-                    sha256 TEXT,
-                    created_at_ms INTEGER NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_chat_attachments_session_created
-                    ON chat_attachments(session_id, created_at_ms ASC);
-                CREATE INDEX IF NOT EXISTS idx_chat_attachments_message_id
-                    ON chat_attachments(message_id);
-                """
-            )
-            await self._ensure_chat_session_columns(db)
-            await self._ensure_chat_turn_columns(db)
-            await self._ensure_chat_message_columns(db)
+            await ensure_chat_store_schema(db)
             await db.commit()
         self._initialized = True
 
@@ -334,12 +255,7 @@ class ChatStore:
 
     @staticmethod
     def _build_user_message_payload_json(attachment_payloads: list[dict[str, object]] | None) -> str:
-        if not attachment_payloads:
-            return "{}"
-        return json.dumps(
-            {"attachments": ChatStore._public_attachment_payloads(attachment_payloads)},
-            ensure_ascii=False,
-        )
+        return build_user_message_payload_json(attachment_payloads)
 
     async def upsert_turn(self, record: ChatTurnRecord) -> None:
         """Insert or update one chat turn row."""
@@ -641,87 +557,23 @@ class ChatStore:
         )
 
     async def _ensure_chat_turn_columns(self, db: aiosqlite.Connection) -> None:
-        cursor = await db.execute("PRAGMA table_info(chat_turns)")
-        rows = await cursor.fetchall()
-        column_names = {str(row[1]) for row in rows}
-        if "run_id" not in column_names:
-            await db.execute("ALTER TABLE chat_turns ADD COLUMN run_id TEXT")
-        if "run_revision" not in column_names:
-            await db.execute("ALTER TABLE chat_turns ADD COLUMN run_revision INTEGER NOT NULL DEFAULT 0")
-        if "run_disposition" not in column_names:
-            await db.execute("ALTER TABLE chat_turns ADD COLUMN run_disposition TEXT")
-        if "response_anchor_turn_id" not in column_names:
-            await db.execute("ALTER TABLE chat_turns ADD COLUMN response_anchor_turn_id TEXT")
-        if "superseded_by_turn_id" not in column_names:
-            await db.execute("ALTER TABLE chat_turns ADD COLUMN superseded_by_turn_id TEXT")
-        if "supersession_reason" not in column_names:
-            await db.execute("ALTER TABLE chat_turns ADD COLUMN supersession_reason TEXT")
+        await ensure_chat_turn_columns(db)
 
     async def _ensure_chat_session_columns(self, db: aiosqlite.Connection) -> None:
-        cursor = await db.execute("PRAGMA table_info(chat_sessions)")
-        rows = await cursor.fetchall()
-        column_names = {str(row[1]) for row in rows}
-        if "history_version" not in column_names:
-            await db.execute(
-                "ALTER TABLE chat_sessions ADD COLUMN history_version INTEGER NOT NULL DEFAULT 0"
-            )
-        if "workspace_path" not in column_names:
-            await db.execute("ALTER TABLE chat_sessions ADD COLUMN workspace_path TEXT")
+        await ensure_chat_session_columns(db)
 
     async def _ensure_chat_message_columns(self, db: aiosqlite.Connection) -> None:
-        cursor = await db.execute("PRAGMA table_info(chat_messages)")
-        rows = await cursor.fetchall()
-        column_names = {str(row[1]) for row in rows}
-        if "reply_to_message_id" not in column_names:
-            await db.execute("ALTER TABLE chat_messages ADD COLUMN reply_to_message_id TEXT")
-        if "label_json" not in column_names:
-            await db.execute("ALTER TABLE chat_messages ADD COLUMN label_json TEXT")
+        await ensure_chat_message_columns(db)
 
     @staticmethod
     def _extract_attachment_payloads(raw_payload_json: str | None) -> list[dict[str, object]]:
-        if not raw_payload_json:
-            return []
-        try:
-            payload = json.loads(raw_payload_json)
-        except (json.JSONDecodeError, TypeError):
-            return []
-        attachments = payload.get("attachments") if isinstance(payload, dict) else None
-        if not isinstance(attachments, list):
-            return []
-        return [dict(item) for item in attachments if isinstance(item, dict)]
+        return extract_attachment_payloads(raw_payload_json)
 
     @staticmethod
     def _public_attachment_payloads(
         attachment_payloads: list[dict[str, object]] | None,
     ) -> list[dict[str, object]]:
-        if not attachment_payloads:
-            return []
-        allowed_keys = {
-            "attachment_id",
-            "kind",
-            "original_name",
-            "mime_type",
-            "size_bytes",
-            "parse_status",
-            "derived_text_excerpt",
-            "character_count",
-            "truncated",
-            "encoding",
-            "page_count",
-            "parse_error",
-        }
-        public_payloads: list[dict[str, object]] = []
-        for item in attachment_payloads:
-            if not isinstance(item, dict):
-                continue
-            public_payload = {
-                key: value
-                for key, value in item.items()
-                if key in allowed_keys and value is not None
-            }
-            if public_payload:
-                public_payloads.append(public_payload)
-        return public_payloads
+        return public_attachment_payloads(attachment_payloads)
 
     async def _replace_message_attachments(
         self,
@@ -778,15 +630,7 @@ class ChatStore:
 
     @staticmethod
     def _storage_rel_path(storage_path: str) -> str | None:
-        candidate = Path(str(storage_path or "").strip())
-        if not str(candidate).strip():
-            return None
-        try:
-            base_dir = get_runtime_paths().base_dir.resolve()
-            relative = candidate.resolve().relative_to(base_dir)
-        except Exception:
-            return None
-        return relative.as_posix()
+        return storage_rel_path(storage_path)
 
     async def get_message(self, message_id: str) -> ChatMessageRecord | None:
         """Return one transcript message by ID."""
@@ -978,65 +822,18 @@ class ChatStore:
 
     @staticmethod
     def _row_to_message(row: aiosqlite.Row) -> ChatMessageRecord:
-        return ChatMessageRecord(
-            message_id=str(row["message_id"]),
-            session_id=str(row["session_id"]),
-            turn_id=str(row["turn_id"]) if row["turn_id"] is not None else None,
-            user_id=str(row["user_id"]),
-            role=str(row["role"]),
-            message_kind=str(row["message_kind"]),
-            content_text=str(row["content_text"]) if row["content_text"] is not None else None,
-            payload_json=str(row["payload_json"]),
-            is_final=bool(int(row["is_final"])),
-            is_visible=bool(int(row["is_visible"])),
-            created_at_ms=int(row["created_at_ms"]),
-            sequence_no=int(row["sequence_no"]),
-            replaces_message_id=str(row["replaces_message_id"]) if row["replaces_message_id"] is not None else None,
-            replaced_by_message_id=str(row["replaced_by_message_id"]) if row["replaced_by_message_id"] is not None else None,
-            reply_to_message_id=str(row["reply_to_message_id"]) if row["reply_to_message_id"] is not None else None,
-            label=ChatStore._parse_message_label(row["label_json"] if "label_json" in row.keys() else None),
-        )
+        return row_to_message(row)
 
     @staticmethod
     def _normalize_message_label(
         label: dict[str, object] | ChatMessageLabel | None,
     ) -> ChatMessageLabel | None:
-        if label is None:
-            return None
-        if isinstance(label, ChatMessageLabel):
-            return label
-        kind = str(label.get("kind") or "").strip()
-        text = str(label.get("text") or "").strip()
-        applied_by = str(label.get("applied_by") or "").strip()
-        source = str(label.get("source") or "").strip()
-        created_at_ms = int(label.get("created_at_ms") or 0)
-        if not kind or not text or not applied_by or not source or created_at_ms <= 0:
-            return None
-        return ChatMessageLabel(
-            kind=kind,
-            text=text,
-            applied_by=applied_by,
-            source=source,
-            created_at_ms=created_at_ms,
-        )
+        return normalize_message_label(label)
 
     @staticmethod
     def _serialize_message_label(label: ChatMessageLabel | None) -> str | None:
-        if label is None:
-            return None
-        return json.dumps(label.to_dict(), ensure_ascii=False)
+        return serialize_message_label(label)
 
     @staticmethod
     def _parse_message_label(raw_label_json: object) -> ChatMessageLabel | None:
-        if raw_label_json is None:
-            return None
-        raw_text = str(raw_label_json or "").strip()
-        if not raw_text:
-            return None
-        try:
-            parsed = json.loads(raw_text)
-        except json.JSONDecodeError:
-            return None
-        if not isinstance(parsed, dict):
-            return None
-        return ChatStore._normalize_message_label(parsed)
+        return parse_message_label(raw_label_json)

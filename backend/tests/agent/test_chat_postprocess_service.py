@@ -200,7 +200,7 @@ class _FakeChatProjector:
 
 @pytest.mark.asyncio
 async def test_memory_updates_pass_stp_rules_for_direct_chat_scope(monkeypatch) -> None:
-    import magi.agent.task_agents.chat.postprocess_service as postprocess_module
+    import magi.agent.task_agents.chat.postprocess_memory as postprocess_module
 
     analysis_calls: list[dict[str, object]] = []
 
@@ -248,7 +248,7 @@ async def test_memory_updates_pass_stp_rules_for_direct_chat_scope(monkeypatch) 
 
 @pytest.mark.asyncio
 async def test_memory_updates_skip_stp_rules_outside_direct_chat_scope(monkeypatch) -> None:
-    import magi.agent.task_agents.chat.postprocess_service as postprocess_module
+    import magi.agent.task_agents.chat.postprocess_memory as postprocess_module
 
     analysis_calls: list[dict[str, object]] = []
 

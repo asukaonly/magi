@@ -1,0 +1,134 @@
+"""Serialization helpers for L0 working-memory checkpoints."""
+from __future__ import annotations
+
+import json
+from typing import Any
+
+import aiosqlite
+
+
+def encode_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
+def row_to_session(row: aiosqlite.Row) -> dict[str, Any]:
+    return {
+        "session_id": str(row["session_id"]),
+        "user_id": row["user_id"],
+        "runtime_agent_id": row["runtime_agent_id"],
+        "status": str(row["status"]),
+        "started_at": float(row["started_at"]),
+        "last_active_at": float(row["last_active_at"]),
+        "last_checkpoint_at": float(row["last_checkpoint_at"]) if row["last_checkpoint_at"] else None,
+        "metadata": json.loads(row["metadata"] or "{}"),
+    }
+
+
+def row_to_goal(row: aiosqlite.Row) -> dict[str, Any]:
+    return {
+        "goal_id": str(row["goal_id"]),
+        "parent_goal_id": row["parent_goal_id"],
+        "goal_type": str(row["goal_type"]),
+        "description": str(row["description"]),
+        "status": str(row["status"]),
+        "priority": int(row["priority"]),
+        "created_at": float(row["created_at"]),
+        "started_at": float(row["started_at"]) if row["started_at"] else None,
+        "completed_at": float(row["completed_at"]) if row["completed_at"] else None,
+        "result_summary": row["result_summary"],
+        "metadata": json.loads(row["metadata"] or "{}"),
+    }
+
+
+def active_entity_key(row: aiosqlite.Row) -> tuple[str, str]:
+    return str(row["entity_id"]), str(row["entity_type"])
+
+
+def row_to_active_entity(row: aiosqlite.Row) -> dict[str, Any]:
+    return {
+        "entity_id": str(row["entity_id"]),
+        "entity_type": str(row["entity_type"]),
+        "relevance_score": float(row["relevance_score"]),
+        "snapshot": json.loads(row["snapshot_json"] or "{}"),
+        "loaded_at": float(row["loaded_at"]),
+        "last_accessed_at": float(row["last_accessed_at"]),
+        "access_count": int(row["access_count"]),
+    }
+
+
+def row_to_tactic(row: aiosqlite.Row) -> dict[str, Any]:
+    return {
+        "tactic_id": str(row["tactic_id"]),
+        "scope_type": str(row["scope_type"]),
+        "scope_id": str(row["scope_id"]),
+        "tactic_type": str(row["tactic_type"]),
+        "tactic_payload": json.loads(row["tactic_payload"] or "{}"),
+        "source_event_ids": json.loads(row["source_event_ids"] or "[]"),
+        "expires_at": float(row["expires_at"]) if row["expires_at"] else None,
+        "created_at": float(row["created_at"]),
+    }
+
+
+def row_to_execution_run(row: aiosqlite.Row) -> dict[str, Any]:
+    session_id = str(row["session_id"])
+    return {
+        "session_id": session_id,
+        "run_id": str(row["run_id"]),
+        "status": str(row["status"]),
+        "revision": int(row["revision"]),
+        "root_turn_id": str(row["root_turn_id"]) if row["root_turn_id"] is not None else None,
+        "root_user_message": str(row["root_user_message"] or ""),
+        "response_anchor_turn_id": (
+            str(row["response_anchor_turn_id"])
+            if row["response_anchor_turn_id"] is not None
+            else None
+        ),
+        "cancel_requested_at": (
+            float(row["cancel_requested_at"])
+            if row["cancel_requested_at"] is not None
+            else None
+        ),
+        "cancel_reason": str(row["cancel_reason"]) if row["cancel_reason"] is not None else None,
+        "cancel_requested_by": (
+            str(row["cancel_requested_by"])
+            if row["cancel_requested_by"] is not None
+            else None
+        ),
+        "cancel_anchor_turn_id": (
+            str(row["cancel_anchor_turn_id"])
+            if row["cancel_anchor_turn_id"] is not None
+            else None
+        ),
+        "created_at": float(row["created_at"]),
+        "updated_at": float(row["updated_at"]),
+    }
+
+
+def row_to_pending_turn(row: aiosqlite.Row) -> dict[str, Any]:
+    row_keys = row.keys() if hasattr(row, "keys") else ()
+    raw_disposition = (
+        str(row["disposition"])
+        if "disposition" in row_keys and row["disposition"] is not None
+        else "augment"
+    )
+    return {
+        "session_id": str(row["session_id"]),
+        "run_id": str(row["run_id"]),
+        "turn_id": str(row["turn_id"]),
+        "content": str(row["content"]),
+        "revision": int(row["revision"]),
+        "disposition": raw_disposition,
+        "created_at": float(row["created_at"]),
+    }
+
+
+def row_to_execution_result(row: aiosqlite.Row) -> dict[str, Any]:
+    return {
+        "result_id": str(row["result_id"]),
+        "session_id": str(row["session_id"]),
+        "run_id": str(row["run_id"]),
+        "revision": int(row["revision"]),
+        "disposition": str(row["disposition"]),
+        "payload": json.loads(row["payload_json"] or "{}"),
+        "created_at": float(row["created_at"]),
+    }

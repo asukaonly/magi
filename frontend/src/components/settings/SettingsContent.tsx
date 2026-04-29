@@ -1,78 +1,34 @@
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from 'react';
+import { forwardRef, useImperativeHandle, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  ChevronRight,
-  ChevronDown,
-  FolderOpen,
   X,
   RotateCcw,
   Save,
 } from 'lucide-react';
 
-import { DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
 import { useSettings } from '@/hooks/useSettings';
 import { NAV_ITEMS, isNavGroup } from '@/constants/settings';
-import type { NavItem, SettingsPageHandle, SettingsPageProps } from '@/types/settings';
+import type { SettingsPageHandle, SettingsPageProps } from '@/types/settings';
 import {
-  LabeledSelectField,
-  MemoryEventsSettingsSection,
-  MemoryGeneralSettingsSection,
-  MemoryKnowledgeSettingsSection,
-  MemoryReflectionSettingsSection,
-  MemorySkillsSettingsSection,
-  MemoryWorkbenchSettingsSection,
   LLMStatisticsSection,
   RuntimeStatisticsSection,
 } from '@/components/settings';
-import { DynamicToolsConfig } from '@/components/config-forms/DynamicToolConfig';
-import LLMForm from '@/components/config-forms/LLMForm';
-import ChannelsSection from '@/components/settings/ChannelsSection';
-import { DesktopUpdateSection } from '@/components/settings/DesktopUpdateSection';
-import PluginsSection from '@/components/settings/PluginsSection';
-import { PluginMarketplace } from '@/components/settings/PluginMarketplace';
+import { SettingsControlSection } from '@/components/settings/SettingsControlSection';
+import { SettingsConversationSection } from '@/components/settings/SettingsConversationSection';
+import { SettingsIntegrationsSection, type SettingsIntegrationsSectionId } from '@/components/settings/SettingsIntegrationsSection';
+import { SettingsLlmSection } from '@/components/settings/SettingsLlmSection';
+import { SettingsMemorySection, type SettingsMemorySectionId } from '@/components/settings/SettingsMemorySection';
+import { SettingsNavigationSidebar } from '@/components/settings/SettingsNavigationSidebar';
+import { SettingsPersonalityRuntimeSection } from '@/components/settings/SettingsPersonalityRuntimeSection';
+import { SettingsPreferencesSection } from '@/components/settings/SettingsPreferencesSection';
+import { SettingsToolsSection } from '@/components/settings/SettingsToolsSection';
 import TimelineSourcesSection from '@/components/settings/TimelineSourcesSection';
-import { ControlSettingsPanel } from '@/components/control';
 import PersonalityModern from '@/pages/PersonalityModern';
-import { skillsApi, type SkillItem } from '@/api/modules/skills';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Switch } from '@/components/ui/switch';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { cn } from '@/lib/utils';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
-import { toast } from 'sonner';
-import { pickDirectory } from '@/runtime/desktop';
 import { getTimelineSourceDisplayName } from '@/utils/timeline-source-copy';
-
-function SettingsSectionShell({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  return <div className="space-y-8">{children}</div>;
-}
-
-function SettingsGroup({
-  title,
-  description,
-  contentClassName,
-  children,
-}: {
-  title: string;
-  description?: string;
-  contentClassName?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="space-y-4">
-      <div className="space-y-1.5">
-        <h3 className="text-sm font-semibold tracking-[0.01em] text-foreground">{title}</h3>
-        {description ? <p className="max-w-3xl text-xs leading-6 text-muted-foreground">{description}</p> : null}
-      </div>
-      <div className={cn('space-y-3', contentClassName)}>{children}</div>
-    </section>
-  );
-}
 
 const ADVANCED_MEMORY_SECTION_IDS = new Set([
   'memoryWorkbench',
@@ -82,50 +38,23 @@ const ADVANCED_MEMORY_SECTION_IDS = new Set([
   'memorySkills',
 ]);
 
-function SettingsSwitchRow({
-  title,
-  description,
-  checked,
-  onCheckedChange,
-  ariaLabel,
-  disabled = false,
-  hint,
-  hintClassName,
-}: {
-  title: string;
-  description: string;
-  checked: boolean;
-  onCheckedChange: (checked: boolean) => void;
-  ariaLabel: string;
-  disabled?: boolean;
-  hint?: string;
-  hintClassName?: string;
-}) {
-  return (
-    <section className="grid gap-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-      <div className="space-y-1">
-        <div className="text-sm font-medium text-foreground">{title}</div>
-        <div className="text-xs leading-6 text-muted-foreground">{description}</div>
-        {hint ? <p className={cn('text-xs leading-6 text-muted-foreground', hintClassName)}>{hint}</p> : null}
-      </div>
-      <div className="flex justify-start sm:justify-end">
-        <Switch
-          aria-label={ariaLabel}
-          checked={checked}
-          disabled={disabled}
-          onCheckedChange={onCheckedChange}
-        />
-      </div>
-    </section>
-  );
-}
+const MEMORY_SECTION_IDS = new Set<string>([
+  'memoryGeneral',
+  'memoryWorkbench',
+  'memoryEvents',
+  'memoryKnowledge',
+  'memoryReflection',
+  'memorySkills',
+]);
+
+const INTEGRATION_SECTION_IDS = new Set<string>([
+  'pluginsInstalled',
+  'pluginsMarketplace',
+  'channels',
+]);
 
 export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({ onRequestClose }, ref) => {
   const { t } = useTranslation('app');
-  const [skills, setSkills] = useState<SkillItem[]>([]);
-  const [skillsLoading, setSkillsLoading] = useState(false);
-  const [skillsError, setSkillsError] = useState<string | null>(null);
-  const [pickingWorkspace, setPickingWorkspace] = useState(false);
 
   const {
     loading,
@@ -212,75 +141,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     ? 'memoryGeneral'
     : activeSection;
 
-  const isNavGroupActive = (item: NavItem) => {
-    if (!isNavGroup(item)) {
-      return effectiveActiveSection === item.id;
-    }
-    return item.children!.some((child) => child.id === effectiveActiveSection);
-  };
-
-  const handleStateMemoryToggle = (checked: boolean) => {
-    patchDraftConfig((draft) => {
-      draft.personalitySettings.state_memory_enabled = checked;
-      if (!checked) {
-        draft.personalitySettings.state_transition_enabled = false;
-        draft.personalitySettings.deep_persona_enabled = false;
-      }
-    });
-  };
-
-  const handleStateTransitionToggle = (checked: boolean) => {
-    patchDraftConfig((draft) => {
-      if (checked) {
-        draft.personalitySettings.state_memory_enabled = true;
-      }
-      draft.personalitySettings.state_transition_enabled = checked;
-    });
-  };
-
-  const handleDeepPersonaToggle = (checked: boolean) => {
-    patchDraftConfig((draft) => {
-      if (checked) {
-        draft.personalitySettings.state_memory_enabled = true;
-      }
-      draft.personalitySettings.deep_persona_enabled = checked;
-    });
-  };
-
   useImperativeHandle(ref, getHandle, [getHandle]);
-
-  useEffect(() => {
-    if (activeSection !== 'tools') {
-      return;
-    }
-
-    let cancelled = false;
-    const loadSkills = async () => {
-      setSkillsLoading(true);
-      setSkillsError(null);
-      try {
-        const data = await skillsApi.list();
-        if (!cancelled) {
-          setSkills(Array.isArray(data) ? data : []);
-        }
-      } catch (error: unknown) {
-        if (!cancelled) {
-          const message = error instanceof Error ? error.message : t('settings.errorUnknown');
-          setSkillsError(message);
-          setSkills([]);
-        }
-      } finally {
-        if (!cancelled) {
-          setSkillsLoading(false);
-        }
-      }
-    };
-
-    void loadSkills();
-    return () => {
-      cancelled = true;
-    };
-  }, [activeSection, t]);
 
   if (loading) {
     return (
@@ -294,306 +155,49 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
   }
 
   const renderSectionContent = () => {
-    const defaultChatWorkspaceFallback = DEFAULT_SYSTEM_CONFIG.preferences.default_chat_workspace_path;
     const embeddingSelection = draftConfig.llm?.selections?.embedding;
     const hasEmbeddingModel = !!(embeddingSelection?.provider_id && embeddingSelection?.model);
-    const coreModelSupportsVision = Boolean(draftConfig.llm?.selections?.core?.capabilities?.vision);
-    const mediaGroundingEnabled = Boolean(draftConfig.preferences.allow_media_grounding_for_conversation);
-    const mediaGroundingSwitchDisabled = !coreModelSupportsVision && !mediaGroundingEnabled;
-    const defaultChatWorkspacePath = draftConfig.preferences.default_chat_workspace_path;
-    const effectiveDefaultChatWorkspacePath = defaultChatWorkspacePath ?? defaultChatWorkspaceFallback ?? '';
-    const canRestoreDefaultChatWorkspace = defaultChatWorkspacePath !== defaultChatWorkspaceFallback;
-
-    const handlePickWorkspace = async () => {
-      setPickingWorkspace(true);
-      try {
-        const selectedPath = await pickDirectory(effectiveDefaultChatWorkspacePath);
-        if (!selectedPath) {
-          return;
-        }
-        patchDraftConfig((draft) => {
-          draft.preferences.default_chat_workspace_path = selectedPath;
-        });
-      } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : 'unknown';
-        toast.error(t('settings.defaultChatWorkspacePickFailed', { message }));
-      } finally {
-        setPickingWorkspace(false);
-      }
-    };
 
     switch (effectiveActiveSection) {
       case 'preferences':
         return (
-          <SettingsSectionShell>
-            <SettingsGroup title={t('settings.fields.language')}>
-              <LabeledSelectField
-                label=""
-                ariaLabel={t('settings.fields.language')}
-                value={draftConfig.preferences.language}
-                options={[
-                  { label: t('language.zhHans', { ns: 'onboarding' }), value: 'zh' },
-                  { label: t('language.en', { ns: 'onboarding' }), value: 'en' },
-                ]}
-                onChange={handleLanguagePreviewChange}
-              />
-            </SettingsGroup>
-
-            <SettingsGroup
-              title={t('settings.fields.theme')}
-              description={t('settings.themeDesc')}
-            >
-              <LabeledSelectField
-                label=""
-                ariaLabel={t('settings.fields.theme')}
-                value={draftThemeMode}
-                options={[
-                  { label: t('settings.theme.light'), value: 'light' },
-                  { label: t('settings.theme.dark'), value: 'dark' },
-                  { label: t('settings.theme.system'), value: 'system' },
-                ]}
-                onChange={(value) => handleThemePreviewChange(value as typeof draftThemeMode)}
-              />
-            </SettingsGroup>
-
-            <SettingsGroup title={t('settings.fields.windowSettings')}>
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-sm">{t('settings.closeToTrayLabel')}</span>
-                <Switch
-                  aria-label={t('settings.closeToTrayLabel')}
-                  checked={draftConfig.preferences.close_to_tray_enabled}
-                  onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                    draft.preferences.close_to_tray_enabled = checked;
-                  })}
-                />
-              </div>
-            </SettingsGroup>
-
-            <SettingsGroup title={t('settings.startupSettings')}>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-sm">{t('settings.autoStartLabel')}</span>
-                  <Switch
-                    aria-label={t('settings.autoStartLabel')}
-                    checked={draftConfig.preferences.auto_start_enabled}
-                    onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                      draft.preferences.auto_start_enabled = checked;
-                    })}
-                  />
-                </div>
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-sm">{t('settings.startMinimizedLabel')}</span>
-                  <Switch
-                    aria-label={t('settings.startMinimizedLabel')}
-                    checked={draftConfig.preferences.start_minimized}
-                    onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                      draft.preferences.start_minimized = checked;
-                    })}
-                  />
-                </div>
-              </div>
-            </SettingsGroup>
-
-            <SettingsGroup title={t('settings.fields.networkProxy')}>
-              <div className="space-y-4">
-                <LabeledSelectField
-                  label=""
-                  ariaLabel={t('settings.fields.networkProxy')}
-                  value={draftConfig.network.enabled ? draftConfig.network.proxy_type : 'off'}
-                  options={[
-                    { label: t('settings.proxyOff'), value: 'off' },
-                    { label: 'HTTP', value: 'http' },
-                    { label: 'SOCKS5', value: 'socks5' },
-                  ]}
-                  onChange={(value) => patchDraftConfig((draft) => {
-                    if (value === 'off') {
-                      draft.network.enabled = false;
-                    } else {
-                      draft.network.enabled = true;
-                      draft.network.proxy_type = value as 'http' | 'socks5';
-                    }
-                  })}
-                />
-                {draftConfig.network.enabled && (
-                  <div className="grid grid-cols-[1fr_auto] gap-3">
-                    <label className="space-y-1.5">
-                      <span className="text-xs text-muted-foreground">{t('settings.fields.proxyHost')}</span>
-                      <Input
-                        aria-label={t('settings.fields.proxyHost')}
-                        value={draftConfig.network.host}
-                        placeholder="127.0.0.1"
-                        onChange={(e) => patchDraftConfig((draft) => {
-                          draft.network.host = e.target.value;
-                        })}
-                      />
-                    </label>
-                    <label className="space-y-1.5 w-28">
-                      <span className="text-xs text-muted-foreground">{t('settings.fields.proxyPort')}</span>
-                      <Input
-                        type="number"
-                        aria-label={t('settings.fields.proxyPort')}
-                        value={draftConfig.network.port}
-                        min={1}
-                        max={65535}
-                        placeholder="7890"
-                        onChange={(e) => patchDraftConfig((draft) => {
-                          const port = parseInt(e.target.value, 10);
-                          if (!isNaN(port) && port >= 1 && port <= 65535) {
-                            draft.network.port = port;
-                          }
-                        })}
-                      />
-                    </label>
-                  </div>
-                )}
-              </div>
-            </SettingsGroup>
-
-            <DesktopUpdateSection />
-          </SettingsSectionShell>
+          <SettingsPreferencesSection
+            draftConfig={draftConfig}
+            draftThemeMode={draftThemeMode}
+            patchDraftConfig={patchDraftConfig}
+            onThemePreviewChange={handleThemePreviewChange}
+            onLanguagePreviewChange={handleLanguagePreviewChange}
+          />
         );
 
       case 'conversation':
         return (
-          <SettingsSectionShell>
-            <SettingsGroup
-              title={t('settings.fields.defaultChatWorkspace')}
-              description={t('settings.defaultChatWorkspaceDesc')}
-              contentClassName="space-y-0"
-            >
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <label className="min-w-0 flex-1" htmlFor="default-chat-workspace">
-                  <Input
-                    id="default-chat-workspace"
-                    aria-label={t('settings.fields.defaultChatWorkspace')}
-                    readOnly
-                    value={effectiveDefaultChatWorkspacePath}
-                    placeholder={t('settings.defaultChatWorkspacePlaceholder')}
-                  />
-                </label>
-                <div className="flex flex-wrap gap-2 sm:flex-none">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      void handlePickWorkspace();
-                    }}
-                    disabled={pickingWorkspace}
-                  >
-                    <FolderOpen className="mr-2 h-4 w-4" />
-                    {t('settings.actions.chooseDirectory')}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={() => patchDraftConfig((draft) => {
-                      draft.preferences.default_chat_workspace_path = defaultChatWorkspaceFallback;
-                    })}
-                    disabled={!canRestoreDefaultChatWorkspace}
-                  >
-                    <RotateCcw className="mr-2 h-4 w-4" />
-                    {t('settings.actions.restoreDefaultDirectory')}
-                  </Button>
-                </div>
-              </div>
-            </SettingsGroup>
-
-            <SettingsSwitchRow
-              title={t('settings.streamingChatLabel')}
-              description={t('settings.streamingChatDesc')}
-              ariaLabel={t('settings.fields.streamingChat')}
-              checked={draftConfig.preferences.streaming_chat_enabled}
-              onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                draft.preferences.streaming_chat_enabled = checked;
-              })}
-            />
-
-            <SettingsSwitchRow
-              title={t('settings.mediaGroundingLabel')}
-              description={t('settings.mediaGroundingDesc')}
-              hint={!coreModelSupportsVision ? t('settings.mediaGroundingUnavailable') : undefined}
-              hintClassName={!coreModelSupportsVision ? 'text-amber-600 dark:text-amber-300' : undefined}
-              ariaLabel={t('settings.fields.mediaGrounding')}
-              checked={draftConfig.preferences.allow_media_grounding_for_conversation}
-              disabled={mediaGroundingSwitchDisabled}
-              onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                draft.preferences.allow_media_grounding_for_conversation = checked;
-              })}
-            />
-
-            <SettingsSwitchRow
-              title={t('settings.allowInterjectionLabel')}
-              description={t('settings.allowInterjectionDesc')}
-              ariaLabel={t('settings.fields.allowInterjection')}
-              checked={draftConfig.preferences.allow_interjection}
-              onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                draft.preferences.allow_interjection = checked;
-              })}
-            />
-
-            <SettingsSwitchRow
-              title={t('settings.allowAskInBackgroundLabel')}
-              description={t('settings.allowAskInBackgroundDesc')}
-              ariaLabel={t('settings.fields.allowAskInBackground')}
-              checked={draftConfig.preferences.allow_ask_in_background}
-              onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                draft.preferences.allow_ask_in_background = checked;
-              })}
-            />
-
-            {draftControlSettings ? (
-              <ControlSettingsPanel
-                value={draftControlSettings}
-                onChange={(next) => patchDraftControlSettings((draft) => {
-                  draft.permission_mode = next.permission_mode;
-                  draft.plan_approval_required = next.plan_approval_required;
-                })}
-              />
-            ) : null}
-          </SettingsSectionShell>
+          <SettingsConversationSection
+            draftConfig={draftConfig}
+            draftControlSettings={draftControlSettings}
+            patchDraftConfig={patchDraftConfig}
+            patchDraftControlSettings={patchDraftControlSettings}
+          />
         );
 
       case 'llmProviders':
         return (
-          <div className="h-full min-h-0">
-            <LLMForm
-              quickMode={false}
-              view="providers"
-              surface="settings"
-              showSectionIntro={false}
-              value={draftConfig.llm}
-              onAutoNormalize={syncNormalizedLlmConfig}
-              onChange={(next) => patchDraftConfig((draft) => {
-                draft.llm = next;
-              })}
-            />
-          </div>
+          <SettingsLlmSection
+            view="providers"
+            draftConfig={draftConfig}
+            patchDraftConfig={patchDraftConfig}
+            syncNormalizedLlmConfig={syncNormalizedLlmConfig}
+          />
         );
 
       case 'llmModels':
         return (
-          <div className="space-y-4">
-            <LLMForm
-              quickMode={false}
-              view="models"
-              surface="settings"
-              showSectionIntro={false}
-              value={draftConfig.llm}
-              onAutoNormalize={syncNormalizedLlmConfig}
-              onChange={(next) => patchDraftConfig((draft) => {
-                draft.llm = next;
-              })}
-              embeddingConfig={draftConfig.memory.embedding}
-              onEmbeddingConfigChange={(updater) => patchDraftConfig((draft) => {
-                updater(draft.memory.embedding);
-              })}
-              crossEncoderConfig={draftConfig.memory.reranker?.cross_encoder}
-              onCrossEncoderConfigChange={(updater) => patchDraftConfig((draft) => {
-                draft.memory.reranker.cross_encoder ??= { enabled: false, managed_model_id: null };
-                updater(draft.memory.reranker.cross_encoder);
-              })}
-            />
-          </div>
+          <SettingsLlmSection
+            view="models"
+            draftConfig={draftConfig}
+            patchDraftConfig={patchDraftConfig}
+            syncNormalizedLlmConfig={syncNormalizedLlmConfig}
+          />
         );
 
       case 'personalitySelection':
@@ -601,54 +205,10 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
 
       case 'personalitySettings':
         return (
-          <SettingsSectionShell>
-            <SettingsGroup
-              title={t('settings.personalitySettings.runtimeTitle')}
-              description={t('settings.personalitySettings.runtimeDesc')}
-            >
-              <div className="rounded-[1.25rem] border border-[hsl(var(--settings-subnav-border)/0.62)] bg-[hsl(var(--settings-shell-elevated)/0.42)] px-4 py-3 text-[13px] leading-6 text-[hsl(var(--foreground)/0.72)]">
-                {t('settings.personalitySettings.requestNotice')}
-              </div>
-
-              <div className="space-y-3">
-                <div className="flex items-start justify-between gap-4 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
-                  <div className="space-y-1">
-                    <div className="text-sm font-medium text-foreground">{t('settings.personalitySettings.stateMemoryLabel')}</div>
-                    <div className="text-xs leading-6 text-muted-foreground">{t('settings.personalitySettings.stateMemoryDesc')}</div>
-                  </div>
-                  <Switch
-                    aria-label={t('settings.personalitySettings.stateMemoryLabel')}
-                    checked={draftConfig.personalitySettings.state_memory_enabled}
-                    onCheckedChange={handleStateMemoryToggle}
-                  />
-                </div>
-
-                <div className="flex items-start justify-between gap-4 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
-                  <div className="space-y-1">
-                    <div className="text-sm font-medium text-foreground">{t('settings.personalitySettings.stateTransitionLabel')}</div>
-                    <div className="text-xs leading-6 text-muted-foreground">{t('settings.personalitySettings.stateTransitionDesc')}</div>
-                  </div>
-                  <Switch
-                    aria-label={t('settings.personalitySettings.stateTransitionLabel')}
-                    checked={draftConfig.personalitySettings.state_transition_enabled}
-                    onCheckedChange={handleStateTransitionToggle}
-                  />
-                </div>
-
-                <div className="flex items-start justify-between gap-4 py-3">
-                  <div className="space-y-1">
-                    <div className="text-sm font-medium text-foreground">{t('settings.personalitySettings.deepPersonaLabel')}</div>
-                    <div className="text-xs leading-6 text-muted-foreground">{t('settings.personalitySettings.deepPersonaDesc')}</div>
-                  </div>
-                  <Switch
-                    aria-label={t('settings.personalitySettings.deepPersonaLabel')}
-                    checked={draftConfig.personalitySettings.deep_persona_enabled}
-                    onCheckedChange={handleDeepPersonaToggle}
-                  />
-                </div>
-              </div>
-            </SettingsGroup>
-          </SettingsSectionShell>
+          <SettingsPersonalityRuntimeSection
+            draftConfig={draftConfig}
+            patchDraftConfig={patchDraftConfig}
+          />
         );
 
       case 'statisticsLlm':
@@ -658,57 +218,21 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
         return <RuntimeStatisticsSection />;
 
       case 'memoryGeneral':
-        return (
-          <MemoryGeneralSettingsSection
-            draftConfig={draftConfig}
-            patchDraftConfig={patchDraftConfig}
-          />
-        );
-
       case 'memoryWorkbench':
-        return (
-          <MemoryWorkbenchSettingsSection
-            draftConfig={draftConfig}
-            patchDraftConfig={patchDraftConfig}
-            updateMemoryToggle={updateMemoryToggle}
-          />
-        );
-
       case 'memoryEvents':
-        return (
-          <MemoryEventsSettingsSection
-            draftConfig={draftConfig}
-            patchDraftConfig={patchDraftConfig}
-            updateMemoryToggle={updateMemoryToggle}
-            hasEmbeddingModel={hasEmbeddingModel}
-          />
-        );
-
       case 'memoryKnowledge':
-        return (
-          <MemoryKnowledgeSettingsSection
-            draftConfig={draftConfig}
-            patchDraftConfig={patchDraftConfig}
-            updateMemoryToggle={updateMemoryToggle}
-            hasEmbeddingModel={hasEmbeddingModel}
-          />
-        );
-
       case 'memoryReflection':
+      case 'memorySkills':
+        if (!MEMORY_SECTION_IDS.has(effectiveActiveSection)) {
+          return null;
+        }
         return (
-          <MemoryReflectionSettingsSection
+          <SettingsMemorySection
+            section={effectiveActiveSection as SettingsMemorySectionId}
             draftConfig={draftConfig}
             patchDraftConfig={patchDraftConfig}
             updateMemoryToggle={updateMemoryToggle}
             hasEmbeddingModel={hasEmbeddingModel}
-          />
-        );
-
-      case 'memorySkills':
-        return (
-          <MemorySkillsSettingsSection
-            draftConfig={draftConfig}
-            updateMemoryToggle={updateMemoryToggle}
           />
         );
 
@@ -728,149 +252,52 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
         );
 
       case 'tools':
-        const selectedSkills = draftConfig.tools.skills || [];
-        const skillsEnabled = selectedSkills.length > 0;
         return (
-          <div className="space-y-8">
-            <DynamicToolsConfig
-              tools={tools}
-              loading={toolsLoading}
-              error={toolsError}
-              drafts={draftToolDrafts}
-              onUpdateConfig={handleToolDraftChange}
-              onUpdateEnabled={handleToolEnabledChange}
-            />
-
-            <SettingsGroup
-              title={t('tools.skills.label', { ns: 'onboarding' })}
-              description={
-                skills.length > 0
-                  ? t('tools.skills.desc', { ns: 'onboarding', count: skills.length })
-                  : t('tools.skills.empty', { ns: 'onboarding' })
-              }
-            >
-              <label className="grid gap-3 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
-                <div className="space-y-1">
-                  <div className="text-sm font-medium text-foreground">{t('tools.skills.enable', { ns: 'onboarding' })}</div>
-                  <div className="text-xs leading-6 text-muted-foreground">
-                    {t('tools.skills.emptyHint', { ns: 'onboarding' })}
-                  </div>
-                </div>
-                <div className="flex justify-start sm:justify-end">
-                  <Switch
-                    checked={skillsEnabled}
-                    disabled={skills.length === 0}
-                    onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                      draft.tools.skills = checked ? skills.map((skill) => skill.name) : [];
-                    })}
-                  />
-                </div>
-              </label>
-
-              <div className="max-h-64 overflow-auto">
-                {skillsLoading ? (
-                  <div className="py-3 text-xs text-muted-foreground">{t('settings.loadingTools')}</div>
-                ) : null}
-
-                {!skillsLoading && skillsError ? (
-                  <div className="py-3 text-xs text-destructive">{skillsError}</div>
-                ) : null}
-
-                {!skillsLoading && !skillsError && skills.length > 0
-                  ? skills.map((skill) => {
-                      const checked = selectedSkills.includes(skill.name);
-                      return (
-                        <label
-                          key={skill.name}
-                          className="flex items-center justify-between gap-3 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3 last:border-b-0"
-                        >
-                          <div className="min-w-0">
-                            <div className="truncate text-sm font-medium">{skill.name}</div>
-                            <div className="truncate text-xs text-muted-foreground">{skill.description}</div>
-                          </div>
-                          <Switch
-                            checked={checked}
-                            onCheckedChange={(nextChecked) => patchDraftConfig((draft) => {
-                              const current = new Set(draft.tools.skills || []);
-                              if (nextChecked) {
-                                current.add(skill.name);
-                              } else {
-                                current.delete(skill.name);
-                              }
-                              draft.tools.skills = Array.from(current);
-                            })}
-                          />
-                        </label>
-                      );
-                    })
-                  : null}
-
-                {!skillsLoading && !skillsError && skills.length === 0 ? (
-                  <div className="py-3 text-xs text-muted-foreground">{t('tools.skills.emptyHint', { ns: 'onboarding' })}</div>
-                ) : null}
-              </div>
-            </SettingsGroup>
-          </div>
+          <SettingsToolsSection
+            tools={tools}
+            toolsLoading={toolsLoading}
+            toolsError={toolsError}
+            draftToolDrafts={draftToolDrafts}
+            selectedSkills={draftConfig.tools.skills || []}
+            onToolDraftChange={handleToolDraftChange}
+            onToolEnabledChange={handleToolEnabledChange}
+            onSelectedSkillsChange={(nextSkills) => patchDraftConfig((draft) => {
+              draft.tools.skills = nextSkills;
+            })}
+          />
         );
 
       case 'pluginsInstalled':
-        return (
-          <PluginsSection
-            plugins={plugins}
-            loading={pluginsLoading}
-            drafts={draftPluginDrafts}
-            dirty={dirty}
-            onFieldChange={handlePluginDraftChange}
-            onRescan={async () => {
-              await loadPlugins();
-              toast.success(t('settings.pluginPackages.feedback.rescanSuccess'));
-            }}
-            onPluginAction={handlePluginAction}
-            processingIds={pluginProcessingIds}
-          />
-        );
-
       case 'pluginsMarketplace':
-        return (
-          <PluginMarketplace
-            installedPlugins={plugins}
-            onInstallComplete={loadPluginsAndSensors}
-          />
-        );
-
       case 'channels':
+        if (!INTEGRATION_SECTION_IDS.has(effectiveActiveSection)) {
+          return null;
+        }
         return (
-          <ChannelsSection
+          <SettingsIntegrationsSection
+            section={effectiveActiveSection as SettingsIntegrationsSectionId}
             plugins={plugins}
-            drafts={draftPluginDrafts}
+            pluginsLoading={pluginsLoading}
+            draftPluginDrafts={draftPluginDrafts}
             dirty={dirty}
-            selectedContributionId={channelsSelection}
-            onSelectContribution={setChannelsSelection}
-            onFieldChange={handlePluginDraftChange}
-            onReloadPlugin={handleReloadActionPlugin}
-            onPluginAction={handlePluginAction}
-            reloading={reloadingActionPlugins}
+            pluginProcessingIds={pluginProcessingIds}
+            reloadingActionPlugins={reloadingActionPlugins}
+            channelsSelection={channelsSelection}
+            setChannelsSelection={setChannelsSelection}
+            handlePluginDraftChange={handlePluginDraftChange}
+            handlePluginAction={handlePluginAction}
+            handleReloadActionPlugin={handleReloadActionPlugin}
+            loadPlugins={loadPlugins}
+            loadPluginsAndSensors={loadPluginsAndSensors}
           />
         );
 
       case 'control':
         return (
-          <SettingsSectionShell>
-            <SettingsGroup
-              title={t('settings.control.title')}
-              description={t('settings.control.description')}
-            >
-              {draftControlSettings ? (
-                <ControlSettingsPanel
-                  value={draftControlSettings}
-                  onChange={(next) => patchDraftControlSettings((draft) => {
-                    draft.permission_mode = next.permission_mode;
-                    draft.plan_approval_required = next.plan_approval_required;
-                  })}
-                />
-              ) : null}
-            </SettingsGroup>
-          </SettingsSectionShell>
+          <SettingsControlSection
+            draftControlSettings={draftControlSettings}
+            patchDraftControlSettings={patchDraftControlSettings}
+          />
         );
 
       default:
@@ -884,185 +311,19 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
       className="settings-theme-surface flex h-full min-h-0 flex-col"
     >
       <div className="flex flex-1 min-h-0 overflow-hidden">
-        <nav className="flex w-56 shrink-0 flex-col border-r border-[hsl(var(--settings-subnav-border)/0.72)] bg-[hsl(var(--settings-shell)/0.78)]">
-          <div className="flex h-16 shrink-0 items-center border-b border-[hsl(var(--settings-subnav-border)/0.68)] bg-[hsl(var(--settings-shell-elevated)/0.94)] px-5 backdrop-blur-sm">
-            <p className="text-base font-semibold tracking-[0.01em] text-foreground">
-              {t('settings.shellTitle')}
-            </p>
-          </div>
-          <div className="flex-1 space-y-1 overflow-y-auto px-4 py-4">
-            {visibleNavItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = isNavGroupActive(item);
-              const isExpandable = isNavGroup(item) || item.id === 'timeline' || item.id === 'channels';
-              const isExpanded = isExpandable ? getGroupExpanded(item.id) : false;
-              const ParentChevron = isExpandable && isExpanded ? ChevronDown : ChevronRight;
-              return (
-                <div key={item.id} className="space-y-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (isExpandable) {
-                        handleNavItemClick(item.id, true, isNavGroup(item) ? item.children[0]?.id : item.id);
-                      } else {
-                        handleNavItemClick(item.id, false);
-                      }
-                    }}
-                    aria-current={isActive ? 'page' : undefined}
-                    aria-expanded={isExpandable ? isExpanded : undefined}
-                    aria-label={t(`settings.tabs.${item.id}`)}
-                    className={cn(
-                      'group flex w-full items-center justify-between rounded-md px-3 py-2.5 text-sm',
-                      'transition-colors duration-150 ease-out',
-                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
-                      isActive
-                        ? 'bg-[hsl(var(--settings-nav-active)/0.42)] text-foreground'
-                        : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-nav-hover))] hover:text-foreground'
-                    )}
-                  >
-                    <div className="flex items-center gap-3">
-                      <Icon className={cn(
-                        'h-4 w-4 transition-colors',
-                        isActive
-                          ? 'text-foreground'
-                          : 'text-[hsl(var(--settings-nav-foreground))] group-hover:text-foreground'
-                      )} />
-                      <span className={cn('transition-colors', isActive ? 'font-medium' : 'font-normal')}>
-                        {t(`settings.tabs.${item.id}`)}
-                      </span>
-                    </div>
-                    <ParentChevron className={cn(
-                      'h-4 w-4 text-[hsl(var(--settings-nav-foreground))] transition-all duration-150',
-                      isExpandable
-                        ? isExpanded
-                          ? 'opacity-100 translate-x-0'
-                          : 'opacity-60 -translate-x-0'
-                        : isActive
-                          ? 'opacity-100 translate-x-0'
-                          : 'opacity-0 -translate-x-1 group-hover:opacity-50 group-hover:translate-x-0'
-                    )} />
-                  </button>
-
-                  {isNavGroup(item) && isExpanded ? (
-                    <div className="ml-3 space-y-0.5 border-l border-[hsl(var(--settings-subnav-border)/0.78)] pl-4">
-                      {item.children.map((child) => {
-                        const isChildActive = effectiveActiveSection === child.id;
-                        return (
-                          <button
-                            key={child.id}
-                            type="button"
-                            onClick={() => {
-                              setGroupExpanded(item.id, true);
-                              handleNavItemClick(child.id, false);
-                            }}
-                            aria-current={isChildActive ? 'page' : undefined}
-                            className={cn(
-                              'flex w-full items-center rounded-sm px-2.5 py-1.5 text-[13px] transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                              isChildActive
-                                ? 'bg-[hsl(var(--settings-shell-elevated)/0.62)] text-foreground font-medium'
-                                : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.52)] hover:text-foreground'
-                            )}
-                          >
-                            {t(`settings.tabs.${child.id}`)}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-
-                  {item.id === 'timeline' && isActive && isExpanded ? (
-                    <div className="ml-3 space-y-0.5 border-l border-[hsl(var(--settings-subnav-border)/0.78)] pl-4">
-                      <button
-                        type="button"
-                        onClick={() => setTimelineSelection(null)}
-                        data-testid="timeline-nav-overview"
-                        aria-current={timelineSelection === null ? 'page' : undefined}
-                        className={cn(
-                          'flex w-full items-center rounded-sm px-2.5 py-1.5 text-[13px]',
-                          'transition-colors duration-150 ease-out',
-                          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                          timelineSelection === null
-                            ? 'bg-[hsl(var(--settings-shell-elevated)/0.62)] text-foreground font-medium'
-                            : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.52)] hover:text-foreground'
-                        )}
-                      >
-                        {t('settings.timeline.nav.overview')}
-                      </button>
-
-                      {sortedTimelineStatuses.map((source) => {
-                        const isSelected = timelineSelection === source.source_name;
-                        const displayName = getTimelineSourceDisplayName(t, source);
-                        return (
-                          <button
-                            key={source.source_name}
-                            type="button"
-                            onClick={() => setTimelineSelection(source.source_name)}
-                            data-testid={`timeline-nav-source-${source.source_name}`}
-                            aria-current={isSelected ? 'page' : undefined}
-                            className={cn(
-                              'flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-[13px]',
-                              'transition-colors duration-150 ease-out',
-                              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                              isSelected
-                                ? 'bg-[hsl(var(--settings-shell-elevated)/0.62)] text-foreground font-medium'
-                                : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.52)] hover:text-foreground'
-                            )}
-                          >
-                            <span className="truncate">{displayName}</span>
-                            {source.last_error ? (
-                              <span className="ml-auto h-1.5 w-1.5 rounded-full bg-destructive" aria-hidden="true" />
-                            ) : null}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-
-                  {item.id === 'channels' && isActive && isExpanded ? (
-                    <div className="ml-3 space-y-0.5 border-l border-[hsl(var(--settings-subnav-border)/0.78)] pl-4">
-                      <button
-                        type="button"
-                        onClick={() => setChannelsSelection(null)}
-                        aria-current={channelsSelection === null ? 'page' : undefined}
-                        className={cn(
-                          'flex w-full items-center rounded-sm px-2.5 py-1.5 text-[13px]',
-                          'transition-colors duration-150 ease-out',
-                          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                          channelsSelection === null
-                            ? 'bg-[hsl(var(--settings-shell-elevated)/0.62)] text-foreground font-medium'
-                            : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.52)] hover:text-foreground'
-                        )}
-                      >
-                        {t('settings.timeline.nav.overview')}
-                      </button>
-                      {channelContributions.map(({ contribution }) => {
-                        const isSelected = channelsSelection === contribution.contribution_id;
-                        return (
-                          <button
-                            key={contribution.contribution_id}
-                            type="button"
-                            onClick={() => setChannelsSelection(contribution.contribution_id)}
-                            aria-current={isSelected ? 'page' : undefined}
-                            className={cn(
-                              'flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-[13px]',
-                              'transition-colors duration-150 ease-out',
-                              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                              isSelected
-                                ? 'bg-[hsl(var(--settings-shell-elevated)/0.62)] text-foreground font-medium'
-                                : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.52)] hover:text-foreground'
-                            )}
-                          >
-                            <span className="truncate">{contribution.display_name}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-        </nav>
+        <SettingsNavigationSidebar
+          visibleNavItems={visibleNavItems}
+          effectiveActiveSection={effectiveActiveSection}
+          getGroupExpanded={getGroupExpanded}
+          setGroupExpanded={setGroupExpanded}
+          handleNavItemClick={handleNavItemClick}
+          sortedTimelineStatuses={sortedTimelineStatuses}
+          timelineSelection={timelineSelection}
+          setTimelineSelection={setTimelineSelection}
+          channelContributions={channelContributions}
+          channelsSelection={channelsSelection}
+          setChannelsSelection={setChannelsSelection}
+        />
 
         <main className="flex min-h-0 flex-1 flex-col">
           <header className="shrink-0 border-b border-[hsl(var(--settings-subnav-border)/0.68)] bg-[hsl(var(--settings-shell-elevated)/0.94)] backdrop-blur-sm">

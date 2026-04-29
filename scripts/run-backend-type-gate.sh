@@ -13,6 +13,7 @@ export PYTHONPATH="$ROOT_DIR/backend/src:$ROOT_DIR/sdk/src${PYTHONPATH:+:$PYTHON
   --config-file pyproject.toml \
   --follow-imports=skip \
   src/magi/agent/execution/function_calling_failures.py \
+  src/magi/agent/execution/function_calling_fallback.py \
   src/magi/agent/execution/function_calling_guardrails.py \
   src/magi/agent/execution/function_calling_llm.py \
   src/magi/agent/execution/function_calling_messages.py \
@@ -20,8 +21,21 @@ export PYTHONPATH="$ROOT_DIR/backend/src:$ROOT_DIR/sdk/src${PYTHONPATH:+:$PYTHON
   src/magi/agent/execution/function_calling_postprocessor.py \
   src/magi/agent/execution/function_calling_responses.py \
   src/magi/agent/execution/function_calling_step_executor.py \
+  src/magi/agent/execution/function_calling_tool_execution.py \
   src/magi/agent/execution/function_calling_tracing.py \
   src/magi/agent/execution/function_calling_types.py \
+  src/magi/agent/task_agents/chat/postprocess_background.py \
+  src/magi/agent/task_agents/chat/postprocess_intent.py \
+  src/magi/agent/task_agents/chat/postprocess_memory.py \
+  src/magi/agent/task_agents/chat/postprocess_outcomes.py \
+  src/magi/agent/task_agents/chat/postprocess_session.py \
+  src/magi/agent/task_agents/chat/postprocess_tool_events.py \
+  src/magi/agent/workers/worker_actions.py \
+  src/magi/agent/workers/worker_launch.py \
+  src/magi/agent/workers/worker_prompting.py \
+  src/magi/agent/workers/worker_publication.py \
+  src/magi/agent/workers/worker_schema.py \
+  src/magi/agent/workers/worker_status.py \
   src/magi/llm/base.py \
   src/magi/llm/concurrency_limiter.py \
   src/magi/llm/provider_bridge_options.py \
@@ -31,10 +45,50 @@ export PYTHONPATH="$ROOT_DIR/backend/src:$ROOT_DIR/sdk/src${PYTHONPATH:+:$PYTHON
   src/magi/llm/usage_events.py \
   src/magi/llm/parsers/content_sanitizer.py \
   src/magi/llm/parsers/tool_call_parser.py \
+  src/magi/memory/l1/event_store_embeddings.py \
+  src/magi/memory/l1/event_store_entities.py \
+  src/magi/memory/l1/event_store_fts.py \
+  src/magi/memory/l1/event_store_queries.py \
+  src/magi/memory/l1/event_store_rows.py \
+  src/magi/memory/l1/event_store_schema.py \
+  src/magi/memory/l2/batch_models.py \
+  src/magi/memory/l2/candidate_models.py \
   src/magi/memory/l2/ontology.py \
+  src/magi/memory/l2/pipeline_assertions.py \
   src/magi/memory/l2/evidence_policy.py \
   src/magi/memory/l2/graph_conflicts.py \
+  src/magi/memory/l2/llm_json_client.py \
   src/magi/memory/l2/maintenance_schedule.py \
+  src/magi/memory/l2/entity_maintenance_assertions.py \
+  src/magi/memory/l2/entity_maintenance_catalog.py \
+  src/magi/memory/l2/entity_maintenance_edges.py \
+  src/magi/memory/l2/entity_maintenance_embeddings.py \
+  src/magi/memory/l2/entity_maintenance_episodes.py \
+  src/magi/memory/l2/entity_maintenance_ghosts.py \
+  src/magi/memory/l2/entity_maintenance_predicates.py \
+  src/magi/memory/l2/entity_catalog_embeddings.py \
+  src/magi/memory/l2/entity_catalog_queries.py \
+  src/magi/memory/l2/entity_models.py \
+  src/magi/memory/l2/episode_models.py \
+  src/magi/memory/l2/phase1_models.py \
+  src/magi/memory/l2/phase2_models.py \
+  src/magi/memory/l2/phase_aux_models.py \
+  src/magi/memory/l2/phase_model_utils.py \
+  src/magi/memory/l2/phase_models.py \
+  src/magi/memory/l2/pipeline_context.py \
+  src/magi/memory/l2/pipeline_entity_id_resolution.py \
+  src/magi/memory/l2/pipeline_entity_helpers.py \
+  src/magi/memory/l2/pipeline_entity_side_effects.py \
+  src/magi/memory/l2/pipeline_graph_validation.py \
+  src/magi/memory/l2/pipeline_lifecycle.py \
+  src/magi/memory/l2/pipeline_persistence.py \
+  src/magi/memory/l2/pipeline_projection.py \
+  src/magi/memory/l2/pipeline_staging.py \
+  src/magi/memory/l2/pipeline_structured_hints.py \
+  src/magi/memory/l2/pipeline_utils.py \
+  src/magi/memory/l2/pipeline_workers.py \
+  src/magi/memory/l2/projection_queue_claiming.py \
+  src/magi/memory/l2/workflow_prompts.py \
   src/magi/memory/l2/store_assertions.py \
   src/magi/memory/l2/store_candidates.py \
   src/magi/memory/l2/store_contradictions.py \

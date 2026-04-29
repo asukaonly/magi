@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import re
-import unicodedata
 from typing import TYPE_CHECKING, Any, Optional
 
 from ...core.logger import get_logger
@@ -12,10 +10,10 @@ from .models import (
     L2BatchEntityResolutionItem,
     L2EntityCandidate,
     L2EntityResolutionMention,
-    L2FocalEntityRef,
     L2Phase1Result,
     ResolvedEntityMention,
 )
+from .pipeline_entity_id_resolution import L2EntityIdResolutionMixin
 
 if TYPE_CHECKING:
     from .entity_catalog import L2EntityCatalog
@@ -24,7 +22,7 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-class L2EntityResolutionMixin:
+class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
     """Mixin providing entity resolution methods for L2Pipeline."""
 
     # These attributes are provided by L2Pipeline at runtime.
@@ -86,8 +84,18 @@ class L2EntityResolutionMixin:
 
             # If Phase 1 already resolved the entity to an existing ID, use it
             if entity.resolved_id:
-                pending.append((entity, mention_text, normalized_surface, entity_type,
-                                mention_confidence, entity.resolved_id, entity.confidence, False))
+                pending.append(
+                    (
+                        entity,
+                        mention_text,
+                        normalized_surface,
+                        entity_type,
+                        mention_confidence,
+                        entity.resolved_id,
+                        entity.confidence,
+                        False,
+                    )
+                )
                 continue
 
             # Check session-level memo cache
@@ -97,10 +105,22 @@ class L2EntityResolutionMixin:
                 cached_id, cached_conf = cache[cache_key]
                 logger.debug(
                     "L2 entity resolution cache hit",
-                    mention_text=mention_text, entity_type=entity_type, cached_entity_id=cached_id,
+                    mention_text=mention_text,
+                    entity_type=entity_type,
+                    cached_entity_id=cached_id,
                 )
-                pending.append((entity, mention_text, normalized_surface, entity_type,
-                                mention_confidence, cached_id, cached_conf, False))
+                pending.append(
+                    (
+                        entity,
+                        mention_text,
+                        normalized_surface,
+                        entity_type,
+                        mention_confidence,
+                        cached_id,
+                        cached_conf,
+                        False,
+                    )
+                )
                 continue
 
             # Try alias resolution (fast DB lookup)
@@ -109,33 +129,69 @@ class L2EntityResolutionMixin:
                 resolved_id, resolved_conf = alias_result
                 if cache is not None:
                     cache[cache_key] = alias_result
-                pending.append((entity, mention_text, normalized_surface, entity_type,
-                                mention_confidence, resolved_id, resolved_conf, False))
+                pending.append(
+                    (
+                        entity,
+                        mention_text,
+                        normalized_surface,
+                        entity_type,
+                        mention_confidence,
+                        resolved_id,
+                        resolved_conf,
+                        False,
+                    )
+                )
                 continue
 
             # Needs LLM resolution — collect candidates
             if self._llm_service is not None and entity_type:
                 candidate_entities = await self._entity_catalog.list_entities_by_type(
-                    entity_type=entity_type, limit=20, order_by_recency=True,
+                    entity_type=entity_type,
+                    limit=20,
+                    order_by_recency=True,
                 )
                 if candidate_entities:
                     mention_key = f"{len(llm_batch_items)}"
-                    llm_batch_items.append(L2BatchEntityResolutionItem(
-                        mention_key=mention_key,
-                        mention=L2EntityResolutionMention(
-                            mention_text=mention_text,
-                            entity_type=entity_type,
-                            context_text=event.content,
-                        ),
-                        candidate_entities=[L2EntityCandidate.from_dict(item) for item in candidate_entities],
-                    ))
-                    pending.append((entity, mention_text, normalized_surface, entity_type,
-                                    mention_confidence, None, None, True))
+                    llm_batch_items.append(
+                        L2BatchEntityResolutionItem(
+                            mention_key=mention_key,
+                            mention=L2EntityResolutionMention(
+                                mention_text=mention_text,
+                                entity_type=entity_type,
+                                context_text=event.content,
+                            ),
+                            candidate_entities=[
+                                L2EntityCandidate.from_dict(item) for item in candidate_entities
+                            ],
+                        )
+                    )
+                    pending.append(
+                        (
+                            entity,
+                            mention_text,
+                            normalized_surface,
+                            entity_type,
+                            mention_confidence,
+                            None,
+                            None,
+                            True,
+                        )
+                    )
                     continue
 
             # No LLM needed (no candidates or no llm_service)
-            pending.append((entity, mention_text, normalized_surface, entity_type,
-                            mention_confidence, None, None, False))
+            pending.append(
+                (
+                    entity,
+                    mention_text,
+                    normalized_surface,
+                    entity_type,
+                    mention_confidence,
+                    None,
+                    None,
+                    False,
+                )
+            )
 
         # ── Batch LLM resolution ──
         llm_results: dict[str, Any] = {}
@@ -145,20 +201,38 @@ class L2EntityResolutionMixin:
         # ── Pass 2: apply LLM results, finalize catalog, build output ──
         resolved_mentions: list[ResolvedEntityMention] = []
         llm_item_idx = 0  # tracks which llm_batch_item corresponds to needs_llm entries
-        for (entity, mention_text, normalized_surface, entity_type,
-             mention_confidence, resolved_entity_id, resolved_confidence, needs_llm) in pending:
-
+        for (
+            entity,
+            mention_text,
+            normalized_surface,
+            entity_type,
+            mention_confidence,
+            resolved_entity_id,
+            resolved_confidence,
+            needs_llm,
+        ) in pending:
             if needs_llm:
                 mention_key = f"{llm_item_idx}"
                 llm_item_idx += 1
                 llm_resolution = llm_results.get(mention_key)
-                if llm_resolution is not None and llm_resolution.decision == "match" and llm_resolution.matched_entity_id:
+                if (
+                    llm_resolution is not None
+                    and llm_resolution.decision == "match"
+                    and llm_resolution.matched_entity_id
+                ):
                     resolved_entity_id = str(llm_resolution.matched_entity_id)
                     resolved_confidence = float(llm_resolution.confidence or mention_confidence)
                 else:
                     # Fall through to same-name dedup / creation
-                    resolved_entity_id, resolved_confidence = await self._finalize_unresolved_entity(
-                        mention={"mention_text": mention_text, "canonical_name_hint": normalized_surface, "alias_signals": entity.alias_signals},
+                    (
+                        resolved_entity_id,
+                        resolved_confidence,
+                    ) = await self._finalize_unresolved_entity(
+                        mention={
+                            "mention_text": mention_text,
+                            "canonical_name_hint": normalized_surface,
+                            "alias_signals": entity.alias_signals,
+                        },
                         entity_type=entity_type,
                         mention_text=mention_text,
                         mention_confidence=mention_confidence,
@@ -172,7 +246,11 @@ class L2EntityResolutionMixin:
                 # Was not resolved by alias nor Phase 1 and didn't go through LLM
                 # (no candidates or no llm_service) — try same-name dedup / creation
                 resolved_entity_id, resolved_confidence = await self._finalize_unresolved_entity(
-                    mention={"mention_text": mention_text, "canonical_name_hint": normalized_surface, "alias_signals": entity.alias_signals},
+                    mention={
+                        "mention_text": mention_text,
+                        "canonical_name_hint": normalized_surface,
+                        "alias_signals": entity.alias_signals,
+                    },
                     entity_type=entity_type,
                     mention_text=mention_text,
                     mention_confidence=mention_confidence,
@@ -261,399 +339,5 @@ class L2EntityResolutionMixin:
             )
         return resolved_mentions
 
-    async def _resolve_entity_id(
-        self,
-        *,
-        mention: dict[str, Any],
-        entity_type: Optional[str],
-        mention_text: str,
-        mention_confidence: float,
-        event: MemoryEvent,
-    ) -> tuple[Optional[str], Optional[float]]:
-        if self._entity_catalog is None:
-            return (None, None)
 
-        # Session-level memo cache: skip repeated alias+LLM lookups for the same mention
-        cache_key = (mention_text.strip().casefold(), entity_type)
-        cache = getattr(self, "_entity_resolution_cache", None)
-        if cache is not None and cache_key in cache:
-            cached = cache[cache_key]
-            logger.debug(
-                "L2 entity resolution cache hit",
-                mention_text=mention_text,
-                entity_type=entity_type,
-                cached_entity_id=cached[0],
-            )
-            return cached
-
-        result = await self._resolve_entity_id_uncached(
-            mention=mention,
-            entity_type=entity_type,
-            mention_text=mention_text,
-            mention_confidence=mention_confidence,
-            event=event,
-        )
-
-        # Populate cache for future lookups (including unresolved results)
-        if cache is not None:
-            cache[cache_key] = result
-        return result
-
-    async def _resolve_entity_id_uncached(
-        self,
-        *,
-        mention: dict[str, Any],
-        entity_type: Optional[str],
-        mention_text: str,
-        mention_confidence: float,
-        event: MemoryEvent,
-    ) -> tuple[Optional[str], Optional[float]]:
-        assert self._entity_catalog is not None
-
-        # 1. Type-scoped alias resolution
-        alias_resolution = await self._entity_catalog.resolve_alias(
-            mention_text,
-            entity_type=entity_type,
-        )
-        if alias_resolution.get("decision") == "match":
-            return (str(alias_resolution["entity_id"]), float(alias_resolution["matched_confidence"]))
-
-        # 2. Cross-type alias resolution: find same-name entity under a compatible type
-        if entity_type:
-            cross_type_resolution = await self._entity_catalog.resolve_alias(
-                mention_text,
-                entity_type=None,
-            )
-            if cross_type_resolution.get("decision") == "match":
-                matched_id = str(cross_type_resolution["entity_id"])
-                matched_type = matched_id.split(":", 1)[0] if ":" in matched_id else ""
-                if self._are_types_mergeable(entity_type, matched_type):
-                    logger.debug(
-                        "L2 cross-type entity resolved",
-                        mention_text=mention_text,
-                        requested_type=entity_type,
-                        matched_type=matched_type,
-                        matched_entity_id=matched_id,
-                    )
-                    return (matched_id, float(cross_type_resolution["matched_confidence"]))
-
-        # 3. LLM-based resolution against same-type candidates
-        if self._llm_service is not None and entity_type:
-            candidate_entities = await self._entity_catalog.list_entities_by_type(entity_type=entity_type, limit=20, order_by_recency=True)
-            if candidate_entities:
-                llm_resolution = await self._llm_service.resolve_entity(
-                    mention=L2EntityResolutionMention(
-                        mention_text=mention_text,
-                        entity_type=entity_type,
-                        context_text=event.content,
-                    ),
-                    candidate_entities=[L2EntityCandidate.from_dict(item) for item in candidate_entities],
-                )
-                if llm_resolution.decision == "match" and llm_resolution.matched_entity_id:
-                    return (
-                        str(llm_resolution.matched_entity_id),
-                        float(llm_resolution.confidence or mention_confidence),
-                    )
-
-        canonical_name = self._non_empty_text(mention.get("canonical_name_hint")) or mention_text  # type: ignore[attr-defined]
-        if not entity_type or mention_confidence < 0.9:
-            return (None, mention_confidence if mention_confidence > 0.0 else None)
-
-        # 4. Same-name catalog dedup: reuse existing entity if name already registered
-        existing_by_name = await self._entity_catalog.find_by_canonical_name(canonical_name)
-        if existing_by_name:
-            for existing in existing_by_name:
-                existing_type = str(existing.get("entity_type", ""))
-                if existing_type == entity_type or self._are_types_mergeable(entity_type, existing_type):
-                    matched_id = str(existing["entity_id"])
-                    logger.debug(
-                        "L2 entity dedup: reusing existing same-name entity",
-                        mention_text=mention_text,
-                        canonical_name=canonical_name,
-                        requested_type=entity_type,
-                        existing_type=existing_type,
-                        entity_id=matched_id,
-                    )
-                    await self._entity_catalog.add_alias(
-                        entity_id=matched_id,
-                        alias_text=mention_text,
-                        confidence=min(max(mention_confidence, 0.9), 0.99),
-                    )
-                    return (matched_id, mention_confidence)
-
-        entity_id = self._build_canonical_entity_id(entity_type=entity_type, canonical_name=canonical_name)  # type: ignore[attr-defined]
-        await self._entity_catalog.upsert_entity(
-            entity_id=entity_id,
-            canonical_name=canonical_name,
-            entity_type=entity_type,
-        )
-        await self._entity_catalog.add_alias(
-            entity_id=entity_id,
-            alias_text=mention_text,
-            confidence=min(max(mention_confidence, 0.9), 0.99),
-        )
-        for alias in mention.get("alias_signals", []):
-            alias_text = self._non_empty_text(alias)  # type: ignore[attr-defined]
-            if not alias_text:
-                continue
-            if not self._is_valid_alias(alias_text, canonical_name, entity_type):
-                logger.debug(
-                    "L2 alias rejected by validation",
-                    alias_text=alias_text,
-                    canonical_name=canonical_name,
-                    entity_type=entity_type,
-                    entity_id=entity_id,
-                )
-                continue
-            await self._entity_catalog.add_alias(
-                entity_id=entity_id,
-                alias_text=alias_text,
-                confidence=min(max(mention_confidence, 0.85), 0.95),
-            )
-        return (entity_id, mention_confidence)
-
-    async def _try_alias_resolution(
-        self,
-        mention_text: str,
-        entity_type: Optional[str],
-    ) -> tuple[str, float] | None:
-        """Try alias-based resolution (steps 1-2). Returns (entity_id, confidence) or None."""
-        assert self._entity_catalog is not None
-
-        # 1. Type-scoped alias resolution
-        alias_resolution = await self._entity_catalog.resolve_alias(
-            mention_text,
-            entity_type=entity_type,
-        )
-        if alias_resolution.get("decision") == "match":
-            return (str(alias_resolution["entity_id"]), float(alias_resolution["matched_confidence"]))
-
-        # 2. Cross-type alias resolution
-        if entity_type:
-            cross_type_resolution = await self._entity_catalog.resolve_alias(
-                mention_text,
-                entity_type=None,
-            )
-            if cross_type_resolution.get("decision") == "match":
-                matched_id = str(cross_type_resolution["entity_id"])
-                matched_type = matched_id.split(":", 1)[0] if ":" in matched_id else ""
-                if self._are_types_mergeable(entity_type, matched_type):
-                    logger.debug(
-                        "L2 cross-type entity resolved",
-                        mention_text=mention_text,
-                        requested_type=entity_type,
-                        matched_type=matched_type,
-                        matched_entity_id=matched_id,
-                    )
-                    return (matched_id, float(cross_type_resolution["matched_confidence"]))
-
-        return None
-
-    async def _finalize_unresolved_entity(
-        self,
-        *,
-        mention: dict[str, Any],
-        entity_type: Optional[str],
-        mention_text: str,
-        mention_confidence: float,
-    ) -> tuple[Optional[str], Optional[float]]:
-        """Same-name dedup / new entity creation (step 4 of resolution)."""
-        assert self._entity_catalog is not None
-
-        canonical_name = self._non_empty_text(mention.get("canonical_name_hint")) or mention_text  # type: ignore[attr-defined]
-        if not entity_type or mention_confidence < 0.9:
-            return (None, mention_confidence if mention_confidence > 0.0 else None)
-
-        # Same-name catalog dedup: reuse existing entity if name already registered
-        existing_by_name = await self._entity_catalog.find_by_canonical_name(canonical_name)
-        if existing_by_name:
-            for existing in existing_by_name:
-                existing_type = str(existing.get("entity_type", ""))
-                if existing_type == entity_type or self._are_types_mergeable(entity_type, existing_type):
-                    matched_id = str(existing["entity_id"])
-                    logger.debug(
-                        "L2 entity dedup: reusing existing same-name entity",
-                        mention_text=mention_text,
-                        canonical_name=canonical_name,
-                        requested_type=entity_type,
-                        existing_type=existing_type,
-                        entity_id=matched_id,
-                    )
-                    await self._entity_catalog.add_alias(
-                        entity_id=matched_id,
-                        alias_text=mention_text,
-                        confidence=min(max(mention_confidence, 0.9), 0.99),
-                    )
-                    return (matched_id, mention_confidence)
-
-        entity_id = self._build_canonical_entity_id(entity_type=entity_type, canonical_name=canonical_name)  # type: ignore[attr-defined]
-        await self._entity_catalog.upsert_entity(
-            entity_id=entity_id,
-            canonical_name=canonical_name,
-            entity_type=entity_type,
-        )
-        await self._entity_catalog.add_alias(
-            entity_id=entity_id,
-            alias_text=mention_text,
-            confidence=min(max(mention_confidence, 0.9), 0.99),
-        )
-        for alias in mention.get("alias_signals", []):
-            alias_text = self._non_empty_text(alias)  # type: ignore[attr-defined]
-            if not alias_text:
-                continue
-            if not self._is_valid_alias(alias_text, canonical_name, entity_type):
-                logger.debug(
-                    "L2 alias rejected by validation",
-                    alias_text=alias_text,
-                    canonical_name=canonical_name,
-                    entity_type=entity_type,
-                    entity_id=entity_id,
-                )
-                continue
-            await self._entity_catalog.add_alias(
-                entity_id=entity_id,
-                alias_text=alias_text,
-                confidence=min(max(mention_confidence, 0.85), 0.95),
-            )
-        return (entity_id, mention_confidence)
-
-    _GENERIC_PLATFORM_NAMES: frozenset[str] = frozenset({
-        "youtube", "google", "github", "bilibili", "哔哩哔哩", "b站",
-        "douyin", "抖音", "tiktok", "tiktok china",
-        "zhihu", "知乎", "weibo", "微博",
-        "twitter", "x", "reddit", "medium",
-        "stackoverflow", "stack overflow", "wikipedia",
-        "spotify", "netflix", "twitch",
-        "taobao", "淘宝", "jd", "京东",
-        "xiaohongshu", "小红书",
-        "last.fm", "facebook", "instagram", "linkedin",
-        "baidu", "百度", "bing", "yahoo",
-    })
-
-    def _is_valid_alias(
-        self,
-        alias_text: str,
-        canonical_name: str,
-        entity_type: str,
-    ) -> bool:
-        """Check whether an alias is semantically valid for the given entity."""
-        alias_cf = alias_text.casefold().strip()
-        canonical_cf = canonical_name.casefold().strip()
-        if alias_cf == canonical_cf:
-            return True
-        # Reject generic platform names as aliases for non-software entities
-        if entity_type != "software" and alias_cf in self._GENERIC_PLATFORM_NAMES:
-            return False
-        # Reject aliases that are too short relative to a long canonical name
-        # (e.g., "抖音" as alias for "坤的真爱粉的抖音直播间")
-        if len(canonical_cf) > 8 and len(alias_cf) <= 3:
-            return False
-        return True
-
-    _NAME_NOISE_PATTERNS: re.Pattern = re.compile(
-        r"[\w.+-]+@[\w.-]+\.\w{2,}"  # email
-        r"|(\d{1,3}\.){3}\d{1,3}"     # IPv4
-        r"|^(Home|Inbox|Schema Panel|Import Panel|Verification Code|"
-        r"Sign in|Log in|Welcome|Error|404|Loading)$",
-        re.IGNORECASE,
-    )
-    _SENTENCE_PUNCT: re.Pattern = re.compile(r"[！？。，、；]")
-    _MAX_ENTITY_NAME_WIDTH = 50
-
-    @classmethod
-    def _display_width(cls, text: str) -> int:
-        """East-Asian-aware display width (CJK chars count as 2)."""
-        return sum(2 if unicodedata.east_asian_width(c) in ("W", "F") else 1 for c in text)
-
-    @classmethod
-    def _is_quality_entity_name(cls, name: str) -> bool:
-        """Return False for names that look like noise (page titles, UI labels, etc.)."""
-        text = name.strip()
-        if not text or len(text) < 2:
-            return False
-        if cls._NAME_NOISE_PATTERNS.search(text):
-            return False
-        if cls._display_width(text) > cls._MAX_ENTITY_NAME_WIDTH:
-            return False
-        alpha_count = sum(1 for c in text if c.isalpha())
-        if alpha_count == 0:
-            return False
-        # Reject names that look like CJK sentences (2+ sentence-ending punctuation)
-        if len(cls._SENTENCE_PUNCT.findall(text)) >= 2:
-            return False
-        return True
-
-    async def _build_catalog_name_index(self) -> dict[str, str]:
-        """Build a casefold(canonical_name) → entity_id lookup from the catalog."""
-        if self._entity_catalog is None:
-            return {}
-        entities = await self._entity_catalog.list_entities(limit=1000)
-        index: dict[str, str] = {}
-        for entity in entities:
-            name = str(entity.get("canonical_name", "")).strip().casefold()
-            entity_id = str(entity.get("entity_id", ""))
-            if name and entity_id and name not in index:
-                index[name] = entity_id
-        return index
-
-    _MERGEABLE_TYPE_GROUPS: list[frozenset[str]] = [
-        frozenset({"software", "product", "technology", "organization", "activity"}),
-        frozenset({"media", "activity", "topic", "concept"}),
-        frozenset({"person", "group"}),
-        frozenset({"place", "location_state"}),
-    ]
-
-    @classmethod
-    def _are_types_mergeable(cls, type_a: str, type_b: str) -> bool:
-        """Return whether two entity types are close enough to merge."""
-        if type_a == type_b:
-            return True
-        a = type_a.strip().lower()
-        b = type_b.strip().lower()
-        for group in cls._MERGEABLE_TYPE_GROUPS:
-            if a in group and b in group:
-                return True
-        return False
-
-    def _build_focal_entities(
-        self,
-        event: MemoryEvent,
-        resolved_mentions: list[ResolvedEntityMention],
-    ) -> list[L2FocalEntityRef]:
-        focal_entities: list[L2FocalEntityRef] = []
-        self_entity_id = self._resolve_self_entity_id(event)
-        if self_entity_id:
-            focal_entities.append(L2FocalEntityRef(entity_id=self_entity_id, entity_type="user"))
-        seen = {item.entity_id for item in focal_entities}
-        for mention in resolved_mentions:
-            entity_id = mention.resolved_entity_id
-            entity_type = self._normalize_entity_type(mention.entity_type)  # type: ignore[attr-defined]
-            if not entity_id or not entity_type or entity_id in seen:
-                continue
-            focal_entities.append(L2FocalEntityRef(entity_id=str(entity_id), entity_type=entity_type))
-            seen.add(str(entity_id))
-        return focal_entities
-
-    def _collect_touched_entities(
-        self,
-        graph_candidates: list[dict[str, Any]],
-        assertion_candidates: list[dict[str, Any]],
-    ) -> list[str]:
-        touched: set[str] = set()
-        for candidate in graph_candidates:
-            subject_id = candidate.get("subject_id")
-            object_id = candidate.get("object_id")
-            if subject_id:
-                touched.add(str(subject_id))
-            if object_id:
-                touched.add(str(object_id))
-        for candidate in assertion_candidates:
-            entity_id = candidate.get("entity_id")
-            if entity_id:
-                touched.add(str(entity_id))
-        return sorted(touched)
-
-    def _resolve_self_entity_id(self, event: MemoryEvent) -> str | None:
-        if event.user_id:
-            return f"user:{event.user_id}"
-        return None
+__all__ = ["L2EntityResolutionMixin"]

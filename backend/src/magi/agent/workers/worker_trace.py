@@ -5,30 +5,29 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from ...agent.trace import TraceEventEmitter, build_trace_timing, now_wall_ms
-from ...events.events import Event, EventLevel
 from ...runtime_trace import (
     RuntimeNotificationRecord,
     TraceLlmCallRecord,
     TraceSpanRecord,
     TraceToolRecord,
 )
+from .worker_publication import WorkerPublicationMixin
 from .worker_state import WorkerRunState
-from ...core.logger import get_logger
-
-logger = get_logger(__name__)
 
 
-class WorkerTraceMixin:
+class WorkerTraceMixin(WorkerPublicationMixin):
     """Persist worker runtime traces and publish worker progress facts."""
 
     _message_bus: Any
     _runtime_trace_store: Any
     _task_agent_manager: Any
 
-    async def _handle_worker_loop_event(self, run_state: WorkerRunState, payload: Dict[str, Any]) -> None:
+    async def _handle_worker_loop_event(
+        self, run_state: WorkerRunState, payload: Dict[str, Any]
+    ) -> None:
         llm_trace = payload.get("llm_trace")
         if not isinstance(llm_trace, dict) or not llm_trace:
             return
@@ -90,11 +89,13 @@ class WorkerTraceMixin:
         context_usage = payload.get("context_usage")
         if isinstance(context_usage, dict):
             await self._publish_context_usage_notification(run_state, context_usage)
-        await self._publish_trace_update_notification({
-            "user_id": run_state.user_id,
-            "session_id": run_state.session_id,
-            "turn_id": run_state.turn_id,
-        })
+        await self._publish_trace_update_notification(
+            {
+                "user_id": run_state.user_id,
+                "session_id": run_state.session_id,
+                "turn_id": run_state.turn_id,
+            }
+        )
 
     async def _publish_context_usage_notification(
         self,
@@ -152,7 +153,9 @@ class WorkerTraceMixin:
         if self._runtime_trace_store is None or trace_turn_id is None:
             return
 
-        dispatch_span_id = self._build_worker_dispatch_span_id(trace_turn_id, self._worker_trace_key(run_state))
+        dispatch_span_id = self._build_worker_dispatch_span_id(
+            trace_turn_id, self._worker_trace_key(run_state)
+        )
         await self._runtime_trace_store.upsert_span(
             TraceSpanRecord(
                 span_id=dispatch_span_id,
@@ -211,7 +214,9 @@ class WorkerTraceMixin:
                 span_id=self._build_worker_span_id(trace_turn_id, trace_key, attempt_index),
                 trace_id=self._build_trace_id(trace_turn_id),
                 turn_id=trace_turn_id,
-                parent_span_id=self._build_worker_attempt_span_id(trace_turn_id, trace_key, attempt_index),
+                parent_span_id=self._build_worker_attempt_span_id(
+                    trace_turn_id, trace_key, attempt_index
+                ),
                 node_type="worker",
                 name=f"{run_state.subagent_type} worker",
                 status="running",
@@ -233,7 +238,9 @@ class WorkerTraceMixin:
         await self._emit_worker_terminal_trace(run_state=run_state, status="failed")
         await self._emit_worker_attempt_terminal_trace(run_state=run_state, status="failed")
 
-    async def _emit_worker_attempt_terminal_trace(self, run_state: WorkerRunState, status: str) -> None:
+    async def _emit_worker_attempt_terminal_trace(
+        self, run_state: WorkerRunState, status: str
+    ) -> None:
         trace_turn_id = self._resolve_trace_turn_id(run_state)
         if self._runtime_trace_store is None or trace_turn_id is None:
             return
@@ -302,7 +309,9 @@ class WorkerTraceMixin:
                 span_id=self._build_worker_span_id(trace_turn_id, trace_key, attempt_index),
                 trace_id=self._build_trace_id(trace_turn_id),
                 turn_id=trace_turn_id,
-                parent_span_id=self._build_worker_attempt_span_id(trace_turn_id, trace_key, attempt_index),
+                parent_span_id=self._build_worker_attempt_span_id(
+                    trace_turn_id, trace_key, attempt_index
+                ),
                 node_type="worker",
                 name=f"{run_state.subagent_type} worker",
                 status=status,
@@ -424,7 +433,9 @@ class WorkerTraceMixin:
         return f"{turn_id}:worker:{trace_key}:{attempt_index}"
 
     @staticmethod
-    def _build_worker_llm_span_id(turn_id: str, trace_key: str, attempt_index: int, stage: str, iteration: int) -> str:
+    def _build_worker_llm_span_id(
+        turn_id: str, trace_key: str, attempt_index: int, stage: str, iteration: int
+    ) -> str:
         return f"{turn_id}:worker_llm:{trace_key}:{attempt_index}:{stage}:{iteration}"
 
     @staticmethod
@@ -456,118 +467,3 @@ class WorkerTraceMixin:
             "target_task_agent_type": run_state.target_task_agent_type,
             "target_task_agent_id": run_state.target_task_agent_id,
         }
-
-    async def _publish_worker_fact(
-        self,
-        run_state: WorkerRunState,
-        event_type: str,
-        internal_payload: Dict[str, Any],
-        public_payload: Optional[Dict[str, Any]] = None,
-    ) -> None:
-        try:
-            from ...agent.runtime.contracts import FactRecord
-
-            manager = self._task_agent_manager
-            if manager is None:
-                raise RuntimeError("task agent manager unavailable")
-        except Exception as exc:
-            logger.debug(
-                "Worker fact publish skipped (runtime unavailable) | worker_id=%s error=%s",
-                run_state.worker_id,
-                exc,
-            )
-            return
-
-        now = time.time()
-        internal_data = {
-            "worker_id": run_state.worker_id,
-            "worker_status": run_state.status,
-            "worker_subagent_type": run_state.subagent_type,
-            "worker_description": run_state.description,
-            "failure_reason": run_state.failure_reason,
-            "orchestration_id": run_state.orchestration_id,
-            "subtask_id": run_state.subtask_id,
-            "parent_task_agent_type": run_state.parent_task_agent_type,
-            "parent_task_agent_id": run_state.parent_task_agent_id,
-            "target_task_agent_type": run_state.target_task_agent_type,
-            "target_task_agent_id": run_state.target_task_agent_id,
-            "user_id": run_state.user_id,
-            "session_id": run_state.session_id,
-            "turn_id": run_state.turn_id,
-            "run_id": run_state.run_id,
-            "run_revision": run_state.run_revision,
-            "timestamp": now,
-            **internal_payload,
-        }
-        fact = FactRecord(
-            agent_id=f"{run_state.target_task_agent_type}:{run_state.target_task_agent_id}",
-            event_type=event_type,
-            payload=internal_data,
-            agent_type=run_state.target_task_agent_type,
-            agent_instance_id=run_state.target_task_agent_id,
-            timestamp=now,
-            correlation_id=run_state.worker_id,
-        )
-        await manager.add_fact_to_agent(run_state.target_task_agent_type, run_state.target_task_agent_id, fact)
-        external_data = {
-            "worker_id": run_state.worker_id,
-            "worker_status": run_state.status,
-            "worker_subagent_type": run_state.subagent_type,
-            "worker_description": run_state.description,
-            "failure_reason": run_state.failure_reason,
-            "orchestration_id": run_state.orchestration_id,
-            "subtask_id": run_state.subtask_id,
-            "target_task_agent_type": run_state.target_task_agent_type,
-            "target_task_agent_id": run_state.target_task_agent_id,
-            "user_id": run_state.user_id,
-            "session_id": run_state.session_id,
-            "turn_id": run_state.turn_id,
-            "run_id": run_state.run_id,
-            "run_revision": run_state.run_revision,
-            "timestamp": now,
-            **(public_payload or internal_payload),
-        }
-        await self._publish_worker_bus_event(event_type=event_type, payload=external_data, correlation_id=run_state.worker_id)
-
-    async def _publish_worker_bus_event(
-        self,
-        event_type: str,
-        payload: Dict[str, Any],
-        correlation_id: str,
-    ) -> None:
-        try:
-            message_bus = self._message_bus
-            if message_bus is None:
-                return
-            await message_bus.publish(
-                Event(
-                    type=event_type,
-                    data=payload,
-                    source="agent_tool",
-                    level=EventLevel.INFO,
-                    correlation_id=correlation_id,
-                )
-            )
-        except Exception as exc:
-            logger.debug(f"Failed to publish worker bus event | event_type={event_type} error={exc}")
-        await self._publish_trace_update_notification(payload)
-
-    async def _publish_trace_update_notification(self, payload: Dict[str, Any]) -> None:
-        if self._runtime_trace_store is None:
-            return
-        user_id = str(payload.get("user_id") or "").strip()
-        session_id = str(payload.get("session_id") or "").strip()
-        turn_id = str(payload.get("turn_id") or "").strip() or None
-        if not user_id or not session_id or not turn_id:
-            return
-        await self._runtime_trace_store.append_notification(
-            RuntimeNotificationRecord(
-                notification_id=0,
-                channel="trace_update",
-                user_id=user_id,
-                session_id=session_id,
-                turn_id=turn_id,
-                payload_json="{}",
-                created_at_ms=now_wall_ms(),
-            )
-        )

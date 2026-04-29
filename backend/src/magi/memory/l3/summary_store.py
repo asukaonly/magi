@@ -15,12 +15,10 @@ import aiosqlite
 from ...core.sqlite import sqlite_connection_async
 from ...config.models import EmbeddingBackend
 from ...llm import ScenarioLLMPool
-from ..embedding.chunking import ChunkedText, chunk_text
+from ..embedding.chunking import ChunkedText
 from ..embedding.embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
 from ..embedding.embedding_service import EmbeddingProfile, MemoryEmbeddingService
-from ..embedding.embedding_text_builders import build_l3_embedding_text
 from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
-from ..hybrid_retrieval.handlers import rrf_fuse
 from ..l1.event_store import L1EventStore
 from ..embedding.sqlite_vec_index import SqliteVecIndex, VectorSearchHit
 from .evidence_selector import select_temporal_evidence
@@ -28,17 +26,50 @@ from .models import L3Candidate
 from .topic_llm_service import TopicSummaryLLMService
 from .temporal_llm_service import TemporalSummaryLLMService
 from .validator import validate_candidate
+from .summary_store_embeddings import (
+    EMBEDDING_TEXT_BUILDER_VERSION,
+    build_embedding_pipeline,
+    build_summary_embedding_chunks,
+    chunk_id_for_summary,
+    fold_summary_chunk_hits,
+    get_embedding_text,
+    profile_from_embedding_result,
+)
+from .summary_store_schema import (
+    EMBEDDING_STATUS_DISABLED,
+    EMBEDDING_STATUS_READY,
+    L3_SUMMARY_SCHEMA_SQL,
+    SUMMARY_CHUNKS_TABLE,
+    ensure_summary_store_schema,
+)
+from .summary_store_search import (
+    build_fetch_by_ids_query,
+    build_keyword_search_query,
+    fts_backfill_row,
+    fused_summary_ids,
+    ids_from_rows,
+    ordered_summary_dicts_from_rows,
+    ranked_vector_summaries,
+    rows_to_bm25_pairs,
+    search_path_ids,
+)
+from .summary_store_links import (
+    build_summary_event_link_rows,
+    build_summary_task_link_rows,
+    normalize_event_ids,
+    row_to_summary_event_link,
+    row_to_summary_task_link,
+)
+from .summary_store_serialization import (
+    decode_optional_json,
+    encode_optional_json,
+    row_to_summary_dict,
+)
 
 if TYPE_CHECKING:
     from .models import L3Candidate
 
 logger = logging.getLogger(__name__)
-
-SUMMARY_CHUNKS_TABLE = "l3_summary_chunks"
-EMBEDDING_TEXT_BUILDER_VERSION = "l3_summary_v1"
-EMBEDDING_STATUS_READY = "ready"
-EMBEDDING_STATUS_DISABLED = "disabled"
-
 
 class L3SummaryStore:
     """Stores reflection-oriented summaries that remain traceable to L1 evidence."""
@@ -99,79 +130,7 @@ class L3SummaryStore:
 
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         async with sqlite_connection_async(self.db_path) as db:
-            await db.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS summaries (
-                    summary_id TEXT PRIMARY KEY,
-                    summary_type TEXT NOT NULL,
-                    summary_category TEXT NOT NULL,
-                    period_start REAL NOT NULL,
-                    period_end REAL NOT NULL,
-                    content TEXT NOT NULL,
-                    key_topics TEXT,
-                    key_entities TEXT,
-                    sentiment_summary TEXT,
-                    change_and_pattern TEXT,
-                    source_event_ids TEXT NOT NULL,
-                    source_event_count INTEGER NOT NULL,
-                    importance_aggregate REAL,
-                    event_type_distribution TEXT,
-                    generated_by_model TEXT,
-                    generation_prompt TEXT,
-                    generation_reason TEXT,
-                    embedding_status TEXT NOT NULL DEFAULT 'disabled',
-                    embedding_profile_id TEXT,
-                    embedding_chunk_count INTEGER NOT NULL DEFAULT 0,
-                    last_embedded_at REAL,
-                    created_at REAL NOT NULL,
-                    updated_at REAL NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_summaries_period ON summaries(summary_type, summary_category, period_start, period_end);
-
-                CREATE TABLE IF NOT EXISTS summary_event_links (
-                    link_id TEXT PRIMARY KEY,
-                    summary_id TEXT NOT NULL,
-                    event_id TEXT NOT NULL,
-                    link_role TEXT NOT NULL,
-                    evidence_weight REAL NOT NULL DEFAULT 1.0,
-                    created_at REAL NOT NULL,
-                    UNIQUE(summary_id, event_id, link_role)
-                );
-                CREATE INDEX IF NOT EXISTS idx_summary_event_links_summary ON summary_event_links(summary_id);
-                CREATE INDEX IF NOT EXISTS idx_summary_event_links_event ON summary_event_links(event_id);
-
-                CREATE TABLE IF NOT EXISTS summary_task_links (
-                    link_id TEXT PRIMARY KEY,
-                    summary_id TEXT NOT NULL,
-                    task_id TEXT NOT NULL,
-                    link_role TEXT NOT NULL,
-                    created_at REAL NOT NULL,
-                    UNIQUE(summary_id, task_id, link_role)
-                );
-                CREATE INDEX IF NOT EXISTS idx_summary_task_links_summary ON summary_task_links(summary_id);
-                CREATE INDEX IF NOT EXISTS idx_summary_task_links_task ON summary_task_links(task_id);
-
-                CREATE TABLE IF NOT EXISTS l3_summary_chunks (
-                    chunk_id TEXT PRIMARY KEY,
-                    summary_id TEXT NOT NULL,
-                    chunk_index INTEGER NOT NULL,
-                    chunk_text TEXT NOT NULL,
-                    char_start INTEGER NOT NULL,
-                    char_end INTEGER NOT NULL,
-                    token_estimate INTEGER NOT NULL,
-                    created_at REAL NOT NULL,
-                    updated_at REAL NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_l3_summary_chunks_summary ON l3_summary_chunks(summary_id);
-                CREATE INDEX IF NOT EXISTS idx_l3_summary_chunks_index ON l3_summary_chunks(summary_id, chunk_index);
-
-                CREATE VIRTUAL TABLE IF NOT EXISTS l3_summaries_fts USING fts5(
-                    summary_id UNINDEXED,
-                    content,
-                    tokenize='unicode61'
-                );
-                """
-            )
+            await ensure_summary_store_schema(db)
             if self._vector_index is not None:
                 await self._vector_index.initialize()
             await db.commit()
@@ -429,9 +388,7 @@ class L3SummaryStore:
 
         results_or_errors = await asyncio.gather(bm25_task, semantic_task, keyword_task, return_exceptions=True)
 
-        bm25_ids: List[str] = [summary_id for summary_id, _score in results_or_errors[0]] if isinstance(results_or_errors[0], list) else []
-        semantic_ids: List[str] = [item["summary_id"] for item in results_or_errors[1]] if isinstance(results_or_errors[1], list) else []
-        keyword_ids: List[str] = list(results_or_errors[2]) if isinstance(results_or_errors[2], list) else []
+        bm25_ids, semantic_ids, keyword_ids = search_path_ids(results_or_errors)
 
         for index, result in enumerate(results_or_errors):
             if isinstance(result, BaseException):
@@ -440,12 +397,12 @@ class L3SummaryStore:
         if not bm25_ids and not semantic_ids and not keyword_ids:
             return []
 
-        fused = rrf_fuse(
-            [bm25_ids, semantic_ids, keyword_ids],
-            [1.0, 1.0, 1.0],
-            k=60,
+        summary_ids = fused_summary_ids(
+            bm25_ids=bm25_ids,
+            semantic_ids=semantic_ids,
+            keyword_ids=keyword_ids,
+            fetch_k=fetch_k,
         )
-        summary_ids = [summary_id for summary_id, _score in fused[:fetch_k]]
         if not summary_ids:
             return []
         summaries = await self.fetch_by_ids(
@@ -618,17 +575,7 @@ class L3SummaryStore:
                 (summary_id,),
             ) as cursor:
                 rows = await cursor.fetchall()
-        return [
-            {
-                "link_id": str(row["link_id"]),
-                "summary_id": str(row["summary_id"]),
-                "event_id": str(row["event_id"]),
-                "link_role": str(row["link_role"]),
-                "evidence_weight": float(row["evidence_weight"]),
-                "created_at": float(row["created_at"]),
-            }
-            for row in rows
-        ]
+        return [row_to_summary_event_link(row) for row in rows]
 
     async def list_summary_task_links(self, summary_id: str) -> List[Dict[str, Any]]:
         """Return task links for a summary."""
@@ -645,21 +592,12 @@ class L3SummaryStore:
                 (summary_id,),
             ) as cursor:
                 rows = await cursor.fetchall()
-        return [
-            {
-                "link_id": str(row["link_id"]),
-                "summary_id": str(row["summary_id"]),
-                "task_id": str(row["task_id"]),
-                "link_role": str(row["link_role"]),
-                "created_at": float(row["created_at"]),
-            }
-            for row in rows
-        ]
+        return [row_to_summary_task_link(row) for row in rows]
 
     async def filter_linked_event_ids(self, event_ids: list[str]) -> list[str]:
         """Return the subset of event ids that are already covered by summary links."""
         await self.initialize()
-        normalized_ids = [str(event_id) for event_id in event_ids if str(event_id).strip()]
+        normalized_ids = normalize_event_ids(event_ids)
         if not normalized_ids:
             return []
 
@@ -719,7 +657,7 @@ class L3SummaryStore:
                     ),
                 ) as cursor:
                     rows = await cursor.fetchall()
-                return [(str(row[0]), float(row[1])) for row in rows]
+                return rows_to_bm25_pairs(rows)
             except Exception as exc:
                 logger.warning("FTS5 BM25 search failed for L3 summaries: %s", exc)
                 return []
@@ -737,9 +675,7 @@ class L3SummaryStore:
             ) as cursor:
                 batch: list[tuple[str, str]] = []
                 async for row in cursor:
-                    summary_id = str(row[0])
-                    raw = str(row[1])
-                    batch.append((summary_id, tokenize_for_fts(raw)))
+                    batch.append(fts_backfill_row(row))
                     if len(batch) >= batch_size:
                         await db.executemany(
                             "INSERT INTO l3_summaries_fts(summary_id, content) VALUES (?, ?)",
@@ -826,10 +762,11 @@ class L3SummaryStore:
                         link_id, summary_id, event_id, link_role, evidence_weight, created_at
                     ) VALUES (?, ?, ?, ?, ?, ?)
                     """,
-                    [
-                        (f"sel_{uuid.uuid4().hex}", summary_id, event_id, "primary", 1.0, now)
-                        for event_id in event_ids
-                    ],
+                    build_summary_event_link_rows(
+                        summary_id=summary_id,
+                        event_ids=event_ids,
+                        created_at=now,
+                    ),
                 )
             await db.commit()
 
@@ -844,56 +781,22 @@ class L3SummaryStore:
                         link_id, summary_id, task_id, link_role, created_at
                     ) VALUES (?, ?, ?, ?, ?)
                     """,
-                    [
-                        (f"stl_{uuid.uuid4().hex}", summary_id, task_id, "source_task", now)
-                        for task_id in task_ids
-                    ],
+                    build_summary_task_link_rows(
+                        summary_id=summary_id,
+                        task_ids=task_ids,
+                        created_at=now,
+                    ),
                 )
             await db.commit()
 
     def _row_to_dict(self, row: aiosqlite.Row) -> Dict[str, Any]:
-        return {
-            "summary_id": str(row["summary_id"]),
-            "summary_type": str(row["summary_type"]),
-            "summary_category": str(row["summary_category"]),
-            "period_start": float(row["period_start"]),
-            "period_end": float(row["period_end"]),
-            "content": str(row["content"]),
-            "key_topics": json.loads(row["key_topics"] or "[]"),
-            "key_entities": json.loads(row["key_entities"] or "[]"),
-            "sentiment_summary": self._decode_optional_json(row["sentiment_summary"]),
-            "change_and_pattern": self._decode_optional_json(row["change_and_pattern"]),
-            "source_event_ids": json.loads(row["source_event_ids"] or "[]"),
-            "source_event_count": int(row["source_event_count"]),
-            "importance_aggregate": float(row["importance_aggregate"] or 0.0),
-            "event_type_distribution": json.loads(row["event_type_distribution"] or "{}"),
-            "generated_by_model": row["generated_by_model"],
-            "generation_prompt": row["generation_prompt"],
-            "generation_reason": row["generation_reason"],
-            "embedding_status": str(row["embedding_status"] or EMBEDDING_STATUS_DISABLED),
-            "embedding_profile_id": row["embedding_profile_id"],
-            "embedding_chunk_count": int(row["embedding_chunk_count"] or 0),
-            "last_embedded_at": float(row["last_embedded_at"]) if row["last_embedded_at"] is not None else None,
-            "created_at": float(row["created_at"]),
-            "updated_at": float(row["updated_at"]),
-        }
+        return row_to_summary_dict(row)
 
     def _encode_optional_json(self, value: Any) -> str | None:
-        if value is None:
-            return None
-        if isinstance(value, (dict, list)):
-            return json.dumps(value, ensure_ascii=False)
-        return str(value)
+        return encode_optional_json(value)
 
     def _decode_optional_json(self, value: Any) -> Any:
-        if value is None:
-            return None
-        if isinstance(value, str):
-            try:
-                return json.loads(value)
-            except json.JSONDecodeError:
-                return value
-        return value
+        return decode_optional_json(value)
 
     async def _maybe_upsert_summary_embedding(self, summary: Dict[str, Any]) -> None:
         await self._maybe_upsert_summary_embeddings([summary])
@@ -941,9 +844,7 @@ class L3SummaryStore:
                 logger.warning("Failed to update summary embedding state for %s: %s", summary.get("summary_id"), exc)
 
     def _build_embedding_pipeline(self) -> MemoryEmbeddingPipeline | None:
-        if self._embedding_service is None or self._vector_index is None:
-            return None
-        return MemoryEmbeddingPipeline(
+        return build_embedding_pipeline(
             embedding_service=self._embedding_service,
             vector_index=self._vector_index,
         )
@@ -976,19 +877,12 @@ class L3SummaryStore:
             summary_type=summary_type,
             summary_category=summary_category,
         )
-        summaries_by_id = {str(summary["summary_id"]): summary for summary in summaries}
-        ranked: List[Dict[str, Any]] = []
-        for summary_id in summary_ids:
-            summary = summaries_by_id.get(summary_id)
-            if summary is None:
-                continue
-            summary["matched_chunks"] = matched_chunks.get(summary_id, [])
-            if summary["matched_chunks"]:
-                summary["distance"] = float(summary["matched_chunks"][0]["distance"])
-            ranked.append(summary)
-            if len(ranked) >= limit:
-                break
-        return ranked
+        return ranked_vector_summaries(
+            summaries=summaries,
+            summary_ids=summary_ids,
+            matched_chunks=matched_chunks,
+            limit=limit,
+        )
 
     async def keyword_search(
         self,
@@ -999,21 +893,16 @@ class L3SummaryStore:
         limit: int = 50,
     ) -> List[str]:
         """Return summary IDs matching *query* via LIKE keyword search."""
-        escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        sql = "SELECT summary_id FROM summaries WHERE content LIKE ? ESCAPE '\\'"
-        args: List[Any] = [f"%{escaped}%"]
-        if summary_type:
-            sql += " AND summary_type = ?"
-            args.append(summary_type)
-        if summary_category:
-            sql += " AND summary_category = ?"
-            args.append(summary_category)
-        sql += " ORDER BY updated_at DESC LIMIT ?"
-        args.append(int(limit))
+        sql, args = build_keyword_search_query(
+            query=query,
+            summary_type=summary_type,
+            summary_category=summary_category,
+            limit=limit,
+        )
         async with sqlite_connection_async(self.db_path) as db:
             async with db.execute(sql, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
-        return [str(row[0]) for row in rows]
+        return ids_from_rows(rows)
 
     async def fetch_by_ids(
         self,
@@ -1024,21 +913,16 @@ class L3SummaryStore:
     ) -> List[Dict[str, Any]]:
         if not summary_ids:
             return []
-        placeholders = ", ".join("?" for _ in summary_ids)
-        sql = f"SELECT * FROM summaries WHERE summary_id IN ({placeholders})"
-        args: List[Any] = list(summary_ids)
-        if summary_type:
-            sql += " AND summary_type = ?"
-            args.append(summary_type)
-        if summary_category:
-            sql += " AND summary_category = ?"
-            args.append(summary_category)
+        sql, args = build_fetch_by_ids_query(
+            summary_ids=summary_ids,
+            summary_type=summary_type,
+            summary_category=summary_category,
+        )
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(sql, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
-        summaries_by_id = {str(row["summary_id"]): self._row_to_dict(row) for row in rows}
-        return [summaries_by_id[summary_id] for summary_id in summary_ids if summary_id in summaries_by_id]
+        return ordered_summary_dicts_from_rows(rows=rows, summary_ids=summary_ids)
 
     async def _schedule_summary_embedding(self, summary: Dict[str, Any]) -> None:
         if not self._vectors_enabled():
@@ -1083,13 +967,13 @@ class L3SummaryStore:
 
     def get_embedding_text(self, summary: Dict[str, Any]) -> str:
         """Return the canonical L3 text used for embedding."""
-        return build_l3_embedding_text(summary)
+        return get_embedding_text(summary)
 
     def _build_summary_embedding_chunks(self, summary: Dict[str, Any]) -> list[ChunkedText]:
-        return chunk_text(self.get_embedding_text(summary))
+        return build_summary_embedding_chunks(summary)
 
     def _chunk_id_for_summary(self, summary_id: str, chunk_index: int) -> str:
-        return f"{summary_id}::chunk-{chunk_index}"
+        return chunk_id_for_summary(summary_id, chunk_index)
 
     async def _replace_summary_chunks(
         self,
@@ -1150,14 +1034,9 @@ class L3SummaryStore:
             await db.commit()
 
     def _profile_from_embedding_result(self, result) -> EmbeddingProfile:
-        getter = getattr(self._embedding_service, "profile_from_result", None)
-        if callable(getter):
-            return getter(result, text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION)
-        return EmbeddingProfile.build(
-            provider_name="unknown",
-            model_name=result.model_name,
-            dimension=result.dimension,
-            text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION,
+        return profile_from_embedding_result(
+            embedding_service=self._embedding_service,
+            result=result,
         )
 
     async def _fetch_summary_chunk_rows_by_ids(self, chunk_ids: list[str]) -> list[aiosqlite.Row]:
@@ -1182,28 +1061,7 @@ class L3SummaryStore:
     ) -> tuple[list[str], dict[str, list[dict[str, Any]]]]:
         chunk_ids = [hit.entity_id for hit in hits]
         chunk_rows = await self._fetch_summary_chunk_rows_by_ids(chunk_ids)
-        chunk_by_id = {str(row["chunk_id"]): row for row in chunk_rows}
-        summary_ids: list[str] = []
-        matched_chunks: dict[str, list[dict[str, Any]]] = {}
-        for hit in hits:
-            row = chunk_by_id.get(hit.entity_id)
-            if row is None:
-                continue
-            summary_id = str(row["summary_id"])
-            if summary_id not in matched_chunks:
-                summary_ids.append(summary_id)
-                matched_chunks[summary_id] = []
-            matched_chunks[summary_id].append(
-                {
-                    "chunk_id": str(row["chunk_id"]),
-                    "chunk_index": int(row["chunk_index"]),
-                    "text": str(row["chunk_text"]),
-                    "char_start": int(row["char_start"]),
-                    "char_end": int(row["char_end"]),
-                    "distance": float(hit.distance),
-                }
-            )
-        return summary_ids, matched_chunks
+        return fold_summary_chunk_hits(hits=hits, chunk_rows=chunk_rows)
 
 
 __all__ = ["L3SummaryStore"]

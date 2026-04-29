@@ -134,6 +134,137 @@ Recent progress:
 - Provider bridge non-streaming request implementations now live in `provider_bridge_requests.py`.
 - Provider bridge plain chat streaming now lives in `provider_bridge_streaming.py`.
 - Provider bridge tool-call streaming now lives in `provider_bridge_streaming.py`.
+- Function-calling fallback final-response and rescue-pass logic now lives in `function_calling_fallback.py`.
+- Function-calling concrete tool and skill execution now lives in `function_calling_tool_execution.py`.
+- Chat post-processing session-run finalization helpers now live in `postprocess_session.py`.
+- Chat post-processing tool event helpers now live in `postprocess_tool_events.py`.
+- Chat post-processing outcome writer helpers now live in `postprocess_outcomes.py`.
+- Chat post-processing intent-routing trace helpers now live in `postprocess_intent.py`.
+- Chat post-processing background completion helpers now live in `postprocess_background.py`.
+- Chat post-processing memory/reflection helpers now live in `postprocess_memory.py`.
+- Settings page navigation and sub-selection state now lives in `useSettingsNavigation.ts`.
+- Settings page tool config loading and draft mutation state now lives in `useSettingsTools.ts`.
+- Settings page config/control draft loading and mutation state now lives in `useSettingsConfig.ts`.
+- Settings page plugin package and timeline source draft state now lives in `useSettingsPluginsTimeline.ts`.
+- Settings page save/discard persistence orchestration now lives in `useSettingsPersistence.ts`.
+- Settings page navigation sidebar rendering now lives in `SettingsNavigationSidebar.tsx`.
+- Settings page tools and skills section rendering/loading now lives in `SettingsToolsSection.tsx`.
+- Shared settings section primitives now live in `SettingsSectionPrimitives.tsx`.
+- Settings page preferences section rendering now lives in `SettingsPreferencesSection.tsx`.
+- Settings page conversation section rendering now lives in `SettingsConversationSection.tsx`.
+- Settings page personality runtime settings now lives in `SettingsPersonalityRuntimeSection.tsx`.
+- Settings page LLM provider/model branches now live in `SettingsLlmSection.tsx`.
+- Settings page control branch now lives in `SettingsControlSection.tsx`.
+- Settings page memory branches now route through `SettingsMemorySection.tsx`.
+- Settings page plugin/channel integration branches now route through `SettingsIntegrationsSection.tsx`.
+- LLM provider workbench model helpers now live in `llm-provider-workbench-models.ts`.
+- LLM provider list pane rendering now lives in `LLMProviderListPane.tsx`.
+- LLM provider API key reveal/input control now lives in `LLMProviderApiKeyField.tsx`.
+- LLM provider connection test model menu now lives in `LLMProviderTestMenu.tsx`.
+- LLM provider detail header/actions now live in `LLMProviderDetailHeader.tsx`.
+- LLM provider connection test status banners now live in `LLMProviderTestStatus.tsx`.
+- LLM provider builtin/custom connection fields now live in `LLMProviderConnectionFields.tsx`.
+- LLM provider model kind/manual-add toolbar now lives in `LLMProviderModelToolbar.tsx`.
+- LLM provider workbench model list pane now lives in `LLMProviderModelListPane.tsx`.
+- LLM provider model editor header/actions now live in `LLMProviderModelEditorHeader.tsx`.
+- LLM provider chat model capability/limit fields now live in `LLMProviderChatModelFields.tsx`.
+- LLM provider embedding model dimensions/concurrency fields now live in `LLMProviderEmbeddingModelFields.tsx`.
+- LLM provider image model runtime hint now lives in `LLMProviderImageModelFields.tsx`.
+- LLM provider model editor shell now lives in `LLMProviderModelEditor.tsx`.
+- LLM form cloning, registry, normalization, and runtime override helpers now live in `llm-form-state.ts`.
+- LLM embedding dimension confirmation dialog now lives in `LLMEmbeddingDimensionConfirmDialog.tsx`.
+- LLM model selection local embedding/reranker download state now lives in `llm-model-download-hooks.ts`.
+- LLM model selection reranker panel now lives in `LLMRerankerModelPanel.tsx`.
+- LLM model selection advanced/max-concurrency panel now lives in `LLMScenarioAdvancedSettings.tsx`.
+- LLM model selection local embedding panel now lives in `LLMLocalEmbeddingModelPanel.tsx`.
+- LLM model selection remote embedding model/dimension selector now lives in `LLMRemoteEmbeddingModelSelector.tsx`.
+- LLM model selection chat scenario panel now lives in `LLMChatScenarioPanel.tsx`.
+- LLM model selection image generation scenario panel now lives in `LLMImageGenerationScenarioPanel.tsx`.
+- Dynamic tool config spec normalization now lives in `dynamic-config-specs.ts`.
+- Dynamic config field rendering now lives in `DynamicConfigField.tsx`.
+- Chat execution trace DTOs now live in `chat_trace_models.py`.
+- Chat execution trace pure helpers now live in `chat_trace_utils.py`.
+- Chat normalized trace builders now live in `chat_trace_normalized_builder.py`.
+- Chat legacy trace fallback builders now live in `chat_trace_legacy_builder.py`.
+- Chat runtime trace row-to-node helpers now live in `chat_trace_row_builder.py`.
+- Chat read-side DTOs now live in `chat/read_models.py`.
+- Chat read-side serialization helpers now live in `chat/read_serialization.py`.
+- Chat read-store schema helpers now live in `chat/read_schema.py`.
+- Chat write-store serialization helpers now live in `chat/store_serialization.py`.
+- Chat write-store schema helpers now live in `chat/store_schema.py`.
+- L0 working-memory checkpoint schema helpers now live in `working_memory_schema.py`.
+- L0 working-memory checkpoint serialization helpers now live in `working_memory_serialization.py`.
+- L0 memory session display helpers now live in `memory_session_display.py`.
+- Memory API clear response helpers now live in `memory_clear.py`.
+- Memory API statistics helpers now live in `memory_statistics.py`.
+- Memory API L0 session list helpers now live in `memory_l0_sessions.py`.
+- Memory API L1 event list helpers now live in `memory_l1_events.py`.
+- Memory API L2 status and pending helpers now live in `memory_l2_status.py`.
+- Memory API procedure response helpers now live in `memory_procedures.py`.
+- Memory eval answer synthesis helpers now live in `memory_eval_answering.py`.
+- Memory route utility helpers now live in `memory_route_helpers.py`.
+- Memory API Pydantic schemas now live in `memory_schemas.py`.
+- Config API Pydantic schemas now live in `config_schemas.py`.
+- Personality API Pydantic schemas now live in `personality_config_schemas.py`.
+- Chat planning request-profile and seed-subtask heuristics now live in `planning_heuristics.py`.
+- L4 procedural memory schema constants now live in `procedural_memory_schema.py`.
+- L4 procedural memory schema initialization now lives in `procedural_memory_schema.py`.
+- L4 procedural memory serialization, trace row, and skill identity helpers now live in `procedural_memory_serialization.py`.
+- L4 procedural memory tool advisory helpers now live in `procedural_memory_advisory.py`.
+- L4 procedural memory execution trace merge and recovery helpers now live in `procedural_memory_traces.py`.
+- L4 procedural memory search result helpers now live in `procedural_memory_search.py`.
+- L4 procedural memory record update-state helpers now live in `procedural_memory_updates.py`.
+- L4 procedural memory embedding helpers now live in `procedural_memory_embeddings.py`.
+- L3 summary store schema helpers now live in `summary_store_schema.py`.
+- L3 summary store serialization helpers now live in `summary_store_serialization.py`.
+- L3 summary evidence link helpers now live in `summary_store_links.py`.
+- L3 summary store search result helpers now live in `summary_store_search.py`.
+- L3 summary store embedding helpers now live in `summary_store_embeddings.py`.
+- Hybrid retrieval intent time parsing helpers now live in `intent_time.py`.
+- Hybrid retrieval default summary routing and graph assertion fallback behavior are covered by focused tests.
+- Worker prompt and tool-profile helpers now live in `worker_prompting.py`.
+- Worker status, await, and run-state serialization helpers now live in `worker_status.py`.
+- Worker tool schema definition now lives in `worker_schema.py`.
+- Worker public action validation and dispatch now lives in `worker_actions.py`.
+- Worker launch/start/batch lifecycle helpers now live in `worker_launch.py`.
+- Worker fact, bus-event, and trace-notification publication helpers now live in `worker_publication.py`.
+- L1 event/entity linkage helpers now live in `event_store_entities.py`.
+- L1 event-store schema migration helpers now live in `event_store_schema.py`.
+- L1 event-store row serialization and timeline projection helpers now live in `event_store_rows.py`.
+- L1 event-store FTS/BM25 helpers now live in `event_store_fts.py`.
+- L1 event-store embedding, chunk, and vector-search helpers now live in `event_store_embeddings.py`.
+- L1 event-store read/query helpers now live in `event_store_queries.py`.
+- L2 pipeline staging, projection claiming, and microbatch flush helpers now live in `pipeline_staging.py`.
+- L2 durable projection claim/batch construction helpers now live in `pipeline_projection.py`.
+- L2 pipeline context loading and history recall helpers now live in `pipeline_context.py`.
+- L2 pipeline extract/reconcile/snapshot worker loops now live in `pipeline_workers.py`.
+- L2 pipeline runtime defaults, stats, initialization, lifecycle, and entity lock helpers now live in `pipeline_lifecycle.py`.
+- L2 pipeline graph/facet/assertion persistence helpers now live in `pipeline_persistence.py`.
+- L2 pipeline normalization/slug/stat bucket helpers now live in `pipeline_utils.py`.
+- L2 validation structured entity/graph hint helpers now live in `pipeline_structured_hints.py`.
+- L2 validation graph candidate preparation and graph endpoint resolution now live in `pipeline_graph_validation.py`.
+- L2 validation assertion normalization, scope, and decay helpers now live in `pipeline_assertions.py`.
+- L2 entity maintenance assertion expiry/snapshot/reconcile helpers now live in `entity_maintenance_assertions.py`.
+- L2 entity maintenance edge embedding helpers now live in `entity_maintenance_embeddings.py`.
+- L2 entity maintenance edge expiry/archive/purge helpers now live in `entity_maintenance_edges.py`.
+- L2 entity maintenance catalog/ghost/fragment/orphan helpers now live in `entity_maintenance_catalog.py`.
+- L2 entity maintenance ghost graph/TOM reference repair helpers now live in `entity_maintenance_ghosts.py`.
+- L2 entity maintenance open predicate consolidation helpers now live in `entity_maintenance_predicates.py`.
+- L2 entity maintenance episode consolidation helpers now live in `entity_maintenance_episodes.py`.
+- L2 episode dataclass contracts now live in `episode_models.py` with old `models.py` exports preserved.
+- L2 phase/structured/reconciled outcome dataclass contracts now live in `phase_models.py` with old `models.py` exports preserved.
+- L2 Phase 1, Phase 2, and auxiliary dataclass contracts now live in focused phase model modules with old `phase_models.py` and `models.py` exports preserved.
+- L2 entity/reconcile dataclass contracts now live in `entity_models.py` with old `models.py` exports preserved.
+- L2 candidate/unified extraction dataclass contracts now live in `candidate_models.py` with old `models.py` exports preserved.
+- L2 batch/window/job/request dataclass contracts now live in `batch_models.py` with old `models.py` exports preserved.
+- L2 auxiliary workflow prompt renderers now live in `workflow_prompts.py` with old `prompts.py` exports preserved.
+- L2 LLM JSON-mode generation/retry helpers now live in `llm_json_client.py` with old `L2LLMService` method access preserved.
+- L2 entity catalog embedding rebuild/search helpers now live in `entity_catalog_embeddings.py`.
+- L2 entity catalog read/query helpers now live in `entity_catalog_queries.py`.
+- L2 projection queue ready-claim batching now lives in `projection_queue_claiming.py` with old constants patchable through `projection_queue.py`.
+- L2 pipeline single-mention entity ID resolution and catalog finalization now live in `pipeline_entity_id_resolution.py`.
+- L2 pipeline entity quality/type/focal helper methods now live in `pipeline_entity_helpers.py` with old `L2Pipeline` method access preserved.
+- L2 pipeline post-resolution L1 entity links and entity semantic edge side effects now live in `pipeline_entity_side_effects.py`.
 
 Candidates to review next:
 

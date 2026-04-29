@@ -143,6 +143,14 @@ class L2Handler:
                     target_entity_id=target_entity_id,
                     limit=conditions.limit,
                 )
+            elif user_id and not resolved_entities and not conditions.entities and semantic_frame is None:
+                results["assertions"] = await self._store.list_tom_assertions(
+                    trait_families=trait_families,
+                    validation_states=self._infer_assertion_states(status_filters),
+                    include_expired=False,
+                    target_entity_id=target_entity_id,
+                    limit=conditions.limit,
+                )
 
         if conditions.include_relationships:
             semantic_relationships = await self._execute_semantic_relationship_plan(

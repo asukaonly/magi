@@ -7,13 +7,10 @@ memory layers to query and under what conditions.
 from __future__ import annotations
 
 import asyncio
-import calendar
 import json
 import logging
-import re
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from .answerability import (
@@ -33,46 +30,21 @@ from .models import (
     SemanticConstraint,
     TimeRange,
 )
-from .mode_registry import MODE_REGISTRY, VALID_MODES
+from .mode_registry import MODE_REGISTRY
+from .intent_time import (
+    day_range,
+    end_of_day,
+    month_range,
+    parse_raw_time_range,
+    parse_time_from_query,
+    parse_time_range,
+    range_from_match,
+    start_of_day,
+    try_chinese_temporal,
+)
 
 
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Time keyword patterns
-# ---------------------------------------------------------------------------
-
-# Keywords that imply a recent window; dateparser cannot resolve these.
-_RECENTLY_KEYWORDS: list[str] = ["最近", "recently", "近期"]
-
-# Chinese temporal extraction — search_dates has poor support for these.
-_ZH_YEAR_MONTH_RE = re.compile(r"(?<!\d)(\d{4})\s*年\s*(\d{1,2})\s*月(?!\s*\d\s*[号日])")
-_ZH_RELATIVE_RE = re.compile(r"\d+\s*(?:天|小时|周|个?月)前")
-_ZH_DATE_RE = re.compile(r"(\d{1,2})\s*月\s*(\d{1,2})\s*[号日]")
-_ZH_LAST_WEEKDAY_RE = re.compile(r"上(?:周|星期)([一二三四五六日天])")
-_ZH_THIS_WEEK_RE = re.compile(r"(?:这|本)(?:周|星期)")
-_ZH_DAY_MAP: dict[str, int] = {
-    "一": 0, "二": 1, "三": 2, "四": 3, "五": 4, "六": 5, "日": 6, "天": 6,
-}
-
-# Heuristics for inferring range width from dateparser matched text.
-_HOUR_HINT_RE = re.compile(r"hour|小时", re.IGNORECASE)
-_WEEK_HINT_RE = re.compile(r"week|周|星期", re.IGNORECASE)
-_WEEKDAY_SPECIFIC_RE = re.compile(
-    r"周[一二三四五六日天]"
-    r"|星期[一二三四五六日天]"
-    r"|(?:mon|tues|wednes|thurs|fri|satur|sun)day",
-    re.IGNORECASE,
-)
-_MONTH_HINT_RE = re.compile(r"month|月", re.IGNORECASE)
-_DAY_NUMBER_SUFFIX_RE = re.compile(r"\d+\s*[号日]|\d+(?:st|nd|rd|th)\b", re.IGNORECASE)
-
-# Regex to strip a leading preposition that search_dates may have greedily
-# absorbed into the matched span (e.g. "in a week ago" instead of "a week ago").
-_LEADING_PREP_RE = re.compile(r"^(?:in|at|on|for|from)\s+", re.IGNORECASE)
-
-
-
 
 _VALID_SUBJECT_HINTS = {"self", "explicit", "none"}
 _VALID_PREDICATE_FAMILIES = {"preference", "relationship", "profile_fact", "activity", "unknown"}
@@ -81,6 +53,16 @@ _VALID_ANSWER_KINDS = {"creator", "place", "topic", "person", "software", "unkno
 _VALID_ANSWER_UNITS = {"identity", "presence", "place", "topic", "mixed"}
 _VALID_CONSTRAINT_SCOPES = {"target", "interaction"}
 _VALID_CONSTRAINT_FACETS = {"platform", "located_in", "category"}
+_SUMMARY_MODE_KEYWORDS = (
+    "总结",
+    "汇总",
+    "概括",
+    "回顾",
+    "summary",
+    "summarize",
+    "recap",
+    "digest",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -117,33 +99,11 @@ class RuleBasedIntentDecider:
         raw_time_range: Optional[Dict[str, Any]],
     ) -> Optional[TimeRange]:
         """Extract time range from query keywords and raw_time_range."""
-        # 1. Explicit raw_time_range takes precedence
-        if raw_time_range:
-            parsed = self._parse_raw_time_range(raw_time_range)
-            if parsed is not None:
-                return parsed
-
-        # 2. Parse from query text
-        return self._parse_time_from_query(query)
+        return parse_time_range(query, raw_time_range)
 
     def _parse_raw_time_range(self, raw: Dict[str, Any]) -> Optional[TimeRange]:
         """Parse raw_time_range dict passed by caller."""
-        if "start" in raw or "end" in raw:
-            start = float(raw["start"]) if "start" in raw else None
-            end = float(raw["end"]) if "end" in raw else None
-            return TimeRange(start=start, end=end)
-
-        if "relative" in raw:
-            rel = str(raw["relative"]).strip().lower()
-            now = time.time()
-            # Parse "1d", "7d", "30d", "24h", "1w"
-            m = re.match(r"(\d+)\s*([dhwm])", rel)
-            if m:
-                n, unit = int(m.group(1)), m.group(2)
-                seconds = {"d": 86400, "h": 3600, "w": 604800, "m": 2592000}[unit]
-                return TimeRange(start=now - n * seconds, end=now)
-
-        return None
+        return parse_raw_time_range(raw)
 
     def _parse_time_from_query(self, query: str) -> Optional[TimeRange]:
         """Parse time expressions from natural language query.
@@ -153,77 +113,14 @@ class RuleBasedIntentDecider:
         2. ``dateparser.search.search_dates()`` for English (and simple Chinese)
         3. Range-width heuristics via ``_range_from_match``
         """
-        query_lower = query.lower()
-        now = datetime.now(tz=timezone.utc)
-
-        # "recently" / "最近" → 7-day window (dateparser cannot resolve these)
-        if any(kw in query_lower for kw in _RECENTLY_KEYWORDS):
-            return TimeRange(
-                start=(now - timedelta(days=7)).timestamp(),
-                end=now.timestamp(),
-            )
-
-        # 1. Chinese-specific patterns (search_dates handles these poorly)
-        zh_result = self._try_chinese_temporal(query, now)
-        if zh_result is not None:
-            return zh_result
-
-        # 2. dateparser.search_dates — good for English expressions
-        try:
-            from dateparser.search import search_dates
-        except ImportError:
-            logger.debug("dateparser not available; skipping NL time parsing")
-            return None
-
-        settings: dict = {
-            "RELATIVE_BASE": now.replace(tzinfo=None),
-            "PREFER_DATES_FROM": "past",
-        }
-
-        try:
-            results = search_dates(
-                query, settings=settings, languages=["en", "zh"],
-            )
-        except Exception:
-            logger.debug("dateparser.search_dates failed for query=%r", query)
-            return None
-
-        if not results:
-            return None
-
-        # Keep only resolved dates that are in the past.
-        past: list[tuple[str, datetime]] = []
-        for matched_text, resolved_dt in results:
-            dt_utc = resolved_dt.replace(tzinfo=timezone.utc)
-            if dt_utc <= now:
-                past.append((matched_text, dt_utc))
-
-        if not past:
-            # Fallback: search_dates may mismatch spans (e.g. "in a week
-            # ago" parsed as "in a week" → future).  Re-parse each matched
-            # text after stripping a leading preposition.
-            past = _reparse_with_stripped_preposition(results, settings, now)
-
-        if not past:
-            return None
-
-        if len(past) == 1:
-            text, dt = past[0]
-            return self._range_from_match(text, dt, now)
-
-        # Multiple results: span from earliest to latest
-        all_ranges = [self._range_from_match(t, d, now) for t, d in past]
-        return TimeRange(
-            start=min(r.start for r in all_ranges if r.start is not None),
-            end=max(r.end for r in all_ranges if r.end is not None),
-        )
+        return parse_time_from_query(query)
 
     # -----------------------------------------------------------------------
     # Chinese temporal extraction
     # -----------------------------------------------------------------------
 
     def _try_chinese_temporal(
-        self, query: str, now: datetime,
+        self, query: str, now: Any,
     ) -> Optional[TimeRange]:
         """Extract and resolve Chinese temporal expressions.
 
@@ -232,103 +129,21 @@ class RuleBasedIntentDecider:
         lightweight regex, then resolves via ``dateparser.parse()`` where
         possible and manual calculation otherwise.
         """
-        # 0. Explicit year-month: "2022年9月".
-        m = _ZH_YEAR_MONTH_RE.search(query)
-        if m:
-            year, month = int(m.group(1)), int(m.group(2))
-            if 1 <= month <= 12:
-                return self._month_range(year=year, month=month, now=now)
-
-        # 1. Relative N-ago: "3天前", "2小时前", "N周前", "N个月前"
-        m = _ZH_RELATIVE_RE.search(query)
-        if m:
-            phrase = m.group(0)
-            try:
-                from dateparser import parse as dp_parse
-            except ImportError:
-                return None
-            settings: dict = {
-                "RELATIVE_BASE": now.replace(tzinfo=None),
-                "PREFER_DATES_FROM": "past",
-            }
-            dt = dp_parse(phrase, settings=settings, languages=["zh"])
-            if dt:
-                dt_utc = dt.replace(tzinfo=timezone.utc)
-                return self._range_from_match(phrase, dt_utc, now)
-
-        # 2. Specific weekday: "上周三", "上星期五"
-        m = _ZH_LAST_WEEKDAY_RE.search(query)
-        if m:
-            weekday = _ZH_DAY_MAP.get(m.group(1))
-            if weekday is not None:
-                last_monday = now - timedelta(days=now.weekday() + 7)
-                target = last_monday + timedelta(days=weekday)
-                return self._day_range(target)
-
-        # 3. Specific date: "3月10号", "12月25日"
-        m = _ZH_DATE_RE.search(query)
-        if m:
-            month, day = int(m.group(1)), int(m.group(2))
-            try:
-                target = datetime(now.year, month, day, tzinfo=timezone.utc)
-                return self._day_range(target)
-            except ValueError:
-                pass
-
-        # 4. This week: "这周", "本周", "这星期"
-        if _ZH_THIS_WEEK_RE.search(query):
-            monday = now - timedelta(days=now.weekday())
-            return TimeRange(
-                start=self._start_of_day(monday),
-                end=now.timestamp(),
-            )
-
-        return None
+        return try_chinese_temporal(query, now)
 
     # -----------------------------------------------------------------------
     # Range width heuristics
     # -----------------------------------------------------------------------
 
     def _range_from_match(
-        self, matched_text: str, resolved_dt: datetime, now: datetime,
+        self, matched_text: str, resolved_dt: Any, now: Any,
     ) -> TimeRange:
         """Infer an appropriate time range from a dateparser match.
 
         Uses simple heuristics on *matched_text* to decide whether the
         expression refers to an hour, day, week, or month window.
         """
-        text = matched_text.strip()
-
-        # Hour-level: "2 hours ago", "3小时前"
-        if _HOUR_HINT_RE.search(text):
-            return TimeRange(
-                start=resolved_dt.timestamp(),
-                end=now.timestamp(),
-            )
-
-        # Week-level (NOT a specific weekday): "last week", "2周前"
-        if _WEEK_HINT_RE.search(text) and not _WEEKDAY_SPECIFIC_RE.search(text):
-            monday = resolved_dt - timedelta(days=resolved_dt.weekday())
-            sunday = monday + timedelta(days=6)
-            return TimeRange(
-                start=self._start_of_day(monday),
-                end=min(self._end_of_day(sunday), now.timestamp()),
-            )
-
-        # Month-level (NOT a specific date): "last month", "2个月前"
-        if _MONTH_HINT_RE.search(text) and not _DAY_NUMBER_SUFFIX_RE.search(text):
-            first = resolved_dt.replace(day=1)
-            last_day_num = calendar.monthrange(
-                resolved_dt.year, resolved_dt.month,
-            )[1]
-            end_dt = resolved_dt.replace(day=last_day_num)
-            return TimeRange(
-                start=self._start_of_day(first),
-                end=min(self._end_of_day(end_dt), now.timestamp()),
-            )
-
-        # Default: single day range
-        return self._day_range(resolved_dt)
+        return range_from_match(matched_text, resolved_dt, now)
 
     # -----------------------------------------------------------------------
     # Layer routing
@@ -343,7 +158,7 @@ class RuleBasedIntentDecider:
         """
         mode = inp.query_mode_hint
         if not mode or mode not in MODE_REGISTRY:
-            mode = "exact_fact"
+            mode = _infer_default_query_mode(inp.query)
 
         plan_def = MODE_REGISTRY[mode]
 
@@ -433,66 +248,20 @@ class RuleBasedIntentDecider:
         return ", ".join(parts)
 
     @staticmethod
-    def _day_range(dt: datetime) -> TimeRange:
-        return TimeRange(
-            start=RuleBasedIntentDecider._start_of_day(dt),
-            end=RuleBasedIntentDecider._end_of_day(dt),
-        )
+    def _day_range(dt: Any) -> TimeRange:
+        return day_range(dt)
 
     @staticmethod
-    def _month_range(*, year: int, month: int, now: datetime) -> TimeRange:
-        month_start = datetime(year, month, 1, tzinfo=timezone.utc)
-        last_day_num = calendar.monthrange(year, month)[1]
-        month_end = datetime(year, month, last_day_num, tzinfo=timezone.utc)
-        return TimeRange(
-            start=RuleBasedIntentDecider._start_of_day(month_start),
-            end=min(RuleBasedIntentDecider._end_of_day(month_end), now.timestamp()),
-        )
+    def _month_range(*, year: int, month: int, now: Any) -> TimeRange:
+        return month_range(year=year, month=month, now=now)
 
     @staticmethod
-    def _start_of_day(dt: datetime) -> float:
-        return dt.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+    def _start_of_day(dt: Any) -> float:
+        return start_of_day(dt)
 
     @staticmethod
-    def _end_of_day(dt: datetime) -> float:
-        return dt.replace(hour=23, minute=59, second=59, microsecond=999999).timestamp()
-
-
-# ---------------------------------------------------------------------------
-# Temporal re-parse fallback
-# ---------------------------------------------------------------------------
-
-
-def _reparse_with_stripped_preposition(
-    results: list[tuple[str, Any]],
-    settings: dict,
-    now: datetime,
-) -> list[tuple[str, datetime]]:
-    """Re-parse matched texts after stripping a leading preposition.
-
-    ``dateparser.search.search_dates`` sometimes captures a preceding
-    preposition as part of the temporal span (e.g. *"in a week ago"*
-    instead of *"a week ago"*), causing a future-directed parse.  This
-    helper strips the preposition and retries ``dateparser.parse``.
-    """
-    import dateparser
-
-    past: list[tuple[str, datetime]] = []
-    for matched_text, _ in results:
-        stripped = _LEADING_PREP_RE.sub("", matched_text)
-        if stripped == matched_text:
-            continue
-        retry_dt = dateparser.parse(stripped, settings=settings)
-        if retry_dt is None:
-            continue
-        dt_utc = retry_dt.replace(tzinfo=timezone.utc)
-        if dt_utc <= now:
-            past.append((stripped, dt_utc))
-            logger.debug(
-                "Temporal reparse succeeded: %r → %r → %s",
-                matched_text, stripped, retry_dt,
-            )
-    return past
+    def _end_of_day(dt: Any) -> float:
+        return end_of_day(dt)
 
 
 # ---------------------------------------------------------------------------
@@ -531,6 +300,13 @@ def enrich_l2_conditions(
             subject_hint=conditions.subject_hint or "none",
             predicate_family=conditions.predicate_family or "unknown",
         )
+
+
+def _infer_default_query_mode(query: str) -> str:
+    lowered = query.lower()
+    if any(keyword in lowered for keyword in _SUMMARY_MODE_KEYWORDS):
+        return "summary"
+    return "exact_fact"
 
 
 def _infer_predicate_family(
