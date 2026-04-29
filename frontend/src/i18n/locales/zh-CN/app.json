@@ -135,7 +135,12 @@
       "targetTypes": {
         "sensor_sync": "传感器同步",
         "memory_l2_maintenance": "L2 记忆维护",
-        "memory_l3_summary": "L3 摘要生成"
+        "memory_l3_summary": "L3 摘要生成",
+        "user_agent_task": "Agent 任务"
+      },
+      "targetKinds": {
+        "prompt": "Prompt",
+        "agent_task": "Agent 任务"
       },
       "activityStatus": {
         "running": "执行中",
@@ -150,6 +155,9 @@
       },
       "fields": {
         "enabled": "启用",
+        "targetType": "调度类型",
+        "promptText": "Prompt 文本",
+        "targetPayload": "Target Payload",
         "triggerType": "触发类型",
         "intervalSeconds": "间隔秒数",
         "runAt": "执行时间",
@@ -178,6 +186,7 @@
         "stopSuccess": "已停止排队任务。",
         "stopFailed": "停止任务失败。",
         "invalidInterval": "请输入有效的间隔秒数。",
+        "invalidPrompt": "请输入有效的 Prompt 文本。",
         "invalidRunAt": "请输入有效的执行时间。",
         "invalidCron": "Cron 配置不是有效 JSON。"
       }

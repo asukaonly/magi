@@ -87,6 +87,32 @@ def test_rule_no_on_explicit_foreground_keyword() -> None:
     assert outcome is BackgroundRuleOutcome.NO
 
 
+def test_rule_no_for_schedule_tool_without_explicit_background_request() -> None:
+    dispatcher = BackgroundDispatcher()
+
+    outcome = dispatcher.classify_rule(
+        BackgroundDecisionContext(
+            user_text="生成一个定时任务，每隔10分钟给我发一句提醒语，提醒我及时喝水",
+            selected_tools=["schedule"],
+        )
+    )
+
+    assert outcome is BackgroundRuleOutcome.NO
+
+
+def test_rule_yes_when_schedule_tool_has_explicit_background_request() -> None:
+    dispatcher = BackgroundDispatcher()
+
+    outcome = dispatcher.classify_rule(
+        BackgroundDecisionContext(
+            user_text="后台执行，生成一个定时任务",
+            selected_tools=["schedule"],
+        )
+    )
+
+    assert outcome is BackgroundRuleOutcome.YES
+
+
 def test_rule_unknown_on_neutral_message() -> None:
     dispatcher = BackgroundDispatcher()
 

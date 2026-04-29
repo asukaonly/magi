@@ -2,6 +2,7 @@ import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
+import { MarkdownBlock } from '@/components/ui/markdown-block';
 import { OPEN_ASK_REQUEST_EVENT, OPEN_PERMISSION_REQUEST_EVENT } from '@/components/control/ui-events';
 import {
   isControlStatusMessage as isControlStatusTimelineMessage,
@@ -61,7 +62,7 @@ export const ControlStatusCard = ({ message, shouldReduceMotion }: ControlStatus
             </div>
             <div className="text-sm font-semibold text-foreground">{title}</div>
             {presentation.bodyText ? (
-              <p className="m-0 whitespace-pre-wrap text-sm text-muted-foreground">{presentation.bodyText}</p>
+              <MarkdownBlock>{presentation.bodyText}</MarkdownBlock>
             ) : null}
             <div className="flex justify-end">
               <Button

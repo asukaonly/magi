@@ -13,10 +13,12 @@ import {
   type ScheduleActivityDTO,
   type ScheduleDTO,
   type ScheduleTriggerType,
+  type UpdateScheduleRequest,
 } from '@/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { MarkdownBlock } from '@/components/ui/markdown-block';
 import {
   Sheet,
   SheetContent,
@@ -94,6 +96,11 @@ const toFiniteNumber = (value: unknown): number | null => {
 const getSchedulePayloadValue = (schedule: ScheduleDTO, key: string): unknown =>
   schedule.metadata?.[key] ?? schedule.target_payload?.[key];
 
+const getScheduleStringValue = (schedule: ScheduleDTO, key: string): string => {
+  const value = getSchedulePayloadValue(schedule, key);
+  return typeof value === 'string' ? value.trim() : '';
+};
+
 const getScheduleTitle = (schedule: ScheduleDTO): string => {
   const displayName = getSchedulePayloadValue(schedule, 'display_name')
     ?? getSchedulePayloadValue(schedule, 'title')
@@ -103,6 +110,37 @@ const getScheduleTitle = (schedule: ScheduleDTO): string => {
     ? displayName
     : schedule.schedule_id;
 };
+
+const getScheduleTargetKind = (schedule: ScheduleDTO): string => (
+  getScheduleStringValue(schedule, 'target_kind')
+  || getScheduleStringValue(schedule, 'kind')
+  || schedule.target_type
+);
+
+const getScheduleTargetKindLabelKey = (schedule: ScheduleDTO): string => {
+  const kind = getScheduleTargetKind(schedule);
+  if (schedule.target_type === 'user_agent_task' && kind === 'agent_task') {
+    return 'prompt';
+  }
+  return kind;
+};
+
+const getScheduleTargetKindFallback = (schedule: ScheduleDTO): string => (
+  getScheduleTargetKindLabelKey(schedule) === 'prompt'
+    ? 'Prompt'
+    : getScheduleTargetKind(schedule)
+);
+
+const getSchedulePrompt = (schedule: ScheduleDTO): string => (
+  getScheduleStringValue(schedule, 'prompt')
+  || getScheduleStringValue(schedule, 'message')
+  || getScheduleStringValue(schedule, 'goal')
+);
+
+const isPromptBackedSchedule = (schedule: ScheduleDTO): boolean => (
+  schedule.target_type === 'user_agent_task'
+  && getScheduleTargetKind(schedule) === 'agent_task'
+);
 
 const getActivityTitle = (
   activity: ScheduleActivityDTO,
@@ -386,7 +424,9 @@ const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
                   <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     {t('tasks.fields.summary')}
                   </dt>
-                  <dd className="mt-1 whitespace-pre-wrap text-foreground">{task.summary}</dd>
+                  <dd className="mt-1">
+                    <MarkdownBlock className="text-foreground">{task.summary}</MarkdownBlock>
+                  </dd>
                 </div>
               ) : null}
               {task.error ? (
@@ -497,7 +537,7 @@ const secondsToLocalInput = (seconds: number | null): string => {
 };
 
 const drawerFieldLabelClass = 'text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground';
-const drawerSectionClass = 'rounded-xl border border-border/60 bg-muted/20 p-4';
+const drawerSectionClass = 'rounded-lg border border-border/60 bg-background/70 p-5';
 
 const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({ schedule, onClose, onSaved }) => {
   const { t } = useTranslation('app');
@@ -506,6 +546,7 @@ const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({ schedule, onClo
   const [intervalSeconds, setIntervalSeconds] = useState('300');
   const [onceRunAt, setOnceRunAt] = useState('');
   const [cronConfig, setCronConfig] = useState('{}');
+  const [targetPrompt, setTargetPrompt] = useState('');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -515,6 +556,7 @@ const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({ schedule, onClo
     setIntervalSeconds(String(toFiniteNumber(schedule.trigger.config.seconds) ?? 300));
     setOnceRunAt(secondsToLocalInput(toFiniteNumber(schedule.trigger.config.run_at)));
     setCronConfig(JSON.stringify(schedule.trigger.config || {}, null, 2));
+    setTargetPrompt(getSchedulePrompt(schedule));
   }, [schedule]);
 
   const handleSave = async () => {
@@ -542,15 +584,27 @@ const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({ schedule, onClo
         return;
       }
     }
+    const updateBody: UpdateScheduleRequest = {
+      enabled,
+      trigger: {
+        trigger_type: triggerType,
+        config,
+      },
+    };
+    if (isPromptBackedSchedule(schedule)) {
+      const prompt = targetPrompt.trim();
+      if (!prompt) {
+        toast.error(t('tasks.scheduled.feedback.invalidPrompt'));
+        return;
+      }
+      updateBody.target_payload = {
+        ...(schedule.target_payload || {}),
+        prompt,
+      };
+    }
     setSaving(true);
     try {
-      await schedulesApi.update(schedule.schedule_id, {
-        enabled,
-        trigger: {
-          trigger_type: triggerType,
-          config,
-        },
-      });
+      await schedulesApi.update(schedule.schedule_id, updateBody);
       toast.success(t('tasks.scheduled.feedback.saveSuccess'));
       onSaved();
       onClose();
@@ -563,14 +617,14 @@ const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({ schedule, onClo
 
   return (
     <Sheet open={Boolean(schedule)} onOpenChange={(next) => { if (!next) onClose(); }}>
-      <SheetContent className="w-full overflow-hidden sm:max-w-xl">
-        <SheetHeader>
-          <SheetTitle>{schedule ? getScheduleTitle(schedule) : t('tasks.scheduled.edit.title')}</SheetTitle>
+      <SheetContent className="flex w-full max-w-none flex-col overflow-hidden sm:max-w-2xl lg:max-w-3xl">
+        <SheetHeader className="shrink-0 border-b border-border/60 px-8 pb-4 pt-6 pr-12">
+          <SheetTitle className="leading-snug">{schedule ? getScheduleTitle(schedule) : t('tasks.scheduled.edit.title')}</SheetTitle>
         </SheetHeader>
         {schedule ? (
-          <div className="flex h-full flex-col text-sm">
-            <div className="flex-1 space-y-5 overflow-y-auto px-6 pb-6">
-              <div className="grid gap-3 rounded-xl border border-border/60 bg-background/80 p-4 shadow-sm sm:grid-cols-2">
+          <div className="flex min-h-0 flex-1 flex-col text-sm">
+            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-8 py-6">
+              <div className="grid gap-3 rounded-lg border border-border/60 bg-background/80 p-5 shadow-sm sm:grid-cols-2">
                 <div className="min-w-0">
                   <div className={drawerFieldLabelClass}>Schedule ID</div>
                   <div className="mt-1 truncate font-mono text-xs text-foreground">{schedule.schedule_id}</div>
@@ -582,6 +636,37 @@ const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({ schedule, onClo
                   </div>
                 </div>
               </div>
+
+              <section className={drawerSectionClass}>
+                <div className="grid gap-4">
+                  <div>
+                    <div className={drawerFieldLabelClass}>{t('tasks.scheduled.fields.targetType')}</div>
+                    <div className="mt-2 inline-flex rounded-md border border-border/60 bg-muted/45 px-2.5 py-1 text-xs font-medium text-foreground">
+                      {t(`tasks.scheduled.targetKinds.${getScheduleTargetKindLabelKey(schedule)}`, {
+                        defaultValue: getScheduleTargetKindFallback(schedule),
+                      })}
+                    </div>
+                  </div>
+                  {isPromptBackedSchedule(schedule) ? (
+                    <label className="block space-y-2">
+                      <span className={drawerFieldLabelClass}>{t('tasks.scheduled.fields.promptText')}</span>
+                      <Textarea
+                        value={targetPrompt}
+                        onChange={(event) => setTargetPrompt(event.target.value)}
+                        rows={6}
+                        className="min-h-[150px] resize-y leading-6"
+                      />
+                    </label>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className={drawerFieldLabelClass}>{t('tasks.scheduled.fields.targetPayload')}</div>
+                      <pre className="max-h-56 overflow-auto rounded-md border border-border/60 bg-muted/40 p-3 font-mono text-xs leading-5 text-muted-foreground">
+                        {JSON.stringify(schedule.target_payload || {}, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              </section>
 
               <section className={drawerSectionClass}>
                 <label className="flex items-start justify-between gap-4">
@@ -661,14 +746,16 @@ const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({ schedule, onClo
               </section>
             </div>
 
-            <div className="flex items-center justify-end gap-2 border-t border-border/60 px-6 py-4">
-              <Button type="button" variant="ghost" size="sm" onClick={onClose}>
-                {t('tasks.scheduled.actions.cancelEdit')}
-              </Button>
-              <Button type="button" size="sm" onClick={() => void handleSave()} disabled={saving}>
-                {saving ? <LoadingSpinner className="mr-2 h-3.5 w-3.5" /> : null}
-                {t('tasks.scheduled.actions.save')}
-              </Button>
+            <div className="shrink-0 border-t border-border/60 px-8 py-5">
+              <div className="flex items-center justify-end gap-2">
+                <Button type="button" variant="ghost" size="sm" onClick={onClose}>
+                  {t('tasks.scheduled.actions.cancelEdit')}
+                </Button>
+                <Button type="button" size="sm" onClick={() => void handleSave()} disabled={saving}>
+                  {saving ? <LoadingSpinner className="mr-2 h-3.5 w-3.5" /> : null}
+                  {t('tasks.scheduled.actions.save')}
+                </Button>
+              </div>
             </div>
           </div>
         ) : null}
@@ -770,8 +857,20 @@ const ScheduledTasksTab: React.FC<ScheduledTasksTabProps> = ({
                 </tr>
               ) : schedules.map((schedule) => {
                 const sensorOwned = schedule.target_type === 'sensor_sync' || schedule.editable === false;
+                const selected = editingSchedule?.schedule_id === schedule.schedule_id;
                 return (
-                  <tr key={schedule.schedule_id} className="bg-background/60">
+                  <tr
+                    key={schedule.schedule_id}
+                    className={cn(
+                      'bg-background/60 transition-colors',
+                      selected && 'bg-primary/5',
+                      !selected && 'hover:bg-muted/35',
+                      !sensorOwned && 'cursor-pointer',
+                    )}
+                    onClick={() => {
+                      if (!sensorOwned) setEditingSchedule(schedule);
+                    }}
+                  >
                     <td className="px-4 py-3 align-middle">
                       <div className="truncate font-medium text-foreground">{getScheduleTitle(schedule)}</div>
                       <div className="mt-1 truncate font-mono text-[11px] text-muted-foreground">{schedule.schedule_id}</div>
@@ -790,13 +889,24 @@ const ScheduledTasksTab: React.FC<ScheduledTasksTabProps> = ({
                           size="sm"
                           disabled={sensorOwned}
                           title={sensorOwned ? t('tasks.scheduled.actions.sensorEditTitle') : undefined}
-                          onClick={() => setEditingSchedule(schedule)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setEditingSchedule(schedule);
+                          }}
                         >
                           <Pencil className="mr-2 h-3.5 w-3.5" />
                           {t('tasks.scheduled.actions.edit')}
                         </Button>
                         {sensorOwned ? (
-                          <Button type="button" variant="secondary" size="sm" onClick={() => onOpenSettings(schedule)}>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onOpenSettings(schedule);
+                            }}
+                          >
                             <Settings className="mr-2 h-3.5 w-3.5" />
                             {t('tasks.scheduled.actions.openSettings')}
                           </Button>

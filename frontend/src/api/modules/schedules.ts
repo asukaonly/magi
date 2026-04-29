@@ -4,6 +4,7 @@ export type ScheduleTargetType =
   | 'sensor_sync'
   | 'memory_l2_maintenance'
   | 'memory_l3_summary'
+  | 'user_agent_task'
   | string;
 
 export type ScheduleTriggerType = 'once' | 'interval' | 'cron';

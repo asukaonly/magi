@@ -426,6 +426,9 @@ Key components:
   hand a spec to the manager. ``build_background_run_fn`` tags every
   orchestrator invocation with ``execution_agent_id=f"background:{task_id}"``
   so runtime-trace rows can be filtered back to the owning task.
+  Requests routed to the builtin ``schedule`` tool stay in the foreground
+  unless the user explicitly asks for background execution, because the
+  schedule record itself owns future/asynchronous execution.
 - `BackgroundTaskExecutor` ([executor.py](../backend/src/magi/agent/background/executor.py))
   — wraps a single attempt: transitions, cancellation plumbing, and
   persisted ``BackgroundTaskEvent`` entries.

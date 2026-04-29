@@ -167,6 +167,12 @@ _LONG_RUNNING_TOOLS: frozenset[str] = frozenset(
     }
 )
 
+_FOREGROUND_CONTROL_TOOLS: frozenset[str] = frozenset(
+    {
+        "schedule",
+    }
+)
+
 
 class BackgroundDispatcher:
     """Rule + LLM dispatcher for foreground/background routing."""
@@ -210,6 +216,9 @@ class BackgroundDispatcher:
         has_long_tool = any(
             tool in _LONG_RUNNING_TOOLS for tool in context.selected_tools
         )
+        has_foreground_control_tool = any(
+            tool in _FOREGROUND_CONTROL_TOOLS for tool in context.selected_tools
+        )
 
         # Conflict → unknown; only the LLM can resolve mixed signals.
         if has_background_keyword and has_foreground_keyword:
@@ -217,6 +226,8 @@ class BackgroundDispatcher:
         if has_background_keyword:
             return BackgroundRuleOutcome.YES
         if has_foreground_keyword:
+            return BackgroundRuleOutcome.NO
+        if has_foreground_control_tool and not has_long_tool:
             return BackgroundRuleOutcome.NO
         if has_long_tool:
             return BackgroundRuleOutcome.YES

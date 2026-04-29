@@ -211,4 +211,42 @@ describe('TasksPage', () => {
       source: 'screen_time',
     });
   });
+
+  it('shows prompt target details for agent-created schedules', async () => {
+    const user = userEvent.setup();
+    schedulesListMock.mockResolvedValue({
+      schedules: [
+        makeSchedule({
+          schedule_id: 'agent-task:drink-water',
+          target_type: 'user_agent_task',
+          target_key: 'agent-task:drink-water',
+          target_payload: {
+            kind: 'agent_task',
+            title: 'Drink water reminder',
+            prompt: '提醒我及时喝水',
+          },
+          metadata: {
+            owner_kind: 'agent_created',
+            target_kind: 'agent_task',
+            display_name: 'Drink water reminder',
+          },
+          editable: true,
+          owner_kind: 'agent_created',
+          settings_link: null,
+        }),
+      ],
+    });
+    schedulesListActivityMock.mockResolvedValue({ activities: [] });
+
+    render(
+      <MemoryRouter initialEntries={['/tasks?tab=scheduled']}>
+        <TasksPage />
+      </MemoryRouter>,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'tasks.scheduled.actions.edit' }));
+
+    expect(await screen.findByText('Prompt')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('提醒我及时喝水')).toBeInTheDocument();
+  });
 });
