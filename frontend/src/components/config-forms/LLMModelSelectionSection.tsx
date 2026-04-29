@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, AlertTriangle, Info } from 'lucide-react';
+import { AlertCircle, Info } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { SelectField } from '@/components/config-forms/fields';
@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 
 import { useManagedEmbeddingModels, useManagedRerankerModels } from './llm-model-download-hooks';
+import { LLMChatScenarioPanel } from './LLMChatScenarioPanel';
 import { LLMLocalEmbeddingModelPanel } from './LLMLocalEmbeddingModelPanel';
 import { LLMRemoteEmbeddingModelSelector } from './LLMRemoteEmbeddingModelSelector';
 import { LLMRerankerModelPanel } from './LLMRerankerModelPanel';
@@ -295,77 +296,20 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
   const renderChatScenarioContent = (scenario: LLMScenario) => {
     const selection = value.selections[scenario];
     if (!selection) return null;
-    const provider = value.providers[selection.provider_id];
-    const models = provider
-      ? resolveProviderModels(registry, selection.provider_id, provider).chat_models.filter((model) => !model.hidden)
-      : [];
-    const modelOptions = models
-      .map((model) => ({
-        label: model.label || model.id,
-        value: model.id,
-      }))
-      .sort(compareOptionLabels);
-
     return (
-      <>
-        <div className={cn('grid gap-3', quickMode ? 'lg:grid-cols-2' : 'md:grid-cols-2')}>
-          <label className="space-y-2">
-            <span className="text-sm font-medium">{t('llm.fields.provider')}</span>
-            <SelectField
-              className="w-full"
-              triggerClassName={inputClassName}
-              value={selection.provider_id}
-              allowEmpty={false}
-              options={enabledProviders.map(([providerId, enabledProvider]) => ({
-                label: enabledProvider.display_name || providerId,
-                value: providerId,
-              }))}
-              onChange={(nextValue) => onScenarioProviderChange(scenario, nextValue)}
-            />
-          </label>
-
-          <label className="space-y-2">
-            <span className="text-sm font-medium">{t('llm.fields.model')}</span>
-            {models.length > 0 ? (
-              <SelectField
-                className="w-full"
-                triggerClassName={inputClassName}
-                value={selection.model}
-                allowEmpty={false}
-                searchable
-                searchThreshold={10}
-                searchPlaceholder={t('llm.modelSelection.searchPlaceholder')}
-                noResultsText={t('llm.modelSelection.noSearchResults')}
-                options={modelOptions}
-                onChange={(nextValue) => onScenarioModelChange(scenario, nextValue)}
-              />
-            ) : (
-              <input
-                aria-label={t('llm.fields.model')}
-                className={inputClassName}
-                value={selection.model}
-                placeholder={t('llm.modelManualPlaceholder')}
-                onChange={(event) => onScenarioModelChange(scenario, event.target.value)}
-              />
-            )}
-          </label>
-        </div>
-
-        {renderAdvancedSettings(scenario)}
-
-        {scenario === 'core' && !selection.capabilities.vision ? (
-          <div
-            role="alert"
-            className={cn(
-              'mt-3 flex items-start gap-2 rounded-lg border border-amber-300/45 bg-amber-50/80 px-3 py-2.5 text-xs text-amber-900 shadow-[0_1px_2px_rgba(120,53,15,0.06)] dark:border-amber-300/30 dark:bg-amber-500/10 dark:text-amber-100',
-              isSettingsSurface && 'rounded-md border border-amber-300/40 bg-amber-50/72 px-3 py-2.5 text-amber-900 shadow-none dark:border-amber-300/25 dark:bg-amber-500/10 dark:text-amber-100'
-            )}
-          >
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>{t('llm.warnings.coreVisionMissing')}</span>
-          </div>
-        ) : null}
-      </>
+      <LLMChatScenarioPanel
+        scenario={scenario}
+        selection={selection}
+        provider={value.providers[selection.provider_id]}
+        enabledProviders={enabledProviders}
+        registry={registry}
+        quickMode={quickMode}
+        inputClassName={inputClassName}
+        isSettingsSurface={isSettingsSurface}
+        advancedSettings={renderAdvancedSettings(scenario)}
+        onScenarioProviderChange={onScenarioProviderChange}
+        onScenarioModelChange={onScenarioModelChange}
+      />
     );
   };
 
