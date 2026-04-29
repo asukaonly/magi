@@ -14,6 +14,7 @@ interface TimelineViewportProps {
   episodeAnnotationPendingId?: string | null;
   onOpenContext: (anchorId: string) => void;
   onAnnotateEpisode?: (episodeId: string, payload: EpisodeAnnotationPayload) => Promise<void> | void;
+  onHideEpisode?: (episodeId: string) => Promise<void> | void;
 }
 
 const hasViewportContent = (viewport: TimelineViewportResponse): boolean =>
@@ -41,6 +42,7 @@ export const TimelineViewport: React.FC<TimelineViewportProps> = ({
   episodeAnnotationPendingId,
   onOpenContext,
   onAnnotateEpisode,
+  onHideEpisode,
 }) => {
   const { t } = useTranslation('app');
 
@@ -99,6 +101,7 @@ export const TimelineViewport: React.FC<TimelineViewportProps> = ({
               episodeAnnotationPendingId={episodeAnnotationPendingId}
               onOpenContext={onOpenContext}
               onAnnotateEpisode={onAnnotateEpisode}
+              onHideEpisode={onHideEpisode}
             />
           ) : (
             <div className="rounded-lg border border-dashed border-border/60 px-4 py-6 text-sm text-muted-foreground">

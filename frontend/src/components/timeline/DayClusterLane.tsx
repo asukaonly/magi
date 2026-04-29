@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pencil, Pin } from 'lucide-react';
+import { EyeOff, Pencil, Pin } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import type { TimelineClusterBlock } from '@/api/modules/timeline';
@@ -15,6 +15,7 @@ interface DayClusterLaneProps {
   episodeAnnotationPendingId?: string | null;
   onOpenContext: (anchorId: string) => void;
   onAnnotateEpisode?: (episodeId: string, payload: EpisodeAnnotationPayload) => Promise<void> | void;
+  onHideEpisode?: (episodeId: string) => Promise<void> | void;
 }
 
 type SegmentKey = 'night' | 'morning' | 'afternoon' | 'evening';
@@ -116,7 +117,8 @@ const ClusterRow: React.FC<{
   episodeAnnotationPendingId?: string | null;
   onOpenContext: (anchorId: string) => void;
   onAnnotateEpisode?: (episodeId: string, payload: EpisodeAnnotationPayload) => Promise<void> | void;
-}> = ({ cluster, episodeAnnotationPendingId, onOpenContext, onAnnotateEpisode }) => {
+  onHideEpisode?: (episodeId: string) => Promise<void> | void;
+}> = ({ cluster, episodeAnnotationPendingId, onOpenContext, onAnnotateEpisode, onHideEpisode }) => {
   const { t } = useTranslation('app');
   const [editing, setEditing] = React.useState(false);
   const [labelDraft, setLabelDraft] = React.useState('');
@@ -124,6 +126,7 @@ const ClusterRow: React.FC<{
   const anchorId = resolveClusterAnchorId(cluster);
   const pending = cluster.episode_id ? episodeAnnotationPendingId === cluster.episode_id : false;
   const canAnnotate = Boolean(cluster.episode_id && onAnnotateEpisode);
+  const canHide = Boolean(cluster.episode_id && onHideEpisode);
 
   const openEditor = (event: React.MouseEvent) => {
     event.stopPropagation();
@@ -146,6 +149,12 @@ const ClusterRow: React.FC<{
       user_note: noteDraft.trim(),
     });
     setEditing(false);
+  };
+
+  const handleHide = async (event: React.MouseEvent) => {
+    event.stopPropagation();
+    if (!cluster.episode_id || !onHideEpisode) return;
+    await onHideEpisode(cluster.episode_id);
   };
 
   return (
@@ -209,6 +218,18 @@ const ClusterRow: React.FC<{
               >
                 <Pencil className="h-3.5 w-3.5" />
               </button>
+              {canHide ? (
+                <button
+                  type="button"
+                  aria-label={t('timeline.episode.hide')}
+                  title={t('timeline.episode.hide')}
+                  disabled={pending}
+                  onClick={handleHide}
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/50 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+                >
+                  <EyeOff className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -282,6 +303,7 @@ export const DayClusterLane: React.FC<DayClusterLaneProps> = ({
   episodeAnnotationPendingId,
   onOpenContext,
   onAnnotateEpisode,
+  onHideEpisode,
 }) => {
   const { t } = useTranslation('app');
   const sortedClusters = [...clusters].sort((a, b) => a.time_start - b.time_start);
@@ -309,6 +331,7 @@ export const DayClusterLane: React.FC<DayClusterLaneProps> = ({
                   episodeAnnotationPendingId={episodeAnnotationPendingId}
                   onOpenContext={onOpenContext}
                   onAnnotateEpisode={onAnnotateEpisode}
+                  onHideEpisode={onHideEpisode}
                 />
               ))}
             </div>

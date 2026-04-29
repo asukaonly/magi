@@ -32,6 +32,7 @@ vi.mock('@/api/modules/memory', () => ({
     submitAssertionFeedback: vi.fn(),
     correctAssertion: vi.fn(),
     annotateEpisode: vi.fn(),
+    forgetEpisode: vi.fn(),
   },
 }));
 
@@ -420,6 +421,11 @@ describe('timeline page', () => {
       user_note: 'Keep this in review.',
       user_pinned: true,
     });
+    vi.mocked(memoryApi.forgetEpisode).mockResolvedValue({
+      episode_id: 'ep-week-1',
+      event_ids: [],
+      l1_events_deleted: 0,
+    });
   });
 
   it('loads the month viewport first and renders reflection windows', async () => {
@@ -527,6 +533,16 @@ describe('timeline page', () => {
       user_label: 'Pinned Planning',
       user_note: 'Keep this in review.',
     }));
+  });
+
+  it('hides episode-backed review periods without deleting source events', async () => {
+    const user = userEvent.setup();
+    render(<TimelinePage />);
+
+    await user.click(await screen.findByRole('button', { name: 'timeline.scale.week' }));
+    await user.click(await screen.findByRole('button', { name: 'timeline.episode.hide' }));
+
+    await waitFor(() => expect(memoryApi.forgetEpisode).toHaveBeenCalledWith('ep-week-1', false));
   });
 
   it('opens the context drawer when a cluster is selected', async () => {

@@ -142,6 +142,9 @@ assertions, and future snapshots stay aligned with the user's correction.
 Episode-backed review periods expose durable user label, note, and pin metadata
 from L2 episodes; transient clusters remain read-only until they are promoted to
 durable episodes.
+Hiding an episode-backed review period invalidates the L2 episode only; timeline
+must not delete member L1 source events unless a separate explicit forget action
+requests source deletion.
 
 Detailed execution plans, delivery sequencing, and temporary UI workups for the
 review surface belong in `docs/dev/` rather than this root architecture

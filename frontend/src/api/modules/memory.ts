@@ -195,6 +195,12 @@ export interface EpisodeAnnotationPayload {
   user_pinned?: boolean;
 }
 
+export interface ForgetEpisodeResponse {
+  episode_id: string;
+  event_ids: string[];
+  l1_events_deleted: number;
+}
+
 export interface L2GraphConflictRule {
   predicate: string;
   opposite_predicates: string[];
@@ -382,6 +388,11 @@ export const memoryApi = {
     unwrapMemoryResponse(await api.post<L2QueuedActionResponse>('/memory/l2/snapshot-refresh', { entity_ids: entityIds })),
   annotateEpisode: async (episodeId: string, payload: EpisodeAnnotationPayload): Promise<L2Episode> =>
     unwrapMemoryResponse(await api.patch<L2Episode>(`/memory/l2/episodes/${episodeId}`, payload)),
+  forgetEpisode: async (episodeId: string, deleteEvents = false): Promise<ForgetEpisodeResponse> =>
+    unwrapMemoryResponse(await api.post<ForgetEpisodeResponse>('/memory/forget/episode', {
+      episode_id: episodeId,
+      delete_events: deleteEvents,
+    })),
   upsertL2ConflictRule: async (payload: L2GraphConflictRulePayload): Promise<L2GraphConflictRule> =>
     unwrapMemoryResponse(await api.put<L2GraphConflictRule>(`/memory/l2/conflict-rules/${payload.predicate}`, {
       opposite_predicates: payload.opposite_predicates,

@@ -253,11 +253,13 @@
       "pin": "Pin period",
       "unpin": "Unpin period",
       "edit": "Edit period annotation",
+      "hide": "Hide period from review",
       "label": "Period label",
       "note": "Period note",
       "save": "Save annotation",
       "cancel": "Cancel",
       "pinned": "Pinned",
+      "hidden": "Period hidden from review.",
       "annotationSaved": "Period annotation saved."
     },
     "empty": {

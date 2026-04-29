@@ -142,6 +142,21 @@ export const TimelinePage: React.FC = () => {
     }
   };
 
+  const handleHideEpisode = async (episodeId: string) => {
+    setEpisodeAnnotationPendingId(episodeId);
+    try {
+      await memoryApi.forgetEpisode(episodeId, false);
+      setViewport((current) => removeEpisodeFromViewport(current, episodeId));
+      toast.success(t('timeline.episode.hidden'));
+      await loadViewport('refresh');
+    } catch (error: any) {
+      toast.error(t('timeline.errors.feedbackFailed', { message: error?.message || 'unknown' }));
+      throw error;
+    } finally {
+      setEpisodeAnnotationPendingId(null);
+    }
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
       {/* Header */}
@@ -187,6 +202,7 @@ export const TimelinePage: React.FC = () => {
               episodeAnnotationPendingId={episodeAnnotationPendingId}
               onOpenContext={(anchorId) => void handleOpenContext(anchorId)}
               onAnnotateEpisode={(episodeId, payload) => handleEpisodeAnnotation(episodeId, payload)}
+              onHideEpisode={(episodeId) => handleHideEpisode(episodeId)}
             />
           ) : null}
         </section>
@@ -226,6 +242,22 @@ const mergeEpisodeAnnotation = (
         user_pinned: Boolean(episode.user_pinned),
       };
     }),
+  };
+};
+
+const removeEpisodeFromViewport = (
+  viewport: TimelineViewportResponse | null,
+  episodeId: string
+): TimelineViewportResponse | null => {
+  if (!viewport) return viewport;
+  const clusters = viewport.clusters.filter((cluster) => cluster.episode_id !== episodeId);
+  return {
+    ...viewport,
+    clusters,
+    summary: {
+      ...viewport.summary,
+      cluster_count: clusters.length,
+    },
   };
 };
 
