@@ -8,9 +8,9 @@ from typing import Protocol
 
 import aiosqlite
 
-from ...core.sqlite import sqlite_connection_async
-from .entity_maintenance_catalog import _merge_evidence_json
-from .ontology import PREDICATE_REGISTRY
+from .....core.sqlite import sqlite_connection_async
+from .catalog import _merge_evidence_json
+from ...ontology import PREDICATE_REGISTRY
 
 
 class _PredicateMaintenanceStatsProtocol(Protocol):
@@ -30,11 +30,11 @@ class L2EntityPredicateMaintenanceMixin:
     ) -> None:
         """Rewrite non-core predicates to their core synonym when a mapping exists."""
         host = self._predicate_maintenance_host()
-        from . import entity_maintenance as maintenance_module
+        from . import get_predicate_synonym_group
 
         core_preds_by_group: dict[str, list[str]] = {}
         for pred in sorted(PREDICATE_REGISTRY):
-            group = maintenance_module.get_predicate_synonym_group(pred)
+            group = get_predicate_synonym_group(pred)
             if group:
                 core_preds_by_group.setdefault(group, []).append(pred)
 
@@ -55,7 +55,7 @@ class L2EntityPredicateMaintenanceMixin:
                 predicate = str(row["predicate"]).strip().upper()
                 if predicate in PREDICATE_REGISTRY:
                     continue
-                group = maintenance_module.get_predicate_synonym_group(predicate)
+                group = get_predicate_synonym_group(predicate)
                 if group is None or group not in core_preds_by_group:
                     continue
                 core_predicates = core_preds_by_group[group]

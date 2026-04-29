@@ -6,9 +6,9 @@ import time
 
 import aiosqlite
 
-from ...core.logger import get_logger
-from ...core.sqlite import sqlite_connection_async
-from .entity_maintenance_ghosts import (
+from .....core.logger import get_logger
+from .....core.sqlite import sqlite_connection_async
+from .ghosts import (
     MAX_EVIDENCE_EVENT_IDS,
     L2EntityGhostMaintenanceMixin,
     _CatalogMaintenanceHostProtocol,
@@ -17,9 +17,9 @@ from .entity_maintenance_ghosts import (
     _merge_evidence_json,
     _slugify_entity_id_suffix,
 )
-from .pipeline import L2Pipeline
+from ...pipeline import L2Pipeline
 
-logger = get_logger("magi.memory.l2.entity_maintenance")
+logger = get_logger("magi.memory.l2.entities.maintenance")
 
 
 class L2EntityCatalogMaintenanceMixin(L2EntityGhostMaintenanceMixin):

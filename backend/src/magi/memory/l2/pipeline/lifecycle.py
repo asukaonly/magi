@@ -11,7 +11,7 @@ from ....core.logger import get_logger
 from ...event_contracts import MemoryEvent
 from ...hybrid_retrieval.entity_semantic_builder import EntityScopedSemanticBuilder
 from ...l1.event_store import L1EventStore
-from ..entity_catalog import L2EntityCatalog
+from ..entities.catalog import L2EntityCatalog
 from ..llm_service import L2LLMService
 from ..models import (
     L2BatchJob,

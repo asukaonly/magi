@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol
 
-from ...core.logger import get_logger
+from .....core.logger import get_logger
 
 if TYPE_CHECKING:
-    from .store import L2CognitionStore
+    from ...store import L2CognitionStore
 
-logger = get_logger("magi.memory.l2.entity_maintenance")
+logger = get_logger("magi.memory.l2.entities.maintenance")
 
 
 class _EpisodeMaintenanceStatsProtocol(Protocol):
@@ -35,7 +35,7 @@ class L2EntityEpisodeMaintenanceMixin:
         if cognition_store is None:
             return
         try:
-            from .episode_formation import consolidate_episodes
+            from ...episode_formation import consolidate_episodes
 
             result = await consolidate_episodes(cognition_store)
             stats.episodes_promoted = result.promoted

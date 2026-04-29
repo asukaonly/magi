@@ -17,9 +17,9 @@ from ..models import (
 )
 
 if TYPE_CHECKING:
-    from .store import L2CognitionStore
-    from .llm_service import L2LLMService
-    from ..l1.event_store import L1EventStore
+    from ..store import L2CognitionStore
+    from ..llm_service import L2LLMService
+    from ...l1.event_store import L1EventStore
 
 logger = get_logger(__name__)
 

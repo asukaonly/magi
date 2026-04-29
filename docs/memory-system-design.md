@@ -228,7 +228,10 @@ Implementation boundary: `L2CognitionStore` remains the public storage facade
 and transaction coordinator in `memory/l2/store.py`, while its mixins are grouped
 by L2 domain rather than by generic helper status: `storage/`, `graph/`,
 `assertions/`, `entities/`, `episodes/`, `projection/`, `extraction/`,
-`retrieval/`, and `governance/`.
+`retrieval/`, and `governance/`. Entity-domain code lives under
+`memory/l2/entities/`: `catalog/` owns canonical entities and aliases,
+`maintenance/` owns offline cleanup, `models.py` owns entity contracts, and
+`facets.py` owns sidecar entity attributes.
 
 For user-authored chat, durable self-descriptive profile facts such as naming and
 addressing preferences should land in L2 semantic memory, not in bootstrap-only

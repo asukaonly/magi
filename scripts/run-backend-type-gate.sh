@@ -59,16 +59,16 @@ export PYTHONPATH="$ROOT_DIR/backend/src:$ROOT_DIR/sdk/src${PYTHONPATH:+:$PYTHON
   src/magi/memory/l2/graph_conflicts.py \
   src/magi/memory/l2/llm_json_client.py \
   src/magi/memory/l2/maintenance_schedule.py \
-  src/magi/memory/l2/entity_maintenance_assertions.py \
-  src/magi/memory/l2/entity_maintenance_catalog.py \
-  src/magi/memory/l2/entity_maintenance_edges.py \
-  src/magi/memory/l2/entity_maintenance_embeddings.py \
-  src/magi/memory/l2/entity_maintenance_episodes.py \
-  src/magi/memory/l2/entity_maintenance_ghosts.py \
-  src/magi/memory/l2/entity_maintenance_predicates.py \
-  src/magi/memory/l2/entity_catalog_embeddings.py \
-  src/magi/memory/l2/entity_catalog_queries.py \
-  src/magi/memory/l2/entity_models.py \
+  src/magi/memory/l2/entities/maintenance/assertions.py \
+  src/magi/memory/l2/entities/maintenance/catalog.py \
+  src/magi/memory/l2/entities/maintenance/edges.py \
+  src/magi/memory/l2/entities/maintenance/embeddings.py \
+  src/magi/memory/l2/entities/maintenance/episodes.py \
+  src/magi/memory/l2/entities/maintenance/ghosts.py \
+  src/magi/memory/l2/entities/maintenance/predicates.py \
+  src/magi/memory/l2/entities/catalog/embeddings.py \
+  src/magi/memory/l2/entities/catalog/queries.py \
+  src/magi/memory/l2/entities/models.py \
   src/magi/memory/l2/episode_models.py \
   src/magi/memory/l2/phase1_models.py \
   src/magi/memory/l2/phase2_models.py \

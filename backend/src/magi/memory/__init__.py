@@ -18,7 +18,7 @@ from .event_contracts import MemoryEvent, normalize_runtime_event
 from .l0.working_memory import L0WorkingMemoryStore
 from .l1.event_store import L1EventStore
 from .l2.store import L2CognitionStore
-from .l2.entity_catalog import L2EntityCatalog
+from .l2.entities.catalog import L2EntityCatalog
 from .l2.llm_service import L2LLMService
 from .l2.models import ManualL2EventRequest
 from .l2.pipeline import L2Pipeline

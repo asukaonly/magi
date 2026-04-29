@@ -7,21 +7,21 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from .store import L2CognitionStore
+    from ...store import L2CognitionStore
 
-from ...core.logger import get_logger
-from ..embedding.embedding_pipeline import MemoryEmbeddingPipeline as MemoryEmbeddingPipeline
-from ..embedding.sqlite_vec_index import SqliteVecIndex
-from .entity_maintenance_assertions import L2EntityAssertionMaintenanceMixin
-from .entity_maintenance_catalog import (
+from .....core.logger import get_logger
+from ....embedding.embedding_pipeline import MemoryEmbeddingPipeline as MemoryEmbeddingPipeline
+from ....embedding.sqlite_vec_index import SqliteVecIndex
+from .assertions import L2EntityAssertionMaintenanceMixin
+from .catalog import (
     L2EntityCatalogMaintenanceMixin,
     _canonical_entity_id,
 )
-from .entity_maintenance_edges import L2EntityEdgeMaintenanceMixin
-from .entity_maintenance_embeddings import L2EntityEmbeddingMaintenanceMixin
-from .entity_maintenance_episodes import L2EntityEpisodeMaintenanceMixin
-from .entity_maintenance_predicates import L2EntityPredicateMaintenanceMixin
-from .ontology import get_predicate_synonym_group as get_predicate_synonym_group
+from .edges import L2EntityEdgeMaintenanceMixin
+from .embeddings import L2EntityEmbeddingMaintenanceMixin
+from .episodes import L2EntityEpisodeMaintenanceMixin
+from .predicates import L2EntityPredicateMaintenanceMixin
+from ...ontology import get_predicate_synonym_group as get_predicate_synonym_group
 
 logger = get_logger(__name__)
 

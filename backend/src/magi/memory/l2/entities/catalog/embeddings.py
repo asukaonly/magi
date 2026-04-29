@@ -7,15 +7,15 @@ from typing import Any, Callable, Optional, Protocol, cast
 
 import aiosqlite
 
-from ...config.models import EmbeddingBackend
-from ...core.sqlite import sqlite_connection_async
-from ..embedding.chunking import ChunkedText
-from ..embedding.embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
-from ..embedding.embedding_service import EmbeddingProfile, MemoryEmbeddingService
-from ..embedding.embedding_text_builders import build_l2_entity_embedding_text
-from ..embedding.sqlite_vec_index import SqliteVecIndex
+from .....config.models import EmbeddingBackend
+from .....core.sqlite import sqlite_connection_async
+from ....embedding.chunking import ChunkedText
+from ....embedding.embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
+from ....embedding.embedding_service import EmbeddingProfile, MemoryEmbeddingService
+from ....embedding.embedding_text_builders import build_l2_entity_embedding_text
+from ....embedding.sqlite_vec_index import SqliteVecIndex
 
-logger = logging.getLogger("magi.memory.l2.entity_catalog")
+logger = logging.getLogger("magi.memory.l2.entities.catalog")
 
 EMBEDDING_TEXT_BUILDER_VERSION = "l2_entity_v1"
 EMBEDDING_STATUS_READY = "ready"

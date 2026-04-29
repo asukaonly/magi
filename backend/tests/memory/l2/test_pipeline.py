@@ -66,7 +66,7 @@ class _FakeScenarioPool:
 
 
 async def _build_pipeline(*, temp_dir: str, batch_flush_interval_seconds: int = 60):
-    from magi.memory.l2.entity_catalog import L2EntityCatalog
+    from magi.memory.l2.entities.catalog import L2EntityCatalog
     from magi.memory.l2.llm_service import L2LLMService
     from magi.memory.l2.pipeline import L2Pipeline
     from magi.memory.l2.store import L2CognitionStore
@@ -4382,7 +4382,7 @@ class TestCatalogFindByCanonicalName:
 
     @pytest.mark.asyncio
     async def test_find_existing_entity_by_name(self):
-        from magi.memory.l2.entity_catalog import L2EntityCatalog
+        from magi.memory.l2.entities.catalog import L2EntityCatalog
 
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = str(Path(temp_dir) / "test.db")
@@ -4400,7 +4400,7 @@ class TestCatalogFindByCanonicalName:
 
     @pytest.mark.asyncio
     async def test_case_insensitive_match(self):
-        from magi.memory.l2.entity_catalog import L2EntityCatalog
+        from magi.memory.l2.entities.catalog import L2EntityCatalog
 
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = str(Path(temp_dir) / "test.db")
@@ -4416,7 +4416,7 @@ class TestCatalogFindByCanonicalName:
 
     @pytest.mark.asyncio
     async def test_filter_by_type(self):
-        from magi.memory.l2.entity_catalog import L2EntityCatalog
+        from magi.memory.l2.entities.catalog import L2EntityCatalog
 
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = str(Path(temp_dir) / "test.db")
@@ -4441,7 +4441,7 @@ class TestCatalogFindByCanonicalName:
 
     @pytest.mark.asyncio
     async def test_returns_empty_for_nonexistent(self):
-        from magi.memory.l2.entity_catalog import L2EntityCatalog
+        from magi.memory.l2.entities.catalog import L2EntityCatalog
 
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = str(Path(temp_dir) / "test.db")

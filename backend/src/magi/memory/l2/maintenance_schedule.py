@@ -13,7 +13,7 @@ from ...scheduler.contracts import (
     ScheduledTargetType,
 )
 from ...scheduler.service import SchedulerService
-from .entity_maintenance import (
+from .entities.maintenance import (
     L2EntityMaintenance,
     SCHEDULE_ID_L2_MAINTENANCE,
     TARGET_KEY_L2_MAINTENANCE,

@@ -6,13 +6,13 @@ from typing import Any, Protocol
 
 import aiosqlite
 
-from ...core.logger import get_logger
-from ...core.sqlite import sqlite_connection_async
-from ..embedding.chunking import ChunkedText
-from ..embedding.embedding_pipeline import EmbeddingPipelineItem
-from ..embedding.embedding_text_builders import build_l2_edge_embedding_text
+from .....core.logger import get_logger
+from .....core.sqlite import sqlite_connection_async
+from ....embedding.chunking import ChunkedText
+from ....embedding.embedding_pipeline import EmbeddingPipelineItem
+from ....embedding.embedding_text_builders import build_l2_edge_embedding_text
 
-logger = get_logger("magi.memory.l2.entity_maintenance")
+logger = get_logger("magi.memory.l2.entities.maintenance")
 
 
 class _EmbeddingMaintenanceStatsProtocol(Protocol):
@@ -76,9 +76,9 @@ class L2EntityEmbeddingMaintenanceMixin:
         if host._embedding_service is None or host._edge_vector_index is None:
             return
 
-        from . import entity_maintenance as maintenance_module
+        from . import MemoryEmbeddingPipeline
 
-        pipeline = maintenance_module.MemoryEmbeddingPipeline(
+        pipeline = MemoryEmbeddingPipeline(
             embedding_service=host._embedding_service,
             vector_index=host._edge_vector_index,
         )

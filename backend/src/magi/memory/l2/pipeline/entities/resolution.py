@@ -16,7 +16,7 @@ from ...models import (
 from .id_resolution import L2EntityIdResolutionMixin
 
 if TYPE_CHECKING:
-    from ...entity_catalog import L2EntityCatalog
+    from ...entities.catalog import L2EntityCatalog
     from ...llm_service import L2LLMService
 
 logger = get_logger(__name__)

@@ -10,17 +10,17 @@ from typing import Any, Callable, Optional
 
 import aiosqlite
 
-from ...core.sqlite import sqlite_connection_async
-from ..embedding.embedding_service import MemoryEmbeddingService
-from ..embedding.sqlite_vec_index import SqliteVecIndex
-from .entity_catalog_embeddings import (
+from .....core.sqlite import sqlite_connection_async
+from ....embedding.embedding_service import MemoryEmbeddingService
+from ....embedding.sqlite_vec_index import SqliteVecIndex
+from .embeddings import (
     EMBEDDING_STATUS_DISABLED,
     EMBEDDING_STATUS_READY,
     EMBEDDING_TEXT_BUILDER_VERSION,
     L2EntityCatalogEmbeddingMixin,
 )
-from .entity_catalog_queries import L2EntityCatalogQueryMixin
-from .ontology import coerce_unknown_entity_type
+from .queries import L2EntityCatalogQueryMixin
+from ...ontology import coerce_unknown_entity_type
 
 logger = logging.getLogger(__name__)
 

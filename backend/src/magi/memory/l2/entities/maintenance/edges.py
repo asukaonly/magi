@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from typing import Protocol
 
-from ...core.sqlite import sqlite_connection_async
+from .....core.sqlite import sqlite_connection_async
 
 
 class _EdgeMaintenanceStatsProtocol(Protocol):

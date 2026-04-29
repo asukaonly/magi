@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 
 from magi.core.sqlite import sqlite_connection_async
-from magi.memory.l2.entity_catalog import L2EntityCatalog
-from magi.memory.l2.entity_maintenance import L2EntityMaintenance, _canonical_entity_id
+from magi.memory.l2.entities.catalog import L2EntityCatalog
+from magi.memory.l2.entities.maintenance import L2EntityMaintenance, _canonical_entity_id
 from magi.memory.l2.store import L2CognitionStore
 
 
@@ -341,7 +341,7 @@ async def test_embed_pending_edges_calls_pipeline_and_updates_status() -> None:
             edge_vector_index=mock_vector_index,
         )
 
-        import magi.memory.l2.entity_maintenance as em_module
+        import magi.memory.l2.entities.maintenance as em_module
         original_pipeline = em_module.MemoryEmbeddingPipeline
         em_module.MemoryEmbeddingPipeline = lambda **kwargs: mock_pipeline_cls
 
@@ -723,7 +723,7 @@ async def test_consolidate_open_predicates_merges_evidence_on_duplicate():
                 return "affinity"
             return original_fn(predicate)
 
-        with patch("magi.memory.l2.entity_maintenance.get_predicate_synonym_group", side_effect=patched_synonym_group):
+        with patch("magi.memory.l2.entities.maintenance.get_predicate_synonym_group", side_effect=patched_synonym_group):
             maint = L2EntityMaintenance(db_path=db_path)
             stats = await maint.run(
                 resolve_ghosts=False,

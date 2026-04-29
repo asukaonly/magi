@@ -15,7 +15,7 @@ from ...event_contracts import (
 from ...l1.event_store import L1EventStore
 from ..context_bundle import ContextBundle, ResolvedContextRef
 from ..context_collector import collect_context_bundle
-from ..entity_catalog import L2EntityCatalog
+from ..entities.catalog import L2EntityCatalog
 from ..models import L2BatchJob, L2FocalEntityRef, L2HistoryContext
 from ..store import L2CognitionStore
 

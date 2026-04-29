@@ -7,9 +7,9 @@ from typing import Any, Optional, Protocol, cast
 
 import aiosqlite
 
-from ...core.sqlite import sqlite_connection_async
-from .entity_catalog_embeddings import EMBEDDING_STATUS_DISABLED
-from .ontology import coerce_unknown_entity_type
+from .....core.sqlite import sqlite_connection_async
+from .embeddings import EMBEDDING_STATUS_DISABLED
+from ...ontology import coerce_unknown_entity_type
 
 
 def _normalize_alias(text: str) -> str:

@@ -10,10 +10,10 @@ from typing import Any, Protocol
 
 import aiosqlite
 
-from ...core.logger import get_logger
-from ...core.sqlite import sqlite_connection_async
+from .....core.logger import get_logger
+from .....core.sqlite import sqlite_connection_async
 
-logger = get_logger("magi.memory.l2.entity_maintenance")
+logger = get_logger("magi.memory.l2.entities.maintenance")
 
 # Maximum number of evidence event IDs retained per edge/facet merge.
 # When exceeded, the oldest entries are dropped.

@@ -7,10 +7,10 @@ from typing import Any, Protocol
 
 import aiosqlite
 
-from ...core.logger import get_logger
-from ...core.sqlite import sqlite_connection_async
+from .....core.logger import get_logger
+from .....core.sqlite import sqlite_connection_async
 
-logger = get_logger("magi.memory.l2.entity_maintenance")
+logger = get_logger("magi.memory.l2.entities.maintenance")
 
 
 class _AssertionMaintenanceStatsProtocol(Protocol):
@@ -99,7 +99,7 @@ class L2EntityAssertionMaintenanceMixin:
         host = self._assertion_maintenance_host()
         store = host._cognition_store
         if store is None:
-            from .store import L2CognitionStore
+            from ...store import L2CognitionStore
 
             store = L2CognitionStore(db_path=host._db_path)
             await store.initialize()

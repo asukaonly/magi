@@ -10,7 +10,7 @@ from ...models import L2EntityCandidate, L2EntityResolutionMention
 from .helpers import L2EntityResolutionHelperMixin
 
 if TYPE_CHECKING:
-    from ...entity_catalog import L2EntityCatalog
+    from ...entities.catalog import L2EntityCatalog
     from ...llm_service import L2LLMService
 
 logger = get_logger(__name__)
