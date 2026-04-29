@@ -26,21 +26,6 @@ def require_agent_runtime():
     return _require_binding("agent_runtime")
 
 
-def require_memory_integration():
-    """Return the active memory integration binding."""
-    return _require_binding("memory_integration")
-
-
-def require_unified_memory():
-    """Return the active unified memory binding."""
-    return _require_binding("unified_memory")
-
-
-def require_hybrid_retrieval_service():
-    """Return the active hybrid retrieval service binding."""
-    return _require_binding("hybrid_retrieval_service")
-
-
 def require_plugin_manager():
     """Return the active plugin manager binding."""
     return _require_binding("plugin_manager")

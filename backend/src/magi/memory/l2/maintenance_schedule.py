@@ -6,13 +6,13 @@ from dataclasses import asdict
 
 from ...config import get_config
 from ...core.logger import get_logger
-from ...core.runtime_bindings import require_unified_memory
 from ...scheduler.contracts import (
     ScheduledExecutionContext,
     ScheduledExecutionResult,
     ScheduledTargetType,
 )
 from ...scheduler.service import SchedulerService
+from ..provider import get_unified_memory
 from .entities.maintenance import (
     L2EntityMaintenance,
     SCHEDULE_ID_L2_MAINTENANCE,
@@ -32,7 +32,7 @@ async def handle_l2_entity_maintenance(
         return ScheduledExecutionResult(success=True, message="l2_disabled_skip", stats={})
 
     try:
-        unified = require_unified_memory()
+        unified = get_unified_memory()
     except RuntimeError:
         logger.debug("L2 maintenance skipped: unified memory binding unavailable")
         return ScheduledExecutionResult(success=True, message="unified_memory_unavailable_skip", stats={})

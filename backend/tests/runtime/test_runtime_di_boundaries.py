@@ -82,8 +82,12 @@ def test_api_and_tools_use_runtime_bindings_instead_of_runtime_getters() -> None
     assert "from ..routers.memory import get_unified_memory" not in timeline_router
     assert "from ...scheduler import (\n    ScheduledTargetType,\n    get_scheduler_service," not in timeline_router
     assert "from ..agent import get_unified_memory" not in memory_query_tool
-    assert "core.runtime_bindings" in memory_router
-    assert "core.runtime_bindings" in timeline_router
+    assert "memory.provider" in memory_router
+    assert "memory.provider" in timeline_router
+    assert "memory.provider" in memory_query_tool
+    assert "require_unified_memory" not in memory_router
+    assert "require_unified_memory" not in timeline_router
+    assert "require_hybrid_retrieval_service" not in memory_query_tool
     assert "core.runtime_bindings" in memory_query_tool
 
 
@@ -213,6 +217,9 @@ def test_runtime_bindings_only_expose_boundary_consumed_services() -> None:
     assert "require_skill_runner" not in runtime_bindings
     assert "require_chat_store" not in runtime_bindings
     assert "require_chat_projector" not in runtime_bindings
+    assert "require_memory_integration" not in runtime_bindings
+    assert "require_unified_memory" not in runtime_bindings
+    assert "require_hybrid_retrieval_service" not in runtime_bindings
     assert "require_scheduler_service" not in runtime_bindings
     assert "require_sensor_scheduler_contrib" not in runtime_bindings
     assert "require_permission_gateway" not in runtime_bindings

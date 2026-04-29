@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from ...config import get_config
 from ...core.logger import get_logger
-from ...core.runtime_bindings import require_unified_memory
 from ...scheduler.contracts import (
     ScheduledExecutionContext,
     ScheduledExecutionResult,
     ScheduledTargetType,
 )
 from ...scheduler.service import SchedulerService
+from ..provider import get_unified_memory
 
 logger = get_logger(__name__)
 
@@ -42,7 +42,7 @@ async def handle_l3_summary(
         return ScheduledExecutionResult(success=True, message="l3_disabled_skip", stats={})
 
     try:
-        unified = require_unified_memory()
+        unified = get_unified_memory()
     except RuntimeError:
         logger.debug("L3 summary skipped: unified memory binding unavailable")
         return ScheduledExecutionResult(success=True, message="unified_memory_unavailable_skip", stats={})

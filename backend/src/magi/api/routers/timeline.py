@@ -5,7 +5,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, status
 
-from ...core.runtime_bindings import require_unified_memory
+from ...memory.provider import get_unified_memory
 from ...timeline.service import TimelineService
 
 timeline_router = APIRouter()
@@ -13,7 +13,7 @@ timeline_router = APIRouter()
 
 def get_timeline_service() -> TimelineService:
     try:
-        unified_memory = require_unified_memory()
+        unified_memory = get_unified_memory()
     except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

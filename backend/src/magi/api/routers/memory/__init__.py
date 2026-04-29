@@ -11,17 +11,13 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from magi.chat import get_chat_read_service
 from magi.core.logger import get_logger
-from magi.core.runtime_bindings import (
-    require_hybrid_retrieval_service,
-    require_memory_integration,
-    require_unified_memory,
-)
 from magi.llm.provider import get_scenario_llm_pool
 from magi.memory.eval_support.contracts import EvalMemoryQuery, EvalMemoryWriteRecord
 from magi.memory.eval_support.reader import EvalMemoryReader
 from magi.memory.eval_support.writer import EvalMemoryWriter
 from magi.memory.hybrid_retrieval import build_query
 from magi.memory.l2.models import ManualL2EventRequest
+from magi.memory.provider import get_hybrid_retrieval_service, get_memory_integration, get_unified_memory
 from .eval.answering import (
     EVAL_ANSWER_TIMEOUT as _EVAL_ANSWER_TIMEOUT,
     format_l2_context as _format_l2_context,
@@ -82,21 +78,21 @@ memory_router = APIRouter()
 
 def _resolve_unified_memory():
     try:
-        return require_unified_memory()
+        return get_unified_memory()
     except RuntimeError:
         return None
 
 
 def _resolve_memory_integration():
     try:
-        return require_memory_integration()
+        return get_memory_integration()
     except RuntimeError:
         return None
 
 
 def _resolve_hybrid_retrieval_service():
     try:
-        return require_hybrid_retrieval_service()
+        return get_hybrid_retrieval_service()
     except RuntimeError:
         return None
 
