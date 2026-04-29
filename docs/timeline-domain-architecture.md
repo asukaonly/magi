@@ -88,6 +88,12 @@ Assembled by `TimelineViewportBuilder`. Contains:
 - `reflections` — L3 temporal summaries (month scale)
 - `raw_events` — individual events (hour scale)
 
+Viewport requests accept a `locale` parameter. Timeline-owned display strings
+such as overview titles, fallback summaries, source labels, state labels, and
+rule-generated takeaways must honor that locale. Generated memory artifacts
+loaded from L3, such as historical reflection content, remain in the language in
+which they were originally generated and require regeneration to change language.
+
 ### Cluster Block
 
 Produced by `TimelineClusterBuilder`:

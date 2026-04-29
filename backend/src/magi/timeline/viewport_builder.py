@@ -12,6 +12,33 @@ from .query_interpreter import TimelineQueryInterpretation, TimelineQueryInterpr
 from .state_band_builder import TimelineStateBandBuilder, derive_state_from_tone
 
 
+_SOURCE_LABELS_ZH = {
+    "chrome_history": "Chrome 历史",
+    "manual_journal": "手动记录",
+    "chat": "对话",
+    "photo_library": "照片库",
+    "screen_time": "应用使用情况",
+    "system_media": "听歌/视频记录",
+    "terminal_history": "终端历史",
+    "git_activity": "Git 活动",
+    "calendar": "日历",
+    "netease_music": "网易云音乐",
+}
+
+_MOOD_LABELS_ZH = {
+    "positive": "积极",
+    "warm": "温和",
+    "steady": "平稳",
+    "neutral": "中性",
+    "cool": "冷静",
+    "low": "低落",
+    "tense": "紧张",
+    "anxious": "焦虑",
+    "negative": "消极",
+    "focused": "专注",
+}
+
+
 class TimelineViewportBuilder:
     """Assemble scale-aware viewport payloads from memory layers."""
 
@@ -39,7 +66,9 @@ class TimelineViewportBuilder:
         query: str | None = None,
         timezone: str | None = None,
         focus: str = "self",
+        locale: str = "en",
     ) -> dict[str, Any]:
+        locale = self._normalize_locale(locale)
         interpreted_query = self._query_interpreter.interpret(query=query, start=start, end=end)
         events = await self._load_events(start=interpreted_query.start, end=interpreted_query.end)
         summaries = await self._load_summaries()
@@ -59,6 +88,7 @@ class TimelineViewportBuilder:
             summaries=summaries,
             assertions=assertions,
             snapshots=snapshots,
+            locale=locale,
         )
         state_transitions = self._build_state_transitions(assertions)
         reflections = self._build_reflections(
@@ -74,7 +104,7 @@ class TimelineViewportBuilder:
         if clusters:
             self._enrich_cluster_states(clusters, summaries, start=interpreted_query.start, end=interpreted_query.end)
         raw_events = [self._to_raw_event(event) for event in events] if scale == "hour" else []
-        source_mix = self._build_source_mix(events=events, clusters=clusters)
+        source_mix = self._build_source_mix(events=events, clusters=clusters, locale=locale)
         theme_cards = self._build_theme_cards(reflections=reflections, clusters=clusters)
         overview = self._build_overview(
             scale=scale,
@@ -84,11 +114,13 @@ class TimelineViewportBuilder:
             raw_events=raw_events,
             state_markers=state_markers,
             source_mix=source_mix,
+            locale=locale,
         )
         state_summary = self._build_state_summary(
             state_bands=state_bands,
             state_markers=state_markers,
             state_transitions=state_transitions,
+            locale=locale,
         )
 
         return {
@@ -99,6 +131,7 @@ class TimelineViewportBuilder:
                 "focus": focus,
                 "query": query,
                 "timezone": timezone,
+                "locale": locale,
             },
             "summary": {
                 "cluster_count": len(clusters),
@@ -215,13 +248,24 @@ class TimelineViewportBuilder:
         raw_events: list[dict[str, Any]],
         state_markers: list[dict[str, Any]],
         source_mix: list[dict[str, Any]],
+        locale: str,
     ) -> dict[str, Any]:
-        title_by_scale = {
-            "month": "Window overview",
-            "week": "Week overview",
-            "day": "Day overview",
-            "hour": "Evidence overview",
-        }
+        zh = self._is_zh_locale(locale)
+        title_by_scale = (
+            {
+                "month": "窗口概览",
+                "week": "本周概览",
+                "day": "当日概览",
+                "hour": "证据概览",
+            }
+            if zh
+            else {
+                "month": "Window overview",
+                "week": "Week overview",
+                "day": "Day overview",
+                "hour": "Evidence overview",
+            }
+        )
         top_reflection = reflections[0] if reflections else None
         top_cluster = max(clusters, key=lambda item: int(item.get("event_count") or 0), default=None)
         top_event = raw_events[0] if raw_events else None
@@ -229,16 +273,21 @@ class TimelineViewportBuilder:
             (top_reflection or {}).get("summary")
             or (top_cluster or {}).get("summary")
             or (top_event or {}).get("summary")
-            or "Magi has activity in this window, but there is not enough summarized context yet."
+            or (
+                "这个时间窗口里已有活动记录，但还没有足够的摘要上下文。"
+                if zh
+                else "Magi has activity in this window, but there is not enough summarized context yet."
+            )
         )
         takeaways: list[str] = []
         if source_mix:
             primary_source = source_mix[0]
-            takeaways.append(f"Main source: {primary_source.get('label') or self._humanize_label(primary_source.get('source_type'))}")
+            source_label = primary_source.get("label") or self._source_label(primary_source.get("source_type"), locale)
+            takeaways.append(f"主要来源：{source_label}" if zh else f"Main source: {source_label}")
         if state_markers:
-            takeaways.append(str(state_markers[0].get("summary") or state_markers[0].get("label") or "State changed"))
+            takeaways.append(str(state_markers[0].get("summary") or state_markers[0].get("label") or ("状态发生变化" if zh else "State changed")))
         if events:
-            takeaways.append(f"{len(events)} events captured")
+            takeaways.append(f"捕获 {len(events)} 条事件" if zh else f"{len(events)} events captured")
         confidence = 0.35
         if top_reflection is not None:
             confidence += 0.25
@@ -247,7 +296,7 @@ class TimelineViewportBuilder:
         if state_markers:
             confidence += 0.1
         return {
-            "title": title_by_scale.get(scale, "Window overview"),
+            "title": title_by_scale.get(scale, "窗口概览" if zh else "Window overview"),
             "summary": summary,
             "key_takeaways": takeaways[:3],
             "confidence": min(0.95, confidence),
@@ -259,18 +308,19 @@ class TimelineViewportBuilder:
         state_bands: list[dict[str, Any]],
         state_markers: list[dict[str, Any]],
         state_transitions: list[dict[str, Any]],
+        locale: str,
     ) -> dict[str, Any]:
         mood_value = self._average_state_value(state_bands, "valence")
         stress_value = self._average_state_value(state_bands, "stress_level")
         engagement_value = self._average_state_value(state_bands, "engagement")
-        mood_label = self._dominant_state_label(state_bands)
+        mood_label = self._dominant_state_label(state_bands, locale=locale)
         notable_changes: list[dict[str, Any]] = []
         for marker in state_markers[:3]:
             timestamp = float(marker.get("timestamp") or 0.0)
             notable_changes.append(
                 {
-                    "label": str(marker.get("label") or "State shift"),
-                    "summary": str(marker.get("summary") or "State changed."),
+                    "label": self._localized_marker_label(marker.get("label"), locale),
+                    "summary": str(marker.get("summary") or ("状态发生变化。" if self._is_zh_locale(locale) else "State changed.")),
                     "timestamp": timestamp,
                     "anchor": {
                         "anchor_type": "state_marker",
@@ -283,14 +333,18 @@ class TimelineViewportBuilder:
         for transition in state_transitions:
             if len(notable_changes) >= 3:
                 break
-            trait = self._humanize_label(transition.get("trait_name"))
+            trait = self._humanize_label(transition.get("trait_name"), locale=locale)
             old_value = str(transition.get("old_value") or "unknown")
             new_value = str(transition.get("new_value") or "unknown")
             timestamp = float(transition.get("changed_at") or 0.0)
             notable_changes.append(
                 {
-                    "label": f"{trait} changed",
-                    "summary": f"{trait} changed from {old_value} to {new_value}.",
+                    "label": f"{trait}变化" if self._is_zh_locale(locale) else f"{trait} changed",
+                    "summary": (
+                        f"{trait}从 {old_value} 变化为 {new_value}。"
+                        if self._is_zh_locale(locale)
+                        else f"{trait} changed from {old_value} to {new_value}."
+                    ),
                     "timestamp": timestamp,
                     "anchor": {
                         "anchor_type": "state_transition",
@@ -302,8 +356,8 @@ class TimelineViewportBuilder:
             )
         return {
             "mood_label": mood_label,
-            "stress_label": self._stress_label(stress_value),
-            "engagement_label": self._engagement_label(engagement_value),
+            "stress_label": self._stress_label(stress_value, locale=locale),
+            "engagement_label": self._engagement_label(engagement_value, locale=locale),
             "mood_value": mood_value,
             "stress_value": stress_value,
             "engagement_value": engagement_value,
@@ -317,38 +371,64 @@ class TimelineViewportBuilder:
             return None
         return sum(values) / len(values)
 
-    def _dominant_state_label(self, state_bands: list[dict[str, Any]]) -> str:
+    def _dominant_state_label(self, state_bands: list[dict[str, Any]], *, locale: str = "en") -> str:
         labels = [str(band.get("label") or "").strip() for band in state_bands if str(band.get("label") or "").strip()]
         if not labels:
             return "Unknown"
-        return self._humanize_label(Counter(labels).most_common(1)[0][0])
+        return self._humanize_label(Counter(labels).most_common(1)[0][0], locale=locale)
 
     @staticmethod
-    def _stress_label(value: float | None) -> str:
+    def _stress_label(value: float | None, *, locale: str = "en") -> str:
+        zh = TimelineViewportBuilder._is_zh_locale(locale)
         if value is None:
-            return "Unknown"
+            return "未知" if zh else "Unknown"
         if value >= 0.67:
-            return "High stress"
+            return "高压力" if zh else "High stress"
         if value >= 0.4:
-            return "Moderate stress"
-        return "Low stress"
+            return "中等压力" if zh else "Moderate stress"
+        return "低压力" if zh else "Low stress"
 
     @staticmethod
-    def _engagement_label(value: float | None) -> str:
+    def _engagement_label(value: float | None, *, locale: str = "en") -> str:
+        zh = TimelineViewportBuilder._is_zh_locale(locale)
         if value is None:
-            return "Unknown"
+            return "未知" if zh else "Unknown"
         if value >= 0.67:
-            return "High engagement"
+            return "高参与度" if zh else "High engagement"
         if value >= 0.4:
-            return "Steady engagement"
-        return "Low engagement"
+            return "稳定参与" if zh else "Steady engagement"
+        return "低参与度" if zh else "Low engagement"
 
     @staticmethod
-    def _humanize_label(value: Any) -> str:
+    def _humanize_label(value: Any, *, locale: str = "en") -> str:
         text = str(value or "").replace("_", " ").replace("-", " ").strip()
         if not text:
-            return "Unknown"
+            return "未知" if TimelineViewportBuilder._is_zh_locale(locale) else "Unknown"
+        if TimelineViewportBuilder._is_zh_locale(locale):
+            return _MOOD_LABELS_ZH.get(text.lower(), text)
         return text.title()
+
+    @staticmethod
+    def _localized_marker_label(value: Any, locale: str) -> str:
+        text = str(value or "").strip()
+        if TimelineViewportBuilder._is_zh_locale(locale) and text.lower() in {"state shift", "state changed"}:
+            return "状态变化"
+        return text or ("状态变化" if TimelineViewportBuilder._is_zh_locale(locale) else "State shift")
+
+    @staticmethod
+    def _normalize_locale(locale: str | None) -> str:
+        return "zh-CN" if str(locale or "").lower().startswith("zh") else "en"
+
+    @staticmethod
+    def _is_zh_locale(locale: str | None) -> bool:
+        return str(locale or "").lower().startswith("zh")
+
+    @staticmethod
+    def _source_label(source_type: Any, locale: str) -> str:
+        source = str(source_type or "memory")
+        if TimelineViewportBuilder._is_zh_locale(locale):
+            return _SOURCE_LABELS_ZH.get(source, source.replace("_", " "))
+        return source.replace("_", " ").title()
 
     def _build_theme_cards(
         self,
@@ -447,6 +527,7 @@ class TimelineViewportBuilder:
         *,
         events: list[dict[str, Any]],
         clusters: list[dict[str, Any]],
+        locale: str = "en",
     ) -> list[dict[str, Any]]:
         event_counts: Counter[str] = Counter(self._event_source_type(event) for event in events)
         duration_seconds: defaultdict[str, float] = defaultdict(float)
@@ -462,7 +543,7 @@ class TimelineViewportBuilder:
         return [
             {
                 "source_type": source_type,
-                "label": source_type.replace("_", " ").title(),
+                "label": self._source_label(source_type, locale),
                 "event_count": int(event_counts.get(source_type, 0)),
                 "duration_seconds": float(duration_seconds.get(source_type, 0.0)),
             }

@@ -64,7 +64,9 @@ class TimelineStateBandBuilder:
         summaries: list[dict[str, Any]],
         assertions: list[dict[str, Any]],
         snapshots: list[dict[str, Any]],
+        locale: str = "en",
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        zh = locale.lower().startswith("zh")
         relevant_summaries = [
             summary
             for summary in summaries
@@ -116,8 +118,10 @@ class TimelineStateBandBuilder:
                         "marker_id": f"state-marker:{summary_id}",
                         "timestamp": period_start,
                         "kind": "shift",
-                        "label": "State shift",
-                        "summary": changes[0] if changes else f"Stress changed to {stress_level:.2f}.",
+                        "label": "状态变化" if zh else "State shift",
+                        "summary": changes[0] if changes else (
+                            f"压力变化为 {stress_level:.2f}。" if zh else f"Stress changed to {stress_level:.2f}."
+                        ),
                         "source_band_ids": [str(previous_band["band_id"]), band["band_id"]],
                         "source_summary_ids": [summary_id],
                     }

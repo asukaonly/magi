@@ -29,6 +29,7 @@ async def get_timeline_viewport(
     end: float = Query(...),
     query: Optional[str] = Query(default=None),
     timezone: Optional[str] = Query(default=None),
+    locale: str = Query(default="en"),
     focus: str = Query(default="self", pattern="^self$"),
 ):
     service = get_timeline_service()
@@ -38,6 +39,7 @@ async def get_timeline_viewport(
         end=end,
         query=query,
         timezone=timezone,
+        locale=locale,
         focus=focus,
     )
 

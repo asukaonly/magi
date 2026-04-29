@@ -51,6 +51,7 @@ class TimelineService:
         query: str | None = None,
         timezone: str | None = None,
         focus: str = "self",
+        locale: str = "en",
     ) -> dict:
         return await self._viewport_builder.build_viewport(
             scale=scale,
@@ -59,6 +60,7 @@ class TimelineService:
             query=query,
             timezone=timezone,
             focus=focus,
+            locale=locale,
         )
 
     async def get_context_bundle(self, anchor_id: str) -> Optional[dict]:

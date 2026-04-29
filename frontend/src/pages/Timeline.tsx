@@ -33,7 +33,7 @@ const formatWindowLabel = (start: number, end: number): string => {
 };
 
 export const TimelinePage: React.FC = () => {
-  const { t } = useTranslation('app');
+  const { t, i18n } = useTranslation('app');
   const setActivePanel = useChatShellStore((state) => state.setActivePanel);
   const [scale, setScale] = useState<TimelineScale>('month');
   const [viewportStart, setViewportStart] = useState<number>(() => Math.floor(Date.now() / 1000) - windowSecondsByScale.month);
@@ -63,6 +63,7 @@ export const TimelinePage: React.FC = () => {
         start: viewportStart,
         end: viewportEnd,
         query: query || undefined,
+        locale: i18n.language,
         focus: 'self',
       });
       setViewport(response);

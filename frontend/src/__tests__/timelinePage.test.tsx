@@ -80,6 +80,7 @@ const MONTH_VIEWPORT = {
     focus: 'self',
     query: null,
     timezone: null,
+    locale: 'en',
   },
   summary: {
     cluster_count: 0,
@@ -160,6 +161,7 @@ const DAY_VIEWPORT = {
     focus: 'self',
     query: null,
     timezone: null,
+    locale: 'en',
   },
   summary: {
     cluster_count: 1,
@@ -442,6 +444,7 @@ describe('timeline page', () => {
     expect(timelineApi.getViewport).toHaveBeenCalledWith(
       expect.objectContaining({
         scale: 'month',
+        locale: 'en',
       })
     );
   });

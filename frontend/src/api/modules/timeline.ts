@@ -126,6 +126,7 @@ export interface TimelineViewportResponse {
     focus: 'self';
     query?: string | null;
     timezone?: string | null;
+    locale?: string | null;
   };
   summary: {
     cluster_count: number;
@@ -168,6 +169,7 @@ export const timelineApi = {
     end: number;
     query?: string;
     timezone?: string;
+    locale?: string;
     focus?: 'self';
   }): Promise<TimelineViewportResponse> => {
     const response = await api.get<TimelineViewportResponse>('/timeline/viewport', {
@@ -177,6 +179,7 @@ export const timelineApi = {
         end: options.end,
         query: options.query || undefined,
         timezone: options.timezone || undefined,
+        locale: options.locale || undefined,
         focus: options.focus ?? 'self',
       },
     });

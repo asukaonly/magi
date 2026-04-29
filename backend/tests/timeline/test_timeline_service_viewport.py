@@ -137,6 +137,34 @@ async def test_timeline_service_returns_month_viewport() -> None:
     assert len(viewport["clusters"]) >= 1
 
 
+async def test_timeline_service_localizes_viewport_chrome() -> None:
+    l1_store = _FakeL1Store()
+    service = TimelineService(
+        SimpleNamespace(
+            l1=l1_store,
+            l2=_FakeL2Store(),
+            l3=_FakeL3Store(),
+            l4=_FakeL4Store(),
+        )
+    )
+
+    viewport = await service.get_viewport(
+        scale="month",
+        start=940_000.0,
+        end=960_000.0,
+        focus="self",
+        locale="zh-CN",
+    )
+
+    assert viewport["viewport"]["locale"] == "zh-CN"
+    assert viewport["overview"]["title"] == "窗口概览"
+    assert viewport["overview"]["key_takeaways"][0] == "主要来源：Chrome 历史"
+    assert viewport["overview"]["key_takeaways"][-1] == "捕获 1 条事件"
+    assert viewport["state_summary"]["mood_label"] == "低落"
+    assert viewport["state_summary"]["stress_label"] == "中等压力"
+    assert viewport["source_mix"][0]["label"] == "Chrome 历史"
+
+
 async def test_timeline_service_interprets_natural_language_query() -> None:
     l1_store = _FakeL1Store()
     service = TimelineService(
