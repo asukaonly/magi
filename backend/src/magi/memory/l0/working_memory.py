@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import time
 import uuid
 from pathlib import Path
@@ -19,6 +18,17 @@ from .working_memory_schema import (
     ensure_execution_pending_turn_columns,
     ensure_execution_run_columns,
     ensure_l0_checkpoint_schema,
+)
+from .working_memory_serialization import (
+    active_entity_key,
+    encode_json,
+    row_to_active_entity,
+    row_to_execution_result,
+    row_to_execution_run,
+    row_to_goal,
+    row_to_pending_turn,
+    row_to_session,
+    row_to_tactic,
 )
 
 
@@ -645,7 +655,7 @@ class L0WorkingMemoryStore:
                     float(session["started_at"]),
                     float(session["last_active_at"]),
                     now,
-                    json.dumps(session.get("metadata", {}), ensure_ascii=False),
+                    encode_json(session.get("metadata", {})),
                 ),
             )
 
@@ -671,7 +681,7 @@ class L0WorkingMemoryStore:
                         goal.get("started_at"),
                         goal.get("completed_at"),
                         goal.get("result_summary"),
-                        json.dumps(goal.get("metadata", {}), ensure_ascii=False),
+                        encode_json(goal.get("metadata", {})),
                     ),
                 )
 
@@ -689,7 +699,7 @@ class L0WorkingMemoryStore:
                         entity["entity_id"],
                         entity["entity_type"],
                         float(entity["relevance_score"]),
-                        json.dumps(entity["snapshot"], ensure_ascii=False),
+                        encode_json(entity["snapshot"]),
                         float(entity["loaded_at"]),
                         float(entity["last_accessed_at"]),
                         int(entity["access_count"]),
@@ -711,8 +721,8 @@ class L0WorkingMemoryStore:
                         tactic["scope_type"],
                         tactic["scope_id"],
                         tactic["tactic_type"],
-                        json.dumps(tactic["tactic_payload"], ensure_ascii=False),
-                        json.dumps(tactic["source_event_ids"], ensure_ascii=False),
+                        encode_json(tactic["tactic_payload"]),
+                        encode_json(tactic["source_event_ids"]),
                         tactic.get("expires_at"),
                         float(tactic["created_at"]),
                     ),
@@ -779,7 +789,7 @@ class L0WorkingMemoryStore:
                         result["run_id"],
                         int(result["revision"]),
                         result["disposition"],
-                        json.dumps(result["payload"], ensure_ascii=False),
+                        encode_json(result["payload"]),
                         float(result["created_at"]),
                     ),
                 )
@@ -863,139 +873,49 @@ class L0WorkingMemoryStore:
 
             async with db.execute("SELECT * FROM l0_sessions") as cursor:
                 async for row in cursor:
-                    self._sessions[str(row["session_id"])] = {
-                        "session_id": str(row["session_id"]),
-                        "user_id": row["user_id"],
-                        "runtime_agent_id": row["runtime_agent_id"],
-                        "status": str(row["status"]),
-                        "started_at": float(row["started_at"]),
-                        "last_active_at": float(row["last_active_at"]),
-                        "last_checkpoint_at": float(row["last_checkpoint_at"]) if row["last_checkpoint_at"] else None,
-                        "metadata": json.loads(row["metadata"] or "{}"),
-                    }
+                    session = row_to_session(row)
+                    self._sessions[str(session["session_id"])] = session
 
             async with db.execute("SELECT * FROM l0_goal_stack ORDER BY created_at ASC") as cursor:
                 async for row in cursor:
                     session_id = str(row["session_id"])
-                    self._goal_stack.setdefault(session_id, []).append(
-                        {
-                            "goal_id": str(row["goal_id"]),
-                            "parent_goal_id": row["parent_goal_id"],
-                            "goal_type": str(row["goal_type"]),
-                            "description": str(row["description"]),
-                            "status": str(row["status"]),
-                            "priority": int(row["priority"]),
-                            "created_at": float(row["created_at"]),
-                            "started_at": float(row["started_at"]) if row["started_at"] else None,
-                            "completed_at": float(row["completed_at"]) if row["completed_at"] else None,
-                            "result_summary": row["result_summary"],
-                            "metadata": json.loads(row["metadata"] or "{}"),
-                        }
-                    )
+                    self._goal_stack.setdefault(session_id, []).append(row_to_goal(row))
 
             async with db.execute("SELECT * FROM l0_active_entities") as cursor:
                 async for row in cursor:
                     session_id = str(row["session_id"])
                     self._active_entities.setdefault(session_id, {})[
-                        (str(row["entity_id"]), str(row["entity_type"]))
-                    ] = {
-                        "entity_id": str(row["entity_id"]),
-                        "entity_type": str(row["entity_type"]),
-                        "relevance_score": float(row["relevance_score"]),
-                        "snapshot": json.loads(row["snapshot_json"] or "{}"),
-                        "loaded_at": float(row["loaded_at"]),
-                        "last_accessed_at": float(row["last_accessed_at"]),
-                        "access_count": int(row["access_count"]),
-                    }
+                        active_entity_key(row)
+                    ] = row_to_active_entity(row)
 
             async with db.execute("SELECT * FROM l0_temporary_tactics") as cursor:
                 async for row in cursor:
                     session_id = str(row["session_id"])
-                    self._temporary_tactics.setdefault(session_id, {})[str(row["tactic_id"])] = {
-                        "tactic_id": str(row["tactic_id"]),
-                        "scope_type": str(row["scope_type"]),
-                        "scope_id": str(row["scope_id"]),
-                        "tactic_type": str(row["tactic_type"]),
-                        "tactic_payload": json.loads(row["tactic_payload"] or "{}"),
-                        "source_event_ids": json.loads(row["source_event_ids"] or "[]"),
-                        "expires_at": float(row["expires_at"]) if row["expires_at"] else None,
-                        "created_at": float(row["created_at"]),
-                    }
+                    tactic = row_to_tactic(row)
+                    self._temporary_tactics.setdefault(session_id, {})[
+                        str(tactic["tactic_id"])
+                    ] = tactic
 
             async with db.execute("SELECT * FROM l0_execution_runs") as cursor:
                 async for row in cursor:
-                    session_id = str(row["session_id"])
-                    self._execution_runs[session_id] = {
-                        "session_id": session_id,
-                        "run_id": str(row["run_id"]),
-                        "status": str(row["status"]),
-                        "revision": int(row["revision"]),
-                        "root_turn_id": str(row["root_turn_id"]) if row["root_turn_id"] is not None else None,
-                        "root_user_message": str(row["root_user_message"] or ""),
-                        "response_anchor_turn_id": (
-                            str(row["response_anchor_turn_id"])
-                            if row["response_anchor_turn_id"] is not None
-                            else None
-                        ),
-                        "cancel_requested_at": (
-                            float(row["cancel_requested_at"])
-                            if row["cancel_requested_at"] is not None
-                            else None
-                        ),
-                        "cancel_reason": str(row["cancel_reason"]) if row["cancel_reason"] is not None else None,
-                        "cancel_requested_by": (
-                            str(row["cancel_requested_by"])
-                            if row["cancel_requested_by"] is not None
-                            else None
-                        ),
-                        "cancel_anchor_turn_id": (
-                            str(row["cancel_anchor_turn_id"])
-                            if row["cancel_anchor_turn_id"] is not None
-                            else None
-                        ),
-                        "created_at": float(row["created_at"]),
-                        "updated_at": float(row["updated_at"]),
-                    }
+                    execution_run = row_to_execution_run(row)
+                    self._execution_runs[str(execution_run["session_id"])] = execution_run
 
             async with db.execute(
                 "SELECT * FROM l0_execution_pending_turns ORDER BY created_at ASC, pending_id ASC"
             ) as cursor:
                 async for row in cursor:
-                    session_id = str(row["session_id"])
-                    row_keys = row.keys() if hasattr(row, "keys") else ()
-                    raw_disposition = (
-                        str(row["disposition"])
-                        if "disposition" in row_keys and row["disposition"] is not None
-                        else "augment"
-                    )
-                    self._execution_pending_turns.setdefault(session_id, []).append(
-                        {
-                            "session_id": session_id,
-                            "run_id": str(row["run_id"]),
-                            "turn_id": str(row["turn_id"]),
-                            "content": str(row["content"]),
-                            "revision": int(row["revision"]),
-                            "disposition": raw_disposition,
-                            "created_at": float(row["created_at"]),
-                        }
-                    )
+                    pending_turn = row_to_pending_turn(row)
+                    self._execution_pending_turns.setdefault(
+                        str(pending_turn["session_id"]), []
+                    ).append(pending_turn)
 
             async with db.execute(
                 "SELECT * FROM l0_execution_results ORDER BY created_at ASC, result_id ASC"
             ) as cursor:
                 async for row in cursor:
-                    session_id = str(row["session_id"])
-                    self._execution_results.setdefault(session_id, []).append(
-                        {
-                            "result_id": str(row["result_id"]),
-                            "session_id": session_id,
-                            "run_id": str(row["run_id"]),
-                            "revision": int(row["revision"]),
-                            "disposition": str(row["disposition"]),
-                            "payload": json.loads(row["payload_json"] or "{}"),
-                            "created_at": float(row["created_at"]),
-                        }
-                    )
+                    result = row_to_execution_result(row)
+                    self._execution_results.setdefault(str(result["session_id"]), []).append(result)
 
     async def _expire_stale_tactics(self, session_id: str) -> None:
         now = time.time()
