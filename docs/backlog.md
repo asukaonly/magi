@@ -199,6 +199,7 @@ Recent progress:
 - Memory route utility helpers now live in `memory_route_helpers.py`.
 - Memory API Pydantic schemas now live in `memory_schemas.py`.
 - Config API Pydantic schemas now live in `config_schemas.py`.
+- Chat planning request-profile and seed-subtask heuristics now live in `planning_heuristics.py`.
 - L4 procedural memory schema constants now live in `procedural_memory_schema.py`.
 - L4 procedural memory schema initialization now lives in `procedural_memory_schema.py`.
 - L4 procedural memory serialization, trace row, and skill identity helpers now live in `procedural_memory_serialization.py`.
