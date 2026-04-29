@@ -18,7 +18,8 @@ from ...chat import (
 )
 from ...utils.agent_logger import get_agent_logger
 from ...core.logger import get_logger
-from ...core.runtime_bindings import require_agent_runtime, require_chat_store
+from ...core.runtime_bindings import require_agent_runtime
+from ...chat.provider import get_chat_store
 from ...agent.runtime.types import TaskAgentType
 from ...runtime_defaults import DEFAULT_RUNTIME_NAMESPACE, DEFAULT_USER_ID
 from ...personality.bootstrap_service import build_bootstrap_l2_priority_metadata
@@ -541,7 +542,7 @@ async def set_message_label(
 ):
     """Persist one compact label on an existing chat message."""
     try:
-        chat_store = require_chat_store()
+        chat_store = get_chat_store()
         created_at_ms = int(request.created_at_ms or int(time.time() * 1000))
         label = {
             "kind": str(request.kind).strip(),
@@ -585,7 +586,7 @@ async def set_message_label(
 async def delete_message(session_id: str, message_id: str, user_id: str = DEFAULT_USER_ID):
     """Soft-delete one chat message from the visible transcript."""
     try:
-        chat_store = require_chat_store()
+        chat_store = get_chat_store()
         message = await chat_store.hide_message(
             session_id=session_id,
             message_id=message_id,

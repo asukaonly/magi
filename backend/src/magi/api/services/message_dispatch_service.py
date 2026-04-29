@@ -7,8 +7,9 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
+from ...chat.provider import get_chat_projector, get_chat_store
 from ...core.logger import get_logger
-from ...core.runtime_bindings import require_chat_projector, require_chat_store, require_runtime_command_queue
+from ...core.runtime_bindings import require_runtime_command_queue
 from ...events.contracts import UserMessageCommand
 from ...runtime_defaults import DEFAULT_RUNTIME_NAMESPACE
 
@@ -84,7 +85,7 @@ async def dispatch_user_message(
             error_message="Runtime command queue is not initialized. Please complete onboarding or check the saved configuration.",
         )
     try:
-        chat_store = require_chat_store()
+        chat_store = get_chat_store()
     except RuntimeError:
         return MessageDispatchOutcome(
             success=False,
@@ -156,7 +157,7 @@ async def dispatch_user_message(
             error_message="Chat turn persistence failed",
         )
     try:
-        chat_projector = require_chat_projector()
+        chat_projector = get_chat_projector()
     except RuntimeError:
         chat_projector = None
     if chat_projector is not None:

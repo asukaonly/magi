@@ -173,14 +173,15 @@ async def _persist_bootstrap_assistant_message(
     import uuid as _uuid
 
     from ...chat.contracts import ChatMessageRecord, ChatTurnRecord
-    from ...core.runtime_bindings import require_chat_store, require_runtime_trace_store
+    from ...chat.provider import get_chat_store
+    from ...core.runtime_bindings import require_runtime_trace_store
     from ...runtime_trace.contracts import RuntimeNotificationRecord
     from ...transport.chat_events import broadcast_chat_message_upsert
 
     now_ms = int(_time.time() * 1000)
     message_id = f"msg_{_uuid.uuid4().hex[:16]}"
 
-    chat_store = require_chat_store()
+    chat_store = get_chat_store()
 
     await chat_store.upsert_turn(ChatTurnRecord(
         turn_id=turn_id,

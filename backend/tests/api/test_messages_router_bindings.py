@@ -333,7 +333,7 @@ async def test_set_message_label_route_updates_message_without_creating_new_row(
                 "label": label,
             }
 
-    monkeypatch.setattr(messages_router, "require_chat_store", lambda: _FakeChatStore())
+    monkeypatch.setattr(messages_router, "get_chat_store", lambda: _FakeChatStore())
 
     response = await messages_router.set_message_label(
         session_id="s1",
@@ -378,7 +378,7 @@ async def test_delete_message_route_soft_deletes_existing_chat_message(
                 "is_visible": False,
             }
 
-    monkeypatch.setattr(messages_router, "require_chat_store", lambda: _FakeChatStore())
+    monkeypatch.setattr(messages_router, "get_chat_store", lambda: _FakeChatStore())
 
     response = await messages_router.delete_message(
         session_id="s1",

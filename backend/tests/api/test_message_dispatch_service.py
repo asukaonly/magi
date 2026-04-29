@@ -119,8 +119,8 @@ async def test_dispatch_user_message_persists_chat_turn_before_enqueue(monkeypat
     chat_store = _FakeChatStore()
     chat_projector = _FakeChatProjector()
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
-    monkeypatch.setattr(service, "require_chat_store", lambda: chat_store)
-    monkeypatch.setattr(service, "require_chat_projector", lambda: chat_projector)
+    monkeypatch.setattr(service, "get_chat_store", lambda: chat_store)
+    monkeypatch.setattr(service, "get_chat_projector", lambda: chat_projector)
 
     outcome = await service.dispatch_user_message(
         source="api",
@@ -146,8 +146,8 @@ async def test_dispatch_user_message_projects_only_l2_queue_metadata(monkeypatch
     chat_store = _FakeChatStore()
     chat_projector = _FakeChatProjector()
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
-    monkeypatch.setattr(service, "require_chat_store", lambda: chat_store)
-    monkeypatch.setattr(service, "require_chat_projector", lambda: chat_projector)
+    monkeypatch.setattr(service, "get_chat_store", lambda: chat_store)
+    monkeypatch.setattr(service, "get_chat_projector", lambda: chat_projector)
 
     outcome = await service.dispatch_user_message(
         source="api",
@@ -173,7 +173,7 @@ async def test_dispatch_user_message_publishes_user_message_event(monkeypatch: p
     queue = _FakeRuntimeCommandQueue()
     chat_store = _FakeChatStore()
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
-    monkeypatch.setattr(service, "require_chat_store", lambda: chat_store)
+    monkeypatch.setattr(service, "get_chat_store", lambda: chat_store)
 
     outcome = await service.dispatch_user_message(
         source="api",
@@ -202,7 +202,7 @@ async def test_dispatch_user_message_carries_attachments_and_workspace_path_into
     queue = _FakeRuntimeCommandQueue()
     chat_store = _FakeChatStore()
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
-    monkeypatch.setattr(service, "require_chat_store", lambda: chat_store)
+    monkeypatch.setattr(service, "get_chat_store", lambda: chat_store)
 
     outcome = await service.dispatch_user_message(
         source="api",
@@ -226,7 +226,7 @@ async def test_dispatch_user_message_falls_back_to_session_workspace_path(
     queue = _FakeRuntimeCommandQueue()
     chat_store = _FakeChatStore()
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
-    monkeypatch.setattr(service, "require_chat_store", lambda: chat_store)
+    monkeypatch.setattr(service, "get_chat_store", lambda: chat_store)
     monkeypatch.setattr(
         service,
         "get_chat_read_service",
@@ -253,7 +253,7 @@ async def test_dispatch_user_message_rejects_empty_turn_without_text_or_attachme
     queue = _FakeRuntimeCommandQueue()
     chat_store = _FakeChatStore()
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
-    monkeypatch.setattr(service, "require_chat_store", lambda: chat_store)
+    monkeypatch.setattr(service, "get_chat_store", lambda: chat_store)
 
     outcome = await service.dispatch_user_message(
         source="api",
@@ -277,7 +277,7 @@ async def test_dispatch_user_message_returns_publish_failure(monkeypatch: pytest
     queue = _FailingRuntimeCommandQueue()
     chat_store = _FakeChatStore()
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
-    monkeypatch.setattr(service, "require_chat_store", lambda: chat_store)
+    monkeypatch.setattr(service, "get_chat_store", lambda: chat_store)
 
     outcome = await service.dispatch_user_message(
         source="websocket",
@@ -297,7 +297,7 @@ async def test_dispatch_user_message_preserves_explicit_session_turn_and_runtime
     queue = _FakeRuntimeCommandQueue()
     chat_store = _FakeChatStore()
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
-    monkeypatch.setattr(service, "require_chat_store", lambda: chat_store)
+    monkeypatch.setattr(service, "get_chat_store", lambda: chat_store)
 
     outcome = await service.dispatch_user_message(
         source="websocket",
@@ -322,7 +322,7 @@ async def test_dispatch_user_message_rejects_missing_session_id(monkeypatch: pyt
     queue = _FakeRuntimeCommandQueue()
     chat_store = _FakeChatStore()
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
-    monkeypatch.setattr(service, "require_chat_store", lambda: chat_store)
+    monkeypatch.setattr(service, "get_chat_store", lambda: chat_store)
 
     outcome = await service.dispatch_user_message(
         source="api",
@@ -357,7 +357,7 @@ async def test_dispatch_user_message_returns_chat_persist_failure_before_enqueue
     queue = _FakeRuntimeCommandQueue()
     chat_store = _FailingChatStore()
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
-    monkeypatch.setattr(service, "require_chat_store", lambda: chat_store)
+    monkeypatch.setattr(service, "get_chat_store", lambda: chat_store)
 
     outcome = await service.dispatch_user_message(
         source="api",

@@ -7,8 +7,8 @@ import uuid
 from typing import Any, Iterable
 
 from ...chat import ChatMessageRecord
+from ...chat.provider import get_chat_store
 from ...core.logger import get_logger
-from ...core.runtime_bindings import require_chat_store
 from ...runtime_defaults import DEFAULT_USER_ID
 from ...transport.chat_events import (
     broadcast_chat_message_hidden,
@@ -131,7 +131,7 @@ async def _persist_status_message(
         return None
 
     try:
-        chat_store = require_chat_store()
+        chat_store = get_chat_store()
     except RuntimeError:
         return None
 
@@ -201,7 +201,7 @@ async def _hide_latest_status_message(
         return
 
     try:
-        chat_store = require_chat_store()
+        chat_store = get_chat_store()
     except RuntimeError:
         return
 
