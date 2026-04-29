@@ -73,6 +73,7 @@ from .memory_schemas import (
     ProcedureResponse,
     RetrievalRequest,
 )
+from .memory_statistics import build_layer_statistics as _build_layer_statistics
 
 logger = get_logger(__name__)
 
@@ -661,25 +662,6 @@ async def get_memory_statistics():
             detail="Memory system not initialized",
         )
 
-    stats: Dict[str, Any] = {}
-
-    # L0 statistics (in-memory, fast)
-    if unified_memory.l0:
-        sessions = unified_memory.l0._sessions
-        total_goals = sum(len(unified_memory.l0._goal_stack.get(sid, [])) for sid in sessions)
-        total_entities = sum(len(unified_memory.l0._active_entities.get(sid, {})) for sid in sessions)
-        total_tactics = sum(len(unified_memory.l0._temporary_tactics.get(sid, {})) for sid in sessions)
-        stats["l0"] = {
-            "active_sessions": len([s for s in sessions.values() if s.get("status") == "active"]),
-            "total_goals": total_goals,
-            "total_entities": total_entities,
-            "total_tactics": total_tactics,
-            "db_path": unified_memory.l0.checkpoint_db_path,
-        }
-    else:
-        stats["l0"] = {"active_sessions": 0, "total_goals": 0, "total_entities": 0, "total_tactics": 0}
-
-    # L1-L4 statistics: run count queries concurrently
     async def _zero() -> int:
         return 0
 
@@ -692,27 +674,15 @@ async def get_memory_statistics():
     l1_count, l2_rel_count, l2_tom_count, l3_count, l4_count = await asyncio.gather(
         l1_coro, l2_rel_coro, l2_tom_coro, l3_coro, l4_coro,
     )
-
-    stats["l1"] = {"event_count": l1_count}
-    if unified_memory.l1:
-        stats["l1"]["db_path"] = unified_memory.l1.db_path
-
-    stats["l2"] = {"relation_count": l2_rel_count, "assertion_count": l2_tom_count}
-    if unified_memory.l2:
-        stats["l2"]["db_path"] = unified_memory.l2.db_path
-
-    stats["l3"] = {"summary_count": l3_count}
-    if unified_memory.l3:
-        stats["l3"]["db_path"] = unified_memory.l3.db_path
-
-    stats["l4"] = {"skill_count": l4_count}
-    if unified_memory.l4:
-        stats["l4"]["db_path"] = unified_memory.l4.db_path
-
-    if memory_integration:
-        stats["integration"] = memory_integration.get_statistics()
-
-    return stats
+    return _build_layer_statistics(
+        unified_memory=unified_memory,
+        l1_count=l1_count,
+        l2_relation_count=l2_rel_count,
+        l2_assertion_count=l2_tom_count,
+        l3_count=l3_count,
+        l4_count=l4_count,
+        integration_stats=memory_integration.get_statistics() if memory_integration else None,
+    )
 
 
 @memory_router.delete("/clear")
