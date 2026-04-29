@@ -7,7 +7,6 @@ complex semantic relationship planning that warrants its own module.
 from __future__ import annotations
 
 import logging
-from dataclasses import asdict
 from typing import Any, Dict, List, Optional
 
 from .models import (
@@ -20,6 +19,11 @@ from .protocols import (
     EmbeddingServiceProtocol,
     EntityCatalogProtocol,
     L2StoreProtocol,
+)
+from .l2_handler_utils import (
+    build_l2_trace,
+    filter_items_by_time_range,
+    has_global_query_constraints,
 )
 
 logger = logging.getLogger(__name__)
@@ -57,26 +61,7 @@ class L2Handler:
         Items without any recognizable timestamp are always kept so
         that un-dated knowledge-graph facts are not silently discarded.
         """
-        result: List[Dict[str, Any]] = []
-        for item in items:
-            ts: float | None = None
-            for key in timestamp_keys:
-                raw = item.get(key)
-                if raw is not None:
-                    try:
-                        ts = float(raw)
-                    except (TypeError, ValueError):
-                        continue
-                    break
-            if ts is None:
-                result.append(item)
-                continue
-            if time_range.start and ts < time_range.start:
-                continue
-            if time_range.end and ts > time_range.end:
-                continue
-            result.append(item)
-        return result
+        return filter_items_by_time_range(items, time_range, timestamp_keys=timestamp_keys)
 
     async def execute(
         self,
@@ -221,34 +206,22 @@ class L2Handler:
                 results["relationships"].extend(vector_edges)
                 edge_vector_supplement_count = len(vector_edges)
 
-        results["trace"] = {
-            "content_query": conditions.content_query,
-            "requested_entities": [
-                entity["entity_id"] for entity in resolved_entities
-            ] if resolved_entities else list(conditions.entities or []),
-            "subject_hint": conditions.subject_hint or "none",
-            "predicate_family": predicate_family,
-            "requested_entity_types": list(conditions.entity_types or []),
-            "trait_families": list(conditions.trait_families or []),
-            "semantic_frame": asdict(semantic_frame) if semantic_frame is not None else None,
-            "include_tom_snapshot": conditions.include_tom_snapshot,
-            "include_relationships": conditions.include_relationships,
-            "include_assertions": conditions.include_assertions,
-            "limit": conditions.limit,
-            "resolved_entities": resolved_entities,
-            "query_frame": query_frame,
-            "predicates": predicates or [],
-            "status_filters": status_filters or [],
-            "relation_direction": relation_direction,
-            "target_entity_id": target_entity_id,
-            "relationship_object_id": query_frame["relationship_object_id"],
-            "relationship_object_types": query_frame["relationship_object_types"],
-            "allow_global_scan": allow_global_scan,
-            "entity_card_count": len(results["entity_cards"]),
-            "relationship_count": len(results["relationships"]),
-            "assertion_count": len(results["assertions"]),
-            "edge_vector_supplement_count": edge_vector_supplement_count,
-        }
+        results["trace"] = build_l2_trace(
+            conditions=conditions,
+            resolved_entities=resolved_entities,
+            query_frame=query_frame,
+            predicate_family=predicate_family,
+            predicates=predicates,
+            status_filters=status_filters,
+            relation_direction=relation_direction,
+            semantic_frame=semantic_frame,
+            target_entity_id=target_entity_id,
+            allow_global_scan=allow_global_scan,
+            entity_card_count=len(results["entity_cards"]),
+            relationship_count=len(results["relationships"]),
+            assertion_count=len(results["assertions"]),
+            edge_vector_supplement_count=edge_vector_supplement_count,
+        )
         logger.info("L2 retrieval executed | %s", results["trace"])
         return results
 
@@ -263,26 +236,15 @@ class L2Handler:
         time_range: TimeRange | None,
         user_id: Optional[str],
     ) -> bool:
-        if resolved_entities or conditions.entities:
-            return True
-        if conditions.predicates or conditions.trait_families or conditions.entity_types:
-            return True
-        if predicate_family and predicate_family != "unknown":
-            return True
-        if conditions.subject_hint == "self" and user_id and predicate_family != "unknown":
-            return True
-        if semantic_frame is not None:
-            if semantic_frame.subject_scope != "none":
-                return True
-            if semantic_frame.query_family != "lookup":
-                return True
-            if semantic_frame.entity_mentions or semantic_frame.constraints:
-                return True
-        if query_frame.get("relationship_object_id") or query_frame.get("relationship_object_types"):
-            return True
-        if time_range is not None and (time_range.start is not None or time_range.end is not None):
-            return True
-        return False
+        return has_global_query_constraints(
+            conditions=conditions,
+            resolved_entities=resolved_entities,
+            semantic_frame=semantic_frame,
+            predicate_family=predicate_family,
+            query_frame=query_frame,
+            time_range=time_range,
+            user_id=user_id,
+        )
 
     async def _execute_semantic_relationship_plan(
         self,
