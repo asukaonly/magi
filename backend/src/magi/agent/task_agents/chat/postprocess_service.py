@@ -45,15 +45,7 @@ def _default_chat_read_service_factory() -> Any:
     return get_chat_read_service()
 
 
-class ChatPostProcessService(
-    ChatPostprocessTraceMixin,
-    ChatPostprocessBackgroundMixin,
-    ChatPostprocessSessionMixin,
-    ChatPostprocessToolEventMixin,
-    ChatPostprocessOutcomeMixin,
-    ChatPostprocessMemoryMixin,
-    ChatPostprocessIntentMixin,
-):
+class ChatPostProcessService:
     """Applies side effects for chat execution results."""
 
     def __init__(
@@ -91,6 +83,7 @@ class ChatPostProcessService(
             chat_read_service_factory or _default_chat_read_service_factory
         )
         self._runtime_trace_store = runtime_trace_store
+        self._operations = _ChatPostProcessOperations(self)
         self._chat_outcome_writer = ChatOutcomeWriter(
             chat_store=chat_store,
             chat_projector=chat_projector,
@@ -107,6 +100,15 @@ class ChatPostProcessService(
         # Track in-flight background memory-update tasks so they are not
         # garbage collected mid-flight. Entries remove themselves on done.
         self._background_tasks: set[asyncio.Task[Any]] = set()
+
+    def __getattr__(self, name: str) -> Any:
+        operations = self.__dict__.get("_operations")
+        if operations is not None:
+            try:
+                return object.__getattribute__(operations, name)
+            except AttributeError:
+                pass
+        raise AttributeError(f"{type(self).__name__!s} object has no attribute {name!r}")
 
     async def persist_turn_supersessions(
         self,
@@ -385,3 +387,28 @@ class ChatPostProcessService(
             return typed_turn_id
         raw_turn_id = str(payload.get("turn_id") or "").strip()
         return raw_turn_id or None
+
+
+class _ChatPostProcessOperations(
+    ChatPostprocessTraceMixin,
+    ChatPostprocessBackgroundMixin,
+    ChatPostprocessSessionMixin,
+    ChatPostprocessToolEventMixin,
+    ChatPostprocessOutcomeMixin,
+    ChatPostprocessMemoryMixin,
+    ChatPostprocessIntentMixin,
+):
+    def __init__(self, host: ChatPostProcessService) -> None:
+        self._host = host
+
+    def __getattribute__(self, name: str) -> Any:
+        if name not in {"_host", "__dict__", "__class__", "__getattribute__", "__getattr__"}:
+            host = object.__getattribute__(self, "_host")
+            override = host.__dict__.get(name)
+            if override is not None:
+                return override
+        return object.__getattribute__(self, name)
+
+    def __getattr__(self, name: str) -> Any:
+        host = object.__getattribute__(self, "_host")
+        return object.__getattribute__(host, name)
