@@ -43,6 +43,13 @@ from .summary_store_schema import (
     SUMMARY_CHUNKS_TABLE,
     ensure_summary_store_schema,
 )
+from .summary_store_links import (
+    build_summary_event_link_rows,
+    build_summary_task_link_rows,
+    normalize_event_ids,
+    row_to_summary_event_link,
+    row_to_summary_task_link,
+)
 from .summary_store_serialization import (
     decode_optional_json,
     encode_optional_json,
@@ -560,17 +567,7 @@ class L3SummaryStore:
                 (summary_id,),
             ) as cursor:
                 rows = await cursor.fetchall()
-        return [
-            {
-                "link_id": str(row["link_id"]),
-                "summary_id": str(row["summary_id"]),
-                "event_id": str(row["event_id"]),
-                "link_role": str(row["link_role"]),
-                "evidence_weight": float(row["evidence_weight"]),
-                "created_at": float(row["created_at"]),
-            }
-            for row in rows
-        ]
+        return [row_to_summary_event_link(row) for row in rows]
 
     async def list_summary_task_links(self, summary_id: str) -> List[Dict[str, Any]]:
         """Return task links for a summary."""
@@ -587,21 +584,12 @@ class L3SummaryStore:
                 (summary_id,),
             ) as cursor:
                 rows = await cursor.fetchall()
-        return [
-            {
-                "link_id": str(row["link_id"]),
-                "summary_id": str(row["summary_id"]),
-                "task_id": str(row["task_id"]),
-                "link_role": str(row["link_role"]),
-                "created_at": float(row["created_at"]),
-            }
-            for row in rows
-        ]
+        return [row_to_summary_task_link(row) for row in rows]
 
     async def filter_linked_event_ids(self, event_ids: list[str]) -> list[str]:
         """Return the subset of event ids that are already covered by summary links."""
         await self.initialize()
-        normalized_ids = [str(event_id) for event_id in event_ids if str(event_id).strip()]
+        normalized_ids = normalize_event_ids(event_ids)
         if not normalized_ids:
             return []
 
@@ -768,10 +756,11 @@ class L3SummaryStore:
                         link_id, summary_id, event_id, link_role, evidence_weight, created_at
                     ) VALUES (?, ?, ?, ?, ?, ?)
                     """,
-                    [
-                        (f"sel_{uuid.uuid4().hex}", summary_id, event_id, "primary", 1.0, now)
-                        for event_id in event_ids
-                    ],
+                    build_summary_event_link_rows(
+                        summary_id=summary_id,
+                        event_ids=event_ids,
+                        created_at=now,
+                    ),
                 )
             await db.commit()
 
@@ -786,10 +775,11 @@ class L3SummaryStore:
                         link_id, summary_id, task_id, link_role, created_at
                     ) VALUES (?, ?, ?, ?, ?)
                     """,
-                    [
-                        (f"stl_{uuid.uuid4().hex}", summary_id, task_id, "source_task", now)
-                        for task_id in task_ids
-                    ],
+                    build_summary_task_link_rows(
+                        summary_id=summary_id,
+                        task_ids=task_ids,
+                        created_at=now,
+                    ),
                 )
             await db.commit()
 
