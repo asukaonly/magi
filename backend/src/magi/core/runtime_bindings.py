@@ -51,11 +51,6 @@ def require_hybrid_retrieval_service():
     return _require_binding("hybrid_retrieval_service")
 
 
-def require_scenario_llm_pool():
-    """Return the active scenario LLM pool binding."""
-    return _require_binding("scenario_llm_pool")
-
-
 def require_plugin_manager():
     """Return the active plugin manager binding."""
     return _require_binding("plugin_manager")

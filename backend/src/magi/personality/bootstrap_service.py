@@ -15,8 +15,8 @@ from typing import Any, Dict, List, Optional
 
 from ..config.models import LLMScenario
 from ..core.logger import get_logger
-from ..core.runtime_bindings import require_scenario_llm_pool
 from ..llm import LLMProviderBridge
+from ..llm.provider import get_scenario_llm_pool
 from ..utils.runtime import get_runtime_paths
 from .active_persona import resolve_persona_config
 from .growth_memory import GrowthMemoryEngine, MilestoneType
@@ -224,7 +224,7 @@ class BootstrapDialogueService:
         )
 
         try:
-            pool = require_scenario_llm_pool()
+            pool = get_scenario_llm_pool()
         except RuntimeError as exc:
             logger.info(
                 "Bootstrap opening LLM unavailable, using static opening_line: %s",
@@ -296,7 +296,7 @@ class BootstrapDialogueService:
         messages = list(history) + [{"role": "user", "content": user_message}]
 
         try:
-            pool = require_scenario_llm_pool()
+            pool = get_scenario_llm_pool()
             bridge = LLMProviderBridge(pool.get(LLMScenario.CORE))
             response = await bridge.chat(
                 system_prompt=system_prompt,

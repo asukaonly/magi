@@ -142,7 +142,7 @@ class TestAnalyzeInteraction:
     @pytest.mark.asyncio
     async def test_returns_default_when_pool_unavailable(self):
         with patch(
-            "magi.personality.interaction_analyzer.require_scenario_llm_pool",
+            "magi.personality.interaction_analyzer.get_scenario_llm_pool",
             side_effect=RuntimeError("no pool"),
         ):
             result = await analyze_interaction("hello", "hi there")
@@ -153,7 +153,7 @@ class TestAnalyzeInteraction:
         mock_pool = MagicMock()
         mock_pool.get.side_effect = ValueError("no adapter")
         with patch(
-            "magi.personality.interaction_analyzer.require_scenario_llm_pool",
+            "magi.personality.interaction_analyzer.get_scenario_llm_pool",
             return_value=mock_pool,
         ):
             result = await analyze_interaction("hello", "hi there")
@@ -178,7 +178,7 @@ class TestAnalyzeInteraction:
 
         with (
             patch(
-                "magi.personality.interaction_analyzer.require_scenario_llm_pool",
+                "magi.personality.interaction_analyzer.get_scenario_llm_pool",
                 return_value=mock_pool,
             ),
             patch(
@@ -201,7 +201,7 @@ class TestAnalyzeInteraction:
 
         with (
             patch(
-                "magi.personality.interaction_analyzer.require_scenario_llm_pool",
+                "magi.personality.interaction_analyzer.get_scenario_llm_pool",
                 return_value=mock_pool,
             ),
             patch(
@@ -241,7 +241,7 @@ class TestAnalyzeInteraction:
 
         with (
             patch(
-                "magi.personality.interaction_analyzer.require_scenario_llm_pool",
+                "magi.personality.interaction_analyzer.get_scenario_llm_pool",
                 return_value=mock_pool,
             ),
             patch(
@@ -398,7 +398,7 @@ class TestAnalyzeInteractionWithStp:
 
         with (
             patch(
-                "magi.personality.interaction_analyzer.require_scenario_llm_pool",
+                "magi.personality.interaction_analyzer.get_scenario_llm_pool",
                 return_value=mock_pool,
             ),
             patch(
@@ -430,7 +430,7 @@ class TestAnalyzeInteractionWithStp:
 
         with (
             patch(
-                "magi.personality.interaction_analyzer.require_scenario_llm_pool",
+                "magi.personality.interaction_analyzer.get_scenario_llm_pool",
                 return_value=mock_pool,
             ),
             patch(
@@ -581,7 +581,7 @@ class TestAnalyzeInteractionWithMilestones:
 
         with (
             patch(
-                "magi.personality.interaction_analyzer.require_scenario_llm_pool",
+                "magi.personality.interaction_analyzer.get_scenario_llm_pool",
                 return_value=mock_pool,
             ),
             patch(
@@ -616,7 +616,7 @@ class TestAnalyzeInteractionWithMilestones:
 
         with (
             patch(
-                "magi.personality.interaction_analyzer.require_scenario_llm_pool",
+                "magi.personality.interaction_analyzer.get_scenario_llm_pool",
                 return_value=mock_pool,
             ),
             patch(

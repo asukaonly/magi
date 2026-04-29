@@ -14,9 +14,9 @@ from magi.core.logger import get_logger
 from magi.core.runtime_bindings import (
     require_hybrid_retrieval_service,
     require_memory_integration,
-    require_scenario_llm_pool,
     require_unified_memory,
 )
+from magi.llm.provider import get_scenario_llm_pool
 from magi.memory.eval_support.contracts import EvalMemoryQuery, EvalMemoryWriteRecord
 from magi.memory.eval_support.reader import EvalMemoryReader
 from magi.memory.eval_support.writer import EvalMemoryWriter
@@ -103,7 +103,7 @@ def _resolve_hybrid_retrieval_service():
 
 def _resolve_scenario_llm_pool():
     try:
-        return require_scenario_llm_pool()
+        return get_scenario_llm_pool()
     except RuntimeError:
         return None
 

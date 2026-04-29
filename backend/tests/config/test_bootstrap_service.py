@@ -155,7 +155,7 @@ class TestBootstrapOpening:
         )
         with (
             patch("magi.personality.bootstrap_service.resolve_persona_config", new_callable=AsyncMock, return_value=_make_config(with_bootstrap=True)),
-            patch("magi.personality.bootstrap_service.require_scenario_llm_pool", return_value=mock_pool),
+            patch("magi.personality.bootstrap_service.get_scenario_llm_pool", return_value=mock_pool),
             patch("magi.personality.bootstrap_service.LLMProviderBridge", return_value=mock_bridge),
         ):
             opening = await service.get_opening("test")
@@ -213,7 +213,7 @@ class TestBootstrapReply:
 
         with (
             patch("magi.personality.bootstrap_service.resolve_persona_config", new_callable=AsyncMock, return_value=_make_config(with_bootstrap=True)),
-            patch("magi.personality.bootstrap_service.require_scenario_llm_pool", return_value=mock_pool),
+            patch("magi.personality.bootstrap_service.get_scenario_llm_pool", return_value=mock_pool),
             patch("magi.personality.bootstrap_service.LLMProviderBridge", return_value=mock_bridge),
         ):
             reply = await service.reply(
@@ -242,7 +242,7 @@ class TestBootstrapReply:
 
         with (
             patch("magi.personality.bootstrap_service.resolve_persona_config", new_callable=AsyncMock, return_value=_make_config(with_bootstrap=True)),
-            patch("magi.personality.bootstrap_service.require_scenario_llm_pool", return_value=mock_pool),
+            patch("magi.personality.bootstrap_service.get_scenario_llm_pool", return_value=mock_pool),
             patch("magi.personality.bootstrap_service.LLMProviderBridge", return_value=mock_bridge),
         ):
             await service.reply(
@@ -279,7 +279,7 @@ class TestBootstrapReply:
 
         with (
             patch("magi.personality.bootstrap_service.resolve_persona_config", new_callable=AsyncMock, return_value=_make_config(with_bootstrap=True)),
-            patch("magi.personality.bootstrap_service.require_scenario_llm_pool", return_value=mock_pool),
+            patch("magi.personality.bootstrap_service.get_scenario_llm_pool", return_value=mock_pool),
             patch("magi.personality.bootstrap_service.LLMProviderBridge", return_value=mock_bridge),
         ):
             await service.reply(
@@ -316,7 +316,7 @@ class TestBootstrapReply:
 
         with (
             patch("magi.personality.bootstrap_service.resolve_persona_config", new_callable=AsyncMock, return_value=_make_config(with_bootstrap=True)),
-            patch("magi.personality.bootstrap_service.require_scenario_llm_pool", return_value=mock_pool),
+            patch("magi.personality.bootstrap_service.get_scenario_llm_pool", return_value=mock_pool),
             patch("magi.personality.bootstrap_service.LLMProviderBridge", return_value=mock_bridge),
         ):
             await service.reply(
@@ -346,7 +346,7 @@ class TestBootstrapReply:
 
         with (
             patch("magi.personality.bootstrap_service.resolve_persona_config", new_callable=AsyncMock, return_value=_make_config(with_bootstrap=True)),
-            patch("magi.personality.bootstrap_service.require_scenario_llm_pool", return_value=mock_pool),
+            patch("magi.personality.bootstrap_service.get_scenario_llm_pool", return_value=mock_pool),
             patch("magi.personality.bootstrap_service.LLMProviderBridge", return_value=mock_bridge),
         ):
             await service.reply(

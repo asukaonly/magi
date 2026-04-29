@@ -9,8 +9,8 @@ from fastapi import HTTPException, status
 
 from magi.config.models import LLMScenario, ThinkingDepth
 from magi.core.logger import get_logger
-from magi.core.runtime_bindings import require_scenario_llm_pool
 from magi.llm import LLMProviderBridge
+from magi.llm.provider import get_scenario_llm_pool
 from magi.memory.answering import build_answer_prompt_payload
 from magi.memory.eval_support.answer_normalization import normalize_eval_answer
 
@@ -21,7 +21,7 @@ EVAL_ANSWER_TIMEOUT = 300
 
 def _resolve_scenario_llm_pool():
     try:
-        return require_scenario_llm_pool()
+        return get_scenario_llm_pool()
     except RuntimeError:
         return None
 

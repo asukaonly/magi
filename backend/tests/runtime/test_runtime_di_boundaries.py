@@ -214,6 +214,7 @@ def test_runtime_bindings_only_expose_boundary_consumed_services() -> None:
     assert "require_scheduler_service" not in runtime_bindings
     assert "require_sensor_scheduler_contrib" not in runtime_bindings
     assert "require_permission_gateway" not in runtime_bindings
+    assert "require_scenario_llm_pool" not in runtime_bindings
 
 
 def test_legacy_backend_app_is_removed() -> None:

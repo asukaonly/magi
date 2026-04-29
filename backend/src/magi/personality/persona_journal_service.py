@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 
 from ..config.models import LLMScenario
 from ..core.logger import get_logger
-from ..core.runtime_bindings import require_scenario_llm_pool
+from ..llm.provider import get_scenario_llm_pool
 from ..llm.provider_bridge import LLMProviderBridge
 from .active_persona import resolve_persona_config
 from .growth_memory import GrowthMemoryEngine, Milestone, MilestoneType
@@ -199,7 +199,7 @@ class PersonaJournalService:
     async def _call_llm(self, user_prompt: str) -> Optional[str]:
         """Make a lightweight LLM call for reflection generation."""
         try:
-            pool = require_scenario_llm_pool()
+            pool = get_scenario_llm_pool()
         except Exception:
             logger.warning("LLM pool unavailable for journal reflection")
             return None
