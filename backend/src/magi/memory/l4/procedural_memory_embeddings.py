@@ -5,12 +5,13 @@ from typing import Any
 
 import aiosqlite
 
+from ...core.sqlite import sqlite_connection_async
 from ..embedding.chunking import ChunkedText, chunk_text
 from ..embedding.embedding_pipeline import MemoryEmbeddingPipeline
 from ..embedding.embedding_service import EmbeddingProfile, MemoryEmbeddingService
 from ..embedding.embedding_text_builders import build_l4_embedding_text
 from ..embedding.sqlite_vec_index import SqliteVecIndex, VectorSearchHit
-from .procedural_memory_schema import EMBEDDING_TEXT_BUILDER_VERSION
+from .procedural_memory_schema import EMBEDDING_TEXT_BUILDER_VERSION, SKILL_CHUNKS_TABLE
 
 
 def build_embedding_pipeline(
@@ -101,3 +102,78 @@ def fold_skill_chunk_hits(
             }
         )
     return skill_ids, matched_chunks
+
+
+async def replace_skill_chunks(
+    *,
+    db_path: str,
+    skill_id: str,
+    chunks: list[ChunkedText],
+    embedded_at: float,
+) -> None:
+    async with sqlite_connection_async(db_path) as db:
+        await db.execute(
+            f"DELETE FROM {SKILL_CHUNKS_TABLE} WHERE skill_id = ?",
+            (skill_id,),
+        )
+        await db.executemany(
+            f"""
+            INSERT INTO {SKILL_CHUNKS_TABLE}(
+                chunk_id, skill_id, chunk_index, chunk_text, char_start, char_end,
+                token_estimate, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    chunk.chunk_id,
+                    skill_id,
+                    chunk.chunk_index,
+                    chunk.text,
+                    chunk.char_start,
+                    chunk.char_end,
+                    chunk.token_estimate,
+                    embedded_at,
+                    embedded_at,
+                )
+                for chunk in chunks
+            ],
+        )
+        await db.commit()
+
+
+async def update_skill_embedding_state(
+    *,
+    db_path: str,
+    skill_id: str,
+    status: str,
+    profile_id: str | None,
+    chunk_count: int,
+    embedded_at: float,
+) -> None:
+    async with sqlite_connection_async(db_path) as db:
+        await db.execute(
+            """
+            UPDATE procedural_skills
+            SET embedding_status = ?, embedding_profile_id = ?, embedding_chunk_count = ?, last_embedded_at = ?, updated_at = updated_at
+            WHERE skill_id = ?
+            """,
+            (status, profile_id, int(chunk_count), float(embedded_at), skill_id),
+        )
+        await db.commit()
+
+
+async def fetch_skill_chunk_rows_by_ids(*, db_path: str, chunk_ids: list[str]) -> list[aiosqlite.Row]:
+    if not chunk_ids:
+        return []
+    placeholders = ", ".join("?" for _ in chunk_ids)
+    async with sqlite_connection_async(db_path) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            f"""
+            SELECT chunk_id, skill_id, chunk_index, chunk_text, char_start, char_end
+            FROM {SKILL_CHUNKS_TABLE}
+            WHERE chunk_id IN ({placeholders})
+            """,
+            tuple(chunk_ids),
+        ) as cursor:
+            return await cursor.fetchall()

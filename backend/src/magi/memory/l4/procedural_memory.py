@@ -14,12 +14,11 @@ import aiosqlite
 
 from ...core.sqlite import sqlite_connection_async
 from ...config.models import EmbeddingBackend
-from ..embedding.chunking import ChunkedText
-from ..embedding.embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
-from ..embedding.embedding_service import EmbeddingProfile, MemoryEmbeddingService
+from ..embedding.embedding_pipeline import EmbeddingPipelineItem
+from ..embedding.embedding_service import MemoryEmbeddingService
 from ..event_contracts import MemoryEvent
 from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
-from ..embedding.sqlite_vec_index import SqliteVecIndex, VectorSearchHit
+from ..embedding.sqlite_vec_index import SqliteVecIndex
 from .procedural_memory_advisory import (
     build_tool_advisory,
     is_tool_advisory_notable,
@@ -50,10 +49,7 @@ from .procedural_memory_search import (
 )
 from .procedural_memory_serialization import (
     adaptive_extraction_threshold,
-    compute_context_fit,
     extract_skill_identity,
-    extract_strategy_hint,
-    rolling_average,
     row_to_execution_trace_dict,
     row_to_skill_dict,
 )
@@ -61,9 +57,11 @@ from .procedural_memory_embeddings import (
     build_embedding_pipeline,
     build_skill_embedding_chunks,
     build_skill_embedding_text,
-    chunk_id_for_skill,
+    fetch_skill_chunk_rows_by_ids,
     fold_skill_chunk_hits,
     profile_from_embedding_result,
+    replace_skill_chunks,
+    update_skill_embedding_state,
 )
 from .procedural_memory_traces import (
     apply_recovery_annotations,
@@ -76,6 +74,12 @@ from .procedural_memory_updates import (
     build_new_skill_record_state,
     build_updated_skill_record_state,
 )
+from .procedural_memory_records import (
+    insert_new_skill_record,
+    sync_skill_fts,
+    update_skill_record,
+)
+from .procedural_memory_trace_store import insert_execution_trace
 from .strategy_extraction import ExtractedStrategy, L4StrategyExtractor
 
 logger = logging.getLogger(__name__)
@@ -204,56 +208,26 @@ class L4ProceduralMemoryStore:
                     event_timestamp=float(event.timestamp),
                     breaker_failure_threshold=self.breaker_failure_threshold,
                 )
-                await db.execute(
-                    """
-                    INSERT INTO procedural_skills(
-                        skill_id, skill_name, skill_category, skill_type, proficiency,
-                        total_attempts, success_count, failure_count, success_rate,
-                        avg_execution_time_ms, min_execution_time_ms, max_execution_time_ms, p95_execution_time_ms,
-                        circuit_breaker_state, circuit_breaker_opened_at, circuit_breaker_failure_count,
-                        circuit_breaker_success_count, optimized_prompt, optimized_params, optimization_score,
-                        context_affinity, source_event_ids, last_used_at, last_success_at, last_failure_at,
-                        embedding_chunk_count, last_embedded_at, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        skill_id,
-                        skill_name,
-                        skill_category,
-                        skill_type,
-                        record_state.success_rate,
-                        record_state.total_attempts,
-                        record_state.success_count,
-                        record_state.failure_count,
-                        record_state.success_rate,
-                        record_state.avg_duration_ms,
-                        record_state.min_duration_ms,
-                        record_state.max_duration_ms,
-                        record_state.max_duration_ms,
-                        record_state.breaker_state,
-                        record_state.breaker_opened_at,
-                        record_state.failure_streak,
-                        record_state.recovery_count,
-                        optimized_prompt,
-                        json.dumps({}, ensure_ascii=False),
-                        None,
-                        json.dumps({}, ensure_ascii=False),
-                        json.dumps([event.event_id], ensure_ascii=False),
-                        float(event.timestamp),
-                        float(event.timestamp) if success else None,
-                        float(event.timestamp) if not success else None,
-                        0,
-                        None,
-                        now,
-                        now,
-                    ),
+                await insert_new_skill_record(
+                    db,
+                    skill_id=skill_id,
+                    skill_name=skill_name,
+                    skill_category=skill_category,
+                    skill_type=skill_type,
+                    record_state=record_state,
+                    optimized_prompt=optimized_prompt,
+                    event_id=event.event_id,
+                    event_timestamp=float(event.timestamp),
+                    now=now,
                 )
                 await db.commit()
-                # Sync FTS5 index (new skill)
-                fts_text = tokenize_for_fts(f"{skill_name} {skill_category} {optimized_prompt or ''}")
-                await db.execute(
-                    "INSERT OR REPLACE INTO l4_skills_fts(skill_id, content) VALUES (?, ?)",
-                    (skill_id, fts_text),
+                await sync_skill_fts(
+                    db,
+                    skill_id=skill_id,
+                    skill_name=skill_name,
+                    skill_category=skill_category,
+                    optimized_prompt=optimized_prompt,
+                    replace_existing=False,
                 )
                 await db.commit()
                 await self._schedule_skill_embedding(
@@ -262,7 +236,8 @@ class L4ProceduralMemoryStore:
                     skill_category=skill_category,
                     optimized_prompt=optimized_prompt,
                 )
-                await self._insert_execution_trace(
+                await insert_execution_trace(
+                    db_path=self.db_path,
                     skill_id=skill_id,
                     event=event,
                     identity=identity,
@@ -279,62 +254,34 @@ class L4ProceduralMemoryStore:
                 breaker_recovery_successes=self.breaker_recovery_successes,
             )
 
-            await db.execute(
-                """
-                UPDATE procedural_skills
-                SET proficiency = ?, total_attempts = ?, success_count = ?, failure_count = ?, success_rate = ?,
-                    avg_execution_time_ms = ?, min_execution_time_ms = ?, max_execution_time_ms = ?, p95_execution_time_ms = ?,
-                    circuit_breaker_state = ?, circuit_breaker_opened_at = ?, circuit_breaker_failure_count = ?,
-                    circuit_breaker_success_count = ?, optimized_prompt = COALESCE(?, optimized_prompt),
-                    source_event_ids = ?, last_used_at = ?, last_success_at = ?, last_failure_at = ?, updated_at = ?,
-                    pending_trace_count = COALESCE(pending_trace_count, 0) + 1
-                WHERE skill_id = ?
-                """,
-                (
-                    record_state.success_rate,
-                    record_state.total_attempts,
-                    record_state.success_count,
-                    record_state.failure_count,
-                    record_state.success_rate,
-                    record_state.avg_duration_ms,
-                    record_state.min_duration_ms,
-                    record_state.max_duration_ms,
-                    record_state.max_duration_ms,
-                    record_state.breaker_state,
-                    record_state.breaker_opened_at,
-                    record_state.failure_streak,
-                    record_state.recovery_count,
-                    optimized_prompt,
-                    json.dumps(record_state.source_event_ids[-100:], ensure_ascii=False),
-                    float(event.timestamp),
-                    record_state.last_success_at,
-                    record_state.last_failure_at,
-                    now,
-                    str(existing["skill_id"]),
-                ),
+            skill_id = str(existing["skill_id"])
+            await update_skill_record(
+                db,
+                skill_id=skill_id,
+                record_state=record_state,
+                optimized_prompt=optimized_prompt,
+                event_timestamp=float(event.timestamp),
+                now=now,
             )
             await db.commit()
-            # Sync FTS5 index (updated skill)
-            fts_text = tokenize_for_fts(
-                f"{skill_name} {skill_category} {optimized_prompt or existing['optimized_prompt'] or ''}"
-            )
-            await db.execute(
-                "DELETE FROM l4_skills_fts WHERE skill_id = ?",
-                (str(existing["skill_id"]),),
-            )
-            await db.execute(
-                "INSERT INTO l4_skills_fts(skill_id, content) VALUES (?, ?)",
-                (str(existing["skill_id"]), fts_text),
+            await sync_skill_fts(
+                db,
+                skill_id=skill_id,
+                skill_name=skill_name,
+                skill_category=skill_category,
+                optimized_prompt=optimized_prompt or existing["optimized_prompt"],
+                replace_existing=True,
             )
             await db.commit()
             await self._schedule_skill_embedding(
-                skill_id=str(existing["skill_id"]),
+                skill_id=skill_id,
                 skill_name=skill_name,
                 skill_category=skill_category,
                 optimized_prompt=optimized_prompt or existing["optimized_prompt"],
             )
-            await self._insert_execution_trace(
-                skill_id=str(existing["skill_id"]),
+            await insert_execution_trace(
+                db_path=self.db_path,
+                skill_id=skill_id,
                 event=event,
                 identity=identity,
             )
@@ -343,13 +290,13 @@ class L4ProceduralMemoryStore:
             )
             if record_state.pending_trace_count >= adaptive_threshold or record_state.breaker_just_opened:
                 await self._maybe_extract_strategy(
-                    skill_id=str(existing["skill_id"]),
+                    skill_id=skill_id,
                     skill_name=skill_name,
                     skill_category=skill_category,
                     total_attempts=record_state.total_attempts,
                     success_rate=record_state.success_rate,
                 )
-            return str(existing["skill_id"])
+            return skill_id
 
     async def get_skill(self, *, skill_name: str, skill_category: str) -> Optional[Dict[str, Any]]:
         """Fetch a single procedural skill."""
@@ -474,19 +421,6 @@ class L4ProceduralMemoryStore:
             if len(result) >= limit:
                 break
         return result
-
-    @staticmethod
-    def _extract_strategy_hint(optimized_prompt: str | None) -> str | None:
-        """Extract a short hint from the strategy JSON or raw text."""
-        return extract_strategy_hint(optimized_prompt)
-
-    @staticmethod
-    def _compute_context_fit(
-        context_affinity_json: str | None,
-        task_context: str | None,
-    ) -> float | None:
-        """Compute 0-1 context fit from stored affinity and current task context."""
-        return compute_context_fit(context_affinity_json, task_context)
 
     async def query_strategies(self, *, query: str, limit: int = 10) -> List[Dict[str, Any]]:
         """Search procedural skills by sqlite-vec and fall back to SQL LIKE."""
@@ -766,59 +700,6 @@ class L4ProceduralMemoryStore:
     ) -> Optional[Dict[str, Any]]:
         return extract_skill_identity(event)
 
-    async def _insert_execution_trace(
-        self,
-        *,
-        skill_id: str,
-        event: MemoryEvent,
-        identity: Dict[str, Any],
-    ) -> None:
-        """Insert a structured execution trace and prune old ones."""
-        trace_id = f"trace_{uuid.uuid4().hex}"
-        now = time.time()
-        async with sqlite_connection_async(self.db_path) as db:
-            await db.execute(
-                f"""
-                INSERT INTO {EXECUTION_TRACES_TABLE}(
-                    trace_id, skill_id, event_id, turn_id, success, duration_ms,
-                    error_summary, input_summary, output_summary, task_context,
-                    created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    trace_id,
-                    skill_id,
-                    event.event_id,
-                    event.turn_id,
-                    1 if identity["success"] else 0,
-                    identity["duration_ms"],
-                    identity.get("error_summary"),
-                    identity.get("input_summary"),
-                    identity.get("output_summary"),
-                    identity.get("task_context"),
-                    now,
-                ),
-            )
-            await db.commit()
-        await self._prune_old_traces(skill_id)
-
-    async def _prune_old_traces(self, skill_id: str) -> None:
-        """Keep at most MAX_TRACES_PER_SKILL traces per skill."""
-        async with sqlite_connection_async(self.db_path) as db:
-            await db.execute(
-                f"""
-                DELETE FROM {EXECUTION_TRACES_TABLE}
-                WHERE skill_id = ? AND trace_id NOT IN (
-                    SELECT trace_id FROM {EXECUTION_TRACES_TABLE}
-                    WHERE skill_id = ?
-                    ORDER BY created_at DESC
-                    LIMIT ?
-                )
-                """,
-                (skill_id, skill_id, MAX_TRACES_PER_SKILL),
-            )
-            await db.commit()
-
     async def get_recent_traces(
         self,
         skill_id: str,
@@ -965,9 +846,6 @@ class L4ProceduralMemoryStore:
             strategy.confidence,
         )
 
-    def _rolling_average(self, current_value: Any, current_count: int, next_value: float) -> float:
-        return rolling_average(current_value, current_count, next_value)
-
     def _row_to_dict(self, row: aiosqlite.Row) -> Dict[str, Any]:
         return row_to_skill_dict(row)
 
@@ -981,10 +859,13 @@ class L4ProceduralMemoryStore:
     ) -> None:
         if not self._vectors_enabled():
             return
-        pipeline = self._build_embedding_pipeline()
+        pipeline = build_embedding_pipeline(
+            embedding_service=self._embedding_service,
+            vector_index=self._vector_index,
+        )
         if pipeline is None:
             return
-        text = self._build_skill_embedding_text(
+        text = build_skill_embedding_text(
             skill_name=skill_name,
             skill_category=skill_category,
             optimized_prompt=optimized_prompt,
@@ -993,7 +874,7 @@ class L4ProceduralMemoryStore:
             [
                 EmbeddingPipelineItem(
                     parent_id=skill_id,
-                    chunks=self._build_skill_embedding_chunks(
+                    chunks=build_skill_embedding_chunks(
                         skill_id=skill_id,
                         text=text,
                     ),
@@ -1011,20 +892,23 @@ class L4ProceduralMemoryStore:
         if not results:
             return
         result = results[0]
-        profile = self._profile_from_embedding_result(result.embeddings[0])
-        await self._replace_skill_chunks(skill_id=skill_id, chunks=result.chunks, embedded_at=result.embedded_at)
-        await self._update_skill_embedding_state(
+        profile = profile_from_embedding_result(
+            embedding_service=self._embedding_service,
+            result=result.embeddings[0],
+        )
+        await replace_skill_chunks(
+            db_path=self.db_path,
+            skill_id=skill_id,
+            chunks=result.chunks,
+            embedded_at=result.embedded_at,
+        )
+        await update_skill_embedding_state(
+            db_path=self.db_path,
             skill_id=skill_id,
             status=EMBEDDING_STATUS_READY,
             profile_id=profile.profile_id,
             chunk_count=len(result.chunks),
             embedded_at=result.embedded_at,
-        )
-
-    def _build_embedding_pipeline(self) -> MemoryEmbeddingPipeline | None:
-        return build_embedding_pipeline(
-            embedding_service=self._embedding_service,
-            vector_index=self._vector_index,
         )
 
     async def _semantic_query_strategies(self, *, query: str, limit: int) -> List[Dict[str, Any]]:
@@ -1040,7 +924,11 @@ class L4ProceduralMemoryStore:
             return []
         if not hits:
             return []
-        skill_ids, matched_chunks = await self._fold_skill_chunk_hits(hits)
+        chunk_rows = await fetch_skill_chunk_rows_by_ids(
+            db_path=self.db_path,
+            chunk_ids=[hit.entity_id for hit in hits],
+        )
+        skill_ids, matched_chunks = fold_skill_chunk_hits(hits=hits, chunk_rows=chunk_rows)
         if not skill_ids:
             return []
         placeholders = ", ".join("?" for _ in skill_ids)
@@ -1056,19 +944,6 @@ class L4ProceduralMemoryStore:
             skill_ids=skill_ids,
             matched_chunks=matched_chunks,
             limit=limit,
-        )
-
-    def _build_skill_embedding_text(
-        self,
-        *,
-        skill_name: str,
-        skill_category: str,
-        optimized_prompt: Optional[str],
-    ) -> str:
-        return build_skill_embedding_text(
-            skill_name=skill_name,
-            skill_category=skill_category,
-            optimized_prompt=optimized_prompt,
         )
 
     async def _schedule_skill_embedding(
@@ -1115,92 +990,6 @@ class L4ProceduralMemoryStore:
                 )
             finally:
                 self._embedding_queue.task_done()
-
-    def _build_skill_embedding_chunks(self, *, skill_id: str, text: str) -> list[ChunkedText]:
-        return build_skill_embedding_chunks(skill_id=skill_id, text=text)
-
-    def _chunk_id_for_skill(self, skill_id: str, chunk_index: int) -> str:
-        return chunk_id_for_skill(skill_id, chunk_index)
-
-    async def _replace_skill_chunks(self, *, skill_id: str, chunks: list[ChunkedText], embedded_at: float) -> None:
-        async with sqlite_connection_async(self.db_path) as db:
-            await db.execute(
-                f"DELETE FROM {SKILL_CHUNKS_TABLE} WHERE skill_id = ?",
-                (skill_id,),
-            )
-            await db.executemany(
-                f"""
-                INSERT INTO {SKILL_CHUNKS_TABLE}(
-                    chunk_id, skill_id, chunk_index, chunk_text, char_start, char_end,
-                    token_estimate, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                [
-                    (
-                        chunk.chunk_id,
-                        skill_id,
-                        chunk.chunk_index,
-                        chunk.text,
-                        chunk.char_start,
-                        chunk.char_end,
-                        chunk.token_estimate,
-                        embedded_at,
-                        embedded_at,
-                    )
-                    for chunk in chunks
-                ],
-            )
-            await db.commit()
-
-    async def _update_skill_embedding_state(
-        self,
-        *,
-        skill_id: str,
-        status: str,
-        profile_id: str | None,
-        chunk_count: int,
-        embedded_at: float,
-    ) -> None:
-        async with sqlite_connection_async(self.db_path) as db:
-            await db.execute(
-                """
-                UPDATE procedural_skills
-                SET embedding_status = ?, embedding_profile_id = ?, embedding_chunk_count = ?, last_embedded_at = ?, updated_at = updated_at
-                WHERE skill_id = ?
-                """,
-                (status, profile_id, int(chunk_count), float(embedded_at), skill_id),
-            )
-            await db.commit()
-
-    def _profile_from_embedding_result(self, result) -> EmbeddingProfile:
-        return profile_from_embedding_result(
-            embedding_service=self._embedding_service,
-            result=result,
-        )
-
-    async def _fetch_skill_chunk_rows_by_ids(self, chunk_ids: list[str]) -> list[aiosqlite.Row]:
-        if not chunk_ids:
-            return []
-        placeholders = ", ".join("?" for _ in chunk_ids)
-        async with sqlite_connection_async(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                f"""
-                SELECT chunk_id, skill_id, chunk_index, chunk_text, char_start, char_end
-                FROM {SKILL_CHUNKS_TABLE}
-                WHERE chunk_id IN ({placeholders})
-                """,
-                tuple(chunk_ids),
-            ) as cursor:
-                return await cursor.fetchall()
-
-    async def _fold_skill_chunk_hits(
-        self,
-        hits: list[VectorSearchHit],
-    ) -> tuple[list[str], dict[str, list[dict[str, Any]]]]:
-        chunk_ids = [hit.entity_id for hit in hits]
-        chunk_rows = await self._fetch_skill_chunk_rows_by_ids(chunk_ids)
-        return fold_skill_chunk_hits(hits=hits, chunk_rows=chunk_rows)
 
 
 __all__ = ["L4ProceduralMemoryStore"]
