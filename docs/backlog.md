@@ -180,6 +180,7 @@ Recent progress:
 - LLM model selection remote embedding model/dimension selector now lives in `LLMRemoteEmbeddingModelSelector.tsx`.
 - LLM model selection chat scenario panel now lives in `LLMChatScenarioPanel.tsx`.
 - LLM model selection image generation scenario panel now lives in `LLMImageGenerationScenarioPanel.tsx`.
+- Dynamic tool config spec normalization now lives in `dynamic-config-specs.ts`.
 - Worker prompt and tool-profile helpers now live in `worker_prompting.py`.
 - Worker status, await, and run-state serialization helpers now live in `worker_status.py`.
 - Worker tool schema definition now lives in `worker_schema.py`.
