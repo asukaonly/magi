@@ -223,6 +223,7 @@ Recent progress:
 - Hybrid retrieval intent time parsing helpers now live in `intent_time.py`.
 - Hybrid retrieval default summary routing and graph assertion fallback behavior are covered by focused tests.
 - L2 retrieval time filtering, global-scan gating, and trace helpers now live in `l2_handler_utils.py`.
+- Hybrid retrieval service backstop, count, score, and bundle policy helpers now live in `service_policy.py`.
 - Context decider prompt rendering helpers now live in `context_decider_prompt.py`.
 - Worker prompt and tool-profile helpers now live in `worker_prompting.py`.
 - Worker status, await, and run-state serialization helpers now live in `worker_status.py`.

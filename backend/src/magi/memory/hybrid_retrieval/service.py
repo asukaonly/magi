@@ -4,14 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 from typing import Any, Callable, Dict, List, Optional
 
 from ...config import AppConfig
 from .answerability import (
-    extract_comparison_spans,
-    extract_query_tokens,
-    extract_quoted_spans,
     has_temporal_anchor,
 )
 from .handlers import L1Handler, L2Handler, L3Handler, L4Handler, execute_plan
@@ -31,10 +27,17 @@ from .models import (
 from .manifest_selector import ManifestSelector
 from .result_fusion import ResultFusion
 from .timeline_condense import build_timeline_summary
+from .service_policy import (
+    bundle_neighbor_window,
+    comparison_backstop_queries,
+    count_payload_results,
+    hit_score,
+    parse_turn_number,
+    plan_signature,
+    rule_backstop_reason,
+)
 
 logger = logging.getLogger(__name__)
-
-_TURN_NUMBER_RE = re.compile(r"turn-(\d+)$")
 
 # Over-fetch factor for session event loading in evidence bundles.
 # Loads N× the hit count per session so neighbor-turn expansion has
@@ -460,8 +463,7 @@ class HybridRetrievalService:
     @staticmethod
     def _plan_signature(plan: Any) -> tuple[str, str, bool]:
         """Build a stable identity for a layer query plan."""
-        content_query = getattr(getattr(plan, "conditions", None), "content_query", "") or ""
-        return (str(getattr(plan, "layer", "")), str(content_query), bool(getattr(plan, "is_fallback", False)))
+        return plan_signature(plan)
 
     def _refresh_handlers(self) -> None:
         """Rebuild layer handlers only when the underlying stores change.
@@ -665,16 +667,7 @@ class HybridRetrievalService:
         ``l1_evidence_bundles`` and ``l1_timeline_summary`` are assembled
         *after* retrieval and should not influence fallback decisions.
         """
-        return (
-            len(payload.l1_events)
-            + len(payload.l2_entity_cards)
-            + len(payload.l2_relationships)
-            + len(payload.l2_assertions)
-            + len(payload.l2_episodes)
-            + len(payload.l2_state_facts)
-            + len(payload.l3_reflections)
-            + len(payload.l4_procedures)
-        )
+        return count_payload_results(payload)
 
     async def _run_query_expansion(
         self,
@@ -743,73 +736,7 @@ class HybridRetrievalService:
         payload: RetrievalPayload,
         decision_source: str,
     ) -> str | None:
-        if decision_source != "llm":
-            return None
-        if HybridRetrievalService._count_results(payload) == 0:
-            return "empty_primary"
-
-        # L2 entity cards alone are not actionable evidence; if no other layer
-        # produced concrete data, fall back so L1 full-text search can try.
-        actionable_count = (
-            len(payload.l1_events)
-            + len(payload.l2_relationships)
-            + len(payload.l2_assertions)
-            + len(payload.l3_reflections)
-            + len(payload.l4_procedures)
-        )
-        if actionable_count == 0:
-            return "l2_entity_card_only"
-
-        # When the LLM routed entirely to L2 and L1 has no events, the
-        # knowledge graph data alone may be insufficient.  Trigger the
-        # backstop so L1 full-text search fills the conversation-context gap.
-        if not payload.l1_events:
-            return "l1_empty_with_l2_data"
-
-        coverage_spans = extract_quoted_spans(query)
-        missing_reason = "missing_quoted_coverage"
-        if not coverage_spans:
-            coverage_spans = extract_comparison_spans(query)
-            missing_reason = "missing_comparison_coverage"
-        if not coverage_spans:
-            return None
-
-        normalized_events = [
-            {
-                "event_id": str(event.get("event_id") or ""),
-                "content": " ".join(extract_query_tokens(str(event.get("content") or ""))),
-                "raw_content": str(event.get("content") or ""),
-            }
-            for event in payload.l1_events
-        ]
-        if not normalized_events:
-            return missing_reason
-
-        span_matches = {
-            span: {
-                event["event_id"] or f"idx:{index}"
-                for index, event in enumerate(normalized_events)
-                if span in event["content"]
-            }
-            for span in coverage_spans
-        }
-        if any(not matched_event_ids for matched_event_ids in span_matches.values()):
-            return missing_reason
-        if missing_reason == "missing_comparison_coverage":
-            anchored_span_matches = {
-                span: {
-                    event["event_id"] or f"idx:{index}"
-                    for index, event in enumerate(normalized_events)
-                    if span in event["content"] and has_temporal_anchor(event["raw_content"])
-                }
-                for span in coverage_spans
-            }
-            if any(not matched_event_ids for matched_event_ids in anchored_span_matches.values()):
-                return missing_reason
-            distinct_match_count = len({event_id for matched_event_ids in anchored_span_matches.values() for event_id in matched_event_ids})
-            if distinct_match_count < len(coverage_spans):
-                return missing_reason
-        return None
+        return rule_backstop_reason(query=query, payload=payload, decision_source=decision_source)
 
     @staticmethod
     def _comparison_backstop_queries(
@@ -818,33 +745,7 @@ class HybridRetrievalService:
         payload: RetrievalPayload,
         decision_source: str,
     ) -> list[str]:
-        comparison_spans = extract_comparison_spans(query)
-        if not comparison_spans:
-            # Fallback: extract quoted entity names (e.g. 'The Crown' or "Game of Thrones")
-            comparison_spans = extract_quoted_spans(query)
-        if not comparison_spans:
-            return []
-        if HybridRetrievalService._count_results(payload) > 0:
-            backstop_reason = HybridRetrievalService._rule_backstop_reason(
-                query=query,
-                payload=payload,
-                decision_source=decision_source,
-            )
-            if backstop_reason not in ("missing_comparison_coverage", "missing_quoted_coverage"):
-                return []
-
-        temporal_tokens = [
-            token
-            for token in extract_query_tokens(query)
-            if token in {"january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"}
-        ]
-        temporal_suffix = " ".join(dict.fromkeys(temporal_tokens))
-        queries: list[str] = []
-        for span in comparison_spans:
-            candidate_query = " ".join(part for part in (span, temporal_suffix) if part).strip()
-            if candidate_query and candidate_query not in queries:
-                queries.append(candidate_query)
-        return queries
+        return comparison_backstop_queries(query=query, payload=payload, decision_source=decision_source)
 
     async def _build_l1_evidence_bundles(
         self,
@@ -980,29 +881,14 @@ class HybridRetrievalService:
     @staticmethod
     def _bundle_neighbor_window(_query: str) -> int:
         """Return the neighbor turn window for evidence bundle assembly."""
-        return 5
+        return bundle_neighbor_window(_query)
 
     @staticmethod
     def _hit_score(hit: Dict[str, Any]) -> float:
         """Extract the best available relevance score from a retrieval hit."""
-        for key in ("reranker_score", "retrieval_score"):
-            val = hit.get(key)
-            if val is not None:
-                return float(val)
-        trace = hit.get("retrieval_trace")
-        if isinstance(trace, dict):
-            val = trace.get("base_rrf_score")
-            if val is not None:
-                return float(val)
-        return 0.0
+        return hit_score(hit)
 
     @staticmethod
     def _parse_turn_number(turn_id: str) -> int | None:
         """Extract a numeric turn suffix from session turn ids like `session:turn-3`."""
-        match = _TURN_NUMBER_RE.search(str(turn_id or ""))
-        if not match:
-            return None
-        try:
-            return int(match.group(1))
-        except ValueError:
-            return None
+        return parse_turn_number(turn_id)
