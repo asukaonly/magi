@@ -237,7 +237,11 @@
       }
     },
     "filters": {
-      "query": "搜索时段、情绪或活动"
+      "query": "搜索时段、情绪或活动",
+      "queryInWindow": "筛选当前时段"
+    },
+    "period": {
+      "label": "时间线时段"
     },
     "scale": {
       "month": "月",
@@ -247,7 +251,8 @@
     },
     "nav": {
       "previous": "上一窗口",
-      "next": "下一窗口"
+      "next": "下一窗口",
+      "refresh": "刷新时间线"
     },
     "labels": {
       "selfState": "自身状态"

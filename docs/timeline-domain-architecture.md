@@ -97,6 +97,12 @@ New L3 summary generation prompts should honor the active language context so
 freshly generated reflections align with the user's selected language while
 preserving source names, ids, URLs, file paths, and quoted evidence text.
 
+The frontend should request calendar-aligned complete periods by default rather
+than rolling windows. Month, week, day, and hour views open on the latest complete
+period and let the user jump to a specific earlier period; adjacent navigation
+steps by the active scale and should not advance beyond the latest complete
+period.
+
 ### Cluster Block
 
 Produced by `TimelineClusterBuilder`:

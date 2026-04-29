@@ -16,19 +16,118 @@ import { useChatShellStore } from '@/stores';
 
 type TimelineScale = 'month' | 'week' | 'day' | 'hour';
 
-const windowSecondsByScale: Record<TimelineScale, number> = {
-  month: 30 * 24 * 60 * 60,
-  week: 7 * 24 * 60 * 60,
-  day: 24 * 60 * 60,
-  hour: 60 * 60,
+const WEEK_SECONDS = 7 * 24 * 60 * 60;
+
+const padNumber = (value: number): string => String(value).padStart(2, '0');
+
+const toUnixSeconds = (date: Date): number => Math.floor(date.getTime() / 1000);
+
+const startOfLocalHour = (date: Date): Date => new Date(date.getFullYear(), date.getMonth(), date.getDate(), date.getHours());
+const startOfLocalDay = (date: Date): Date => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+const startOfLocalMonth = (date: Date): Date => new Date(date.getFullYear(), date.getMonth(), 1);
+
+const startOfLocalWeek = (date: Date): Date => {
+  const dayStart = startOfLocalDay(date);
+  const mondayOffset = (dayStart.getDay() + 6) % 7;
+  dayStart.setDate(dayStart.getDate() - mondayOffset);
+  return dayStart;
 };
 
-const formatWindowLabel = (start: number, end: number): string => {
+const shiftPeriodDate = (scale: TimelineScale, start: Date, amount: number): Date => {
+  const next = new Date(start);
+  if (scale === 'month') next.setMonth(next.getMonth() + amount);
+  if (scale === 'week') next.setDate(next.getDate() + amount * 7);
+  if (scale === 'day') next.setDate(next.getDate() + amount);
+  if (scale === 'hour') next.setHours(next.getHours() + amount);
+  return next;
+};
+
+const getLatestCompletePeriodStart = (scale: TimelineScale, now = new Date()): number => {
+  if (scale === 'month') return toUnixSeconds(shiftPeriodDate(scale, startOfLocalMonth(now), -1));
+  if (scale === 'week') return toUnixSeconds(shiftPeriodDate(scale, startOfLocalWeek(now), -1));
+  if (scale === 'day') return toUnixSeconds(shiftPeriodDate(scale, startOfLocalDay(now), -1));
+  return toUnixSeconds(shiftPeriodDate(scale, startOfLocalHour(now), -1));
+};
+
+const getPeriodEnd = (scale: TimelineScale, start: number): number =>
+  toUnixSeconds(shiftPeriodDate(scale, new Date(start * 1000), 1));
+
+const shiftPeriodStart = (scale: TimelineScale, start: number, amount: number): number =>
+  toUnixSeconds(shiftPeriodDate(scale, new Date(start * 1000), amount));
+
+const clampToLatestCompletePeriod = (scale: TimelineScale, start: number): number =>
+  Math.min(start, getLatestCompletePeriodStart(scale));
+
+const isoWeekStart = (isoYear: number, isoWeek: number): Date => {
+  const januaryFourth = new Date(isoYear, 0, 4);
+  const firstWeekStart = startOfLocalWeek(januaryFourth);
+  firstWeekStart.setDate(firstWeekStart.getDate() + (isoWeek - 1) * 7);
+  return firstWeekStart;
+};
+
+const isoWeekValue = (date: Date): string => {
+  const weekStart = startOfLocalWeek(date);
+  const thursday = new Date(weekStart);
+  thursday.setDate(thursday.getDate() + 3);
+  const isoYear = thursday.getFullYear();
+  const firstWeekStart = startOfLocalWeek(new Date(isoYear, 0, 4));
+  const week = Math.round((weekStart.getTime() - firstWeekStart.getTime()) / (WEEK_SECONDS * 1000)) + 1;
+  return `${isoYear}-W${padNumber(week)}`;
+};
+
+const periodInputType = (scale: TimelineScale): 'month' | 'week' | 'date' | 'datetime-local' => {
+  if (scale === 'month') return 'month';
+  if (scale === 'week') return 'week';
+  if (scale === 'hour') return 'datetime-local';
+  return 'date';
+};
+
+const periodInputValue = (scale: TimelineScale, start: number): string => {
+  const date = new Date(start * 1000);
+  const datePart = `${date.getFullYear()}-${padNumber(date.getMonth() + 1)}-${padNumber(date.getDate())}`;
+  if (scale === 'month') return `${date.getFullYear()}-${padNumber(date.getMonth() + 1)}`;
+  if (scale === 'week') return isoWeekValue(date);
+  if (scale === 'hour') return `${datePart}T${padNumber(date.getHours())}:00`;
+  return datePart;
+};
+
+const parsePeriodInputValue = (scale: TimelineScale, value: string): number | null => {
+  if (!value) return null;
+  if (scale === 'month') {
+    const match = /^(\d{4})-(\d{2})$/.exec(value);
+    if (!match) return null;
+    return toUnixSeconds(new Date(Number(match[1]), Number(match[2]) - 1, 1));
+  }
+  if (scale === 'week') {
+    const match = /^(\d{4})-W(\d{2})$/.exec(value);
+    if (!match) return null;
+    return toUnixSeconds(isoWeekStart(Number(match[1]), Number(match[2])));
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  if (scale === 'day') return toUnixSeconds(startOfLocalDay(parsed));
+  return toUnixSeconds(startOfLocalHour(parsed));
+};
+
+const formatWindowLabel = (scale: TimelineScale, start: number, end: number, locale: string): string => {
   const s = new Date(start * 1000);
-  const e = new Date(end * 1000);
+  if (scale === 'month') {
+    return s.toLocaleDateString(locale, { year: 'numeric', month: 'long' });
+  }
+  if (scale === 'day') {
+    return s.toLocaleDateString(locale, { year: 'numeric', month: 'short', day: 'numeric', weekday: 'short' });
+  }
+  if (scale === 'hour') {
+    const e = new Date(end * 1000);
+    const day = s.toLocaleDateString(locale, { month: 'short', day: 'numeric' });
+    const startTime = s.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', hour12: false });
+    const endTime = e.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', hour12: false });
+    return `${day} ${startTime}–${endTime}`;
+  }
+  const e = new Date(Math.max(start, end - 1) * 1000);
   const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
-  const sf = s.toLocaleDateString(undefined, opts);
-  const ef = e.toLocaleDateString(undefined, opts);
+  const sf = s.toLocaleDateString(locale, opts);
+  const ef = e.toLocaleDateString(locale, opts);
   return sf === ef ? sf : `${sf} – ${ef}`;
 };
 
@@ -37,7 +136,7 @@ export const TimelinePage: React.FC = () => {
   const timelineLocale = i18n.resolvedLanguage || i18n.language || 'en';
   const setActivePanel = useChatShellStore((state) => state.setActivePanel);
   const [scale, setScale] = useState<TimelineScale>('month');
-  const [viewportStart, setViewportStart] = useState<number>(() => Math.floor(Date.now() / 1000) - windowSecondsByScale.month);
+  const [viewportStart, setViewportStart] = useState<number>(() => getLatestCompletePeriodStart('month'));
   const [viewport, setViewport] = useState<TimelineViewportResponse | null>(null);
   const [query, setQuery] = useState('');
   const [draftQuery, setDraftQuery] = useState('');
@@ -50,7 +149,10 @@ export const TimelinePage: React.FC = () => {
   const [correctionPendingId, setCorrectionPendingId] = useState<string | null>(null);
   const [episodeAnnotationPendingId, setEpisodeAnnotationPendingId] = useState<string | null>(null);
 
-  const viewportEnd = viewportStart + windowSecondsByScale[scale];
+  const viewportEnd = getPeriodEnd(scale, viewportStart);
+  const latestPeriodStart = getLatestCompletePeriodStart(scale);
+  const nextPeriodStart = shiftPeriodStart(scale, viewportStart, 1);
+  const canGoNext = nextPeriodStart <= latestPeriodStart;
 
   const loadViewport = async (mode: 'initial' | 'refresh' = 'initial') => {
     if (mode === 'initial') {
@@ -167,23 +269,34 @@ export const TimelinePage: React.FC = () => {
           <div className="flex items-baseline gap-3">
             <h1 className="text-lg font-semibold text-foreground">{t('timeline.title')}</h1>
             <span className="hidden text-sm text-muted-foreground/60 sm:inline">
-              {formatWindowLabel(viewportStart, viewportEnd)}
+              {formatWindowLabel(scale, viewportStart, viewportEnd, timelineLocale)}
             </span>
           </div>
           <TimelineToolbar
             scale={scale}
             draftQuery={draftQuery}
+            periodInputType={periodInputType(scale)}
+            periodInputValue={periodInputValue(scale, viewportStart)}
+            periodInputMax={periodInputValue(scale, latestPeriodStart)}
+            canGoNext={canGoNext}
             refreshing={refreshing}
             onDraftQueryChange={setDraftQuery}
             onSubmitQuery={() => setQuery(draftQuery.trim())}
+            onPeriodInputChange={(value) => {
+              const parsed = parsePeriodInputValue(scale, value);
+              if (parsed == null) return;
+              startTransition(() => {
+                setViewportStart(clampToLatestCompletePeriod(scale, parsed));
+              });
+            }}
             onScaleChange={(item) => {
               startTransition(() => {
                 setScale(item);
-                setViewportStart(Math.floor(Date.now() / 1000) - windowSecondsByScale[item]);
+                setViewportStart(getLatestCompletePeriodStart(item));
               });
             }}
-            onPrevious={() => setViewportStart((v) => v - windowSecondsByScale[scale])}
-            onNext={() => setViewportStart((v) => v + windowSecondsByScale[scale])}
+            onPrevious={() => setViewportStart((v) => shiftPeriodStart(scale, v, -1))}
+            onNext={() => setViewportStart((v) => clampToLatestCompletePeriod(scale, shiftPeriodStart(scale, v, 1)))}
             onRefresh={() => void loadViewport('refresh')}
           />
         </div>

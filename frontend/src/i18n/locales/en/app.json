@@ -237,7 +237,11 @@
       }
     },
     "filters": {
-      "query": "Search moments, moods, or activities"
+      "query": "Search moments, moods, or activities",
+      "queryInWindow": "Filter this period"
+    },
+    "period": {
+      "label": "Timeline period"
     },
     "scale": {
       "month": "Month",
@@ -247,7 +251,8 @@
     },
     "nav": {
       "previous": "Previous window",
-      "next": "Next window"
+      "next": "Next window",
+      "refresh": "Refresh timeline"
     },
     "labels": {
       "selfState": "Self state"

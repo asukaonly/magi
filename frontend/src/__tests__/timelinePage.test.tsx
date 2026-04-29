@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -50,6 +50,16 @@ const localTimestamp = (year: number, monthIndex: number, day: number, hour: num
   Math.floor(new Date(year, monthIndex, day, hour, minute).getTime() / 1000);
 
 const addMinutes = (timestamp: number, minutes: number): number => timestamp + minutes * 60;
+
+const currentPreviousMonthStart = (): number => {
+  const now = new Date();
+  return localTimestamp(now.getFullYear(), now.getMonth() - 1, 1, 0);
+};
+
+const currentMonthStart = (): number => {
+  const now = new Date();
+  return localTimestamp(now.getFullYear(), now.getMonth(), 1, 0);
+};
 
 const makeOverview = (title: string, summary: string) => ({
   title,
@@ -448,8 +458,27 @@ describe('timeline page', () => {
     expect(timelineApi.getViewport).toHaveBeenCalledWith(
       expect.objectContaining({
         scale: 'month',
+        start: currentPreviousMonthStart(),
+        end: currentMonthStart(),
         locale: 'en',
       })
+    );
+  });
+
+  it('lets users jump to a specific month period', async () => {
+    render(<TimelinePage />);
+
+    await screen.findByText('Backend month overview');
+    fireEvent.change(screen.getByLabelText('timeline.period.label'), { target: { value: '2024-02' } });
+
+    await waitFor(() =>
+      expect(timelineApi.getViewport).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          scale: 'month',
+          start: localTimestamp(2024, 1, 1, 0),
+          end: localTimestamp(2024, 2, 1, 0),
+        }),
+      ),
     );
   });
 
