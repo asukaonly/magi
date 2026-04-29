@@ -93,6 +93,8 @@
       "attempt": "第 N 次尝试",
       "tools": "工具",
       "summary": "结果摘要",
+      "finalOutput": "最终输出",
+      "executionResult": "执行结果元数据",
       "error": "错误信息",
       "cancelReason": "取消原因",
       "events": "事件日志"

@@ -234,6 +234,7 @@ Persistence is separated the same way:
   Product task surfaces read this store through `/api/schedules` to display enabled schedules and current/upcoming scheduler activity. Sensor-owned schedules remain derived from timeline source settings and must be updated through the sensor settings UI instead of direct schedule edits.
 
   Agent-created schedules use the `user_agent_task` scheduler target. They are created and managed through the builtin `schedule` tool, store an `agent_task` payload, and enqueue a background task when fired. The scheduler owns timing and execution bookkeeping; the background-task runtime owns the actual LLM/tool execution.
+  Successful scheduled-agent completions are delivered back to the originating chat session as ordinary `assistant_final` messages, while the background-task row remains available for audit/debug status.
 
 - `cache/plugins/<plugin_id>/`
   Rebuildable plugin-owned runtime state such as in-progress sensor aggregation files
@@ -445,13 +446,16 @@ Lifecycle (orchestrated by
 2. Two listeners are registered before ``manager.start()``:
    - `build_completion_handshake_listener` — routes the terminal task
      through `ChatPostProcessService.deliver_background_task_completion`
-     on the resolved chat task agent, so a ``system`` chat message
-     announces the outcome in the originating session. The persisted
-     message carries ``message_kind="background_task_completion"`` and
+     on the resolved chat task agent. The persisted message normally
+     carries ``message_kind="background_task_completion"`` and
      a ``payload`` with ``background_task_id`` / ``status`` / ``title``
      / ``attempt``; the chat UI renders it as a dedicated completion
      card that deep-links into the Tasks drawer via
      ``/tasks?taskId=...``.
+     Scheduled-agent task completions are the exception: because their
+     user-facing purpose is the reminder/output itself, they are written
+     as ordinary assistant final messages instead of background-task
+     status cards.
    - `broadcast_background_task_state_changed` (from
     [transport/chat_events.py](../backend/src/magi/transport/chat_events.py))
      — writes a ``background_task_state_changed`` row onto the runtime

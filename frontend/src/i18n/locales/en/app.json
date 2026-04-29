@@ -93,6 +93,8 @@
       "attempt": "Attempt",
       "tools": "Tools",
       "summary": "Summary",
+      "finalOutput": "Final Output",
+      "executionResult": "Execution Metadata",
       "error": "Error",
       "cancelReason": "Cancel reason",
       "events": "Event log"

@@ -15,7 +15,8 @@ export type BackgroundTaskTriggerSource =
   | 'rule'
   | 'classifier'
   | 'user'
-  | 'manual';
+  | 'manual'
+  | 'schedule';
 
 export interface BackgroundTaskSpecDTO {
   user_id: string;

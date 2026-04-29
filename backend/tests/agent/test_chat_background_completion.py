@@ -57,6 +57,7 @@ def _make_task(
     session_id: str = "s1",
     user_id: str = "u1",
     finished_at: float | None = 1_710_000_000.5,
+    trigger_source: BackgroundTaskTriggerSource = BackgroundTaskTriggerSource.RULE,
 ) -> BackgroundTask:
     spec = BackgroundTaskSpec(
         user_id=user_id,
@@ -65,7 +66,7 @@ def _make_task(
         title=title,
         goal="goal text",
         selected_tools=["deep_research"],
-        trigger_source=BackgroundTaskTriggerSource.RULE,
+        trigger_source=trigger_source,
     )
     task = BackgroundTask.new(spec)
     task.status = status
@@ -106,6 +107,32 @@ async def test_succeeded_task_persists_system_message(chat_store: ChatStore) -> 
     assert payload["background_task_status"] == "succeeded"
     assert payload["background_task_title"] == "Audit release notes"
     assert payload["background_task_attempt"] == 1
+
+
+@pytest.mark.asyncio
+async def test_scheduled_task_persists_plain_assistant_message(chat_store: ChatStore) -> None:
+    service = _make_service(chat_store)
+    task = _make_task(
+        title="Drink water reminder",
+        summary="该喝水啦。",
+        trigger_source=BackgroundTaskTriggerSource.SCHEDULE,
+    )
+
+    record = await service.deliver_background_task_completion(task)
+
+    assert record is not None
+    assert record.role == "assistant"
+    assert record.message_kind == "assistant_final"
+    assert record.session_id == "s1"
+    assert record.user_id == "u1"
+    assert record.turn_id is None
+    assert record.content_text == "该喝水啦。"
+    assert "[Background task]" not in (record.content_text or "")
+    payload = json.loads(record.payload_json)
+    assert payload["background_task_id"] == task.task_id
+    assert payload["background_task_status"] == "succeeded"
+    assert payload["background_task_title"] == "Drink water reminder"
+    assert payload["trigger_source"] == "schedule"
 
 
 @pytest.mark.asyncio

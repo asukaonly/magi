@@ -178,6 +178,25 @@ const sortActivities = (activities: ScheduleActivityDTO[]): ScheduleActivityDTO[
     return (left.planned_at ?? left.started_at ?? 0) - (right.planned_at ?? right.started_at ?? 0);
   });
 
+const summarizeExecutionPayload = (payload: Record<string, unknown> | null | undefined): string => {
+  if (!payload || Object.keys(payload).length === 0) return '';
+  const preview: Record<string, unknown> = {};
+  for (const key of ['status', 'iterations', 'failure_reason', 'error_text']) {
+    if (payload[key] !== undefined && payload[key] !== null && payload[key] !== '') {
+      preview[key] = payload[key];
+    }
+  }
+  const toolFailures = payload.tool_failures;
+  if (Array.isArray(toolFailures) && toolFailures.length > 0) {
+    preview.tool_failures = toolFailures;
+  }
+  const attachments = payload.attachments;
+  if (Array.isArray(attachments) && attachments.length > 0) {
+    preview.attachments = attachments.length;
+  }
+  return Object.keys(preview).length > 0 ? JSON.stringify(preview, null, 2) : '';
+};
+
 interface TaskRowProps {
   task: BackgroundTaskDTO;
   onSelect: (taskId: string) => void;
@@ -343,6 +362,7 @@ const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
 
   const open = Boolean(taskId);
   const task = cachedTask;
+  const executionPayloadPreview = task ? summarizeExecutionPayload(task.result_payload) : '';
 
   return (
     <Sheet open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
@@ -422,10 +442,22 @@ const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
               {task.summary ? (
                 <div>
                   <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    {t('tasks.fields.summary')}
+                    {t('tasks.fields.finalOutput')}
                   </dt>
                   <dd className="mt-1">
                     <MarkdownBlock className="text-foreground">{task.summary}</MarkdownBlock>
+                  </dd>
+                </div>
+              ) : null}
+              {executionPayloadPreview ? (
+                <div>
+                  <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    {t('tasks.fields.executionResult')}
+                  </dt>
+                  <dd className="mt-1">
+                    <pre className="max-h-52 overflow-auto rounded-lg border border-border/60 bg-muted/45 p-3 font-mono text-xs leading-5 text-muted-foreground">
+                      {executionPayloadPreview}
+                    </pre>
                   </dd>
                 </div>
               ) : null}
