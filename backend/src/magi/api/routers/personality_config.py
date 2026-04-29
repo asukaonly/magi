@@ -8,7 +8,6 @@ and journal reflection features.
 from __future__ import annotations
 
 import asyncio
-import json
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -32,6 +31,9 @@ from ...llm import create_llm_adapter
 from ...personality.loader import PersonalityConfig
 from ...utils.runtime import get_runtime_paths
 from ...core.logger import get_logger
+from ..services.personality_bootstrap_messages import (
+    persist_bootstrap_assistant_message as _persist_bootstrap_assistant_message,
+)
 from ..services.personality_compare import build_personality_diffs, flatten_dict
 from ..services.personality_generation import generate_personality_config, normalize_generated_personality_payload
 from ..services.personality_registry import sanitize_persona_slug, save_personality_config_to_registry
@@ -157,103 +159,6 @@ async def _get_journal_service() -> PersonaJournalService:
     return PersonaJournalService(
         growth_engine=engine,
     )
-
-
-async def _persist_bootstrap_assistant_message(
-    *,
-    session_id: str,
-    user_id: str,
-    turn_id: str,
-    content: str,
-) -> str:
-    """Persist a bootstrap assistant reply as a real chat message and emit a notification.
-
-    Returns the generated message_id.
-    """
-    import time as _time
-    import uuid as _uuid
-
-    from ...chat.contracts import ChatMessageRecord, ChatTurnRecord
-    from ...chat.provider import get_chat_store
-    from ...runtime_trace.provider import resolve_runtime_trace_store
-    from ...runtime_trace.contracts import RuntimeNotificationRecord
-    from ...transport.chat_events import broadcast_chat_message_upsert
-
-    now_ms = int(_time.time() * 1000)
-    message_id = f"msg_{_uuid.uuid4().hex[:16]}"
-
-    chat_store = get_chat_store()
-
-    await chat_store.upsert_turn(ChatTurnRecord(
-        turn_id=turn_id,
-        session_id=session_id,
-        user_id=user_id,
-        trace_id=None,
-        orchestration_id=None,
-        status="completed",
-        response_mode="final_only",
-        execution_mode=None,
-        ux_plan_json="{}",
-        created_at_ms=now_ms,
-        updated_at_ms=now_ms,
-        completed_at_ms=now_ms,
-        error_text=None,
-    ))
-
-    seq_no = await chat_store.next_sequence_no(session_id=session_id)
-    await chat_store.append_message(ChatMessageRecord(
-        message_id=message_id,
-        session_id=session_id,
-        turn_id=turn_id,
-        user_id=user_id,
-        role="assistant",
-        message_kind="assistant_final",
-        content_text=content,
-        payload_json="{}",
-        is_final=True,
-        is_visible=True,
-        created_at_ms=now_ms,
-        sequence_no=seq_no,
-        replaces_message_id=None,
-        replaced_by_message_id=None,
-    ))
-
-    await chat_store.bump_history_version(session_id)
-    await broadcast_chat_message_upsert(
-        user_id=user_id,
-        session_id=session_id,
-        message_id=message_id,
-    )
-
-    try:
-        trace_store = resolve_runtime_trace_store()
-        await trace_store.append_notification(RuntimeNotificationRecord(
-            notification_id=0,
-            channel="agent_response",
-            user_id=user_id,
-            session_id=session_id,
-            turn_id=turn_id,
-            payload_json=json.dumps({
-                "message_id": message_id,
-                "message_kind": "assistant_final",
-                "content": content,
-                "author_type": "assistant",
-                "content_type": "text",
-                "timestamp": _time.time(),
-                "user_id": user_id,
-                "session_id": session_id,
-                "turn_id": turn_id,
-                "orchestration_id": None,
-                "trace_summary": None,
-                "trace_available": False,
-                "ux_plan": {},
-            }, ensure_ascii=False),
-            created_at_ms=now_ms,
-        ))
-    except Exception as exc:
-        logger.warning("Failed to emit bootstrap notification: %s", exc)
-
-    return message_id
 
 
 def sanitize_filename(name: str) -> str:
