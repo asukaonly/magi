@@ -35,3 +35,42 @@ async def test_upsert_event_does_not_reingest_into_unified_memory() -> None:
 
     assert result == "evt_calendar_1"
     unified_memory.ingest_event.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_get_context_bundle_resolves_episode_anchor() -> None:
+    class _FakeL1:
+        async def get_event(self, event_id: str):  # type: ignore[no-untyped-def]
+            if event_id != "evt-1":
+                return None
+            return {
+                "event_id": "evt-1",
+                "timestamp": 100.0,
+                "source": "chat",
+                "content": "Episode evidence",
+                "metadata": {"timeline": {"title": "Episode event", "summary": "Episode evidence summary."}},
+            }
+
+    class _FakeL2:
+        async def list_episode_events(self, episode_id: str):  # type: ignore[no-untyped-def]
+            if episode_id == "ep-1":
+                return [{"event_id": "evt-1"}]
+            return []
+
+        async def find_edges_by_event_id(self, event_id: str):  # type: ignore[no-untyped-def]
+            return []
+
+    unified_memory = SimpleNamespace(
+        l1=_FakeL1(),
+        l2=_FakeL2(),
+        l3=None,
+        l4=None,
+    )
+    service = TimelineService(unified_memory)
+
+    bundle = await service.get_context_bundle("episode:ep-1")
+
+    assert bundle is not None
+    assert bundle["episode_id"] == "ep-1"
+    assert bundle["anchor"]["anchor_type"] == "episode"
+    assert bundle["l1_events"][0]["event_id"] == "evt-1"

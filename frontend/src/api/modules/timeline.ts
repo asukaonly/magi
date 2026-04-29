@@ -41,6 +41,9 @@ export interface TimelineClusterBlock {
     stress_level?: number;
     engagement?: number;
   };
+  episode_id?: string;
+  user_label?: string | null;
+  user_note?: string | null;
 }
 
 export interface TimelineReflectionWindow {
@@ -92,6 +95,9 @@ export interface TimelineContextBundle {
     anchor_type: string;
     title: string;
     summary: string;
+    time_start?: number;
+    time_end?: number;
+    source_types?: string[];
   };
   l1_events: Array<Record<string, unknown>>;
   l2_state_evidence: Array<Record<string, unknown>>;

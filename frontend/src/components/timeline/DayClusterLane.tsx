@@ -46,6 +46,12 @@ const MODE_COLORS: Record<string, string> = {
 const modeColor = (mode: string): string =>
   MODE_COLORS[mode] || `hsl(${(mode.charCodeAt(0) * 37) % 360} 35% 55%)`;
 
+const resolveClusterAnchorId = (cluster: TimelineClusterBlock): string => {
+  if (cluster.episode_id) return `episode:${cluster.episode_id}`;
+  if (cluster.block_id.startsWith('episode:')) return cluster.block_id;
+  return cluster.representative_event_ids[0] || cluster.block_id;
+};
+
 const formatDayLabel = (timestamp: number): string =>
   new Intl.DateTimeFormat(undefined, {
     weekday: 'short',
@@ -102,14 +108,15 @@ const ClusterRow: React.FC<{
   onOpenContext: (anchorId: string) => void;
 }> = ({ cluster, onOpenContext }) => {
   const { t } = useTranslation('app');
+  const anchorId = resolveClusterAnchorId(cluster);
 
   return (
     <article
       role="button"
       tabIndex={0}
       className="group flex cursor-pointer gap-4 rounded-lg px-3 py-3 transition-colors hover:bg-muted/40 focus:outline-none focus:ring-1 focus:ring-ring/30"
-      onClick={() => onOpenContext(cluster.block_id)}
-      onKeyDown={(event) => { if (event.key === 'Enter') onOpenContext(cluster.block_id); }}
+      onClick={() => onOpenContext(anchorId)}
+      onKeyDown={(event) => { if (event.key === 'Enter') onOpenContext(anchorId); }}
     >
       <div className="flex w-20 shrink-0 flex-col items-end pt-0.5">
         <span className="text-xs tabular-nums text-muted-foreground">

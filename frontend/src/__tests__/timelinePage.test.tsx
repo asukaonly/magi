@@ -162,7 +162,8 @@ const WEEK_VIEWPORT = {
   state_markers: [],
   clusters: [
     {
-      block_id: 'week-cluster-1',
+      block_id: 'episode:ep-week-1',
+      episode_id: 'ep-week-1',
       time_start: localTimestamp(2024, 2, 10, 9),
       time_end: addMinutes(localTimestamp(2024, 2, 10, 9), 90),
       duration_seconds: 5400,
@@ -341,6 +342,16 @@ describe('timeline page', () => {
     expect(screen.queryByText('Deep Work')).not.toBeInTheDocument();
   });
 
+  it('opens stable evidence anchors for episode clusters', async () => {
+    const user = userEvent.setup();
+    render(<TimelinePage />);
+
+    await user.click(await screen.findByRole('button', { name: 'timeline.scale.week' }));
+    await user.click(await screen.findByRole('button', { name: /Week Planning/ }));
+
+    await waitFor(() => expect(timelineApi.getContext).toHaveBeenCalledWith('episode:ep-week-1'));
+  });
+
   it('opens the context drawer when a cluster is selected', async () => {
     const user = userEvent.setup();
     render(<TimelinePage />);
@@ -348,7 +359,7 @@ describe('timeline page', () => {
     await user.click(await screen.findByRole('button', { name: 'timeline.scale.day' }));
     await user.click(await screen.findByRole('button', { name: /Deep Work/ }));
 
-    await waitFor(() => expect(timelineApi.getContext).toHaveBeenCalledWith('cluster-1'));
+    await waitFor(() => expect(timelineApi.getContext).toHaveBeenCalledWith('evt-1'));
     const sourceEvidence = await screen.findByText('timeline.drawer.sourceEvidence');
     const derivedEvidence = screen.getByText('timeline.drawer.derivedEvidence');
     const reflections = screen.getByText('timeline.drawer.reflections');

@@ -76,6 +76,17 @@ class TimelineService:
             }
             return await self._viewport_builder.build_context_bundle(anchor=anchor)
 
+        if anchor_id.startswith("episode:"):
+            episode_id = anchor_id.split(":", 1)[1]
+            anchor = {
+                "anchor_id": anchor_id,
+                "anchor_type": "episode",
+                "title": episode_id.replace("_", " ").replace("-", " ").title(),
+                "summary": "",
+                "episode_id": episode_id,
+            }
+            return await self._viewport_builder.build_context_bundle(anchor=anchor)
+
         anchor = {
             "anchor_id": anchor_id,
             "anchor_type": "cluster",
