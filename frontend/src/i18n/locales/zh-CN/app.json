@@ -166,6 +166,8 @@
         "cronConfig": "Cron 配置"
       },
       "actions": {
+        "runNow": "立即执行",
+        "runUnavailable": "当前调度目标正在执行",
         "edit": "编辑",
         "openSettings": "去设置更新",
         "sensorEditTitle": "传感器调度请在设置中更新",
@@ -183,6 +185,8 @@
       },
       "feedback": {
         "loadFailed": "调度任务加载失败。",
+        "runSuccess": "已触发调度任务。",
+        "runFailed": "调度任务触发失败。",
         "saveSuccess": "调度任务已更新。",
         "saveFailed": "调度任务更新失败。",
         "stopSuccess": "已停止排队任务。",

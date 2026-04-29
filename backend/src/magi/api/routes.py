@@ -141,10 +141,11 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/{task_id}/dismiss": {"POST"},
     },
     "schedules": {
-        "": {"GET"},
+        "": {"GET", "POST"},
         "/activity": {"GET"},
-        "/activity/{activity_id:path}/cancel": {"POST"},
-        "/{schedule_id}": {"PATCH"},
+        "/activity/{activity_id}/cancel": {"POST"},
+        "/{schedule_id}": {"DELETE", "GET", "PATCH"},
+        "/{schedule_id}/run": {"POST"},
     },
     "control": {
         "/settings": {"GET", "PUT"},

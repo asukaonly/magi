@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import React from 'react';
@@ -9,9 +9,10 @@ import { useChatShellStore } from '@/stores';
 import { useBackgroundTaskStore } from '@/stores/background-tasks';
 import type { BackgroundTaskDTO, ScheduleActivityDTO, ScheduleDTO } from '@/api';
 
-const { schedulesListMock, schedulesListActivityMock } = vi.hoisted(() => ({
+const { schedulesListMock, schedulesListActivityMock, schedulesRunMock } = vi.hoisted(() => ({
   schedulesListMock: vi.fn(),
   schedulesListActivityMock: vi.fn(),
+  schedulesRunMock: vi.fn(),
 }));
 
 const tFn = (key: string, opts?: { defaultValue?: string }) =>
@@ -44,6 +45,7 @@ vi.mock('@/api/modules/schedules', () => ({
   schedulesApi: {
     list: schedulesListMock,
     listActivity: schedulesListActivityMock,
+    run: schedulesRunMock,
     update: vi.fn(),
     cancelActivity: vi.fn(),
   },
@@ -141,6 +143,10 @@ describe('TasksPage', () => {
   beforeEach(() => {
     schedulesListMock.mockResolvedValue({ schedules: [] });
     schedulesListActivityMock.mockResolvedValue({ activities: [] });
+    schedulesRunMock.mockResolvedValue({
+      schedule: makeSchedule(),
+      result: { success: true, message: 'manual_run_started' },
+    });
     useBackgroundTaskStore.setState({
       tasksById: {},
       orderedIds: [],
@@ -248,5 +254,45 @@ describe('TasksPage', () => {
 
     expect(await screen.findByText('Prompt')).toBeInTheDocument();
     expect(screen.getByDisplayValue('提醒我及时喝水')).toBeInTheDocument();
+  });
+
+  it('runs a scheduled task immediately from the scheduled tab', async () => {
+    const user = userEvent.setup();
+    const schedule = makeSchedule({
+      schedule_id: 'agent-task:drink-water',
+      target_type: 'user_agent_task',
+      target_key: 'agent-task:drink-water',
+      target_payload: {
+        kind: 'agent_task',
+        title: 'Drink water reminder',
+        prompt: '提醒我及时喝水',
+      },
+      metadata: {
+        owner_kind: 'agent_created',
+        target_kind: 'agent_task',
+        display_name: 'Drink water reminder',
+      },
+      editable: true,
+      owner_kind: 'agent_created',
+      settings_link: null,
+    });
+    schedulesListMock.mockResolvedValue({ schedules: [schedule] });
+    schedulesListActivityMock.mockResolvedValue({ activities: [] });
+    schedulesRunMock.mockResolvedValue({
+      schedule,
+      result: { success: true, message: 'agent_task_enqueued' },
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/tasks?tab=scheduled']}>
+        <TasksPage />
+      </MemoryRouter>,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'tasks.scheduled.actions.runNow' }));
+
+    await waitFor(() => {
+      expect(schedulesRunMock).toHaveBeenCalledWith('agent-task:drink-water');
+    });
   });
 });

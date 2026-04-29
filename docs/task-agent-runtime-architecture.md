@@ -231,7 +231,7 @@ Persistence is separated the same way:
   Unified scheduler definitions, target runtime state, schedule execution records, and queued sensor-sync jobs
   Current path: `~/.magi/runtime/scheduler.db`
 
-  Product task surfaces read this store through `/api/schedules` to display enabled schedules and current/upcoming scheduler activity. Sensor-owned schedules remain derived from timeline source settings and must be updated through the sensor settings UI instead of direct schedule edits.
+  Product task surfaces read this store through `/api/schedules` to display enabled schedules and current/upcoming scheduler activity. They may manually trigger an enabled schedule once through `/api/schedules/{schedule_id}/run`, which executes with `manual=True` while preserving the schedule's normal future cadence. Sensor-owned schedules remain derived from timeline source settings and must be updated through the sensor settings UI instead of direct schedule edits.
 
   Agent-created schedules use the `user_agent_task` scheduler target. They are created and managed through the builtin `schedule` tool, store an `agent_task` payload, and enqueue a background task when fired. The scheduler owns timing and execution bookkeeping; the background-task runtime owns the actual LLM/tool execution.
   Successful background tasks that produce a user-facing LLM summary are delivered back to the originating chat session as ordinary `assistant_final` messages, while the background-task row remains available for audit/debug status.

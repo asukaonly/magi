@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { CalendarClock, ChevronRight, ListChecks, Pencil, RefreshCw, Settings, Square } from 'lucide-react';
+import { CalendarClock, ChevronRight, ListChecks, Pencil, Play, RefreshCw, Settings, Square } from 'lucide-react';
 
 import {
   backgroundTasksApi,
@@ -812,6 +812,7 @@ const ScheduledTasksTab: React.FC<ScheduledTasksTabProps> = ({
   const [activities, setActivities] = useState<ScheduleActivityDTO[]>([]);
   const [loading, setLoading] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<ScheduleDTO | null>(null);
+  const [runningScheduleId, setRunningScheduleId] = useState<string | null>(null);
   const [stoppingActivityId, setStoppingActivityId] = useState<string | null>(null);
 
   const schedulesById = useMemo(
@@ -855,6 +856,20 @@ const ScheduledTasksTab: React.FC<ScheduledTasksTabProps> = ({
     }
   };
 
+  const handleRunSchedule = async (schedule: ScheduleDTO) => {
+    if (schedule.target_state?.running || runningScheduleId) return;
+    setRunningScheduleId(schedule.schedule_id);
+    try {
+      await schedulesApi.run(schedule.schedule_id);
+      toast.success(t('tasks.scheduled.feedback.runSuccess'));
+      await loadSchedules();
+    } catch {
+      toast.error(t('tasks.scheduled.feedback.runFailed'));
+    } finally {
+      setRunningScheduleId(null);
+    }
+  };
+
   const emptySchedules = !loading && schedules.length === 0;
   const emptyActivities = !loading && activities.length === 0;
 
@@ -872,12 +887,12 @@ const ScheduledTasksTab: React.FC<ScheduledTasksTabProps> = ({
           <table className="min-w-[900px] table-fixed text-left text-sm">
             <thead className="border-b border-border/60 bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
-                <th className="w-[24%] px-4 py-3 font-medium">{t('tasks.scheduled.columns.name')}</th>
-                <th className="w-[14%] px-4 py-3 font-medium">{t('tasks.scheduled.columns.type')}</th>
-                <th className="w-[16%] px-4 py-3 font-medium">{t('tasks.scheduled.columns.rule')}</th>
-                <th className="w-[16%] px-4 py-3 font-medium">{t('tasks.scheduled.columns.lastRun')}</th>
-                <th className="w-[16%] px-4 py-3 font-medium">{t('tasks.scheduled.columns.nextRun')}</th>
-                <th className="w-[14%] px-4 py-3 text-right font-medium">{t('tasks.scheduled.columns.actions')}</th>
+                <th className="w-[22%] px-4 py-3 font-medium">{t('tasks.scheduled.columns.name')}</th>
+                <th className="w-[13%] px-4 py-3 font-medium">{t('tasks.scheduled.columns.type')}</th>
+                <th className="w-[15%] px-4 py-3 font-medium">{t('tasks.scheduled.columns.rule')}</th>
+                <th className="w-[15%] px-4 py-3 font-medium">{t('tasks.scheduled.columns.lastRun')}</th>
+                <th className="w-[15%] px-4 py-3 font-medium">{t('tasks.scheduled.columns.nextRun')}</th>
+                <th className="w-[20%] px-4 py-3 text-right font-medium">{t('tasks.scheduled.columns.actions')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/60">
@@ -890,6 +905,9 @@ const ScheduledTasksTab: React.FC<ScheduledTasksTabProps> = ({
               ) : schedules.map((schedule) => {
                 const sensorOwned = schedule.target_type === 'sensor_sync' || schedule.editable === false;
                 const selected = editingSchedule?.schedule_id === schedule.schedule_id;
+                const scheduleRunning = Boolean(schedule.target_state?.running);
+                const runPending = runningScheduleId === schedule.schedule_id;
+                const runDisabled = scheduleRunning || runningScheduleId !== null;
                 return (
                   <tr
                     key={schedule.schedule_id}
@@ -919,16 +937,34 @@ const ScheduledTasksTab: React.FC<ScheduledTasksTabProps> = ({
                           type="button"
                           variant="outline"
                           size="sm"
-                          disabled={sensorOwned}
-                          title={sensorOwned ? t('tasks.scheduled.actions.sensorEditTitle') : undefined}
+                          disabled={runDisabled}
+                          title={scheduleRunning ? t('tasks.scheduled.actions.runUnavailable') : undefined}
                           onClick={(event) => {
                             event.stopPropagation();
-                            setEditingSchedule(schedule);
+                            void handleRunSchedule(schedule);
                           }}
                         >
-                          <Pencil className="mr-2 h-3.5 w-3.5" />
-                          {t('tasks.scheduled.actions.edit')}
+                          {runPending ? (
+                            <LoadingSpinner className="mr-2 h-3.5 w-3.5" />
+                          ) : (
+                            <Play className="mr-2 h-3.5 w-3.5" />
+                          )}
+                          {t('tasks.scheduled.actions.runNow')}
                         </Button>
+                        {!sensorOwned ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setEditingSchedule(schedule);
+                            }}
+                          >
+                            <Pencil className="mr-2 h-3.5 w-3.5" />
+                            {t('tasks.scheduled.actions.edit')}
+                          </Button>
+                        ) : null}
                         {sensorOwned ? (
                           <Button
                             type="button"

@@ -85,6 +85,19 @@ export interface UpdateScheduleResponse {
   schedule: ScheduleDTO;
 }
 
+export interface ScheduledExecutionResultDTO {
+  success: boolean;
+  message?: string;
+  next_cursor?: string | null;
+  watermark_ts?: number | null;
+  stats?: Record<string, unknown>;
+}
+
+export interface RunScheduleResponse {
+  schedule: ScheduleDTO;
+  result: ScheduledExecutionResultDTO;
+}
+
 export interface CancelScheduleActivityResponse {
   activity: {
     activity_id: string;
@@ -116,6 +129,13 @@ export const schedulesApi = {
     const response = await api.patch<UpdateScheduleResponse>(
       `/schedules/${encodeURIComponent(scheduleId)}`,
       body,
+    );
+    return unwrapGatewayPayload(response);
+  },
+
+  async run(scheduleId: string): Promise<RunScheduleResponse> {
+    const response = await api.post<RunScheduleResponse>(
+      `/schedules/${encodeURIComponent(scheduleId)}/run`,
     );
     return unwrapGatewayPayload(response);
   },

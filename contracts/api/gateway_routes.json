@@ -136,6 +136,26 @@
       "response_envelope": "native-json"
     },
     {
+      "path": "/api/schedules/activity/{activity_id}/cancel",
+      "methods": ["POST"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/schedules.rs",
+      "response_envelope": "native-json",
+      "python_parity": {
+        "owner_file": "backend/src/magi/api/routers/schedules.py"
+      }
+    },
+    {
+      "path": "/api/schedules/activity",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/schedules.rs",
+      "response_envelope": "native-json",
+      "python_parity": {
+        "owner_file": "backend/src/magi/api/routers/schedules.py"
+      }
+    },
+    {
       "path": "/api/schedules/executions/recent",
       "methods": ["GET"],
       "owner": "rust-native",
@@ -154,14 +174,20 @@
       "methods": ["DELETE", "GET", "PATCH"],
       "owner": "rust-native",
       "owner_file": "crates/magi-gateway/src/api/schedules.rs",
-      "response_envelope": "native-json"
+      "response_envelope": "native-json",
+      "python_parity": {
+        "owner_file": "backend/src/magi/api/routers/schedules.py"
+      }
     },
     {
       "path": "/api/schedules",
       "methods": ["GET", "POST"],
       "owner": "rust-native",
       "owner_file": "crates/magi-gateway/src/api/schedules.rs",
-      "response_envelope": "native-json"
+      "response_envelope": "native-json",
+      "python_parity": {
+        "owner_file": "backend/src/magi/api/routers/schedules.py"
+      }
     },
     {
       "path": "/api/metrics/llm/usage/summary",
@@ -449,6 +475,11 @@
       "prefix": "/api/runtime",
       "owner": "python-ipc",
       "owner_file": "backend/src/magi/transport/http_app.py"
+    },
+    {
+      "prefix": "/api/schedules/{schedule_id}/run",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/schedules.py"
     },
     {
       "prefix": "/api/sensors",

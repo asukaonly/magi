@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import time
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
 from ...core.runtime_bindings import require_scheduler_service
@@ -32,6 +33,16 @@ class ScheduleUpdateBody(BaseModel):
     target_payload: Optional[dict[str, Any]] = None
     enabled: Optional[bool] = None
     metadata: Optional[dict[str, Any]] = None
+
+
+class ScheduleCreateBody(BaseModel):
+    schedule_id: str = Field(min_length=1, max_length=300)
+    target_type: ScheduledTargetType
+    target_key: str = Field(min_length=1, max_length=300)
+    trigger: ScheduleTriggerBody
+    target_payload: dict[str, Any] = Field(default_factory=dict)
+    enabled: bool = True
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ActivityCancelBody(BaseModel):
@@ -122,6 +133,31 @@ async def list_schedules(
         state = await repository.get_target_state(schedule.target_type, schedule.target_key)
         items.append(_serialize_schedule(schedule, state))
     return {"schedules": items}
+
+
+@schedules_router.post("", status_code=status.HTTP_201_CREATED)
+async def create_schedule(body: ScheduleCreateBody) -> dict[str, Any]:
+    schedule = ScheduleDefinition(
+        schedule_id=body.schedule_id,
+        target_type=body.target_type,
+        target_key=body.target_key,
+        trigger=TriggerDefinition(body.trigger.trigger_type, dict(body.trigger.config)),
+        target_payload=dict(body.target_payload),
+        enabled=body.enabled,
+        metadata=dict(body.metadata),
+        job_id=body.schedule_id,
+    )
+    repository = _repository()
+    await repository.initialize()
+    try:
+        scheduler_service = require_scheduler_service()
+    except RuntimeError:
+        await repository.upsert_schedule(schedule)
+        saved = await repository.get_schedule(schedule.schedule_id)
+    else:
+        saved = await scheduler_service.schedule(schedule)
+    state = await repository.get_target_state(schedule.target_type, schedule.target_key)
+    return {"schedule": _serialize_schedule(saved or schedule, state)}
 
 
 @schedules_router.get("/activity")
@@ -242,7 +278,70 @@ async def update_schedule(schedule_id: str, body: ScheduleUpdateBody) -> dict[st
     return {"schedule": _serialize_schedule(saved or next_schedule, state)}
 
 
-@schedules_router.post("/activity/{activity_id:path}/cancel")
+@schedules_router.get("/{schedule_id}")
+async def get_schedule(schedule_id: str) -> dict[str, Any]:
+    repository = _repository()
+    await repository.initialize()
+    schedule = await repository.get_schedule(schedule_id)
+    if schedule is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found")
+    state = await repository.get_target_state(schedule.target_type, schedule.target_key)
+    return {"schedule": _serialize_schedule(schedule, state)}
+
+
+@schedules_router.delete("/{schedule_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_schedule(schedule_id: str) -> Response:
+    repository = _repository()
+    await repository.initialize()
+    existing = await repository.get_schedule(schedule_id)
+    if existing is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found")
+    try:
+        scheduler_service = require_scheduler_service()
+    except RuntimeError:
+        await repository.clear_target_schedule_binding(existing.target_type, existing.target_key)
+        await repository.delete_schedule(schedule_id)
+    else:
+        await scheduler_service.unschedule(
+            schedule_id,
+            target_type=existing.target_type,
+            target_key=existing.target_key,
+        )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@schedules_router.post("/{schedule_id}/run")
+async def run_schedule_now(schedule_id: str) -> dict[str, Any]:
+    repository = _repository()
+    await repository.initialize()
+    existing = await repository.get_schedule(schedule_id)
+    if existing is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found")
+    try:
+        scheduler_service = require_scheduler_service()
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Scheduler service is not available",
+        ) from exc
+
+    result = await scheduler_service.execute_schedule(schedule_id, manual=True)
+    if not result.success:
+        if result.message == "schedule_not_found":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found")
+        if result.message == "target_busy":
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Schedule target is busy")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=result.message)
+
+    saved = await repository.get_schedule(schedule_id)
+    state = await repository.get_target_state(existing.target_type, existing.target_key)
+    return {
+        "schedule": _serialize_schedule(saved or existing, state),
+        "result": asdict(result),
+    }
+
+
+@schedules_router.post("/activity/{activity_id}/cancel")
 async def cancel_schedule_activity(
     activity_id: str,
     body: Optional[ActivityCancelBody] = None,

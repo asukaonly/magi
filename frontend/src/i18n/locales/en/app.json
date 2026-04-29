@@ -166,6 +166,8 @@
         "cronConfig": "Cron Config"
       },
       "actions": {
+        "runNow": "Run Now",
+        "runUnavailable": "This scheduled target is already running",
         "edit": "Edit",
         "openSettings": "Open Settings",
         "sensorEditTitle": "Sensor schedules are updated in Settings",
@@ -183,6 +185,8 @@
       },
       "feedback": {
         "loadFailed": "Failed to load scheduled tasks.",
+        "runSuccess": "Scheduled task started.",
+        "runFailed": "Failed to start scheduled task.",
         "saveSuccess": "Scheduled task updated.",
         "saveFailed": "Failed to update scheduled task.",
         "stopSuccess": "Queued task stopped.",
