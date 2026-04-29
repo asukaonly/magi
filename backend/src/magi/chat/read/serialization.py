@@ -5,8 +5,8 @@ import json
 import sqlite3
 from typing import Any
 
-from .contracts import ChatMessageLabel, ChatReplyPreview
-from .read_models import ChatDisplayMessage, ChatSessionSummary
+from ..contracts import ChatMessageLabel, ChatReplyPreview
+from .models import ChatDisplayMessage, ChatSessionSummary
 
 
 def parse_turn_ux_preferences(raw_ux_plan_json: str | None) -> dict[str, Any]:

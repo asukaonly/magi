@@ -12,13 +12,13 @@ from ..core.sqlite import connect_sqlite
 from ..memory.l1.chat_sessions import create_chat_session_record
 from ..utils.runtime import get_runtime_paths
 from ..api.services.chat_trace.read_service import AI_RESPONSE_EVENT_TYPES, USER_EVENT_TYPES, get_chat_trace_read_service
-from .read_models import (
+from .read.models import (
     ChatDisplayMessage,
     ChatSessionRenameResult,
     ChatSessionSummary,
     SessionWorkspaceUpdateResult,
 )
-from .read_schema import (
+from .read.schema import (
     CHAT_ATTACHMENTS_TABLE,
     CHAT_MESSAGES_TABLE,
     CHAT_SESSIONS_TABLE,
@@ -26,7 +26,7 @@ from .read_schema import (
     CHAT_TURNS_TABLE,
     ensure_chat_store_schema,
 )
-from .read_serialization import (
+from .read.serialization import (
     apply_turn_ux_preferences,
     build_reply_preview,
     normalize_workspace_path,
@@ -896,7 +896,7 @@ class ChatReadService:
 
 def get_chat_read_service() -> ChatReadService:
     """Get the shared ChatReadService instance."""
-    from .read_service_provider import (
+    from .read.provider import (
         get_chat_read_service as _get_chat_read_service,
     )
 

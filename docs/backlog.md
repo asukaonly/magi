@@ -195,11 +195,11 @@ Recent progress:
 - Chat normalized trace builders now live in `api/services/chat_trace/builders/normalized.py`.
 - Chat legacy trace fallback builders now live in `api/services/chat_trace/builders/legacy.py`.
 - Chat runtime trace row-to-node helpers now live in `api/services/chat_trace/builders/rows.py`.
-- Chat read-side DTOs now live in `chat/read_models.py`.
-- Chat read-side serialization helpers now live in `chat/read_serialization.py`.
-- Chat read-store schema helpers now live in `chat/read_schema.py`.
-- Chat write-store serialization helpers now live in `chat/store_serialization.py`.
-- Chat write-store schema helpers now live in `chat/store_schema.py`.
+- Chat read-side DTOs now live in `chat/read/models.py`.
+- Chat read-side serialization helpers now live in `chat/read/serialization.py`.
+- Chat read-store schema helpers now live in `chat/read/schema.py`.
+- Chat write-store serialization helpers now live in `chat/storage/serialization.py`.
+- Chat write-store schema helpers now live in `chat/storage/schema.py`.
 - L0 working-memory checkpoint schema helpers now live in `l0/working/schema.py`.
 - L0 working-memory checkpoint serialization helpers now live in `l0/working/serialization.py`.
 - L0 memory session display helpers now live in `api/routers/memory/l0/display.py`.

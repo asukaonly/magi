@@ -9,14 +9,14 @@ import aiosqlite
 
 from ..core.sqlite import sqlite_connection_async
 from .contracts import ChatMessageLabel, ChatMessageRecord, ChatSessionRecord, ChatTurnRecord
-from .store_schema import (
+from .storage.schema import (
     CHAT_STORE_SCHEMA_SQL,
     ensure_chat_message_columns,
     ensure_chat_session_columns,
     ensure_chat_store_schema,
     ensure_chat_turn_columns,
 )
-from .store_serialization import (
+from .storage.serialization import (
     build_user_message_payload_json,
     extract_attachment_payloads,
     normalize_message_label,

@@ -6,8 +6,8 @@ from pathlib import Path
 
 import aiosqlite
 
-from ..utils.runtime import get_runtime_paths
-from .contracts import ChatMessageLabel, ChatMessageRecord
+from ...utils.runtime import get_runtime_paths
+from ..contracts import ChatMessageLabel, ChatMessageRecord
 
 
 def build_user_message_payload_json(
