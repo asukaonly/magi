@@ -107,7 +107,7 @@ class ScenarioLLMPool:
             # DashScope/Bailian must precede GLM: when Bailian proxies a GLM
             # model the platform URL determines the thinking-param protocol.
             ("dashscope", ("dashscope.aliyuncs.com", "dashscope-intl.aliyuncs.com")),
-            ("glm_codeplan", ("coding/paas",)),
+            ("glm_codeplan", ("codeplan",)),
             ("glm", ("bigmodel.cn", "z.ai", "glm-", " glm")),
             ("deepseek", ("deepseek",)),
             ("kimi", ("moonshot", "kimi")),
