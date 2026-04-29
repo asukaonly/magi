@@ -146,8 +146,9 @@ class TestStpOnDemandFiltering:
         )
 
     async def _assemble(self, trigger: str, state_name: str, scenario: str = "chat"):
-        from unittest.mock import AsyncMock
+        from unittest.mock import AsyncMock, patch
         from magi.context.assembler import PromptContextAssembler
+        from magi.personality.feature_flags import PersonalityFeatureFlags
 
         config = self._make_config()
         emotion = self._make_emotion(trigger, state_name)
@@ -157,15 +158,23 @@ class TestStpOnDemandFiltering:
         fake_self_memory.get_emotional_state = AsyncMock(return_value=emotion)
 
         assembler = PromptContextAssembler(tool_registry=None)
-        ctx = await assembler._build_self_memory_context(
-            self_memory=fake_self_memory,
-            user_id="u1",
-            task_category="chat",
-            retrieved_memory_payload=None,
-            state_transition_override=None,
-            scenario=scenario,
-            persona_name="test",
-        )
+        with patch(
+            "magi.context.self_memory.get_personality_feature_flags",
+            return_value=PersonalityFeatureFlags(
+                state_memory_enabled=True,
+                state_transition_enabled=True,
+                deep_persona_enabled=False,
+            ),
+        ):
+            ctx = await assembler._build_self_memory_context(
+                self_memory=fake_self_memory,
+                user_id="u1",
+                task_category="chat",
+                retrieved_memory_payload=None,
+                state_transition_override=None,
+                scenario=scenario,
+                persona_name="test",
+            )
         return ctx
 
     @pytest.mark.asyncio
