@@ -21,14 +21,14 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from ...agent.background import BackgroundTaskStatus
-from ...core.runtime_bindings import require_background_task_manager
+from ...agent.background.provider import resolve_background_task_manager
 
 background_tasks_router = APIRouter()
 
 
 def _get_manager():
     try:
-        return require_background_task_manager()
+        return resolve_background_task_manager()
     except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
