@@ -8,11 +8,7 @@ from typing import Any, Protocol, cast
 
 from ....agent.trace import now_wall_ms
 from ....chat import ChatMessageRecord
-from ...background.contracts import (
-    BackgroundTask,
-    BackgroundTaskStatus,
-    BackgroundTaskTriggerSource,
-)
+from ...background.contracts import BackgroundTask, BackgroundTaskStatus
 
 
 class _BackgroundPostprocessHostProtocol(Protocol):
@@ -28,7 +24,7 @@ class ChatPostprocessBackgroundMixin:
         *,
         summary_max_chars: int = 1000,
     ) -> ChatMessageRecord | None:
-        """Persist a system message announcing a background task's outcome."""
+        """Persist the chat-visible outcome of a background task."""
         host = cast(_BackgroundPostprocessHostProtocol, self)
         if host._chat_store is None:
             return None
@@ -38,11 +34,13 @@ class ChatPostprocessBackgroundMixin:
         if not session_id or not user_id:
             return None
 
-        if spec.trigger_source is BackgroundTaskTriggerSource.SCHEDULE:
-            return await self._deliver_scheduled_task_message(
+        summary_body = (task.summary or "").strip()
+        if task.status is BackgroundTaskStatus.SUCCEEDED and summary_body:
+            return await self._deliver_assistant_output_message(
                 task,
                 session_id=session_id,
                 user_id=user_id,
+                body=summary_body,
                 summary_max_chars=summary_max_chars,
             )
 
@@ -64,6 +62,7 @@ class ChatPostprocessBackgroundMixin:
             "background_task_status": task.status.value,
             "background_task_title": title,
             "background_task_attempt": int(task.attempt_index),
+            "trigger_source": task.spec.trigger_source.value,
         }
         finished_at = task.finished_at if task.finished_at is not None else task.updated_at
         completed_at_ms = int(finished_at * 1000) if finished_at else now_wall_ms()
@@ -88,24 +87,17 @@ class ChatPostprocessBackgroundMixin:
         await host._chat_store.bump_history_version(session_id)
         return record
 
-    async def _deliver_scheduled_task_message(
+    async def _deliver_assistant_output_message(
         self,
         task: BackgroundTask,
         *,
         session_id: str,
         user_id: str,
+        body: str,
         summary_max_chars: int,
     ) -> ChatMessageRecord | None:
         host = cast(_BackgroundPostprocessHostProtocol, self)
-        title = (task.spec.title or "").strip() or "Scheduled task"
-        if task.status is BackgroundTaskStatus.SUCCEEDED:
-            body = (task.summary or "").strip() or "(no response)"
-        elif task.status is BackgroundTaskStatus.FAILED:
-            reason = (task.error or "").strip() or "unknown error"
-            body = f"Scheduled task failed: {reason}"
-        else:
-            reason = (task.cancel_reason or "").strip() or "cancelled"
-            body = f"Scheduled task cancelled: {reason}"
+        title = (task.spec.title or "").strip() or "Background task"
         if len(body) > summary_max_chars:
             body = body[:summary_max_chars].rstrip() + "..."
         payload = {

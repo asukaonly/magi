@@ -85,21 +85,23 @@ def _make_task(
 
 
 @pytest.mark.asyncio
-async def test_succeeded_task_persists_system_message(chat_store: ChatStore) -> None:
+async def test_succeeded_task_with_summary_persists_assistant_message(
+    chat_store: ChatStore,
+) -> None:
     service = _make_service(chat_store)
     task = _make_task()
 
     record = await service.deliver_background_task_completion(task)
 
     assert record is not None
-    assert record.role == "system"
-    assert record.message_kind == "background_task_completion"
+    assert record.role == "assistant"
+    assert record.message_kind == "assistant_final"
     assert record.session_id == "s1"
     assert record.user_id == "u1"
     assert record.turn_id is None
     assert record.is_final is True
     assert record.is_visible is True
-    assert "Audit release notes" in (record.content_text or "")
+    assert "[Background task]" not in (record.content_text or "")
     assert "12 PRs scanned" in (record.content_text or "")
 
     payload = json.loads(record.payload_json)
@@ -107,6 +109,7 @@ async def test_succeeded_task_persists_system_message(chat_store: ChatStore) -> 
     assert payload["background_task_status"] == "succeeded"
     assert payload["background_task_title"] == "Audit release notes"
     assert payload["background_task_attempt"] == 1
+    assert payload["trigger_source"] == "rule"
 
 
 @pytest.mark.asyncio
@@ -157,6 +160,8 @@ async def test_succeeded_task_falls_back_to_no_summary_placeholder(
     record = await service.deliver_background_task_completion(task)
 
     assert record is not None
+    assert record.role == "system"
+    assert record.message_kind == "background_task_completion"
     assert "(no summary)" in (record.content_text or "")
 
 
@@ -172,6 +177,8 @@ async def test_failed_task_message_carries_error_reason(chat_store: ChatStore) -
     record = await service.deliver_background_task_completion(task)
 
     assert record is not None
+    assert record.role == "system"
+    assert record.message_kind == "background_task_completion"
     assert "Background task failed: tool exploded" in (record.content_text or "")
     payload = json.loads(record.payload_json)
     assert payload["background_task_status"] == "failed"
@@ -189,6 +196,8 @@ async def test_cancelled_task_message_carries_cancel_reason(chat_store: ChatStor
     record = await service.deliver_background_task_completion(task)
 
     assert record is not None
+    assert record.role == "system"
+    assert record.message_kind == "background_task_completion"
     assert "Background task cancelled: user_interrupt" in (record.content_text or "")
 
 
@@ -202,7 +211,7 @@ async def test_summary_is_truncated_when_over_max_chars(chat_store: ChatStore) -
     )
 
     assert record is not None
-    body = (record.content_text or "").split("\n", 1)[1]
+    body = record.content_text or ""
     # 200 chars + ellipsis suffix.
     assert body.endswith("...")
     assert len(body) <= 203
@@ -252,7 +261,7 @@ async def test_falls_back_to_default_title_when_spec_title_blank(
     chat_store: ChatStore,
 ) -> None:
     service = _make_service(chat_store)
-    task = _make_task(title="   ")
+    task = _make_task(title="   ", summary=None)
 
     record = await service.deliver_background_task_completion(task)
 

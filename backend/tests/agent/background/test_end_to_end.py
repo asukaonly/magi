@@ -4,9 +4,9 @@ Runs a real :class:`BackgroundTaskManager` with both production listeners
 registered (``broadcast_background_task_state_changed`` + the completion
 handshake) and asserts that a task enqueued through the manager reaches
 ``succeeded``, appends the correct transitions + terminal events, surfaces
-a chat-system message via the post-process service, and mirrors each state
-change onto the runtime-trace notification channel that the Rust gateway
-relays to the Tasks UI.
+a chat-visible completion via the post-process service, and mirrors each
+state change onto the runtime-trace notification channel that the Rust
+gateway relays to the Tasks UI.
 """
 
 from __future__ import annotations
@@ -128,11 +128,19 @@ async def test_background_task_end_to_end_pipeline(
 
         async def _reached_terminal() -> bool:
             persisted = await store.get_task(task.task_id)
-            return persisted is not None and persisted.status in {
+            events = await store.list_events(task.task_id)
+            terminal_statuses = {
                 BackgroundTaskStatus.SUCCEEDED,
                 BackgroundTaskStatus.FAILED,
                 BackgroundTaskStatus.CANCELLED,
             }
+            return (
+                persisted is not None
+                and persisted.status in terminal_statuses
+                and BackgroundTaskStatus.SUCCEEDED in {event.to_status for event in events}
+                and len(postprocess.calls) == 1
+                and len(trace_store.records) == 1
+            )
 
         await _wait_until(_reached_terminal)
     finally:
@@ -208,7 +216,12 @@ async def test_background_task_failure_broadcasts_and_delivers(
 
         async def _failed() -> bool:
             persisted = await store.get_task(task.task_id)
-            return persisted is not None and persisted.status is BackgroundTaskStatus.FAILED
+            return (
+                persisted is not None
+                and persisted.status is BackgroundTaskStatus.FAILED
+                and len(postprocess.calls) == 1
+                and len(trace_store.records) == 1
+            )
 
         await _wait_until(_failed)
     finally:
