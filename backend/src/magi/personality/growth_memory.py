@@ -24,6 +24,7 @@ from .growth_models import (
     PersonalityEvolution,
     RelationshipProfile,
 )
+from .growth_schema import ensure_growth_memory_schema
 
 logger = logging.getLogger(__name__)
 
@@ -61,84 +62,7 @@ class GrowthMemoryEngine:
         Path(self._expanded_db_path).parent.mkdir(parents=True, exist_ok=True)
 
         async with sqlite_connection_async(self._expanded_db_path) as db:
-            # milestonetable
-            await db.execute("""
-                create table IF NOT EXISTS milestones (
-                    id TEXT primary key,
-                    type TEXT NOT NULL,
-                    title TEXT NOT NULL,
-                    description TEXT NOT NULL,
-                    timestamp real NOT NULL,
-                    metadata TEXT NOT NULL,
-                    persona_id TEXT NOT NULL DEFAULT ''
-                )
-            """)
-
-            # Internal note.
-            await db.execute("""
-                create table IF NOT EXISTS relationships (
-                    user_id TEXT primary key,
-                    depth real NOT NULL,
-                    first_interaction real NOT NULL,
-                    last_interaction real NOT NULL,
-                    total_interactions intEGER NOT NULL,
-                    interaction_types TEXT NOT NULL,
-                    sentiment_score real NOT NULL,
-                    trust_level real NOT NULL,
-                    notes TEXT NOT NULL,
-                    updated_at real NOT NULL,
-                    persona_id TEXT NOT NULL DEFAULT ''
-                )
-            """)
-
-            # Migration: add persona_id column if missing (existing DBs).
-            for tbl in ("milestones", "relationships"):
-                try:
-                    await db.execute(f"ALTER TABLE {tbl} ADD COLUMN persona_id TEXT NOT NULL DEFAULT ''")
-                except Exception:
-                    pass  # Column already exists
-
-            # personalityevolutiontable
-            await db.execute("""
-                create table IF NOT EXISTS personality_evolution (
-                    id intEGER primary key AUTOINCREMENT,
-                    timestamp real NOT NULL,
-                    aspect TEXT NOT NULL,
-                    previous_value TEXT NOT NULL,
-                    new_value TEXT NOT NULL,
-                    confidence real NOT NULL,
-                    reason TEXT NOT NULL
-                )
-            """)
-
-            # statisticstable
-            await db.execute("""
-                create table IF NOT EXISTS growth_statistics (
-                    key TEXT primary key,
-                    value TEXT NOT NULL,
-                    updated_at real NOT NULL
-                )
-            """)
-
-            # createindex
-            await db.execute("""
-                create index IF NOT EXISTS idx_milestones_timestamp
-                ON milestones(timestamp DESC)
-            """)
-            await db.execute("""
-                create index IF NOT EXISTS idx_milestones_persona
-                ON milestones(persona_id, timestamp DESC)
-            """)
-            await db.execute("""
-                create index IF NOT EXISTS idx_relationships_updated
-                ON relationships(updated_at DESC)
-            """)
-            await db.execute("""
-                create index IF NOT EXISTS idx_relationships_persona
-                ON relationships(persona_id, user_id)
-            """)
-
-            await db.commit()
+            await ensure_growth_memory_schema(db)
 
     # Internal note.
 
