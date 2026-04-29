@@ -13,11 +13,11 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from ...core.logger import get_logger
-from ...core.runtime_bindings import (
-    require_control_interaction_broker,
-    require_control_session_store,
+from ...agent.control.provider import (
+    resolve_control_interaction_broker,
+    resolve_control_session_store,
 )
+from ...core.logger import get_logger
 from ...agent.control.common import InteractionTimeoutError
 
 _BACKGROUND_AGENT_PREFIX = "background:"
@@ -175,8 +175,8 @@ class AskUserQuestionTool(Tool):
         timeout_seconds = max(1.0, min(timeout_seconds, 3600.0))
 
         try:
-            store = require_control_session_store()
-            broker = require_control_interaction_broker()
+            store = resolve_control_session_store()
+            broker = resolve_control_interaction_broker()
         except RuntimeError as exc:
             return ToolResult(success=False, error=str(exc))
 

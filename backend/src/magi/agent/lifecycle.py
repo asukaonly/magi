@@ -10,9 +10,7 @@ from ..bootstrap.background_tasks import (
 )
 from ..chat import get_chat_read_service
 from ..core.logger import get_logger
-from ..core.runtime_bindings import (
-    require_control_session_store,
-)
+from ..agent.control.provider import resolve_control_session_store
 from ..agent.control.permission.provider import get_permission_gateway
 from ..tools import tool_registry
 from ..transport.chat_events import broadcast_background_task_state_changed
@@ -96,7 +94,7 @@ class AgentRuntimeModule(LifecycleModule):
                 background_dispatcher=background_wiring.dispatcher if bg_settings.enabled else None,
                 background_launch_service=background_wiring.launch_service if bg_settings.enabled else None,
                 permission_gateway_provider=get_permission_gateway,
-                control_session_store_provider=require_control_session_store,
+                control_session_store_provider=resolve_control_session_store,
             ),
             create_default_agent=create_default_agent_factory(
                 llm_adapter=llm_adapter,
@@ -105,7 +103,7 @@ class AgentRuntimeModule(LifecycleModule):
                 unified_memory=unified_memory,
                 plugin_manager=plugin_manager,
                 sensor_registry=sensor_registry,
-                control_session_store_provider=require_control_session_store,
+                control_session_store_provider=resolve_control_session_store,
             ),
             idle_ttl_seconds=config.agent.runtime.task_agent_manager_idle_ttl_seconds,
             max_dynamic_instances=config.agent.runtime.task_agent_manager_max_dynamic_instances,

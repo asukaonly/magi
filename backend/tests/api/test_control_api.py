@@ -46,10 +46,10 @@ async def wiring(monkeypatch):
     broker = InteractionBroker()
     session_store = ControlSessionStore()
 
-    monkeypatch.setattr(control_module, "require_control_settings_manager", lambda: manager)
-    monkeypatch.setattr(control_module, "require_permission_rule_store", lambda: rules)
-    monkeypatch.setattr(control_module, "require_control_interaction_broker", lambda: broker)
-    monkeypatch.setattr(control_module, "require_control_session_store", lambda: session_store)
+    monkeypatch.setattr(control_module, "resolve_control_settings_manager", lambda: manager)
+    monkeypatch.setattr(control_module, "resolve_permission_rule_store", lambda: rules)
+    monkeypatch.setattr(control_module, "resolve_control_interaction_broker", lambda: broker)
+    monkeypatch.setattr(control_module, "resolve_control_session_store", lambda: session_store)
 
     return {
         "manager": manager,
@@ -376,7 +376,7 @@ async def test_get_pending_permissions_filters_by_session(wiring, monkeypatch):
     registry = PendingPermissionRegistry()
     monkeypatch.setattr(
         control_module,
-        "require_pending_permission_registry",
+        "resolve_pending_permission_registry",
         lambda: registry,
     )
 
@@ -426,7 +426,7 @@ def test_get_pending_permissions_without_registry_returns_empty(
 
     monkeypatch.setattr(
         control_module,
-        "require_pending_permission_registry",
+        "resolve_pending_permission_registry",
         _raise,
     )
 

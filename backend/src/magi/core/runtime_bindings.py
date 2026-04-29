@@ -29,28 +29,3 @@ def require_agent_runtime():
 def require_background_task_manager():
     """Return the active background-task manager binding."""
     return _require_binding("background_task_manager")
-
-
-def require_control_session_store():
-    """Return the active control-plane session store binding."""
-    return _require_binding("control_session_store")
-
-
-def require_control_settings_manager():
-    """Return the active control-plane settings manager binding."""
-    return _require_binding("control_settings_manager")
-
-
-def require_permission_rule_store():
-    """Return the active permission rule store binding."""
-    return _require_binding("permission_rule_store")
-
-
-def require_control_interaction_broker():
-    """Return the active control-plane interaction broker binding."""
-    return _require_binding("control_interaction_broker")
-
-
-def require_pending_permission_registry():
-    """Return the active pending-permission registry binding."""
-    return _require_binding("pending_permission_registry")

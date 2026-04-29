@@ -227,6 +227,11 @@ def test_runtime_bindings_only_expose_boundary_consumed_services() -> None:
     assert "require_plugin_manager" not in runtime_bindings
     assert "require_sensor_registry" not in runtime_bindings
     assert "require_runtime_trace_store" not in runtime_bindings
+    assert "require_control_session_store" not in runtime_bindings
+    assert "require_control_settings_manager" not in runtime_bindings
+    assert "require_permission_rule_store" not in runtime_bindings
+    assert "require_control_interaction_broker" not in runtime_bindings
+    assert "require_pending_permission_registry" not in runtime_bindings
     assert "require_scheduler_service" not in runtime_bindings
     assert "require_sensor_scheduler_contrib" not in runtime_bindings
     assert "require_permission_gateway" not in runtime_bindings

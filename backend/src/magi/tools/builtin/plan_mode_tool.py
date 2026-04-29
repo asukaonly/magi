@@ -10,8 +10,8 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from ...agent.control.chat_state_persister import persist_plan_state_message
+from ...agent.control.provider import resolve_control_session_store
 from ...core.logger import get_logger
-from ...core.runtime_bindings import require_control_session_store
 from ...runtime_defaults import DEFAULT_USER_ID
 from ..schema import (
     ParameterType,
@@ -79,7 +79,7 @@ class EnterPlanModeTool(Tool):
                 error="enter_plan_mode requires an active session",
             )
         try:
-            store = require_control_session_store()
+            store = resolve_control_session_store()
         except RuntimeError as exc:
             return ToolResult(success=False, error=str(exc))
         state = await store.enter_plan_mode(sid)
@@ -137,7 +137,7 @@ class ExitPlanModeTool(Tool):
                 error="exit_plan_mode requires a non-empty 'plan'",
             )
         try:
-            store = require_control_session_store()
+            store = resolve_control_session_store()
         except RuntimeError as exc:
             return ToolResult(success=False, error=str(exc))
         state = await store.exit_plan_mode(sid, plan_text=plan_text)
