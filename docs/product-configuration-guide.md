@@ -364,6 +364,7 @@ The main timeline page is a semantic-zoom review surface for the user's own acti
 
 Expected product behavior:
 
+- the page should prioritize a window overview, aggregated state summary, scale-specific review lane, and evidence drawer
 - the primary timeline experience should support `month`, `week`, `day`, and `hour` scales without compatibility views for the older feed-style layout
 - `month` should emphasize reflection windows and self-state patterns derived from L2/L3 memory
 - `week` and `day` should emphasize clustered periods instead of raw one-line logs

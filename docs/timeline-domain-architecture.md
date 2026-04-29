@@ -115,6 +115,25 @@ Assembled by `TimelineContextBundleBuilder` for UI detail panels:
 - `l4_related_procedures` — procedural memory matches
 - `chat_excerpts` — related chat turns
 
+## Review Surface Product Contract
+
+The timeline page is a personal review workspace, not a raw memory-debug panel.
+Each viewport should help the user answer four questions:
+
+- What happened during this time window?
+- Which activities, state changes, or themes matter most?
+- Which items are worth opening for evidence?
+- Why did Magi make this interpretation, and can the user trust it?
+
+The page must therefore separate user-facing interpretation from intermediate
+memory artifacts. Raw L1 events, L2 assertions, L3 summaries, and L4 procedures
+remain available as evidence, but the primary viewport should present a clear
+overview first, then prioritized review units, then drill-down evidence.
+
+Detailed execution plans, delivery sequencing, and temporary UI workups for the
+review surface belong in `docs/dev/` rather than this root architecture
+document.
+
 ## Module Responsibilities
 
 ### `adapter.py` — TimelineAdapter
@@ -208,26 +227,34 @@ POST /timeline/digests/generate
 
 ## Frontend Components
 
-The timeline page renders scale-specific lanes:
+The timeline page renders a scale-specific review surface. The target
+component roles are:
 
 | Scale | Components |
 |-------|-----------|
-| month | StateBandOverlay + DigestCards + HighlightCards + MonthOverviewLane |
-| week  | StateBandOverlay + DigestCards + HighlightCards + DayClusterLane |
-| day   | StateBandOverlay + DigestCards + DayClusterLane |
-| hour  | HourDetailLane (raw events only) |
+| month | TimelineWindowOverview + TimelineStateSummary + MonthThemeLane + SourceMixPanel |
+| week  | TimelineWindowOverview + TimelineStateSummary + WeekRhythmLane |
+| day   | TimelineWindowOverview + TimelineStateSummary + DaySegmentLane |
+| hour  | HourEvidenceLane + SourceFilterBar |
 
 Key components:
 
 - `TimelineViewport` — master scale dispatcher
 - `TimelineToolbar` — scale/search/navigation controls
-- `TimelineContextDrawer` — right sidebar detail panel (context bundle)
-- `StateBandOverlay` — 3-metric grid (valence, stress, engagement) + band strip + shift markers
-- `DayClusterLane` — cluster cards with time range, duration, summary, source badges, keywords
-- `HourDetailLane` — raw event list with timestamps
-- `MonthOverviewLane` — stacked activity distribution + reflection cards
-- `DigestCards` — L3 temporal digests with generation trigger
-- `HighlightCards` — top clusters by event count
+- `TimelineWindowOverview` — user-facing summary and key takeaways for the selected window
+- `TimelineStateSummary` — aggregated mood, stress, engagement, and notable state changes
+- `MonthThemeLane` — prioritized monthly themes derived from reflections, clusters, and sources
+- `WeekRhythmLane` — day-grouped weekly rhythm and key periods
+- `DaySegmentLane` — episode-backed or time-of-day activity blocks
+- `HourEvidenceLane` — raw evidence list with timestamps and source labels
+- `SourceMixPanel` — compact source contribution summary
+- `TimelineContextDrawer` — right-side evidence and reasoning panel backed by context bundles
+
+Existing component names may be reused during implementation, but their output
+must follow the product hierarchy above. The main viewport must not render one
+row per state band as primary content. Digest generation remains a separate
+capability and should not be treated as a prerequisite for the core review
+surface.
 
 ## Dependency Rules
 
