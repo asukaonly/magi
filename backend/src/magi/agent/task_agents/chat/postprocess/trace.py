@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from ....agent.trace import now_wall_ms
-from ....runtime_trace import TraceLlmCallRecord, TraceSpanRecord, TraceTurnRecord
-from .postprocess_components import ChatOutcomeWriter
-from .postprocess_utils import (
+from .....agent.trace import now_wall_ms
+from .....runtime_trace import TraceLlmCallRecord, TraceSpanRecord, TraceTurnRecord
+from .components import ChatOutcomeWriter
+from .utils import (
     build_root_span_id,
     build_span_id,
     build_trace_id,

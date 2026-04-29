@@ -22,15 +22,15 @@ from ..common import (
 )
 from .contracts import ChatParseOutcome, ChatRuntimeContext
 from .history_service import ChatHistoryService
-from .postprocess_background import ChatPostprocessBackgroundMixin
-from .postprocess_components import ChatOutcomeWriter, ChatRuntimeNotifier
-from .postprocess_intent import ChatPostprocessIntentMixin
-from .postprocess_memory import ChatPostprocessMemoryMixin
-from .postprocess_outcomes import ChatPostprocessOutcomeMixin
-from .postprocess_session import ChatPostprocessSessionMixin
-from .postprocess_constants import CHAT_TOOL_LOOP_STEP_EVENT_TYPE
-from .postprocess_tool_events import ChatPostprocessToolEventMixin
-from .postprocess_trace import ChatPostprocessTraceMixin
+from .postprocess.background import ChatPostprocessBackgroundMixin
+from .postprocess.components import ChatOutcomeWriter, ChatRuntimeNotifier
+from .postprocess.constants import CHAT_TOOL_LOOP_STEP_EVENT_TYPE
+from .postprocess.intent import ChatPostprocessIntentMixin
+from .postprocess.memory import ChatPostprocessMemoryMixin
+from .postprocess.outcomes import ChatPostprocessOutcomeMixin
+from .postprocess.session import ChatPostprocessSessionMixin
+from .postprocess.tool_events import ChatPostprocessToolEventMixin
+from .postprocess.trace import ChatPostprocessTraceMixin
 from .session_run_coordinator import TurnSupersession
 
 if TYPE_CHECKING:

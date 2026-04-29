@@ -147,6 +147,7 @@ Recent progress:
 - Chat post-processing intent-routing trace helpers now live in `postprocess_intent.py`.
 - Chat post-processing background completion helpers now live in `postprocess_background.py`.
 - Chat post-processing memory/reflection helpers now live in `postprocess_memory.py`.
+- Chat post-processing mixins now live under the `postprocess/` package, with `postprocess_service.py` kept as the public orchestration facade.
 - Settings page navigation and sub-selection state now lives in `useSettingsNavigation.ts`.
 - Settings page tool config loading and draft mutation state now lives in `useSettingsTools.ts`.
 - Settings page config/control draft loading and mutation state now lives in `useSettingsConfig.ts`.

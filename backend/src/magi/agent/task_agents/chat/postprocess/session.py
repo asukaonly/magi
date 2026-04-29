@@ -5,8 +5,8 @@ from __future__ import annotations
 import inspect
 from typing import Any, Callable, Protocol, cast
 
-from ....core.logger import get_logger
-from .contracts import ChatRuntimeContext
+from .....core.logger import get_logger
+from ..contracts import ChatRuntimeContext
 
 logger = get_logger(__name__)
 

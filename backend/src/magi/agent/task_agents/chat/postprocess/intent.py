@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from typing import Any, Protocol, cast
 
-from ....agent.runtime.contracts import FactRecord
-from ....agent.trace import now_wall_ms
-from ....runtime_trace import (
+from .....agent.runtime.contracts import FactRecord
+from .....agent.trace import now_wall_ms
+from .....runtime_trace import (
     TraceIntentResolutionRecord,
     TraceLlmCallRecord,
     TraceSpanRecord,
 )
-from .contracts import ChatRuntimeContext
+from ..contracts import ChatRuntimeContext
 
 
 class _IntentPostprocessHostProtocol(Protocol):

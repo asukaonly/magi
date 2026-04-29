@@ -6,13 +6,13 @@ import asyncio
 import time
 from typing import Any, Protocol, cast
 
-from ....agent.runtime.contracts import FactRecord
-from ....core.logger import get_logger
-from ....memory.l3.models import TaskOutcomePacket
-from ....personality.feature_flags import get_personality_feature_flags
-from ....personality.interaction_analyzer import analyze_interaction
-from ..common import ExecutionMode, ExecutionResult, IncomingFactKind
-from .contracts import ChatRuntimeContext
+from .....agent.runtime.contracts import FactRecord
+from .....core.logger import get_logger
+from .....memory.l3.models import TaskOutcomePacket
+from .....personality.feature_flags import get_personality_feature_flags
+from .....personality.interaction_analyzer import analyze_interaction
+from ...common import ExecutionMode, ExecutionResult, IncomingFactKind
+from ..contracts import ChatRuntimeContext
 
 logger = get_logger(__name__)
 

@@ -6,9 +6,9 @@ import json
 import uuid
 from typing import Any, Protocol, cast
 
-from ....agent.trace import now_wall_ms
-from ....chat import ChatMessageRecord
-from ...background.contracts import BackgroundTask, BackgroundTaskStatus
+from .....agent.trace import now_wall_ms
+from .....chat import ChatMessageRecord
+from ....background.contracts import BackgroundTask, BackgroundTaskStatus
 
 
 class _BackgroundPostprocessHostProtocol(Protocol):

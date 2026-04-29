@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 from typing import Any, Protocol, cast
 
-from ....chat import ChatMessageRecord
-from ..common import IncomingFactKind
-from .contracts import ChatRuntimeContext
-from .postprocess_components import ChatOutcomeWriter
+from .....chat import ChatMessageRecord
+from ...common import IncomingFactKind
+from ..contracts import ChatRuntimeContext
+from .components import ChatOutcomeWriter
 
 
 class _OutcomePostprocessHostProtocol(Protocol):

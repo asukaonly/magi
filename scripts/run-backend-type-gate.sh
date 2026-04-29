@@ -24,12 +24,12 @@ export PYTHONPATH="$ROOT_DIR/backend/src:$ROOT_DIR/sdk/src${PYTHONPATH:+:$PYTHON
   src/magi/agent/execution/function_calling_tool_execution.py \
   src/magi/agent/execution/function_calling_tracing.py \
   src/magi/agent/execution/function_calling_types.py \
-  src/magi/agent/task_agents/chat/postprocess_background.py \
-  src/magi/agent/task_agents/chat/postprocess_intent.py \
-  src/magi/agent/task_agents/chat/postprocess_memory.py \
-  src/magi/agent/task_agents/chat/postprocess_outcomes.py \
-  src/magi/agent/task_agents/chat/postprocess_session.py \
-  src/magi/agent/task_agents/chat/postprocess_tool_events.py \
+  src/magi/agent/task_agents/chat/postprocess/background.py \
+  src/magi/agent/task_agents/chat/postprocess/intent.py \
+  src/magi/agent/task_agents/chat/postprocess/memory.py \
+  src/magi/agent/task_agents/chat/postprocess/outcomes.py \
+  src/magi/agent/task_agents/chat/postprocess/session.py \
+  src/magi/agent/task_agents/chat/postprocess/tool_events.py \
   src/magi/agent/workers/worker_actions.py \
   src/magi/agent/workers/worker_launch.py \
   src/magi/agent/workers/worker_prompting.py \
