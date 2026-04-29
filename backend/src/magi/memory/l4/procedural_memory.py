@@ -20,6 +20,10 @@ from ..embedding.embedding_service import EmbeddingProfile, MemoryEmbeddingServi
 from ..event_contracts import MemoryEvent
 from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
 from ..embedding.sqlite_vec_index import SqliteVecIndex, VectorSearchHit
+from .procedural_memory_advisory import (
+    build_tool_advisory,
+    is_tool_advisory_notable,
+)
 from .procedural_memory_schema import (
     DEFAULT_STRATEGY_EXTRACTION_THRESHOLD,
     EMBEDDING_STATUS_DISABLED,
@@ -401,40 +405,8 @@ class L4ProceduralMemoryStore:
             if row is None:
                 # Tool has no execution history — no advisory.
                 continue
-
-            breaker = str(row["circuit_breaker_state"])
-            available = breaker != "open"
-            success_rate = float(row["success_rate"])
-            total_attempts = int(row["total_attempts"])
-
-            # Extract strategy hint from optimized_prompt (may be JSON or plain text).
-            strategy_hint = self._extract_strategy_hint(row["optimized_prompt"])
-
-            # Compute context fit if task_context provided.
-            context_fit = self._compute_context_fit(
-                row["context_affinity"], task_context
-            )
-
-            # Build risk note.
-            risk_note = None
-            if breaker == "open":
-                risk_note = "Circuit breaker open: consecutive failures detected"
-            elif breaker == "half_open":
-                risk_note = "Circuit breaker recovering: recent failures observed"
-            elif success_rate < 0.5 and total_attempts >= 3:
-                risk_note = f"Low success rate ({success_rate:.0%} over {total_attempts} attempts)"
-
             result.append(
-                {
-                    "tool_name": name,
-                    "available": available,
-                    "breaker_state": breaker,
-                    "success_rate": success_rate,
-                    "total_attempts": total_attempts,
-                    "strategy_hint": strategy_hint,
-                    "context_fit": context_fit,
-                    "risk_note": risk_note,
-                }
+                build_tool_advisory(row=row, tool_name=name, task_context=task_context)
             )
 
         return result
@@ -475,42 +447,15 @@ class L4ProceduralMemoryStore:
 
         result: List[Dict[str, Any]] = []
         for row in rows:
-            breaker = str(row["circuit_breaker_state"])
-            available = breaker != "open"
-            success_rate = float(row["success_rate"])
-            total_attempts = int(row["total_attempts"])
-            strategy_hint = self._extract_strategy_hint(row["optimized_prompt"])
-            context_fit = self._compute_context_fit(row["context_affinity"], task_context)
-
-            # Post-filter: only include truly notable tools.
-            is_notable = (
-                breaker != "closed"
-                or strategy_hint is not None
-                or (success_rate < 0.7 and total_attempts >= 3)
+            advisory = build_tool_advisory(
+                row=row,
+                tool_name=str(row["skill_name"]),
+                task_context=task_context,
             )
-            if not is_notable:
+            if not is_tool_advisory_notable(advisory):
                 continue
 
-            risk_note = None
-            if breaker == "open":
-                risk_note = "Circuit breaker open: consecutive failures detected"
-            elif breaker == "half_open":
-                risk_note = "Circuit breaker recovering: recent failures observed"
-            elif success_rate < 0.5 and total_attempts >= 3:
-                risk_note = f"Low success rate ({success_rate:.0%} over {total_attempts} attempts)"
-
-            result.append(
-                {
-                    "tool_name": str(row["skill_name"]),
-                    "available": available,
-                    "breaker_state": breaker,
-                    "success_rate": success_rate,
-                    "total_attempts": total_attempts,
-                    "strategy_hint": strategy_hint,
-                    "context_fit": context_fit,
-                    "risk_note": risk_note,
-                }
-            )
+            result.append(advisory)
             if len(result) >= limit:
                 break
         return result
