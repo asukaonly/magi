@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from .memory_schemas import ProcedureResponse
+from ..schemas import ProcedureResponse
 
 
 def procedure_response_from_skill(item: Mapping[str, Any]) -> ProcedureResponse:

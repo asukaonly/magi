@@ -6,7 +6,7 @@ from typing import Any, Dict
 
 from fastapi import HTTPException, status
 
-from ...memory.event_contracts import MemoryEvent
+from magi.memory.event_contracts import MemoryEvent
 
 
 def canonical_self_id(unified_memory: Any) -> str:

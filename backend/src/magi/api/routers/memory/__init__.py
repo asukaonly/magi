@@ -9,39 +9,39 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Query, status
 
-from ...chat import get_chat_read_service
-from ...core.logger import get_logger
-from ...core.runtime_bindings import (
+from magi.chat import get_chat_read_service
+from magi.core.logger import get_logger
+from magi.core.runtime_bindings import (
     require_hybrid_retrieval_service,
     require_memory_integration,
     require_scenario_llm_pool,
     require_unified_memory,
 )
-from ...memory.eval_support.contracts import EvalMemoryQuery, EvalMemoryWriteRecord
-from ...memory.eval_support.reader import EvalMemoryReader
-from ...memory.eval_support.writer import EvalMemoryWriter
-from ...memory.hybrid_retrieval import build_query
-from ...memory.l2.models import ManualL2EventRequest
-from .memory_eval_answering import (
+from magi.memory.eval_support.contracts import EvalMemoryQuery, EvalMemoryWriteRecord
+from magi.memory.eval_support.reader import EvalMemoryReader
+from magi.memory.eval_support.writer import EvalMemoryWriter
+from magi.memory.hybrid_retrieval import build_query
+from magi.memory.l2.models import ManualL2EventRequest
+from .eval.answering import (
     EVAL_ANSWER_TIMEOUT as _EVAL_ANSWER_TIMEOUT,
     format_l2_context as _format_l2_context,
     is_counting_or_aggregation_question as _is_counting_or_aggregation_question,
     is_temporal_reasoning_question as _is_temporal_reasoning_question,
     synthesize_eval_answer,
 )
-from .memory_clear import build_clear_memory_response as _build_clear_memory_response
-from .memory_l0_sessions import (
+from .clear import build_clear_memory_response as _build_clear_memory_response
+from .l0.sessions import (
     build_l0_session_list_items,
     empty_l0_sessions_response,
     filter_l0_session_ids_by_query,
     session_ids_by_user,
     sorted_l0_session_ids,
 )
-from .memory_l1_events import (
+from .l1.events import (
     build_l1_event_query_args as _build_l1_event_query_args,
     build_l1_events_response as _build_l1_events_response,
 )
-from .memory_l2_status import (
+from .l2.status import (
     build_background_pending_response as _build_background_pending_response,
     build_embedding_pending_from_store as _build_embedding_pending_from_store,
     build_l2_pending_payload as _build_l2_pending_payload,
@@ -52,12 +52,12 @@ from .memory_l2_status import (
     empty_l2_pending_response as _empty_l2_pending_response,
     empty_l2_statistics_response as _empty_l2_statistics_response,
 )
-from .memory_procedures import build_procedure_list_response as _build_procedure_list_response
-from .memory_route_helpers import (
+from .l4.procedures import build_procedure_list_response as _build_procedure_list_response
+from .helpers import (
     canonical_self_id as _canonical_self_id,
     serialize_memory_event as _serialize_memory_event,
 )
-from .memory_schemas import (
+from .schemas import (
     AssertionCorrectionRequest,
     AssertionFeedbackRequest,
     EpisodeAnnotationRequest,
@@ -73,7 +73,7 @@ from .memory_schemas import (
     ManualL2EventBody,
     RetrievalRequest,
 )
-from .memory_statistics import build_layer_statistics as _build_layer_statistics
+from .statistics import build_layer_statistics as _build_layer_statistics
 
 logger = get_logger(__name__)
 

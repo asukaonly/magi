@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from .memory_route_helpers import build_embedding_pending, build_l2_pending_breakdown
+from ..helpers import build_embedding_pending, build_l2_pending_breakdown
 
 
 def default_projection_backlog() -> dict[str, int]:

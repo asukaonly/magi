@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from ...runtime_defaults import DEFAULT_USER_ID
-from .memory_session_display import derive_l0_session_display
+from magi.runtime_defaults import DEFAULT_USER_ID
+from .display import derive_l0_session_display
 
 
 def empty_l0_sessions_response(*, limit: int, offset: int) -> dict[str, Any]:

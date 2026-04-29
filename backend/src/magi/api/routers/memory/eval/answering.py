@@ -7,12 +7,12 @@ from typing import Any
 
 from fastapi import HTTPException, status
 
-from ...config.models import LLMScenario, ThinkingDepth
-from ...core.logger import get_logger
-from ...core.runtime_bindings import require_scenario_llm_pool
-from ...llm import LLMProviderBridge
-from ...memory.answering import build_answer_prompt_payload
-from ...memory.eval_support.answer_normalization import normalize_eval_answer
+from magi.config.models import LLMScenario, ThinkingDepth
+from magi.core.logger import get_logger
+from magi.core.runtime_bindings import require_scenario_llm_pool
+from magi.llm import LLMProviderBridge
+from magi.memory.answering import build_answer_prompt_payload
+from magi.memory.eval_support.answer_normalization import normalize_eval_answer
 
 logger = get_logger(__name__)
 

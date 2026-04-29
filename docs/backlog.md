@@ -202,16 +202,16 @@ Recent progress:
 - Chat write-store schema helpers now live in `chat/store_schema.py`.
 - L0 working-memory checkpoint schema helpers now live in `l0/working/schema.py`.
 - L0 working-memory checkpoint serialization helpers now live in `l0/working/serialization.py`.
-- L0 memory session display helpers now live in `memory_session_display.py`.
-- Memory API clear response helpers now live in `memory_clear.py`.
-- Memory API statistics helpers now live in `memory_statistics.py`.
-- Memory API L0 session list helpers now live in `memory_l0_sessions.py`.
-- Memory API L1 event list helpers now live in `memory_l1_events.py`.
-- Memory API L2 status and pending helpers now live in `memory_l2_status.py`.
-- Memory API procedure response helpers now live in `memory_procedures.py`.
-- Memory eval answer synthesis helpers now live in `memory_eval_answering.py`.
-- Memory route utility helpers now live in `memory_route_helpers.py`.
-- Memory API Pydantic schemas now live in `memory_schemas.py`.
+- L0 memory session display helpers now live in `api/routers/memory/l0/display.py`.
+- Memory API clear response helpers now live in `api/routers/memory/clear.py`.
+- Memory API statistics helpers now live in `api/routers/memory/statistics.py`.
+- Memory API L0 session list helpers now live in `api/routers/memory/l0/sessions.py`.
+- Memory API L1 event list helpers now live in `api/routers/memory/l1/events.py`.
+- Memory API L2 status and pending helpers now live in `api/routers/memory/l2/status.py`.
+- Memory API procedure response helpers now live in `api/routers/memory/l4/procedures.py`.
+- Memory eval answer synthesis helpers now live in `api/routers/memory/eval/answering.py`.
+- Memory route utility helpers now live in `api/routers/memory/helpers.py`.
+- Memory API Pydantic schemas now live in `api/routers/memory/schemas.py`.
 - Config API Pydantic schemas now live in `config_schemas.py`.
 - Personality API Pydantic schemas now live in `personality_config_schemas.py`.
 - Chat planning request-profile and seed-subtask heuristics now live in `planning_heuristics.py`.
