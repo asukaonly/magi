@@ -10,6 +10,7 @@ import time
 from collections import Counter
 from typing import Any
 
+from ...config.loader import get_user_preference
 from ...llm import LLMProviderBridge, LLMScenario, ScenarioLLMPool
 from magi_plugin_sdk.i18n import get_current_language
 from .models import (
@@ -22,6 +23,24 @@ from .models import (
 
 logger = logging.getLogger(__name__)
 _TOP_TERM_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9_-]{2,}")
+_CJK_PATTERN = re.compile(r"[\u3400-\u9fff]")
+_LATIN_WORD_PATTERN = re.compile(r"[A-Za-z]{3,}")
+_SOURCE_LABELS_ZH = {
+    "chat": "对话",
+    "chrome_history": "浏览记录",
+    "git_activity": "Git 活动",
+    "system_media": "媒体播放",
+    "netease_music": "网易云音乐",
+    "calendar": "日历",
+    "terminal_history": "终端记录",
+}
+_EVENT_TYPE_LABELS_ZH = {
+    "UserMessage": "用户消息",
+    "AIResponse": "助手回复",
+    "TimelineEvent": "时间线事件",
+    "TaskCompleted": "任务完成",
+    "TaskCreated": "任务创建",
+}
 _STOP_TERMS = {
     "about",
     "after",
@@ -70,16 +89,34 @@ _CONSTRAINT_KEYWORDS = {
 }
 
 
+def _target_language_code() -> str:
+    preferred = get_user_preference("language", None)
+    language = str(preferred or get_current_language() or "en").lower()
+    return "zh" if language.startswith("zh") else "en"
+
+
+def _target_language_label() -> str:
+    return "Simplified Chinese (zh-CN)" if _target_language_code() == "zh" else "English"
+
+
 def _target_language_instruction() -> str:
-    language = str(get_current_language() or "en").lower()
-    if language.startswith("zh"):
-        target = "Simplified Chinese (zh-CN)"
-    else:
-        target = "English"
+    target = _target_language_label()
     return (
-        f"- Write user-facing generated fields in {target}: content, key_topics, "
+        f"- The target language is {target}.\n"
+        f"- Write every user-facing generated field in {target}: content, key_topics, "
         "sentiment_summary natural-language strings, and change_and_pattern strings.\n"
+        "- This language rule is mandatory even when evidence, rule_hints, or plugin_summary_features are written in another language.\n"
         "- Preserve event ids, entity ids, URLs, file paths, source names, product names, song titles, and quoted user text as evidence presents them."
+    )
+
+
+def _render_temporal_summary_system_prompt() -> str:
+    return (
+        TEMPORAL_SUMMARY_SYSTEM_PROMPT
+        + "\nLanguage Rules:\n"
+        + f"- Target language: {_target_language_label()}.\n"
+        + "- All user-facing JSON string values MUST use the target language.\n"
+        + "- Evidence text may be in another language; summarize it in the target language unless preserving a name, URL, ID, path, title, or direct quote.\n"
     )
 
 TEMPORAL_SUMMARY_SYSTEM_PROMPT = """You generate temporal memory summaries for a local-first agent.
@@ -187,6 +224,7 @@ class TemporalSummaryLLMService:
             change_and_pattern=self._normalize_change_and_pattern(payload.get("change_and_pattern")),
             importance_aggregate=self._normalize_importance_aggregate(payload.get("importance_aggregate")),
         )
+        self._validate_target_language(output)
         candidate = L3Candidate(
             summary_type="temporal",
             summary_category=pack.summary_category,
@@ -244,7 +282,7 @@ class TemporalSummaryLLMService:
             return None
         adapter, provider_bridge = llm_target
         prompt = self._render_temporal_summary_prompt(pack)
-        system_prompt = TEMPORAL_SUMMARY_SYSTEM_PROMPT
+        system_prompt = _render_temporal_summary_system_prompt()
         started_at = time.perf_counter()
         provider = str(getattr(adapter, "provider_name", "unknown") or "unknown")
         model = str(getattr(adapter, "model_name", "unknown") or "unknown")
@@ -295,16 +333,35 @@ class TemporalSummaryLLMService:
         pack: TemporalEvidencePack,
         fallback_summary: str,
     ) -> TemporalGenerationResult:
+        raw_feature_lines = self._raw_plugin_summary_lines(pack)
+        target_zh = _target_language_code() == "zh"
+        fallback_content = self._build_fallback_content(
+            pack,
+            fallback_summary=fallback_summary,
+            raw_feature_lines=raw_feature_lines,
+        )
         candidate = L3Candidate(
             summary_type="temporal",
             summary_category=pack.summary_category,
-            content=str(fallback_summary).strip(),
+            content=fallback_content,
             source_event_ids=list(pack.source_event_ids),
         )
         summary_overrides: dict[str, object] = {
             "importance_aggregate": pack.importance_aggregate,
             "event_type_distribution": dict(pack.event_type_distribution),
         }
+        if raw_feature_lines:
+            summary_overrides["plugin_summary_features"] = dict(pack.plugin_summary_features)
+        if raw_feature_lines and not target_zh:
+            stitched = [fallback_content, *raw_feature_lines]
+            candidate.content = "\n".join(part for part in stitched if part).strip()
+        return TemporalGenerationResult(
+            candidate=candidate,
+            summary_overrides=summary_overrides,
+            used_fallback=True,
+        )
+
+    def _raw_plugin_summary_lines(self, pack: TemporalEvidencePack) -> list[str]:
         feature_lines: list[str] = []
         for feature in pack.plugin_summary_features.values():
             if not isinstance(feature, dict):
@@ -316,15 +373,95 @@ class TemporalSummaryLLMService:
                 line = str(item).strip()
                 if line and line not in feature_lines:
                     feature_lines.append(line)
-        if feature_lines:
-            stitched = [str(fallback_summary).strip(), *feature_lines]
-            candidate.content = "\n".join(part for part in stitched if part).strip()
-            summary_overrides["plugin_summary_features"] = dict(pack.plugin_summary_features)
-        return TemporalGenerationResult(
-            candidate=candidate,
-            summary_overrides=summary_overrides,
-            used_fallback=True,
-        )
+        return feature_lines
+
+    def _build_fallback_content(
+        self,
+        pack: TemporalEvidencePack,
+        *,
+        fallback_summary: str,
+        raw_feature_lines: list[str],
+    ) -> str:
+        if _target_language_code() != "zh":
+            return str(fallback_summary).strip()
+
+        parts = [f"本时间窗口记录了 {pack.source_event_count} 条可用于记忆的事件"]
+        source_line = self._format_zh_distribution(pack.source_distribution, label_map=_SOURCE_LABELS_ZH)
+        if source_line:
+            parts.append(f"来源包括 {source_line}")
+        event_type_line = self._format_zh_distribution(pack.event_type_distribution, label_map=_EVENT_TYPE_LABELS_ZH)
+        if event_type_line:
+            parts.append(f"事件类型包括 {event_type_line}")
+        parts.extend(self._build_zh_feature_lines(pack)[:3])
+        if len(parts) == 1 and _CJK_PATTERN.search(str(fallback_summary)):
+            parts.append(str(fallback_summary).strip())
+        if len(parts) == 1 and raw_feature_lines:
+            parts.append("插件提供了结构化摘要特征，但未直接写入正文以避免语言混杂")
+        return "。".join(part.strip().rstrip("。") for part in parts if part.strip()) + "。"
+
+    def _format_zh_distribution(
+        self,
+        distribution: dict[str, object],
+        *,
+        label_map: dict[str, str],
+    ) -> str:
+        entries: list[str] = []
+        for key, value in distribution.items():
+            label = label_map.get(str(key), str(key).replace("_", " "))
+            count: int | None = None
+            if isinstance(value, bool):
+                count = None
+            elif isinstance(value, (int, float)):
+                count = int(value)
+            elif isinstance(value, dict):
+                raw_count = value.get("count") or value.get("event_count")
+                if isinstance(raw_count, (int, float)) and not isinstance(raw_count, bool):
+                    count = int(raw_count)
+            entries.append(f"{label} {count} 条" if count is not None else label)
+        return "、".join(entries[:4])
+
+    def _build_zh_feature_lines(self, pack: TemporalEvidencePack) -> list[str]:
+        lines: list[str] = []
+        for feature in pack.plugin_summary_features.values():
+            if not isinstance(feature, dict):
+                continue
+            focus_domain = str(feature.get("focus_domain") or "").strip()
+            if focus_domain:
+                lines.append(f"浏览活动主要集中在 {focus_domain}")
+            top_domains = feature.get("top_domains")
+            if isinstance(top_domains, list):
+                domains = [str(item.get("domain") or "").strip() for item in top_domains if isinstance(item, dict)]
+                domains = [domain for domain in domains if domain]
+                if domains:
+                    lines.append(f"高频访问域名包括 {'、'.join(domains[:4])}")
+            visit_count = feature.get("visit_count")
+            if isinstance(visit_count, (int, float)) and not isinstance(visit_count, bool):
+                lines.append(f"共压缩了 {int(visit_count)} 次访问记录")
+        return lines
+
+    def _validate_target_language(self, output: TemporalSummaryLLMOutput) -> None:
+        if _target_language_code() != "zh":
+            return
+        for text in self._user_facing_strings(output):
+            if self._looks_like_non_zh_user_text(text):
+                raise ValueError("Temporal LLM output does not match target language zh-CN")
+
+    def _user_facing_strings(self, output: TemporalSummaryLLMOutput) -> list[str]:
+        strings = [output.content, *output.key_topics]
+        if isinstance(output.sentiment_summary, dict):
+            strings.extend(str(value) for value in output.sentiment_summary.values() if isinstance(value, str))
+        if isinstance(output.change_and_pattern, dict):
+            for value in output.change_and_pattern.values():
+                if isinstance(value, list):
+                    strings.extend(str(item) for item in value if isinstance(item, str))
+                elif isinstance(value, str):
+                    strings.append(value)
+        return [item.strip() for item in strings if item.strip()]
+
+    def _looks_like_non_zh_user_text(self, text: str) -> bool:
+        if _CJK_PATTERN.search(text):
+            return False
+        return bool(_LATIN_WORD_PATTERN.search(text))
 
     def _render_temporal_summary_prompt(self, pack: TemporalEvidencePack) -> str:
         payload = {

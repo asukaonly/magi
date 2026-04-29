@@ -120,6 +120,39 @@ def test_parse_temporal_llm_output_into_candidate() -> None:
     assert summary_overrides["importance_aggregate"] == 0.8
 
 
+def test_parse_temporal_llm_output_rejects_english_when_target_is_zh(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = TemporalSummaryLLMService()
+    pack = TemporalEvidencePack(
+        summary_category="day",
+        period_start=100.0,
+        period_end=200.0,
+        source_event_count=2,
+        source_event_ids=["evt-1", "evt-2"],
+        events=[
+            TemporalEvidenceItem(event_id="evt-1", event_type="UserMessage", content="今天在写代码"),
+            TemporalEvidenceItem(event_id="evt-2", event_type="AIResponse", content="继续处理摘要"),
+        ],
+    )
+    monkeypatch.setattr(
+        "magi.memory.l3.temporal_llm_service.get_user_preference",
+        lambda key, default=None: "zh" if key == "language" else default,
+    )
+
+    with pytest.raises(ValueError, match="target language"):
+        service.parse_llm_output(
+            {
+                "content": "The session began with browsing activity and then shifted to development work.",
+                "key_topics": ["browsing", "development"],
+                "change_and_pattern": {
+                    "changes": ["shifted from passive consumption to active development"],
+                    "patterns": ["browsing was confined to a small set of domains"],
+                },
+                "importance_aggregate": 0.7,
+            },
+            pack=pack,
+        )
+
+
 def test_parse_temporal_llm_output_rejects_out_of_range_importance() -> None:
     service = TemporalSummaryLLMService()
     pack = TemporalEvidencePack(
@@ -222,6 +255,46 @@ async def test_generate_temporal_candidate_falls_back_on_invalid_output(monkeypa
 
     assert result.used_fallback is True
     assert result.candidate.content == "rule text"
+
+
+@pytest.mark.asyncio
+async def test_generate_temporal_candidate_falls_back_on_language_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = TemporalSummaryLLMService()
+    pack = TemporalEvidencePack(
+        summary_category="hour",
+        period_start=100.0,
+        period_end=200.0,
+        source_event_count=2,
+        source_event_ids=["evt-1", "evt-2"],
+        events=[
+            TemporalEvidenceItem(event_id="evt-1", event_type="TimelineEvent", content="Visited Gmail"),
+            TemporalEvidenceItem(event_id="evt-2", event_type="TimelineEvent", content="Committed in magi"),
+        ],
+        event_type_distribution={"TimelineEvent": 2},
+        source_distribution={"chrome_history": 1, "git_activity": 1},
+    )
+    monkeypatch.setattr(
+        "magi.memory.l3.temporal_llm_service.get_user_preference",
+        lambda key, default=None: "zh" if key == "language" else default,
+    )
+
+    async def _english_call(_pack, **_kwargs):  # type: ignore[no-untyped-def]
+        return {
+            "content": "The session began with browsing activity and then shifted to development work.",
+            "key_topics": ["browsing", "development"],
+            "change_and_pattern": {"changes": ["shifted from browsing to coding"], "patterns": []},
+        }
+
+    monkeypatch.setattr(service, "_call_temporal_model", _english_call)
+
+    result = await service.generate_temporal_candidate(
+        pack,
+        fallback_summary="The session began with browsing activity and then shifted to development work.",
+    )
+
+    assert result.used_fallback is True
+    assert result.candidate.content.startswith("本时间窗口记录了 2 条可用于记忆的事件")
+    assert "The session began" not in result.candidate.content
 
 
 @pytest.mark.asyncio
@@ -335,6 +408,45 @@ def test_render_temporal_summary_prompt_uses_current_language() -> None:
     assert "Preserve event ids" in prompt
 
 
+def test_render_temporal_summary_prompt_prefers_user_language(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = TemporalSummaryLLMService()
+    pack = TemporalEvidencePack(
+        summary_category="hour",
+        period_start=100.0,
+        period_end=200.0,
+        source_event_count=1,
+        source_event_ids=["evt-1"],
+        events=[TemporalEvidenceItem(event_id="evt-1", event_type="TimelineEvent", content="Visited Gmail")],
+    )
+    monkeypatch.setattr(
+        "magi.memory.l3.temporal_llm_service.get_user_preference",
+        lambda key, default=None: "zh" if key == "language" else default,
+    )
+
+    try:
+        set_current_language(None)
+        prompt = service._render_temporal_summary_prompt(pack)
+    finally:
+        set_current_language(None)
+
+    assert "The target language is Simplified Chinese (zh-CN)" in prompt
+    assert "mandatory even when evidence" in prompt
+
+
+def test_temporal_summary_system_prompt_includes_target_language(monkeypatch: pytest.MonkeyPatch) -> None:
+    from magi.memory.l3.temporal_llm_service import _render_temporal_summary_system_prompt
+
+    monkeypatch.setattr(
+        "magi.memory.l3.temporal_llm_service.get_user_preference",
+        lambda key, default=None: "zh" if key == "language" else default,
+    )
+
+    system_prompt = _render_temporal_summary_system_prompt()
+
+    assert "Target language: Simplified Chinese (zh-CN)" in system_prompt
+    assert "MUST use the target language" in system_prompt
+
+
 @pytest.mark.asyncio
 async def test_build_temporal_evidence_pack_extracts_recurring_constraints() -> None:
     service = TemporalSummaryLLMService()
@@ -396,4 +508,5 @@ async def test_call_temporal_model_no_persona_uses_default_system_prompt(monkeyp
     await service._call_temporal_model(pack)
 
     system_prompt = captured_kwargs.get("system_prompt", "")
-    assert system_prompt == TEMPORAL_SUMMARY_SYSTEM_PROMPT
+    assert system_prompt.startswith(TEMPORAL_SUMMARY_SYSTEM_PROMPT)
+    assert "Language Rules:" in system_prompt
