@@ -212,6 +212,7 @@ Recent progress:
 - L4 procedural memory serialization, trace row, and skill identity helpers now live in `procedural_memory_serialization.py`.
 - L4 procedural memory tool advisory helpers now live in `procedural_memory_advisory.py`.
 - L4 procedural memory execution trace merge and recovery helpers now live in `procedural_memory_traces.py`.
+- L4 procedural memory search result helpers now live in `procedural_memory_search.py`.
 - L4 procedural memory record update-state helpers now live in `procedural_memory_updates.py`.
 - L4 procedural memory embedding helpers now live in `procedural_memory_embeddings.py`.
 - L3 summary store schema helpers now live in `summary_store_schema.py`.

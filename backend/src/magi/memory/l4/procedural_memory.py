@@ -39,6 +39,15 @@ from .procedural_memory_schema import (
     _ADAPTIVE_MAX_THRESHOLD,
     ensure_procedural_memory_schema,
 )
+from .procedural_memory_search import (
+    escaped_skill_like_pattern,
+    fts_backfill_row,
+    ids_from_rows,
+    ordered_skill_dicts_from_rows,
+    plain_skill_like_pattern,
+    ranked_semantic_skills,
+    rows_to_bm25_pairs,
+)
 from .procedural_memory_serialization import (
     adaptive_extraction_threshold,
     compute_context_fit,
@@ -485,7 +494,7 @@ class L4ProceduralMemoryStore:
         semantic = await self._semantic_query_strategies(query=query, limit=limit)
         if semantic:
             return semantic
-        like_query = f"%{query}%"
+        like_query = plain_skill_like_pattern(query)
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
@@ -593,7 +602,7 @@ class L4ProceduralMemoryStore:
                     (escaped, limit),
                 ) as cursor:
                     rows = await cursor.fetchall()
-                return [(str(row[0]), float(row[1])) for row in rows]
+                return rows_to_bm25_pairs(rows)
             except Exception as exc:
                 logger.warning("FTS5 BM25 search failed for L4 skills: %s", exc)
                 return []
@@ -605,8 +614,7 @@ class L4ProceduralMemoryStore:
         limit: int = 50,
     ) -> List[str]:
         """Return skill IDs matching *query* via LIKE keyword search."""
-        escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        like_q = f"%{escaped}%"
+        like_q = escaped_skill_like_pattern(query)
         async with sqlite_connection_async(self.db_path) as db:
             async with db.execute(
                 """
@@ -618,7 +626,7 @@ class L4ProceduralMemoryStore:
                 (like_q, like_q, limit),
             ) as cursor:
                 rows = await cursor.fetchall()
-        return [str(row[0]) for row in rows]
+        return ids_from_rows(rows)
 
     async def fetch_by_ids(self, skill_ids: List[str]) -> List[Dict[str, Any]]:
         """Fetch full skill records by IDs, preserving input order."""
@@ -632,8 +640,7 @@ class L4ProceduralMemoryStore:
                 tuple(skill_ids),
             ) as cursor:
                 rows = await cursor.fetchall()
-        by_id = {str(row["skill_id"]): self._row_to_dict(row) for row in rows}
-        return [by_id[sid] for sid in skill_ids if sid in by_id]
+        return ordered_skill_dicts_from_rows(rows=rows, skill_ids=skill_ids)
 
     async def backfill_fts(self, *, batch_size: int = 500) -> int:
         """Backfill FTS5 index from existing procedural_skills rows."""
@@ -649,9 +656,7 @@ class L4ProceduralMemoryStore:
             ) as cursor:
                 batch: list[tuple[str, str]] = []
                 async for row in cursor:
-                    skill_id = str(row[0])
-                    text = f"{row[1]} {row[2]} {row[3] or ''}"
-                    batch.append((skill_id, tokenize_for_fts(text)))
+                    batch.append(fts_backfill_row(row))
                     if len(batch) >= batch_size:
                         await db.executemany(
                             "INSERT INTO l4_skills_fts(skill_id, content) VALUES (?, ?)",
@@ -1046,19 +1051,12 @@ class L4ProceduralMemoryStore:
                 tuple(skill_ids),
             ) as cursor:
                 rows = await cursor.fetchall()
-        skills_by_id = {str(row["skill_id"]): self._row_to_dict(row) for row in rows}
-        ranked: List[Dict[str, Any]] = []
-        for skill_id in skill_ids:
-            skill = skills_by_id.get(skill_id)
-            if skill is None:
-                continue
-            skill["matched_chunks"] = matched_chunks.get(skill_id, [])
-            if skill["matched_chunks"]:
-                skill["distance"] = float(skill["matched_chunks"][0]["distance"])
-            ranked.append(skill)
-            if len(ranked) >= limit:
-                break
-        return ranked
+        return ranked_semantic_skills(
+            rows=rows,
+            skill_ids=skill_ids,
+            matched_chunks=matched_chunks,
+            limit=limit,
+        )
 
     def _build_skill_embedding_text(
         self,
