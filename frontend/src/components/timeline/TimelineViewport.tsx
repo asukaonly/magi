@@ -110,6 +110,7 @@ export const TimelineViewport: React.FC<TimelineViewportProps> = ({ scale, viewp
           reflections={viewport.reflections}
           stateBands={viewport.state_bands}
           clusters={viewport.clusters}
+          sourceMix={viewport.source_mix}
         />
       )}
       {(scale === 'week' || scale === 'day') && (

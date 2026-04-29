@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter, defaultdict
 from typing import Any
 
 from .cluster_builder import TimelineClusterBuilder
@@ -73,6 +74,7 @@ class TimelineViewportBuilder:
         if clusters:
             self._enrich_cluster_states(clusters, summaries, start=interpreted_query.start, end=interpreted_query.end)
         raw_events = [self._to_raw_event(event) for event in events] if scale == "hour" else []
+        source_mix = self._build_source_mix(events=events, clusters=clusters)
 
         return {
             "viewport": {
@@ -91,6 +93,7 @@ class TimelineViewportBuilder:
             "state_bands": state_bands,
             "state_markers": state_markers,
             "state_transitions": state_transitions,
+            "source_mix": source_mix,
             "clusters": clusters,
             "episodes": episodes if scale in ("day", "week") else [],
             "reflections": reflections if scale == "month" else [],
@@ -184,6 +187,36 @@ class TimelineViewportBuilder:
         transitions.sort(key=lambda t: t["changed_at"])
         return transitions
 
+    def _build_source_mix(
+        self,
+        *,
+        events: list[dict[str, Any]],
+        clusters: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        event_counts: Counter[str] = Counter(self._event_source_type(event) for event in events)
+        duration_seconds: defaultdict[str, float] = defaultdict(float)
+        for cluster in clusters:
+            sources = [str(source) for source in cluster.get("source_types") or [] if str(source).strip()]
+            if not sources:
+                continue
+            share = float(cluster.get("duration_seconds") or 0.0) / max(1, len(sources))
+            for source in sources:
+                duration_seconds[source] += share
+
+        source_types = set(event_counts) | set(duration_seconds)
+        return [
+            {
+                "source_type": source_type,
+                "label": source_type.replace("_", " ").title(),
+                "event_count": int(event_counts.get(source_type, 0)),
+                "duration_seconds": float(duration_seconds.get(source_type, 0.0)),
+            }
+            for source_type in sorted(
+                source_types,
+                key=lambda item: (-event_counts.get(item, 0), -duration_seconds.get(item, 0.0), item),
+            )
+        ]
+
     def _build_reflections(self, *, summaries: list[dict[str, Any]], start: float, end: float) -> list[dict[str, Any]]:
         reflections: list[dict[str, Any]] = []
         for summary in summaries:
@@ -236,6 +269,11 @@ class TimelineViewportBuilder:
                 or ""
             ),
         }
+
+    def _event_source_type(self, event: dict[str, Any]) -> str:
+        metadata = self._event_metadata(event)
+        timeline = metadata.get("timeline") if isinstance(metadata.get("timeline"), dict) else {}
+        return str(timeline.get("source_type") or event.get("source") or "memory")
 
     def _filter_events(
         self,

@@ -60,6 +60,20 @@ const MONTH_VIEWPORT = {
     },
   ],
   state_markers: [],
+  source_mix: [
+    {
+      source_type: 'manual_journal',
+      label: 'Manual journal',
+      event_count: 5,
+      duration_seconds: 3600,
+    },
+    {
+      source_type: 'chat',
+      label: 'Chat',
+      event_count: 3,
+      duration_seconds: 1200,
+    },
+  ],
   clusters: [],
   reflections: [
     {
@@ -105,6 +119,7 @@ const DAY_VIEWPORT = {
       source_summary_ids: ['summary-1'],
     },
   ],
+  source_mix: [],
   clusters: [
     {
       block_id: 'cluster-1',
@@ -160,6 +175,7 @@ const WEEK_VIEWPORT = {
   },
   state_bands: MONTH_VIEWPORT.state_bands,
   state_markers: [],
+  source_mix: [],
   clusters: [
     {
       block_id: 'episode:ep-week-1',
@@ -211,6 +227,7 @@ const HOUR_VIEWPORT = {
   },
   state_bands: MONTH_VIEWPORT.state_bands,
   state_markers: [],
+  source_mix: [],
   clusters: [],
   reflections: [],
   raw_events: [
@@ -240,6 +257,7 @@ const EMPTY_VIEWPORT = {
   },
   state_bands: [],
   state_markers: [],
+  source_mix: [],
   clusters: [],
   reflections: [],
   raw_events: [],
@@ -284,6 +302,8 @@ describe('timeline page', () => {
     expect(await screen.findByText('March reflection')).toBeInTheDocument();
     expect(screen.getByText('A steady month of focused work.')).toBeInTheDocument();
     expect(screen.getAllByText('focused').length).toBeGreaterThan(0);
+    expect(screen.getByText('timeline.sources.manual_journal')).toBeInTheDocument();
+    expect(screen.getByText('timeline.sources.chat')).toBeInTheDocument();
     expect(screen.getByText('work')).toBeInTheDocument();
     expect(screen.getByText('recovery')).toBeInTheDocument();
     expect(timelineApi.getViewport).toHaveBeenCalledWith(

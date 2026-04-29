@@ -68,6 +68,13 @@ export interface TimelineRawEvent {
   source_type: string;
 }
 
+export interface TimelineSourceMixItem {
+  source_type: string;
+  label: string;
+  event_count: number;
+  duration_seconds?: number;
+}
+
 export interface TimelineViewportResponse {
   viewport: {
     scale: 'month' | 'week' | 'day' | 'hour';
@@ -84,6 +91,7 @@ export interface TimelineViewportResponse {
   };
   state_bands: TimelineStateBand[];
   state_markers: TimelineStateMarker[];
+  source_mix: TimelineSourceMixItem[];
   clusters: TimelineClusterBlock[];
   reflections: TimelineReflectionWindow[];
   raw_events: TimelineRawEvent[];

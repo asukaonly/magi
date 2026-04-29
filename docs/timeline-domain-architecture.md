@@ -80,6 +80,7 @@ Assembled by `TimelineViewportBuilder`. Contains:
 - `summary` — cluster count, event count, dominant modes
 - `state_bands` — valence/stress/engagement bands with confidence
 - `state_markers` — detected state shift points
+- `source_mix` — source contribution aggregate for UI distribution panels
 - `clusters` — grouped event blocks (transient or episode-backed)
 - `reflections` — L3 temporal summaries (month scale)
 - `raw_events` — individual events (hour scale)

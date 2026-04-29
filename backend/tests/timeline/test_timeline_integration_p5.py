@@ -319,5 +319,6 @@ class TestViewportEpisodes:
 
         assert "episodes" in result
         assert "state_transitions" in result
+        assert "source_mix" in result
         assert "state_bands" in result
         assert "clusters" in result

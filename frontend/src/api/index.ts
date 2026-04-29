@@ -65,6 +65,7 @@ export type {
   TimelineContextBundle,
   TimelineRawEvent,
   TimelineReflectionWindow,
+  TimelineSourceMixItem,
   TimelineStateBand,
   TimelineStateMarker,
   TimelineViewportResponse,

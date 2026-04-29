@@ -1,15 +1,31 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 
-import type { TimelineClusterBlock, TimelineReflectionWindow, TimelineStateBand } from '@/api/modules/timeline';
+import type {
+  TimelineClusterBlock,
+  TimelineReflectionWindow,
+  TimelineSourceMixItem,
+  TimelineStateBand,
+} from '@/api/modules/timeline';
 
 interface MonthOverviewLaneProps {
   reflections: TimelineReflectionWindow[];
   stateBands: TimelineStateBand[];
   clusters: TimelineClusterBlock[];
+  sourceMix?: TimelineSourceMixItem[];
 }
 
-const buildModeDistribution = (clusters: TimelineClusterBlock[]) => {
+const buildModeDistribution = (clusters: TimelineClusterBlock[], sourceMix?: TimelineSourceMixItem[]) => {
+  if (sourceMix?.length) {
+    return sourceMix
+      .map((item) => ({
+        mode: item.source_type,
+        seconds: Math.max(0, item.duration_seconds || 0),
+        count: Math.max(0, item.event_count || 0),
+      }))
+      .sort((a, b) => b.count - a.count || b.seconds - a.seconds || a.mode.localeCompare(b.mode));
+  }
+
   const map = new Map<string, { seconds: number; count: number }>();
   for (const c of clusters) {
     const mode = c.dominant_mode || 'other';
@@ -82,9 +98,10 @@ export const MonthOverviewLane: React.FC<MonthOverviewLaneProps> = ({
   reflections,
   stateBands: _stateBands,
   clusters,
+  sourceMix,
 }) => {
   const { t } = useTranslation('app');
-  const distribution = buildModeDistribution(clusters);
+  const distribution = buildModeDistribution(clusters, sourceMix);
   const totalSeconds = distribution.reduce((s, d) => s + d.seconds, 0);
   const totalCount = distribution.reduce((s, d) => s + d.count, 0);
   const reflectionCards = reflections
