@@ -70,13 +70,14 @@ Status: active
 Open items:
 
 - keep chat task-agent dependencies flowing through lifecycle/factory wiring; the chat read service factory is now injected into `ChatTaskAgent`, history loading, and postprocess notifications, permission gating is passed into function-calling executors through lifecycle-provided gateway providers, and planner todo mirroring receives its control-session store through the task-agent factory
-- reduce the surface area of `core/runtime_bindings.py` so it stays a boundary helper instead of becoming a general-purpose locator
+- keep `core/runtime_bindings.py` limited to runtime boundary objects instead of becoming a general-purpose locator
 - keep the chat and chat-trace read-service singletons container-owned instead of adding module-scoped service globals back to their implementation modules
 - review legacy packages such as `processing/` and other dormant runtime leftovers, then either integrate them into the current layered model or delete them
 
 Recent progress:
 
 - Removed unused runtime binding accessors for message bus, user-message sensor, skill loader, and skill runner; those objects remain lifecycle/container-owned without being public boundary helpers.
+- Moved LLM pool, chat store/projector, memory services, plugin/sensor services, skill indexer, runtime trace store, control-plane services, and background task manager access behind domain-owned providers. `core/runtime_bindings.py` now only exposes the runtime command queue and agent runtime boundary accessors.
 
 ### 5. Keep service and transport boundaries thin
 
