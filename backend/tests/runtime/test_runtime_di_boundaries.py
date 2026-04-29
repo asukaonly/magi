@@ -32,7 +32,7 @@ def test_timeline_and_llm_runtime_do_not_keep_module_level_singletons() -> None:
     timeline_router = (BACKEND_SRC / "api/routers/timeline.py").read_text(encoding="utf-8")
     usage_events = (BACKEND_SRC / "llm/usage_events.py").read_text(encoding="utf-8")
     memory_lifecycle = (BACKEND_SRC / "memory/lifecycle.py").read_text(encoding="utf-8")
-    provider_bridge = (BACKEND_SRC / "llm/provider_bridge.py").read_text(encoding="utf-8")
+    provider_bridge = (BACKEND_SRC / "llm/provider_bridge/__init__.py").read_text(encoding="utf-8")
     scheduler_service = (BACKEND_SRC / "scheduler/service.py").read_text(encoding="utf-8")
 
     assert "_sensor_contrib" not in sensor_contrib

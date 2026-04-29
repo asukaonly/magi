@@ -8,24 +8,24 @@ This module centralizes API differences between OpenAI-compatible models
 import time
 from typing import Any, Dict, List, Optional
 
-from .base import LLMAdapter
-from .concurrency_limiter import LLMConcurrencyLimiter, get_llm_concurrency_limiter
-from .usage_events import LLMUsageEventPublisher, publish_llm_call_event
-from .provider_bridge_models import (
+from ..base import LLMAdapter
+from ..concurrency_limiter import LLMConcurrencyLimiter, get_llm_concurrency_limiter
+from ..usage_events import LLMUsageEventPublisher, publish_llm_call_event
+from .models import (
     ProviderResponse,
     ProviderToolCall,
     ProviderUsage,
     ToolStreamResult,
 )
-from .provider_bridge_options import ProviderBridgeOptionsMixin
-from .provider_bridge_requests import ProviderBridgeRequestMixin
-from .provider_bridge_responses import ProviderBridgeResponseMixin
-from .provider_bridge_streaming import (
+from .options import ProviderBridgeOptionsMixin
+from .requests import ProviderBridgeRequestMixin
+from .responses import ProviderBridgeResponseMixin
+from .streaming import (
     ProviderBridgeChatStreamingMixin,
     ProviderBridgeToolStreamingMixin,
 )
-from ..config.constants import DEFAULT_MAX_TOKENS, DEFAULT_THINKING_TOKENS
-from ..config.models import ThinkingDepth
+from ...config.constants import DEFAULT_MAX_TOKENS, DEFAULT_THINKING_TOKENS
+from ...config.models import ThinkingDepth
 
 
 def _coerce_thinking_depth(

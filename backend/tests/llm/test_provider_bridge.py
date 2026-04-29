@@ -385,7 +385,7 @@ async def test_chat_response_passes_shared_override_before_registry_default_befo
     override_config = _build_test_llm_config(override_limit=7)
     default_config = _build_test_llm_config()
 
-    monkeypatch.setattr("magi.llm.provider_bridge_options.get_config", lambda: override_config, raising=False)
+    monkeypatch.setattr("magi.llm.provider_bridge.options.get_config", lambda: override_config, raising=False)
 
     await bridge.chat_response(
         system_prompt="sys",
@@ -394,7 +394,7 @@ async def test_chat_response_passes_shared_override_before_registry_default_befo
 
     assert limiter.calls[-1]["limit"] == 7
 
-    monkeypatch.setattr("magi.llm.provider_bridge_options.get_config", lambda: default_config, raising=False)
+    monkeypatch.setattr("magi.llm.provider_bridge.options.get_config", lambda: default_config, raising=False)
 
     await bridge.chat_response(
         system_prompt="sys",
@@ -412,7 +412,7 @@ async def test_chat_response_passes_shared_override_before_registry_default_befo
     )
     fallback_bridge = LLMProviderBridge(fallback_llm, concurrency_limiter=limiter)
 
-    monkeypatch.setattr("magi.llm.provider_bridge_options.get_config", lambda: _build_test_llm_config(), raising=False)
+    monkeypatch.setattr("magi.llm.provider_bridge.options.get_config", lambda: _build_test_llm_config(), raising=False)
 
     await fallback_bridge.chat_response(
         system_prompt="sys",

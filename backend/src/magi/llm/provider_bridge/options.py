@@ -5,18 +5,18 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Any, Awaitable, Callable, Dict
 
-from .anthropic import AnthropicAdapter
-from .base import LLMAdapter
-from .concurrency_limiter import LLMConcurrencyLimiter
-from .provider_bridge_models import ProviderResponse
-from ..config import get_config
-from ..config.loader import get_llm_provider_registry_file
-from ..config.llm_registry import (
+from ..anthropic import AnthropicAdapter
+from ..base import LLMAdapter
+from ..concurrency_limiter import LLMConcurrencyLimiter
+from .models import ProviderResponse
+from ...config import get_config
+from ...config.loader import get_llm_provider_registry_file
+from ...config.llm_registry import (
     LLMProviderRegistryModel,
     find_chat_model_meta,
     load_llm_provider_registry,
 )
-from ..config.models import ThinkingDepth
+from ...config.models import ThinkingDepth
 
 DEFAULT_CHAT_CONCURRENCY_FALLBACK = 4
 

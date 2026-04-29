@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from .base import LLMAdapter
-from .provider_bridge_models import ProviderResponse
+from ..base import LLMAdapter
+from .models import ProviderResponse
 
 
 _SENSITIVE_LOG_FIELD_PATTERNS = (

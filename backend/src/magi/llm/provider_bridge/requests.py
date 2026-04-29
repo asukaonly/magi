@@ -4,16 +4,16 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Protocol, cast
 
-from .provider_bridge_logging import (
+from .logging import (
     build_provider_test_log_context as _build_provider_test_log_context,
     extract_provider_error_details as _extract_provider_error_details,
     is_provider_test_event as _is_provider_test_event,
     summarize_raw_provider_response as _summarize_raw_provider_response,
     truncate_provider_response as _truncate_provider_response,
 )
-from .provider_bridge_models import ProviderResponse
-from ..config.models import ThinkingDepth
-from ..core.logger import get_logger
+from .models import ProviderResponse
+from ...config.models import ThinkingDepth
+from ...core.logger import get_logger
 
 logger = get_logger(__name__)
 

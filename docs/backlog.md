@@ -120,7 +120,7 @@ Recent progress:
 - The backend type gate now covers extracted function-calling execution helpers in addition to LLM and L2 support modules.
 - Function-calling callback and runtime-trace persistence helpers now live in `function_calling_tracing.py`.
 - Function-calling LLM request/response helpers now live in `function_calling_llm.py`.
-- Provider bridge thinking-option and concurrency helpers now live in `provider_bridge_options.py`.
+- Provider bridge thinking-option and concurrency helpers now live in `provider_bridge/options.py`.
 - L2 snapshot evolution and ToM reconciliation helpers now live in `store_reconcile.py`.
 - L2 graph-conflict resolution and rule reload helpers now live in `store_graph_conflicts.py`.
 - L2 SQLite row-to-dict helpers now live in `store_rows.py`.
@@ -136,9 +136,9 @@ Recent progress:
 - L2 edge embedding status and vector search helpers now live in `store_edge_embeddings.py`.
 - L2 knowledge-graph upsert and corroboration helpers now live in `store_graph_writes.py`.
 - L2 store mixins now live under the `store_parts/` package, with `store.py` kept as the public store facade and transaction coordinator.
-- Provider bridge non-streaming request implementations now live in `provider_bridge_requests.py`.
-- Provider bridge plain chat streaming now lives in `provider_bridge_streaming.py`.
-- Provider bridge tool-call streaming now lives in `provider_bridge_streaming.py`.
+- Provider bridge non-streaming request implementations now live in `provider_bridge/requests.py`.
+- Provider bridge plain chat streaming now lives in `provider_bridge/streaming.py`.
+- Provider bridge tool-call streaming now lives in `provider_bridge/streaming.py`.
 - Function-calling fallback final-response and rescue-pass logic now lives in `function_calling_fallback.py`.
 - Function-calling concrete tool and skill execution now lives in `function_calling_tool_execution.py`.
 - Chat post-processing session-run finalization helpers now live in `postprocess_session.py`.
@@ -148,6 +148,7 @@ Recent progress:
 - Chat post-processing background completion helpers now live in `postprocess_background.py`.
 - Chat post-processing memory/reflection helpers now live in `postprocess_memory.py`.
 - Chat post-processing mixins now live under the `postprocess/` package, with `postprocess_service.py` kept as the public orchestration facade.
+- LLM provider bridge helpers now live under the `provider_bridge/` package, with `magi.llm.provider_bridge` kept as the public facade.
 - Settings page navigation and sub-selection state now lives in `useSettingsNavigation.ts`.
 - Settings page tool config loading and draft mutation state now lives in `useSettingsTools.ts`.
 - Settings page config/control draft loading and mutation state now lives in `useSettingsConfig.ts`.
