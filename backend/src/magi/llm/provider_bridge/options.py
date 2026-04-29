@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Any, Awaitable, Callable, Dict, cast
+from typing import Any, Awaitable, Callable, Dict, TypeVar, cast
 
 from ..anthropic import AnthropicAdapter
 from ..base import LLMAdapter
 from ..concurrency_limiter import LLMConcurrencyLimiter
-from .models import ProviderResponse
 from ...config import get_config
 from ...config.loader import get_llm_provider_registry_file
 from ...config.llm_registry import (
@@ -19,6 +18,7 @@ from ...config.llm_registry import (
 from ...config.models import ThinkingDepth
 
 DEFAULT_CHAT_CONCURRENCY_FALLBACK = 4
+T = TypeVar("T")
 
 
 @lru_cache(maxsize=1)
@@ -177,8 +177,8 @@ class ProviderBridgeOptionsMixin:
         self,
         *,
         request_family: str,
-        operation: Callable[[], Awaitable[ProviderResponse]],
+        operation: Callable[[], Awaitable[T]],
         limit: int | None = None,
-    ) -> ProviderResponse:
+    ) -> T:
         key = self._build_concurrency_key(request_family)
-        return cast(ProviderResponse, await self._concurrency_limiter.run_with_limit(key, operation, limit=limit))
+        return cast(T, await self._concurrency_limiter.run_with_limit(key, operation, limit=limit))
