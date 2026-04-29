@@ -17,6 +17,12 @@ from .chat_trace_models import (
     ExecutionTraceSnapshot,
     ExecutionTraceSummary,
 )
+from .chat_trace_normalized_builder import (
+    build_normalized_trace_root,
+    build_trace_span_node,
+    collapse_trace_spans,
+    merge_trace_payload,
+)
 from .chat_trace_row_builder import (
     build_trace_row_node,
     resolve_result_preview,
@@ -44,9 +50,15 @@ from .chat_trace_utils import (
 logger = get_logger(__name__)
 
 FACT_EVENTS_TABLE = "fact_events"
+RUNTIME_OBSERVATIONS_TABLE = FACT_EVENTS_TABLE
 USER_EVENT_TYPES = ("UserMessage",)
 AI_RESPONSE_EVENT_TYPES = ("AIResponse",)
 FACT_DISPLAY_EVENT_TYPES = USER_EVENT_TYPES + AI_RESPONSE_EVENT_TYPES
+WORKER_EVENT_TYPES = ("WORKER_AGENT_PROGRESS", "WORKER_AGENT_COMPLETED", "WORKER_AGENT_FAILED")
+LEGACY_TRACE_EVENT_TYPES = ("TOOL_INTERACTION", "TOOL_INVOKED", "CHAT_TOOL_LOOP_STEP")
+TURN_TRACE_EVENT_TYPES = ("TURN_TRACE_STARTED", "TURN_TRACE_COMPLETED", "TURN_TRACE_FAILED")
+TRACE_NODE_EVENT_TYPES = ("TRACE_NODE_STARTED", "TRACE_NODE_COMPLETED", "TRACE_NODE_FAILED")
+TRACE_EVENT_TYPES = WORKER_EVENT_TYPES + LEGACY_TRACE_EVENT_TYPES + TURN_TRACE_EVENT_TYPES + TRACE_NODE_EVENT_TYPES
 MAX_PLAN_PREVIEW_STEPS = 3
 
 
@@ -805,134 +817,22 @@ class ChatTraceReadService:
         started_at: float,
         ended_at: float,
     ) -> Optional[ExecutionTraceNode]:
-        span_payloads = self._collapse_trace_spans(events)
-        if not span_payloads:
-            return None
-
-        node_by_span_id: dict[str, ExecutionTraceNode] = {}
-        children_by_parent: dict[str | None, list[str]] = {}
-        for span_id, payload in span_payloads.items():
-            node_by_span_id[span_id] = self._build_trace_span_node(payload)
-            parent_span_id = str(payload.get("parent_span_id") or "").strip() or None
-            children_by_parent.setdefault(parent_span_id, []).append(span_id)
-
-        for parent_span_id, child_ids in children_by_parent.items():
-            if parent_span_id is None:
-                continue
-            parent = node_by_span_id.get(parent_span_id)
-            if parent is None:
-                continue
-            ordered_children = sorted(
-                (node_by_span_id[child_id] for child_id in child_ids if child_id in node_by_span_id),
-                key=lambda item: (
-                    float(item.started_at or 0.0),
-                    item.id,
-                ),
-            )
-            parent.children.extend(ordered_children)
-
-        turn_span_id = f"{turn_id}:turn"
-        turn_node = node_by_span_id.get(turn_span_id)
-        top_level_nodes = [
-            node_by_span_id[span_id]
-            for span_id in children_by_parent.get(None, [])
-            if span_id in node_by_span_id and span_id != turn_span_id
-        ]
-        top_level_nodes.sort(key=lambda item: (float(item.started_at or 0.0), item.id))
-
-        root = ExecutionTraceNode(
-            id=f"{turn_id}:root",
-            kind="root",
-            label="Tool chain",
-            status=turn_node.status if turn_node is not None else self._derive_parent_status(top_level_nodes),
-            started_at=turn_node.started_at if turn_node is not None else started_at,
-            ended_at=turn_node.ended_at if turn_node is not None else ended_at,
-            result_preview=turn_node.result_preview if turn_node is not None else "",
-            error=turn_node.error if turn_node is not None else None,
-            metadata={
-                "turn_id": turn_id,
-                "trace_id": str((turn_node.metadata if turn_node is not None else {}).get("trace_id") or f"trace:{turn_id}"),
-                "normalized_trace": True,
-            },
+        return build_normalized_trace_root(
+            turn_id=turn_id,
+            events=events,
+            started_at=started_at,
+            ended_at=ended_at,
+            trace_node_event_types=TRACE_NODE_EVENT_TYPES,
         )
-        if turn_node is not None:
-            root.children.extend(turn_node.children)
-        root.children.extend(top_level_nodes)
-        return root
 
     def _collapse_trace_spans(self, events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-        span_payloads: dict[str, dict[str, Any]] = {}
-        for item in events:
-            if item["type"] not in TRACE_NODE_EVENT_TYPES:
-                continue
-            payload = item.get("payload", {})
-            if not isinstance(payload, dict):
-                continue
-            span_id = str(payload.get("span_id") or "").strip()
-            if not span_id:
-                continue
-            current = span_payloads.setdefault(span_id, {})
-            self._merge_trace_payload(current, payload)
-        return span_payloads
+        return collapse_trace_spans(events, trace_node_event_types=TRACE_NODE_EVENT_TYPES)
 
     def _merge_trace_payload(self, current: dict[str, Any], incoming: dict[str, Any]) -> None:
-        for key in (
-            "trace_id",
-            "turn_id",
-            "span_id",
-            "parent_span_id",
-            "node_type",
-            "name",
-            "status",
-            "attempt_index",
-            "retry_count",
-            "started_at_ms",
-            "ended_at_ms",
-            "duration_ms",
-        ):
-            value = incoming.get(key)
-            if value is not None and value != "":
-                current[key] = value
-
-        for key in ("input", "output", "metrics", "tags"):
-            incoming_value = incoming.get(key)
-            if not isinstance(incoming_value, dict):
-                continue
-            merged = dict(current.get(key) or {})
-            merged.update(incoming_value)
-            current[key] = merged
-
-        if incoming.get("error") is not None:
-            current["error"] = incoming.get("error")
+        merge_trace_payload(current, incoming)
 
     def _build_trace_span_node(self, payload: dict[str, Any]) -> ExecutionTraceNode:
-        span_id = str(payload.get("span_id") or "")
-        node_type = str(payload.get("node_type") or "step")
-        status = self._normalize_status(str(payload.get("status") or "running"))
-        metadata = {
-            "trace_id": payload.get("trace_id"),
-            "span_id": span_id,
-            "parent_span_id": payload.get("parent_span_id"),
-            "node_type": node_type,
-            "attempt_index": self._safe_int(payload.get("attempt_index"), default=1),
-            "retry_count": self._safe_int(payload.get("retry_count"), default=0),
-            "duration_ms": self._safe_int(payload.get("duration_ms"), default=0),
-            "input": dict(payload.get("input") or {}) if isinstance(payload.get("input"), dict) else {},
-            "output": dict(payload.get("output") or {}) if isinstance(payload.get("output"), dict) else {},
-            "metrics": dict(payload.get("metrics") or {}) if isinstance(payload.get("metrics"), dict) else {},
-            "tags": dict(payload.get("tags") or {}) if isinstance(payload.get("tags"), dict) else {},
-        }
-        return ExecutionTraceNode(
-            id=span_id,
-            kind=self._map_trace_kind(node_type),
-            label=str(payload.get("name") or self._default_trace_label(node_type)),
-            status=status,
-            started_at=self._ms_to_seconds(payload.get("started_at_ms")),
-            ended_at=self._ms_to_seconds(payload.get("ended_at_ms")),
-            result_preview=self._trace_span_result_preview(payload),
-            error=self._trace_span_error(payload),
-            metadata=metadata,
-        )
+        return build_trace_span_node(payload)
 
     def _map_trace_kind(self, node_type: str) -> str:
         return map_trace_kind(node_type)

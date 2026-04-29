@@ -184,6 +184,7 @@ Recent progress:
 - Dynamic config field rendering now lives in `DynamicConfigField.tsx`.
 - Chat execution trace DTOs now live in `chat_trace_models.py`.
 - Chat execution trace pure helpers now live in `chat_trace_utils.py`.
+- Chat normalized trace builders now live in `chat_trace_normalized_builder.py`.
 - Chat runtime trace row-to-node helpers now live in `chat_trace_row_builder.py`.
 - L0 memory session display helpers now live in `memory_session_display.py`.
 - Memory eval answer synthesis helpers now live in `memory_eval_answering.py`.
