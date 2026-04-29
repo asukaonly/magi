@@ -204,6 +204,7 @@ Recent progress:
 - L4 procedural memory schema constants now live in `procedural_memory_schema.py`.
 - L4 procedural memory schema initialization now lives in `procedural_memory_schema.py`.
 - L4 procedural memory serialization, trace row, and skill identity helpers now live in `procedural_memory_serialization.py`.
+- L4 procedural memory record update-state helpers now live in `procedural_memory_updates.py`.
 - L4 procedural memory embedding helpers now live in `procedural_memory_embeddings.py`.
 - L3 summary store schema helpers now live in `summary_store_schema.py`.
 - L3 summary store serialization helpers now live in `summary_store_serialization.py`.

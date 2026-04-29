@@ -53,6 +53,10 @@ from .procedural_memory_embeddings import (
     fold_skill_chunk_hits,
     profile_from_embedding_result,
 )
+from .procedural_memory_updates import (
+    build_new_skill_record_state,
+    build_updated_skill_record_state,
+)
 from .strategy_extraction import ExtractedStrategy, L4StrategyExtractor
 
 logger = logging.getLogger(__name__)
@@ -175,19 +179,12 @@ class L4ProceduralMemoryStore:
 
             if existing is None:
                 skill_id = f"skill_{uuid.uuid4().hex}"
-                total_attempts = 1
-                success_count = 1 if success else 0
-                failure_count = 0 if success else 1
-                avg_duration = duration_ms
-                min_duration = duration_ms
-                max_duration = duration_ms
-                breaker_state = "closed"
-                breaker_opened_at = None
-                failure_streak = 0 if success else 1
-                recovery_count = 0
-                if failure_streak >= self.breaker_failure_threshold:
-                    breaker_state = "open"
-                    breaker_opened_at = event.timestamp
+                record_state = build_new_skill_record_state(
+                    success=success,
+                    duration_ms=duration_ms,
+                    event_timestamp=float(event.timestamp),
+                    breaker_failure_threshold=self.breaker_failure_threshold,
+                )
                 await db.execute(
                     """
                     INSERT INTO procedural_skills(
@@ -205,19 +202,19 @@ class L4ProceduralMemoryStore:
                         skill_name,
                         skill_category,
                         skill_type,
-                        float(success_count / total_attempts),
-                        total_attempts,
-                        success_count,
-                        failure_count,
-                        float(success_count / total_attempts),
-                        duration_ms,
-                        duration_ms,
-                        duration_ms,
-                        duration_ms,
-                        breaker_state,
-                        breaker_opened_at,
-                        failure_streak,
-                        recovery_count,
+                        record_state.success_rate,
+                        record_state.total_attempts,
+                        record_state.success_count,
+                        record_state.failure_count,
+                        record_state.success_rate,
+                        record_state.avg_duration_ms,
+                        record_state.min_duration_ms,
+                        record_state.max_duration_ms,
+                        record_state.max_duration_ms,
+                        record_state.breaker_state,
+                        record_state.breaker_opened_at,
+                        record_state.failure_streak,
+                        record_state.recovery_count,
                         optimized_prompt,
                         json.dumps({}, ensure_ascii=False),
                         None,
@@ -253,38 +250,15 @@ class L4ProceduralMemoryStore:
                 )
                 return skill_id
 
-            total_attempts = int(existing["total_attempts"]) + 1
-            success_count = int(existing["success_count"]) + (1 if success else 0)
-            failure_count = int(existing["failure_count"]) + (0 if success else 1)
-            avg_duration = self._rolling_average(existing["avg_execution_time_ms"], total_attempts - 1, duration_ms)
-            min_duration = min(float(existing["min_execution_time_ms"] or duration_ms), duration_ms)
-            max_duration = max(float(existing["max_execution_time_ms"] or duration_ms), duration_ms)
-            source_event_ids = json.loads(existing["source_event_ids"] or "[]")
-            source_event_ids.append(event.event_id)
-            breaker_state = str(existing["circuit_breaker_state"])
-            failure_streak = int(existing["circuit_breaker_failure_count"])
-            recovery_count = int(existing["circuit_breaker_success_count"])
-            breaker_opened_at = float(existing["circuit_breaker_opened_at"]) if existing["circuit_breaker_opened_at"] else None
-
-            if success:
-                failure_streak = 0
-                if breaker_state == "open":
-                    breaker_state = "half_open"
-                    recovery_count = 1
-                elif breaker_state == "half_open":
-                    recovery_count += 1
-                    if recovery_count >= self.breaker_recovery_successes:
-                        breaker_state = "closed"
-                        recovery_count = 0
-                        breaker_opened_at = None
-                else:
-                    recovery_count = 0
-            else:
-                recovery_count = 0
-                failure_streak += 1
-                if failure_streak >= self.breaker_failure_threshold:
-                    breaker_state = "open"
-                    breaker_opened_at = event.timestamp
+            record_state = build_updated_skill_record_state(
+                existing=existing,
+                success=success,
+                duration_ms=duration_ms,
+                event_id=event.event_id,
+                event_timestamp=float(event.timestamp),
+                breaker_failure_threshold=self.breaker_failure_threshold,
+                breaker_recovery_successes=self.breaker_recovery_successes,
+            )
 
             await db.execute(
                 """
@@ -298,24 +272,24 @@ class L4ProceduralMemoryStore:
                 WHERE skill_id = ?
                 """,
                 (
-                    float(success_count / total_attempts),
-                    total_attempts,
-                    success_count,
-                    failure_count,
-                    float(success_count / total_attempts),
-                    avg_duration,
-                    min_duration,
-                    max_duration,
-                    max_duration,
-                    breaker_state,
-                    breaker_opened_at,
-                    failure_streak,
-                    recovery_count,
+                    record_state.success_rate,
+                    record_state.total_attempts,
+                    record_state.success_count,
+                    record_state.failure_count,
+                    record_state.success_rate,
+                    record_state.avg_duration_ms,
+                    record_state.min_duration_ms,
+                    record_state.max_duration_ms,
+                    record_state.max_duration_ms,
+                    record_state.breaker_state,
+                    record_state.breaker_opened_at,
+                    record_state.failure_streak,
+                    record_state.recovery_count,
                     optimized_prompt,
-                    json.dumps(source_event_ids[-100:], ensure_ascii=False),
+                    json.dumps(record_state.source_event_ids[-100:], ensure_ascii=False),
                     float(event.timestamp),
-                    float(event.timestamp) if success else existing["last_success_at"],
-                    float(event.timestamp) if not success else existing["last_failure_at"],
+                    record_state.last_success_at,
+                    record_state.last_failure_at,
                     now,
                     str(existing["skill_id"]),
                 ),
@@ -345,23 +319,16 @@ class L4ProceduralMemoryStore:
                 event=event,
                 identity=identity,
             )
-            # Trigger strategy extraction if enough new traces accumulated
-            # or circuit breaker just opened.
-            pending = (existing["pending_trace_count"] or 0) + 1
-            breaker_just_opened = (
-                breaker_state == "open"
-                and str(existing["circuit_breaker_state"]) != "open"
-            )
             adaptive_threshold = self._adaptive_extraction_threshold(
-                self._strategy_extraction_threshold, total_attempts,
+                self._strategy_extraction_threshold, record_state.total_attempts,
             )
-            if pending >= adaptive_threshold or breaker_just_opened:
+            if record_state.pending_trace_count >= adaptive_threshold or record_state.breaker_just_opened:
                 await self._maybe_extract_strategy(
                     skill_id=str(existing["skill_id"]),
                     skill_name=skill_name,
                     skill_category=skill_category,
-                    total_attempts=total_attempts,
-                    success_rate=float(success_count / total_attempts),
+                    total_attempts=record_state.total_attempts,
+                    success_rate=record_state.success_rate,
                 )
             return str(existing["skill_id"])
 
@@ -385,7 +352,7 @@ class L4ProceduralMemoryStore:
                 row = await cursor.fetchone()
         return int(row[0]) if row else 0
 
-    async def get_all_skills(self, *, limit: int = 100) -> List[Dict[str, Any]]:
+    async def get_all_skills(self, *, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
         """List all stored skills."""
         await self.initialize()
         async with sqlite_connection_async(self.db_path) as db:
