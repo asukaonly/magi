@@ -8,7 +8,7 @@ import asyncio
 import time
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 import aiosqlite
 
@@ -16,7 +16,7 @@ from ...core.sqlite import sqlite_connection_async
 from ...config.models import EmbeddingBackend
 from ...llm import ScenarioLLMPool
 from ..embedding.embedding_service import MemoryEmbeddingService
-from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
+from ..hybrid_retrieval.fts_utils import tokenize_for_fts
 from ..l1.event_store import L1EventStore
 from ..embedding.sqlite_vec_index import SqliteVecIndex
 from .evidence_selector import select_temporal_evidence
@@ -25,20 +25,10 @@ from .topic_llm_service import TopicSummaryLLMService
 from .temporal_llm_service import TemporalSummaryLLMService
 from .validator import validate_candidate
 from .embeddings.operations import L3SummaryEmbeddingMixin
+from .retrieval.operations import L3SummarySearchMixin
 from .storage.schema import (
     SUMMARY_CHUNKS_TABLE,
     ensure_summary_store_schema,
-)
-from .retrieval.search import (
-    build_fetch_by_ids_query,
-    build_keyword_search_query,
-    fts_backfill_row,
-    fused_summary_ids,
-    ids_from_rows,
-    ordered_summary_dicts_from_rows,
-    ranked_vector_summaries,
-    rows_to_bm25_pairs,
-    search_path_ids,
 )
 from .evidence.links import (
     build_summary_event_link_rows,
@@ -58,7 +48,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-class L3SummaryStore(L3SummaryEmbeddingMixin):
+class L3SummaryStore(L3SummaryEmbeddingMixin, L3SummarySearchMixin):
     """Stores reflection-oriented summaries that remain traceable to L1 evidence."""
 
     def __init__(
@@ -334,71 +324,6 @@ class L3SummaryStore(L3SummaryEmbeddingMixin):
         )
         return summary
 
-    async def search_summaries(
-        self,
-        *,
-        query: str,
-        summary_type: Optional[str] = None,
-        summary_category: Optional[str] = None,
-        limit: int = 10,
-    ) -> List[Dict[str, Any]]:
-        """Search summaries using BM25 + vector + keyword fusion."""
-        await self.initialize()
-        if not query.strip():
-            return []
-
-        fetch_k = max(int(limit) * 5, 20)
-        bm25_task = asyncio.ensure_future(
-            self.bm25_search(
-                query,
-                summary_type=summary_type,
-                summary_category=summary_category,
-                limit=fetch_k,
-            )
-        )
-        semantic_task = asyncio.ensure_future(
-            self.vector_search(
-                query=query,
-                summary_type=summary_type,
-                summary_category=summary_category,
-                limit=fetch_k,
-            )
-        )
-        keyword_task = asyncio.ensure_future(
-            self.keyword_search(
-                query=query,
-                summary_type=summary_type,
-                summary_category=summary_category,
-                limit=fetch_k,
-            )
-        )
-
-        results_or_errors = await asyncio.gather(bm25_task, semantic_task, keyword_task, return_exceptions=True)
-
-        bm25_ids, semantic_ids, keyword_ids = search_path_ids(results_or_errors)
-
-        for index, result in enumerate(results_or_errors):
-            if isinstance(result, BaseException):
-                logger.warning("L3 search path %d failed: %s", index, result)
-
-        if not bm25_ids and not semantic_ids and not keyword_ids:
-            return []
-
-        summary_ids = fused_summary_ids(
-            bm25_ids=bm25_ids,
-            semantic_ids=semantic_ids,
-            keyword_ids=keyword_ids,
-            fetch_k=fetch_k,
-        )
-        if not summary_ids:
-            return []
-        summaries = await self.fetch_by_ids(
-            summary_ids,
-            summary_type=summary_type,
-            summary_category=summary_category,
-        )
-        return summaries[:limit]
-
     async def count_summaries(self) -> int:
         """Count all summaries."""
         await self.initialize()
@@ -559,83 +484,6 @@ class L3SummaryStore(L3SummaryEmbeddingMixin):
         covered = {str(row[0]) for row in rows}
         return [event_id for event_id in normalized_ids if event_id in covered]
 
-    async def bm25_search(
-        self,
-        query: str,
-        *,
-        summary_type: Optional[str] = None,
-        summary_category: Optional[str] = None,
-        limit: int = 20,
-    ) -> List[Tuple[str, float]]:
-        """Search L3 summaries via FTS5 BM25 ranking.
-
-        Returns a list of (summary_id, bm25_score) tuples ordered by relevance.
-        """
-        await self.initialize()
-        tokenized = tokenize_for_fts(query)
-        if not tokenized:
-            return []
-        escaped = escape_fts_query(tokenized)
-        if not escaped:
-            return []
-        async with sqlite_connection_async(self.db_path) as db:
-            try:
-                async with db.execute(
-                    """
-                    SELECT l3_summaries_fts.summary_id, bm25(l3_summaries_fts) AS score
-                    FROM l3_summaries_fts
-                    JOIN summaries ON summaries.summary_id = l3_summaries_fts.summary_id
-                    WHERE l3_summaries_fts MATCH ?
-                      AND (? IS NULL OR summaries.summary_type = ?)
-                      AND (? IS NULL OR summaries.summary_category = ?)
-                    ORDER BY score
-                    LIMIT ?
-                    """,
-                    (
-                        escaped,
-                        summary_type,
-                        summary_type,
-                        summary_category,
-                        summary_category,
-                        limit,
-                    ),
-                ) as cursor:
-                    rows = await cursor.fetchall()
-                return rows_to_bm25_pairs(rows)
-            except Exception as exc:
-                logger.warning("FTS5 BM25 search failed for L3 summaries: %s", exc)
-                return []
-
-    async def backfill_fts(self, *, batch_size: int = 500) -> int:
-        """Backfill FTS5 index from existing summaries rows."""
-        await self.initialize()
-        indexed = 0
-        async with sqlite_connection_async(self.db_path) as db:
-            async with db.execute(
-                """
-                SELECT summary_id, content FROM summaries
-                WHERE summary_id NOT IN (SELECT summary_id FROM l3_summaries_fts)
-                """
-            ) as cursor:
-                batch: list[tuple[str, str]] = []
-                async for row in cursor:
-                    batch.append(fts_backfill_row(row))
-                    if len(batch) >= batch_size:
-                        await db.executemany(
-                            "INSERT INTO l3_summaries_fts(summary_id, content) VALUES (?, ?)",
-                            batch,
-                        )
-                        indexed += len(batch)
-                        batch.clear()
-                if batch:
-                    await db.executemany(
-                        "INSERT INTO l3_summaries_fts(summary_id, content) VALUES (?, ?)",
-                        batch,
-                    )
-                    indexed += len(batch)
-            await db.commit()
-        return indexed
-
     def get_statistics(self) -> Dict[str, Any]:
         """Return lightweight metadata for reporting."""
         return {
@@ -741,45 +589,5 @@ class L3SummaryStore(L3SummaryEmbeddingMixin):
 
     def _decode_optional_json(self, value: Any) -> Any:
         return decode_optional_json(value)
-
-    async def keyword_search(
-        self,
-        *,
-        query: str,
-        summary_type: Optional[str] = None,
-        summary_category: Optional[str] = None,
-        limit: int = 50,
-    ) -> List[str]:
-        """Return summary IDs matching *query* via LIKE keyword search."""
-        sql, args = build_keyword_search_query(
-            query=query,
-            summary_type=summary_type,
-            summary_category=summary_category,
-            limit=limit,
-        )
-        async with sqlite_connection_async(self.db_path) as db:
-            async with db.execute(sql, tuple(args)) as cursor:
-                rows = await cursor.fetchall()
-        return ids_from_rows(rows)
-
-    async def fetch_by_ids(
-        self,
-        summary_ids: List[str],
-        *,
-        summary_type: Optional[str] = None,
-        summary_category: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
-        if not summary_ids:
-            return []
-        sql, args = build_fetch_by_ids_query(
-            summary_ids=summary_ids,
-            summary_type=summary_type,
-            summary_category=summary_category,
-        )
-        async with sqlite_connection_async(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(sql, tuple(args)) as cursor:
-                rows = await cursor.fetchall()
-        return ordered_summary_dicts_from_rows(rows=rows, summary_ids=summary_ids)
 
 __all__ = ["L3SummaryStore"]
