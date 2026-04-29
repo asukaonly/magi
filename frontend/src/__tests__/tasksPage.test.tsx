@@ -1,9 +1,11 @@
 import { render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import userEvent from '@testing-library/user-event';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import React from 'react';
-import { beforeEach, describe, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TasksPage } from '@/pages/Tasks';
+import { useChatShellStore } from '@/stores';
 import { useBackgroundTaskStore } from '@/stores/background-tasks';
 import type { BackgroundTaskDTO, ScheduleActivityDTO, ScheduleDTO } from '@/api';
 
@@ -125,6 +127,16 @@ const makeActivity = (overrides: Partial<ScheduleActivityDTO> = {}): ScheduleAct
   ...overrides,
 });
 
+const LocationProbe = () => {
+  const location = useLocation();
+  const state = location.state as { returnTo?: string } | null;
+  return (
+    <div data-testid="location" data-return-to={state?.returnTo ?? ''}>
+      {`${location.pathname}${location.search}`}
+    </div>
+  );
+};
+
 describe('TasksPage', () => {
   beforeEach(() => {
     schedulesListMock.mockResolvedValue({ schedules: [] });
@@ -134,6 +146,10 @@ describe('TasksPage', () => {
       orderedIds: [],
       activeCount: 0,
       lastRefreshedAt: 0,
+    });
+    useChatShellStore.setState({
+      activePanel: 'none',
+      settingsNavigationIntent: null,
     });
   });
 
@@ -172,5 +188,27 @@ describe('TasksPage', () => {
 
     await screen.findAllByText('screen_time');
     await screen.findByText('tasks.scheduled.actions.openSettings');
+  });
+
+  it('opens schedule settings over the tasks page', async () => {
+    const user = userEvent.setup();
+    schedulesListMock.mockResolvedValue({ schedules: [makeSchedule()] });
+    schedulesListActivityMock.mockResolvedValue({ activities: [makeActivity()] });
+
+    render(
+      <MemoryRouter initialEntries={['/tasks?tab=scheduled']}>
+        <TasksPage />
+        <LocationProbe />
+      </MemoryRouter>,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'tasks.scheduled.actions.openSettings' }));
+
+    expect(screen.getByTestId('location')).toHaveTextContent('/tasks?tab=scheduled');
+    expect(useChatShellStore.getState().activePanel).toBe('settings');
+    expect(useChatShellStore.getState().settingsNavigationIntent).toEqual({
+      section: 'timeline',
+      source: 'screen_time',
+    });
   });
 });

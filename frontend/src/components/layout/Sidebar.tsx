@@ -82,6 +82,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const unreadBySession = useConversationStore((state) => state.unreadBySession);
   const activePanel = useChatShellStore((state) => state.activePanel);
   const setActivePanel = useChatShellStore((state) => state.setActivePanel);
+  const clearSettingsNavigationIntent = useChatShellStore((state) => state.clearSettingsNavigationIntent);
 
   const [loading, setLoading] = useState(false);
   const isConversationRoute = location.pathname === '/' || location.pathname === '/chat';
@@ -687,8 +688,11 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
           <button
             type="button"
             onClick={() => {
+              clearSettingsNavigationIntent();
               setActivePanel('settings');
-              navigate('/settings');
+              navigate('/settings', {
+                state: { returnTo: `${location.pathname}${location.search}${location.hash}` },
+              });
             }}
             aria-label={t('shell.settings')}
             aria-current={settingsActive ? 'page' : undefined}

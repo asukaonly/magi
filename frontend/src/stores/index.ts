@@ -4,7 +4,7 @@
 export { useBackendHealthStore } from './backend-health';
 export type { BackendStatus, BackendHealthState } from './backend-health';
 export { useChatShellStore } from './chat-shell';
-export type { ChatPanelType, DesktopShellState } from './chat-shell';
+export type { ChatPanelType, DesktopShellState, SettingsNavigationIntent } from './chat-shell';
 export { useChatTraceStore } from './chat-trace';
 export { useConversationStore } from './conversation-store';
 export { useThemeStore } from './theme';

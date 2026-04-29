@@ -1,4 +1,5 @@
 import { type Dispatch, type SetStateAction, useCallback, useMemo, useState } from 'react';
+import { useChatShellStore } from '@/stores/chat-shell';
 
 interface UseSettingsNavigationReturn {
   activeSection: string;
@@ -16,7 +17,10 @@ interface UseSettingsNavigationReturn {
 
 export function useSettingsNavigation(): UseSettingsNavigationReturn {
   const initialSearchParams = useMemo(() => new URLSearchParams(window.location.search), []);
-  const [activeSection, setActiveSection] = useState(initialSearchParams.get('section') || 'preferences');
+  const settingsNavigationIntent = useChatShellStore((state) => state.settingsNavigationIntent);
+  const [activeSection, setActiveSection] = useState(
+    settingsNavigationIntent?.section || initialSearchParams.get('section') || 'preferences'
+  );
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
     llm: false,
     personality: false,
@@ -25,7 +29,9 @@ export function useSettingsNavigation(): UseSettingsNavigationReturn {
     timeline: false,
     channels: false,
   });
-  const [timelineSelection, setTimelineSelection] = useState<string | null>(initialSearchParams.get('source'));
+  const [timelineSelection, setTimelineSelection] = useState<string | null>(
+    settingsNavigationIntent?.source || initialSearchParams.get('source')
+  );
   const [channelsSelection, setChannelsSelection] = useState<string | null>(null);
 
   const usesInnerPaneScroll = useMemo(

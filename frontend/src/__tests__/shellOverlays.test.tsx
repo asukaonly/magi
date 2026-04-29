@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -29,10 +29,18 @@ vi.mock('react-i18next', () => ({
 }));
 
 vi.mock('@/components/layout/SettingsCenterDialog', () => ({
-  default: ({ open }: { open: boolean }) => (
-    <div data-testid="settings-center-dialog">{open ? 'open' : 'closed'}</div>
+  default: ({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) => (
+    <div data-testid="settings-center-dialog">
+      {open ? 'open' : 'closed'}
+      <button type="button" onClick={() => onOpenChange(false)}>close settings</button>
+    </div>
   ),
 }));
+
+const LocationProbe = () => {
+  const location = useLocation();
+  return <div data-testid="location">{`${location.pathname}${location.search}`}</div>;
+};
 
 vi.mock('@/runtime/desktop', () => ({
   registerDesktopShellHandlers: registerDesktopShellHandlersMock,
@@ -53,6 +61,7 @@ describe('shell overlays', () => {
     useChatShellStore.setState({
       currentSessionId: null,
       activePanel: 'none',
+      settingsNavigationIntent: null,
     });
   });
 
@@ -70,6 +79,32 @@ describe('shell overlays', () => {
     });
 
     expect(screen.getByTestId('settings-center-dialog')).toHaveTextContent('open');
+  });
+
+  it('returns to the opening route when settings closes', async () => {
+    const user = userEvent.setup();
+    useChatShellStore.setState({
+      currentSessionId: null,
+      activePanel: 'settings',
+    });
+
+    render(
+      <MemoryRouter initialEntries={[{
+        pathname: '/settings',
+        search: '?section=timeline&source=screen_time',
+        state: { returnTo: '/tasks?tab=scheduled' },
+      }]}
+      >
+        <ShellOverlays />
+        <LocationProbe />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByTestId('settings-center-dialog')).toHaveTextContent('open');
+
+    await user.click(screen.getByRole('button', { name: 'close settings' }));
+
+    expect(screen.getByTestId('location')).toHaveTextContent('/tasks?tab=scheduled');
   });
 
   it('shows quit confirmation and forwards confirm and cancel actions', async () => {

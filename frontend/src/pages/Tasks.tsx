@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { CalendarClock, ChevronRight, ListChecks, Pencil, RefreshCw, Settings, Square } from 'lucide-react';
 
@@ -27,6 +27,7 @@ import { cn } from '@/lib/utils';
 import {
   useBackgroundTaskStore,
 } from '@/stores/background-tasks';
+import { useChatShellStore } from '@/stores';
 import { DEFAULT_USER_ID } from '@/constants';
 const ACTIVE_STATUSES: ReadonlyArray<BackgroundTaskStatus> = [
   'pending',
@@ -849,7 +850,8 @@ const ScheduledTasksTab: React.FC<ScheduledTasksTabProps> = ({
 
 export const TasksPage: React.FC = () => {
   const { t } = useTranslation('app');
-  const navigate = useNavigate();
+  const setActivePanel = useChatShellStore((state) => state.setActivePanel);
+  const setSettingsNavigationIntent = useChatShellStore((state) => state.setSettingsNavigationIntent);
   const tasksById = useBackgroundTaskStore((state) => state.tasksById);
   const orderedIds = useBackgroundTaskStore((state) => state.orderedIds);
   const orderedTasks = useMemo(
@@ -942,10 +944,12 @@ export const TasksPage: React.FC = () => {
   const handleOpenScheduleSettings = (schedule: ScheduleDTO) => {
     const sourceName = schedule.settings_link?.source_name;
     if (schedule.settings_link?.section === 'timeline' && sourceName) {
-      navigate(`/settings?section=timeline&source=${encodeURIComponent(sourceName)}`);
+      setSettingsNavigationIntent({ section: 'timeline', source: sourceName });
+      setActivePanel('settings');
       return;
     }
-    navigate('/settings');
+    setSettingsNavigationIntent(null);
+    setActivePanel('settings');
   };
 
   return (

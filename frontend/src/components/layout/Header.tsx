@@ -1,6 +1,6 @@
 import React from 'react';
 import { Database, ScrollText, Settings2, Sparkles } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { useChatShellStore } from '@/stores';
@@ -8,12 +8,17 @@ import { useChatShellStore } from '@/stores';
 const Header: React.FC = () => {
   const { t } = useTranslation('app');
   const navigate = useNavigate();
+  const location = useLocation();
   const setActivePanel = useChatShellStore((state) => state.setActivePanel);
+  const clearSettingsNavigationIntent = useChatShellStore((state) => state.clearSettingsNavigationIntent);
 
   const openPanel = (panel: 'settings' | 'memory' | 'timeline') => {
     setActivePanel(panel);
     if (panel === 'settings') {
-      navigate('/settings');
+      clearSettingsNavigationIntent();
+      navigate('/settings', {
+        state: { returnTo: `${location.pathname}${location.search}${location.hash}` },
+      });
       return;
     }
     if (panel === 'timeline') {
