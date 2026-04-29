@@ -203,6 +203,9 @@ class TestServiceBasicFlow:
         result = await svc.query(_make_request(query_mode="exact_fact"))
 
         assert result.trace.get("query_mode") == "exact_fact"
+        assert result.trace.get("requested_query_mode") == "exact_fact"
+        assert result.trace.get("resolved_query_mode") == "exact_fact"
+        assert result.trace.get("layer_result_counts") == {"L1": 0, "L2": 0, "L3": 0, "L4": 0}
 
 
 class TestServiceLayerRouting:
@@ -215,6 +218,26 @@ class TestServiceLayerRouting:
         # L1Handler uses keyword path which filters by content tokens
         # The mock query_events returns the event, and keyword matching should pass
         assert l1.bm25_search.called or l1.query_events.called
+
+    @pytest.mark.asyncio
+    async def test_event_stream_mode_queries_l1_only(self):
+        l1 = _make_l1_store([{"event_id": "e1", "content": "test query happened", "timestamp": 1000.0}])
+        l2 = AsyncMock()
+        l2.batch_get_tom_snapshots.return_value = []
+        l2.batch_list_tom_assertions.return_value = {}
+        l2.batch_get_relationships.return_value = {}
+        mem = _make_memory(l1=l1, l2=l2)
+        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+
+        result = await svc.query(_make_request(query_mode="event_stream", query="test query"))
+
+        assert l1.bm25_search.called or l1.query_events.called
+        l2.batch_get_tom_snapshots.assert_not_called()
+        l2.batch_list_tom_assertions.assert_not_called()
+        l2.batch_get_relationships.assert_not_called()
+        assert result.trace.get("resolved_query_mode") == "event_stream"
+        assert result.trace.get("executed_layers") == ["L1"]
+        assert result.trace.get("layer_result_counts", {}).get("L1", 0) >= 1
 
     @pytest.mark.asyncio
     async def test_summary_mode_queries_l3(self, tmp_path):

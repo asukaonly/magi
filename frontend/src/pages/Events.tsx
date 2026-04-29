@@ -97,7 +97,7 @@ const EventsPage: React.FC = () => {
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
             />
-            <Button onClick={handleSearch} disabled={searching}>
+            <Button onClick={() => void handleSearch()} disabled={searching}>
               {searching ? <LoadingSpinner /> : t('memory.search')}
             </Button>
           </div>

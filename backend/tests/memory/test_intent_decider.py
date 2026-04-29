@@ -342,6 +342,13 @@ class TestLayerRouting:
         result = decider.evaluate(inp)
         assert result.plans[0].layer == "L2"
 
+    def test_mode_event_stream_queries_l1_only(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="what happened", query_mode_hint="event_stream")
+        result = decider.evaluate(inp)
+
+        assert [plan.layer for plan in result.plans] == ["L1"]
+        assert result.plans[0].is_fallback is False
+
     def test_query_mode_exact_fact_prefers_l2_with_l1_fallback(self, decider: RuleBasedIntentDecider):
         inp = IntentDeciderInput(query="我喜欢什么天气", query_mode_hint="exact_fact")
         result = decider.evaluate(inp)

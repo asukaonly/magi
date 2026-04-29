@@ -31,6 +31,22 @@ MODE_REGISTRY: dict[str, QueryModePlan] = {
     # this invariant prevents whole classes of "no recall" failures
     # when the chat LLM picks a narrow ``query_mode``. If you add a
     # new mode here, include L1 in primary or fallback.
+    "event_stream": QueryModePlan(
+        mode="event_stream",
+        primary_layers=["L1"],
+        fallback_layers=[],
+        retrieval_units=["event"],
+        rrf_profile={
+            "rrf_weight_bm25": 1.0,
+            "rrf_weight_vector": 0.8,
+            "rrf_weight_keyword": 0.7,
+            "reranker_top_k": 20,
+        },
+        evidence_shape="passthrough",
+        reducer_type="passthrough",
+        allow_query_expansion=False,
+        time_decay_enabled=True,
+    ),
     "exact_fact": QueryModePlan(
         mode="exact_fact",
         primary_layers=["L2"],

@@ -1987,7 +1987,57 @@
       "diskUsageLabel": "占用大小",
       "searchLabel": "跨层搜索",
       "searchResultsTitle": "搜索结果",
+      "searchOverviewTitle": "记忆线索",
+      "searchOverviewBody": "使用「{{mode}}」为“{{query}}”找到 {{total}} 条记忆线索。",
       "searchResultSummary": "共找到 {{total}} 条展示结果，已按记忆层分组。",
+      "modeBadge": "模式：{{mode}}",
+      "curatedEvidenceTitle": "精选证据",
+      "curatedEvidenceBody": "先展示跨层最强的线索，方便你在进入完整层页前确认证据是否可靠。",
+      "layeredResultsTitle": "分层结果",
+      "diagnosticsTitle": "检索诊断",
+      "requestedModeLabel": "请求：{{mode}}",
+      "resolvedModeLabel": "解析：{{mode}}",
+      "executedLayersLabel": "执行：{{layers}}",
+      "noneValue": "无",
+      "searchModes": {
+        "auto": {
+          "label": "智能",
+          "description": "由记忆路由自动选择最合适的分层检索计划。"
+        },
+        "events": {
+          "label": "事件",
+          "description": "只搜索 L1 原始事件流。"
+        },
+        "knowledge": {
+          "label": "知识",
+          "description": "搜索 L2 结构化事实，并在需要时回退到 L1。"
+        },
+        "summaries": {
+          "label": "摘要",
+          "description": "搜索 L3 摘要与反思。"
+        },
+        "skills": {
+          "label": "技能",
+          "description": "搜索 L4 程序性工具和技能记忆。"
+        },
+        "state": {
+          "label": "状态",
+          "description": "搜索当前状态类记忆。"
+        },
+        "episodes": {
+          "label": "片段",
+          "description": "搜索历史经历片段。"
+        }
+      },
+      "queryModes": {
+        "event_stream": "事件流",
+        "exact_fact": "精确事实",
+        "current_state": "当前状态",
+        "episode_recall": "经历召回",
+        "summary": "摘要",
+        "strategy": "策略",
+        "activity_summary": "活动摘要"
+      },
       "searchResultsBody": "围绕“{{query}}”整理出的跨层线索会先落在这里，便于快速判断应该进入哪一层继续查看。",
       "searchIdleBody": "输入一个关键词后，这里会把跨层线索整理成适合继续深入的入口。",
       "searchIdleHint": "还没有搜索结果。你可以先搜索偏好、人物、地点或技能名称，再从结果最密集的层继续进入。",

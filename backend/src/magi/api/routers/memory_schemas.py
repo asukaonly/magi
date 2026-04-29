@@ -8,7 +8,14 @@ from pydantic import BaseModel, Field, field_validator
 
 class RetrievalRequest(BaseModel):
     query: str = Field(..., description="Search text")
-    query_mode: str = Field(default="detail", description="detail|summary|experience|graph|strategy")
+    query_mode: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional retrieval mode. Omit for auto routing; supported values include "
+            "event_stream, exact_fact, current_state, episode_recall, summary, strategy, "
+            "plus legacy detail|experience|graph."
+        ),
+    )
     time_range: Dict[str, Any] = Field(default_factory=dict)
     source_filters: List[str] = Field(default_factory=list)
     domain_filters: List[str] = Field(default_factory=list)

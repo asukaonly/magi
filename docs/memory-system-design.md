@@ -376,10 +376,11 @@ Key constraints:
 
 L2 retrieval uses a unified `query_mode` system (replacing the legacy `recall_intent` + `query_mode` dual system).
 
-**Seven unified modes** are registered in the mode registry:
+**Eight unified modes** are registered in the mode registry:
 
 | Mode | Primary Layer | Evidence Shape | Reducer |
 |------|--------------|---------------|---------|
+| `event_stream` | L1 | passthrough | passthrough |
 | `exact_fact` | L2 | fact_card | span_select |
 | `current_state` | L2 | state_card | latest_version |
 | `episode_recall` | L2 + L1 | episode_bundle | narrative |
@@ -394,7 +395,7 @@ Each mode defines a `QueryModePlan` with:
 - Primary and secondary layer preferences
 - Evidence assembler type and reducer type
 
-**Fallback**: When `query_mode` is not specified, the system defaults to `exact_fact`. The main LLM is expected to choose the appropriate mode when calling the `memory_query` tool.
+**Fallback / auto routing**: Tool callers should pass an explicit `query_mode`; the `memory_query` tool schema keeps this required so the chat LLM owns the high-level retrieval intent. Product-facing search surfaces may omit `query_mode` to request auto routing. In that case the rule router chooses a mode from the query text, defaulting to `exact_fact` when no stronger signal is present. The workbench trace exposes the requested mode, resolved mode, executed layers, and per-layer result counts.
 
 **Legacy migration**: Old `recall_intent` values (`event_recall`, `preference_recall`, etc.) and old mode names (`detail`, `experience`, `graph`) are mapped to unified modes via `normalize_query_mode()`.
 
@@ -967,7 +968,7 @@ On this foundation:
 - `L3` compresses and reflects
 - `L4` distills reusable execution experience
 
-The query pipeline uses a unified `query_mode` system with seven modes, each defining its own evidence shape and reducer. Retrieval is mode-adaptive, with per-mode RRF weight profiles and structured semantic frames for L2 queries.
+The query pipeline uses a unified `query_mode` system with eight modes, each defining its own evidence shape and reducer. Retrieval is mode-adaptive, with per-mode RRF weight profiles and structured semantic frames for L2 queries.
 
 User agency is first-class: users can confirm, correct, reject, annotate, and forget memory artifacts. Privacy scope is carried on every durable L2 object.
 

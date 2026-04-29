@@ -15,6 +15,32 @@ const TRANSLATION_MAP: Record<string, string> = {
   'memory.pages.reflection.categories.task_reflection': 'Task Reflection',
   'memory.search': 'Search',
   'memory.overview.searchResultsTitle': 'Search results',
+  'memory.overview.searchOverviewTitle': 'Memory signals',
+  'memory.overview.curatedEvidenceTitle': 'Curated evidence',
+  'memory.overview.layeredResultsTitle': 'Layered results',
+  'memory.overview.diagnosticsTitle': 'Retrieval diagnostics',
+  'memory.overview.searchModes.auto.label': 'Smart',
+  'memory.overview.searchModes.auto.description': 'Auto route',
+  'memory.overview.searchModes.events.label': 'Events',
+  'memory.overview.searchModes.events.description': 'Raw events',
+  'memory.overview.searchModes.knowledge.label': 'Knowledge',
+  'memory.overview.searchModes.knowledge.description': 'Facts',
+  'memory.overview.searchModes.summaries.label': 'Summaries',
+  'memory.overview.searchModes.summaries.description': 'Summaries',
+  'memory.overview.searchModes.skills.label': 'Skills',
+  'memory.overview.searchModes.skills.description': 'Skills',
+  'memory.overview.searchModes.state.label': 'State',
+  'memory.overview.searchModes.state.description': 'State',
+  'memory.overview.searchModes.episodes.label': 'Episodes',
+  'memory.overview.searchModes.episodes.description': 'Episodes',
+  'memory.overview.queryModes.auto': 'Smart',
+  'memory.overview.queryModes.event_stream': 'Event stream',
+  'memory.overview.queryModes.exact_fact': 'Exact fact',
+  'memory.overview.modeBadge': 'Mode',
+  'memory.overview.requestedModeLabel': 'Requested',
+  'memory.overview.resolvedModeLabel': 'Resolved',
+  'memory.overview.executedLayersLabel': 'Executed',
+  'memory.overview.noneValue': 'None',
   'memory.overview.resultKinds.event': 'Event',
   'memory.overview.resultKinds.entity': 'Entity',
   'memory.overview.resultKinds.reflection': 'Reflection',
@@ -158,7 +184,12 @@ describe('memory page design', () => {
           },
         ],
         l4_procedures: [],
-        trace: {},
+        trace: {
+          requested_query_mode: 'event_stream',
+          resolved_query_mode: 'event_stream',
+          executed_layers: ['L1'],
+          layer_result_counts: { L1: 1, L2: 1, L3: 1, L4: 0 },
+        },
       },
       searchQuery: '',
       setSearchQuery: vi.fn(),
@@ -190,6 +221,8 @@ describe('memory page design', () => {
     expect(screen.getByTestId('memory-overview-stats')).toHaveTextContent('Storage');
     expect(screen.getByTestId('memory-overview-stats')).toHaveTextContent('0 B');
     expect(screen.getByTestId('memory-overview-search')).toBeInTheDocument();
+    expect(screen.getByTestId('memory-overview-search-modes')).toHaveTextContent('Smart');
+    expect(screen.getByTestId('memory-overview-search-modes')).toHaveTextContent('Events');
     expect(screen.getByTestId('memory-overview-attention')).toBeInTheDocument();
     expect(screen.queryByTestId('memory-overview-search-results')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.refresh' })).toBeInTheDocument();
@@ -206,10 +239,26 @@ describe('memory page design', () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByTestId('memory-overview-search-results')).toHaveTextContent('Search results');
+    expect(screen.getByTestId('memory-overview-search-results')).toHaveTextContent('Memory signals');
+    expect(screen.getByTestId('memory-overview-search-results')).toHaveTextContent('Curated evidence');
+    expect(screen.getByTestId('memory-overview-search-results')).toHaveTextContent('Layered results');
+    expect(screen.getByTestId('memory-overview-search-results')).toHaveTextContent('Retrieval diagnostics');
     expect(screen.getByTestId('memory-overview-search-results')).toHaveTextContent('User mentioned a strong preference for calm lake walks');
     expect(screen.getByTestId('memory-overview-search-results')).toHaveTextContent('West Lake');
     expect(screen.getByTestId('memory-overview-search-results')).not.toHaveTextContent('app_usage:2026-03-27T10:00:00+08:00:com.apple.Safari');
+  });
+
+  it('submits the selected workbench search mode', () => {
+    render(
+      <MemoryRouter>
+        <MemoryOverviewPage />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Events' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+
+    expect(memoryState.handleSearch).toHaveBeenCalledWith('event_stream');
   });
 
   it('renders the workbench page as an operational layout without the shared hero shell', () => {

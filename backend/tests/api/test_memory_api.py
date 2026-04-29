@@ -1248,6 +1248,35 @@ def test_memory_search_api_uses_runtime_hybrid_retrieval_service(monkeypatch):
     assert body["trace"]["intent_source"] == "rule"
 
 
+def test_memory_search_api_omits_query_mode_for_auto(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    class _FakeHybridRetrievalService:
+        async def query(self, request):
+            assert request.query == "switch jobs"
+            assert request.query_mode is None
+            return RetrievalPayload(
+                l1_events=[],
+                l2_entity_cards=[],
+                l2_relationships=[],
+                l3_reflections=[],
+                l4_procedures=[],
+                trace={"requested_query_mode": None},
+            )
+
+    monkeypatch.setattr("magi.api.routers.memory._resolve_hybrid_retrieval_service", lambda: _FakeHybridRetrievalService())
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/memory/search",
+        json={"query": "switch jobs", "limit": 5},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["trace"]["requested_query_mode"] is None
+
+
 def test_memory_eval_finalize_replay_api_generates_summaries_and_returns_l2_stats(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")

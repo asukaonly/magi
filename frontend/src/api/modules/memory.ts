@@ -347,6 +347,14 @@ export interface MemorySearchResultPayload {
   trace: Record<string, unknown>;
 }
 
+export type MemorySearchQueryMode =
+  | 'event_stream'
+  | 'exact_fact'
+  | 'current_state'
+  | 'episode_recall'
+  | 'summary'
+  | 'strategy';
+
 type L0SessionsResponse = PaginatedResponse<L0Session> & { stats: L0Stats };
 type L3SummariesParams = PaginationParams & { summary_type?: string; summary_category?: string };
 
@@ -422,8 +430,16 @@ export const memoryApi = {
   // Statistics & Search
   getStatistics: async (): Promise<MemoryStatistics> =>
     unwrapMemoryResponse(await api.get<MemoryStatistics>('/memory/statistics')),
-  search: async (query: string, options?: { limit?: number; query_mode?: string }): Promise<MemorySearchResultPayload> =>
-    unwrapMemoryResponse(await api.post<MemorySearchResultPayload>('/memory/search', { query, limit: options?.limit ?? 20, query_mode: options?.query_mode ?? 'detail' })),
+  search: async (query: string, options?: { limit?: number; query_mode?: MemorySearchQueryMode }): Promise<MemorySearchResultPayload> => {
+    const payload: { query: string; limit: number; query_mode?: MemorySearchQueryMode } = {
+      query,
+      limit: options?.limit ?? 20,
+    };
+    if (options?.query_mode) {
+      payload.query_mode = options.query_mode;
+    }
+    return unwrapMemoryResponse(await api.post<MemorySearchResultPayload>('/memory/search', payload));
+  },
 
   // Clear
   clearAll: async (): Promise<ClearMemoryResponse> =>

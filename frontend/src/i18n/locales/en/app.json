@@ -1921,7 +1921,57 @@
       "diskUsageLabel": "Storage",
       "searchLabel": "Cross-layer search",
       "searchResultsTitle": "Search results",
+      "searchOverviewTitle": "Memory signals",
+      "searchOverviewBody": "Found {{total}} memory signals for \"{{query}}\" using {{mode}}.",
       "searchResultSummary": "{{total}} displayed retrieval results grouped by memory layer.",
+      "modeBadge": "Mode: {{mode}}",
+      "curatedEvidenceTitle": "Curated evidence",
+      "curatedEvidenceBody": "The strongest cross-layer matches are shown first, so you can inspect the evidence before opening a full layer.",
+      "layeredResultsTitle": "Layered results",
+      "diagnosticsTitle": "Retrieval diagnostics",
+      "requestedModeLabel": "Requested: {{mode}}",
+      "resolvedModeLabel": "Resolved: {{mode}}",
+      "executedLayersLabel": "Executed: {{layers}}",
+      "noneValue": "None",
+      "searchModes": {
+        "auto": {
+          "label": "Smart",
+          "description": "Let memory routing choose the best layer plan."
+        },
+        "events": {
+          "label": "Events",
+          "description": "Search the raw L1 event stream only."
+        },
+        "knowledge": {
+          "label": "Knowledge",
+          "description": "Search L2 structured facts with L1 fallback."
+        },
+        "summaries": {
+          "label": "Summaries",
+          "description": "Search L3 summaries and reflections."
+        },
+        "skills": {
+          "label": "Skills",
+          "description": "Search L4 procedural and tool memory."
+        },
+        "state": {
+          "label": "State",
+          "description": "Search current-state memory."
+        },
+        "episodes": {
+          "label": "Episodes",
+          "description": "Search remembered experience spans."
+        }
+      },
+      "queryModes": {
+        "event_stream": "Event stream",
+        "exact_fact": "Exact fact",
+        "current_state": "Current state",
+        "episode_recall": "Episode recall",
+        "summary": "Summary",
+        "strategy": "Strategy",
+        "activity_summary": "Activity summary"
+      },
       "searchResultsBody": "Cross-layer clues for \"{{query}}\" are collected here first so you can quickly decide which workspace is worth opening next.",
       "searchIdleBody": "Once you enter a keyword, this area gathers the relevant clues into a calmer, easier-to-read surface.",
       "searchIdleHint": "No search results yet. Try a preference, person, place, or skill name, then follow the densest layer.",

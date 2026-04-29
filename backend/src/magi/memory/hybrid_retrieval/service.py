@@ -124,6 +124,8 @@ class HybridRetrievalService:
             trace={
                 "query": request.query,
                 "query_mode": resolved_mode,
+                "requested_query_mode": raw_query_mode or None,
+                "resolved_query_mode": resolved_mode,
                 "sources": request.source_filters,
                 "domains": request.domain_filters,
             }
@@ -146,8 +148,20 @@ class HybridRetrievalService:
             l1_limit=request.limit,
         )
         decision = await self._intent_decider.decide(intent_input)
+        if not mode_explicit:
+            inferred_mode = self._infer_mode_from_plans(decision.plans, resolved_mode)
+            if inferred_mode != resolved_mode:
+                payload.trace["mode_auto_inferred"] = True
+            resolved_mode = inferred_mode
+            mode_plan = MODE_REGISTRY.get(resolved_mode, mode_plan)
+            payload.trace["query_mode"] = resolved_mode
+            payload.trace["resolved_query_mode"] = resolved_mode
         payload.trace["intent_source"] = decision.source
         payload.trace["intent_reasoning"] = decision.reasoning
+        payload.trace["planned_layers"] = [
+            {"layer": plan.layer, "fallback": plan.is_fallback}
+            for plan in decision.plans
+        ]
 
         # 4. Build mode-adapted L1 handler with RRF weights from mode plan
         #    Only apply RRF overrides when query_mode was explicitly provided
@@ -293,9 +307,20 @@ class HybridRetrievalService:
             return_exceptions=True,
         )
         for plan, result in zip(plans, results):
+            trace_record = {
+                "label": label,
+                "layer": plan.layer,
+                "fallback": plan.is_fallback,
+            }
             if isinstance(result, Exception):
                 logger.warning("%s %s failed: %s", label, plan.layer, result)
+                trace_record["status"] = "error"
+                trace_record["error"] = str(result)
+                self._append_plan_trace(payload, trace_record)
                 continue
+            trace_record["status"] = "ok"
+            trace_record["count"] = self._count_plan_result(plan.layer, result)
+            self._append_plan_trace(payload, trace_record)
             self._merge_result(payload, plan.layer, result)
 
     async def _run_backstops(
@@ -440,6 +465,8 @@ class HybridRetrievalService:
         payload.trace["l2_entity_card_count"] = len(payload.l2_entity_cards)
         payload.trace["l2_relationship_count"] = len(payload.l2_relationships)
         payload.trace["l2_assertion_count"] = len(payload.l2_assertions)
+        payload.trace["layer_result_counts"] = self._layer_result_counts(payload)
+        payload.trace["final_result_count"] = self._count_results(payload)
 
         # Evidence assembly + reducer (mode-driven pipeline)
         if mode_plan is not None:
@@ -462,6 +489,15 @@ class HybridRetrievalService:
         """Build a stable identity for a layer query plan."""
         content_query = getattr(getattr(plan, "conditions", None), "content_query", "") or ""
         return (str(getattr(plan, "layer", "")), str(content_query), bool(getattr(plan, "is_fallback", False)))
+
+    @staticmethod
+    def _infer_mode_from_plans(plans: List[LayerQueryPlan], fallback: str) -> str:
+        primary_layers = [plan.layer for plan in plans if not plan.is_fallback]
+        fallback_layers = [plan.layer for plan in plans if plan.is_fallback and plan.layer not in primary_layers]
+        for mode, plan in MODE_REGISTRY.items():
+            if plan.primary_layers == primary_layers and plan.fallback_layers == fallback_layers:
+                return mode
+        return fallback
 
     def _refresh_handlers(self) -> None:
         """Rebuild layer handlers only when the underlying stores change.
@@ -658,6 +694,56 @@ class HybridRetrievalService:
             payload.l4_procedures.extend(result if isinstance(result, list) else [])
 
     @staticmethod
+    def _append_plan_trace(payload: RetrievalPayload, record: dict[str, Any]) -> None:
+        plan_trace = payload.trace.setdefault("plan_executions", [])
+        if isinstance(plan_trace, list):
+            plan_trace.append(record)
+
+        layer = str(record.get("layer") or "")
+        if not layer:
+            return
+        executed_layers = payload.trace.setdefault("executed_layers", [])
+        if isinstance(executed_layers, list) and layer not in executed_layers:
+            executed_layers.append(layer)
+        layer_plan_counts = payload.trace.setdefault("layer_plan_result_counts", {})
+        if isinstance(layer_plan_counts, dict):
+            layer_plan_counts[layer] = int(layer_plan_counts.get(layer, 0) or 0) + int(record.get("count") or 0)
+
+    @staticmethod
+    def _count_plan_result(layer: str, result: Any) -> int:
+        if layer in {"L1", "L3", "L4"}:
+            return len(result) if isinstance(result, list) else 0
+        if layer == "L2" and isinstance(result, dict):
+            return sum(
+                len(result.get(key, []))
+                for key in (
+                    "entity_cards",
+                    "relationships",
+                    "assertions",
+                    "episodes",
+                    "state_facts",
+                    "state_history",
+                )
+            )
+        return 0
+
+    @staticmethod
+    def _layer_result_counts(payload: RetrievalPayload) -> dict[str, int]:
+        return {
+            "L1": len(payload.l1_events),
+            "L2": (
+                len(payload.l2_entity_cards)
+                + len(payload.l2_relationships)
+                + len(payload.l2_assertions)
+                + len(payload.l2_episodes)
+                + len(payload.l2_state_facts)
+                + len(payload.l2_state_history)
+            ),
+            "L3": len(payload.l3_reflections),
+            "L4": len(payload.l4_procedures),
+        }
+
+    @staticmethod
     def _count_results(payload: RetrievalPayload) -> int:
         """Count total non-L0 retrieval results.
 
@@ -672,6 +758,7 @@ class HybridRetrievalService:
             + len(payload.l2_assertions)
             + len(payload.l2_episodes)
             + len(payload.l2_state_facts)
+            + len(payload.l2_state_history)
             + len(payload.l3_reflections)
             + len(payload.l4_procedures)
         )

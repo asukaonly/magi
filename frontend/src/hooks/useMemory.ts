@@ -31,6 +31,7 @@ import type {
   L4Skill,
   MemoryStatistics,
   MemorySearchResultPayload,
+  MemorySearchQueryMode,
   PaginationParams,
 } from '@/api/modules/memory';
 
@@ -101,7 +102,7 @@ export interface UseMemoryReturn {
   setSearchQuery: (query: string) => void;
   searchResults: MemorySearchResultPayload;
   searching: boolean;
-  handleSearch: () => Promise<void>;
+  handleSearch: (queryMode?: MemorySearchQueryMode) => Promise<void>;
 
   // Clear dialog
   clearDialogOpen: boolean;
@@ -606,14 +607,14 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
   // Search
   // ============================================================================
 
-  const handleSearch = useCallback(async () => {
+  const handleSearch = useCallback(async (queryMode?: MemorySearchQueryMode) => {
     if (!searchQuery.trim()) {
       setSearchResults(DEFAULT_SEARCH_RESULTS);
       return;
     }
     setSearching(true);
     try {
-      const results = await memoryApi.search(searchQuery);
+      const results = await memoryApi.search(searchQuery, { query_mode: queryMode });
       setSearchResults(results);
       toast.success(t('memory.searchComplete'));
     } catch (error) {
