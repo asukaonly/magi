@@ -12,15 +12,10 @@ from ...config.loader import get_config, get_config_file_path, reload_config, sa
 from ...config.llm_registry import (
     LLMProviderRegistryModel,
     find_embedding_model_meta,
-    find_provider_meta,
     resolve_embedding_dimension,
     resolve_llm_profile,
 )
-from ...config.models import (
-    LLMCapabilitiesSettings,
-    LLMLimitsSettings,
-    LLMSelectionLimitsSettings,
-)
+from ...config.models import LLMCapabilitiesSettings
 from ...core.runtime_bindings import require_runtime_command_queue
 from ...events.contracts import RefreshLLMConfigCommand
 from ...core.logger import get_logger
@@ -35,9 +30,15 @@ from ..services.config_onboarding import (
 from ..services.config_secrets import (
     is_masked_api_key,
     mask_api_key,
-    normalize_masked_secrets,
 )
 from ..services.llm_testing_service import get_llm_provider_registry as _load_llm_provider_registry
+from .config_update_paths import (
+    apply_llm_registry_defaults as _apply_llm_registry_defaults,
+    build_full_update_paths as _build_full_update_paths,
+    normalize_masked_config_secrets as _normalize_masked_config_secrets,
+    prune_sparse_value as _prune_sparse_value,
+    selection_limits_from_registry_limits as _selection_limits_from_registry_limits,
+)
 from .config_schemas import (
     AgentConfigModel,
     BuiltInToolsConfigModel,
@@ -88,15 +89,6 @@ def _read_raw_yaml() -> Dict[str, Any]:
     except Exception:
         logger.exception("Failed to read raw config file")
         return {}
-
-
-def _selection_limits_from_registry_limits(limits: LLMLimitsSettings | None) -> LLMSelectionLimitsSettings:
-    if limits is None:
-        return LLMSelectionLimitsSettings()
-    return LLMSelectionLimitsSettings(
-        context_window=limits.context_window,
-        max_output_tokens=limits.max_output_tokens,
-    )
 
 
 def _build_memory_config(raw: Dict[str, Any], runtime_config: Any) -> MemoryConfigModel:
@@ -339,96 +331,6 @@ def _build_system_config(mask_api_key: bool = False) -> SystemConfigModel:
     )
 
 
-def _apply_llm_registry_defaults(config: SystemConfigModel, registry: LLMProviderRegistryModel) -> None:
-    for provider_id, provider in config.llm.providers.items():
-        provider_meta = find_provider_meta(registry, provider_id)
-        if provider_meta is None:
-            continue
-
-        provider.provider_type = provider_id
-        if not provider.display_name:
-            provider.display_name = provider_meta.display_name or provider_id.upper()
-        if not (provider.base_url or "").strip():
-            provider.base_url = provider_meta.default_base_url
-
-    for selection_id, selection in config.llm.selections.items():
-        if not selection.provider_id:
-            continue
-
-        provider_meta = find_provider_meta(registry, selection.provider_id)
-        if provider_meta is None:
-            continue
-
-        if selection_id == "embedding":
-            embedding_model_meta = find_embedding_model_meta(
-                registry,
-                selection.provider_id,
-                selection.model,
-            )
-            if embedding_model_meta is None and provider_meta.embedding_models:
-                selection.model = provider_meta.embedding_models[0].id
-                embedding_model_meta = provider_meta.embedding_models[0]
-
-            selection.embedding_dimension = resolve_embedding_dimension(
-                embedding_model_meta,
-                selection.embedding_dimension,
-            )
-
-            if not selection.capability_override_enabled:
-                config.llm.selections[selection_id] = LLMSelectionConfigModel(
-                    provider_id=selection.provider_id,
-                    model=selection.model,
-                    embedding_dimension=selection.embedding_dimension,
-                    capability_override_enabled=False,
-                    capabilities=LLMCapabilitiesSettings(
-                        vision=False,
-                        image_output=False,
-                        tool_calling=False,
-                        reasoning=False,
-                        embedding=True,
-                    ),
-                    limits=(
-                        _selection_limits_from_registry_limits(embedding_model_meta.limits)
-                        if embedding_model_meta is not None
-                        else selection.limits
-                    ),
-                    provider_options=(
-                        dict(embedding_model_meta.provider_options_example)
-                        if embedding_model_meta is not None
-                        else {}
-                    ),
-                )
-            continue
-
-        if not selection.model:
-            if selection_id == "context_decider":
-                selection.model = (
-                    provider_meta.default_classify_model
-                    or provider_meta.default_model
-                    or (provider_meta.chat_models[0].id if provider_meta.chat_models else "")
-                )
-            else:
-                selection.model = provider_meta.default_model or (
-                    provider_meta.chat_models[0].id if provider_meta.chat_models else ""
-                )
-
-        if not selection.capability_override_enabled and selection.model:
-            resolved = resolve_llm_profile(
-                selection,
-                registry,
-                provider_settings=config.llm.providers.get(selection.provider_id),
-            )
-            config.llm.selections[selection_id] = LLMSelectionConfigModel(
-                provider_id=selection.provider_id,
-                model=selection.model,
-                embedding_dimension=selection.embedding_dimension,
-                capability_override_enabled=False,
-                capabilities=resolved.capabilities,
-                limits=_selection_limits_from_registry_limits(resolved.limits),
-                provider_options=resolved.provider_options,
-            )
-
-
 def _build_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
     normalized = _normalize_masked_secrets(config)
     target_updates = _build_full_update_paths(normalized)
@@ -442,118 +344,7 @@ def _build_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
 
 
 def _normalize_masked_secrets(config: SystemConfigModel) -> SystemConfigModel:
-    return normalize_masked_secrets(config, get_config())
-
-
-def _prune_sparse_value(value: Any) -> Any:
-    """Remove None leaves and empty dict nodes from persisted config payloads."""
-    if isinstance(value, dict):
-        pruned: Dict[str, Any] = {}
-        for key, item in value.items():
-            next_value = _prune_sparse_value(item)
-            if next_value is None:
-                continue
-            if isinstance(next_value, dict) and not next_value:
-                continue
-            pruned[key] = next_value
-        return pruned
-    if isinstance(value, list):
-        return [_prune_sparse_value(item) for item in value]
-    return value
-
-
-def _build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
-    _apply_llm_registry_defaults(config, _load_llm_provider_registry())
-    personality_settings = config.personalitySettings.normalized()
-
-    for selection_id, selection in config.llm.selections.items():
-        if not str(selection.provider_id or "").strip():
-            continue
-        provider = config.llm.providers.get(selection.provider_id)
-        if provider is None:
-            raise ValueError(
-                f"LLM selection '{selection_id}' references unknown provider '{selection.provider_id}'"
-            )
-        if not provider.enabled:
-            raise ValueError(
-                f"LLM selection '{selection_id}' references disabled provider '{selection.provider_id}'"
-            )
-
-    llm_providers: Dict[str, Any] = {}
-    for provider_id, provider in config.llm.providers.items():
-        llm_providers[provider_id] = _prune_sparse_value(provider.model_dump(exclude_none=True))
-
-    model_runtime_overrides = {
-        runtime_key: _prune_sparse_value(limits.model_dump(exclude_none=True))
-        for runtime_key, limits in config.llm.model_runtime_overrides.items()
-    }
-
-    updates: Dict[str, Any] = {
-        "agent.name": config.agent.name,
-        "agent.description": config.agent.description,
-        "llm.providers": llm_providers,
-        "llm.selections": {
-            selection_id: _prune_sparse_value(selection.model_dump(exclude_none=True))
-            for selection_id, selection in config.llm.selections.items()
-            if str(selection.provider_id or "").strip() and str(selection.model or "").strip()
-        },
-        "llm.model_runtime_overrides": model_runtime_overrides,
-        "agent.memory.db_path": config.memory.db_path,
-        "agent.memory.embedding.mode": config.memory.embedding.mode,
-        "agent.memory.embedding.local.model_source": config.memory.embedding.local.model_source,
-        "agent.memory.embedding.local.managed_model_id": config.memory.embedding.local.managed_model_id,
-        "agent.memory.embedding.local.model_dir_path": config.memory.embedding.local.model_dir_path,
-        "agent.memory.embedding.local.idle_timeout_seconds": config.memory.embedding.local.idle_timeout_seconds,
-        "agent.memory.retention_days": config.memory.retention_days,
-        "agent.memory.history_behavior": config.memory.history_behavior,
-        "agent.memory.reranker.top_k": config.memory.reranker.top_k,
-        "agent.memory.reranker.cross_encoder.enabled": config.memory.reranker.cross_encoder.enabled,
-        "agent.memory.reranker.cross_encoder.managed_model_id": config.memory.reranker.cross_encoder.managed_model_id,
-        "agent.memory.query_expansion.enabled": config.memory.query_expansion.enabled,
-        "agent.memory.graph_spreading.enabled": config.memory.graph_spreading.enabled,
-        "agent.memory.entity_semantic_edges.enabled": config.memory.entity_semantic_edges.enabled,
-        "agent.memory.l0.enabled": config.memory.l0.enabled,
-        "agent.memory.l0.checkpoint_interval_seconds": config.memory.l0.checkpoint_interval_seconds,
-        "agent.memory.l1.enabled": config.memory.l1.enabled,
-        "agent.memory.l1.vectors_enabled": config.memory.l1.vectors_enabled,
-        "agent.memory.l2.enabled": config.memory.l2.enabled,
-        "agent.memory.l2.batch_flush_interval_seconds": config.memory.l2.batch_flush_interval_seconds,
-        "agent.memory.l2.auto_extract_relations": config.memory.l2.auto_extract_relations,
-        "agent.memory.l2.conflict_arbitration_enabled": config.memory.l2.conflict_arbitration_enabled,
-        "agent.memory.l2.conflict_arbitration_min_confidence": config.memory.l2.conflict_arbitration_min_confidence,
-        "agent.memory.l3.enabled": config.memory.l3.enabled,
-        "agent.memory.l3.vectors_enabled": config.memory.l3.vectors_enabled,
-        "agent.memory.l3.llm_summary_enabled": config.memory.l3.llm_summary_enabled,
-        "agent.memory.l3.temporal_llm_timeout_seconds": config.memory.l3.temporal_llm_timeout_seconds,
-        "agent.memory.l3.temporal_llm_min_event_count": config.memory.l3.temporal_llm_min_event_count,
-        "agent.memory.l3.summary_interval_minutes": config.memory.l3.summary_interval_minutes,
-        "agent.memory.l4.enabled": config.memory.l4.enabled,
-        "agent.memory.l4.vectors_enabled": config.memory.l4.vectors_enabled,
-        "preferences": _prune_sparse_value(config.preferences.model_dump(exclude_none=True)),
-        "network": config.network.model_dump(),
-        "agent.personality.name": config.personality.persona_entity.basic_profile.name if config.personality.persona_entity.basic_profile.name else "default",
-        "agent.personality.path": "~/.magi/personalities",
-        "agent.personality.enable_evolution": personality_settings.state_memory_enabled,
-        "agent.personality.enable_state_memory": personality_settings.state_memory_enabled,
-        "agent.personality.enable_state_transition": personality_settings.state_transition_enabled,
-        "agent.personality.enable_deep_persona": personality_settings.deep_persona_enabled,
-        "timeline": _prune_sparse_value(config.timeline.model_dump(exclude_none=True)),
-        "tools.builtIn": _prune_sparse_value(config.tools.builtIn.model_dump(exclude_none=True)),
-        "tools.skills": config.tools.skills,
-        "tools.weather.enabled": config.tools.builtIn.weather.enabled,
-        "tools.weather.default_provider": config.tools.builtIn.weather.provider,
-        "tools.web_search.enabled": config.tools.builtIn.webSearch.enabled,
-        "tools.web_search.default_provider": config.tools.builtIn.webSearch.provider,
-        "tools.web_fetch.enabled": config.tools.builtIn.webFetch.enabled,
-        "tools.web_fetch.default_provider": "browser" if config.tools.builtIn.webFetch.usePlaywright else "http",
-    }
-    if config.tools.builtIn.weather.apiKey is not None:
-        updates[f"tools.weather.providers.{config.tools.builtIn.weather.provider}.api_key"] = config.tools.builtIn.weather.apiKey
-    if config.tools.builtIn.weather.apiUrl is not None:
-        updates[f"tools.weather.providers.{config.tools.builtIn.weather.provider}.base_url"] = config.tools.builtIn.weather.apiUrl
-    if config.tools.builtIn.webSearch.apiKey is not None:
-        updates[f"tools.web_search.providers.{config.tools.builtIn.webSearch.provider}.api_key"] = config.tools.builtIn.webSearch.apiKey
-    return updates
+    return _normalize_masked_config_secrets(config, get_config())
 
 
 def _mask_api_key(api_key: str) -> str:
