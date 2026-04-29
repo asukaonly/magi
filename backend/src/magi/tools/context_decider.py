@@ -13,13 +13,13 @@ import logging
 from dataclasses import dataclass
 from typing import Dict, Any, Optional, List
 
-from ..agent.message_utils import trim_latest_user_message
 from ..config.models import LLMScenario, ThinkingDepth
 from ..llm.base import LLMAdapter
 from ..llm.provider_bridge import LLMProviderBridge
 from ..config.constants import DEFAULT_MAX_TOKENS, DEFAULT_THINKING_TOKENS
 from .registry import ToolRegistry
 from .context_decider_context import ContextDeciderContext
+from .context_decider_prompt import build_context_decider_prompt
 from ..utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
 
 logger = logging.getLogger(__name__)
@@ -424,123 +424,12 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
         context: Optional[ContextDeciderContext],
     ) -> str:
         """Build the prompt for context decision"""
-        prompt = """## Available Tools
-
-"""
-
-        for tool in available_tools:
-            name = tool.get("name", "unknown")
-            desc = tool.get("description", "No description")
-            prompt += f"- {name}: {desc}\n"
-
-        # Add skills with truncated descriptions and trigger keywords
-        if hasattr(self.tool_registry, '_skills') and self.tool_registry._skills:
-            prompt += "\n## Available Skills\n\n"
-            for name, skill in self.tool_registry._skills.items():
-                desc = skill.description if hasattr(skill, 'description') else "No description"
-                # Truncate long descriptions (keep first 150 chars)
-                if len(desc) > 150:
-                    desc = desc[:150] + "..."
-                prompt += f"- /{name}: {desc}\n"
-
-        prompt += f"""
-## User Request
-
-{user_message}
-
-## Environment
-
-"""
-        if context:
-            if context.os_name:
-                os_line = context.os_name
-                if context.os_version:
-                    os_line = f"{os_line} {context.os_version}"
-                prompt += f"- OS: {os_line}\n"
-            if context.current_datetime:
-                prompt += f"- Current datetime: {context.current_datetime}\n"
-            if context.timezone:
-                prompt += f"- Timezone: {context.timezone}\n"
-            if context.workspace_path:
-                prompt += f"- Workspace path: {context.workspace_path}\n"
-            if context.home_dir:
-                prompt += f"- Home directory: {context.home_dir}\n"
-            recent_messages = context.recent_messages
-            if isinstance(recent_messages, list) and recent_messages:
-                recent_messages = trim_latest_user_message(recent_messages, user_message)
-            if isinstance(recent_messages, list) and recent_messages:
-                prompt += "\n## Recent Conversation\n\n"
-                for item in recent_messages[-6:]:
-                    if not isinstance(item, dict):
-                        continue
-                    role = str(item.get("role", "unknown"))
-                    content = str(item.get("content", ""))
-                    prompt += f"- {role}: {content}\n"
-            recent_tool_errors = context.recent_tool_errors
-            if isinstance(recent_tool_errors, list) and recent_tool_errors:
-                prompt += "\n## Recent Tool Errors\n\n"
-                for item in recent_tool_errors[:3]:
-                    if not isinstance(item, dict):
-                        continue
-                    tool_name = str(item.get("tool_name", "unknown"))
-                    error_code = str(item.get("error_code", "UNKNOWN"))
-                    error_message = str(item.get("error_message", ""))
-                    config_path = str(item.get("config_path") or "").strip()
-                    next_action = str(item.get("next_action") or "").strip()
-                    line = f"- {tool_name}: {error_code} | {error_message}"
-                    if config_path:
-                        line += f" | config_path={config_path}"
-                    if next_action:
-                        line += f" | next_action={next_action}"
-                    prompt += f"{line}\n"
-            recent_tool_state = context.recent_tool_state
-            if isinstance(recent_tool_state, list) and recent_tool_state:
-                prompt += "\n## Recent Tool State\n\n"
-                prompt += "Use this as lightweight continuity from recent tool activity. If exact parameters, durations, or detailed outputs are needed, prefer `trace_query`.\n"
-                for item in recent_tool_state[:4]:
-                    if not isinstance(item, dict):
-                        continue
-                    tool_name = str(item.get("tool_name", "unknown"))
-                    status = str(item.get("status", "unknown"))
-                    line = f"- {tool_name}: {status}"
-                    execution_time_ms = item.get("execution_time_ms")
-                    if execution_time_ms not in (None, ""):
-                        line += f" | duration_ms={execution_time_ms}"
-                    outcome = str(item.get("outcome") or "").strip()
-                    if outcome:
-                        line += f" | outcome={outcome}"
-                    handles = item.get("handles")
-                    if isinstance(handles, list) and handles:
-                        line += f" | handles={', '.join(str(h) for h in handles[:4])}"
-                    prompt += f"{line}\n"
-        else:
-            prompt += "- No environment info\n"
-
-        # Inject L4 procedural-memory advisory when available.
-        if context and context.tool_advisory:
-            prompt += "\n## Tool Experience Notes\n\n"
-            prompt += "The following tools have notable historical observations. Use this to inform your tool selection.\n\n"
-            for adv in context.tool_advisory:
-                name = adv.get("tool_name", "unknown")
-                parts: list[str] = []
-                if not adv.get("available", True):
-                    parts.append("UNAVAILABLE (breaker open)")
-                rate = adv.get("success_rate")
-                attempts = adv.get("total_attempts", 0)
-                if rate is not None and attempts:
-                    parts.append(f"success {rate:.0%} over {attempts} uses")
-                hint = adv.get("strategy_hint")
-                if hint:
-                    parts.append(f"tip: {hint}")
-                risk = adv.get("risk_note")
-                if risk:
-                    parts.append(f"risk: {risk}")
-                if parts:
-                    prompt += f"- {name}: {' | '.join(parts)}\n"
-
-        prompt += "\nRespond with ONLY the JSON object."
-
-        return prompt
+        return build_context_decider_prompt(
+            tool_registry=self.tool_registry,
+            user_message=user_message,
+            available_tools=available_tools,
+            context=context,
+        )
 
     def _parse_response(self, response: str) -> ContextDecision:
         """Parse LLM response into ContextDecision"""
