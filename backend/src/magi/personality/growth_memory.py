@@ -9,84 +9,23 @@ Internal note.
 Internal note.
 Internal note.
 """
-import aiosqlite
 import json
 import time
 import logging
 from typing import Dict, Any, Optional, List
 from pathlib import Path
-from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
 
 from ..core.sqlite import sqlite_connection_async
+from .growth_models import (
+    InteractionType,
+    Milestone,
+    MilestoneType,
+    PersonalityEvolution,
+    RelationshipProfile,
+)
 
 logger = logging.getLogger(__name__)
-
-
-# Internal note.
-
-class MilestoneType(Enum):
-    """Milestone type."""
-    FIRST_USE = "first_use"              # First use of a capability
-    STREAK = "streak"                    # Consecutive work/interaction streak
-    MASTERY = "mastery"                  # Mastered a skill
-    RELATIONSHIP = "relationship"        # Relationship milestone
-    ACHIEVEMENT = "achievement"          # Achievement
-    PERSONALITY_CHANGE = "personality"   # Personality change
-    SPECIAL = "special"                  # Special event
-    BOOTSTRAP_STARTED = "bootstrap_started"      # Bootstrap opening injected
-    BOOTSTRAP_COMPLETED = "bootstrap_completed"  # Bootstrap dialogue completed
-    BOOTSTRAP_ROUND = "bootstrap_round"          # Single bootstrap dialogue round
-    JOURNAL_ENTRY = "journal_entry"              # Persona journal reflection
-
-
-class InteractionType(Enum):
-    """Interaction type."""
-    CHAT = "chat"                        # Chat
-    TASK = "task"                        # Task
-    CODE = "code"                        # Code
-    ANALYSIS = "analysis"                # Analysis
-    CREATIVE = "creative"                # Creative
-    LEARNING = "learning"                # Learning
-
-
-# ===== data Models =====
-
-@dataclass
-class Milestone:
-    """growthmilestone"""
-    id: str
-    type: MilestoneType
-    title: str
-    description: str
-    timestamp: float
-    metadata: Dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class RelationshipProfile:
-    """Relationship profile"""
-    user_id: str
-    depth: float                         # relationshipdepth 0-1
-    first_interaction: float             # First interaction time
-    last_interaction: float              # Last interaction time
-    total_interactions: int              # Interaction count
-    interaction_types: Dict[str, int]    # Interaction count by type
-    sentiment_score: float               # Sentiment score (-1 to 1)
-    trust_level: float                   # Trust level (0-1)
-    notes: List[str] = field(default_factory=list)  # note
-
-
-@dataclass
-class PersonalityEvolution:
-    """personalityevolutionrecord"""
-    timestamp: float
-    aspect: str                          # Aspect of change
-    previous_value: Any
-    new_value: Any
-    confidence: float                    # Confidence (0-1)
-    reason: str                          # Reason for change
 
 
 # Internal note.
