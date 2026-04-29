@@ -181,6 +181,7 @@ Recent progress:
 - LLM model selection chat scenario panel now lives in `LLMChatScenarioPanel.tsx`.
 - LLM model selection image generation scenario panel now lives in `LLMImageGenerationScenarioPanel.tsx`.
 - Dynamic tool config spec normalization now lives in `dynamic-config-specs.ts`.
+- Dynamic config field rendering now lives in `DynamicConfigField.tsx`.
 - Worker prompt and tool-profile helpers now live in `worker_prompting.py`.
 - Worker status, await, and run-state serialization helpers now live in `worker_status.py`.
 - Worker tool schema definition now lives in `worker_schema.py`.

@@ -1,7 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { DynamicConfigField } from '@/components/config-forms/DynamicToolConfig';
+import { DynamicConfigField } from '@/components/config-forms/DynamicConfigField';
 import type { ExtensionFieldSpec } from '@/api/modules/plugins';
 
 type TFunction = (key: string) => string;
