@@ -72,6 +72,7 @@ dependencies = [
     "playwright>=1.53.0",
 
     # Local embedding / reranker (ONNX)
+    "numpy>=1.26.0",
     "onnxruntime>=1.17.0",
     "tokenizers>=0.19.0",
     "huggingface-hub>=0.20.0",
