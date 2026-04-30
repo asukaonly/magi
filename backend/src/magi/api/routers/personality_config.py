@@ -1,42 +1,67 @@
-"""
-Personality configuration API router.
-
-Provides personality read/update, AI generation, bootstrap dialogue,
-and journal reflection features.
-"""
+"""Personality configuration API router facade."""
 
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict, List, Optional
+from typing import Dict
 
 from fastapi import APIRouter, HTTPException
 
+from ...agent.runtime import TaskAgentType
+from ...config import get_config
+from ...config.models import LLMSettings
+from ...core.logger import get_logger
+from ...core.runtime_bindings import require_agent_runtime
+from ...llm import create_llm_adapter
 from ...llm.draft import resolve_adapter_for_scenario
-from ...personality.bootstrap_service import BootstrapDialogueService, get_shared_growth_engine
-from ...personality.growth_memory import GrowthMemoryEngine
-from ...personality.persona_journal_service import PersonaJournalService
-from ...personality.persona_repository import PersonaRepository
-from ..avatar_paths import resolve_avatar_public_url
 from ...personality.active_persona import (
     get_current_personality as get_current_personality_name,
     get_current_personality_config,
     resolve_persona_config,
     set_current_personality as set_current_personality_name,
 )
-from ...config import get_config
-from ...config.models import LLMSettings
-from ...agent.runtime import TaskAgentType
-from ...llm import create_llm_adapter
+from ...personality.bootstrap_service import BootstrapDialogueService, get_shared_growth_engine
+from ...personality.growth_memory import GrowthMemoryEngine
 from ...personality.loader import PersonalityConfig
+from ...personality.persona_journal_service import PersonaJournalService
+from ...personality.persona_repository import PersonaRepository
 from ...utils.runtime import get_runtime_paths
-from ...core.logger import get_logger
+from ..avatar_paths import resolve_avatar_public_url
 from ..services.personality_bootstrap_messages import (
     persist_bootstrap_assistant_message as _persist_bootstrap_assistant_message,
 )
 from ..services.personality_compare import build_personality_diffs, flatten_dict
 from ..services.personality_generation import generate_personality_config, normalize_generated_personality_payload
 from ..services.personality_registry import sanitize_persona_slug, save_personality_config_to_registry
+from .personality_bootstrap_routes import api_bootstrap_init, api_journal_reflect, personality_bootstrap_router
+from .personality_config_common import (
+    _build_diffs,
+    _flatten_dict,
+    _get_bootstrap_service,
+    _get_growth_engine,
+    _get_journal_service,
+    _get_runtime_status_snapshot,
+    _load_current_config,
+    _normalize_avatar_in_payload,
+    _normalize_generated_personality_payload,
+    _resolve_persona_id,
+    _wait_for_bootstrap_runtime_ready,
+    ai_generate_personality,
+    sanitize_filename,
+    save_personality_to_registry,
+)
+from .personality_config_routes import (
+    api_get_current_personality,
+    api_get_greeting,
+    api_set_current_personality,
+    compare_personalities,
+    delete_personality,
+    generate_personality,
+    get_personality,
+    list_personalities,
+    personality_config_core_router,
+    update_personality,
+)
 from .personality_config_schemas import (
     AIGenerateRequest,
     BasicProfileModel,
@@ -56,10 +81,7 @@ logger = get_logger(__name__)
 personality_config_router = APIRouter()
 
 BOOTSTRAP_RUNTIME_WAIT_SCHEDULE_SECONDS = (0.2, 0.45, 0.9, 1.5)
-
-
 DEFAULT_PERSONALITY = "default"
-
 
 FIELD_LABELS: Dict[str, str] = {
     "persona_entity.basic_profile.name": "Name",
@@ -75,570 +97,78 @@ FIELD_LABELS: Dict[str, str] = {
     "state_transition_protocol": "State Transition Protocol",
 }
 
-
-async def _load_current_config(slug: str) -> PersonalityConfig:
-    """Return the PersonalityConfig for *slug*.
-
-    Prefers the in-memory cache (populated at boot / persona switch),
-    then queries the persona registry.
-    """
-    cached = get_current_personality_config()
-    if cached is not None:
-        return cached
-    resolved = await resolve_persona_config(slug)
-    if resolved is not None:
-        return resolved
-    logger.warning("Persona '%s' not found in registry, using default config", slug)
-    return PersonalityConfig()
-
-
-async def _get_growth_engine() -> GrowthMemoryEngine:
-    """Return the shared GrowthMemoryEngine singleton."""
-    return await get_shared_growth_engine()
-
-
-async def _get_bootstrap_service() -> BootstrapDialogueService:
-    """Create a BootstrapDialogueService wired to the shared growth engine."""
-    engine = await _get_growth_engine()
-    return BootstrapDialogueService(
-        growth_engine=engine,
-    )
-
-
-async def _get_runtime_status_snapshot() -> Dict[str, Any]:
-    """Read the current runtime readiness snapshot."""
-    from ..services import get_runtime_system_status
-
-    return await get_runtime_system_status(None)
-
-
-async def _wait_for_bootstrap_runtime_ready() -> Dict[str, Any]:
-    """Wait briefly for the LLM bootstrap path to become available."""
-    runtime_status = await _get_runtime_status_snapshot()
-    if runtime_status.get("llm_ready"):
-        return runtime_status
-
-    waited_seconds = 0.0
-    for delay_seconds in BOOTSTRAP_RUNTIME_WAIT_SCHEDULE_SECONDS:
-        await asyncio.sleep(delay_seconds)
-        waited_seconds += delay_seconds
-        runtime_status = await _get_runtime_status_snapshot()
-        if runtime_status.get("llm_ready"):
-            logger.info(
-                "Bootstrap runtime became llm-ready after %.2fs wait (startup_state=%s, deferred_reason=%s)",
-                waited_seconds,
-                runtime_status.get("startup_state"),
-                runtime_status.get("deferred_reason"),
-            )
-            return runtime_status
-
-    logger.info(
-        "Bootstrap runtime wait exhausted after %.2fs (llm_ready=%s, startup_state=%s, deferred_reason=%s)",
-        waited_seconds,
-        runtime_status.get("llm_ready"),
-        runtime_status.get("startup_state"),
-        runtime_status.get("deferred_reason"),
-    )
-    return runtime_status
-
-
-async def _resolve_persona_id(persona_name: str) -> str:
-    """Best-effort resolution of persona_id from the persona registry."""
-    try:
-        repo = PersonaRepository(str(get_runtime_paths().persona_registry_db_path))
-        await repo.init()
-        record = await repo.get_by_slug(persona_name)
-        return record.persona_id
-    except Exception:
-        return ""
-
-
-async def _get_journal_service() -> PersonaJournalService:
-    """Create a PersonaJournalService wired to the shared growth engine."""
-    engine = await _get_growth_engine()
-    return PersonaJournalService(
-        growth_engine=engine,
-    )
-
-
-def sanitize_filename(name: str) -> str:
-    return sanitize_persona_slug(name)
-
-
-async def save_personality_to_registry(name: str, config: PersonalityConfigModel) -> str:
-    """Save personality configuration to the persona registry.
-
-    Creates a new persona or updates an existing one.  Returns the final slug.
-    """
-    return await save_personality_config_to_registry(
-        name,
-        config,
-        repo_factory=PersonaRepository,
-        runtime_paths_loader=get_runtime_paths,
-    )
-
-
-def _flatten_dict(value: Any, prefix: str = "") -> Dict[str, Any]:
-    return flatten_dict(value, prefix)
-
-
-def _build_diffs(from_data: Dict[str, Any], to_data: Dict[str, Any]) -> List[PersonalityDiff]:
-    return build_personality_diffs(from_data, to_data, FIELD_LABELS)
-
-
-def _normalize_avatar_in_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
-    basic_profile = payload.get("persona_entity", {}).get("basic_profile", {})
-    basic_profile["avatar"] = resolve_avatar_public_url(basic_profile.get("avatar", ""))
-    return payload
-
-
-def _normalize_generated_personality_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
-    return normalize_generated_personality_payload(payload)
-
-
-# ============ LLM Parsing Functions ============
-
-async def ai_generate_personality(
-    description: str,
-    target_language: str = "Auto",
-    llm_override: Optional[LLMSettings] = None,
-) -> PersonalityConfigModel:
-    """Generate personality configuration from description using LLM."""
-    return await generate_personality_config(
-        description,
-        target_language=target_language,
-        llm_override=llm_override,
-        adapter_resolver=resolve_adapter_for_scenario,
-        adapter_factory=create_llm_adapter,
-    )
-
-
-# ============ API Endpoints ============
-
-@personality_config_router.get(
-    "/current",
-    response_model=PersonalityResponse,
-    summary="Get current personality",
-    description="Return the current active personality name used by the runtime.",
-)
-async def api_get_current_personality():
-    try:
-        return PersonalityResponse(
-            success=True,
-            message="Successfully retrieved current personality",
-            data={"current": get_current_personality_name()},
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-@personality_config_router.put(
-    "/current",
-    response_model=PersonalityResponse,
-    summary="Set current personality",
-    description="Switch the current active personality and reload agent memory if available.",
-)
-async def api_set_current_personality(request: Dict[str, str]):
-    try:
-        name = request.get("name")
-        if not name:
-            raise HTTPException(status_code=400, detail="Missing personality name")
-
-        # Load from registry.
-        config = None
-        try:
-            repo = PersonaRepository(str(get_runtime_paths().persona_registry_db_path))
-            await repo.init()
-            record = await repo.get_by_slug(name)
-            config = record.config
-        except (KeyError, Exception) as exc:
-            raise HTTPException(status_code=404, detail=f"Personality '{name}' not found") from exc
-
-        if not set_current_personality_name(name, config=config):
-            raise HTTPException(status_code=500, detail="Setting failed")
-
-        try:
-            from ...core.runtime_bindings import require_agent_runtime
-
-            runtime = require_agent_runtime()
-            manager = runtime.get_task_agent_manager()
-            chat_agent = await manager.ensure_agent(TaskAgentType.CHAT, "default")
-            memory = getattr(chat_agent, "memory", None)
-            if memory:
-                await memory.reload_personality(name, personality_config=config)
-        except Exception as exc:
-            logger.warning("Failed to reload agent personality: %s", exc)
-
-        return PersonalityResponse(
-            success=True,
-            message=f"Switched to personality: {name}",
-            data={"current": name},
-        )
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-@personality_config_router.get(
-    "/greeting",
-    response_model=PersonalityResponse,
-    summary="Get personality greeting",
-    description="Return the active persona display data plus whether first-contact bootstrap is still needed.",
-)
-async def api_get_greeting():
-    try:
-        current_name = get_current_personality_name()
-        config = await _load_current_config(current_name)
-
-        needs_bootstrap = False
-        needs_bootstrap_init = False
-        try:
-            persona_id = await _resolve_persona_id(current_name)
-            bootstrap_svc = await _get_bootstrap_service()
-            needs_bootstrap_init = await bootstrap_svc.needs_bootstrap_init(current_name, persona_id=persona_id)
-            needs_bootstrap = needs_bootstrap_init
-        except Exception as exc:
-            logger.debug("Bootstrap status check skipped: %s", exc)
-
-        return PersonalityResponse(
-            success=True,
-            message="Successfully retrieved greeting",
-            data={
-                "name": config.name,
-                "avatar": resolve_avatar_public_url(config.avatar or ""),
-                "needs_bootstrap": needs_bootstrap,
-                "needs_bootstrap_init": needs_bootstrap_init,
-                "bootstrap_completed": not needs_bootstrap_init,
-            },
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-@personality_config_router.get(
-    "/{name}",
-    response_model=PersonalityResponse,
-    summary="Get personality config",
-    description="Load one personality configuration by slug from the persona registry.",
-)
-async def get_personality(name: str = DEFAULT_PERSONALITY):
-    try:
-        try:
-            resolved = await resolve_persona_config(name)
-            if resolved is not None:
-                config = PersonalityConfigModel.model_validate(resolved.to_dict())
-            else:
-                config = None
-        except Exception:
-            config = None
-
-            if config is None:
-                default_config = PersonalityConfigModel()
-                return PersonalityResponse(
-                    success=True,
-                    message=f"Personality configuration not found, using default: {name}",
-                    data=_normalize_avatar_in_payload(default_config.model_dump()),
-                )
-
-        return PersonalityResponse(
-            success=True,
-            message=f"Successfully retrieved personality configuration: {name}",
-            data=_normalize_avatar_in_payload(config.model_dump()),
-        )
-    except FileNotFoundError:
-        default_config = PersonalityConfigModel()
-        return PersonalityResponse(
-            success=True,
-            message=f"Personality configuration not found, using default: {name}",
-            data=_normalize_avatar_in_payload(default_config.model_dump()),
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-@personality_config_router.put(
-    "/{name}",
-    response_model=PersonalityResponse,
-    summary="Save personality config",
-    description="Create or update a personality configuration and handle optional rename logic.",
-)
-async def update_personality(name: str, config: PersonalityConfigModel, use_ai_name: bool = False):
-    runtime_paths = get_runtime_paths()
-    target_name = sanitize_filename(config.persona_entity.basic_profile.name)
-    actual_name = name
-    try:
-        if name == "new" or use_ai_name:
-            actual_name = target_name
-        elif name == DEFAULT_PERSONALITY and target_name not in {DEFAULT_PERSONALITY, "AI_Assistant"}:
-            actual_name = target_name
-        elif name != target_name:
-            actual_name = target_name
-
-        await save_personality_to_registry(actual_name, config)
-
-        # Update in-memory cache if this is the active persona.
-        current = get_current_personality_name()
-        if actual_name == current or name == current:
-            from ...personality.loader import PersonalityConfig as _PC
-            set_current_personality_name(actual_name, config=_PC.from_dict(config.model_dump()))
-
-        return PersonalityResponse(
-            success=True,
-            message=f"Personality configuration saved: {actual_name}",
-            data={
-                "actual_name": actual_name,
-                "config": _normalize_avatar_in_payload(config.model_dump()),
-            },
-        )
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-@personality_config_router.post(
-    "/generate",
-    response_model=PersonalityResponse,
-    summary="Generate personality with AI",
-    description="Generate a structured personality configuration from free-text description via LLM.",
-)
-async def generate_personality(request: AIGenerateRequest):
-    try:
-        config = await ai_generate_personality(
-            request.description,
-            request.target_language,
-            llm_override=request.llm_override,
-        )
-        logger.info("AI generation successful: name=%s", config.persona_entity.basic_profile.name)
-        return PersonalityResponse(
-            success=True,
-            message="AI personality configuration generated successfully",
-            data=_normalize_avatar_in_payload(config.model_dump()),
-        )
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.error("AI generate personality failed: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-@personality_config_router.get(
-    "/",
-    response_model=PersonalityResponse,
-    summary="List personalities",
-    description="List available personality slugs from the persona registry.",
-)
-async def list_personalities():
-    try:
-        repo = PersonaRepository(str(get_runtime_paths().persona_registry_db_path))
-        await repo.init()
-        summaries = await repo.list_all()
-        personalities: List[str] = [s.slug for s in summaries if s.slug != DEFAULT_PERSONALITY]
-
-        return PersonalityResponse(
-            success=True,
-            message=f"Found {len(personalities)} personality configurations",
-            data={"personalities": personalities},
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-@personality_config_router.delete(
-    "/{name}",
-    response_model=PersonalityResponse,
-    summary="Delete personality",
-    description="Delete one personality configuration from runtime storage.",
-)
-async def delete_personality(name: str):
-    try:
-        if name == DEFAULT_PERSONALITY:
-            raise HTTPException(status_code=400, detail="Cannot delete default personality")
-
-        repo = PersonaRepository(str(get_runtime_paths().persona_registry_db_path))
-        await repo.init()
-        try:
-            record = await repo.get_by_slug(name)
-            await repo.delete(record.persona_id)
-        except (KeyError, Exception) as exc:
-            raise HTTPException(status_code=404, detail="Personality configuration not found") from exc
-
-        return PersonalityResponse(
-            success=True,
-            message=f"Personality configuration deleted: {name}",
-            data=None,
-        )
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-@personality_config_router.get(
-    "/compare/{from_name}/{to_name}",
-    response_model=PersonalityCompareResponse,
-    summary="Compare personalities",
-    description="Compare two personality configurations and return field-level differences.",
-)
-async def compare_personalities(from_name: str, to_name: str):
-    try:
-        from_config = await resolve_persona_config(from_name)
-        to_config = await resolve_persona_config(to_name)
-        if from_config is None:
-            raise HTTPException(status_code=404, detail=f"Personality not found: {from_name}")
-        if to_config is None:
-            raise HTTPException(status_code=404, detail=f"Personality not found: {to_name}")
-        from_data = from_config.to_dict()
-        to_data = to_config.to_dict()
-        from_model = PersonalityConfigModel.model_validate(from_data)
-        to_model = PersonalityConfigModel.model_validate(to_data)
-        diffs = _build_diffs(from_model.model_dump(), to_model.model_dump())
-
-        return PersonalityCompareResponse(
-            success=True,
-            message=f"Comparison complete: {len(diffs)} differences found",
-            from_personality=from_name,
-            to_personality=to_name,
-            diffs=diffs,
-            from_config=from_model,
-            to_config=to_model,
-        )
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-# ============ Bootstrap Dialogue Endpoints ============
-
-@personality_config_router.post(
-    "/bootstrap/init",
-    response_model=PersonalityResponse,
-    summary="Initialize bootstrap dialogue",
-    description="Generate the persona opening line, persist it as a real chat message, and emit a notification.",
-)
-async def api_bootstrap_init(request: BootstrapInitRequest):
-    try:
-        import uuid as _uuid
-
-        current_name = get_current_personality_name()
-        persona_id = await _resolve_persona_id(current_name)
-        bootstrap_svc = await _get_bootstrap_service()
-
-        needs_bootstrap_init = await bootstrap_svc.needs_bootstrap_init(current_name, persona_id=persona_id)
-
-        if not needs_bootstrap_init:
-            return PersonalityResponse(
-                success=True,
-                message="Bootstrap opening already initialized",
-                data={
-                    "bootstrap_active": False,
-                    "opening": None,
-                    "needs_bootstrap_init": False,
-                    "bootstrap_completed": True,
-                },
-            )
-
-        runtime_status = await _wait_for_bootstrap_runtime_ready()
-        if not runtime_status.get("llm_ready"):
-            logger.info(
-                "Bootstrap init proceeding with static opening fallback while runtime startup is incomplete "
-                "(startup_state=%s, deferred_reason=%s)",
-                runtime_status.get("startup_state"),
-                runtime_status.get("deferred_reason"),
-            )
-
-        opening = await bootstrap_svc.get_opening(current_name, persona_id=persona_id)
-        if not opening:
-            return PersonalityResponse(
-                success=True,
-                message="No opening available",
-                data={
-                    "bootstrap_active": False,
-                    "opening": None,
-                    "needs_bootstrap_init": True,
-                    "bootstrap_completed": False,
-                    "startup_state": runtime_status.get("startup_state"),
-                    "deferred_reason": runtime_status.get("deferred_reason"),
-                },
-            )
-
-        turn_id = f"turn_bs_{_uuid.uuid4().hex[:12]}"
-        try:
-            await _persist_bootstrap_assistant_message(
-                session_id=request.session_id,
-                user_id=request.user_id,
-                turn_id=turn_id,
-                content=opening,
-            )
-            await bootstrap_svc.mark_bootstrap_started(
-                persona_name=current_name,
-                persona_id=persona_id,
-                user_id=request.user_id,
-                session_id=request.session_id,
-                turn_id=turn_id,
-            )
-        except RuntimeError as exc:
-            message = str(exc)
-            if "binding is not initialized" in message:
-                logger.info("Bootstrap opening not persisted yet because runtime bindings are still starting: %s", exc)
-            else:
-                logger.warning("Bootstrap opening not persisted (runtime not ready): %s", exc)
-
-        return PersonalityResponse(
-            success=True,
-            message="Bootstrap opening injected",
-            data={
-                "bootstrap_active": False,
-                "opening": opening,
-                "needs_bootstrap_init": False,
-                "bootstrap_completed": True,
-                "startup_state": runtime_status.get("startup_state"),
-                "deferred_reason": runtime_status.get("deferred_reason"),
-            },
-        )
-    except Exception as exc:
-        logger.error("Bootstrap init failed: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-# ============ Journal Reflection Endpoint ============
-
-@personality_config_router.post(
-    "/journal/reflect",
-    response_model=PersonalityResponse,
-    summary="Trigger a persona journal reflection",
-    description="Generate a persona-perspective reflection entry and store it as a milestone.",
-)
-async def api_journal_reflect(request: JournalReflectRequest):
-    try:
-        persona_name = request.persona_name or get_current_personality_name()
-        journal_svc = await _get_journal_service()
-
-        entry = await journal_svc.generate_reflection(
-            persona_name=persona_name,
-            emotional_state=request.emotional_state,
-            relationship=request.relationship,
-            recent_milestones=request.recent_milestones,
-        )
-
-        if entry is None:
-            return PersonalityResponse(
-                success=False,
-                message="Reflection generation failed",
-                data=None,
-            )
-
-        return PersonalityResponse(
-            success=True,
-            message="Journal reflection generated",
-            data={
-                "milestone_id": entry.milestone_id,
-                "content": entry.content,
-                "timestamp": entry.timestamp,
-            },
-        )
-    except Exception as exc:
-        logger.error("Journal reflection failed: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+personality_config_router.include_router(personality_config_core_router)
+personality_config_router.include_router(personality_bootstrap_router)
+
+__all__ = [
+    "AIGenerateRequest",
+    "APIRouter",
+    "BOOTSTRAP_RUNTIME_WAIT_SCHEDULE_SECONDS",
+    "BasicProfileModel",
+    "BootstrapConfigModel",
+    "BootstrapDialogueService",
+    "BootstrapInitRequest",
+    "CoreIdentityModel",
+    "DEFAULT_PERSONALITY",
+    "FIELD_LABELS",
+    "GrowthMemoryEngine",
+    "HTTPException",
+    "JournalReflectRequest",
+    "LLMSettings",
+    "PersonaEntityModel",
+    "PersonaJournalService",
+    "PersonaRepository",
+    "PersonalityCompareResponse",
+    "PersonalityConfig",
+    "PersonalityConfigModel",
+    "PersonalityDiff",
+    "PersonalityResponse",
+    "StateTransitionProtocolItemModel",
+    "TaskAgentType",
+    "_build_diffs",
+    "_flatten_dict",
+    "_get_bootstrap_service",
+    "_get_growth_engine",
+    "_get_journal_service",
+    "_get_runtime_status_snapshot",
+    "_load_current_config",
+    "_normalize_avatar_in_payload",
+    "_normalize_generated_personality_payload",
+    "_persist_bootstrap_assistant_message",
+    "_resolve_persona_id",
+    "_wait_for_bootstrap_runtime_ready",
+    "ai_generate_personality",
+    "api_bootstrap_init",
+    "api_get_current_personality",
+    "api_get_greeting",
+    "api_journal_reflect",
+    "api_set_current_personality",
+    "asyncio",
+    "build_personality_diffs",
+    "compare_personalities",
+    "create_llm_adapter",
+    "delete_personality",
+    "flatten_dict",
+    "generate_personality",
+    "generate_personality_config",
+    "get_config",
+    "get_current_personality_config",
+    "get_current_personality_name",
+    "get_personality",
+    "get_runtime_paths",
+    "get_shared_growth_engine",
+    "list_personalities",
+    "logger",
+    "normalize_generated_personality_payload",
+    "personality_config_router",
+    "require_agent_runtime",
+    "resolve_adapter_for_scenario",
+    "resolve_avatar_public_url",
+    "resolve_persona_config",
+    "sanitize_filename",
+    "sanitize_persona_slug",
+    "save_personality_config_to_registry",
+    "save_personality_to_registry",
+    "set_current_personality_name",
+    "update_personality",
+]
