@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import logging
 import asyncio
+import logging
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional
 
 import aiosqlite
 
@@ -15,38 +15,22 @@ from ...core.sqlite import sqlite_connection_async
 from ...config.models import EmbeddingBackend
 from ..embedding.embedding_service import MemoryEmbeddingService
 from ..event_contracts import MemoryEvent
-from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
 from ..embedding.sqlite_vec_index import SqliteVecIndex
-from .advisory.tools import (
-    build_tool_advisory,
-    is_tool_advisory_notable,
-)
+from .retrieval.operations import L4ProceduralRetrievalMixin
 from .storage.schema import (
     DEFAULT_STRATEGY_EXTRACTION_THRESHOLD,
     EMBEDDING_TEXT_BUILDER_VERSION,
-    EXECUTION_TRACES_TABLE,
     MAX_TRACES_PER_SKILL,
     PENDING_TRACE_COUNT_MIGRATION_SQL,
     PROCEDURAL_MEMORY_SCHEMA_SQL,
-    SKILL_CHUNKS_TABLE,
     TRACE_TURN_ID_MIGRATION_SQL,
     TRACE_TURN_INDEX_SQL,
     _ADAPTIVE_MAX_THRESHOLD,
     ensure_procedural_memory_schema,
 )
-from .retrieval.search import (
-    escaped_skill_like_pattern,
-    fts_backfill_row,
-    ids_from_rows,
-    ordered_skill_dicts_from_rows,
-    plain_skill_like_pattern,
-    rows_to_bm25_pairs,
-)
 from .storage.serialization import (
     adaptive_extraction_threshold,
     extract_skill_identity,
-    row_to_execution_trace_dict,
-    row_to_skill_dict,
 )
 from .embeddings.service import L4SkillEmbeddingMixin
 from .learning.updates import (
@@ -70,7 +54,8 @@ from .strategy_operations import (
 
 logger = logging.getLogger(__name__)
 
-class L4ProceduralMemoryStore(L4SkillEmbeddingMixin):
+
+class L4ProceduralMemoryStore(L4SkillEmbeddingMixin, L4ProceduralRetrievalMixin):
     """Tracks procedural skills and breaker state from historical attempts."""
 
     def __init__(
@@ -284,268 +269,6 @@ class L4ProceduralMemoryStore(L4SkillEmbeddingMixin):
                 )
             return skill_id
 
-    async def get_skill(self, *, skill_name: str, skill_category: str) -> Optional[Dict[str, Any]]:
-        """Fetch a single procedural skill."""
-        await self.initialize()
-        async with sqlite_connection_async(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                "SELECT * FROM procedural_skills WHERE skill_name = ? AND skill_category = ?",
-                (skill_name, skill_category),
-            ) as cursor:
-                row = await cursor.fetchone()
-        return self._row_to_dict(row) if row else None
-
-    async def count_skills(self) -> int:
-        """Count all procedural skills."""
-        await self.initialize()
-        async with sqlite_connection_async(self.db_path) as db:
-            async with db.execute("SELECT COUNT(*) FROM procedural_skills") as cursor:
-                row = await cursor.fetchone()
-        return int(row[0]) if row else 0
-
-    async def get_all_skills(self, *, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
-        """List all stored skills."""
-        await self.initialize()
-        async with sqlite_connection_async(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                "SELECT * FROM procedural_skills ORDER BY updated_at DESC LIMIT ? OFFSET ?",
-                (int(limit), int(offset)),
-            ) as cursor:
-                rows = await cursor.fetchall()
-        return [self._row_to_dict(row) for row in rows]
-
-    async def get_tool_advisory(
-        self,
-        tool_names: List[str],
-        task_context: str | None = None,
-    ) -> List[Dict[str, Any]]:
-        """Return lightweight advisory for each requested tool.
-
-        Each advisory dict contains:
-            tool_name, available (bool), breaker_state, success_rate,
-            total_attempts, strategy_hint, context_fit, risk_note
-        """
-        if not tool_names:
-            return []
-        await self.initialize()
-        placeholders = ", ".join("?" for _ in tool_names)
-        async with sqlite_connection_async(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                f"""
-                SELECT skill_name, circuit_breaker_state, success_rate,
-                       total_attempts, optimized_prompt, context_affinity,
-                       failure_count, last_failure_at
-                FROM procedural_skills
-                WHERE skill_category = 'tool' AND skill_name IN ({placeholders})
-                """,
-                tuple(tool_names),
-            ) as cursor:
-                rows = await cursor.fetchall()
-
-        known = {str(row["skill_name"]): row for row in rows}
-        result: List[Dict[str, Any]] = []
-
-        for name in tool_names:
-            row = known.get(name)
-            if row is None:
-                # Tool has no execution history — no advisory.
-                continue
-            result.append(
-                build_tool_advisory(row=row, tool_name=name, task_context=task_context)
-            )
-
-        return result
-
-    async def get_notable_advisories(
-        self,
-        task_context: str | None = None,
-        limit: int = 10,
-    ) -> List[Dict[str, Any]]:
-        """Return advisories for tools with actionable status.
-
-        Selects tools whose circuit breaker is not closed, that have an
-        extracted strategy, or that have a low success rate (< 0.7 with
-        at least 3 attempts).  This avoids requiring the caller to know
-        which tool names to query up-front.
-        """
-        await self.initialize()
-        async with sqlite_connection_async(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                """
-                SELECT skill_name, circuit_breaker_state, success_rate,
-                       total_attempts, optimized_prompt, context_affinity,
-                       failure_count, last_failure_at
-                FROM procedural_skills
-                WHERE skill_category = 'tool'
-                  AND (
-                      circuit_breaker_state != 'closed'
-                      OR (optimized_prompt IS NOT NULL AND optimized_prompt != '' AND optimized_prompt != '{}')
-                      OR (success_rate < 0.7 AND total_attempts >= 3)
-                  )
-                ORDER BY updated_at DESC
-                LIMIT ?
-                """,
-                (int(limit * 2),),  # fetch extra to allow post-filter
-            ) as cursor:
-                rows = await cursor.fetchall()
-
-        result: List[Dict[str, Any]] = []
-        for row in rows:
-            advisory = build_tool_advisory(
-                row=row,
-                tool_name=str(row["skill_name"]),
-                task_context=task_context,
-            )
-            if not is_tool_advisory_notable(advisory):
-                continue
-
-            result.append(advisory)
-            if len(result) >= limit:
-                break
-        return result
-
-    async def query_strategies(self, *, query: str, limit: int = 10) -> List[Dict[str, Any]]:
-        """Search procedural skills by sqlite-vec and fall back to SQL LIKE."""
-        await self.initialize()
-        semantic = await self._semantic_query_strategies(query=query, limit=limit)
-        if semantic:
-            return semantic
-        like_query = plain_skill_like_pattern(query)
-        async with sqlite_connection_async(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                """
-                SELECT * FROM procedural_skills
-                WHERE skill_name LIKE ? OR COALESCE(optimized_prompt, '') LIKE ?
-                ORDER BY success_rate DESC, updated_at DESC
-                LIMIT ?
-                """,
-                (like_query, like_query, int(limit)),
-            ) as cursor:
-                rows = await cursor.fetchall()
-        return [self._row_to_dict(row) for row in rows]
-
-    async def clear(self) -> int:
-        """Delete all procedural skills."""
-        await self.initialize()
-        async with sqlite_connection_async(self.db_path) as db:
-            async with db.execute("SELECT COUNT(*) FROM procedural_skills") as cursor:
-                row = await cursor.fetchone()
-                count = int(row[0]) if row else 0
-            await db.execute("DELETE FROM procedural_skills")
-            await db.execute(f"DELETE FROM {SKILL_CHUNKS_TABLE}")
-            await db.execute(f"DELETE FROM {EXECUTION_TRACES_TABLE}")
-            await db.execute("DELETE FROM l4_skills_fts")
-            await db.commit()
-        if self._vector_index is not None:
-            await self._vector_index.clear()
-        return count
-
-    async def bm25_search(
-        self,
-        query: str,
-        *,
-        limit: int = 20,
-    ) -> List[Tuple[str, float]]:
-        """Search L4 skills via FTS5 BM25 ranking.
-
-        Returns a list of (skill_id, bm25_score) tuples ordered by relevance.
-        """
-        await self.initialize()
-        tokenized = tokenize_for_fts(query)
-        if not tokenized:
-            return []
-        escaped = escape_fts_query(tokenized)
-        if not escaped:
-            return []
-        async with sqlite_connection_async(self.db_path) as db:
-            try:
-                async with db.execute(
-                    """
-                    SELECT skill_id, bm25(l4_skills_fts) AS score
-                    FROM l4_skills_fts
-                    WHERE l4_skills_fts MATCH ?
-                    ORDER BY score
-                    LIMIT ?
-                    """,
-                    (escaped, limit),
-                ) as cursor:
-                    rows = await cursor.fetchall()
-                return rows_to_bm25_pairs(rows)
-            except Exception as exc:
-                logger.warning("FTS5 BM25 search failed for L4 skills: %s", exc)
-                return []
-
-    async def keyword_search(
-        self,
-        query: str,
-        *,
-        limit: int = 50,
-    ) -> List[str]:
-        """Return skill IDs matching *query* via LIKE keyword search."""
-        like_q = escaped_skill_like_pattern(query)
-        async with sqlite_connection_async(self.db_path) as db:
-            async with db.execute(
-                """
-                SELECT skill_id FROM procedural_skills
-                WHERE skill_name LIKE ? ESCAPE '\\' OR COALESCE(optimized_prompt, '') LIKE ? ESCAPE '\\'
-                ORDER BY success_rate DESC, updated_at DESC
-                LIMIT ?
-                """,
-                (like_q, like_q, limit),
-            ) as cursor:
-                rows = await cursor.fetchall()
-        return ids_from_rows(rows)
-
-    async def fetch_by_ids(self, skill_ids: List[str]) -> List[Dict[str, Any]]:
-        """Fetch full skill records by IDs, preserving input order."""
-        if not skill_ids:
-            return []
-        placeholders = ", ".join("?" for _ in skill_ids)
-        async with sqlite_connection_async(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                f"SELECT * FROM procedural_skills WHERE skill_id IN ({placeholders})",
-                tuple(skill_ids),
-            ) as cursor:
-                rows = await cursor.fetchall()
-        return ordered_skill_dicts_from_rows(rows=rows, skill_ids=skill_ids)
-
-    async def backfill_fts(self, *, batch_size: int = 500) -> int:
-        """Backfill FTS5 index from existing procedural_skills rows."""
-        await self.initialize()
-        indexed = 0
-        async with sqlite_connection_async(self.db_path) as db:
-            async with db.execute(
-                """
-                SELECT skill_id, skill_name, skill_category, optimized_prompt
-                FROM procedural_skills
-                WHERE skill_id NOT IN (SELECT skill_id FROM l4_skills_fts)
-                """
-            ) as cursor:
-                batch: list[tuple[str, str]] = []
-                async for row in cursor:
-                    batch.append(fts_backfill_row(row))
-                    if len(batch) >= batch_size:
-                        await db.executemany(
-                            "INSERT INTO l4_skills_fts(skill_id, content) VALUES (?, ?)",
-                            batch,
-                        )
-                        indexed += len(batch)
-                        batch.clear()
-                if batch:
-                    await db.executemany(
-                        "INSERT INTO l4_skills_fts(skill_id, content) VALUES (?, ?)",
-                        batch,
-                    )
-                    indexed += len(batch)
-            await db.commit()
-        return indexed
-
     @staticmethod
     def _adaptive_extraction_threshold(
         base_threshold: int,
@@ -584,31 +307,6 @@ class L4ProceduralMemoryStore(L4SkillEmbeddingMixin):
         event: MemoryEvent,
     ) -> Optional[Dict[str, Any]]:
         return extract_skill_identity(event)
-
-    async def get_recent_traces(
-        self,
-        skill_id: str,
-        *,
-        limit: int = 20,
-    ) -> List[Dict[str, Any]]:
-        """Return the most recent execution traces for a skill."""
-        await self.initialize()
-        async with sqlite_connection_async(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                f"""
-                SELECT trace_id, skill_id, event_id, turn_id, success, duration_ms,
-                       error_summary, input_summary, output_summary, task_context,
-                       created_at
-                FROM {EXECUTION_TRACES_TABLE}
-                WHERE skill_id = ?
-                ORDER BY created_at DESC
-                LIMIT ?
-                """,
-                (skill_id, int(limit)),
-            ) as cursor:
-                rows = await cursor.fetchall()
-        return [row_to_execution_trace_dict(row) for row in rows]
 
     async def _maybe_extract_strategy(
         self,
@@ -659,8 +357,5 @@ class L4ProceduralMemoryStore(L4SkillEmbeddingMixin):
     ) -> None:
         """Write extracted strategy to the procedural_skills row and reset pending count."""
         await persist_strategy(db_path=self.db_path, skill_id=skill_id, strategy=strategy)
-
-    def _row_to_dict(self, row: aiosqlite.Row) -> Dict[str, Any]:
-        return row_to_skill_dict(row)
 
 __all__ = ["L4ProceduralMemoryStore"]
