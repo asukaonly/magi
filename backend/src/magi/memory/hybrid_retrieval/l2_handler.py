@@ -6,7 +6,6 @@ complex semantic relationship planning that warrants its own module.
 
 from __future__ import annotations
 
-import logging
 from typing import Any, Dict, List, Optional
 
 from .models import (
@@ -23,11 +22,11 @@ from .protocols import (
 from .l2_edge_vectors import L2EdgeVectorSupplementMixin
 from .l2_entity_resolution import L2EntityResolutionMixin
 from .l2_relationship_queries import L2RelationshipQueryMixin
+from .l2_query_execution import L2QueryExecutionMixin
 from .l2_semantic_relationships import L2SemanticRelationshipMixin
 from .l2_handler_utils import (
     allows_object_id_filter,
     allows_object_type_filter,
-    build_l2_trace,
     build_query_frame,
     collect_candidate_object_ids,
     collect_candidate_subject_ids,
@@ -49,14 +48,12 @@ from .l2_handler_utils import (
     select_target_entity_types,
 )
 
-logger = logging.getLogger(__name__)
-
-
 class L2Handler(
     L2EntityResolutionMixin,
     L2RelationshipQueryMixin,
     L2EdgeVectorSupplementMixin,
     L2SemanticRelationshipMixin,
+    L2QueryExecutionMixin,
 ):
     """Execute L2 knowledge graph queries from structured conditions."""
 
@@ -90,168 +87,6 @@ class L2Handler(
         that un-dated knowledge-graph facts are not silently discarded.
         """
         return filter_items_by_time_range(items, time_range, timestamp_keys=timestamp_keys)
-
-    async def execute(
-        self,
-        conditions: L2Conditions,
-        time_range: Optional[TimeRange] = None,
-        *,
-        user_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """Query L2 for entity cards and relationships."""
-        results: Dict[str, Any] = {"entity_cards": [], "relationships": [], "assertions": [], "trace": {}}
-        resolved_entities = await self._resolve_entities(conditions, user_id=user_id)
-        predicate_family = conditions.predicate_family or "unknown"
-        predicates = conditions.predicates or self._predicates_for_family(predicate_family)
-        status_filters = conditions.status_filter or self._infer_status_filters(conditions.content_query)
-        relation_direction = conditions.relation_direction or self._infer_relation_direction(conditions.content_query)
-        semantic_frame = conditions.semantic_frame
-        query_frame = self._build_query_frame(
-            conditions=conditions,
-            resolved_entities=resolved_entities,
-            predicates=predicates,
-            predicate_family=predicate_family,
-            user_id=user_id,
-            relation_direction=relation_direction,
-        )
-        target_entity_id = self._infer_target_entity_id(
-            query_frame=query_frame,
-            predicate_family=predicate_family,
-        )
-        allow_global_scan = self._has_global_query_constraints(
-            conditions=conditions,
-            resolved_entities=resolved_entities,
-            semantic_frame=semantic_frame,
-            predicate_family=predicate_family,
-            query_frame=query_frame,
-            time_range=time_range,
-            user_id=user_id,
-        )
-
-        snapshot_entities = query_frame["snapshot_entities"] or resolved_entities
-        if conditions.include_tom_snapshot and snapshot_entities:
-            results["entity_cards"] = await self._store.batch_get_tom_snapshots(
-                entities=snapshot_entities,
-            )
-
-        if conditions.include_assertions:
-            assertion_entities = query_frame["assertion_entities"] or resolved_entities
-            trait_families = conditions.trait_families or self._infer_trait_families(predicate_family)
-            if assertion_entities:
-                batch_assertions = await self._store.batch_list_tom_assertions(
-                    entity_ids=[e["entity_id"] for e in assertion_entities],
-                    trait_families=trait_families,
-                    validation_states=self._infer_assertion_states(status_filters),
-                    include_expired=False,
-                    target_entity_id=target_entity_id,
-                    limit_per_entity=conditions.limit,
-                )
-                for assertions in batch_assertions.values():
-                    results["assertions"].extend(assertions)
-            elif allow_global_scan:
-                results["assertions"] = await self._store.list_tom_assertions(
-                    trait_families=trait_families,
-                    validation_states=self._infer_assertion_states(status_filters),
-                    include_expired=False,
-                    target_entity_id=target_entity_id,
-                    limit=conditions.limit,
-                )
-            elif user_id and not resolved_entities and not conditions.entities and semantic_frame is None:
-                results["assertions"] = await self._store.list_tom_assertions(
-                    trait_families=trait_families,
-                    validation_states=self._infer_assertion_states(status_filters),
-                    include_expired=False,
-                    target_entity_id=target_entity_id,
-                    limit=conditions.limit,
-                )
-
-        if conditions.include_relationships:
-            semantic_relationships = await self._execute_semantic_relationship_plan(
-                conditions=conditions,
-                semantic_frame=semantic_frame,
-                status_filters=status_filters,
-                user_id=user_id,
-                resolved_entities=resolved_entities,
-            )
-            if semantic_relationships is not None:
-                results["relationships"] = semantic_relationships
-                if semantic_frame is not None:
-                    predicates = self._predicates_for_semantic_frame(semantic_frame)
-            else:
-                relationship_entities = query_frame["relationship_entities"] or resolved_entities
-                if relationship_entities:
-                    entity_ids = [e["entity_id"] for e in relationship_entities]
-                    all_user = all(e.get("entity_type") == "user" for e in relationship_entities)
-                    apply_object_filter = all_user and relation_direction == "outgoing"
-                    batch_rels = await self._store.batch_get_relationships(
-                        entity_ids=entity_ids,
-                        direction=relation_direction,
-                        status_filters=status_filters,
-                        predicates=predicates,
-                        target_object_id=query_frame["relationship_object_id"] if apply_object_filter else None,
-                        object_types=query_frame["relationship_object_types"] if apply_object_filter else None,
-                        limit_per_entity=conditions.limit,
-                    )
-                    seen: set[str] = set()
-                    for rels in batch_rels.values():
-                        for rel in rels:
-                            triple_id = str(rel.get("triple_id") or "")
-                            if triple_id and triple_id in seen:
-                                continue
-                            if triple_id:
-                                seen.add(triple_id)
-                            results["relationships"].append(rel)
-                elif allow_global_scan:
-                    rels = await self._store.get_relationships(
-                        predicates=predicates,
-                        status_filters=status_filters,
-                        limit=conditions.limit,
-                    )
-                    results["relationships"] = rels
-
-        # Post-retrieval time_range filtering for assertions/relationships
-        if time_range and (time_range.start or time_range.end):
-            results["assertions"] = self._filter_by_time_range(
-                results["assertions"], time_range,
-                timestamp_keys=("observed_at", "first_observed_at"),
-            )
-            results["relationships"] = self._filter_by_time_range(
-                results["relationships"], time_range,
-                timestamp_keys=("last_observed_at", "first_observed_at"),
-            )
-
-        edge_vector_supplement_count = 0
-        if conditions.include_relationships and conditions.content_query:
-            vector_edges = await self._supplement_edge_vector_search(
-                content_query=conditions.content_query,
-                existing_relationships=results["relationships"],
-                status_filters=status_filters,
-                predicates=None,
-                predicate_boost_groups=self._collect_boost_groups(predicates),
-                limit=conditions.limit,
-            )
-            if vector_edges:
-                results["relationships"].extend(vector_edges)
-                edge_vector_supplement_count = len(vector_edges)
-
-        results["trace"] = build_l2_trace(
-            conditions=conditions,
-            resolved_entities=resolved_entities,
-            query_frame=query_frame,
-            predicate_family=predicate_family,
-            predicates=predicates,
-            status_filters=status_filters,
-            relation_direction=relation_direction,
-            semantic_frame=semantic_frame,
-            target_entity_id=target_entity_id,
-            allow_global_scan=allow_global_scan,
-            entity_card_count=len(results["entity_cards"]),
-            relationship_count=len(results["relationships"]),
-            assertion_count=len(results["assertions"]),
-            edge_vector_supplement_count=edge_vector_supplement_count,
-        )
-        logger.info("L2 retrieval executed | %s", results["trace"])
-        return results
 
     @staticmethod
     def _has_global_query_constraints(
