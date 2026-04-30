@@ -20,6 +20,9 @@ from .protocols import (
     EntityCatalogProtocol,
     L2StoreProtocol,
 )
+from .l2_edge_vectors import L2EdgeVectorSupplementMixin
+from .l2_entity_resolution import L2EntityResolutionMixin
+from .l2_relationship_queries import L2RelationshipQueryMixin
 from .l2_semantic_relationships import L2SemanticRelationshipMixin
 from .l2_handler_utils import (
     allows_object_id_filter,
@@ -49,7 +52,12 @@ from .l2_handler_utils import (
 logger = logging.getLogger(__name__)
 
 
-class L2Handler(L2SemanticRelationshipMixin):
+class L2Handler(
+    L2EntityResolutionMixin,
+    L2RelationshipQueryMixin,
+    L2EdgeVectorSupplementMixin,
+    L2SemanticRelationshipMixin,
+):
     """Execute L2 knowledge graph queries from structured conditions."""
 
     def __init__(
@@ -265,195 +273,6 @@ class L2Handler(L2SemanticRelationshipMixin):
             time_range=time_range,
             user_id=user_id,
         )
-
-    async def _query_relationships_for_entity(
-        self,
-        *,
-        entity_id: str,
-        entity_type: str,
-        direction: str,
-        predicates: list[str] | None,
-        status_filters: list[str] | None,
-        object_id: str | None,
-        object_types: list[str] | None,
-        limit: int,
-    ) -> list[dict[str, Any]]:
-        if direction == "incoming":
-            return await self._store.get_relationships(
-                object_id=entity_id,
-                predicates=predicates,
-                status_filters=status_filters,
-                limit=limit,
-            )
-        if direction == "both":
-            outgoing = await self._store.get_relationships(
-                subject_id=entity_id,
-                predicates=predicates,
-                status_filters=status_filters,
-                object_id=object_id,
-                object_types=object_types,
-                limit=limit,
-            )
-            incoming = await self._store.get_relationships(
-                object_id=entity_id,
-                predicates=predicates,
-                status_filters=status_filters,
-                limit=limit,
-            )
-            seen: set[str] = set()
-            merged: list[dict[str, Any]] = []
-            for item in outgoing + incoming:
-                triple_id = str(item.get("triple_id") or "")
-                if triple_id and triple_id in seen:
-                    continue
-                if triple_id:
-                    seen.add(triple_id)
-                merged.append(item)
-            return merged
-        return await self._store.get_relationships(
-            subject_id=entity_id,
-            predicates=predicates,
-            status_filters=status_filters,
-            object_id=object_id if self._allows_object_id_filter(entity_type=entity_type, direction=direction) else None,
-            object_types=object_types if self._allows_object_type_filter(entity_type=entity_type, direction=direction) else None,
-            limit=limit,
-        )
-
-    @staticmethod
-    def _collect_boost_groups(predicates: list[str] | None) -> set[str] | None:
-        """Collect synonym groups from predicates for soft re-ranking."""
-        if not predicates:
-            return None
-        from ...memory.l2.ontology import get_predicate_synonym_group
-
-        groups: set[str] = set()
-        for pred in predicates:
-            group = get_predicate_synonym_group(pred)
-            if group:
-                groups.add(group)
-        return groups or None
-
-    async def _supplement_edge_vector_search(
-        self,
-        *,
-        content_query: str,
-        existing_relationships: list[dict[str, Any]],
-        status_filters: list[str] | None,
-        predicates: list[str] | None,
-        predicate_boost_groups: set[str] | None = None,
-        limit: int,
-    ) -> list[dict[str, Any]]:
-        """Return additional edges found via vector similarity that are not already present.
-
-        Predicates are NOT used as hard filters.  Instead, edges whose
-        predicate belongs to one of *predicate_boost_groups* receive a
-        distance bonus so they rank higher.
-        """
-        if self._embedding_service is None or self._edge_vector_index is None:
-            return []
-        query_text = content_query.strip()
-        if not query_text:
-            return []
-        try:
-            embedding = await self._embedding_service.embed_text(query_text)
-            if embedding is None:
-                return []
-            candidates = await self._store.search_edges_by_embedding(
-                vector_index=self._edge_vector_index,
-                embedding=embedding,
-                limit=limit,
-                status_filters=status_filters,
-                predicates=predicates,
-            )
-        except Exception as exc:
-            logger.debug("Edge vector supplement failed: %s", exc)
-            return []
-        if not candidates:
-            return []
-
-        if predicate_boost_groups:
-            from ...memory.l2.ontology import get_predicate_synonym_group
-
-            for edge in candidates:
-                group = get_predicate_synonym_group(str(edge.get("predicate") or ""))
-                if group and group in predicate_boost_groups:
-                    dist = edge.get("vector_distance")
-                    if dist is not None:
-                        edge["vector_distance"] = dist * 0.7
-            candidates.sort(key=lambda e: e.get("vector_distance") or float("inf"))
-
-        existing_ids = {str(r.get("triple_id") or "") for r in existing_relationships}
-        novel = [c for c in candidates if str(c.get("triple_id") or "") not in existing_ids]
-        return novel
-
-    async def _resolve_entities(
-        self,
-        conditions: L2Conditions,
-        *,
-        user_id: Optional[str] = None,
-    ) -> list[dict[str, str]]:
-        resolved: list[dict[str, str]] = []
-        seen: set[str] = set()
-
-        for entity in conditions.entities or []:
-            normalized = str(entity).strip()
-            if not normalized:
-                continue
-            if ":" in normalized:
-                entity_type, _, _ = normalized.partition(":")
-                if normalized not in seen:
-                    resolved.append({"entity_id": normalized, "entity_type": entity_type or "entity", "match_source": "explicit"})
-                    seen.add(normalized)
-                continue
-            if self._entity_catalog is None:
-                continue
-            matches = await self._entity_catalog.resolve_query_entities(
-                normalized,
-                limit=5,
-                entity_types=conditions.entity_types,
-            )
-            for match in matches:
-                entity_id = str(match["entity_id"])
-                if entity_id in seen:
-                    continue
-                resolved.append({
-                    "entity_id": entity_id,
-                    "entity_type": str(match["entity_type"]),
-                    "match_source": str(match.get("match_source") or "unknown"),
-                })
-                seen.add(entity_id)
-
-        if resolved or self._entity_catalog is None or not conditions.content_query:
-            return resolved
-
-        # When subject_hint is "self" with an unknown predicate family, the
-        # user entity is the subject and the answer (object) is completely
-        # unknown.  Skip content_query vector search to avoid resolving
-        # irrelevant entities that would wrongly filter outgoing edges.
-        # For known families like "preference", target resolution is still
-        # valuable (e.g. "Do I like sushi?" → resolve "sushi").
-        if conditions.subject_hint == "self" and (
-            not conditions.predicate_family
-            or conditions.predicate_family == "unknown"
-        ):
-            return resolved
-
-        query_matches = await self._entity_catalog.resolve_query_entities(
-            conditions.content_query,
-            limit=max(conditions.limit, 5),
-            entity_types=conditions.entity_types,
-        )
-        for match in query_matches:
-            entity_id = str(match["entity_id"])
-            if entity_id in seen:
-                continue
-            resolved.append({
-                "entity_id": entity_id,
-                "entity_type": str(match["entity_type"]),
-                "match_source": str(match.get("match_source") or "unknown"),
-            })
-            seen.add(entity_id)
-        return resolved
 
     @staticmethod
     def _predicates_for_family(family: str) -> list[str] | None:
