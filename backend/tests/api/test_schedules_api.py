@@ -163,6 +163,58 @@ def test_run_schedule_now_rejects_busy_target(monkeypatch):
     assert response.json()["detail"] == "Schedule target is busy"
 
 
+def test_list_schedules_uses_schedule_specific_execution_state(monkeypatch):
+    client, repository = _build_client(monkeypatch)
+
+    async def seed_shared_target_schedules() -> None:
+        await repository.initialize()
+        for period in ("hour", "day", "week"):
+            schedule = ScheduleDefinition(
+                schedule_id=f"memory-l3-summary:{period}",
+                target_type=ScheduledTargetType.MEMORY_L3_SUMMARY,
+                target_key="memory_l3_summary",
+                trigger=TriggerDefinition(TriggerType.INTERVAL, {"seconds": 3600}),
+                target_payload={"period_type": period},
+                job_id=f"memory-l3-summary:{period}",
+            )
+            await repository.upsert_schedule(schedule)
+        execution_id = await repository.create_execution_record(
+            schedule_id="memory-l3-summary:week",
+            target_type=ScheduledTargetType.MEMORY_L3_SUMMARY,
+            target_key="memory_l3_summary",
+            manual=True,
+            started_at=1710000000.0,
+        )
+        await repository.complete_execution_success(
+            execution_id,
+            result=ScheduledExecutionResult(
+                success=True,
+                message="generated",
+                stats={"period_type": "week", "generated": True},
+            ),
+            scheduler_job_id="memory-l3-summary:week",
+            finished_at=1710000003.0,
+        )
+
+    asyncio.run(seed_shared_target_schedules())
+
+    response = client.get("/api/schedules", params={"enabled_only": True})
+
+    assert response.status_code == 200
+    schedules = {
+        item["schedule_id"]: item
+        for item in response.json()["schedules"]
+        if str(item["schedule_id"]).startswith("memory-l3-summary:")
+    }
+    assert schedules["memory-l3-summary:week"]["target_state"]["last_run_at"] == 1710000000.0
+    assert schedules["memory-l3-summary:week"]["target_state"]["stats"] == {
+        "period_type": "week",
+        "generated": True,
+    }
+    assert schedules["memory-l3-summary:hour"]["target_state"]["last_run_at"] is None
+    assert schedules["memory-l3-summary:day"]["target_state"]["last_run_at"] is None
+
+
 def test_activity_lists_and_cancels_queued_sensor_job(monkeypatch):
     client, repository = _build_client(monkeypatch)
     schedule = asyncio.run(_seed_sensor_schedule(repository))

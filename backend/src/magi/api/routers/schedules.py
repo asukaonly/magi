@@ -130,7 +130,7 @@ async def list_schedules(
     schedules = await repository.list_schedules(enabled_only=enabled_only)
     items = []
     for schedule in schedules:
-        state = await repository.get_target_state(schedule.target_type, schedule.target_key)
+        state = await repository.get_schedule_runtime_state(schedule)
         items.append(_serialize_schedule(schedule, state))
     return {"schedules": items}
 
@@ -156,7 +156,7 @@ async def create_schedule(body: ScheduleCreateBody) -> dict[str, Any]:
         saved = await repository.get_schedule(schedule.schedule_id)
     else:
         saved = await scheduler_service.schedule(schedule)
-    state = await repository.get_target_state(schedule.target_type, schedule.target_key)
+    state = await repository.get_schedule_runtime_state(saved or schedule)
     return {"schedule": _serialize_schedule(saved or schedule, state)}
 
 
@@ -192,7 +192,7 @@ async def list_schedule_activity(
         )
 
     for schedule in schedules:
-        state = await repository.get_target_state(schedule.target_type, schedule.target_key)
+        state = await repository.get_schedule_runtime_state(schedule)
         if state.running and schedule.target_type is not ScheduledTargetType.SENSOR_SYNC:
             activities.append(
                 {
@@ -274,7 +274,7 @@ async def update_schedule(schedule_id: str, body: ScheduleUpdateBody) -> dict[st
         saved = await repository.get_schedule(schedule_id)
     else:
         saved = await scheduler_service.schedule(next_schedule)
-    state = await repository.get_target_state(next_schedule.target_type, next_schedule.target_key)
+    state = await repository.get_schedule_runtime_state(saved or next_schedule)
     return {"schedule": _serialize_schedule(saved or next_schedule, state)}
 
 
@@ -285,7 +285,7 @@ async def get_schedule(schedule_id: str) -> dict[str, Any]:
     schedule = await repository.get_schedule(schedule_id)
     if schedule is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found")
-    state = await repository.get_target_state(schedule.target_type, schedule.target_key)
+    state = await repository.get_schedule_runtime_state(schedule)
     return {"schedule": _serialize_schedule(schedule, state)}
 
 
@@ -334,7 +334,7 @@ async def run_schedule_now(schedule_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=result.message)
 
     saved = await repository.get_schedule(schedule_id)
-    state = await repository.get_target_state(existing.target_type, existing.target_key)
+    state = await repository.get_schedule_runtime_state(saved or existing)
     return {
         "schedule": _serialize_schedule(saved or existing, state),
         "result": asdict(result),

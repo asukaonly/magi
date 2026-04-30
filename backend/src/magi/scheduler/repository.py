@@ -270,6 +270,69 @@ class ScheduleRepository:
             rows = await cursor.fetchall()
         return [self._row_to_schedule(row) for row in rows]
 
+    async def get_schedule_runtime_state(self, schedule: ScheduleDefinition) -> ScheduledTargetState:
+        """Return row-display runtime state for one schedule definition.
+
+        Targets can be shared by several schedules for locking/coalescing, so
+        target_state is not specific enough for per-schedule table columns.
+        """
+
+        job_id = schedule.job_id or schedule.schedule_id
+        base_state = await self.get_target_state(schedule.target_type, schedule.target_key)
+        executions = await self.list_executions(schedule_id=schedule.schedule_id, limit=1)
+        next_run_at = await self.get_schedule_next_run_at(schedule)
+        if next_run_at is None and base_state.scheduler_job_id == job_id:
+            next_run_at = base_state.next_run_at
+        if not executions:
+            return ScheduledTargetState(
+                target_type=schedule.target_type,
+                target_key=schedule.target_key,
+                running=base_state.running,
+                next_run_at=next_run_at,
+                scheduler_job_id=job_id,
+                updated_at=base_state.updated_at,
+            )
+
+        latest = executions[0]
+        status = str(latest.get("status") or "")
+        started_at = latest.get("started_at") if isinstance(latest.get("started_at"), (int, float)) else None
+        finished_at = latest.get("finished_at") if isinstance(latest.get("finished_at"), (int, float)) else None
+        stats = latest.get("stats") if isinstance(latest.get("stats"), dict) else {}
+        error = latest.get("error") if isinstance(latest.get("error"), str) else None
+        return ScheduledTargetState(
+            target_type=schedule.target_type,
+            target_key=schedule.target_key,
+            running=base_state.running,
+            last_run_at=float(started_at) if started_at is not None else None,
+            last_success_at=float(finished_at) if status == "success" and finished_at is not None else None,
+            last_error=error,
+            next_run_at=next_run_at,
+            scheduler_job_id=str(latest.get("scheduler_job_id") or job_id),
+            stats=dict(stats),
+            updated_at=float(finished_at or started_at or base_state.updated_at or time.time()),
+        )
+
+    async def get_schedule_next_run_at(self, schedule: ScheduleDefinition) -> float | None:
+        job_id = schedule.job_id or schedule.schedule_id
+        async with self._connect() as db:
+            jobs_table_cursor = await db.execute(
+                """
+                SELECT 1
+                FROM sqlite_master
+                WHERE type = 'table' AND name = 'apscheduler_jobs'
+                LIMIT 1
+                """
+            )
+            has_apscheduler_jobs = await jobs_table_cursor.fetchone() is not None
+            if not has_apscheduler_jobs:
+                return None
+            cursor = await db.execute(
+                "SELECT next_run_time FROM apscheduler_jobs WHERE id = ?",
+                (job_id,),
+            )
+            row = await cursor.fetchone()
+        return float(row[0]) if row is not None and row[0] is not None else None
+
     async def delete_schedule(self, schedule_id: str) -> None:
         async with self._connect() as db:
             await db.execute("DELETE FROM schedules WHERE schedule_id = ?", (schedule_id,))

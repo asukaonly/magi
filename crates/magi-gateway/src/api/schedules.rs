@@ -158,6 +158,10 @@ fn query_schedules(enabled_only: bool) -> Value {
         .map(|iter| iter.filter_map(|r| r.ok()).collect())
         .unwrap_or_default();
     for schedule in schedules.iter_mut() {
+        let schedule_id = schedule
+            .get("schedule_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         let target_type = schedule
             .get("target_type")
             .and_then(|v| v.as_str())
@@ -166,7 +170,12 @@ fn query_schedules(enabled_only: bool) -> Value {
             .get("target_key")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        schedule["target_state"] = query_target_state(&conn, target_type, target_key);
+        let job_id = schedule
+            .get("job_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or(schedule_id);
+        schedule["target_state"] =
+            query_schedule_runtime_state(&conn, schedule_id, target_type, target_key, job_id);
     }
     json!({"schedules": schedules})
 }
@@ -418,12 +427,139 @@ fn query_single_schedule(schedule_id: &str) -> Option<Value> {
         .get("target_key")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    let target_state = query_target_state(&conn, target_type, target_key);
+    let job_id = schedule
+        .get("job_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or(schedule_id);
+    let target_state =
+        query_schedule_runtime_state(&conn, schedule_id, target_type, target_key, job_id);
 
     Some(json!({
         "schedule": schedule,
         "target_state": target_state,
     }))
+}
+
+fn query_schedule_runtime_state(
+    conn: &Connection,
+    schedule_id: &str,
+    target_type: &str,
+    target_key: &str,
+    job_id: &str,
+) -> Value {
+    let base = query_target_state(conn, target_type, target_key);
+    let target_running = base
+        .get("running")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    let mut next_run_at = query_job_next_run_at(conn, job_id);
+    if next_run_at.is_null()
+        && base
+            .get("scheduler_job_id")
+            .and_then(|value| value.as_str())
+            == Some(job_id)
+    {
+        next_run_at = base.get("next_run_at").cloned().unwrap_or(Value::Null);
+    }
+    let mut stmt = match conn.prepare(
+        "SELECT status, started_at, finished_at, error, stats_json, next_cursor, watermark_ts, scheduler_job_id \
+         FROM schedule_executions WHERE schedule_id = ?1 ORDER BY started_at DESC LIMIT 1",
+    ) {
+        Ok(stmt) => stmt,
+        Err(_) => {
+            return json!({
+                "target_type": target_type,
+                "target_key": target_key,
+                "running": target_running,
+                "last_run_at": Value::Null,
+                "last_success_at": Value::Null,
+                "last_error": Value::Null,
+                "last_cursor": Value::Null,
+                "watermark_ts": Value::Null,
+                "next_run_at": next_run_at,
+                "scheduler_job_id": job_id,
+                "stats": json!({}),
+                "updated_at": base.get("updated_at").cloned().unwrap_or(Value::Null),
+            })
+        }
+    };
+    let latest = stmt.query_row(rusqlite::params![schedule_id], |row| {
+        let stats_json: String = row
+            .get::<_, Option<String>>(4)?
+            .unwrap_or_else(|| "{}".into());
+        Ok(json!({
+            "status": row.get::<_, String>(0)?,
+            "started_at": row.get::<_, Option<f64>>(1)?,
+            "finished_at": row.get::<_, Option<f64>>(2)?,
+            "error": row.get::<_, Option<String>>(3)?,
+            "stats": serde_json::from_str::<Value>(&stats_json).unwrap_or(json!({})),
+            "next_cursor": row.get::<_, Option<String>>(5)?,
+            "watermark_ts": row.get::<_, Option<f64>>(6)?,
+            "scheduler_job_id": row.get::<_, Option<String>>(7)?.unwrap_or_else(|| job_id.to_string()),
+        }))
+    });
+    match latest {
+        Ok(row) => {
+            let status = row.get("status").and_then(|v| v.as_str()).unwrap_or("");
+            let started_at = row.get("started_at").cloned().unwrap_or(Value::Null);
+            let finished_at = row.get("finished_at").cloned().unwrap_or(Value::Null);
+            let updated_at = if !finished_at.is_null() {
+                finished_at.clone()
+            } else {
+                started_at.clone()
+            };
+            json!({
+                "target_type": target_type,
+                "target_key": target_key,
+                "running": target_running,
+                "last_run_at": started_at,
+                "last_success_at": if status == "success" { finished_at.clone() } else { Value::Null },
+                "last_error": row.get("error").cloned().unwrap_or(Value::Null),
+                "last_cursor": row.get("next_cursor").cloned().unwrap_or(Value::Null),
+                "watermark_ts": row.get("watermark_ts").cloned().unwrap_or(Value::Null),
+                "next_run_at": next_run_at,
+                "scheduler_job_id": row.get("scheduler_job_id").cloned().unwrap_or_else(|| Value::String(job_id.to_string())),
+                "stats": row.get("stats").cloned().unwrap_or_else(|| json!({})),
+                "updated_at": updated_at,
+            })
+        }
+        Err(_) => json!({
+            "target_type": target_type,
+            "target_key": target_key,
+            "running": target_running,
+            "last_run_at": Value::Null,
+            "last_success_at": Value::Null,
+            "last_error": Value::Null,
+            "last_cursor": Value::Null,
+            "watermark_ts": Value::Null,
+            "next_run_at": next_run_at,
+            "scheduler_job_id": job_id,
+            "stats": json!({}),
+            "updated_at": base.get("updated_at").cloned().unwrap_or(Value::Null),
+        }),
+    }
+}
+
+fn query_job_next_run_at(conn: &Connection, job_id: &str) -> Value {
+    let has_jobs_table = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'apscheduler_jobs' LIMIT 1",
+            [],
+            |_| Ok(()),
+        )
+        .is_ok();
+    if !has_jobs_table {
+        return Value::Null;
+    }
+    conn.query_row(
+        "SELECT next_run_time FROM apscheduler_jobs WHERE id = ?1",
+        rusqlite::params![job_id],
+        |row| row.get::<_, Option<f64>>(0),
+    )
+    .ok()
+    .flatten()
+    .map(Value::from)
+    .unwrap_or(Value::Null)
 }
 
 fn query_target_state(conn: &Connection, target_type: &str, target_key: &str) -> Value {
@@ -804,4 +940,179 @@ fn remove_schedule(schedule_id: &str) -> bool {
     )
     .map(|n| n > 0)
     .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::{Path, PathBuf};
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    struct BaseDirGuard {
+        path: PathBuf,
+        previous: Option<PathBuf>,
+        _lock: MutexGuard<'static, ()>,
+    }
+
+    impl Drop for BaseDirGuard {
+        fn drop(&mut self) {
+            crate::db::set_magi_base_dir_override_for_tests(self.previous.take());
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
+
+    fn isolated_base_dir(label: &str) -> BaseDirGuard {
+        let lock = TEST_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("lock schedule api unit test");
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "magi-gateway-schedules-{label}-{}-{suffix}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir_all(&path).unwrap();
+        let previous = crate::db::set_magi_base_dir_override_for_tests(Some(path.clone()));
+        BaseDirGuard {
+            path,
+            previous,
+            _lock: lock,
+        }
+    }
+
+    fn seed_shared_target_schedules(base_dir: &Path) {
+        let runtime_dir = base_dir.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).unwrap();
+        let conn = Connection::open(runtime_dir.join("scheduler.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE schedules (
+                schedule_id TEXT PRIMARY KEY,
+                target_type TEXT NOT NULL,
+                target_key TEXT NOT NULL,
+                trigger_type TEXT NOT NULL,
+                trigger_config TEXT NOT NULL,
+                target_payload TEXT NOT NULL,
+                metadata TEXT NOT NULL,
+                enabled INTEGER NOT NULL,
+                job_id TEXT
+            );
+            CREATE TABLE target_state (
+                target_type TEXT NOT NULL,
+                target_key TEXT NOT NULL,
+                running INTEGER NOT NULL DEFAULT 0,
+                last_run_at REAL,
+                last_success_at REAL,
+                last_error TEXT,
+                last_cursor TEXT,
+                watermark_ts REAL,
+                next_run_at REAL,
+                scheduler_job_id TEXT,
+                stats_json TEXT NOT NULL DEFAULT '{}',
+                updated_at REAL,
+                PRIMARY KEY (target_type, target_key)
+            );
+            CREATE TABLE schedule_executions (
+                execution_id TEXT PRIMARY KEY,
+                schedule_id TEXT NOT NULL,
+                target_type TEXT NOT NULL,
+                target_key TEXT NOT NULL,
+                manual INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                started_at REAL NOT NULL,
+                finished_at REAL,
+                duration_ms REAL,
+                result_message TEXT,
+                error TEXT,
+                stats_json TEXT NOT NULL DEFAULT '{}',
+                next_cursor TEXT,
+                watermark_ts REAL,
+                scheduler_job_id TEXT,
+                created_at REAL
+            );
+            CREATE TABLE apscheduler_jobs (
+                id TEXT PRIMARY KEY,
+                next_run_time REAL,
+                job_state BLOB NOT NULL
+            );",
+        )
+        .unwrap();
+        for (period, next_run_time) in [
+            ("hour", 1710003600.0),
+            ("day", 1710086400.0),
+            ("week", 1710604800.0),
+        ] {
+            let schedule_id = format!("memory-l3-summary:{period}");
+            conn.execute(
+                "INSERT INTO schedules (schedule_id, target_type, target_key, trigger_type, trigger_config, target_payload, metadata, enabled, job_id)
+                 VALUES (?1, 'memory_l3_summary', 'memory_l3_summary', 'interval', ?2, ?3, '{}', 1, ?1)",
+                rusqlite::params![
+                    schedule_id,
+                    "{\"seconds\":3600}",
+                    format!("{{\"period_type\":\"{period}\"}}")
+                ],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO apscheduler_jobs (id, next_run_time, job_state) VALUES (?1, ?2, X'00')",
+                rusqlite::params![schedule_id, next_run_time],
+            )
+            .unwrap();
+        }
+        conn.execute(
+            "INSERT INTO target_state (target_type, target_key, running, last_run_at, last_success_at, next_run_at, scheduler_job_id, stats_json, updated_at)
+             VALUES ('memory_l3_summary', 'memory_l3_summary', 0, 1710000000.0, 1710000003.0, 1710604800.0, 'memory-l3-summary:week', ?1, 1710000003.0)",
+            rusqlite::params!["{\"period_type\":\"week\"}"],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO schedule_executions (execution_id, schedule_id, target_type, target_key, manual, status, started_at, finished_at, duration_ms, result_message, stats_json, scheduler_job_id, created_at)
+             VALUES ('exec-week', 'memory-l3-summary:week', 'memory_l3_summary', 'memory_l3_summary', 1, 'success', 1710000000.0, 1710000003.0, 3000.0, 'generated', ?1, 'memory-l3-summary:week', 1710000000.0)",
+            rusqlite::params!["{\"period_type\":\"week\"}"],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn schedules_use_schedule_specific_execution_state() {
+        let guard = isolated_base_dir("shared-target-state");
+        seed_shared_target_schedules(&guard.path);
+
+        let schedules = query_schedules(false);
+        let rows = schedules["schedules"].as_array().unwrap();
+        let week = rows
+            .iter()
+            .find(|item| item["schedule_id"] == "memory-l3-summary:week")
+            .unwrap();
+        let hour = rows
+            .iter()
+            .find(|item| item["schedule_id"] == "memory-l3-summary:hour")
+            .unwrap();
+        let day = rows
+            .iter()
+            .find(|item| item["schedule_id"] == "memory-l3-summary:day")
+            .unwrap();
+
+        assert_eq!(
+            week["target_state"]["last_run_at"].as_f64(),
+            Some(1710000000.0)
+        );
+        assert_eq!(week["target_state"]["stats"]["period_type"], "week");
+        assert!(hour["target_state"]["last_run_at"].is_null());
+        assert!(day["target_state"]["last_run_at"].is_null());
+        assert_eq!(
+            hour["target_state"]["next_run_at"].as_f64(),
+            Some(1710003600.0)
+        );
+        assert_eq!(
+            day["target_state"]["next_run_at"].as_f64(),
+            Some(1710086400.0)
+        );
+        drop(guard);
+    }
 }
