@@ -209,9 +209,12 @@ class MemoryIngestionMixin:
             correlation_id=payload.get("correlation_id"),
             metadata=dict(payload.get("metadata", {})),
         )
+        legacy_event_id = payload.get("id")
+        if not isinstance(legacy_event_id, str):
+            legacy_event_id = None
         return normalize_runtime_event(
             raw_event,
-            event_id=payload.get("event_id") or payload.get("id"),
+            event_id=payload.get("event_id") or legacy_event_id,
             idempotency_key=payload.get("idempotency_key"),
         )
 
