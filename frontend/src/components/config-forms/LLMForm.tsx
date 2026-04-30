@@ -54,6 +54,31 @@ interface PendingEmbeddingDimensionChange {
   nextDimension: number | null;
 }
 
+const areSelectionsEquivalent = (
+  left?: import('@/api/modules/config').LLMSelectionConfig,
+  right?: import('@/api/modules/config').LLMSelectionConfig
+): boolean => llmSignature({
+  providers: {},
+  selections: {
+    context_decider: cloneSelection(left),
+    core: cloneSelection(right),
+    memory_summarizer: cloneSelection(right),
+    embedding: cloneSelection(),
+    image_generation: cloneSelection(),
+  },
+  model_runtime_overrides: {},
+}) === llmSignature({
+  providers: {},
+  selections: {
+    context_decider: cloneSelection(right),
+    core: cloneSelection(left),
+    memory_summarizer: cloneSelection(left),
+    embedding: cloneSelection(),
+    image_generation: cloneSelection(),
+  },
+  model_runtime_overrides: {},
+});
+
 const LLMForm: React.FC<LLMFormProps> = ({
   quickMode = false,
   view = 'all',
@@ -81,6 +106,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
   const [providerTestState, setProviderTestState] = useState<
     Record<string, { loading: boolean; error: string | null; result: TestLLMProviderConnectionResponse | null }>
   >({});
+  const [memorySummarizerUsesCoreOverride, setMemorySummarizerUsesCoreOverride] = useState<boolean | null>(null);
   const [pendingEmbeddingDimensionChange, setPendingEmbeddingDimensionChange] =
     useState<PendingEmbeddingDimensionChange | null>(null);
   const pendingEmbeddingDialogTimerRef = useRef<number | null>(null);
@@ -94,6 +120,9 @@ const LLMForm: React.FC<LLMFormProps> = ({
   }, [controlled, formCtx?.values?.llm, value]);
   const initialProvidersRef = useRef(currentValue.providers);
   const fillAvailableHeight = view === 'providers';
+  const memorySummarizerUsesCore =
+    memorySummarizerUsesCoreOverride
+    ?? areSelectionsEquivalent(currentValue.selections.memory_summarizer, currentValue.selections.core);
 
   const updateValue = (updater: (draft: LLMConfig) => void) => {
     const next = cloneLLMConfig(currentValue);
@@ -186,6 +215,18 @@ const LLMForm: React.FC<LLMFormProps> = ({
     }
   }, [activeProviderId, controlled, currentValue, onAutoNormalize, registry]);
 
+  useEffect(() => {
+    if (!memorySummarizerUsesCore) {
+      return;
+    }
+    if (areSelectionsEquivalent(currentValue.selections.memory_summarizer, currentValue.selections.core)) {
+      return;
+    }
+    updateValue((draft) => {
+      draft.selections.memory_summarizer = cloneSelection(draft.selections.core);
+    });
+  }, [currentValue.selections.core, currentValue.selections.memory_summarizer, memorySummarizerUsesCore]);
+
   const scenarioReferences = useMemo(() => {
     return Object.entries(currentValue.selections).reduce<Record<string, LLMScenario[]>>((acc, [scenario, selection]) => {
       const providerId = selection?.provider_id;
@@ -223,6 +264,13 @@ const LLMForm: React.FC<LLMFormProps> = ({
           sharedScenarios: [],
         },
         image_generation: {
+          runtimeKey: null,
+          effectiveMaxConcurrency: null,
+          overrideMaxConcurrency: null,
+          defaultMaxConcurrency: null,
+          sharedScenarios: [],
+        },
+        memory_summarizer: {
           runtimeKey: null,
           effectiveMaxConcurrency: null,
           overrideMaxConcurrency: null,
@@ -299,6 +347,9 @@ const LLMForm: React.FC<LLMFormProps> = ({
       selection.model = resolveProviderDefaultModel(registry, providerId, provider, scenario);
       applySelectionDefaults(selection, registry, providerId, provider, scenario);
       draft.selections[scenario] = selection;
+      if (scenario === 'core' && memorySummarizerUsesCore) {
+        draft.selections.memory_summarizer = cloneSelection(selection);
+      }
     });
   };
 
@@ -317,6 +368,19 @@ const LLMForm: React.FC<LLMFormProps> = ({
         scenario
       );
       draft.selections[scenario] = selection;
+      if (scenario === 'core' && memorySummarizerUsesCore) {
+        draft.selections.memory_summarizer = cloneSelection(selection);
+      }
+    });
+  };
+
+  const handleMemorySummarizerInheritanceChange = (checked: boolean) => {
+    setMemorySummarizerUsesCoreOverride(checked);
+    if (!checked) {
+      return;
+    }
+    updateValue((draft) => {
+      draft.selections.memory_summarizer = cloneSelection(draft.selections.core);
     });
   };
 
@@ -682,6 +746,8 @@ const LLMForm: React.FC<LLMFormProps> = ({
           onScenarioModelChange={handleScenarioModelChange}
           onScenarioEmbeddingDimensionChange={handleScenarioEmbeddingDimensionChange}
           onScenarioMaxConcurrencyChange={handleScenarioMaxConcurrencyChange}
+          memorySummarizerUsesCore={memorySummarizerUsesCore}
+          onMemorySummarizerInheritanceChange={handleMemorySummarizerInheritanceChange}
           embeddingConfig={embeddingConfig}
           onEmbeddingConfigChange={onEmbeddingConfigChange}
           crossEncoderConfig={crossEncoderConfig}

@@ -14,6 +14,7 @@ interface LLMScenarioAdvancedSettingsProps {
   expanded: boolean;
   isSettingsSurface: boolean;
   inputClassName: string;
+  disabled?: boolean;
   onToggle: () => void;
   onMaxConcurrencyChange: (scenario: LLMScenario, value: number | null) => void;
 }
@@ -24,6 +25,7 @@ export function LLMScenarioAdvancedSettings({
   expanded,
   isSettingsSurface,
   inputClassName,
+  disabled = false,
   onToggle,
   onMaxConcurrencyChange,
 }: LLMScenarioAdvancedSettingsProps) {
@@ -41,7 +43,11 @@ export function LLMScenarioAdvancedSettings({
     >
       <button
         type="button"
-        className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+        className={cn(
+          'text-sm font-medium text-primary underline-offset-4 hover:underline',
+          disabled && 'cursor-not-allowed opacity-50 hover:no-underline'
+        )}
+        disabled={disabled}
         onClick={onToggle}
       >
         {expanded ? t('llm.hideAdvanced') : t('llm.showAdvanced')}
@@ -57,6 +63,7 @@ export function LLMScenarioAdvancedSettings({
               type="number"
               min={1}
               step={1}
+              disabled={disabled}
               value={
                 concurrencyState.effectiveMaxConcurrency !== null
                   ? String(concurrencyState.effectiveMaxConcurrency)

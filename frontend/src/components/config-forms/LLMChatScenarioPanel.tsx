@@ -21,6 +21,7 @@ interface LLMChatScenarioPanelProps {
   quickMode: boolean;
   inputClassName: string;
   isSettingsSurface: boolean;
+  disabled?: boolean;
   advancedSettings: ReactNode;
   onScenarioProviderChange: (scenario: LLMScenario, providerId: string) => void;
   onScenarioModelChange: (scenario: LLMScenario, model: string) => void;
@@ -43,6 +44,7 @@ export function LLMChatScenarioPanel({
   quickMode,
   inputClassName,
   isSettingsSurface,
+  disabled = false,
   advancedSettings,
   onScenarioProviderChange,
   onScenarioModelChange,
@@ -67,6 +69,7 @@ export function LLMChatScenarioPanel({
             className="w-full"
             triggerClassName={inputClassName}
             value={selection.provider_id}
+            disabled={disabled}
             allowEmpty={false}
             options={enabledProviders.map(([providerId, enabledProvider]) => ({
               label: enabledProvider.display_name || providerId,
@@ -83,6 +86,7 @@ export function LLMChatScenarioPanel({
               className="w-full"
               triggerClassName={inputClassName}
               value={selection.model}
+              disabled={disabled}
               allowEmpty={false}
               searchable
               searchThreshold={10}
@@ -96,6 +100,7 @@ export function LLMChatScenarioPanel({
               aria-label={t('llm.fields.model')}
               className={inputClassName}
               value={selection.model}
+              disabled={disabled}
               placeholder={t('llm.modelManualPlaceholder')}
               onChange={(event) => onScenarioModelChange(scenario, event.target.value)}
             />

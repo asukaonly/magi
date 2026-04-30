@@ -195,6 +195,12 @@
         "title": "Core Model",
         "desc": "Handles deep reasoning, final responses, and tool calling — the primary AI engine. Choose the most capable model available."
       },
+      "memory_summarizer": {
+        "title": "Memory Summarizer",
+        "desc": "Used for memory-focused summary generation such as temporal recaps and reflective compression. By default it can inherit the core model settings.",
+        "inheritLabel": "Reuse core model settings",
+        "inheritHelp": "When enabled, summary generation follows the core model's provider, model, and runtime behavior. Turn it off only if summaries should use a dedicated model."
+      },
       "embedding": {
         "title": "Embedding Model",
         "desc": "Converts text into vectors for semantic search and memory retrieval, significantly improving recall accuracy when enabled. Enablement is controlled by the Embedding Mode selector above.",

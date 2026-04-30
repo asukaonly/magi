@@ -40,15 +40,20 @@ interface LLMModelSelectionSectionProps {
     source?: 'model-sync' | 'manual'
   ) => void;
   onScenarioMaxConcurrencyChange: (scenario: LLMScenario, value: number | null) => void;
+  memorySummarizerUsesCore: boolean;
+  onMemorySummarizerInheritanceChange: (checked: boolean) => void;
   embeddingConfig?: EmbeddingConfig;
   onEmbeddingConfigChange?: (updater: (draft: EmbeddingConfig) => void) => void;
   crossEncoderConfig?: CrossEncoderConfig;
   onCrossEncoderConfigChange?: (updater: (draft: CrossEncoderConfig) => void) => void;
 }
 
-const SCENARIOS: LLMScenario[] = ['context_decider', 'core', 'embedding', 'image_generation'];
+const BASE_SCENARIOS: LLMScenario[] = ['context_decider', 'core', 'embedding', 'image_generation'];
+const SETTINGS_SCENARIOS: LLMScenario[] = ['context_decider', 'core', 'memory_summarizer', 'embedding', 'image_generation'];
+const ALL_SCENARIOS: LLMScenario[] = ['context_decider', 'core', 'memory_summarizer', 'embedding', 'image_generation'];
 type ModelTab = LLMScenario | 'reranker';
-const MODEL_TABS: ModelTab[] = ['context_decider', 'core', 'embedding', 'image_generation', 'reranker'];
+const SETTINGS_MODEL_TABS: ModelTab[] = ['context_decider', 'core', 'memory_summarizer', 'embedding', 'image_generation', 'reranker'];
+const BASE_MODEL_TABS: ModelTab[] = ['context_decider', 'core', 'embedding', 'image_generation', 'reranker'];
 
 const compareOptionLabels = (left: { label: string; value: string }, right: { label: string; value: string }) => {
   const labelComparison = left.label.localeCompare(right.label, 'en', { sensitivity: 'base' });
@@ -70,6 +75,8 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
   onScenarioModelChange,
   onScenarioEmbeddingDimensionChange,
   onScenarioMaxConcurrencyChange,
+  memorySummarizerUsesCore,
+  onMemorySummarizerInheritanceChange,
   embeddingConfig,
   onEmbeddingConfigChange,
   crossEncoderConfig,
@@ -83,8 +90,10 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
     'h-11 w-full rounded-xl border border-border/65 bg-background px-3 text-sm shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
     isSettingsSurface && 'rounded-lg'
   );
+  const scenarios = isSettingsSurface ? SETTINGS_SCENARIOS : BASE_SCENARIOS;
+  const modelTabs = isSettingsSurface ? SETTINGS_MODEL_TABS : BASE_MODEL_TABS;
   const [expandedAdvanced, setExpandedAdvanced] = useState<Record<LLMScenario, boolean>>(() =>
-    Object.fromEntries(SCENARIOS.map((scenario) => [scenario, showAdvancedByDefault])) as Record<LLMScenario, boolean>
+    Object.fromEntries(ALL_SCENARIOS.map((scenario) => [scenario, showAdvancedByDefault])) as Record<LLMScenario, boolean>
   );
 
   const isLocalEmbeddingMode = embeddingConfig?.mode === 'local';
@@ -222,6 +231,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
       expanded={expandedAdvanced[scenario]}
       isSettingsSurface={isSettingsSurface}
       inputClassName={inputClassName}
+      disabled={scenario === 'memory_summarizer' && memorySummarizerUsesCore}
       onToggle={() =>
         setExpandedAdvanced((current) => ({
           ...current,
@@ -307,10 +317,42 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
         quickMode={quickMode}
         inputClassName={inputClassName}
         isSettingsSurface={isSettingsSurface}
+        disabled={scenario === 'memory_summarizer' && memorySummarizerUsesCore}
         advancedSettings={renderAdvancedSettings(scenario)}
         onScenarioProviderChange={onScenarioProviderChange}
         onScenarioModelChange={onScenarioModelChange}
       />
+    );
+  };
+
+  const renderMemorySummarizerScenarioContent = () => {
+    const selection = value.selections.memory_summarizer;
+    if (!selection) return null;
+
+    return (
+      <div className="space-y-3">
+        <label className="flex items-start gap-3 rounded-lg border border-border/65 bg-muted/20 px-4 py-3">
+          <input
+            type="checkbox"
+            className="mt-1 h-4 w-4 rounded border-border text-primary focus:ring-primary/60"
+            checked={memorySummarizerUsesCore}
+            onChange={(event) => onMemorySummarizerInheritanceChange(event.target.checked)}
+            aria-label={t('llm.scenarios.memory_summarizer.inheritLabel')}
+          />
+          <span className="space-y-1">
+            <span className="block text-sm font-medium text-foreground">
+              {t('llm.scenarios.memory_summarizer.inheritLabel')}
+            </span>
+            <span className="block text-xs leading-5 text-muted-foreground">
+              {t('llm.scenarios.memory_summarizer.inheritHelp')}
+            </span>
+          </span>
+        </label>
+
+        <div className={cn(memorySummarizerUsesCore && 'opacity-60')}>
+          {renderChatScenarioContent('memory_summarizer')}
+        </div>
+      </div>
     );
   };
 
@@ -335,6 +377,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
   const renderScenarioContent = (scenario: LLMScenario) => {
     if (scenario === 'embedding') return renderEmbeddingScenarioContent(scenario);
     if (scenario === 'image_generation') return renderImageGenerationScenarioContent(scenario);
+    if (scenario === 'memory_summarizer') return renderMemorySummarizerScenarioContent();
     return renderChatScenarioContent(scenario);
   };
 
@@ -359,8 +402,8 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
 
   // Determine visible tabs: include reranker only when cross-encoder config is provided
   const visibleTabs: ModelTab[] = crossEncoderConfig
-    ? MODEL_TABS
-    : SCENARIOS;
+    ? modelTabs
+    : scenarios;
 
   return (
     <section

@@ -727,6 +727,57 @@ describe('config forms', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('llm.warnings.coreVisionMissing');
   });
 
+  it('shows a memory summarizer tab in settings and lets users unlock dedicated config', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode={false} surface="settings" view="models" showSectionIntro={false} />
+      </Form>
+    );
+
+    await user.click(await screen.findByRole('tab', { name: 'llm.scenarios.memory_summarizer.title' }));
+
+    const scenarioCard = await screen.findByTestId('llm-scenario-memory_summarizer');
+    const inheritCheckbox = within(scenarioCard).getByRole('checkbox', {
+      name: 'llm.scenarios.memory_summarizer.inheritLabel',
+    });
+    const providerSelect = within(scenarioCard).getByLabelText('llm.fields.provider');
+
+    expect(inheritCheckbox).toBeChecked();
+    expect(providerSelect).toBeDisabled();
+
+    await user.click(inheritCheckbox);
+
+    expect(providerSelect).not.toBeDisabled();
+  });
+
+  it('keeps the memory summarizer selection synced to core while inheritance is enabled', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode={false} surface="settings" view="models" showSectionIntro={false} />
+      </Form>
+    );
+
+    const coreCard = await screen.findByTestId('llm-scenario-core');
+    const coreProviderSelect = within(coreCard).getByLabelText('llm.fields.provider');
+
+    await user.click(coreProviderSelect);
+    await user.click(screen.getByRole('button', { name: 'Z.ai' }));
+
+    await user.click(await screen.findByRole('tab', { name: 'llm.scenarios.memory_summarizer.title' }));
+
+    const summaryCard = await screen.findByTestId('llm-scenario-memory_summarizer');
+    const summaryProviderSelect = within(summaryCard).getByLabelText('llm.fields.provider');
+
+    await waitFor(() => {
+      expect(summaryProviderSelect).toHaveTextContent('Z.ai');
+    });
+    expect(summaryProviderSelect).toBeDisabled();
+  });
+
   it('hides the core vision warning for custom models with vision metadata overrides', async () => {
     const customValue = {
       ...structuredClone(llmValue),

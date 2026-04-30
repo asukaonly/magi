@@ -9,6 +9,8 @@ describe('default system config', () => {
     expect(DEFAULT_SYSTEM_CONFIG.llm.selections.context_decider.model).toBe('');
     expect(DEFAULT_SYSTEM_CONFIG.llm.selections.core.provider_id).toBe('');
     expect(DEFAULT_SYSTEM_CONFIG.llm.selections.core.model).toBe('');
+    expect(DEFAULT_SYSTEM_CONFIG.llm.selections.memory_summarizer.provider_id).toBe('');
+    expect(DEFAULT_SYSTEM_CONFIG.llm.selections.memory_summarizer.model).toBe('');
   });
 
   it('starts with the managed chat workspace path in preferences', () => {

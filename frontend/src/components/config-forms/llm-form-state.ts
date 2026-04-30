@@ -14,7 +14,7 @@ import {
   resolveProviderModels,
 } from '@/api/modules/config';
 
-export const BUILTIN_SCENARIOS: LLMScenario[] = ['context_decider', 'core', 'embedding', 'image_generation'];
+export const BUILTIN_SCENARIOS: LLMScenario[] = ['context_decider', 'core', 'memory_summarizer', 'embedding', 'image_generation'];
 
 export interface ScenarioConcurrencyState {
   runtimeKey: string | null;
@@ -102,6 +102,7 @@ export const cloneLLMConfig = (value?: LLMConfig): LLMConfig => ({
   selections: {
     context_decider: cloneSelection(value?.selections?.context_decider),
     core: cloneSelection(value?.selections?.core),
+    memory_summarizer: cloneSelection(value?.selections?.memory_summarizer ?? value?.selections?.core),
     embedding: cloneSelection(value?.selections?.embedding),
     image_generation: cloneSelection(value?.selections?.image_generation),
   },
