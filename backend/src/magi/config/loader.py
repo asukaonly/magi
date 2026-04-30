@@ -44,6 +44,7 @@ from .llm_registry import (
     build_runtime_llm_defaults,
     load_llm_provider_registry,
 )
+from .plugin_layout import ConfigPluginLayoutMixin
 from ..utils.packaged_paths import get_backend_root
 
 logger = logging.getLogger(__name__)
@@ -107,7 +108,7 @@ def get_data_dir() -> Path:
 # Config Loader
 # =============================================================================
 
-class ConfigLoader:
+class ConfigLoader(ConfigPluginLayoutMixin):
     """
     Runtime configuration loader.
 
@@ -240,232 +241,11 @@ class ConfigLoader:
 
         self._write_yaml_file(config_file, default_config)
 
-    def _default_plugin_index_data(self) -> Dict[str, Any]:
-        """Return default plugin package metadata."""
-        return {
-            "packages": {
-                "core-tools": {"enabled": True, "trusted": True, "source": "builtin"},
-                "photo-library": {"enabled": False, "trusted": True, "source": "builtin"},
-                "chrome-history": {"enabled": True, "trusted": True, "source": "builtin"},
-                "calendar": {"enabled": True, "trusted": True, "source": "builtin"},
-                "git-activity": {"enabled": True, "trusted": True, "source": "builtin"},
-                "screen-time": {"enabled": True, "trusted": True, "source": "builtin"},
-                "system-media": {"enabled": True, "trusted": True, "source": "builtin"},
-                "terminal-history": {"enabled": True, "trusted": True, "source": "builtin"},
-            }
-        }
+    def _plugins_config_dir(self) -> Path:
+        return get_plugins_config_dir()
 
-    def _merge_plugin_index_defaults(self, index_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Merge missing builtin plugin metadata into the plugin index."""
-        merged = self._default_plugin_index_data()
-        merged_packages = merged.setdefault("packages", {})
-        raw_packages = index_data.get("packages", {}) if isinstance(index_data, dict) else {}
-        if isinstance(raw_packages, dict):
-            for plugin_id, package_data in raw_packages.items():
-                if isinstance(package_data, dict):
-                    merged_packages.setdefault(plugin_id, {})
-                    merged_packages[plugin_id].update(package_data)
-        return merged
-
-    def _default_plugin_settings_map(self) -> Dict[str, Dict[str, Any]]:
-        """Return default per-plugin settings."""
-        return {
-            "core-tools": {},
-            "photo-library": {
-                "sensors": {
-                    "photo_library": {
-                        "enabled": False,
-                        "sync_mode": "manual",
-                        "sync_interval_minutes": 60,
-                        "default_retention_mode": "analyze_only",
-                        "storage_mode": "external_reference",
-                        "source_paths": [],
-                        "exclude_patterns": [],
-                        "analysis_features": ["exif"],
-                        "edge_whitelist": ["CAPTURED", "RELATED_TO", "INTERACTED_WITH", "CREATED"],
-                    },
-                }
-            },
-            "chrome-history": {
-                "sensors": {
-                    "chrome_history": {
-                        "enabled": False,
-                        "sync_mode": "interval",
-                        "sync_interval_minutes": 30,
-                        "default_retention_mode": "analyze_only",
-                        "storage_mode": "managed",
-                        "profile": "Default",
-                        "lookback_hours": 24,
-                        "max_items_per_sync": 1000,
-                        "edge_whitelist": ["VISITED", "VIEWED"],
-                    }
-                }
-            },
-            "calendar": {
-                "sensors": {
-                    "calendar": {
-                        "enabled": False,
-                        "sync_mode": "interval",
-                        "sync_interval_minutes": 30,
-                        "lookback_days": 30,
-                        "recurring_expansion_days": 30,
-                        "default_retention_mode": "full",
-                    }
-                }
-            },
-            "git-activity": {
-                "sensors": {
-                    "git_activity": {
-                        "enabled": False,
-                        "repos": [],
-                        "sync_interval_minutes": 30,
-                        "initial_sync_policy": "lookback_days",
-                        "initial_sync_lookback_days": 30,
-                        "sensitive_mode": "redact",
-                        "sensitive_keywords": [],
-                        "default_retention_mode": "analyze_only",
-                    }
-                }
-            },
-            "screen-time": {
-                "sensors": {
-                    "screen_time": {
-                        "enabled": False,
-                        "sync_interval_minutes": 5,
-                    }
-                }
-            },
-            "system-media": {
-                "sensors": {
-                    "system_media": {
-                        "enabled": False,
-                        "sync_interval_minutes": 1,
-                        "min_session_seconds": 30,
-                        "pause_timeout_seconds": 300,
-                    }
-                }
-            },
-            "terminal-history": {
-                "sensors": {
-                    "terminal_history": {
-                        "enabled": False,
-                        "sync_interval_minutes": 15,
-                        "initial_sync_policy": "lookback_days",
-                        "initial_sync_lookback_days": 7,
-                        "initial_sync_configured": False,
-                        "sensitive_mode": "redact",
-                        "sensitive_keywords": [],
-                        "dedup_window_seconds": 60,
-                        "default_retention_mode": "analyze_only",
-                    }
-                }
-            },
-        }
-
-    def _migrate_chrome_history_plugin_defaults(self, index_data: Dict[str, Any]) -> bool:
-        """Promote legacy chrome-history package state to the new builtin defaults."""
-
-        packages = index_data.setdefault("packages", {})
-        package_data = packages.setdefault(
-            "chrome-history",
-            {"enabled": True, "trusted": True, "source": "builtin"},
-        )
-        changed = False
-        settings_file = get_plugin_settings_file("chrome-history")
-        settings_data = self._load_yaml_file(settings_file)
-
-        if (
-            package_data.get("source") == "builtin"
-            and package_data.get("enabled") is False
-            and package_data.get("trusted") is False
-            and not settings_data
-        ):
-            package_data["enabled"] = True
-            package_data["trusted"] = True
-            changed = True
-
-        if not settings_data:
-            self._write_yaml_file(
-                settings_file,
-                self._default_plugin_settings_map()["chrome-history"],
-            )
-            changed = True
-
-        return changed
-
-    def _ensure_split_plugin_config_layout(self) -> None:
-        """Ensure plugin metadata and settings use split config files."""
-        agent_data = self._load_yaml_file(self._config_file)
-        agent_changed = False
-        plugins_root = get_plugins_config_dir()
-        plugins_root.mkdir(parents=True, exist_ok=True)
-        index_data = self._merge_plugin_index_defaults(self._load_yaml_file(self._plugins_index_file))
-        index_changed = self._migrate_chrome_history_plugin_defaults(index_data)
-        legacy_packages = (
-            agent_data.get("plugins", {}).get("packages", {})
-            if isinstance(agent_data.get("plugins"), dict)
-            else {}
-        )
-
-        if "llm" in agent_data:
-            del agent_data["llm"]
-            agent_changed = True
-
-        if legacy_packages:
-            packages_section = index_data.setdefault("packages", {})
-            for plugin_id, package_data in legacy_packages.items():
-                if not isinstance(package_data, dict):
-                    continue
-                package_meta = {
-                    key: package_data[key]
-                    for key in ("enabled", "trusted", "source", "manifest_path")
-                    if key in package_data
-                }
-                packages_section.setdefault(plugin_id, {})
-                packages_section[plugin_id].update(package_meta)
-                self._write_yaml_file(
-                    get_plugin_settings_file(plugin_id),
-                    dict(package_data.get("settings", {})),
-                )
-            agent_data.setdefault("plugins", {})
-            if isinstance(agent_data["plugins"], dict) and "packages" in agent_data["plugins"]:
-                del agent_data["plugins"]["packages"]
-                agent_changed = True
-            self._write_yaml_file(self._plugins_index_file, index_data)
-
-        if agent_changed:
-            self._write_yaml_file(self._config_file, agent_data)
-
-        if not self._plugins_index_file.exists():
-            self._write_yaml_file(self._plugins_index_file, index_data)
-        elif index_changed:
-            self._write_yaml_file(self._plugins_index_file, index_data)
-
-        for plugin_id, defaults in self._default_plugin_settings_map().items():
-            plugin_file = get_plugin_settings_file(plugin_id)
-            if not plugin_file.exists():
-                self._write_yaml_file(plugin_file, defaults)
-
-    def _merge_split_plugin_config(self, agent_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Merge split plugin config files into a single config tree."""
-        merged = dict(agent_data)
-        plugins_node = merged.setdefault("plugins", {})
-        if not isinstance(plugins_node, dict):
-            plugins_node = {}
-            merged["plugins"] = plugins_node
-
-        index_data = self._merge_plugin_index_defaults(self._load_yaml_file(self._plugins_index_file))
-        packages = dict(index_data.get("packages", {})) if isinstance(index_data, dict) else {}
-        for plugin_file in sorted(get_plugins_config_dir().glob("*.yaml")):
-            if plugin_file.name == "index.yaml":
-                continue
-            plugin_id = plugin_file.stem
-            package_entry = dict(packages.get(plugin_id, {}))
-            package_entry["settings"] = self._load_yaml_file(plugin_file)
-            packages[plugin_id] = package_entry
-        if packages:
-            plugins_node["packages"] = packages
-        return merged
+    def _plugin_settings_file(self, plugin_id: str) -> Path:
+        return get_plugin_settings_file(plugin_id)
 
     def _load_yaml_file(self, path: Path) -> Dict[str, Any]:
         """Load and parse a YAML file, returning an empty dict on failure."""
