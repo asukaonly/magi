@@ -1,0 +1,175 @@
+"""SQLite persistence for the personality emotional state engine."""
+
+from __future__ import annotations
+
+import json
+import logging
+import time
+from dataclasses import asdict
+from pathlib import Path
+from typing import List, Optional
+
+from ..core.sqlite import sqlite_connection_async
+from .emotional_contracts import EmotionalEvent
+from .models import EmotionalState
+
+logger = logging.getLogger(__name__)
+
+
+class EmotionalStateStorageMixin:
+    """Persists current emotional state and event history."""
+
+    db_path: str
+    persona_id: str
+    _current_state: Optional[EmotionalState]
+
+    @property
+    def _expanded_db_path(self) -> str:
+        """Get expanded database path."""
+        return str(Path(self.db_path).expanduser())
+
+    async def init(self) -> None:
+        """Initialize the emotional state database."""
+        Path(self._expanded_db_path).parent.mkdir(parents=True, exist_ok=True)
+
+        async with sqlite_connection_async(self._expanded_db_path) as db:
+            await db.execute("""
+                create table IF NOT EXISTS emotional_state (
+                    key TEXT primary key,
+                    value TEXT NOT NULL,
+                    updated_at real NOT NULL
+                )
+            """)
+
+            await db.execute("""
+                create table IF NOT EXISTS emotional_events (
+                    id intEGER primary key AUTOINCREMENT,
+                    timestamp real NOT NULL,
+                    event_type TEXT NOT NULL,
+                    previous_mood TEXT NOT NULL,
+                    new_mood TEXT NOT NULL,
+                    mood_delta real NOT NULL,
+                    energy_delta real NOT NULL,
+                    stress_delta real NOT NULL,
+                    cause TEXT NOT NULL,
+                    persona_id TEXT NOT NULL DEFAULT ''
+                )
+            """)
+
+            try:
+                await db.execute("ALTER TABLE emotional_events ADD COLUMN persona_id TEXT NOT NULL DEFAULT ''")
+            except Exception:
+                pass
+
+            await db.execute("""
+                create index IF NOT EXISTS idx_emotional_events_timestamp
+                ON emotional_events(timestamp DESC)
+            """)
+            await db.execute("""
+                create index IF NOT EXISTS idx_emotional_events_persona
+                ON emotional_events(persona_id, timestamp DESC)
+            """)
+
+            await db.commit()
+
+        await self._load_current_state()
+
+    async def get_current_state(self) -> EmotionalState:
+        """Get current emotional state."""
+        if self._current_state is None:
+            await self._load_current_state()
+        assert self._current_state is not None
+        return self._current_state
+
+    async def _load_current_state(self) -> None:
+        """Load current state from database."""
+        state_key = f"current:{self.persona_id}" if self.persona_id else "current"
+        async with sqlite_connection_async(self._expanded_db_path) as db:
+            cursor = await db.execute(
+                "SELECT value FROM emotional_state WHERE key = ?",
+                (state_key,)
+            )
+            row = await cursor.fetchone()
+
+            if row:
+                self._current_state = EmotionalState(**json.loads(row[0]))
+            else:
+                self._current_state = EmotionalState()
+                await self._save_current_state()
+
+    async def _save_current_state(self) -> None:
+        """Save current emotional state."""
+        assert self._current_state is not None
+        state_key = f"current:{self.persona_id}" if self.persona_id else "current"
+        async with sqlite_connection_async(self._expanded_db_path) as db:
+            await db.execute(
+                """INSERT OR REPLACE intO emotional_state (key, value, updated_at)
+                   valueS (?, ?, ?)""",
+                (state_key, json.dumps(asdict(self._current_state)), time.time())
+            )
+            await db.commit()
+
+    async def _record_event(
+        self,
+        event_type: str,
+        previous_mood: str,
+        new_mood: str,
+        mood_delta: float,
+        energy_delta: float,
+        stress_delta: float,
+        cause: str
+    ) -> None:
+        """Record emotional event."""
+        async with sqlite_connection_async(self._expanded_db_path) as db:
+            await db.execute(
+                """INSERT intO emotional_events
+                   (timestamp, event_type, previous_mood, new_mood,
+                    mood_delta, energy_delta, stress_delta, cause, persona_id)
+                   valueS (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (time.time(), event_type, previous_mood, new_mood,
+                 mood_delta, energy_delta, stress_delta, cause, self.persona_id)
+            )
+            await db.commit()
+
+    async def get_recent_events(self, limit: int = 50) -> List[EmotionalEvent]:
+        """Get recent emotional events."""
+        async with sqlite_connection_async(self._expanded_db_path) as db:
+            cursor = await db.execute(
+                """SELECT timestamp, event_type, previous_mood, new_mood,
+                          mood_delta, energy_delta, stress_delta, cause
+                   FROM emotional_events
+                   WHERE persona_id = ?
+                   order BY timestamp DESC
+                   LIMIT ?""",
+                (self.persona_id, limit)
+            )
+            rows = await cursor.fetchall()
+
+            events = []
+            for row in rows:
+                events.append(EmotionalEvent(
+                    timestamp=row[0],
+                    event_type=row[1],
+                    previous_mood=row[2],
+                    new_mood=row[3],
+                    mood_delta=row[4],
+                    energy_delta=row[5],
+                    stress_delta=row[6],
+                    cause=row[7],
+                ))
+
+            return events
+
+    async def reset(self) -> None:
+        """Reset emotional state to initial values."""
+        self._current_state = EmotionalState()
+        await self._save_current_state()
+
+        async with sqlite_connection_async(self._expanded_db_path) as db:
+            await db.execute("delete FROM emotional_events WHERE persona_id = ?", (self.persona_id,))
+            await db.commit()
+
+        logger.info("Emotional state reset to initial values")
+
+
+__all__ = ["EmotionalStateStorageMixin"]
