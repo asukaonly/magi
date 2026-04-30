@@ -4,7 +4,6 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 import json
 import time
-import uuid
 from pathlib import Path
 from typing import Optional
 
@@ -12,17 +11,21 @@ from ..core.sqlite import connect_aiosqlite
 
 from .contracts import (
     ScheduleDefinition,
-    ScheduledExecutionResult,
-    ScheduledTargetState,
     ScheduledTargetType,
     TriggerDefinition,
     TriggerType,
 )
+from .execution_repository import SchedulerExecutionRepositoryMixin
 from .schema import ensure_scheduler_schema
 from .sensor_jobs import SensorSyncJobRepositoryMixin
+from .target_state_repository import SchedulerTargetStateRepositoryMixin
 
 
-class ScheduleRepository(SensorSyncJobRepositoryMixin):
+class ScheduleRepository(
+    SchedulerTargetStateRepositoryMixin,
+    SchedulerExecutionRepositoryMixin,
+    SensorSyncJobRepositoryMixin,
+):
     """Persistence layer for scheduler definitions and runtime target state."""
 
     def __init__(self, db_path: str | Path) -> None:
@@ -206,313 +209,6 @@ class ScheduleRepository(SensorSyncJobRepositoryMixin):
             )
             await db.commit()
 
-    async def get_target_state(
-        self,
-        target_type: ScheduledTargetType,
-        target_key: str,
-    ) -> ScheduledTargetState:
-        async with self._connect() as db:
-            cursor = await db.execute(
-                """
-                SELECT running, last_run_at, last_success_at, last_error, last_cursor,
-                       watermark_ts, next_run_at, scheduler_job_id, stats_json, updated_at
-                FROM target_state
-                WHERE target_type = ? AND target_key = ?
-                """,
-                (target_type.value, target_key),
-            )
-            row = await cursor.fetchone()
-            if row is None:
-                now = time.time()
-                await db.execute(
-                    """
-                    INSERT INTO target_state (target_type, target_key, updated_at)
-                    VALUES (?, ?, ?)
-                    """,
-                    (target_type.value, target_key, now),
-                )
-                await db.commit()
-                return ScheduledTargetState(
-                    target_type=target_type,
-                    target_key=target_key,
-                    updated_at=now,
-                )
-        return ScheduledTargetState(
-            target_type=target_type,
-            target_key=target_key,
-            running=bool(row[0]),
-            last_run_at=row[1],
-            last_success_at=row[2],
-            last_error=row[3],
-            last_cursor=row[4],
-            watermark_ts=row[5],
-            next_run_at=row[6],
-            scheduler_job_id=row[7],
-            stats=json.loads(row[8] or "{}"),
-            updated_at=row[9],
-        )
-
-    async def acquire_target_lock(
-        self,
-        target_type: ScheduledTargetType,
-        target_key: str,
-    ) -> bool:
-        now = time.time()
-        async with self._connect() as db:
-            await db.execute(
-                """
-                INSERT INTO target_state (target_type, target_key, updated_at)
-                VALUES (?, ?, ?)
-                ON CONFLICT(target_type, target_key) DO NOTHING
-                """,
-                (target_type.value, target_key, now),
-            )
-            cursor = await db.execute(
-                """
-                UPDATE target_state
-                SET running = 1, last_run_at = ?, updated_at = ?
-                WHERE target_type = ? AND target_key = ? AND running = 0
-                """,
-                (now, now, target_type.value, target_key),
-            )
-            await db.commit()
-            return cursor.rowcount == 1
-
-    async def record_target_success(
-        self,
-        target_type: ScheduledTargetType,
-        target_key: str,
-        *,
-        result: ScheduledExecutionResult,
-        next_run_at: Optional[float],
-        scheduler_job_id: Optional[str],
-    ) -> None:
-        now = time.time()
-        async with self._connect() as db:
-            await db.execute(
-                """
-                UPDATE target_state
-                SET running = 0,
-                    last_success_at = ?,
-                    last_error = NULL,
-                    last_cursor = ?,
-                    watermark_ts = ?,
-                    next_run_at = ?,
-                    scheduler_job_id = ?,
-                    stats_json = ?,
-                    updated_at = ?
-                WHERE target_type = ? AND target_key = ?
-                """,
-                (
-                    now,
-                    result.next_cursor,
-                    result.watermark_ts,
-                    next_run_at,
-                    scheduler_job_id,
-                    json.dumps(result.stats, ensure_ascii=False),
-                    now,
-                    target_type.value,
-                    target_key,
-                ),
-            )
-            await db.commit()
-
-    async def update_target_cursor(
-        self,
-        target_type: ScheduledTargetType,
-        target_key: str,
-        *,
-        cursor: str,
-        watermark_ts: float | None = None,
-    ) -> None:
-        """Persist a partial cursor without marking the target as completed.
-
-        Used for mid-batch checkpoint saves so that a crash during
-        ingestion can resume from the last saved cursor position.
-        """
-        now = time.time()
-        async with self._connect() as db:
-            await db.execute(
-                """
-                UPDATE target_state
-                SET last_cursor = ?,
-                    watermark_ts = COALESCE(?, watermark_ts),
-                    updated_at = ?
-                WHERE target_type = ? AND target_key = ?
-                """,
-                (
-                    cursor,
-                    watermark_ts,
-                    now,
-                    target_type.value,
-                    target_key,
-                ),
-            )
-            await db.commit()
-
-    async def record_target_failure(
-        self,
-        target_type: ScheduledTargetType,
-        target_key: str,
-        *,
-        error: str,
-        next_run_at: Optional[float],
-        scheduler_job_id: Optional[str],
-    ) -> None:
-        now = time.time()
-        async with self._connect() as db:
-            await db.execute(
-                """
-                UPDATE target_state
-                SET running = 0,
-                    last_error = ?,
-                    next_run_at = ?,
-                    scheduler_job_id = ?,
-                    updated_at = ?
-                WHERE target_type = ? AND target_key = ?
-                """,
-                (
-                    error,
-                    next_run_at,
-                    scheduler_job_id,
-                    now,
-                    target_type.value,
-                    target_key,
-                ),
-            )
-            await db.commit()
-
-    async def clear_target_schedule_binding(
-        self,
-        target_type: ScheduledTargetType,
-        target_key: str,
-    ) -> None:
-        """Clear scheduler metadata and stale errors when a recurring schedule is removed."""
-
-        now = time.time()
-        async with self._connect() as db:
-            await db.execute(
-                """
-                UPDATE target_state
-                SET next_run_at = NULL,
-                    scheduler_job_id = NULL,
-                    running = 0,
-                    last_error = NULL,
-                    updated_at = ?
-                WHERE target_type = ? AND target_key = ?
-                """,
-                (now, target_type.value, target_key),
-            )
-            await db.commit()
-
-    async def create_execution_record(
-        self,
-        *,
-        schedule_id: str,
-        target_type: ScheduledTargetType,
-        target_key: str,
-        manual: bool,
-        started_at: float,
-    ) -> str:
-        execution_id = f"exec_{uuid.uuid4().hex}"
-        async with self._connect() as db:
-            await db.execute(
-                """
-                INSERT INTO schedule_executions (
-                    execution_id, schedule_id, target_type, target_key, manual, status,
-                    started_at, created_at
-                )
-                VALUES (?, ?, ?, ?, ?, 'running', ?, ?)
-                """,
-                (
-                    execution_id,
-                    schedule_id,
-                    target_type.value,
-                    target_key,
-                    1 if manual else 0,
-                    started_at,
-                    started_at,
-                ),
-            )
-            await db.commit()
-        return execution_id
-
-    async def complete_execution_success(
-        self,
-        execution_id: str,
-        *,
-        result: ScheduledExecutionResult,
-        scheduler_job_id: Optional[str],
-        finished_at: float,
-    ) -> None:
-        async with self._connect() as db:
-            cursor = await db.execute(
-                "SELECT started_at FROM schedule_executions WHERE execution_id = ?",
-                (execution_id,),
-            )
-            row = await cursor.fetchone()
-            started_at = float(row[0]) if row and row[0] is not None else finished_at
-            await db.execute(
-                """
-                UPDATE schedule_executions
-                SET status = 'success',
-                    finished_at = ?,
-                    duration_ms = ?,
-                    result_message = ?,
-                    stats_json = ?,
-                    next_cursor = ?,
-                    watermark_ts = ?,
-                    scheduler_job_id = ?
-                WHERE execution_id = ?
-                """,
-                (
-                    finished_at,
-                    max(0.0, (finished_at - started_at) * 1000.0),
-                    result.message,
-                    json.dumps(result.stats, ensure_ascii=False),
-                    result.next_cursor,
-                    result.watermark_ts,
-                    scheduler_job_id,
-                    execution_id,
-                ),
-            )
-            await db.commit()
-
-    async def complete_execution_failure(
-        self,
-        execution_id: str,
-        *,
-        error: str,
-        scheduler_job_id: Optional[str],
-        finished_at: float,
-    ) -> None:
-        async with self._connect() as db:
-            cursor = await db.execute(
-                "SELECT started_at FROM schedule_executions WHERE execution_id = ?",
-                (execution_id,),
-            )
-            row = await cursor.fetchone()
-            started_at = float(row[0]) if row and row[0] is not None else finished_at
-            await db.execute(
-                """
-                UPDATE schedule_executions
-                SET status = 'failed',
-                    finished_at = ?,
-                    duration_ms = ?,
-                    error = ?,
-                    scheduler_job_id = ?
-                WHERE execution_id = ?
-                """,
-                (
-                    finished_at,
-                    max(0.0, (finished_at - started_at) * 1000.0),
-                    error,
-                    scheduler_job_id,
-                    execution_id,
-                ),
-            )
-            await db.commit()
-
     def _row_to_schedule(self, row: tuple[object, ...]) -> ScheduleDefinition:
         return ScheduleDefinition(
             schedule_id=str(row[0]),
@@ -527,52 +223,3 @@ class ScheduleRepository(SensorSyncJobRepositoryMixin):
             enabled=bool(row[7]),
             job_id=str(row[8]) if row[8] is not None else None,
         )
-
-    async def list_executions(
-        self,
-        *,
-        schedule_id: str | None = None,
-        limit: int = 20,
-    ) -> list[dict[str, object]]:
-        """Return recent execution records, optionally filtered by schedule_id."""
-        if schedule_id:
-            query = (
-                "SELECT execution_id, schedule_id, target_type, target_key, manual, "
-                "status, started_at, finished_at, duration_ms, result_message, error, "
-                "stats_json, next_cursor, watermark_ts, scheduler_job_id, created_at "
-                "FROM schedule_executions WHERE schedule_id = ? "
-                "ORDER BY started_at DESC LIMIT ?"
-            )
-            params: tuple[object, ...] = (schedule_id, limit)
-        else:
-            query = (
-                "SELECT execution_id, schedule_id, target_type, target_key, manual, "
-                "status, started_at, finished_at, duration_ms, result_message, error, "
-                "stats_json, next_cursor, watermark_ts, scheduler_job_id, created_at "
-                "FROM schedule_executions ORDER BY started_at DESC LIMIT ?"
-            )
-            params = (limit,)
-        async with self._connect() as db:
-            cursor = await db.execute(query, params)
-            rows = await cursor.fetchall()
-        results: list[dict[str, object]] = []
-        for row in rows:
-            results.append({
-                "execution_id": str(row[0]),
-                "schedule_id": str(row[1]),
-                "target_type": str(row[2]),
-                "target_key": str(row[3]),
-                "manual": bool(row[4]),
-                "status": str(row[5]),
-                "started_at": float(row[6]) if row[6] is not None else None,
-                "finished_at": float(row[7]) if row[7] is not None else None,
-                "duration_ms": float(row[8]) if row[8] is not None else None,
-                "result_message": str(row[9]) if row[9] is not None else None,
-                "error": str(row[10]) if row[10] is not None else None,
-                "stats": json.loads(str(row[11]) or "{}"),
-                "next_cursor": str(row[12]) if row[12] is not None else None,
-                "watermark_ts": float(row[13]) if row[13] is not None else None,
-                "scheduler_job_id": str(row[14]) if row[14] is not None else None,
-                "created_at": float(row[15]) if row[15] is not None else None,
-            })
-        return results
