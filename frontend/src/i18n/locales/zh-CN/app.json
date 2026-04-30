@@ -1066,6 +1066,10 @@
           "label": "启用 Cross-Encoder 精排",
           "description": "使用本地 Cross-Encoder 模型对检索结果进行语义精排，提升记忆召回质量。"
         },
+        "query_expansion_enabled": {
+          "label": "启用查询扩写",
+          "description": "使用 LLM 为记忆查询生成额外检索表达，提升召回率，但会增加一次额外模型调用。"
+        },
         "cross_encoder_model_hint": "精排模型可在「大模型配置 → 模型选择 → 精排模型」中选择和下载。",
         "reranker_model": {
           "label": "精排模型",

@@ -361,6 +361,10 @@ export interface MemoryRerankerConfig {
   cross_encoder: CrossEncoderConfig;
 }
 
+export interface QueryExpansionConfig {
+  enabled: boolean;
+}
+
 export type EmbeddingMode = 'off' | 'remote' | 'local';
 export type LocalEmbeddingModelSource = 'managed' | 'external';
 
@@ -382,6 +386,7 @@ export interface MemoryConfig {
   history_behavior: 'delete' | 'archive';
   embedding: EmbeddingConfig;
   reranker: MemoryRerankerConfig;
+  query_expansion: QueryExpansionConfig;
   l0: MemoryL0Config;
   l1: MemoryL1Config;
   l2: MemoryL2Config;
@@ -559,6 +564,9 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
         enabled: false,
         managed_model_id: null,
       },
+    },
+    query_expansion: {
+      enabled: true,
     },
     retention_days: 90,
     history_behavior: 'delete',

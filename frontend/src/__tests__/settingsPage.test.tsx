@@ -915,6 +915,30 @@ describe('settings page draft saving', () => {
     );
   });
 
+  it('saves query expansion control from the general memory section', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.memory' }));
+    await screen.findByRole('heading', { name: 'settings.tabs.memoryGeneral' });
+
+    await user.click(screen.getByRole('switch', { name: 'settings.memory.fields.query_expansion_enabled.label' }));
+
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+
+    await waitFor(() =>
+      expect(configApi.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          memory: expect.objectContaining({
+            query_expansion: expect.objectContaining({
+              enabled: false,
+            }),
+          }),
+        })
+      )
+    );
+  });
+
   it('shows grouped model configuration navigation with provider and model sub-sections', async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);

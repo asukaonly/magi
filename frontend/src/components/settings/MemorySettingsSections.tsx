@@ -117,6 +117,10 @@ export function MemoryGeneralSettingsSection({
       ...draftConfig.memory.reranker?.cross_encoder,
     },
   };
+  const queryExpansionConfig = {
+    ...DEFAULT_SYSTEM_CONFIG.memory.query_expansion,
+    ...draftConfig.memory.query_expansion,
+  };
 
   const handlePickMemoryStoragePath = async () => {
     setPickingMemoryStoragePath(true);
@@ -218,6 +222,16 @@ export function MemoryGeneralSettingsSection({
 
       <MemoryGroup>
         <div className="py-2">
+          <MemorySwitchRow
+            label={t('settings.memory.fields.query_expansion_enabled.label')}
+            description={t('settings.memory.fields.query_expansion_enabled.description')}
+            checked={queryExpansionConfig.enabled}
+            onCheckedChange={(checked) => patchDraftConfig((draft) => {
+              draft.memory.query_expansion ??= { ...DEFAULT_SYSTEM_CONFIG.memory.query_expansion };
+              draft.memory.query_expansion.enabled = checked;
+            })}
+          />
+
           <MemorySwitchRow
             label={t('settings.memory.fields.cross_encoder_enabled.label')}
             description={t('settings.memory.fields.cross_encoder_enabled.description')}
