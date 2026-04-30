@@ -1,0 +1,103 @@
+"""LLM output parsing helpers for L3 temporal summaries."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from .models import (
+    L3Candidate,
+    TemporalEvidencePack,
+    TemporalSummaryLLMOutput,
+)
+
+
+class TemporalOutputParsingMixin:
+    """Parse and validate structured temporal summary LLM output."""
+
+    def parse_llm_output(
+        self,
+        payload: dict[str, Any],
+        *,
+        pack: TemporalEvidencePack,
+    ) -> tuple[L3Candidate, dict[str, Any]]:
+        """Parse structured temporal LLM output into an L3 candidate and summary overrides."""
+        content = str(payload.get("content") or "").strip()
+        if not content:
+            raise ValueError("Temporal LLM output requires non-empty content")
+        output = TemporalSummaryLLMOutput(
+            content=content,
+            key_topics=[str(item).strip() for item in payload.get("key_topics", []) if str(item).strip()],
+            key_entities=[
+                item
+                for item in payload.get("key_entities", [])
+                if isinstance(item, dict)
+            ],
+            sentiment_summary=self._normalize_sentiment_summary(payload.get("sentiment_summary")),
+            change_and_pattern=self._normalize_change_and_pattern(payload.get("change_and_pattern")),
+            importance_aggregate=self._normalize_importance_aggregate(payload.get("importance_aggregate")),
+        )
+        candidate = L3Candidate(
+            summary_type="temporal",
+            summary_category=pack.summary_category,
+            content=output.content,
+            source_event_ids=list(pack.source_event_ids),
+        )
+        summary_overrides: dict[str, Any] = {
+            "key_topics": list(output.key_topics),
+            "key_entities": list(output.key_entities),
+            "sentiment_summary": output.sentiment_summary,
+            "importance_aggregate": output.importance_aggregate,
+            "change_and_pattern": output.change_and_pattern,
+        }
+        return candidate, summary_overrides
+
+    def _normalize_importance_aggregate(self, value: Any) -> float | None:
+        if value is None:
+            return None
+        numeric = float(value)
+        if numeric < 0.0 or numeric > 1.0:
+            raise ValueError("importance_aggregate must be between 0.0 and 1.0")
+        return numeric
+
+    def _normalize_sentiment_summary(self, value: Any) -> dict[str, object] | None:
+        if value is None:
+            return None
+        if not isinstance(value, dict):
+            raise ValueError("sentiment_summary must be an object")
+        normalized: dict[str, object] = {}
+        for key, item in value.items():
+            key_str = str(key).strip()
+            if not key_str:
+                continue
+            if key_str == "stress_level":
+                stress_level = float(item)
+                if stress_level < 0.0 or stress_level > 1.0:
+                    raise ValueError("sentiment_summary.stress_level must be between 0.0 and 1.0")
+                normalized[key_str] = stress_level
+                continue
+            if isinstance(item, (str, int, float, bool)) or item is None:
+                normalized[key_str] = item
+        return normalized or None
+
+    def _normalize_change_and_pattern(self, value: Any) -> dict[str, object] | None:
+        if value is None:
+            return None
+        if not isinstance(value, dict):
+            raise ValueError("change_and_pattern must be an object")
+        normalized: dict[str, object] = {}
+        for key in ("changes", "patterns"):
+            raw = value.get(key)
+            if raw is None:
+                continue
+            if not isinstance(raw, list) or any(not str(item).strip() for item in raw):
+                raise ValueError(f"change_and_pattern.{key} must be a list of non-empty strings")
+            normalized[key] = [str(item).strip() for item in raw]
+        for key, item in value.items():
+            if key in normalized or key in {"changes", "patterns"}:
+                continue
+            if isinstance(item, (str, int, float, bool)) or item is None:
+                normalized[str(key)] = item
+        return normalized or None
+
+
+__all__ = ["TemporalOutputParsingMixin"]
