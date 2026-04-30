@@ -515,6 +515,9 @@
       "completed": "已完成",
       "arguments": "调用参数"
     },
+    "backgroundTask": {
+      "startedMessage": "已开始后台任务：{{title}}。完成后我会把结果带回这里。"
+    },
     "reconnectFailed": "重连失败，请刷新页面",
     "trace": {
       "title": "调用链路",

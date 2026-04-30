@@ -658,6 +658,7 @@ export const applyAgentResponse = (
     traceSummary?: NormalizedExecutionTraceSummary | null;
     traceAvailable?: boolean;
     uxPlan?: NormalizedTurnUxPlan | null;
+    payload?: Record<string, unknown> | null;
   },
 ): ChatTimelineMessage[] => {
   const isTransientStatusMessage = (message: ChatTimelineMessage): boolean => (
@@ -706,6 +707,7 @@ export const applyAgentResponse = (
     allowTraceCollapse: Boolean(uxPlan?.allowTraceCollapse),
     traceSummary,
     traceAvailable,
+    payload: payload.payload ?? null,
   });
 
   const hasInterimAssistant = turnId

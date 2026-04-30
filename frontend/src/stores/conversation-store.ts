@@ -26,6 +26,7 @@ type AgentResponsePayload = {
   traceSummary?: NormalizedExecutionTraceSummary | null;
   traceAvailable?: boolean;
   uxPlan?: NormalizedTurnUxPlan | null;
+  payload?: Record<string, unknown> | null;
 };
 
 type StreamTextDeltaPayload = {
@@ -485,7 +486,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
       },
     };
   }),
-  receiveAgentResponse: ({ sessionId, content, attachments, timestamp, messageId, messageKind, turnId, traceSummary, traceAvailable, uxPlan }) => set((state) => {
+  receiveAgentResponse: ({ sessionId, content, attachments, timestamp, messageId, messageKind, turnId, traceSummary, traceAvailable, uxPlan, payload }) => set((state) => {
     const ensured = ensureSession(state.sessionsById, state.orderedSessionIds, sessionId);
     const previousMessages = state.messagesBySession[sessionId] || [];
     const nextMessages = applyAgentResponse(previousMessages, {
@@ -498,6 +499,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
       traceSummary,
       traceAvailable,
       uxPlan,
+      payload,
     });
     const lastMessagePreview = content.trim() || ensured.sessionsById[sessionId]?.last_message_preview || '';
     const sessionSummary: ChatSessionListItem = {

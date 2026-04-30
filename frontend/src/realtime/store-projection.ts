@@ -111,6 +111,10 @@ export const applyRealtimeStoreProjection = (
         traceSummary: summary,
         traceAvailable: Boolean(payload.trace_available || summary?.traceAvailable),
         uxPlan,
+        payload:
+          payload.message_payload && typeof payload.message_payload === 'object'
+            ? payload.message_payload as Record<string, unknown>
+            : null,
       });
     }
 

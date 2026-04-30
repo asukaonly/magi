@@ -187,6 +187,10 @@ class BackgroundLaunchService:
         return ExecutionResult(
             mode=request.mode,
             response_text=ack,
+            message_payload={
+                "background_task_id": task.task_id,
+                "background_task_title": spec.title,
+            },
             root_user_message=request.context.latest_user_message,
             orchestration_id=task.task_id,
             turn_id=turn_id,

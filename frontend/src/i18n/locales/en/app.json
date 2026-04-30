@@ -516,6 +516,9 @@
       "completed": "Done",
       "arguments": "Arguments"
     },
+    "backgroundTask": {
+      "startedMessage": "Started background task: {{title}}. I'll let you know when it finishes."
+    },
     "reconnectFailed": "Reconnection failed, please refresh the page",
     "trace": {
       "title": "Call Trace",

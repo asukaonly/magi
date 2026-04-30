@@ -11,6 +11,31 @@ import { TranscriptHeaderActions } from './TranscriptHeaderActions';
 import { TranscriptTimelineMessage } from './TranscriptTimelineMessage';
 import { UserTurnTraceStatus } from './UserTurnTraceStatus';
 
+const resolveTranscriptContent = (
+  message: ProjectedChatTimelineMessage['message'],
+  t: (key: string, values?: Record<string, unknown>) => string,
+): string => {
+  const payload = message.payload && typeof message.payload === 'object'
+    ? message.payload as Record<string, unknown>
+    : null;
+  const backgroundTaskId = String(payload?.background_task_id || '').trim();
+  const backgroundTaskTitle = String(payload?.background_task_title || '').trim();
+  const backgroundTaskStatus = String(payload?.background_task_status || '').trim().toLowerCase();
+
+  if (
+    message.role === 'assistant'
+    && message.messageKind === 'assistant_final'
+    && Boolean(String(message.turnId || '').trim())
+    && backgroundTaskId
+    && backgroundTaskTitle
+    && !backgroundTaskStatus
+  ) {
+    return t('chat.backgroundTask.startedMessage', { title: backgroundTaskTitle });
+  }
+
+  return message.content;
+};
+
 type TranscriptTimelineRowProps = TimelineRowSharedProps & {
   projectedMessage: Extract<ProjectedChatTimelineMessage, { surface: 'transcript' }>;
   interactions: TranscriptTimelineInteractions;
@@ -27,10 +52,12 @@ export const TranscriptTimelineRow = ({
   const traceEntryLabel = t('chat.trace.view');
   const message = projectedMessage.message;
   const transcript = projectedMessage.transcript;
+  const content = resolveTranscriptContent(message, t);
 
   return (
     <TranscriptTimelineMessage
       message={message}
+      content={content}
       assistantName={assistant.name}
       userNameLabel={t('chat.you')}
       timestampLabel={formatChatClockTime(message.timestamp, i18n.language)}

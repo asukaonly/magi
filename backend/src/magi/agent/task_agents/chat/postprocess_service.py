@@ -309,6 +309,7 @@ class ChatPostProcessService(
                 turn_id=turn_id,
                 response_text=notification_response_text,
                 attachments=list(getattr(result, "attachments", []) or []),
+                message_payload=dict(getattr(result, "message_payload", {}) or {}),
                 orchestration_id=result.orchestration_id,
                 trace_summary=trace_summary,
                 trace_available=trace_available,

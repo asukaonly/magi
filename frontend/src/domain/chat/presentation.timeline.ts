@@ -123,6 +123,7 @@ export const projectChatTimelineRow = (
       ...projected,
       transcript: {
         ...projected.transcript,
+        traceEntry: projectTraceEntryPresentation(message, summary),
         executionProgress: projectExecutionProgressPresentation(message, {
           executionControlByTurnId: execution.executionControlByTurnId,
           cancellingTurnIds: execution.cancellingTurnIds,
@@ -130,6 +131,16 @@ export const projectChatTimelineRow = (
           summary,
           variant: 'bubble',
         }),
+      },
+    };
+  }
+
+  if (projected.surface === 'transcript') {
+    return {
+      ...projected,
+      transcript: {
+        ...projected.transcript,
+        traceEntry: projectTraceEntryPresentation(message, summary),
       },
     };
   }

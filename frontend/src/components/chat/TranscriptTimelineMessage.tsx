@@ -10,6 +10,7 @@ import { openExternalUrl } from '@/runtime/desktop';
 
 type TranscriptTimelineMessageProps = {
   message: ChatTimelineMessage;
+  content?: string;
   assistantName: string;
   userNameLabel: string;
   timestampLabel: string;
@@ -94,6 +95,7 @@ const assistantMarkdownComponents: Components = {
 
 export const TranscriptTimelineMessage = ({
   message,
+  content,
   assistantName,
   userNameLabel,
   timestampLabel,
@@ -104,7 +106,10 @@ export const TranscriptTimelineMessage = ({
   bubbleFooter,
   belowBubble,
   onContextMenu,
-}: TranscriptTimelineMessageProps) => (
+}: TranscriptTimelineMessageProps) => {
+  const renderedContent = typeof content === 'string' ? content : message.content;
+
+  return (
   <motion.div
     key={message.id}
     initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
@@ -133,14 +138,14 @@ export const TranscriptTimelineMessage = ({
             <div className="max-w-none text-current">
               <AssistantRuntimePanel reasoning={message.reasoning} toolCalls={message.toolCalls} streaming={message.streaming} />
               <ReactMarkdown remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
-                {normalizeAssistantMarkdownContent(message.content)}
+                {normalizeAssistantMarkdownContent(renderedContent)}
               </ReactMarkdown>
               {message.streaming && (
                 <span className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-current opacity-70" />
               )}
             </div>
-          ) : message.content ? (
-            <p className="m-0 whitespace-pre-wrap text-sm">{message.content}</p>
+          ) : renderedContent ? (
+            <p className="m-0 whitespace-pre-wrap text-sm">{renderedContent}</p>
           ) : null}
           {bubbleFooter}
         </div>
@@ -148,4 +153,5 @@ export const TranscriptTimelineMessage = ({
       </div>
     </div>
   </motion.div>
-);
+  );
+};

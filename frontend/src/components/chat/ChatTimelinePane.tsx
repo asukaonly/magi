@@ -145,6 +145,11 @@ export const ChatTimelinePane = ({
           finalizedTurnIds,
         });
 
+        const projectedTurnId = String(projectedMessage.message.turnId || '').trim();
+        if (projectedMessage.surface === 'runtime_status' && projectedTurnId && finalizedTurnIds.has(projectedTurnId)) {
+          return null;
+        }
+
         return projectedMessage.surface !== 'transcript' ? (
           <StatusTimelineRow
             key={projectedMessage.message.id}

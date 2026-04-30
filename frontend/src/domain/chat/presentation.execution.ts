@@ -21,6 +21,25 @@ export type ChatTimelineExecutionProjectionInput = ExecutionActionProjectionInpu
 
 type ProjectedExecutionTranslationValues = Record<string, string | number>;
 
+const GENERIC_EXECUTION_LABELS = new Set([
+  'thinking',
+  'running tool chain',
+  'tool chain completed',
+  'tool chain failed',
+  'orchestrating tasks',
+  'moving run to background',
+  'cancelling run',
+  'run cancelled',
+  'run completed',
+  'run failed',
+  '思考中',
+  '正在执行工具链',
+  '工具链已完成',
+  '工具链执行失败',
+  '正在编排任务',
+  '正在转到后台',
+]);
+
 const normalizeExecutionPlanStepStatus = (
   value: string | null | undefined,
 ): 'pending' | 'running' | 'completed' | 'failed' => {
@@ -46,6 +65,17 @@ const createExecutionTranslationDescriptor = (
   key,
   values,
 });
+
+const normalizeExecutionDisplayLabel = (
+  value: string | null | undefined,
+): string | null => {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  return GENERIC_EXECUTION_LABELS.has(trimmed.toLowerCase()) ? null : trimmed;
+};
 
 export const getExecutionActionState = (
   message: ChatTimelineMessage,
@@ -137,8 +167,10 @@ export const projectExecutionProgressPresentation = (
         return createExecutionTranslationDescriptor('chat.trace.execution.runningBody');
     }
   })();
-  const statusTitle = executionActionState.executionControl?.label
-    || (executionState === 'running' ? String(traceSummary?.headline || message.content || '').trim() : '')
+  const statusTitle = normalizeExecutionDisplayLabel(executionActionState.executionControl?.label)
+    || (executionState === 'running'
+      ? normalizeExecutionDisplayLabel(traceSummary?.headline || message.content || '')
+      : null)
     || null;
   const normalizedPlanSummary: ProjectedExecutionProgressPresentation['planSummary'] = planSummary
     ? {

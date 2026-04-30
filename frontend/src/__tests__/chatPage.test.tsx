@@ -2387,7 +2387,7 @@ describe('ChatPage', () => {
 
     await waitFor(() => {
       const runningPanel = screen.getByTestId('chat-execution-panel-turn-running');
-      expect(within(runningPanel).getByText('Cancelling run')).toBeInTheDocument();
+      expect(within(runningPanel).getByText('chat.trace.execution.cancellingTitle')).toBeInTheDocument();
       expect(within(runningPanel).getByText('chat.trace.execution.cancellingBody')).toBeInTheDocument();
       expect(within(runningPanel).getByRole('button', { name: 'chat.trace.cancelRun' })).toBeDisabled();
     });
@@ -2407,7 +2407,7 @@ describe('ChatPage', () => {
 
     await waitFor(() => {
       const runningPanel = screen.getByTestId('chat-execution-panel-turn-running');
-      expect(within(runningPanel).getByText('Run cancelled')).toBeInTheDocument();
+      expect(within(runningPanel).getByText('chat.trace.execution.cancelledTitle')).toBeInTheDocument();
       expect(within(runningPanel).getByText('chat.trace.execution.cancelledBody')).toBeInTheDocument();
       expect(within(runningPanel).getByText('chat.trace.execution.footerCancelled')).toBeInTheDocument();
       expect(within(runningPanel).queryByRole('button', { name: 'chat.trace.cancelRun' })).not.toBeInTheDocument();

@@ -154,6 +154,35 @@ describe('chat trace state helpers', () => {
     }
   });
 
+  it('keeps trace entry available on transcript rows when only the stored summary reports trace availability', () => {
+    const projected = projectChatTimelineRow({
+      id: 'msg-background-ack',
+      role: 'assistant',
+      kind: 'assistant',
+      content: 'Started background task: Repo sync. I\'ll let you know when it finishes.',
+      timestamp: 1000,
+      turnId: 'turn-background',
+      messageKind: 'assistant_final',
+      traceAvailable: false,
+    }, {
+      summaries: {
+        'turn-background': {
+          trace_available: true,
+        },
+      },
+      executionControlByTurnId: {},
+      cancellingTurnIds: [],
+      detachingTurnIds: [],
+    });
+
+    expect(projected.surface).toBe('transcript');
+    if (projected.surface === 'transcript') {
+      expect(projected.transcript.showHeaderTraceEntry).toBe(true);
+      expect(projected.transcript.traceEntry.canOpen).toBe(true);
+      expect(projected.transcript.traceEntry.turnId).toBe('turn-background');
+    }
+  });
+
   it('hides the interim execution panel once the turn has a final assistant message', () => {
     const interimMessage: ChatTimelineMessage = {
       id: 'msg-interim',
@@ -348,7 +377,7 @@ describe('chat trace state helpers', () => {
       showCancelButton: true,
       showDetachButton: false,
       showSubtitle: true,
-      statusTitle: 'Cancelling run',
+      statusTitle: null,
       statusTitleKey: 'chat.trace.execution.cancellingTitle',
       subtitle: {
         key: 'chat.trace.execution.cancellingBody',

@@ -24,12 +24,14 @@ export const TraceEntryButton = ({
     <button
       type="button"
       data-trace-variant={isProminent ? 'prominent' : 'default'}
+      aria-label={label}
+      title={label}
       onClick={(event: MouseEvent<HTMLButtonElement>) => {
         event.preventDefault();
         event.stopPropagation();
         onOpenTraceDrawer(turnId);
       }}
-      className="inline-flex items-center gap-1 rounded-full border border-border/50 bg-background/75 px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground"
+      className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground transition-colors hover:text-primary"
     >
       {label}
     </button>
