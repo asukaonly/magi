@@ -1,24 +1,17 @@
 """Execution handlers for chat task-agent modes."""
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Optional
 
 from ....core.logger import get_logger
-from ....agent.cancel import CancelToken, SessionRunCancelToken, null_cancel_token
-from ....agent.background.contracts import BackgroundTaskTriggerSource
 from ....agent.background.dispatcher import (
-    BackgroundDecisionContext,
-    BackgroundDecisionSource,
     BackgroundDispatcher,
 )
 from ....agent.background.launch import BackgroundLaunchService
 from ....agent.run_control import (
     DetachSignal,
-    OrchestratorSnapshot,
     SteerInbox,
-    SteerMessage,
     bind_detach_signal,
 )
 from ....context.service import ContextAssemblyService
@@ -41,6 +34,7 @@ from .planning_service import ChatPlanningService
 from .prompt_service import ChatPromptService
 from .direct_handler import DirectLLMHandler
 from .explore_render import ExploreRenderHandler, start_explore_task_agent
+from .runtime_control import FunctionCallingRuntimeControlMixin
 from .handler_helpers import (
     build_attachment_preparation_guidance_block as _build_attachment_preparation_guidance_block,
     build_memory_query_guidance_block as _build_memory_query_guidance_block,
@@ -52,19 +46,6 @@ from .handler_helpers import (
 from ...task_orchestrator import TaskOrchestrator
 
 logger = get_logger(__name__)
-
-
-# Translate a :class:`BackgroundDecisionSource` into the trigger source
-# persisted with a :class:`BackgroundTaskSpec`. Kept at module scope so it
-# does not rebuild on every dispatch.
-_BACKGROUND_TRIGGER_SOURCE_BY_DECISION: dict[
-    BackgroundDecisionSource, BackgroundTaskTriggerSource
-] = {
-    BackgroundDecisionSource.PLANNER: BackgroundTaskTriggerSource.PLANNER,
-    BackgroundDecisionSource.RULE: BackgroundTaskTriggerSource.RULE,
-    BackgroundDecisionSource.LLM: BackgroundTaskTriggerSource.CLASSIFIER,
-    BackgroundDecisionSource.FALLBACK: BackgroundTaskTriggerSource.RULE,
-}
 
 
 @dataclass(slots=True)
@@ -96,7 +77,7 @@ def build_common_handler_dependencies(
     )
 
 
-class FunctionCallingHandler(BaseExecutionHandler):
+class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
     mode = ExecutionMode.FUNCTION_CALLING
 
     async def build_request(self, request: ExecutionRequest) -> FunctionCallingRequest:
@@ -400,304 +381,6 @@ class FunctionCallingHandler(BaseExecutionHandler):
             turn_id=current_turn_id,
             ux_plan=_serialize_ux_plan(request.intent),
         )
-
-    def _build_detached_chat_result(
-        self,
-        *,
-        request: FunctionCallingRequest,
-        step_state: Any,
-        detach_signal: DetachSignal,
-        current_user_message: str,
-        current_turn_id: str | None,
-    ) -> "FunctionCallingExecutionResult":
-        """Wrap a detach-triggered exit as a ``FunctionCallingExecutionResult``.
-
-        Produces the same ``execution_outcome`` shape that
-        :meth:`ExecutionOutcome.to_dict` would emit from
-        :meth:`FunctionCallingOrchestrator._build_detached_outcome`, so
-        downstream handoff logic only needs one code path.
-        """
-        payload = detach_signal.payload
-        reason = payload.reason if payload is not None else "detached"
-        note = payload.note if payload is not None else ""
-        snapshot = OrchestratorSnapshot(
-            messages=[dict(msg) for msg in step_state.messages],
-            iterations=step_state.iteration,
-            reason=reason,
-            note=note,
-        )
-        return FunctionCallingExecutionResult(
-            mode=request.mode,
-            response_text="",
-            attachments=list(getattr(step_state, "chat_attachments", []) or []),
-            message_payload=dict(getattr(step_state, "message_payload", {}) or {}),
-            root_user_message=current_user_message,
-            execution_outcome={
-                "status": "detached",
-                "content": "",
-                "failure_reason": None,
-                "attachments": list(getattr(step_state, "chat_attachments", []) or []),
-                "message_payload": dict(getattr(step_state, "message_payload", {}) or {}),
-                "tool_failures": list(getattr(step_state, "tool_failures", [])),
-                "iterations": step_state.iteration,
-                "snapshot": snapshot.to_dict(),
-            },
-            turn_id=current_turn_id,
-            ux_plan=_serialize_ux_plan(request.intent),
-        )
-
-    async def _maybe_dispatch_to_background(
-        self, request: FunctionCallingRequest
-    ) -> ExecutionResult | None:
-        """Delegate to the background runtime when the dispatcher agrees.
-
-        Returns a final :class:`ExecutionResult` carrying a short ack
-        when the turn has been routed to the background task manager,
-        or ``None`` when the foreground path should proceed as usual.
-        Any dispatcher / launch failure degrades silently to foreground.
-        """
-        dispatcher = self._deps.background_dispatcher
-        launch_service = self._deps.background_launch_service
-        if dispatcher is None or launch_service is None:
-            return None
-        try:
-            decision = await dispatcher.classify(
-                BackgroundDecisionContext(
-                    user_text=request.context.latest_user_message or "",
-                    selected_tools=list(request.selected_tools),
-                )
-            )
-        except Exception as exc:  # noqa: BLE001 - degrade safe to foreground
-            logger.warning(
-                "background dispatcher failed; staying on foreground | user_id=%s error=%s",
-                request.context.user_id,
-                exc,
-            )
-            return None
-        if not decision.is_background:
-            return None
-        trigger_source = _BACKGROUND_TRIGGER_SOURCE_BY_DECISION.get(
-            decision.source, BackgroundTaskTriggerSource.RULE
-        )
-        try:
-            return await launch_service.enqueue_from_request(
-                request, trigger_source=trigger_source
-            )
-        except Exception as exc:  # noqa: BLE001 - degrade safe to foreground
-            logger.warning(
-                "background launch failed; falling back to foreground | user_id=%s error=%s",
-                request.context.user_id,
-                exc,
-            )
-            return None
-
-    def _build_detach_signal(self, *, session_id: str = "") -> DetachSignal | None:
-        """Return a fresh :class:`DetachSignal` for this turn, or ``None``.
-
-        The signal is only useful when a :class:`BackgroundLaunchService`
-        is wired — otherwise there is no place to hand the run off to and
-        the ``detach_to_background`` tool should continue to surface as
-        unsupported. Returning ``None`` in that case keeps
-        :func:`bind_detach_signal` a no-op.
-        """
-        if self._deps.background_launch_service is None:
-            return None
-        signal = DetachSignal()
-        coordinator = getattr(self._deps, "session_run_coordinator", None)
-        bind_signal = getattr(coordinator, "bind_detach_signal", None)
-        if coordinator is not None and callable(bind_signal) and session_id:
-            bind_signal(session_id, signal)
-        return signal
-
-    def _release_detach_signal(
-        self,
-        *,
-        session_id: str,
-        detach_signal: DetachSignal | None,
-    ) -> None:
-        coordinator = self._deps.session_run_coordinator
-        release_signal = getattr(coordinator, "release_detach_signal", None)
-        if coordinator is None or not callable(release_signal) or not session_id:
-            return
-        release_signal(session_id, detach_signal)
-
-    async def _build_steer_inbox(
-        self, request: FunctionCallingRequest
-    ) -> SteerInbox | None:
-        """Return an empty :class:`SteerInbox` for this turn, or ``None``.
-
-        Without a :class:`SessionRunCoordinator` there is no persistent
-        queue to drain, so returning ``None`` keeps the orchestrator's
-        steer path a no-op. When a coordinator is wired we return a
-        fresh empty inbox — any persisted STEER pending turns (including
-        ones that survived a backend restart) are drained into it at the
-        top of the first checkpoint iteration by
-        :meth:`_drain_pending_steer_turns`, which also emits supersession
-        bookkeeping. Draining here would bypass that bookkeeping.
-        """
-        coordinator = self._deps.session_run_coordinator
-        session_id = str(getattr(request.context, "session_id", "") or "").strip()
-        if coordinator is None or not session_id:
-            return None
-        return SteerInbox()
-
-    async def _drain_pending_steer_turns(
-        self,
-        *,
-        session_id: str,
-        revision: int,
-        steer_inbox: SteerInbox | None,
-        step_state: Any,
-        latest_fact_timestamp: float | None,
-    ) -> None:
-        """Pull freshly persisted STEER turns into ``steer_inbox``.
-
-        Called at the top of each checkpoint iteration so STEER turns
-        that arrived while the previous tool batch was running get
-        injected into ``state.messages`` before the next LLM call.
-        Emits supersession bookkeeping (root + intermediate STEER
-        pending turns → the newest drained turn) so downstream
-        timeline/trace persistence mirrors the AUGMENT merge shape.
-        """
-        coordinator = self._deps.session_run_coordinator
-        if coordinator is None or steer_inbox is None or not session_id:
-            return
-        apply_steer = getattr(
-            self._deps.function_calling_orchestrator, "apply_steer_messages", None
-        )
-        if apply_steer is None:
-            return
-        drained = coordinator.consume_steer_turns(session_id, revision=revision)
-        if not drained:
-            # The inbox may already carry messages from a previous
-            # iteration (e.g. hydrated at turn start). Drain-and-apply
-            # still needs to run so they land on ``state.messages``.
-            await apply_steer(step_state, steer_inbox)
-            return
-
-        for pending_turn in drained:
-            await steer_inbox.push(
-                SteerMessage(
-                    content=pending_turn.content,
-                    reason="steer",
-                    metadata={"turn_id": pending_turn.turn_id},
-                )
-            )
-        await apply_steer(step_state, steer_inbox)
-
-        # Bookkeeping: mark root + intermediate STEER pending turns as
-        # superseded by the newest drained turn, same shape as AUGMENT.
-        persist = self._deps.persist_turn_supersessions
-        if persist is None:
-            return
-        active_run = coordinator.get_active_run(session_id)
-        if active_run is None:
-            return
-        supersessions = coordinator._build_steer_supersessions(
-            root_turn_id=active_run.root_turn_id,
-            pending_turns=drained,
-            anchor_turn_id=drained[-1].turn_id,
-        )
-        if not supersessions:
-            return
-        updated_at_ms = (
-            int(latest_fact_timestamp * 1000)
-            if latest_fact_timestamp is not None
-            else int(time.time() * 1000)
-        )
-        await persist(supersessions, updated_at_ms)
-
-    async def _maybe_handoff_detached_outcome(
-        self,
-        request: FunctionCallingRequest,
-        result: ExecutionResult,
-    ) -> ExecutionResult | None:
-        """If ``result`` carries a ``detached`` outcome, enqueue a background
-        task seeded from its snapshot and return the ack result.
-
-        Returns ``None`` when the result is not a detach (so callers fall
-        through to their normal return path) or when no launch service is
-        wired. Any launch failure degrades silently and the original
-        detached result is returned so the chat surface shows an error
-        rather than pretending the work continues.
-        """
-        launch_service = self._deps.background_launch_service
-        if launch_service is None:
-            return None
-        if not isinstance(result, FunctionCallingExecutionResult):
-            return None
-        execution_outcome = result.execution_outcome
-        if not isinstance(execution_outcome, dict):
-            return None
-        if execution_outcome.get("status") != "detached":
-            return None
-        snapshot = execution_outcome.get("snapshot")
-        initial_messages: list[dict[str, Any]] | None = None
-        if isinstance(snapshot, dict):
-            raw_messages = snapshot.get("messages")
-            if isinstance(raw_messages, list):
-                initial_messages = [
-                    dict(msg) for msg in raw_messages if isinstance(msg, dict)
-                ]
-        try:
-            return await launch_service.enqueue_from_request(
-                request,
-                trigger_source=BackgroundTaskTriggerSource.MANUAL,
-                initial_messages=initial_messages,
-            )
-        except Exception as exc:  # noqa: BLE001 - degrade safe: surface detach
-            logger.warning(
-                "detach hand-off failed; keeping detached outcome visible | "
-                "user_id=%s error=%s",
-                request.context.user_id,
-                exc,
-            )
-            return None
-
-    def _build_cancel_token(
-        self, request: FunctionCallingRequest
-    ) -> CancelToken:
-        """Build a :class:`CancelToken` bound to one specific run revision.
-
-        The returned token is pinned to the ``(session_id, run_id,
-        revision)`` triple captured at build time. ``is_cancelled()``
-        resolves to ``True`` **only** when
-        :meth:`SessionRunCoordinator.get_run_status` reports the active
-        run for that exact triple is ``cancelling`` or ``cancelled``. In
-        every other case it resolves to ``False``:
-
-        * No coordinator is wired, or the request is not bound to a session
-          run → the noop token is returned and no polling occurs.
-        * The active run has been completed / cleared (``get_run_status``
-          returns ``None``) → ``False``.
-        * A new ``run_id`` has replaced the one we were bound to →
-          ``False``.
-        * The ``revision`` has advanced (e.g. ``bump_revision`` after an
-          INTERRUPT) without an explicit ``request_cancel`` → ``False``.
-          The superseded tool-loop is expected to finish naturally; its
-          result will be flagged ``stale`` by
-          :meth:`SessionRunCoordinator.record_result`.
-        * The active run is ``running`` → ``False``.
-
-        This means the token is a **narrow, opt-in stop signal**: a tool
-        loop will only abort when someone has *explicitly* requested
-        cancellation on the exact run/revision it was launched for.
-        Callers that want to react to supersession (revision bump) must
-        wire a separate signal.
-        """
-        coordinator = self._deps.session_run_coordinator
-        session_id = str(request.context.session_id or "").strip()
-        run_id = str(request.context.session_run_id or "").strip()
-        if coordinator is None or not session_id or not run_id:
-            return null_cancel_token()
-        revision = int(getattr(request.context, "session_run_revision", 0) or 0)
-        return SessionRunCancelToken(
-            coordinator=coordinator,
-            session_id=session_id,
-            run_id=run_id,
-            revision=revision,
-        )
-
 
 async def _start_explore_task_agent(
     deps: ChatHandlerDependencies,
