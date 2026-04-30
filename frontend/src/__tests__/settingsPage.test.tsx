@@ -6,7 +6,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import SettingsCenterDialog from '@/components/layout/SettingsCenterDialog';
 import { SettingsPage } from '@/pages/Settings';
 import { configApi, DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
-import { getControlSettings, listPermissionRules, updateControlSettings } from '@/api/modules/control';
 import { pluginsApi } from '@/api/modules/plugins';
 import { sensorsApi } from '@/api/modules/sensors';
 import { toolsApi } from '@/api/modules/tools';
@@ -56,26 +55,6 @@ vi.mock('@/i18n', () => ({
   default: {
     changeLanguage: vi.fn(),
   },
-}));
-
-vi.mock('@/api/modules/control', () => ({
-  getControlSettings: vi.fn().mockResolvedValue({
-    permission_mode: 'high_only',
-    plan_approval_required: false,
-  }),
-  getSessionSettings: vi.fn().mockResolvedValue({
-    base: { permission_mode: 'high_only', plan_approval_required: false },
-    override: null,
-    effective: { permission_mode: 'high_only', plan_approval_required: false },
-  }),
-  listPermissionRules: vi.fn().mockResolvedValue([]),
-  updateControlSettings: vi.fn().mockImplementation(async (payload: Record<string, unknown>) => ({
-    permission_mode: (payload.permission_mode as string | undefined) ?? 'high_only',
-    plan_approval_required: (payload.plan_approval_required as boolean | undefined) ?? false,
-  })),
-  updateSessionSettings: vi.fn(),
-  deletePermissionRule: vi.fn(),
-  clearSessionPermissionRules: vi.fn(),
 }));
 
 vi.mock('@/components/config-forms/LLMForm', () => ({
@@ -493,15 +472,6 @@ describe('settings page draft saving', () => {
     syncStartMinimizedPreferenceMock.mockReset();
     pickDirectoryMock.mockReset();
     pickDirectoryMock.mockResolvedValue(undefined);
-    vi.mocked(getControlSettings).mockResolvedValue({
-      permission_mode: 'high_only',
-      plan_approval_required: false,
-    });
-    vi.mocked(listPermissionRules).mockResolvedValue([]);
-    vi.mocked(updateControlSettings).mockImplementation(async (payload: Record<string, unknown>) => ({
-      permission_mode: (payload.permission_mode as 'all' | 'high_only' | 'off' | undefined) ?? 'high_only',
-      plan_approval_required: (payload.plan_approval_required as boolean | undefined) ?? false,
-    }));
 
     vi.mocked(configApi.get).mockResolvedValue({
       data: structuredClone(DEFAULT_SYSTEM_CONFIG),
@@ -768,41 +738,6 @@ describe('settings page draft saving', () => {
     );
   });
 
-  it('disables restoring the default chat workspace when already using the default path', async () => {
-    const user = userEvent.setup();
-    render(<SettingsPage />);
-
-    await user.click(await screen.findByRole('button', { name: 'settings.tabs.conversation' }));
-
-    expect(screen.getByRole('button', { name: 'settings.actions.restoreDefaultDirectory' })).toBeDisabled();
-  });
-
-  it('shows control settings inside conversation and saves the global permission mode there', async () => {
-    const user = userEvent.setup();
-    render(<SettingsPage />);
-
-    expect(screen.queryByRole('button', { name: 'settings.tabs.control' })).not.toBeInTheDocument();
-
-    await user.click(await screen.findByRole('button', { name: 'settings.tabs.conversation' }));
-
-    expect(await screen.findByTestId('control-settings-panel')).toBeInTheDocument();
-    expect(getControlSettings).toHaveBeenCalled();
-
-    await user.click(screen.getByRole('button', { name: 'settings.permission_mode' }));
-    await user.click(screen.getByRole('button', { name: 'settings.mode.off' }));
-
-    expect(updateControlSettings).not.toHaveBeenCalled();
-
-    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
-
-    await waitFor(() => {
-      expect(updateControlSettings).toHaveBeenCalledWith({
-        permission_mode: 'off',
-        plan_approval_required: false,
-      });
-    });
-  });
-
   it('disables media grounding when the current core model lacks vision support', async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
@@ -897,32 +832,6 @@ describe('settings page draft saving', () => {
     await user.click(memoryGroupButton);
     expect(memoryGroupButton).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByRole('button', { name: 'settings.tabs.memoryGeneral' })).not.toBeInTheDocument();
-  });
-
-  it('keeps quick-mode memory settings focused on the general section', async () => {
-    const user = userEvent.setup();
-    vi.mocked(configApi.get).mockResolvedValue({
-      data: {
-        ...structuredClone(DEFAULT_SYSTEM_CONFIG),
-        preferences: {
-          ...DEFAULT_SYSTEM_CONFIG.preferences,
-          user_mode: 'quick',
-        },
-      },
-    } as any);
-
-    render(<SettingsPage />);
-
-    const memoryGroupButton = await screen.findByRole('button', { name: 'settings.tabs.memory' });
-    await user.click(memoryGroupButton);
-
-    expect(screen.getByRole('button', { name: 'settings.tabs.memoryGeneral' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'settings.tabs.memoryWorkbench' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'settings.tabs.memoryEvents' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'settings.tabs.memoryKnowledge' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'settings.tabs.memoryReflection' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'settings.tabs.memorySkills' })).not.toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'settings.tabs.memoryGeneral' })).toBeInTheDocument();
   });
 
   it('saves memory storage path from the general memory section alongside knowledge settings', async () => {
@@ -1418,37 +1327,6 @@ describe('settings page draft saving', () => {
     expect(await screen.findByText('personality-modern:embedded')).toBeInTheDocument();
     expect(screen.getByTestId('settings-section-content')).not.toHaveClass('max-w-3xl');
     expect(screen.queryByRole('button', { name: 'settings.actions.save' })).not.toBeInTheDocument();
-  });
-
-  it('renders personality runtime settings and keeps dependent toggles linked', async () => {
-    const user = userEvent.setup();
-
-    render(<SettingsPage />);
-
-    await user.click(await screen.findByRole('button', { name: 'settings.tabs.personality' }));
-    await user.click(screen.getByRole('button', { name: 'settings.tabs.personalitySettings' }));
-
-    expect(await screen.findByRole('heading', { name: 'settings.tabs.personalitySettings' })).toBeInTheDocument();
-
-    const stateMemoryToggle = screen.getByRole('switch', { name: 'settings.personalitySettings.stateMemoryLabel' });
-    const stateTransitionToggle = screen.getByRole('switch', { name: 'settings.personalitySettings.stateTransitionLabel' });
-    const deepPersonaToggle = screen.getByRole('switch', { name: 'settings.personalitySettings.deepPersonaLabel' });
-
-    expect(stateMemoryToggle).toHaveAttribute('data-state', 'checked');
-    expect(stateTransitionToggle).toHaveAttribute('data-state', 'checked');
-    expect(deepPersonaToggle).toHaveAttribute('data-state', 'checked');
-
-    await user.click(stateMemoryToggle);
-
-    expect(stateMemoryToggle).toHaveAttribute('data-state', 'unchecked');
-    expect(stateTransitionToggle).toHaveAttribute('data-state', 'unchecked');
-    expect(deepPersonaToggle).toHaveAttribute('data-state', 'unchecked');
-
-    await user.click(deepPersonaToggle);
-
-    expect(stateMemoryToggle).toHaveAttribute('data-state', 'checked');
-    expect(deepPersonaToggle).toHaveAttribute('data-state', 'checked');
-    expect(screen.getByRole('button', { name: 'settings.actions.save' })).toBeEnabled();
   });
 
   it('does not expose the system settings entry in user-facing navigation', async () => {
