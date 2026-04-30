@@ -2,37 +2,25 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any, Callable, Dict, List, Optional
 
 from ...config import AppConfig
-from .answerability import (
-    has_temporal_anchor,
-)
 from .handlers import L1Handler, L2Handler, L3Handler, L4Handler, execute_plan
 from .evidence.session_bundles import EvidenceBundleMixin
-from .intent_decider import IntentDecider, LLMIntentDecider, RuleBasedIntentDecider, enrich_l2_conditions
+from .intent_decider import IntentDecider, LLMIntentDecider, RuleBasedIntentDecider
 from .mode_registry import MODE_REGISTRY, VALID_MODES
 from .router import normalize_query_mode
 from .models import (
     IntentDeciderInput,
-    L1Conditions,
-    L2Conditions,
-    LayerQueryPlan,
     RetrievalConfig,
     RetrievalPayload,
     RetrievalQuery,
-    TimeRange,
 )
 from .manifest_selector import ManifestSelector
 from .result_fusion import ResultFusion
+from .service_execution import HybridRetrievalExecutionMixin
 from .service_postprocessing import HybridRetrievalPostProcessingMixin
-from .service_policy import (
-    comparison_backstop_queries,
-    plan_signature,
-    rule_backstop_reason,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +38,11 @@ def build_retrieval_config_from_app_config(app_config: AppConfig) -> RetrievalCo
     )
 
 
-class HybridRetrievalService(EvidenceBundleMixin, HybridRetrievalPostProcessingMixin):
+class HybridRetrievalService(
+    EvidenceBundleMixin,
+    HybridRetrievalPostProcessingMixin,
+    HybridRetrievalExecutionMixin,
+):
     """Intent-driven hybrid retrieval across L0-L4 memory layers."""
 
     def __init__(
@@ -166,210 +158,6 @@ class HybridRetrievalService(EvidenceBundleMixin, HybridRetrievalPostProcessingM
             mode_plan=mode_plan,
         )
 
-    async def _execute_query(
-        self,
-        request: RetrievalQuery,
-        decision: Any,
-        intent_input: IntentDeciderInput,
-        payload: RetrievalPayload,
-        *,
-        effective_l1: Optional[L1Handler] = None,
-        mode_plan: Any = None,
-    ) -> RetrievalPayload:
-        """Inner query execution.
-
-        *effective_l1* is the L1 handler to use for this query; it may
-        differ from ``self._l1`` when mode-based RRF tuning creates
-        a per-query handler copy.
-        """
-        l1 = effective_l1 if effective_l1 is not None else self._l1
-
-        # 3. Execute primary plans in parallel
-        primary_plans = self._augment_primary_plans(
-            [p for p in decision.plans if not p.is_fallback],
-            request=request,
-            payload=payload,
-        )
-        logger.debug(
-            "Primary plans prepared | plan_count=%d layers=%s",
-            len(primary_plans),
-            [(p.layer, p.is_fallback, getattr(p.conditions, "content_query", "")[:60]) for p in primary_plans],
-        )
-        await self._execute_and_merge_plans(
-            primary_plans, payload, l1=l1, request=request, label="Primary plan",
-        )
-
-        # 3b. Query expansion — run additional L1 plans with reformulated queries
-        if self._config.query_expansion_enabled and self._llm_provider_bridge:
-            await self._run_query_expansion(
-                original_query=request.query,
-                request=request,
-                payload=payload,
-                time_range=decision.time_range,
-                l1=l1,
-            )
-
-        # 4. Backstops + fallbacks
-        await self._run_backstops(
-            request, decision, intent_input, payload,
-            l1=l1, primary_plans=primary_plans,
-        )
-        await self._run_fallback_if_needed(
-            decision, payload, l1=l1, request=request,
-        )
-
-        # 4c. Activity summary supplement — fetch L3 by category directly.
-        if (mode_plan is not None and mode_plan.mode == "activity_summary"
-                and self._l3 is not None and request.summary_categories):
-            await self._supplement_activity_summary(
-                request=request,
-                payload=payload,
-                time_range=decision.time_range,
-            )
-
-        # 5+6. Post-processing (fusion, manifest selection, evidence bundles)
-        return await self._apply_post_processing(payload, request=request, mode_plan=mode_plan)
-
-    async def _execute_and_merge_plans(
-        self,
-        plans: List[LayerQueryPlan],
-        payload: RetrievalPayload,
-        *,
-        l1: Optional[L1Handler],
-        request: RetrievalQuery,
-        label: str = "Plan",
-    ) -> None:
-        """Execute layer query plans in parallel and merge results into *payload*."""
-        if not plans:
-            return
-        results = await asyncio.gather(
-            *[
-                execute_plan(
-                    plan,
-                    l1=l1, l2=self._l2, l3=self._l3, l4=self._l4,
-                    session_id=request.session_id,
-                    user_id=request.user_id,
-                )
-                for plan in plans
-            ],
-            return_exceptions=True,
-        )
-        for plan, result in zip(plans, results):
-            if isinstance(result, Exception):
-                logger.warning("%s %s failed: %s", label, plan.layer, result)
-                continue
-            self._merge_result(payload, plan.layer, result)
-
-    async def _run_backstops(
-        self,
-        request: RetrievalQuery,
-        decision: Any,
-        intent_input: IntentDeciderInput,
-        payload: RetrievalPayload,
-        *,
-        l1: Optional[L1Handler],
-        primary_plans: List[LayerQueryPlan],
-    ) -> None:
-        """Run rule-based and comparison backstops when primary results are insufficient."""
-        backstop_reason = self._rule_backstop_reason(
-            query=request.query,
-            payload=payload,
-            decision_source=decision.source,
-        )
-        if backstop_reason is not None:
-            rule_decision = self._intent_decider._rule_engine.evaluate(intent_input)
-            existing_signatures = {self._plan_signature(p) for p in primary_plans}
-            rule_primary_plans = [
-                plan
-                for plan in rule_decision.plans
-                if not plan.is_fallback and self._plan_signature(plan) not in existing_signatures
-            ]
-            # When L1 events are empty, also include L1 fallback plans from
-            # the rule engine so the backstop does not rely solely on L2 data.
-            if not payload.l1_events:
-                rule_l1_fallback_plans = [
-                    plan
-                    for plan in rule_decision.plans
-                    if plan.is_fallback and getattr(plan, "layer", "") == "L1"
-                    and self._plan_signature(plan) not in existing_signatures
-                ]
-                rule_primary_plans.extend(rule_l1_fallback_plans)
-            await self._execute_and_merge_plans(
-                rule_primary_plans, payload, l1=l1, request=request, label="Rule backstop plan",
-            )
-            if rule_primary_plans:
-                payload.trace["rule_backstop_triggered"] = True
-                payload.trace["rule_backstop_reason"] = backstop_reason
-                payload.trace["rule_backstop_count"] = self._count_results(payload)
-
-        comparison_backstop_queries = self._comparison_backstop_queries(
-            query=request.query,
-            payload=payload,
-            decision_source=decision.source,
-        )
-        if comparison_backstop_queries:
-            comparison_plans = [
-                LayerQueryPlan(
-                    layer="L1",
-                    conditions=L1Conditions(
-                        content_query=content_query,
-                        source_filters=request.source_filters or None,
-                        domain_filters=request.domain_filters or None,
-                        limit=request.limit,
-                    ),
-                    is_fallback=False,
-                )
-                for content_query in comparison_backstop_queries
-            ]
-            await self._execute_and_merge_plans(
-                comparison_plans, payload, l1=l1, request=request, label="Comparison backstop plan",
-            )
-            payload.trace["comparison_backstop_triggered"] = True
-            payload.trace["comparison_backstop_count"] = self._count_results(payload)
-
-    async def _run_fallback_if_needed(
-        self,
-        decision: Any,
-        payload: RetrievalPayload,
-        *,
-        l1: Optional[L1Handler],
-        request: RetrievalQuery,
-    ) -> None:
-        """Run fallback plans when primary + backstop results are insufficient or low-confidence."""
-        primary_count = self._count_results(payload)
-        payload.trace["primary_count"] = primary_count
-
-        should_fallback = primary_count < self._config.fallback_trigger_threshold
-        # Confidence-aware fallback: even if we have enough results, if the
-        # top-K scores are too low the answers may be irrelevant.
-        if (
-            not should_fallback
-            and self._config.confidence_fallback_enabled
-            and payload.l1_events
-        ):
-            top_k = min(self._config.confidence_fallback_top_k, len(payload.l1_events))
-            avg_score = sum(
-                float(e.get("retrieval_score") or 0.0)
-                for e in payload.l1_events[:top_k]
-            ) / top_k
-            if avg_score < self._config.confidence_fallback_min_score:
-                should_fallback = True
-                payload.trace["confidence_fallback_triggered"] = True
-                payload.trace["confidence_fallback_avg_score"] = round(avg_score, 6)
-
-        if should_fallback:
-            fallback_plans = [p for p in decision.plans if p.is_fallback]
-            await self._execute_and_merge_plans(
-                fallback_plans, payload, l1=l1, request=request, label="Fallback plan",
-            )
-            if fallback_plans:
-                payload.trace["fallback_triggered"] = True
-
-    @staticmethod
-    def _plan_signature(plan: Any) -> tuple[str, str, bool]:
-        """Build a stable identity for a layer query plan."""
-        return plan_signature(plan)
-
     def _refresh_handlers(self) -> None:
         """Rebuild layer handlers only when the underlying stores change.
 
@@ -431,183 +219,3 @@ class HybridRetrievalService(EvidenceBundleMixin, HybridRetrievalPostProcessingM
         self._config = next_config
         self._result_fusion = ResultFusion(self._config)
         self._manifest_selector = ManifestSelector(self._config)
-
-    def _augment_primary_plans(
-        self,
-        primary_plans: list[LayerQueryPlan],
-        *,
-        request: RetrievalQuery,
-        payload: RetrievalPayload,
-    ) -> list[LayerQueryPlan]:
-        """Add service-level evidence plans for semantic affinity queries when needed.
-
-        Also guarantees that at least one L1 plan is always present so
-        entity-expansion retrieval is never skipped.
-        """
-        seen_signatures = {self._plan_signature(plan) for plan in primary_plans}
-        augmented_plans = list(primary_plans)
-        added_joint_l1_plan = False
-
-        for plan in primary_plans:
-            joint_l1_plan = self._build_joint_l1_evidence_plan(plan, request=request)
-            if joint_l1_plan is None:
-                continue
-            signature = self._plan_signature(joint_l1_plan)
-            if signature in seen_signatures:
-                continue
-            augmented_plans.append(joint_l1_plan)
-            seen_signatures.add(signature)
-            added_joint_l1_plan = True
-
-        if added_joint_l1_plan:
-            payload.trace["joint_l1_affinity_evidence"] = True
-
-        # Ensure L1 always participates (entity co-occurrence expansion)
-        has_l1 = any(p.layer == "L1" for p in augmented_plans)
-        if not has_l1:
-            l1_plan = LayerQueryPlan(
-                layer="L1",
-                conditions=L1Conditions(
-                    content_query=request.query,
-                    source_filters=request.source_filters or None,
-                    domain_filters=request.domain_filters or None,
-                    limit=request.limit,
-                ),
-                is_fallback=False,
-            )
-            augmented_plans.append(l1_plan)
-            payload.trace["l1_always_injected"] = True
-
-        # Inject L2 plan when the query contains temporal markers but the
-        # intent decider (typically the LLM) routed to L1-only.  L2
-        # knowledge-graph edges carry timestamps and can directly answer
-        # "time + fact" questions (e.g. "What did I buy 10 days ago?").
-        has_l2 = any(p.layer == "L2" for p in augmented_plans)
-        if not has_l2 and has_temporal_anchor(request.query):
-            l2_conditions = L2Conditions(
-                content_query=request.query,
-                subject_hint="self",
-                include_tom_snapshot=True,
-                include_relationships=True,
-                include_assertions=True,
-            )
-            enrich_l2_conditions(l2_conditions, request.query)
-            l2_plan = LayerQueryPlan(
-                layer="L2",
-                conditions=l2_conditions,
-                is_fallback=False,
-            )
-            augmented_plans.append(l2_plan)
-            payload.trace["l2_temporal_injected"] = True
-
-        return augmented_plans
-
-    @staticmethod
-    def _build_joint_l1_evidence_plan(
-        plan: LayerQueryPlan,
-        *,
-        request: RetrievalQuery,
-    ) -> LayerQueryPlan | None:
-        """Build an auxiliary L1 evidence plan for time-bounded interaction affinity queries."""
-        if plan.layer != "L2" or not isinstance(plan.conditions, L2Conditions):
-            return None
-
-        semantic_frame = plan.conditions.semantic_frame
-        if semantic_frame is None:
-            return None
-        if semantic_frame.query_family != "affinity":
-            return None
-        if not any(constraint.scope == "interaction" for constraint in semantic_frame.constraints):
-            return None
-        if plan.time_range is None or (plan.time_range.start is None and plan.time_range.end is None):
-            return None
-
-        return LayerQueryPlan(
-            layer="L1",
-            conditions=L1Conditions(
-                content_query=request.query,
-                source_filters=request.source_filters or None,
-                domain_filters=request.domain_filters or None,
-                limit=request.limit,
-            ),
-            time_range=plan.time_range,
-            is_fallback=False,
-        )
-
-    async def _run_query_expansion(
-        self,
-        *,
-        original_query: str,
-        request: RetrievalQuery,
-        payload: RetrievalPayload,
-        time_range: Optional[TimeRange] = None,
-        l1: Optional[L1Handler] = None,
-    ) -> None:
-        """Generate expanded query variants and run additional L1 plans."""
-        from .query_expander import QueryExpander
-
-        effective_l1 = l1 if l1 is not None else self._l1
-
-        expander = QueryExpander(
-            self._llm_provider_bridge,
-            timeout_seconds=self._config.query_expansion_timeout_seconds,
-        )
-        expanded_queries = await expander.expand(original_query)
-        if not expanded_queries:
-            return
-
-        payload.trace["query_expansion_queries"] = expanded_queries
-
-        expansion_plans = [
-            LayerQueryPlan(
-                layer="L1",
-                conditions=L1Conditions(
-                    content_query=eq,
-                    source_filters=request.source_filters or None,
-                    domain_filters=request.domain_filters or None,
-                    limit=request.limit,
-                ),
-                time_range=time_range,
-                is_fallback=False,
-            )
-            for eq in expanded_queries
-        ]
-        expansion_results = await asyncio.gather(
-            *[
-                execute_plan(
-                    plan,
-                    l1=effective_l1, l2=self._l2, l3=self._l3, l4=self._l4,
-                    session_id=request.session_id,
-                    user_id=request.user_id,
-                )
-                for plan in expansion_plans
-            ],
-            return_exceptions=True,
-        )
-        added = 0
-        for plan, result in zip(expansion_plans, expansion_results):
-            if isinstance(result, Exception):
-                logger.warning("Query expansion plan failed: %s", result)
-                continue
-            if isinstance(result, list):
-                added += len(result)
-            self._merge_result(payload, plan.layer, result)
-        payload.trace["query_expansion_added"] = added
-
-    @staticmethod
-    def _rule_backstop_reason(
-        *,
-        query: str,
-        payload: RetrievalPayload,
-        decision_source: str,
-    ) -> str | None:
-        return rule_backstop_reason(query=query, payload=payload, decision_source=decision_source)
-
-    @staticmethod
-    def _comparison_backstop_queries(
-        *,
-        query: str,
-        payload: RetrievalPayload,
-        decision_source: str,
-    ) -> list[str]:
-        return comparison_backstop_queries(query=query, payload=payload, decision_source=decision_source)
