@@ -14,18 +14,18 @@ from unittest.mock import MagicMock
 
 from magi.agent.execution.function_calling import (
     FunctionCallingOrchestrator,
-    _to_json_schema_type,
 )
+from magi.agent.execution.function_calling.tools import to_json_schema_type
 
 _JSON_SCHEMA_TYPES = {"string", "number", "integer", "boolean", "object", "array", "null"}
 
 
 def test_to_json_schema_type_aliases_float_and_file() -> None:
-    assert _to_json_schema_type("float") == "number"
-    assert _to_json_schema_type("file") == "string"
-    assert _to_json_schema_type("string") == "string"
-    assert _to_json_schema_type("INTEGER") == "integer"
-    assert _to_json_schema_type(None) == "string"
+    assert to_json_schema_type("float") == "number"
+    assert to_json_schema_type("file") == "string"
+    assert to_json_schema_type("string") == "string"
+    assert to_json_schema_type("INTEGER") == "integer"
+    assert to_json_schema_type(None) == "string"
 
 
 def _make_orchestrator_with_tools(tools: Dict[str, Dict[str, Any]]) -> FunctionCallingOrchestrator:

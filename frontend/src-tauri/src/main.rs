@@ -286,8 +286,15 @@ fn resolve_builtin_avatar_dir() -> Option<PathBuf> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     // CARGO_MANIFEST_DIR = frontend/src-tauri → project root = ../..
     let project_root = manifest_dir.parent()?.parent()?;
-    let dir = project_root.join("backend").join("personalities").join("avatar");
-    if dir.is_dir() { Some(dir) } else { None }
+    let dir = project_root
+        .join("backend")
+        .join("personalities")
+        .join("avatar");
+    if dir.is_dir() {
+        Some(dir)
+    } else {
+        None
+    }
 }
 
 /// Resolve the user avatar directory (~/.magi/personalities/avatar).
@@ -425,7 +432,10 @@ fn resolve_dev_python_command(project_root: &Path) -> PathBuf {
     }
 
     let venv_python = if cfg!(windows) {
-        project_root.join(".venv").join("Scripts").join("python.exe")
+        project_root
+            .join(".venv")
+            .join("Scripts")
+            .join("python.exe")
     } else {
         project_root.join(".venv").join("bin").join("python")
     };
@@ -526,14 +536,12 @@ fn spawn_dev_backend_role(
             .arg(&port_text);
     }
 
-    let child = command
-        .spawn()
-        .map_err(|err| {
-            format!(
-                "Failed to spawn backend with desktop dev Python {}: {err}",
-                python_command.display()
-            )
-        })?;
+    let child = command.spawn().map_err(|err| {
+        format!(
+            "Failed to spawn backend with desktop dev Python {}: {err}",
+            python_command.display()
+        )
+    })?;
     let pid = Some(child.id());
     Ok((BackendProcess::Dev(Some(child)), pid))
 }

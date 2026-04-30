@@ -40,7 +40,10 @@ class TimelineContextBundleBuilder:
                 )
             if hasattr(self._l2, "find_edges_by_event_id"):
                 for event_id in event_ids:
-                    l2_state_evidence.extend(await self._l2.find_edges_by_event_id(str(event_id)))
+                    l2_state_evidence.extend(
+                        self._with_evidence_events_alias(edge)
+                        for edge in await self._l2.find_edges_by_event_id(str(event_id))
+                    )
 
         l3_reflections: list[dict[str, Any]] = []
         if self._l3 is not None and hasattr(self._l3, "list_summaries"):
@@ -87,7 +90,10 @@ class TimelineContextBundleBuilder:
         l2_state_evidence: list[dict[str, Any]] = []
         if hasattr(self._l2, "find_edges_by_event_id"):
             for eid in event_ids[:10]:
-                l2_state_evidence.extend(await self._l2.find_edges_by_event_id(eid))
+                l2_state_evidence.extend(
+                    self._with_evidence_events_alias(edge)
+                    for edge in await self._l2.find_edges_by_event_id(eid)
+                )
 
         l3_reflections: list[dict[str, Any]] = []
         if self._l3 is not None and hasattr(self._l3, "list_summaries"):
@@ -130,6 +136,15 @@ class TimelineContextBundleBuilder:
                 or ""
             ),
         }
+
+    @staticmethod
+    def _with_evidence_events_alias(edge: dict[str, Any]) -> dict[str, Any]:
+        if "evidence_events" in edge:
+            return edge
+        evidence_event_ids = edge.get("evidence_event_ids")
+        if not isinstance(evidence_event_ids, list):
+            return edge
+        return {**edge, "evidence_events": list(evidence_event_ids)}
 
     @staticmethod
     def _event_metadata(event: dict[str, Any]) -> dict[str, Any]:

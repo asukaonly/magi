@@ -10,10 +10,8 @@ from ..bootstrap.background_tasks import (
 )
 from ..chat import get_chat_read_service
 from ..core.logger import get_logger
-from ..core.runtime_bindings import (
-    require_control_session_store,
-    require_permission_gateway,
-)
+from ..agent.control.provider import resolve_control_session_store
+from ..agent.control.permission.provider import get_permission_gateway
 from ..tools import tool_registry
 from ..transport.chat_events import broadcast_background_task_state_changed
 from ..utils.runtime import get_runtime_paths
@@ -74,7 +72,7 @@ class AgentRuntimeModule(LifecycleModule):
             runtime_trace_store=runtime_trace_store,
             max_concurrent=bg_settings.max_concurrent,
             history_retention_days=bg_settings.history_retention_days,
-            permission_gateway_provider=require_permission_gateway,
+            permission_gateway_provider=get_permission_gateway,
         )
         self._background_wiring = background_wiring
         self._context.agent_runtime.background_task_manager = background_wiring.manager
@@ -96,8 +94,8 @@ class AgentRuntimeModule(LifecycleModule):
                 config=config,
                 background_dispatcher=background_wiring.dispatcher if bg_settings.enabled else None,
                 background_launch_service=background_wiring.launch_service if bg_settings.enabled else None,
-                permission_gateway_provider=require_permission_gateway,
-                control_session_store_provider=require_control_session_store,
+                permission_gateway_provider=get_permission_gateway,
+                control_session_store_provider=resolve_control_session_store,
             ),
             create_default_agent=create_default_agent_factory(
                 llm_adapter=llm_adapter,
@@ -106,7 +104,7 @@ class AgentRuntimeModule(LifecycleModule):
                 unified_memory=unified_memory,
                 plugin_manager=plugin_manager,
                 sensor_registry=sensor_registry,
-                control_session_store_provider=require_control_session_store,
+                control_session_store_provider=resolve_control_session_store,
             ),
             idle_ttl_seconds=config.agent.runtime.task_agent_manager_idle_ttl_seconds,
             max_dynamic_instances=config.agent.runtime.task_agent_manager_max_dynamic_instances,
@@ -135,7 +133,7 @@ class AgentRuntimeModule(LifecycleModule):
                 message_bus=require_initialized(self._context.message_bus.message_bus, "message bus"),
                 runtime_trace_store=runtime_trace_store,
                 scenario_llm_pool=llm_pool,
-                permission_gateway_provider=require_permission_gateway,
+                permission_gateway_provider=get_permission_gateway,
             )
         await self._context.agent_runtime.agent_runtime.start()
 

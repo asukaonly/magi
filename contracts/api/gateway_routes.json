@@ -217,7 +217,7 @@
       "owner_file": "crates/magi-gateway/src/api/memory.rs",
       "response_envelope": "native-json",
       "python_parity": {
-        "owner_file": "backend/src/magi/api/routers/memory.py"
+        "owner_file": "backend/src/magi/api/routers/memory/__init__.py"
       }
     },
     {
@@ -227,7 +227,7 @@
       "owner_file": "crates/magi-gateway/src/api/memory.rs",
       "response_envelope": "native-json",
       "python_parity": {
-        "owner_file": "backend/src/magi/api/routers/memory.py"
+        "owner_file": "backend/src/magi/api/routers/memory/__init__.py"
       }
     },
     {
@@ -237,7 +237,7 @@
       "owner_file": "crates/magi-gateway/src/api/memory.rs",
       "response_envelope": "native-json",
       "python_parity": {
-        "owner_file": "backend/src/magi/api/routers/memory.py"
+        "owner_file": "backend/src/magi/api/routers/memory/__init__.py"
       }
     },
     {
@@ -247,7 +247,7 @@
       "owner_file": "crates/magi-gateway/src/api/memory.rs",
       "response_envelope": "paginated-native-json",
       "python_parity": {
-        "owner_file": "backend/src/magi/api/routers/memory.py"
+        "owner_file": "backend/src/magi/api/routers/memory/__init__.py"
       }
     },
     {
@@ -257,7 +257,7 @@
       "owner_file": "crates/magi-gateway/src/api/memory.rs",
       "response_envelope": "paginated-native-json",
       "python_parity": {
-        "owner_file": "backend/src/magi/api/routers/memory.py"
+        "owner_file": "backend/src/magi/api/routers/memory/__init__.py"
       }
     },
     {
@@ -267,7 +267,7 @@
       "owner_file": "crates/magi-gateway/src/api/memory.rs",
       "response_envelope": "paginated-native-json",
       "python_parity": {
-        "owner_file": "backend/src/magi/api/routers/memory.py"
+        "owner_file": "backend/src/magi/api/routers/memory/__init__.py"
       }
     },
     {
@@ -277,7 +277,7 @@
       "owner_file": "crates/magi-gateway/src/api/memory.rs",
       "response_envelope": "paginated-native-json",
       "python_parity": {
-        "owner_file": "backend/src/magi/api/routers/memory.py"
+        "owner_file": "backend/src/magi/api/routers/memory/__init__.py"
       }
     },
     {
@@ -287,7 +287,7 @@
       "owner_file": "crates/magi-gateway/src/api/memory.rs",
       "response_envelope": "paginated-native-json",
       "python_parity": {
-        "owner_file": "backend/src/magi/api/routers/memory.py"
+        "owner_file": "backend/src/magi/api/routers/memory/__init__.py"
       }
     },
     {
@@ -297,7 +297,7 @@
       "owner_file": "crates/magi-gateway/src/api/memory.rs",
       "response_envelope": "paginated-native-json",
       "python_parity": {
-        "owner_file": "backend/src/magi/api/routers/memory.py"
+        "owner_file": "backend/src/magi/api/routers/memory/__init__.py"
       }
     },
     {
@@ -307,7 +307,7 @@
       "owner_file": "crates/magi-gateway/src/api/memory.rs",
       "response_envelope": "native-json",
       "python_parity": {
-        "owner_file": "backend/src/magi/api/routers/memory.py"
+        "owner_file": "backend/src/magi/api/routers/memory/__init__.py"
       }
     },
     {
@@ -317,7 +317,7 @@
       "owner_file": "crates/magi-gateway/src/api/memory.rs",
       "response_envelope": "paginated-native-json",
       "python_parity": {
-        "owner_file": "backend/src/magi/api/routers/memory.py"
+        "owner_file": "backend/src/magi/api/routers/memory/__init__.py"
       }
     },
     {
@@ -327,7 +327,7 @@
       "owner_file": "crates/magi-gateway/src/api/memory.rs",
       "response_envelope": "paginated-native-json",
       "python_parity": {
-        "owner_file": "backend/src/magi/api/routers/memory.py"
+        "owner_file": "backend/src/magi/api/routers/memory/__init__.py"
       }
     },
     {
@@ -337,7 +337,7 @@
       "owner_file": "crates/magi-gateway/src/api/memory.rs",
       "response_envelope": "native-json",
       "python_parity": {
-        "owner_file": "backend/src/magi/api/routers/memory.py"
+        "owner_file": "backend/src/magi/api/routers/memory/__init__.py"
       }
     },
     {
@@ -354,7 +354,7 @@
       "owner_file": "crates/magi-gateway/src/api/memory.rs",
       "response_envelope": "native-json",
       "python_parity": {
-        "owner_file": "backend/src/magi/api/routers/memory.py"
+        "owner_file": "backend/src/magi/api/routers/memory/__init__.py"
       }
     },
     {
@@ -364,7 +364,7 @@
       "owner_file": "crates/magi-gateway/src/api/memory.rs",
       "response_envelope": "paginated-native-json",
       "python_parity": {
-        "owner_file": "backend/src/magi/api/routers/memory.py"
+        "owner_file": "backend/src/magi/api/routers/memory/__init__.py"
       }
     },
     {
@@ -374,7 +374,7 @@
       "owner_file": "crates/magi-gateway/src/api/memory.rs",
       "response_envelope": "native-json",
       "python_parity": {
-        "owner_file": "backend/src/magi/api/routers/memory.py"
+        "owner_file": "backend/src/magi/api/routers/memory/__init__.py"
       }
     },
     {
@@ -444,7 +444,7 @@
     {
       "prefix": "/api/memory",
       "owner": "python-ipc",
-      "owner_file": "backend/src/magi/api/routers/memory.py"
+      "owner_file": "backend/src/magi/api/routers/memory/__init__.py"
     },
     {
       "prefix": "/api/messages",

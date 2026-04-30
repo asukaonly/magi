@@ -9,10 +9,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 const ALLOWED_SQLITE_WRITE_FILES: &[&str] = &[
-    "src/api/messages.rs",
-    "src/api/metrics.rs",
-    "src/api/schedules.rs",
-    "src/api/tasks.rs",
+    "src/api/messages/mutations.rs",
+    "src/api/schedules/write.rs",
+    "src/api/tasks/write.rs",
     "src/db.rs",
 ];
 
@@ -57,12 +56,52 @@ fn collect_write_files(dir: &Path, manifest_dir: &Path, observed: &mut BTreeSet<
             continue;
         }
         let content = fs::read_to_string(&path).expect("read Rust source file");
-        let normalized = content.to_lowercase();
+        let normalized = production_source(&content).to_lowercase();
         if WRITE_MARKERS
             .iter()
             .any(|marker| normalized.contains(marker))
         {
             observed.insert(relative_path(&path, manifest_dir));
+        }
+    }
+}
+
+fn production_source(content: &str) -> String {
+    let mut output = String::new();
+    let mut lines = content.lines();
+
+    while let Some(line) = lines.next() {
+        if line.trim_start().starts_with("#[cfg(test)]") {
+            skip_cfg_test_item(&mut lines);
+            continue;
+        }
+        output.push_str(line);
+        output.push('\n');
+    }
+
+    output
+}
+
+fn skip_cfg_test_item<'a, I>(lines: &mut I)
+where
+    I: Iterator<Item = &'a str>,
+{
+    let mut depth = 0i32;
+    let mut opened = false;
+
+    for line in lines.by_ref() {
+        for ch in line.chars() {
+            match ch {
+                '{' => {
+                    depth += 1;
+                    opened = true;
+                }
+                '}' => depth -= 1,
+                _ => {}
+            }
+        }
+        if opened && depth <= 0 {
+            break;
         }
     }
 }

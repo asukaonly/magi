@@ -43,7 +43,7 @@ def _make_task(status: BackgroundTaskStatus) -> BackgroundTask:
 @pytest.mark.asyncio
 async def test_broadcast_writes_notification(monkeypatch):
     store = _FakeStore()
-    monkeypatch.setattr(chat_events_module, "require_runtime_trace_store", lambda: store)
+    monkeypatch.setattr(chat_events_module, "resolve_runtime_trace_store", lambda: store)
     task = _make_task(BackgroundTaskStatus.SUCCEEDED)
 
     await broadcast_background_task_state_changed(task)
@@ -63,7 +63,7 @@ async def test_broadcast_swallows_store_errors(monkeypatch):
     def _raise():
         raise RuntimeError("trace store offline")
 
-    monkeypatch.setattr(chat_events_module, "require_runtime_trace_store", _raise)
+    monkeypatch.setattr(chat_events_module, "resolve_runtime_trace_store", _raise)
     # Must not raise.
     await broadcast_background_task_state_changed(_make_task(BackgroundTaskStatus.FAILED))
 
@@ -71,7 +71,7 @@ async def test_broadcast_swallows_store_errors(monkeypatch):
 @pytest.mark.asyncio
 async def test_broadcast_swallows_serialization_errors(monkeypatch):
     store = _FakeStore()
-    monkeypatch.setattr(chat_events_module, "require_runtime_trace_store", lambda: store)
+    monkeypatch.setattr(chat_events_module, "resolve_runtime_trace_store", lambda: store)
 
     class _Broken:
         spec = None

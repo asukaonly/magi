@@ -1,0 +1,1 @@
+"""Knowledge-graph relation storage helpers for L2 cognition."""

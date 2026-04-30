@@ -62,6 +62,8 @@ Python-proxied routes also have a dedicated schema export path: `scripts/export-
 
 When adding or moving a product API route, update the route implementation, the manifest, and the relevant contract tests in the same task. FastAPI OpenAPI is useful for Python-proxied routes only; it is not sufficient as the complete desktop API contract because Rust-native routes are registered outside Python.
 
+The Rust gateway's direct SQLite write surface is tracked separately in `contracts/sqlite/gateway_writes.json`. `scripts/check-sqlite-ownership.py` scans production Rust gateway SQL and fails when a write or gateway-created index is not declared in that ownership contract.
+
 ## Backend Shape
 
 The backend uses a thin composition root plus layer-owned runtime modules.
@@ -188,7 +190,7 @@ Chat ownership is now intentionally separated by domain:
 
 The Rust gateway is allowed to write SQLite only for product or transport surfaces it owns natively. Python remains the owner for runtime-heavy behavior, memory cognition, plugin execution, and any operation that needs live runtime services.
 
-When adding a new SQLite write path, update this matrix and the gateway ownership test in the same change. A Rust native write is acceptable only when the table and operation are listed here or the write is delegated to Python over IPC.
+When adding a new SQLite write path, update this matrix, `contracts/sqlite/gateway_writes.json`, and the gateway ownership test in the same change. A Rust native write is acceptable only when the table and operation are listed here or the write is delegated to Python over IPC.
 
 | Database | Tables / state | Source of truth | Rust gateway access | Python access | Migration owner |
 |---|---|---|---|---|---|
@@ -196,8 +198,8 @@ When adding a new SQLite write path, update this matrix and the gateway ownershi
 | `data/resources/chat/` | attachment files and derived artifacts | Managed chat attachment content | Reads attachment content for desktop HTTP routes | Writes managed attachment files and parsed artifacts during upload/runtime preparation | Python chat attachment services |
 | `runtime_trace.db` | trace turns, spans, tool calls, LLM calls, runtime notifications, plugin ingress events | Execution observability and best-effort live fan-out | Reads trace snapshots and readiness metrics; inserts `runtime_notifications` only for gateway-owned mutations that need frontend fan-out | Writes trace/notification/plugin ingress records produced by runtime services | Python runtime trace store schema; Rust notification bridge contract tests |
 | `message_queue.db` | `runtime_commands` | Durable runtime command queue | No direct writes except through IPC-facing command enqueue flows if explicitly implemented | Owns queue schema, claiming, retry, ack, and recovery semantics | Python runtime command queue |
-| `tasks.db` | `tasks` | User-facing task records | Reads task views; writes product task CRUD fields exposed by native task routes | May write runtime-linked task rows and orchestration linkage through task-domain services | Shared task-domain schema; native route mutations must stay field-scoped |
-| `scheduler.db` | `schedules`, `target_state`, execution history | Unified scheduler configuration and execution bookkeeping | Reads schedules/executions; writes product schedule CRUD and target-state reset fields exposed by native schedule routes | Owns scheduler execution, job registration, run history, and recovery | Python scheduler repository schema; Rust route tests cover native mutation fields |
+| `tasks.db` | `tasks` | User-facing task records | Reads task views; writes product task CRUD fields through `crates/magi-gateway/src/api/tasks/write.rs` | May write runtime-linked task rows and orchestration linkage through task-domain services | Shared task-domain schema; native route mutations must stay field-scoped |
+| `scheduler.db` | `schedules`, `target_state`, execution history | Unified scheduler configuration and execution bookkeeping | Reads schedules/executions; writes product schedule CRUD and target-state reset fields through `crates/magi-gateway/src/api/schedules/write.rs` | Owns scheduler execution, job registration, run history, and recovery | Python scheduler repository schema; Rust route tests cover native mutation fields |
 | `llm_usage.db` | `llm_usage` | LLM usage metrics | Reads usage dashboards; may insert gateway-originated metric rows when no Python runtime call owns the event | Writes provider/runtime usage records for Python LLM execution | Python LLM usage store schema; Rust metrics tests cover read/write shape |
 | `l1_events.db` | `fact_events`, L1 vector/index tables | Canonical lossy memory projection | Read-only for native memory list/stat endpoints; startup may create idempotent performance indexes | Owns all semantic writes, retention, archival, projection, and vector writes | Python memory L1 store schema; Rust may only add documented idempotent indexes |
 | `memory.db` | L0/L2/L3/L4 tables, graph, assertions, summaries, procedures | Lifecycle memory state beyond L1 | Read-only for native memory inspection endpoints; startup may create idempotent performance indexes | Owns all memory writes, cognition, reflection, procedural extraction, conflict resolution, and vector writes | Python memory stores/schema; Rust may only add documented idempotent indexes |

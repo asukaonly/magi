@@ -14,7 +14,7 @@ class TestMemoryQueryTool:
         def _raise_uninitialized() -> None:
             raise RuntimeError("hybrid_retrieval_service binding is not initialized")
 
-        monkeypatch.setattr(memory_query_module, "require_hybrid_retrieval_service", _raise_uninitialized)
+        monkeypatch.setattr(memory_query_module, "get_hybrid_retrieval_service", _raise_uninitialized)
 
         tool = MemoryQueryTool()
 
@@ -63,7 +63,7 @@ class TestMemoryQueryTool:
         from magi.tools.builtin.memory_query_tool import MemoryQueryTool
 
         fake_service = MagicMock(name="retrieval_service")
-        monkeypatch.setattr(memory_query_module, "require_hybrid_retrieval_service", lambda: fake_service)
+        monkeypatch.setattr(memory_query_module, "get_hybrid_retrieval_service", lambda: fake_service)
 
         tool = MemoryQueryTool()
 
@@ -76,7 +76,7 @@ class TestMemoryQueryTool:
 
         monkeypatch.setattr(
             memory_query_module,
-            "require_hybrid_retrieval_service",
+            "get_hybrid_retrieval_service",
             lambda: (_ for _ in ()).throw(RuntimeError("hybrid_retrieval_service binding is not initialized")),
         )
 
@@ -93,7 +93,7 @@ class TestMemoryQueryTool:
         from magi.tools.schema import ToolExecutionContext
 
         fake_service = MagicMock(name="retrieval_service")
-        monkeypatch.setattr(memory_query_module, "require_hybrid_retrieval_service", lambda: fake_service)
+        monkeypatch.setattr(memory_query_module, "get_hybrid_retrieval_service", lambda: fake_service)
         tool = MemoryQueryTool()
         fake_service.query = AsyncMock(
             return_value=MagicMock(
@@ -135,7 +135,7 @@ class TestMemoryQueryTool:
         from magi.tools.schema import ToolExecutionContext
 
         fake_service = MagicMock(name="retrieval_service")
-        monkeypatch.setattr(memory_query_module, "require_hybrid_retrieval_service", lambda: fake_service)
+        monkeypatch.setattr(memory_query_module, "get_hybrid_retrieval_service", lambda: fake_service)
         tool = MemoryQueryTool()
         fake_service.query = AsyncMock(
             return_value=MagicMock(
@@ -172,7 +172,7 @@ class TestMemoryQueryTool:
         from magi.tools.schema import ToolExecutionContext
 
         fake_service = MagicMock(name="retrieval_service")
-        monkeypatch.setattr(memory_query_module, "require_hybrid_retrieval_service", lambda: fake_service)
+        monkeypatch.setattr(memory_query_module, "get_hybrid_retrieval_service", lambda: fake_service)
         tool = MemoryQueryTool()
         fake_service.query = AsyncMock(
             return_value=MagicMock(

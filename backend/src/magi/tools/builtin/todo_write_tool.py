@@ -6,8 +6,8 @@ import uuid
 from typing import Any, Dict
 
 from ...agent.control.chat_state_persister import persist_todo_state_message
+from ...agent.control.provider import resolve_control_session_store
 from ...core.logger import get_logger
-from ...core.runtime_bindings import require_control_session_store
 from ...runtime_defaults import DEFAULT_USER_ID
 from ...agent.control.session_store import TodoListError
 from ..schema import (
@@ -99,7 +99,7 @@ class TodoWriteTool(Tool):
             normalised.append(item)
 
         try:
-            store = require_control_session_store()
+            store = resolve_control_session_store()
         except RuntimeError as exc:
             return ToolResult(success=False, error=str(exc))
         try:

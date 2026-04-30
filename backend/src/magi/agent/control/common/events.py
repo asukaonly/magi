@@ -16,7 +16,7 @@ import time
 from typing import Any
 
 from ....core.logger import get_logger
-from ....core.runtime_bindings import require_runtime_trace_store
+from ....runtime_trace.provider import resolve_runtime_trace_store
 
 logger = get_logger(__name__)
 
@@ -41,7 +41,7 @@ async def publish_control_event(
     correctness — it is purely observability / UI push.
     """
     try:
-        store = require_runtime_trace_store()
+        store = resolve_runtime_trace_store()
     except RuntimeError:
         # Control plane is up but the trace store is not — fine outside
         # of the full runtime (tests, smoke harnesses).

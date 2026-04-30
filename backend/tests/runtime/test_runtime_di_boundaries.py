@@ -32,7 +32,7 @@ def test_timeline_and_llm_runtime_do_not_keep_module_level_singletons() -> None:
     timeline_router = (BACKEND_SRC / "api/routers/timeline.py").read_text(encoding="utf-8")
     usage_events = (BACKEND_SRC / "llm/usage_events.py").read_text(encoding="utf-8")
     memory_lifecycle = (BACKEND_SRC / "memory/lifecycle.py").read_text(encoding="utf-8")
-    provider_bridge = (BACKEND_SRC / "llm/provider_bridge.py").read_text(encoding="utf-8")
+    provider_bridge = (BACKEND_SRC / "llm/provider_bridge/__init__.py").read_text(encoding="utf-8")
     scheduler_service = (BACKEND_SRC / "scheduler/service.py").read_text(encoding="utf-8")
 
     assert "_sensor_contrib" not in sensor_contrib
@@ -71,7 +71,8 @@ def test_events_package_does_not_keep_unused_enhanced_backend_variant() -> None:
 
 
 def test_api_and_tools_use_runtime_bindings_instead_of_runtime_getters() -> None:
-    memory_router = (BACKEND_SRC / "api/routers/memory.py").read_text(encoding="utf-8")
+    memory_router = (BACKEND_SRC / "api/routers/memory/__init__.py").read_text(encoding="utf-8")
+    memory_dependencies = (BACKEND_SRC / "api/routers/memory/dependencies.py").read_text(encoding="utf-8")
     timeline_router = (BACKEND_SRC / "api/routers/timeline.py").read_text(encoding="utf-8")
     memory_query_tool = (BACKEND_SRC / "tools/builtin/memory_query_tool.py").read_text(encoding="utf-8")
 
@@ -82,9 +83,15 @@ def test_api_and_tools_use_runtime_bindings_instead_of_runtime_getters() -> None
     assert "from ..routers.memory import get_unified_memory" not in timeline_router
     assert "from ...scheduler import (\n    ScheduledTargetType,\n    get_scheduler_service," not in timeline_router
     assert "from ..agent import get_unified_memory" not in memory_query_tool
-    assert "core.runtime_bindings" in memory_router
-    assert "core.runtime_bindings" in timeline_router
-    assert "core.runtime_bindings" in memory_query_tool
+    assert "memory.provider" in memory_dependencies
+    assert "memory.provider" in timeline_router
+    assert "memory.provider" in memory_query_tool
+    assert "require_unified_memory" not in memory_router
+    assert "require_unified_memory" not in memory_dependencies
+    assert "require_unified_memory" not in timeline_router
+    assert "require_hybrid_retrieval_service" not in memory_query_tool
+    assert "plugins.provider" in memory_query_tool
+    assert "core.runtime_bindings" not in memory_query_tool
 
 
 def test_timeline_handler_does_not_use_plugin_runtime_globals() -> None:
@@ -113,7 +120,7 @@ def test_bootstrap_and_agent_exports_do_not_keep_chat_runtime_aliases() -> None:
 
 def test_agent_execution_package_uses_function_calling_orchestrator_name() -> None:
     execution_init = (BACKEND_SRC / "agent/execution/__init__.py").read_text(encoding="utf-8")
-    function_calling_source = (BACKEND_SRC / "agent/execution/function_calling.py").read_text(encoding="utf-8")
+    function_calling_source = (BACKEND_SRC / "agent/execution/function_calling/__init__.py").read_text(encoding="utf-8")
     chat_agent_source = (BACKEND_SRC / "agent/task_agents/chat_task_agent.py").read_text(encoding="utf-8")
     worker_manager_source = (BACKEND_SRC / "agent/workers/worker_manager.py").read_text(encoding="utf-8")
     chat_handlers_source = (BACKEND_SRC / "agent/task_agents/chat/handlers.py").read_text(encoding="utf-8")
@@ -171,12 +178,13 @@ def test_shared_skills_runtime_uses_skill_runner_binding_name() -> None:
     assert "require_skill_executor" not in runtime_bindings
     assert "skill_executor" not in api_services
     assert "skill_executor" not in skills_router
+    assert "require_skill_loader" not in runtime_bindings
     assert "skill_runner" in bootstrap_context
     assert "skill_runner" in service_access
     assert "skill_runner" in lifecycle_source
     assert "skill_runner" in container_source
     assert "skill_runner" in exports_source
-    assert "require_skill_runner" in runtime_bindings
+    assert "require_skill_runner" not in runtime_bindings
 
 
 def test_plugin_runtime_uses_container_bindings_instead_of_runtime_globals() -> None:
@@ -198,9 +206,39 @@ def test_plugin_runtime_uses_container_bindings_instead_of_runtime_globals() -> 
     assert "get_plugin_manager" not in plugins_router
     assert "reload_plugin_manager" not in plugins_router
     assert "get_plugin_manager" not in tools_router
-    assert "require_plugin_manager" in plugins_router
-    assert "require_plugin_manager" in tools_router
+    assert "plugins.provider" in plugins_router
+    assert "plugins.provider" in tools_router
+    assert "require_plugin_manager" not in plugins_router
+    assert "require_plugin_manager" not in tools_router
     assert "require_action_registry" not in runtime_bindings
+
+
+def test_runtime_bindings_only_expose_boundary_consumed_services() -> None:
+    runtime_bindings = (BACKEND_SRC / "core/runtime_bindings.py").read_text(encoding="utf-8")
+
+    assert "require_message_bus" not in runtime_bindings
+    assert "require_user_message_sensor" not in runtime_bindings
+    assert "require_skill_loader" not in runtime_bindings
+    assert "require_skill_indexer" not in runtime_bindings
+    assert "require_skill_runner" not in runtime_bindings
+    assert "require_chat_store" not in runtime_bindings
+    assert "require_chat_projector" not in runtime_bindings
+    assert "require_memory_integration" not in runtime_bindings
+    assert "require_unified_memory" not in runtime_bindings
+    assert "require_hybrid_retrieval_service" not in runtime_bindings
+    assert "require_plugin_manager" not in runtime_bindings
+    assert "require_sensor_registry" not in runtime_bindings
+    assert "require_runtime_trace_store" not in runtime_bindings
+    assert "require_control_session_store" not in runtime_bindings
+    assert "require_control_settings_manager" not in runtime_bindings
+    assert "require_permission_rule_store" not in runtime_bindings
+    assert "require_control_interaction_broker" not in runtime_bindings
+    assert "require_pending_permission_registry" not in runtime_bindings
+    assert "require_background_task_manager" not in runtime_bindings
+    assert "require_scheduler_service" not in runtime_bindings
+    assert "require_sensor_scheduler_contrib" not in runtime_bindings
+    assert "require_permission_gateway" not in runtime_bindings
+    assert "require_scenario_llm_pool" not in runtime_bindings
 
 
 def test_legacy_backend_app_is_removed() -> None:
@@ -240,7 +278,7 @@ def test_runtime_domain_code_does_not_import_core_runtime_package() -> None:
     explore_postprocess_service = (BACKEND_SRC / "agent/task_agents/explore/postprocess_service.py").read_text(encoding="utf-8")
     chat_handlers = (BACKEND_SRC / "agent/task_agents/chat/handlers.py").read_text(encoding="utf-8")
     worker_manager = (BACKEND_SRC / "agent/workers/worker_manager.py").read_text(encoding="utf-8")
-    function_calling = (BACKEND_SRC / "agent/execution/function_calling.py").read_text(encoding="utf-8")
+    function_calling = (BACKEND_SRC / "agent/execution/function_calling/__init__.py").read_text(encoding="utf-8")
     task_orchestrator = (BACKEND_SRC / "agent/task_orchestrator.py").read_text(encoding="utf-8")
     task_factory = (BACKEND_SRC / "agent/task_agents/factory.py").read_text(encoding="utf-8")
     event_emitter = (BACKEND_SRC / "awareness/event_emitter.py").read_text(encoding="utf-8")

@@ -2,15 +2,9 @@
 from __future__ import annotations
 
 import hashlib
-import inspect
 import importlib.util
 import logging
-import shutil
-import subprocess
 import sys
-import tarfile
-import tempfile
-import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
@@ -32,9 +26,9 @@ from .contracts import (
     PluginManifest,
     PluginPackageState,
     PluginSettingsResourcePayload,
-    SummaryProfileSpec,
-    TemporalSummaryFeatureBudget,
 )
+from .installation import PluginInstallationMixin
+from .projections import MergedSummaryProfile, PluginProjectionMixin
 from .sensors import SensorRegistry, SensorSpec
 
 logger = logging.getLogger(__name__)
@@ -44,26 +38,6 @@ logger = logging.getLogger(__name__)
 class PluginRuntimeBindings:
     plugin_manager: "PluginManager"
     sensor_registry: SensorRegistry
-
-
-@dataclass(frozen=True)
-class MergedSummaryProfile:
-    """Summary profile after merging plugins that share a ``summary_category``.
-
-    The L3 schedule registers one entry per (category, window). When several
-    plugins (e.g. Chrome + Edge browsing history) declare the same category,
-    their ``source_types`` and ``intent_verbs`` are unioned and the strictest
-    cadence wins.
-    """
-
-    summary_category: str
-    source_types: tuple[str, ...]
-    windows: tuple[str, ...]
-    settle_window_seconds: float
-    min_events: int
-    intent_verbs: tuple[str, ...]
-    contributing_profile_ids: tuple[str, ...]
-    prompt_hints: dict[str, Any]
 
 
 def _resolve_search_paths() -> list[Path]:
@@ -102,7 +76,7 @@ def build_plugin_runtime(
     )
 
 
-class PluginManager:
+class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
     """Discovers plugin packages and registers enabled contributions."""
 
     def __init__(
@@ -366,214 +340,6 @@ class PluginManager:
             data=plugin_instance.read_settings_resource(resource_name),
         )
 
-    def build_temporal_summary_features(
-        self,
-        *,
-        events: list[dict[str, Any]],
-        summary_category: str,
-        period_start: float,
-        period_end: float,
-        source_filter: list[str] | None = None,
-        feature_budgets: dict[str, TemporalSummaryFeatureBudget | dict[str, Any]] | None = None,
-    ) -> dict[str, Any]:
-        """Collect plugin-provided temporal summary features for the current event window."""
-
-        features_by_source: dict[str, Any] = {}
-        events_by_source: dict[str, list[dict[str, Any]]] = {}
-        normalized_filter = {str(s).strip() for s in source_filter or [] if str(s).strip()}
-        for event in events:
-            source_type = str(event.get("source") or "").strip()
-            if not source_type:
-                continue
-            if normalized_filter and source_type not in normalized_filter:
-                continue
-            events_by_source.setdefault(source_type, []).append(event)
-
-        if not events_by_source:
-            return features_by_source
-
-        for plugin in self.iter_loaded_plugins():
-            for source_type, source_events in events_by_source.items():
-                if source_type in features_by_source:
-                    continue
-                try:
-                    kwargs: dict[str, Any] = {
-                        "source_type": source_type,
-                        "events": source_events,
-                        "summary_category": summary_category,
-                        "period_start": period_start,
-                        "period_end": period_end,
-                    }
-                    if self._plugin_accepts_temporal_budget(plugin):
-                        budget = (feature_budgets or {}).get(source_type)
-                        if isinstance(budget, dict):
-                            budget = TemporalSummaryFeatureBudget(**budget)
-                        if budget is not None:
-                            kwargs["budget"] = budget
-                    features = plugin.build_temporal_summary_features(**kwargs)
-                except Exception as exc:
-                    logger.warning(
-                        "Plugin temporal summary feature builder failed",
-                        extra={"plugin_id": plugin.plugin_id, "source_type": source_type, "error": str(exc)},
-                    )
-                    continue
-                if features:
-                    dumper = getattr(features, "model_dump", None)
-                    features_by_source[source_type] = dumper() if callable(dumper) else features
-        return features_by_source
-
-    @staticmethod
-    def _plugin_accepts_temporal_budget(plugin: Plugin) -> bool:
-        """Return whether a plugin hook can accept the optional budget keyword."""
-        try:
-            signature = inspect.signature(plugin.build_temporal_summary_features)
-        except (TypeError, ValueError):
-            return False
-        return any(
-            parameter.kind == inspect.Parameter.VAR_KEYWORD or name == "budget"
-            for name, parameter in signature.parameters.items()
-        )
-
-    def iter_summary_profiles(self) -> list[SummaryProfileSpec]:
-        """Aggregate ``SummaryProfileSpec`` entries from all loaded plugins."""
-
-        profiles: list[SummaryProfileSpec] = []
-        seen: set[str] = set()
-        for plugin in self.iter_loaded_plugins():
-            getter = getattr(plugin, "get_summary_profiles", None)
-            if not callable(getter):
-                continue
-            try:
-                items = getter() or []
-            except Exception as exc:
-                logger.warning(
-                    "Plugin get_summary_profiles failed",
-                    extra={"plugin_id": plugin.plugin_id, "error": str(exc)},
-                )
-                continue
-            for spec in items:
-                if not isinstance(spec, SummaryProfileSpec):
-                    continue
-                if spec.profile_id in seen:
-                    continue
-                seen.add(spec.profile_id)
-                profiles.append(spec)
-        return profiles
-
-    def iter_merged_summary_profiles(self) -> list[MergedSummaryProfile]:
-        """Aggregate per-plugin profiles into one entry per ``summary_category``.
-
-        - ``source_types`` and ``intent_verbs`` are unioned across contributors.
-        - ``windows`` is the union of declared windows.
-        - ``min_events`` takes the maximum (more strict).
-        - ``settle_window_seconds`` takes the minimum (faster settling wins).
-        - ``prompt_hints`` are shallow-merged (later contributors do not
-          overwrite earlier keys; collisions are silently kept from the first).
-        """
-
-        merged: dict[str, dict[str, Any]] = {}
-        order: list[str] = []
-        for spec in self.iter_summary_profiles():
-            entry = merged.get(spec.summary_category)
-            if entry is None:
-                entry = {
-                    "source_types": list(spec.source_types or []),
-                    "windows": list(spec.windows or []),
-                    "settle_window_seconds": float(spec.settle_window_seconds),
-                    "min_events": int(spec.min_events),
-                    "intent_verbs": list(spec.intent_verbs or []),
-                    "contributing_profile_ids": [spec.profile_id],
-                    "prompt_hints": dict(spec.prompt_hints or {}),
-                }
-                merged[spec.summary_category] = entry
-                order.append(spec.summary_category)
-                continue
-            for source_type in spec.source_types or []:
-                if source_type not in entry["source_types"]:
-                    entry["source_types"].append(source_type)
-            for window in spec.windows or []:
-                if window not in entry["windows"]:
-                    entry["windows"].append(window)
-            for verb in spec.intent_verbs or []:
-                if verb not in entry["intent_verbs"]:
-                    entry["intent_verbs"].append(verb)
-            entry["min_events"] = max(entry["min_events"], int(spec.min_events))
-            entry["settle_window_seconds"] = min(
-                entry["settle_window_seconds"], float(spec.settle_window_seconds),
-            )
-            entry["contributing_profile_ids"].append(spec.profile_id)
-            for key, value in (spec.prompt_hints or {}).items():
-                entry["prompt_hints"].setdefault(key, value)
-
-        return [
-            MergedSummaryProfile(
-                summary_category=category,
-                source_types=tuple(merged[category]["source_types"]),
-                windows=tuple(merged[category]["windows"] or ["day"]),
-                settle_window_seconds=merged[category]["settle_window_seconds"],
-                min_events=merged[category]["min_events"],
-                intent_verbs=tuple(merged[category]["intent_verbs"]),
-                contributing_profile_ids=tuple(merged[category]["contributing_profile_ids"]),
-                prompt_hints=dict(merged[category]["prompt_hints"]),
-            )
-            for category in order
-        ]
-
-    def build_recall_artifacts(
-        self,
-        *,
-        events: list[dict[str, Any]],
-        query: str,
-        query_mode: str | None,
-    ) -> dict[str, Any]:
-        """Collect plugin-provided recall artifacts for the current query window.
-
-        Plugins may optionally expose ``build_recall_artifacts`` and return
-        answer-facing enrichment such as ``entity_refs`` or ``asset_refs`` for
-        a given ``source_type``. The host runtime treats this as a query-side
-        projection hook, not a persistence hook.
-        """
-
-        artifacts: dict[str, Any] = {"entity_refs": [], "asset_refs": []}
-        events_by_source: dict[str, list[dict[str, Any]]] = {}
-        for event in events:
-            source_type = str(event.get("source") or "").strip()
-            metadata = event.get("metadata_json") if isinstance(event.get("metadata_json"), dict) else {}
-            timeline = metadata.get("timeline") if isinstance(metadata.get("timeline"), dict) else {}
-            source_type = str(timeline.get("source_type") or source_type).strip()
-            if not source_type:
-                continue
-            events_by_source.setdefault(source_type, []).append(event)
-
-        if not events_by_source:
-            return artifacts
-
-        for plugin in self.iter_loaded_plugins():
-            builder = getattr(plugin, "build_recall_artifacts", None)
-            if not callable(builder):
-                continue
-            for source_type, source_events in events_by_source.items():
-                try:
-                    features = builder(
-                        source_type=source_type,
-                        events=source_events,
-                        query=query,
-                        query_mode=query_mode,
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "Plugin recall artifact builder failed",
-                        extra={"plugin_id": plugin.plugin_id, "source_type": source_type, "error": str(exc)},
-                    )
-                    continue
-                if not isinstance(features, dict):
-                    continue
-                for key in ("entity_refs", "asset_refs"):
-                    value = features.get(key)
-                    if isinstance(value, list):
-                        artifacts[key].extend(item for item in value if isinstance(item, dict))
-        return artifacts
-
     def _persist_new_packages(self, manifests: dict[str, PluginManifest]) -> None:
         config = get_config()
         updates: dict[str, Any] = {}
@@ -671,166 +437,3 @@ class PluginManager:
     @staticmethod
     def _default_builtin_root() -> Path:
         return get_repo_root() / "plugins"
-
-    @staticmethod
-    def _user_plugins_root() -> Path:
-        return Path("~/.magi/plugins").expanduser()
-
-    # ------------------------------------------------------------------
-    # Plugin installation / uninstallation
-    # ------------------------------------------------------------------
-
-    def install_plugin_from_archive(self, archive_path: Path) -> PluginPackageState:
-        """Install a plugin from a .tar.gz or .zip archive.
-
-        The archive must contain a ``plugin.toml`` at the top level or
-        inside exactly one subdirectory.  The plugin is extracted into
-        ``~/.magi/plugins/<plugin_id>/``.
-        """
-        user_root = self._user_plugins_root()
-        user_root.mkdir(parents=True, exist_ok=True)
-
-        with tempfile.TemporaryDirectory(prefix="magi-plugin-install-") as tmp:
-            tmp_path = Path(tmp)
-            self._extract_archive(archive_path, tmp_path)
-            manifest_file = self._find_manifest_in_tree(tmp_path)
-            if manifest_file is None:
-                raise ValueError("Archive does not contain a plugin.toml")
-            manifest = self._load_manifest(manifest_file, source="external")
-            plugin_id = manifest.plugin_id
-
-            # Prevent overwriting builtin plugins.
-            existing = self._package_states.get(plugin_id)
-            if existing is not None and existing.manifest.source == "builtin":
-                raise ValueError(f"Cannot overwrite builtin plugin: {plugin_id}")
-
-            dest_dir = user_root / plugin_id
-            source_dir = manifest_file.parent
-
-            # Remove old installation if present.
-            if dest_dir.exists():
-                self.unload_plugin(plugin_id)
-                shutil.rmtree(dest_dir)
-
-            shutil.copytree(source_dir, dest_dir)
-
-            # Install declared Python dependencies into plugin-local .deps/.
-            new_manifest = self._load_manifest(dest_dir / "plugin.toml", source="external")
-            if new_manifest.dependencies:
-                self._install_dependencies(new_manifest.dependencies, dest_dir)
-
-        self.scan(persist_discovery=True)
-        state = self._require_package(plugin_id)
-        return state
-
-    def install_plugin_from_directory(self, source_dir: Path) -> PluginPackageState:
-        """Install a plugin from a local directory containing a plugin.toml.
-
-        Used by the git-clone registry flow where the plugin source has
-        already been extracted into a temporary directory.
-        """
-        manifest_file = self._find_manifest_in_tree(source_dir)
-        if manifest_file is None:
-            raise ValueError("Directory does not contain a plugin.toml")
-        manifest = self._load_manifest(manifest_file, source="external")
-        plugin_id = manifest.plugin_id
-
-        existing = self._package_states.get(plugin_id)
-        if existing is not None and existing.manifest.source == "builtin":
-            raise ValueError(f"Cannot overwrite builtin plugin: {plugin_id}")
-
-        user_root = self._user_plugins_root()
-        user_root.mkdir(parents=True, exist_ok=True)
-        dest_dir = user_root / plugin_id
-        plugin_source = manifest_file.parent
-
-        if dest_dir.exists():
-            self.unload_plugin(plugin_id)
-            shutil.rmtree(dest_dir)
-
-        shutil.copytree(plugin_source, dest_dir)
-
-        new_manifest = self._load_manifest(dest_dir / "plugin.toml", source="external")
-        if new_manifest.dependencies:
-            self._install_dependencies(new_manifest.dependencies, dest_dir)
-
-        self.scan(persist_discovery=True)
-        return self.enable_plugin(plugin_id)
-
-    def uninstall_plugin(self, plugin_id: str) -> None:
-        """Uninstall a user-installed plugin and remove its files."""
-        state = self._require_package(plugin_id)
-        if state.manifest.source == "builtin":
-            raise ValueError(f"Cannot uninstall builtin plugin: {plugin_id}")
-
-        self.unload_plugin(plugin_id)
-
-        plugin_dir = Path(state.manifest.plugin_dir)
-        if plugin_dir.exists():
-            shutil.rmtree(plugin_dir)
-
-        # Remove persisted config.
-        save_config({f"plugins.packages.{plugin_id}": None})
-        self._package_states.pop(plugin_id, None)
-        request_sensor_schedule_refresh()
-
-    def check_installed_version(self, plugin_id: str) -> str | None:
-        """Return the installed version of a plugin, or None if not installed."""
-        state = self._package_states.get(plugin_id)
-        if state is None:
-            return None
-        return state.manifest.version
-
-    @staticmethod
-    def _extract_archive(archive_path: Path, dest: Path) -> None:
-        """Extract a .tar.gz or .zip archive into *dest*."""
-        name = archive_path.name.lower()
-        if name.endswith(".tar.gz") or name.endswith(".tgz"):
-            with tarfile.open(archive_path, "r:gz") as tf:
-                # Security: prevent path traversal.
-                for member in tf.getmembers():
-                    if member.name.startswith("/") or ".." in member.name.split("/"):
-                        raise ValueError(f"Unsafe path in archive: {member.name}")
-                tf.extractall(dest)
-        elif name.endswith(".zip"):
-            with zipfile.ZipFile(archive_path, "r") as zf:
-                for info in zf.infolist():
-                    if info.filename.startswith("/") or ".." in info.filename.split("/"):
-                        raise ValueError(f"Unsafe path in archive: {info.filename}")
-                zf.extractall(dest)
-        else:
-            raise ValueError(f"Unsupported archive format: {archive_path.name}")
-
-    @staticmethod
-    def _find_manifest_in_tree(root: Path) -> Path | None:
-        """Find plugin.toml at root level or one directory deep."""
-        direct = root / "plugin.toml"
-        if direct.exists():
-            return direct
-        for child in root.iterdir():
-            if child.is_dir():
-                candidate = child / "plugin.toml"
-                if candidate.exists():
-                    return candidate
-        return None
-
-    @staticmethod
-    def _install_dependencies(dependencies: list[str], plugin_dir: Path) -> None:
-        """Install plugin dependencies into a local .deps/ directory."""
-        deps_dir = plugin_dir / ".deps"
-        deps_dir.mkdir(exist_ok=True)
-        cmd = [
-            sys.executable,
-            "-m",
-            "pip",
-            "install",
-            "--target",
-            str(deps_dir),
-            "--no-user",
-            "--quiet",
-            *dependencies,
-        ]
-        logger.info("Installing plugin dependencies", extra={"deps": dependencies, "target": str(deps_dir)})
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-        if result.returncode != 0:
-            raise RuntimeError(f"Failed to install plugin dependencies: {result.stderr.strip()}")

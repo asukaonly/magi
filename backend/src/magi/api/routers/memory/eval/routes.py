@@ -1,0 +1,137 @@
+"""Benchmark/evaluation memory API routes."""
+
+from __future__ import annotations
+
+from dataclasses import asdict
+import time
+from typing import Any, Dict
+
+from fastapi import HTTPException, status
+
+from magi.memory.eval_support.contracts import EvalMemoryQuery, EvalMemoryWriteRecord
+from magi.memory.eval_support.reader import EvalMemoryReader
+from magi.memory.eval_support.writer import EvalMemoryWriter
+
+from ..dependencies import (
+    _resolve_hybrid_retrieval_service,
+    _resolve_unified_memory,
+    _synthesize_eval_answer,
+    logger,
+)
+from ..router import memory_router
+from ..schemas import EvalFinalizeReplayRequest, EvalQueryRequest, EvalReplayRequest
+
+
+@memory_router.post("/eval/replay")
+async def replay_eval_records(body: EvalReplayRequest):
+    """Replay benchmark records through the standard memory ingest path."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Memory system not initialized",
+        )
+
+    writer = EvalMemoryWriter(unified_memory)
+    results = await writer.write_records(
+        [
+            EvalMemoryWriteRecord(
+                namespace=record.namespace,
+                session_id=record.session_id,
+                timestamp=record.timestamp,
+                role=record.role,
+                content=record.content,
+                turn_id=record.turn_id,
+                metadata=dict(record.metadata),
+            )
+            for record in body.records
+        ]
+    )
+    return {
+        "namespace": body.namespace,
+        "written": len(results),
+        "results": results,
+    }
+
+
+@memory_router.post("/eval/query")
+async def query_eval_memory(body: EvalQueryRequest):
+    """Query benchmark memory directly without chat rendering."""
+    retrieval_service = _resolve_hybrid_retrieval_service()
+    if retrieval_service is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Hybrid retrieval service not initialized",
+        )
+
+    unified_memory = _resolve_unified_memory()
+    reader = EvalMemoryReader(
+        retrieval_service,
+        l1_store=getattr(unified_memory, "l1", None) if unified_memory is not None else None,
+    )
+    logger.info(
+        "Eval memory query started",
+        namespace=body.namespace,
+        mode=body.mode,
+        top_k=body.top_k,
+        answer_with_llm=body.answer_with_llm,
+        query=body.query,
+    )
+    started_at = time.perf_counter()
+    result = await reader.query_memory(
+        EvalMemoryQuery(
+            namespace=body.namespace,
+            query=body.query,
+            query_timestamp=body.query_timestamp,
+            top_k=body.top_k,
+            mode=body.mode,
+            answer_with_llm=body.answer_with_llm,
+            show_prompt=body.show_prompt,
+        )
+    )
+    logger.info(
+        "Eval memory query completed",
+        namespace=body.namespace,
+        mode=body.mode,
+        top_k=body.top_k,
+        answer_with_llm=body.answer_with_llm,
+        hit_count=len(result.hits),
+        duration_ms=round((time.perf_counter() - started_at) * 1000, 2),
+    )
+    if body.answer_with_llm:
+        answer, answer_trace = await _synthesize_eval_answer(
+            question=body.query,
+            hits=[asdict(hit) for hit in result.hits],
+            evidence_bundles=list(result.evidence_bundles),
+            timeline_summary=list(result.timeline_summary),
+            l2_entity_cards=list(result.l2_entity_cards),
+            l2_relationships=list(result.l2_relationships),
+            l2_assertions=list(result.l2_assertions),
+            l2_episodes=list(result.l2_episodes),
+            query_timestamp=body.query_timestamp,
+            show_prompt=body.show_prompt,
+        )
+        result.answer = answer
+        result.answer_trace = answer_trace
+    return asdict(result)
+
+
+@memory_router.post("/eval/finalize-replay")
+async def finalize_eval_replay(body: EvalFinalizeReplayRequest):
+    """Run post-replay summary generation and expose L2 pipeline status."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Memory system not initialized",
+        )
+
+    summaries: Dict[str, Any] = {}
+    for period_type in body.period_types:
+        summaries[period_type] = await unified_memory.generate_summary(period_type=period_type)
+
+    l2_pipeline_stats = unified_memory.get_l2_pipeline_stats() if hasattr(unified_memory, "get_l2_pipeline_stats") else {}
+    return {
+        "summaries": summaries,
+        "l2_pipeline_stats": l2_pipeline_stats,
+    }

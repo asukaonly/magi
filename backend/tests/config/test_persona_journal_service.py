@@ -243,7 +243,7 @@ class TestCallLlm:
         service = PersonaJournalService(growth_engine=engine)
 
         with patch(
-            "magi.personality.persona_journal_service.require_scenario_llm_pool",
+            "magi.personality.persona_journal_service.get_scenario_llm_pool",
             side_effect=RuntimeError("no pool"),
         ):
             result = await service._call_llm("test prompt")
@@ -262,7 +262,7 @@ class TestCallLlm:
 
         with (
             patch(
-                "magi.personality.persona_journal_service.require_scenario_llm_pool",
+                "magi.personality.persona_journal_service.get_scenario_llm_pool",
                 return_value=mock_pool,
             ),
             patch(

@@ -141,6 +141,7 @@ async def test_ai_generate_personality_prefers_llm_override(monkeypatch) -> None
         "api_key": "draft-key",
         "model": "claude-sonnet-4-6",
         "base_url": "https://relay.example.com",
+        "proxy_url": None,
         "timeout": 60,
     }
 
@@ -187,6 +188,7 @@ async def test_ai_generate_personality_uses_registry_default_base_url_for_builti
         "api_key": "glm-key",
         "model": "glm-4.7-flash",
         "base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "proxy_url": None,
         "timeout": 60,
     }
 

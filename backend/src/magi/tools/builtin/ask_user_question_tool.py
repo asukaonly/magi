@@ -13,11 +13,11 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from ...core.logger import get_logger
-from ...core.runtime_bindings import (
-    require_control_interaction_broker,
-    require_control_session_store,
+from ...agent.control.provider import (
+    resolve_control_interaction_broker,
+    resolve_control_session_store,
 )
+from ...core.logger import get_logger
 from ...agent.control.common import InteractionTimeoutError
 
 _BACKGROUND_AGENT_PREFIX = "background:"
@@ -175,8 +175,8 @@ class AskUserQuestionTool(Tool):
         timeout_seconds = max(1.0, min(timeout_seconds, 3600.0))
 
         try:
-            store = require_control_session_store()
-            broker = require_control_interaction_broker()
+            store = resolve_control_session_store()
+            broker = resolve_control_interaction_broker()
         except RuntimeError as exc:
             return ToolResult(success=False, error=str(exc))
 
@@ -207,11 +207,9 @@ class AskUserQuestionTool(Tool):
         )
         if bg_task_id is not None:
             try:
-                from ...core.runtime_bindings import (
-                    require_background_task_manager,
-                )
+                from ...agent.background.provider import resolve_background_task_manager
 
-                manager = require_background_task_manager()
+                manager = resolve_background_task_manager()
                 await manager.suspend_waiting_user(
                     bg_task_id, reason="awaiting_user_answer"
                 )
@@ -262,11 +260,9 @@ class AskUserQuestionTool(Tool):
             await store.close_ask(sid, answer=None, resolution="timeout")
             if bg_task_id is not None:
                 try:
-                    from ...core.runtime_bindings import (
-                        require_background_task_manager,
-                    )
+                    from ...agent.background.provider import resolve_background_task_manager
 
-                    manager = require_background_task_manager()
+                    manager = resolve_background_task_manager()
                     await manager.resume_from_wait(bg_task_id)
                 except Exception:  # pragma: no cover - defensive
                     logger.debug(
@@ -282,11 +278,9 @@ class AskUserQuestionTool(Tool):
         await store.close_ask(sid, answer=answer_text, resolution="user")
         if bg_task_id is not None:
             try:
-                from ...core.runtime_bindings import (
-                    require_background_task_manager,
-                )
+                from ...agent.background.provider import resolve_background_task_manager
 
-                manager = require_background_task_manager()
+                manager = resolve_background_task_manager()
                 await manager.resume_from_wait(bg_task_id)
             except Exception:  # pragma: no cover - defensive
                 logger.debug(

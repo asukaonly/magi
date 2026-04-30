@@ -30,7 +30,7 @@ def _snapshot(*, startup_state: str, reason: str | None = None, detail: str | No
 async def test_get_runtime_system_status_reports_deferred_when_runtime_heartbeat_missing(monkeypatch) -> None:
     app = SimpleNamespace(state=SimpleNamespace(backend_ready=True, process_role="ipc_worker"))
 
-    monkeypatch.setattr(service, "require_runtime_trace_store", lambda: _FakeRuntimeTraceStore(None))
+    monkeypatch.setattr(service, "resolve_runtime_trace_store", lambda: _FakeRuntimeTraceStore(None))
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: _FakeRuntimeCommandQueue(2))
     monkeypatch.setattr(service, "get_runtime_startup_snapshot", lambda: _snapshot(startup_state="deferred", reason="llm_selection_pending"))
     monkeypatch.setattr(service, "_resolve_binding", lambda _name: None)
@@ -63,7 +63,7 @@ async def test_get_runtime_system_status_reports_ready_when_runtime_and_bindings
         last_error=None,
     )
 
-    monkeypatch.setattr(service, "require_runtime_trace_store", lambda: _FakeRuntimeTraceStore(heartbeat))
+    monkeypatch.setattr(service, "resolve_runtime_trace_store", lambda: _FakeRuntimeTraceStore(heartbeat))
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: _FakeRuntimeCommandQueue(0))
     monkeypatch.setattr(service, "get_runtime_startup_snapshot", lambda: _snapshot(startup_state="ready"))
     monkeypatch.setattr(service, "_resolve_binding", lambda _name: object())
@@ -102,7 +102,7 @@ async def test_get_runtime_system_status_uses_deferred_heartbeat_reason_when_sna
             return object()
         return None
 
-    monkeypatch.setattr(service, "require_runtime_trace_store", lambda: _FakeRuntimeTraceStore(heartbeat))
+    monkeypatch.setattr(service, "resolve_runtime_trace_store", lambda: _FakeRuntimeTraceStore(heartbeat))
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: _FakeRuntimeCommandQueue(0))
     monkeypatch.setattr(service, "get_runtime_startup_snapshot", lambda: _snapshot(startup_state="offline"))
     monkeypatch.setattr(service, "_resolve_binding", _resolve_binding)

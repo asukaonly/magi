@@ -1,0 +1,54 @@
+"""FTS helpers for L2 episode persistence."""
+
+from __future__ import annotations
+
+from typing import Any, Dict, List
+
+import aiosqlite
+
+from ....core.sqlite import sqlite_connection_async
+from .codec import L2EpisodeStoreBaseMixin
+
+
+class L2EpisodeFtsMixin(L2EpisodeStoreBaseMixin):
+    """Index and search episode full-text content."""
+
+    async def index_episode_fts(
+        self, *, episode_id: str, summary: str, label: str, user_label: str
+    ) -> None:
+        """Insert or replace FTS content for an episode."""
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            await db.execute(
+                "DELETE FROM episodes_fts WHERE episode_id = ?",
+                (episode_id,),
+            )
+            await db.execute(
+                "INSERT INTO episodes_fts(episode_id, summary, label, user_label) VALUES(?, ?, ?, ?)",
+                (episode_id, summary or "", label or "", user_label or ""),
+            )
+            await db.commit()
+
+    async def search_episodes_fts(
+        self, *, query: str, limit: int = 20
+    ) -> List[Dict[str, Any]]:
+        """Full-text search over episode summary/label/user_label."""
+        await self.initialize()
+        safe_query = query.replace('"', '""')
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """
+                SELECT e.* FROM episodes e
+                JOIN episodes_fts f ON e.episode_id = f.episode_id
+                WHERE episodes_fts MATCH ?
+                ORDER BY rank
+                LIMIT ?
+                """,
+                (f'"{safe_query}"', limit),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [self._episode_row_to_dict(row) for row in rows]
+
+
+__all__ = ["L2EpisodeFtsMixin"]

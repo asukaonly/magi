@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from ...config import get_config
 from ...core.logger import get_logger
-from ...core.runtime_bindings import require_unified_memory
 from ...scheduler.contracts import (
     ScheduledExecutionContext,
     ScheduledExecutionResult,
     ScheduledTargetType,
 )
 from ...scheduler.service import SchedulerService
+from ..provider import get_unified_memory
 
 logger = get_logger(__name__)
 
@@ -51,7 +51,7 @@ async def handle_l3_summary(
         return ScheduledExecutionResult(success=True, message="l3_disabled_skip", stats={})
 
     try:
-        unified = require_unified_memory()
+        unified = get_unified_memory()
     except RuntimeError:
         logger.debug("L3 summary skipped: unified memory binding unavailable")
         return ScheduledExecutionResult(success=True, message="unified_memory_unavailable_skip", stats={})
@@ -137,9 +137,9 @@ class L3SummaryScheduleContrib:
 
     async def _register_activity_schedules(self, scheduler: SchedulerService) -> None:
         try:
-            from ...core.runtime_bindings import require_plugin_manager
+            from ...plugins.provider import resolve_plugin_manager
 
-            plugin_manager = require_plugin_manager()
+            plugin_manager = resolve_plugin_manager()
         except (RuntimeError, ImportError):
             logger.debug("Plugin manager unavailable; skipping activity summary schedules")
             return

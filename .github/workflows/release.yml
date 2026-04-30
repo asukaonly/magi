@@ -151,6 +151,10 @@ jobs:
         shell: bash
         run: python scripts/check-api-contract.py
 
+      - name: Check SQLite ownership contract
+        shell: bash
+        run: python scripts/check-sqlite-ownership.py
+
       - name: Export Python OpenAPI contract
         shell: bash
         run: python scripts/export-python-openapi.py --output /tmp/magi-python-openapi.json

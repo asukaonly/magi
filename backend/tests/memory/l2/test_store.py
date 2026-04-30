@@ -1484,7 +1484,7 @@ async def test_claim_ready_projection_jobs_claims_underfilled_owner_after_wait_t
 async def test_claim_ready_projection_jobs_uses_min_ready_events_in_steady_state(tmp_path, monkeypatch: pytest.MonkeyPatch):
     from magi.memory.l2.store import L2CognitionStore
 
-    monkeypatch.setattr("magi.memory.l2.projection_queue.DEFAULT_L2_CATCH_UP_PENDING_THRESHOLD", 9999)
+    monkeypatch.setattr("magi.memory.l2.projection.queue.DEFAULT_L2_CATCH_UP_PENDING_THRESHOLD", 9999)
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()
@@ -1517,7 +1517,7 @@ async def test_claim_ready_projection_jobs_merges_low_frequency_owners_in_catch_
 ):
     from magi.memory.l2.store import L2CognitionStore
 
-    monkeypatch.setattr("magi.memory.l2.projection_queue.DEFAULT_L2_CATCH_UP_PENDING_THRESHOLD", 10)
+    monkeypatch.setattr("magi.memory.l2.projection.queue.DEFAULT_L2_CATCH_UP_PENDING_THRESHOLD", 10)
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()
@@ -1880,7 +1880,7 @@ async def test_corroborate_keeps_longer_evidence_text(tmp_path):
 async def test_future_intent_auto_sets_expires_at(tmp_path):
     """Edges with fact_kind='future_intent' should auto-populate expires_at."""
     from magi.memory.l2.store import L2CognitionStore
-    from magi.memory.l2.store_utils import DEFAULT_FUTURE_INTENT_TTL_SECONDS
+    from magi.memory.l2.storage.utils import DEFAULT_FUTURE_INTENT_TTL_SECONDS
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()
@@ -2771,7 +2771,7 @@ async def test_snapshot_mood_trajectory_excludes_non_temporal_families(tmp_path)
 async def test_snapshot_mood_trajectory_capped_at_limit(tmp_path):
     """Mood trajectory should keep only the most recent entries when exceeding limit."""
     from magi.memory.l2.store import L2CognitionStore
-    from magi.memory.l2.store_utils import MOOD_TRAJECTORY_LIMIT
+    from magi.memory.l2.storage.utils import MOOD_TRAJECTORY_LIMIT
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()

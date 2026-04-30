@@ -14,7 +14,7 @@ from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy import create_engine, event
 
-from ..core.runtime_bindings import require_scheduler_service
+from ..core.container import get_container
 from .contracts import (
     ScheduleDefinition,
     ScheduledExecutionContext,
@@ -32,10 +32,20 @@ async def dispatch_scheduled_job(schedule_id: str) -> None:
     """Module-level APScheduler entrypoint for persisted jobs."""
 
     try:
-        service = require_scheduler_service()
+        service = _get_scheduler_service()
     except RuntimeError:
         return
     await service.execute_schedule(schedule_id)
+
+
+def _get_scheduler_service():
+    provider = get_container().scheduler_service
+    instance = provider()
+    if instance is None:
+        raise RuntimeError("scheduler_service binding is not initialized")
+    if type(instance).__name__ == "object" and not provider.overridden:
+        raise RuntimeError("scheduler_service binding is not initialized")
+    return instance
 
 
 class ResilientAsyncIOScheduler(AsyncIOScheduler):

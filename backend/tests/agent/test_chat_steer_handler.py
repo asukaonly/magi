@@ -24,7 +24,7 @@ from typing import Any
 
 import pytest
 
-from magi.agent.execution.function_calling_step_executor import (
+from magi.agent.execution.function_calling.step_executor import (
     FunctionCallingStepOutcome,
     FunctionCallingStepState,
 )

@@ -1,0 +1,379 @@
+"""Response conversion and usage helpers for provider bridge calls."""
+
+from __future__ import annotations
+
+import json
+import sys
+import uuid
+from typing import Any
+
+from ..parsers import parse_legacy_tool_calls, sanitize_llm_text
+from ..usage_events import LLMCallEventPayload, publish_llm_call_event
+from .models import ProviderResponse, ProviderToolCall, ProviderUsage
+from ...config.models import ThinkingDepth
+
+
+class ProviderBridgeResponseMixin:
+    """Normalize provider responses, content blocks, metadata, and usage events."""
+
+    llm: Any
+    _usage_event_publisher: Any
+
+    def _provider_name(self) -> str:
+        raise NotImplementedError
+
+    @staticmethod
+    def _openai_usage_to_wire(usage_data: Any) -> dict[str, int] | None:
+        if usage_data is None:
+            return None
+        return {
+            "prompt_tokens": int(getattr(usage_data, "prompt_tokens", 0) or 0),
+            "completion_tokens": int(getattr(usage_data, "completion_tokens", 0) or 0),
+            "total_tokens": int(getattr(usage_data, "total_tokens", 0) or 0),
+            "reasoning_tokens": int(getattr(usage_data, "reasoning_tokens", 0) or 0),
+        }
+
+    @staticmethod
+    def _anthropic_usage_to_wire(usage_data: Any) -> dict[str, int] | None:
+        if usage_data is None:
+            return None
+        prompt_tokens = int(getattr(usage_data, "input_tokens", 0) or 0)
+        completion_tokens = int(getattr(usage_data, "output_tokens", 0) or 0)
+        return {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": prompt_tokens + completion_tokens,
+        }
+
+    def _extract_anthropic_stream_usage(self, stream: Any, usage_data: Any) -> ProviderUsage | None:
+        """Extract usage from Anthropic streaming events."""
+        final_message = getattr(stream, "final_message", None) if hasattr(stream, "final_message") else None
+        if final_message is not None:
+            return self._extract_anthropic_usage(final_message)
+        if usage_data is None:
+            return None
+        prompt_tokens = int(getattr(usage_data, "input_tokens", 0) or 0)
+        completion_tokens = int(getattr(usage_data, "output_tokens", 0) or 0)
+        return ProviderUsage(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=prompt_tokens + completion_tokens,
+        )
+
+    @staticmethod
+    def _extract_openai_stream_usage(usage_data: Any) -> ProviderUsage | None:
+        if usage_data is None:
+            return None
+        return ProviderUsage(
+            prompt_tokens=int(getattr(usage_data, "prompt_tokens", 0) or 0),
+            completion_tokens=int(getattr(usage_data, "completion_tokens", 0) or 0),
+            total_tokens=int(getattr(usage_data, "total_tokens", 0) or 0),
+            reasoning_tokens=int(getattr(usage_data, "reasoning_tokens", 0) or 0),
+            cache_read_tokens=int(getattr(usage_data, "cache_read_tokens", 0) or 0),
+            cache_write_tokens=int(getattr(usage_data, "cache_write_tokens", 0) or 0),
+        )
+
+    def _convert_messages_to_anthropic(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        converted: list[dict[str, Any]] = []
+        for message in messages:
+            if message.get("role") == "tool":
+                converted.append({
+                    "role": "user",
+                    "content": [{
+                        "type": "tool_result",
+                        "tool_use_id": message.get("tool_call_id"),
+                        "content": message.get("content", ""),
+                    }],
+                })
+            elif message.get("role") == "user" and isinstance(message.get("content"), list):
+                converted.append({
+                    "role": "user",
+                    "content": self._convert_content_blocks_to_anthropic(message["content"]),
+                })
+            elif message.get("role") == "assistant" and isinstance(message.get("content"), list):
+                converted.append({"role": "assistant", "content": message["content"]})
+            else:
+                converted.append({
+                    "role": message.get("role"),
+                    "content": message.get("content", ""),
+                })
+        return converted
+
+    def _convert_messages_to_openai(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        converted: list[dict[str, Any]] = []
+        for message in messages:
+            if message.get("role") == "user" and isinstance(message.get("content"), list):
+                converted.append({
+                    "role": "user",
+                    "content": self._convert_content_blocks_to_openai(message["content"]),
+                })
+                continue
+            converted.append(dict(message))
+        return converted
+
+    @staticmethod
+    def _convert_content_blocks_to_openai(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        converted: list[dict[str, Any]] = []
+        for block in blocks:
+            block_type = str(block.get("type") or "").strip()
+            if block_type == "text":
+                converted.append({"type": "text", "text": str(block.get("text") or "")})
+                continue
+            if block_type == "image":
+                mime_type = str(block.get("mime_type") or "image/png").strip() or "image/png"
+                data = str(block.get("data") or "").strip()
+                converted.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:{mime_type};base64,{data}",
+                        },
+                    }
+                )
+                continue
+            converted.append(dict(block))
+        return converted
+
+    @staticmethod
+    def _convert_content_blocks_to_anthropic(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        converted: list[dict[str, Any]] = []
+        for block in blocks:
+            block_type = str(block.get("type") or "").strip()
+            if block_type == "text":
+                converted.append({"type": "text", "text": str(block.get("text") or "")})
+                continue
+            if block_type == "image":
+                mime_type = str(block.get("mime_type") or "image/png").strip() or "image/png"
+                data = str(block.get("data") or "").strip()
+                converted.append(
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": mime_type,
+                            "data": data,
+                        },
+                    }
+                )
+                continue
+            converted.append(dict(block))
+        return converted
+
+    def _parse_anthropic_response(self, response: Any) -> ProviderResponse:
+        tool_calls: list[ProviderToolCall] = []
+        content_text_parts: list[str] = []
+        assistant_blocks: list[dict[str, Any]] = []
+
+        for block in response.content:
+            if block.type == "text":
+                text_value = block.text or ""
+                content_text_parts.append(text_value)
+                assistant_blocks.append({"type": "text", "text": text_value})
+            elif block.type == "tool_use":
+                tool_calls.append(ProviderToolCall(
+                    id=block.id,
+                    name=block.name,
+                    arguments=block.input,
+                ))
+                assistant_blocks.append({
+                    "type": "tool_use",
+                    "id": block.id,
+                    "name": block.name,
+                    "input": block.input,
+                })
+
+        if tool_calls:
+            return ProviderResponse(
+                tool_calls=tool_calls,
+                assistant_message={"role": "assistant", "content": assistant_blocks},
+                usage=self._extract_anthropic_usage(response),
+            )
+        provider_response = self._build_content_response("".join(content_text_parts))
+        provider_response.usage = self._extract_anthropic_usage(response)
+        return provider_response
+
+    def _parse_openai_response(self, response: Any) -> ProviderResponse:
+        choice = response.choices[0]
+        message = choice.message
+
+        tool_calls: list[ProviderToolCall] = []
+        raw_tool_calls: list[dict[str, Any]] = []
+        if hasattr(message, "tool_calls") and message.tool_calls:
+            for tool_call in message.tool_calls:
+                arguments: dict[str, Any] = {}
+                if tool_call.function.arguments:
+                    try:
+                        arguments = json.loads(tool_call.function.arguments)
+                    except json.JSONDecodeError:
+                        arguments = {"raw": tool_call.function.arguments}
+
+                tool_calls.append(ProviderToolCall(
+                    id=tool_call.id,
+                    name=tool_call.function.name,
+                    arguments=arguments,
+                ))
+                raw_tool_calls.append({
+                    "id": tool_call.id,
+                    "type": "function",
+                    "function": {
+                        "name": tool_call.function.name,
+                        "arguments": tool_call.function.arguments or "{}",
+                    },
+                })
+
+        if tool_calls:
+            return ProviderResponse(
+                tool_calls=tool_calls,
+                assistant_message={
+                    "role": "assistant",
+                    "content": message.content or "",
+                    "tool_calls": raw_tool_calls,
+                },
+                metadata=self._build_openai_metadata(choice, message, raw_tool_calls),
+                usage=self._extract_openai_usage(response),
+            )
+
+        provider_response = self._build_content_response(message.content or "")
+        provider_response.metadata = self._build_openai_metadata(choice, message, raw_tool_calls)
+        provider_response.usage = self._extract_openai_usage(response)
+        return provider_response
+
+    def _build_openai_metadata(
+        self,
+        choice: Any,
+        message: Any,
+        raw_tool_calls: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        metadata: dict[str, Any] = {
+            "provider": self._provider_name() or type(self.llm).__name__,
+            "model": getattr(self.llm, "model_name", "unknown"),
+            "finish_reason": getattr(choice, "finish_reason", None),
+            "tool_call_count": len(raw_tool_calls),
+            "has_content": bool(getattr(message, "content", None)),
+        }
+        if hasattr(message, "model_dump"):
+            try:
+                dumped = message.model_dump()
+                metadata["raw_message"] = dumped
+            except Exception:
+                pass
+        else:
+            metadata["raw_message"] = {
+                "role": getattr(message, "role", None),
+                "content": getattr(message, "content", None),
+                "tool_calls": raw_tool_calls or None,
+            }
+        return metadata
+
+    def normalize_content_response(self, content: Any) -> ProviderResponse:
+        """Normalize plain text content into ProviderResponse with legacy parsing fallback."""
+        return self._build_content_response(content)
+
+    def _build_content_response(self, content: Any) -> ProviderResponse:
+        """Build provider response from plain text content with legacy tool-call fallback."""
+        raw_content = content if isinstance(content, str) else str(content or "")
+        normalized_content = sanitize_llm_text(raw_content)
+        parsed_tool_calls = [
+            ProviderToolCall(
+                id=parsed_call.id,
+                name=parsed_call.name,
+                arguments=parsed_call.arguments,
+            )
+            for parsed_call in parse_legacy_tool_calls(raw_content)
+        ]
+        if parsed_tool_calls:
+            return ProviderResponse(
+                content=normalized_content,
+                tool_calls=parsed_tool_calls,
+                assistant_message={
+                    "role": "assistant",
+                    "content": normalized_content,
+                },
+            )
+        return ProviderResponse(content=normalized_content)
+
+    @staticmethod
+    def _extract_openai_usage(response: Any) -> ProviderUsage | None:
+        usage = getattr(response, "usage", None)
+        if usage is None:
+            return None
+        return ProviderUsage(
+            prompt_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
+            completion_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
+            total_tokens=int(getattr(usage, "total_tokens", 0) or 0),
+            reasoning_tokens=int(getattr(usage, "reasoning_tokens", 0) or 0),
+            cache_read_tokens=int(getattr(usage, "cache_read_tokens", 0) or 0),
+            cache_write_tokens=int(getattr(usage, "cache_write_tokens", 0) or 0),
+        )
+
+    @staticmethod
+    def _extract_anthropic_usage(response: Any) -> ProviderUsage | None:
+        usage = getattr(response, "usage", None)
+        if usage is None:
+            return None
+        prompt_tokens = int(getattr(usage, "input_tokens", 0) or 0)
+        completion_tokens = int(getattr(usage, "output_tokens", 0) or 0)
+        return ProviderUsage(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=prompt_tokens + completion_tokens,
+            reasoning_tokens=int(getattr(usage, "reasoning_tokens", 0) or 0),
+            cache_read_tokens=int(getattr(usage, "cache_read_tokens", 0) or 0),
+            cache_write_tokens=int(getattr(usage, "cache_write_tokens", 0) or 0),
+        )
+
+    def _attach_trace_metrics(
+        self,
+        *,
+        provider_response: ProviderResponse,
+        usage: ProviderUsage | None,
+        latency_ms: int,
+        thinking_depth: ThinkingDepth,
+        disable_thinking: bool | None = None,
+    ) -> None:
+        metadata = dict(provider_response.metadata or {})
+        metadata["trace_metrics"] = {
+            "provider": self._provider_name() or type(self.llm).__name__,
+            "model": str(getattr(self.llm, "model_name", "unknown")),
+            "input_tokens": int(usage.prompt_tokens if usage else 0),
+            "output_tokens": int(usage.completion_tokens if usage else 0),
+            "total_tokens": int(usage.total_tokens if usage else 0),
+            "reasoning_tokens": int(usage.reasoning_tokens if usage else 0),
+            "cache_read_tokens": int(usage.cache_read_tokens if usage else 0),
+            "cache_write_tokens": int(usage.cache_write_tokens if usage else 0),
+            "thinking_enabled": thinking_depth != ThinkingDepth.NONE,
+            "thinking_depth": thinking_depth.value,
+            "duration_ms": int(latency_ms),
+        }
+        provider_response.metadata = metadata
+
+    async def _emit_usage_event(
+        self,
+        *,
+        success: bool,
+        latency_ms: int,
+        usage: ProviderUsage | None,
+        event_context: dict[str, Any] | None,
+        error: str | None = None,
+    ) -> None:
+        context = dict(event_context or {})
+        payload = LLMCallEventPayload(
+            request_id=str(context.get("request_id") or uuid.uuid4().hex[:8]),
+            provider=self._provider_name() or type(self.llm).__name__,
+            model=str(getattr(self.llm, "model_name", "unknown")),
+            request_kind=str(context.get("request_kind") or "chat"),
+            prompt_tokens=int(usage.prompt_tokens if usage else 0),
+            completion_tokens=int(usage.completion_tokens if usage else 0),
+            total_tokens=int(usage.total_tokens if usage else 0),
+            usage_available=usage is not None,
+            latency_ms=int(latency_ms),
+            success=success,
+            error=error,
+            correlation_id=context.get("correlation_id"),
+            session_id=context.get("session_id"),
+            turn_id=context.get("turn_id"),
+            agent_id=context.get("agent_id"),
+        )
+        bridge_module = sys.modules.get("magi.llm.provider_bridge")
+        publish = getattr(bridge_module, "publish_llm_call_event", publish_llm_call_event)
+        await publish(payload, publisher=self._usage_event_publisher)

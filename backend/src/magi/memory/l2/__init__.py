@@ -1,7 +1,7 @@
 """L2 cognition package."""
 
 from .context_bundle import ContextBundle, ContextEntity, ResolvedContextRef
-from .entity_catalog import L2EntityCatalog
+from .entities.catalog import L2EntityCatalog
 from .evidence_classifier import EvidenceClassification, classify_event_evidence
 from .evidence_policy import PolicyDecision, resolve_l2_policy
 from .extraction_profiles import ExtractionProfile, resolve_extraction_profile

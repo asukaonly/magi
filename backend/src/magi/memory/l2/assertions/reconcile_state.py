@@ -1,0 +1,142 @@
+"""Assertion reconcile state and trait classification helpers."""
+
+from __future__ import annotations
+
+import time
+from typing import Any, Dict, Optional
+
+from ..storage.utils import MOMENTARY_TRAITS as _MOMENTARY_TRAITS
+
+
+class L2ReconcileStateMixin:
+    """Derive assertion state, snapshot targets, and confidence adjustments."""
+
+    def _derive_trait_family(self, trait_name: str) -> str:
+        normalized = trait_name.strip().lower()
+        if normalized == "stress_level":
+            return "stress"
+        if normalized in {"mood", "annoyance", "irritation", "frustration"}:
+            return "mood"
+        if normalized == "engagement":
+            return "engagement"
+        if normalized.startswith("trigger."):
+            return "trigger"
+        if normalized in {"taste_profile", "taste_preference"}:
+            return "taste_profile"
+        if normalized.startswith("preference."):
+            return "preference_profile"
+        return "preference_profile"
+
+    def _optional_text(self, value: Any) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    def _coerce_expires_at(
+        self,
+        value: Any,
+        *,
+        trait_family: str,
+        trait_name: str,
+        target_entity_id: str,
+        anchor_at: float,
+    ) -> float | None:
+        if value is not None:
+            return float(value)
+        normalized_trait_name = trait_name.strip().lower()
+        if target_entity_id and normalized_trait_name in _MOMENTARY_TRAITS:
+            return anchor_at + 2 * 60 * 60
+        if trait_family == "mood":
+            return anchor_at + 12 * 60 * 60
+        if trait_family == "stress":
+            return anchor_at + 24 * 60 * 60
+        if trait_family == "engagement":
+            return anchor_at + 12 * 60 * 60
+        if trait_family in {"group_atmosphere", "public_sentiment", "relationship_shift"}:
+            return anchor_at + 6 * 60 * 60
+        return None
+
+    def _is_assertion_expired(self, assertion: Dict[str, Any], *, now: float | None = None) -> bool:
+        expires_at = assertion.get("expires_at")
+        if expires_at is None:
+            return False
+        current_time = float(now if now is not None else time.time())
+        return float(expires_at) <= current_time
+
+    _TEMPORARY_STATE_TRAITS = frozenset({"stress_level", "mood", "engagement"})
+
+    def _derive_reconcile_state(
+        self,
+        *,
+        current_state: str,
+        current_confidence: float,
+        evidence_count: int,
+        time_span_hours: float,
+        trait_name: str,
+        user_feedback: Optional[str] = None,
+    ) -> tuple[str, float, str]:
+        is_temporary = trait_name in self._TEMPORARY_STATE_TRAITS
+
+        if user_feedback == "rejected":
+            return ("user_rejected", 0.10, "volatile_pattern")
+
+        if user_feedback == "confirmed":
+            stability_kind = "temporary_state" if is_temporary else "stable_trait"
+            return ("stable", max(current_confidence, 0.85), stability_kind)
+
+        if current_state == "contradicted":
+            return ("contradicted", min(current_confidence, 0.35), "volatile_pattern")
+
+        if is_temporary:
+            if evidence_count >= 3 and time_span_hours >= 24.0:
+                return ("stable", max(current_confidence, 0.82), "temporary_state")
+            if evidence_count >= 1:
+                return ("corroborated", max(current_confidence, 0.50), "temporary_state")
+
+        if evidence_count >= 3 and time_span_hours >= 24.0:
+            stability_kind = "stable_trait"
+            return ("stable", max(current_confidence, 0.82), stability_kind)
+
+        if evidence_count >= 2:
+            return ("corroborated", max(current_confidence, 0.58), "volatile_pattern")
+
+        return ("tentative", min(current_confidence, 0.3), "volatile_pattern")
+
+    def _recommend_snapshot_field(self, *, trait_name: str, status: str) -> str:
+        if status not in {"stable", "corroborated"}:
+            return "none"
+        if trait_name.startswith("preference."):
+            return "preferences"
+        if trait_name.startswith("trigger."):
+            return "sensitive_triggers"
+        if trait_name == "stress_level":
+            return "core_traits" if status == "stable" else "current_stress_level"
+        if trait_name == "mood":
+            return "current_mood"
+        if trait_name == "engagement":
+            return "current_engagement"
+        return "core_traits"
+
+    def _engagement_value(self, value: str) -> float:
+        normalized = value.strip().lower()
+        if normalized in {"high", "engaged", "focused"}:
+            return 0.9
+        if normalized in {"low", "disengaged", "distant"}:
+            return 0.2
+        try:
+            return float(normalized)
+        except ValueError:
+            return 0.5
+
+    def _contradicted_confidence(self, *, current_confidence: float, hint_confidence: float, action: str) -> float:
+        base = current_confidence * 0.35
+        if action == "mark_conflicted":
+            return round(max(0.1, min(base, 0.35)), 4)
+        if action == "revalidate_only":
+            return round(max(0.15, current_confidence * 0.75), 4)
+        confidence_weight = 1.0 - min(max(hint_confidence, 0.0), 1.0) * 0.45
+        return round(max(0.1, min(current_confidence * confidence_weight, 0.35)), 4)
+
+
+__all__ = ["L2ReconcileStateMixin", "_MOMENTARY_TRAITS"]

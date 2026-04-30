@@ -14,25 +14,25 @@ from ...core.sqlite import sqlite_connection_async
 from ..event_contracts import MemoryEvent
 from .graph_conflicts import GraphConflictRule, build_exclusive_group_index, build_graph_conflict_matrix
 from .models import L2KnowledgeEdgeWrite, L2TomAssertionWrite, ReconciledTraitOutcome
-from .projection_queue import ProjectionJobQueue
-from .store_assertions import L2StoreAssertionMixin
-from .store_candidates import L2StoreCandidateExtractionMixin
-from .store_contradictions import L2StoreContradictionMixin
-from .store_edge_embeddings import L2StoreEdgeEmbeddingMixin
-from .store_episodes import L2EpisodeStoreMixin
-from .store_facets import L2EntityFacetStoreMixin
-from .store_fact_kind import L2StoreFactKindMixin
-from .store_feedback import L2StoreFeedbackMixin
-from .store_forgetting import L2StoreForgettingMixin
-from .store_migrations import L2StoreMigrationMixin
-from .store_projection_jobs import L2ProjectionJobStoreMixin
-from .store_queries import L2StoreQueryMixin
-from .store_graph_conflicts import L2StoreGraphConflictMixin
-from .store_graph_writes import L2StoreGraphWriteMixin
-from .store_reconcile import L2StoreReconcileMixin
-from .store_rows import L2StoreRowMappingMixin
-from .store_schema import L2_COGNITION_SCHEMA_SQL
-from .store_snapshots import L2StoreSnapshotMixin
+from .projection.queue import ProjectionJobQueue
+from .assertions.contradictions import L2StoreContradictionMixin
+from .assertions.feedback import L2StoreFeedbackMixin
+from .assertions.reconcile import L2StoreReconcileMixin
+from .assertions.snapshots import L2StoreSnapshotMixin
+from .assertions.write import L2StoreAssertionMixin
+from .entities.facets import L2EntityFacetStoreMixin
+from .episodes.store import L2EpisodeStoreMixin
+from .extraction.candidates import L2StoreCandidateExtractionMixin
+from .governance.forgetting import L2StoreForgettingMixin
+from .graph.conflicts import L2StoreGraphConflictMixin
+from .graph.edge_embeddings import L2StoreEdgeEmbeddingMixin
+from .graph.fact_kind import L2StoreFactKindMixin
+from .graph.writes import L2StoreGraphWriteMixin
+from .projection.jobs import L2ProjectionJobStoreMixin
+from .retrieval.queries import L2StoreQueryMixin
+from .storage.migrations import L2StoreMigrationMixin
+from .storage.rows import L2StoreRowMappingMixin
+from .storage.schema import L2_COGNITION_SCHEMA_SQL
 
 logger = get_logger(__name__)
 

@@ -24,7 +24,7 @@ class _FakeRuntimeCommandQueue:
 async def test_publish_runtime_heartbeat_writes_store_record(monkeypatch: pytest.MonkeyPatch) -> None:
     store = _FakeRuntimeTraceStore()
 
-    monkeypatch.setattr("magi.worker_app.require_runtime_trace_store", lambda: store)
+    monkeypatch.setattr("magi.worker_app.resolve_runtime_trace_store", lambda: store)
     monkeypatch.setattr(
         "magi.worker_app.require_runtime_command_queue",
         lambda: _FakeRuntimeCommandQueue(),

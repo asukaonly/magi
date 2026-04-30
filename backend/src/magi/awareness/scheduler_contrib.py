@@ -8,9 +8,9 @@ import uuid
 from typing import TYPE_CHECKING, Any, Callable
 
 from ..config import get_user_preference
+from ..core.container import get_container
 from ..core.logger import get_logger
 from ..plugins.i18n import get_current_language, set_current_language
-from ..core.runtime_bindings import require_sensor_scheduler_contrib
 from ..plugins.sensors import SensorRegistry
 from ..runtime_trace import RuntimeNotificationRecord
 from ..scheduler.contracts import (
@@ -34,7 +34,7 @@ logger = get_logger(__name__)
 def request_sensor_schedule_refresh() -> None:
     """Schedule a best-effort refresh of sensor-owned schedules."""
     try:
-        contrib = require_sensor_scheduler_contrib()
+        contrib = _get_sensor_scheduler_contrib()
     except RuntimeError:
         return
     try:
@@ -45,6 +45,16 @@ def request_sensor_schedule_refresh() -> None:
 
     task = loop.create_task(contrib.sync_schedules())
     task.add_done_callback(_log_refresh_failure)
+
+
+def _get_sensor_scheduler_contrib():
+    provider = get_container().sensor_scheduler_contrib
+    instance = provider()
+    if instance is None:
+        raise RuntimeError("sensor_scheduler_contrib binding is not initialized")
+    if type(instance).__name__ == "object" and not provider.overridden:
+        raise RuntimeError("sensor_scheduler_contrib binding is not initialized")
+    return instance
 
 
 def _log_refresh_failure(task: asyncio.Task[None]) -> None:
@@ -327,9 +337,9 @@ class SensorSchedulerContrib:
     ) -> None:
         """Write a sensor_sync_progress notification for the Tauri event bridge."""
         try:
-            from ..core.runtime_bindings import require_runtime_trace_store
+            from ..runtime_trace.provider import resolve_runtime_trace_store
 
-            store = require_runtime_trace_store()
+            store = resolve_runtime_trace_store()
             payload = {
                 "source_type": source_type,
                 "processed": processed,

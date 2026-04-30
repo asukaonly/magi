@@ -33,7 +33,7 @@ def _make_memory_event(*, event_id: str, content: str = "visited page"):
 @pytest.mark.asyncio
 async def test_projection_rows_prefer_effective_batch_owner_over_metadata_json(tmp_path: Path):
     from magi.memory.l1.event_store import L1EventStore
-    from magi.memory.l2.entity_catalog import L2EntityCatalog
+    from magi.memory.l2.entities.catalog import L2EntityCatalog
     from magi.memory.l2.llm_service import L2LLMService
     from magi.memory.l2.pipeline import L2Pipeline
     from magi.memory.l2.store import L2CognitionStore

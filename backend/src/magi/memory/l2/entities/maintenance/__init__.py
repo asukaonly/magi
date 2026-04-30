@@ -1,0 +1,232 @@
+"""Offline-style L2 entity catalog and knowledge-graph maintenance."""
+
+from __future__ import annotations
+
+import asyncio
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ...store import L2CognitionStore
+
+from .....core.logger import get_logger
+from ....embedding.embedding_pipeline import MemoryEmbeddingPipeline as MemoryEmbeddingPipeline
+from ....embedding.sqlite_vec_index import SqliteVecIndex
+from .assertions import L2EntityAssertionMaintenanceMixin
+from .catalog import (
+    L2EntityCatalogMaintenanceMixin,
+    _canonical_entity_id,
+)
+from .edges import L2EntityEdgeMaintenanceMixin
+from .embeddings import L2EntityEmbeddingMaintenanceMixin
+from .episodes import L2EntityEpisodeMaintenanceMixin
+from .predicates import L2EntityPredicateMaintenanceMixin
+from ...ontology import get_predicate_synonym_group as get_predicate_synonym_group
+
+logger = get_logger(__name__)
+
+SCHEDULE_ID_L2_MAINTENANCE = "memory-l2-maintenance:global"
+TARGET_KEY_L2_MAINTENANCE = "memory_l2_maintenance"
+
+__all__ = [
+    "L2EntityMaintenance",
+    "L2EntityMaintenanceStats",
+    "_canonical_entity_id",
+    "get_predicate_synonym_group",
+]
+
+
+@dataclass
+class L2EntityMaintenanceStats:
+    """Counters from one maintenance run."""
+
+    ghost_edges_rewritten: int = 0
+    ghost_rows_merged: int = 0
+    ghost_skipped_no_target: int = 0
+    tom_entity_refs_rewritten: int = 0
+    fragment_entities_merged: int = 0
+    fragment_groups_processed: int = 0
+    orphans_pruned: int = 0
+    expired_future_intents: int = 0
+    expired_assertions: int = 0
+    stale_snapshots_cleaned: int = 0
+    entities_reconciled: int = 0
+    snapshots_refreshed: int = 0
+    open_predicates_consolidated: int = 0
+    edges_archived: int = 0
+    edges_purged: int = 0
+    edge_embeddings_cleaned: int = 0
+    edges_embedded: int = 0
+    episodes_promoted: int = 0
+    episodes_merged: int = 0
+    episodes_invalidated: int = 0
+    errors: list[str] = field(default_factory=list)
+
+
+class L2EntityMaintenance(
+    L2EntityCatalogMaintenanceMixin,
+    L2EntityAssertionMaintenanceMixin,
+    L2EntityEmbeddingMaintenanceMixin,
+    L2EntityEdgeMaintenanceMixin,
+    L2EntityPredicateMaintenanceMixin,
+    L2EntityEpisodeMaintenanceMixin,
+):
+    """Best-effort cleanup: ghost graph refs, same-name type merges, low-mention orphans."""
+
+    # Reconcile entities whose assertions haven't been updated in this many seconds.
+    RECONCILE_STALE_THRESHOLD: float = 3600  # 1 hour
+    RECONCILE_BATCH_SIZE: int = 100
+    RECONCILE_MAX_TOTAL: int = 500
+
+    # Archive thresholds: edges below this confidence AND not updated within
+    # the staleness window are moved from 'active' to 'archived'.
+    ARCHIVE_CONFIDENCE_THRESHOLD: float = 0.3
+    ARCHIVE_STALENESS_SECONDS: float = 90 * 86400  # 90 days
+    ARCHIVE_SINGLE_OBS_STALENESS: float = 180 * 86400  # 180 days for observation_count == 1
+
+    # Hard-delete archived/expired edges older than this.
+    PURGE_TERMINAL_EDGE_STALENESS: float = 365 * 86400  # 1 year
+
+    def __init__(
+        self,
+        *,
+        db_path: str,
+        embedding_service: Any | None = None,
+        edge_vector_index: SqliteVecIndex | None = None,
+        cognition_store: L2CognitionStore | None = None,
+    ) -> None:
+        self._db_path = db_path
+        self._embedding_service = embedding_service
+        self._edge_vector_index = edge_vector_index
+        self._cognition_store = cognition_store
+        self._run_lock = asyncio.Lock()
+
+    # Default TTLs (seconds) for decay policies that lack an explicit expires_at.
+    FAST_DECAY_TTL: float = 4 * 3600  # 4 hours
+    SESSION_DECAY_TTL: float = 24 * 3600  # 24 hours
+
+    async def run(
+        self,
+        *,
+        min_mentions_to_keep: int = 2,
+        resolve_ghosts: bool = True,
+        merge_fragments: bool = True,
+        prune_orphans: bool = True,
+        expire_future_intents: bool = True,
+        expire_decayed_assertions: bool = True,
+        clean_stale_snapshots: bool = True,
+        reconcile_stale: bool = True,
+        consolidate_open_predicates: bool = True,
+        archive_stale_edges: bool = True,
+        purge_terminal_edges: bool = True,
+        embed_edges: bool = True,
+        consolidate_episodes: bool = True,
+    ) -> L2EntityMaintenanceStats:
+        if self._run_lock.locked():
+            logger.info("L2 maintenance already running, skipping")
+            return L2EntityMaintenanceStats()
+        async with self._run_lock:
+            return await self._run_locked(
+                min_mentions_to_keep=min_mentions_to_keep,
+                resolve_ghosts=resolve_ghosts,
+                merge_fragments=merge_fragments,
+                prune_orphans=prune_orphans,
+                expire_future_intents=expire_future_intents,
+                expire_decayed_assertions=expire_decayed_assertions,
+                clean_stale_snapshots=clean_stale_snapshots,
+                reconcile_stale=reconcile_stale,
+                consolidate_open_predicates=consolidate_open_predicates,
+                archive_stale_edges=archive_stale_edges,
+                purge_terminal_edges=purge_terminal_edges,
+                embed_edges=embed_edges,
+                consolidate_episodes=consolidate_episodes,
+            )
+
+    async def _run_locked(
+        self,
+        *,
+        min_mentions_to_keep: int,
+        resolve_ghosts: bool,
+        merge_fragments: bool,
+        prune_orphans: bool,
+        expire_future_intents: bool,
+        expire_decayed_assertions: bool,
+        clean_stale_snapshots: bool,
+        reconcile_stale: bool,
+        consolidate_open_predicates: bool,
+        archive_stale_edges: bool,
+        purge_terminal_edges: bool,
+        embed_edges: bool,
+        consolidate_episodes: bool,
+    ) -> L2EntityMaintenanceStats:
+        stats = L2EntityMaintenanceStats()
+        if resolve_ghosts:
+            await self._resolve_ghost_graph_refs(stats)
+        if merge_fragments:
+            await self._merge_fragmented_entities(stats)
+        if prune_orphans:
+            await self._prune_orphan_low_mention_entities(stats, min_mentions=min_mentions_to_keep)
+        if expire_future_intents:
+            await self._expire_stale_future_intents(stats)
+        if expire_decayed_assertions:
+            await self._expire_decayed_assertions(stats)
+        if clean_stale_snapshots:
+            await self._clean_stale_snapshots(stats)
+        if reconcile_stale:
+            await self._reconcile_stale_entities(stats)
+        if consolidate_open_predicates:
+            await self._consolidate_open_predicates(stats)
+        if archive_stale_edges:
+            await self._archive_stale_edges(stats)
+        if purge_terminal_edges:
+            await self._purge_terminal_edges(stats)
+        if embed_edges:
+            await self._embed_pending_edges(stats)
+        if consolidate_episodes:
+            await self._consolidate_episodes(stats)
+        if any(
+            (
+                stats.ghost_edges_rewritten,
+                stats.ghost_rows_merged,
+                stats.tom_entity_refs_rewritten,
+                stats.fragment_entities_merged,
+                stats.orphans_pruned,
+                stats.expired_future_intents,
+                stats.expired_assertions,
+                stats.stale_snapshots_cleaned,
+                stats.entities_reconciled,
+                stats.snapshots_refreshed,
+                stats.open_predicates_consolidated,
+                stats.edges_archived,
+                stats.edges_purged,
+                stats.edge_embeddings_cleaned,
+                stats.edges_embedded,
+                stats.episodes_promoted,
+                stats.episodes_merged,
+                stats.episodes_invalidated,
+            )
+        ):
+            logger.info(
+                "L2 entity maintenance completed",
+                ghost_edges_rewritten=stats.ghost_edges_rewritten,
+                ghost_rows_merged=stats.ghost_rows_merged,
+                ghost_skipped=stats.ghost_skipped_no_target,
+                tom_entity_refs_rewritten=stats.tom_entity_refs_rewritten,
+                fragment_entities_merged=stats.fragment_entities_merged,
+                fragment_groups=stats.fragment_groups_processed,
+                orphans_pruned=stats.orphans_pruned,
+                expired_future_intents=stats.expired_future_intents,
+                expired_assertions=stats.expired_assertions,
+                stale_snapshots_cleaned=stats.stale_snapshots_cleaned,
+                entities_reconciled=stats.entities_reconciled,
+                snapshots_refreshed=stats.snapshots_refreshed,
+                open_predicates_consolidated=stats.open_predicates_consolidated,
+                edges_archived=stats.edges_archived,
+                edges_purged=stats.edges_purged,
+                edge_embeddings_cleaned=stats.edge_embeddings_cleaned,
+                edges_embedded=stats.edges_embedded,
+                episodes_promoted=stats.episodes_promoted,
+                episodes_merged=stats.episodes_merged,
+                episodes_invalidated=stats.episodes_invalidated,
+            )
+        return stats

@@ -66,12 +66,12 @@ def _build_client(monkeypatch):
     )()
     monkeypatch.setattr(
         sensors_module,
-        "require_plugin_manager",
+        "resolve_plugin_manager",
         lambda: type("Manager", (), {"list_packages": lambda self: [plugin_state]})(),
     )
     monkeypatch.setattr(
         sensors_module,
-        "require_sensor_registry",
+        "resolve_sensor_registry",
         lambda: type(
             "Registry",
             (),

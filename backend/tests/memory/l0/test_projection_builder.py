@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from magi.memory.l0.contracts import L0ExecutionSummary, L0PromptWorkbenchProjection
-from magi.memory.l0.projection_builder import build_execution_summary
+from magi.memory.l0.working.projection import build_execution_summary
 
 
 def test_build_execution_summary_marks_current_pending_turns_as_replan() -> None:

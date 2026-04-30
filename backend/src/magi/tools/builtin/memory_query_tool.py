@@ -5,8 +5,9 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any, Dict, Optional
 
-from ...core.runtime_bindings import require_hybrid_retrieval_service, require_plugin_manager
 from ...memory.hybrid_retrieval import build_query
+from ...memory.provider import get_hybrid_retrieval_service
+from ...plugins.provider import resolve_plugin_manager
 from ...memory.retrieval_projection import project_historical_recall
 from ..schema import Tool, ToolExecutionContext, ToolParameter, ToolResult, ToolSchema, ParameterType
 
@@ -163,7 +164,7 @@ class MemoryQueryTool(Tool):
         if self._schema_built_with_plugin_manager:
             return
         try:
-            plugin_manager = require_plugin_manager()
+            plugin_manager = resolve_plugin_manager()
         except RuntimeError:
             return
         self.schema = self._build_schema(plugin_manager=plugin_manager)
@@ -179,7 +180,7 @@ class MemoryQueryTool(Tool):
 
     def _get_service(self):
         """Return an initialized retrieval service when runtime memory is available."""
-        self._service = require_hybrid_retrieval_service()
+        self._service = get_hybrid_retrieval_service()
         return self._service
 
     async def execute(
@@ -218,7 +219,7 @@ class MemoryQueryTool(Tool):
                 "trace": getattr(payload, "trace", {}),
             }
             try:
-                plugin_manager = require_plugin_manager()
+                plugin_manager = resolve_plugin_manager()
             except RuntimeError:
                 plugin_manager = None
             historical_recall = asdict(

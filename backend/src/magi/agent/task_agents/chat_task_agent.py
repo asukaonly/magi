@@ -1,15 +1,12 @@
 """Runtime task agent for chat facts."""
 from __future__ import annotations
 
-import json
 from typing import Any, Callable, Optional
-from uuid import uuid4
 
-from ..asset_refs import normalize_asset_ref_list, normalize_asset_ref_payload
 from ...agent.orchestration import get_orchestration_store
 from ...agent.task_orchestrator import TaskOrchestrator
 from ...agent.trace import now_wall_ms
-from ...chat import ChatMessageRecord, ChatProjector, ChatReadService, ChatStore
+from ...chat import ChatProjector, ChatReadService, ChatStore
 from ...config import get_config, get_user_preference
 from ...core.logger import get_logger
 from ...agent.runtime.contracts import FactRecord
@@ -22,7 +19,7 @@ from ...tools.registry import tool_registry
 from ...runtime_trace import RuntimeTraceStore
 from ...utils.runtime import get_runtime_paths
 from ..execution.function_calling import FunctionCallingOrchestrator
-from ...llm.streaming_events import LLMStreamEvent, stream_scope
+from ...llm.streaming_events import stream_scope
 from .chat.interruption_classifier import InterruptionClassifier
 from .chat import (
     ChatExecutionCoordinator,
@@ -32,7 +29,6 @@ from .chat import (
     ChatPlanningService,
     ChatPostProcessService,
     ChatPromptService,
-    ChatReplyContext,
     ChatRuntimeContext,
     ExecutionHandlerRegistry,
     ExecutionRequest,
@@ -48,12 +44,12 @@ from .chat.handlers import (
     FunctionCallingHandler,
     build_common_handler_dependencies,
 )
+from .chat.reply_context import ChatReplyContextMixin
+from .chat.session_control import ChatSessionControlMixin
+from .chat.streaming import ChatStreamingMixin, format_llm_error as _format_llm_error
 from .common import FactOnlyHandler, OrchestrationLaunchHandler, OrchestrationUpdateHandler
 
 logger = get_logger(__name__)
-
-_RATE_LIMIT_CODES = {"429", "1302", "rate_limit_exceeded"}
-
 
 def _default_chat_read_service_factory() -> ChatReadService:
     from ...chat import get_chat_read_service
@@ -61,20 +57,12 @@ def _default_chat_read_service_factory() -> ChatReadService:
     return get_chat_read_service()
 
 
-def _format_llm_error(exc: Exception) -> str:
-    """Return a concise user-facing error string for an LLM call failure."""
-    exc_str = str(exc)
-    status_code = str(getattr(exc, "status_code", "") or "")
-    if status_code == "429" or any(code in exc_str for code in _RATE_LIMIT_CODES):
-        return "⚠️ The AI service is rate-limited. Please wait a moment and try again."
-    if status_code in ("401", "403"):
-        return "⚠️ Authentication failed. Please check your API key configuration."
-    if status_code in ("500", "502", "503"):
-        return "⚠️ The AI service is temporarily unavailable. Please try again later."
-    return f"⚠️ The AI service returned an error. Please try again. ({exc.__class__.__name__})"
-
-
-class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection, ExecutionRequest, ExecutionResult]):
+class ChatTaskAgent(
+    ChatSessionControlMixin,
+    ChatStreamingMixin,
+    ChatReplyContextMixin,
+    TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection, ExecutionRequest, ExecutionResult],
+):
     """Consumes chat facts and delegates execution to typed handlers."""
 
     def __init__(
@@ -177,7 +165,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             control_session_store_provider=control_session_store_provider,
         )
         # Initialize trace read service for enriching AI_RESPONSE events
-        from ...api.services.chat_trace_read_service import ChatTraceReadService
+        from ...api.services.chat_trace.read_service import ChatTraceReadService
         try:
             trace_read_service = ChatTraceReadService()
         except Exception:
@@ -285,41 +273,6 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             updated_at_ms=updated_at_ms,
         )
 
-    async def _emit_stream_event(
-        self,
-        *,
-        event: LLMStreamEvent,
-        user_id: str,
-        session_id: str,
-        turn_id: str | None,
-    ) -> None:
-        """Forward an LLM stream event to the runtime notifier wire."""
-        await self._postprocess_service._runtime_notifier.emit_stream_event(
-            event=event,
-            user_id=user_id,
-            session_id=session_id,
-            turn_id=turn_id,
-        )
-
-    def _build_stream_sink(
-        self,
-        *,
-        user_id: str,
-        session_id: str,
-        turn_id: str | None,
-    ):
-        agent = self
-
-        async def sink(event: LLMStreamEvent) -> None:
-            await agent._emit_stream_event(
-                event=event,
-                user_id=user_id,
-                session_id=session_id,
-                turn_id=turn_id,
-            )
-
-        return sink
-
     async def _resolve_session_workspace_path(self, *, user_id: str, session_id: str) -> str | None:
         summary = await self._chat_read_service.aget_session_summary(user_id, session_id)
         return summary.workspace_path if summary is not None else None
@@ -340,112 +293,8 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         before the run loop gets a chance to pull the fact off the queue
         and classify it.
         """
-        try:
-            from ...events.events import EventTypes
-
-            if fact.event_type == EventTypes.USER_MESSAGE:
-                payload = fact.payload or {}
-                session_id = str(payload.get("session_id") or "").strip()
-                content = str(payload.get("content") or "")
-                turn_id = str(payload.get("turn_id") or "").strip() or None
-                if (
-                    session_id
-                    and content
-                    and self._interruption_classifier.looks_like_strict_interrupt(content)
-                ):
-                    active_run = self._session_run_coordinator.get_active_run(session_id)
-                    if (
-                        active_run is not None
-                        and active_run.status in ("running", "cancelling")
-                    ):
-                        self._session_run_coordinator.request_cancel(
-                            session_id=session_id,
-                            requested_by="user",
-                            reason="ingress_interrupt",
-                            anchor_turn_id=turn_id,
-                        )
-                        logger.info(
-                            "Ingress INTERRUPT detected; requested cancel",
-                            session_id=session_id,
-                            turn_id=turn_id,
-                        )
-        except Exception as exc:
-            # Ingress classification is best-effort; never block enqueue.
-            logger.debug(
-                "Ingress INTERRUPT classification failed",
-                error=str(exc),
-            )
+        await self._request_ingress_interrupt(fact)
         return await super().add_fact(fact)
-
-    async def _drain_deferred_turns(self, session_id: str) -> None:
-        """Re-inject queued DEFER user turns as fresh user-message facts.
-
-        AUGMENT pending turns merge into the current run at the tool-loop
-        checkpoint; DEFER pending turns wait for the active run to finish and
-        then start a brand-new run. This method is invoked from postprocess
-        right after the active run has been completed.
-        """
-        normalized_session_id = str(session_id or "").strip()
-        if not normalized_session_id:
-            return
-        manager = self._task_agent_manager
-        if manager is None:
-            return
-        try:
-            deferred_turns = self._session_run_coordinator.consume_deferred_turns(
-                normalized_session_id
-            )
-        except ValueError:
-            # Active run already cleared; nothing to drain.
-            return
-        if not deferred_turns:
-            return
-        from ...events.events import EventTypes
-
-        for pending_turn in deferred_turns:
-            # Mint a fresh turn_id for the re-injected fact. Reusing
-            # ``pending_turn.turn_id`` would collide with the original turn
-            # already persisted under the completed run (L0 working memory,
-            # chat history, timeline, event correlation), and the new run
-            # would also adopt it as its ``root_turn_id`` via
-            # :meth:`SessionRunCoordinator._resolve_turn_id`, causing
-            # duplicate rows and ambiguous event correlation downstream.
-            reinjected_turn_id = uuid4().hex
-            payload: dict[str, object] = {
-                "session_id": normalized_session_id,
-                "user_id": self.agent_id,
-                "turn_id": reinjected_turn_id,
-                "content": pending_turn.content,
-                "author_type": "user",
-                "content_type": "text",
-                "timestamp": pending_turn.created_at,
-                "metadata": {
-                    "reinjected_from": "deferred_pending_turn",
-                    "source_turn_id": pending_turn.turn_id,
-                },
-            }
-            fact = FactRecord(
-                agent_id=self.runtime_key,
-                agent_type=str(self.agent_type.value if hasattr(self.agent_type, "value") else self.agent_type),
-                agent_instance_id=normalized_session_id,
-                event_type=EventTypes.USER_MESSAGE,
-                payload=payload,
-                correlation_id=reinjected_turn_id,
-            )
-            try:
-                await manager.add_fact_to_agent(
-                    TaskAgentType.CHAT,
-                    normalized_session_id,
-                    fact,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Failed to reinject deferred user turn",
-                    session_id=normalized_session_id,
-                    turn_id=reinjected_turn_id,
-                    source_turn_id=pending_turn.turn_id,
-                    error=str(exc),
-                )
 
     async def handle_fact(self, fact: FactRecord) -> None:
         _ = fact
@@ -581,25 +430,6 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         except Exception:
             return False
 
-    async def _emit_llm_error(self, context: ChatRuntimeContext, exc: Exception) -> None:
-        """Emit a user-visible error message when LLM call fails."""
-        turn_id = str(getattr(context.latest_payload, "turn_id", "") or "").strip()
-        if not (context.user_id and context.session_id and turn_id):
-            return
-        error_text = _format_llm_error(exc)
-        await self._emit_stream_event(
-            event=LLMStreamEvent(kind="text_delta", text=error_text),
-            user_id=context.user_id,
-            session_id=context.session_id,
-            turn_id=turn_id,
-        )
-        await self._emit_stream_event(
-            event=LLMStreamEvent(kind="text_flush"),
-            user_id=context.user_id,
-            session_id=context.session_id,
-            turn_id=turn_id,
-        )
-
     async def parse_result(self, context: ChatRuntimeContext, raw_result: ExecutionResult) -> None:
         await self._postprocess_service.handle(context, raw_result)
 
@@ -614,213 +444,3 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             return int(get_config().llm.max_tokens)
         except Exception:
             return 4096
-
-    async def _resolve_reply_context(self, latest_payload: object) -> ChatReplyContext | None:
-        if self._chat_store is None:
-            return None
-        session_id = str(getattr(latest_payload, "session_id", "") or "").strip()
-        current_turn_id = str(getattr(latest_payload, "turn_id", "") or "").strip()
-        reply_to_message_id = str(getattr(latest_payload, "reply_to_message_id", "") or "").strip()
-        current_user_message = None
-        if current_turn_id:
-            current_user_message = await self._chat_store.get_latest_message_for_turn(
-                current_turn_id,
-                message_kind="user_text",
-            )
-            if current_user_message is not None:
-                session_id = str(current_user_message.session_id or session_id or "").strip()
-                reply_to_message_id = str(current_user_message.reply_to_message_id or reply_to_message_id or "").strip()
-        reply_target = None
-        is_explicit_reply = False
-        if reply_to_message_id:
-            reply_target = await self._chat_store.get_message(reply_to_message_id)
-            is_explicit_reply = reply_target is not None
-        if reply_target is None and session_id:
-            fallback_target = await self._chat_store.get_latest_message_for_session(
-                session_id,
-                role="assistant",
-                message_kind="assistant_final",
-                exclude_turn_id=current_turn_id or None,
-            )
-            if self._has_reusable_recent_reply_payload(fallback_target):
-                reply_target = fallback_target
-        if reply_target is None:
-            return None
-        return self._build_reply_context(
-            current_turn_id=current_turn_id,
-            reply_target=reply_target,
-            is_explicit_reply=is_explicit_reply,
-        )
-
-    @staticmethod
-    def _build_reply_context(
-        *,
-        current_turn_id: str,
-        reply_target: ChatMessageRecord,
-        is_explicit_reply: bool,
-    ) -> ChatReplyContext:
-        content_excerpt = str(reply_target.content_text or "").strip()
-        if len(content_excerpt) > 280:
-            content_excerpt = f"{content_excerpt[:277]}..."
-        return ChatReplyContext(
-            message_id=reply_target.message_id,
-            role=reply_target.role,
-            content_excerpt=content_excerpt,
-            is_explicit_reply=is_explicit_reply,
-            references_prior_turn=bool(
-                current_turn_id
-                and reply_target.turn_id
-                and str(reply_target.turn_id).strip() != current_turn_id
-            ),
-            structured_payload=ChatTaskAgent._summarize_reply_payload(reply_target.payload_json),
-        )
-
-    @staticmethod
-    def _has_reusable_recent_reply_payload(reply_target: ChatMessageRecord | None) -> bool:
-        if reply_target is None:
-            return False
-        summary = ChatTaskAgent._summarize_reply_payload(reply_target.payload_json)
-        if not isinstance(summary, dict):
-            return False
-        return bool(summary.get("asset_refs"))
-
-    @staticmethod
-    def _summarize_reply_payload(raw_payload_json: str | None) -> dict[str, Any] | None:
-        if not raw_payload_json:
-            return None
-        try:
-            payload = json.loads(raw_payload_json)
-        except (TypeError, ValueError, json.JSONDecodeError):
-            return None
-        if not isinstance(payload, dict):
-            return None
-        payload = normalize_asset_ref_payload(payload)
-
-        summary: dict[str, Any] = {}
-        attachments = payload.get("attachments")
-        if isinstance(attachments, list):
-            compact_attachments: list[dict[str, Any]] = []
-            for item in attachments[:6]:
-                if not isinstance(item, dict):
-                    continue
-                compact_item: dict[str, Any] = {}
-                for key in ("attachment_id", "kind", "original_name", "mime_type", "size_bytes"):
-                    value = item.get(key)
-                    if value is not None:
-                        compact_item[key] = value
-                if compact_item:
-                    compact_attachments.append(compact_item)
-            if compact_attachments:
-                summary["attachments"] = compact_attachments
-
-        asset_refs = payload.get("asset_refs")
-        if isinstance(asset_refs, list):
-            compact_refs: list[dict[str, Any]] = []
-            for item in normalize_asset_ref_list(asset_refs)[:6]:
-                compact_item: dict[str, Any] = {}
-                for field_name in (
-                    "asset_ref_id",
-                    "attachment_id",
-                    "event_id",
-                    "source_type",
-                    "source_item_id",
-                    "original_name",
-                    "display_name",
-                    "capture_time",
-                    "captured_at",
-                    "occurred_at",
-                    "kind",
-                    "resolver_tool",
-                    "resolution_state",
-                ):
-                    value = item.get(field_name)
-                    if value is not None:
-                        compact_item[field_name] = value
-                attributes = item.get("attributes")
-                if isinstance(attributes, dict) and attributes:
-                    compact_item["attributes"] = dict(attributes)
-                if compact_item:
-                    compact_refs.append(compact_item)
-            if compact_refs:
-                summary["asset_refs"] = compact_refs
-
-        return summary or None
-
-    async def request_session_cancel(
-        self,
-        *,
-        session_id: str,
-        requested_by: str,
-        reason: str = "user_cancel",
-        anchor_turn_id: str | None = None,
-    ) -> dict[str, object] | None:
-        """Request strong cancellation for the active session run."""
-        active_run = self._session_run_coordinator.request_cancel(
-            session_id=session_id,
-            requested_by=requested_by,
-            reason=reason,
-            anchor_turn_id=anchor_turn_id,
-        )
-        if active_run is None:
-            return None
-        cancelled_orchestration_ids = await self._task_orchestrator.cancel_run(
-            session_id=session_id,
-            run_id=active_run.run_id,
-            run_revision=active_run.revision,
-        )
-        await self._postprocess_service.emit_execution_control_notification(
-            user_id=self.agent_id,
-            session_id=session_id,
-            turn_id=active_run.cancel_anchor_turn_id or active_run.root_turn_id,
-            run_id=active_run.run_id,
-            orchestration_id=(cancelled_orchestration_ids[0] if cancelled_orchestration_ids else None),
-            state="cancelling",
-            can_cancel=False,
-            label="Cancelling run",
-        )
-        return {
-            "session_id": session_id,
-            "run_id": active_run.run_id,
-            "revision": active_run.revision,
-            "status": active_run.status,
-            "cancel_reason": active_run.cancel_reason,
-            "cancel_requested_by": active_run.cancel_requested_by,
-            "cancel_anchor_turn_id": active_run.cancel_anchor_turn_id,
-            "cancelled_orchestration_ids": cancelled_orchestration_ids,
-        }
-
-    async def request_session_detach(
-        self,
-        *,
-        session_id: str,
-        requested_by: str,
-        reason: str = "user_detach",
-        anchor_turn_id: str | None = None,
-    ) -> dict[str, object] | None:
-        """Request background handoff for the active session run."""
-        active_run = self._session_run_coordinator.request_detach(
-            session_id=session_id,
-            requested_by=requested_by,
-            reason=reason,
-        )
-        if active_run is None:
-            return None
-        await self._postprocess_service.emit_execution_control_notification(
-            user_id=self.agent_id,
-            session_id=session_id,
-            turn_id=anchor_turn_id or active_run.root_turn_id,
-            run_id=active_run.run_id,
-            orchestration_id=None,
-            state="detaching",
-            can_cancel=False,
-            label="Moving run to background",
-        )
-        return {
-            "session_id": session_id,
-            "run_id": active_run.run_id,
-            "revision": active_run.revision,
-            "status": "detaching",
-            "detach_reason": reason,
-            "detach_requested_by": requested_by,
-            "detach_anchor_turn_id": anchor_turn_id,
-        }

@@ -81,7 +81,7 @@ class WorkerResultValidationMixin:
 
     @staticmethod
     def _preview_worker_result(worker_result: WorkerResult, limit: int = 400) -> str:
-        summary = worker_result.summary.strip()
+        summary = str(worker_result.summary).strip()
         if summary:
             return summary[:limit]
         if worker_result.findings:

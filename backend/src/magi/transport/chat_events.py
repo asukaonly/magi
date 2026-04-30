@@ -6,8 +6,8 @@ import json
 
 from ..chat import get_chat_read_service
 from ..core.logger import get_logger
-from ..core.runtime_bindings import require_runtime_trace_store
 from ..runtime_trace import RuntimeNotificationRecord
+from ..runtime_trace.provider import resolve_runtime_trace_store
 
 logger = get_logger(__name__)
 
@@ -56,7 +56,7 @@ async def broadcast_chat_message_upsert(
     }
 
     try:
-        store = require_runtime_trace_store()
+        store = resolve_runtime_trace_store()
         await store.append_notification(RuntimeNotificationRecord(
             notification_id=0,
             channel="chat_message_upserted",
@@ -104,7 +104,7 @@ async def broadcast_chat_message_hidden(
     }
 
     try:
-        store = require_runtime_trace_store()
+        store = resolve_runtime_trace_store()
         await store.append_notification(RuntimeNotificationRecord(
             notification_id=0,
             channel="chat_message_hidden",
@@ -133,7 +133,7 @@ async def broadcast_background_task_state_changed(task) -> None:
     user_id = str(getattr(task.spec, "user_id", "") or "")
     session_id = str(getattr(task.spec, "session_id", "") or "")
     try:
-        store = require_runtime_trace_store()
+        store = resolve_runtime_trace_store()
         await store.append_notification(RuntimeNotificationRecord(
             notification_id=0,
             channel="background_task_state_changed",

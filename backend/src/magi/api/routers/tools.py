@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any, Literal
 import logging
 
-from ...core.runtime_bindings import require_plugin_manager
+from ...plugins.provider import resolve_plugin_manager
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ tools_router = APIRouter()
 
 def _ensure_plugins_loaded() -> None:
     try:
-        require_plugin_manager()
+        resolve_plugin_manager()
     except RuntimeError:
         logger.debug("Plugin manager not initialized; falling back to currently registered tools")
 

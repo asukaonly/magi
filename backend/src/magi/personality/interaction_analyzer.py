@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 
 from ..config.models import LLMScenario
 from ..core.logger import get_logger
-from ..core.runtime_bindings import require_scenario_llm_pool
+from ..llm.provider import get_scenario_llm_pool
 from ..llm.provider_bridge import LLMProviderBridge
 from .behavior_evolution import SatisfactionLevel
 from .emotional_state import EngagementLevel, InteractionOutcome
@@ -163,7 +163,7 @@ async def analyze_interaction(
     Returns DEFAULT_ANALYSIS if the LLM call fails or is unavailable.
     """
     try:
-        pool = require_scenario_llm_pool()
+        pool = get_scenario_llm_pool()
     except Exception:
         return DEFAULT_ANALYSIS
 

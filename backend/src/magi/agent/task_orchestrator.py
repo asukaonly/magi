@@ -2,28 +2,24 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
-import os
 import time
 import uuid
-from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
 
 from ..core.logger import get_logger
-from ..chat.workspace import get_default_chat_workspace_path
 from ..agent.runtime.contracts import FactRecord
 from ..tools.registry import ToolRegistry
-from ..tools.schema import ToolExecutionContext
-from ..utils.packaged_paths import get_repo_root
 from .orchestration import (
     OrchestrationExecutionResult,
-    RETRIABLE_WORKER_FAILURES,
     SubtaskDefinition,
     SubtaskPlan,
     TaskOrchestrationState,
     WorkerResult,
     get_orchestration_store,
 )
+from .task_orchestration_todos import TaskOrchestrationTodosMixin
+from .task_orchestration_workers import TaskOrchestrationWorkerMixin
+from .task_orchestration_workspace import TaskOrchestrationWorkspaceMixin
 logger = get_logger(__name__)
 
 WorkerPlanCallback = Callable[[str, list[dict[str, Any]], dict[str, Any], str, str, str | None, int], Awaitable[SubtaskPlan]]
@@ -33,12 +29,13 @@ SessionWorkspaceProvider = Callable[..., Awaitable[str | None] | str | None]
 ControlSessionStoreProvider = Callable[[], Any]
 
 DEFAULT_WORKER_RETRY_BUDGET = 1
-LLM_RATE_LIMIT_RETRY_BUDGET = 10
-LLM_RATE_LIMIT_BACKOFF_BASE_SECONDS = 1.0
-LLM_RATE_LIMIT_BACKOFF_MAX_SECONDS = 60.0
 
 
-class TaskOrchestrator:
+class TaskOrchestrator(
+    TaskOrchestrationWorkerMixin,
+    TaskOrchestrationTodosMixin,
+    TaskOrchestrationWorkspaceMixin,
+):
     """Runtime parent-task orchestrator shared by task agents."""
 
     WORKER_AGENT_EVENT_TYPES = {
@@ -346,206 +343,6 @@ class TaskOrchestrator:
             cancelled_ids.append(state.orchestration_id)
         return cancelled_ids
 
-    async def _launch_workers(
-        self,
-        state: TaskOrchestrationState,
-        *,
-        run_id: str | None = None,
-        run_revision: int = 0,
-    ) -> Optional[str]:
-        if state.status == "cancelling":
-            self._mark_remaining_subtasks_cancelled(state)
-            state.status = "cancelled"
-            state.updated_at = time.time()
-            await self._orchestration_store.save_orchestration(state)
-            return None
-
-        context = await self._build_agent_tool_context(
-            state.user_id,
-            state.session_id,
-            state.workspace_root,
-            run_id=run_id,
-            run_revision=run_revision,
-        )
-        parent_task_agent_id = self._resolve_parent_task_agent_id(state.user_id, state.session_id)
-        worker_payloads = [
-            {
-                "subagent_type": item.subagent_type,
-                "description": item.description,
-                "prompt": item.prompt,
-                "orchestration_id": state.orchestration_id,
-                "subtask_id": item.subtask_id,
-                "parent_task_agent_type": self._parent_task_agent_type,
-                "parent_task_agent_id": parent_task_agent_id,
-                "target_task_agent_type": self._parent_task_agent_type,
-                "target_task_agent_id": parent_task_agent_id,
-                "retry_count": max(item.attempt_count, 0),
-                "run_id": run_id,
-                "run_revision": run_revision,
-                "turn_id": state.turn_id,
-            }
-            for item in state.subtasks
-        ]
-        result = await self._tool_registry.execute(
-            "agent",
-            {
-                "action": "launch",
-                "workers": worker_payloads,
-                "parallel": state.allow_parallel,
-                "run_in_background": True,
-                "target_task_agent_type": self._parent_task_agent_type,
-                "target_task_agent_id": parent_task_agent_id,
-                "run_id": run_id,
-                "run_revision": run_revision,
-            },
-            context,
-        )
-        if not result.success or not isinstance(result.data, dict):
-            return str(result.error or "Unknown worker launch error")
-        worker_ids = result.data.get("worker_ids")
-        if not isinstance(worker_ids, list) or len(worker_ids) != len(state.subtasks):
-            return "Worker launch did not return a complete worker id list"
-
-        now = time.time()
-        for subtask, worker_id in zip(state.subtasks, worker_ids):
-            subtask.worker_id = str(worker_id)
-            subtask.status = "running"
-            subtask.attempt_count = max(subtask.attempt_count, 1)
-            subtask.updated_at = now
-        state.updated_at = now
-        await self._orchestration_store.save_orchestration(state)
-        return None
-
-    async def _maybe_retry_subtask(
-        self,
-        state: TaskOrchestrationState,
-        subtask: SubtaskDefinition,
-        failure_reason: str,
-    ) -> bool:
-        if state.status in {"cancelling", "cancelled"}:
-            return False
-        if failure_reason not in RETRIABLE_WORKER_FAILURES:
-            return False
-        retry_budget = self._retry_budget_for_failure(failure_reason, state.retry_budget)
-        if subtask.attempt_count > retry_budget:
-            return False
-
-        run_id = self._extract_run_id(state)
-        run_revision = self._extract_run_revision(state)
-        context = await self._build_agent_tool_context(
-            state.user_id,
-            state.session_id,
-            state.workspace_root,
-            run_id=run_id,
-            run_revision=run_revision,
-        )
-        parent_task_agent_id = self._resolve_parent_task_agent_id(state.user_id, state.session_id)
-        next_attempt = subtask.attempt_count + 1
-        delay_seconds = self._retry_delay_seconds(failure_reason, subtask.attempt_count)
-        if delay_seconds > 0:
-            logger.info(
-                "Retrying worker after backoff | orchestration_id=%s subtask_id=%s reason=%s retry=%s/%s delay=%.1fs",
-                state.orchestration_id,
-                subtask.subtask_id,
-                failure_reason,
-                next_attempt - 1,
-                retry_budget,
-                delay_seconds,
-            )
-            await asyncio.sleep(delay_seconds)
-        result = await self._tool_registry.execute(
-            "agent",
-            {
-                "action": "launch",
-                "subagent_type": subtask.subagent_type,
-                "description": subtask.description,
-                "prompt": subtask.prompt,
-                "run_in_background": True,
-                "orchestration_id": state.orchestration_id,
-                "subtask_id": subtask.subtask_id,
-                "parent_task_agent_type": self._parent_task_agent_type,
-                "parent_task_agent_id": parent_task_agent_id,
-                "target_task_agent_type": self._parent_task_agent_type,
-                "target_task_agent_id": parent_task_agent_id,
-                "retry_count": next_attempt - 1,
-                "run_id": run_id,
-                "run_revision": run_revision,
-                "turn_id": state.turn_id,
-            },
-            context,
-        )
-        if not result.success or not isinstance(result.data, dict):
-            logger.warning(
-                "Failed to relaunch worker for retry | orchestration_id=%s subtask_id=%s error=%s",
-                state.orchestration_id,
-                subtask.subtask_id,
-                result.error,
-            )
-            return False
-
-        worker_id = str(result.data.get("worker_id", "")).strip()
-        if not worker_id:
-            return False
-
-        subtask.worker_id = worker_id
-        subtask.status = "running"
-        subtask.failure_reason = None
-        subtask.worker_result = None
-        subtask.attempt_count = next_attempt
-        subtask.updated_at = time.time()
-        state.updated_at = subtask.updated_at
-        await self._orchestration_store.save_orchestration(state)
-        return True
-
-    def _retry_budget_for_failure(self, failure_reason: str, default_budget: int) -> int:
-        if failure_reason == "LLM_RATE_LIMIT":
-            return max(default_budget, LLM_RATE_LIMIT_RETRY_BUDGET)
-        return max(default_budget, 0)
-
-    def _retry_delay_seconds(self, failure_reason: str, attempt_count: int) -> float:
-        if failure_reason != "LLM_RATE_LIMIT":
-            return 0.0
-        retry_index = max(attempt_count, 1)
-        delay_seconds = LLM_RATE_LIMIT_BACKOFF_BASE_SECONDS * (2 ** (retry_index - 1))
-        return min(delay_seconds, LLM_RATE_LIMIT_BACKOFF_MAX_SECONDS)
-
-    async def _build_agent_tool_context(
-        self,
-        user_id: str,
-        session_id: str,
-        workspace_root: Optional[str] = None,
-        *,
-        run_id: str | None = None,
-        run_revision: int = 0,
-    ) -> ToolExecutionContext:
-        parent_task_agent_id = self._resolve_parent_task_agent_id(user_id, session_id)
-        resolved_workspace = str(workspace_root or "").strip()
-        if not resolved_workspace:
-            resolved_workspace = await self._default_workspace_root(
-                user_id=user_id,
-                session_id=session_id,
-            )
-        return ToolExecutionContext(
-            agent_id=self._runtime_key,
-            workspace=resolved_workspace,
-            env_vars={
-                "user_id": user_id,
-                "session_id": session_id,
-                "target_task_agent_type": self._parent_task_agent_type,
-                "target_task_agent_id": parent_task_agent_id,
-                "parent_task_agent_type": self._parent_task_agent_type,
-                "parent_task_agent_id": parent_task_agent_id,
-                "run_id": run_id or "",
-                "run_revision": str(run_revision),
-            },
-            permissions=["authenticated"],
-        )
-
-    def _resolve_parent_task_agent_id(self, user_id: str, session_id: str) -> str:
-        if self._parent_task_agent_type == "chat" and str(session_id).strip():
-            return session_id
-        return user_id
-
     @staticmethod
     def _extract_run_id(state: TaskOrchestrationState) -> str | None:
         metadata = getattr(state, "metadata", None)
@@ -564,144 +361,6 @@ class TaskOrchestrator:
         except (TypeError, ValueError):
             return 0
 
-    async def _resolve_workspace_root(
-        self,
-        *,
-        user_id: str,
-        session_id: str,
-        user_message: str,
-    ) -> str:
-        default_root = await self._default_workspace_root(
-            user_id=user_id,
-            session_id=session_id,
-        )
-        message = str(user_message or "").strip()
-        if not message:
-            logger.info(
-                "task_orchestrator.workspace_resolved",
-                parent_task_agent_type=self._parent_task_agent_type,
-                session_id=session_id,
-                workspace_root=default_root,
-                source="default_empty_message",
-            )
-            return default_root
-
-        explicit_candidates = self._extract_explicit_path_candidates(message, default_root)
-        for candidate in explicit_candidates:
-            normalized = self._normalize_existing_path(candidate)
-            if normalized:
-                logger.info(
-                    "task_orchestrator.workspace_resolved",
-                    parent_task_agent_type=self._parent_task_agent_type,
-                    session_id=session_id,
-                    workspace_root=normalized,
-                    source="explicit_path_candidate",
-                    candidate=candidate,
-                )
-                return normalized
-        logger.info(
-            "task_orchestrator.workspace_resolved",
-            parent_task_agent_type=self._parent_task_agent_type,
-            session_id=session_id,
-            workspace_root=default_root,
-            source="default_no_explicit_path",
-        )
-        return default_root
-
-    async def _default_workspace_root(self, *, user_id: str, session_id: str) -> str:
-        if self._parent_task_agent_type == "chat":
-            session_workspace = await self._resolve_session_workspace_path(
-                user_id=user_id,
-                session_id=session_id,
-            )
-            if session_workspace:
-                logger.info(
-                    "task_orchestrator.default_workspace",
-                    parent_task_agent_type=self._parent_task_agent_type,
-                    session_id=session_id,
-                    workspace_root=session_workspace,
-                    source="session_workspace",
-                )
-                return session_workspace
-            logger.warning(
-                "task_orchestrator.default_workspace_missing_session_workspace",
-                parent_task_agent_type=self._parent_task_agent_type,
-                session_id=session_id,
-            )
-            return ""
-        runtime_project_root = self._resolve_runtime_project_root()
-        if runtime_project_root is not None:
-            logger.info(
-                "task_orchestrator.default_workspace",
-                parent_task_agent_type=self._parent_task_agent_type,
-                session_id=session_id,
-                workspace_root=runtime_project_root,
-                source="runtime_project_root",
-            )
-            return runtime_project_root
-        fallback_root = get_default_chat_workspace_path()
-        logger.info(
-            "task_orchestrator.default_workspace",
-            parent_task_agent_type=self._parent_task_agent_type,
-            session_id=session_id,
-            workspace_root=fallback_root,
-            source="managed_chat_workspace_fallback",
-        )
-        return fallback_root
-
-    async def _resolve_session_workspace_path(self, *, user_id: str, session_id: str) -> str | None:
-        provider = self._session_workspace_provider
-        if provider is None or not str(session_id or "").strip():
-            return None
-        try:
-            resolved = provider(user_id=user_id, session_id=session_id)
-            if inspect.isawaitable(resolved):
-                resolved = await resolved
-        except Exception:
-            logger.warning(
-                "task_orchestrator.session_workspace_provider_failed",
-                parent_task_agent_type=self._parent_task_agent_type,
-                session_id=session_id,
-                exc_info=True,
-            )
-            return None
-        normalized = str(resolved or "").strip() or None
-        if normalized:
-            logger.info(
-                "task_orchestrator.session_workspace_provider_resolved",
-                parent_task_agent_type=self._parent_task_agent_type,
-                session_id=session_id,
-                workspace_root=normalized,
-            )
-        return normalized
-
-    def _resolve_runtime_project_root(self) -> str | None:
-        candidate = get_repo_root()
-        if any((candidate / marker).exists() for marker in ("backend", "frontend", "docs", ".git")):
-            return str(candidate)
-        return None
-
-    def _extract_explicit_path_candidates(self, message: str, default_root: str) -> list[str]:
-        candidates: list[str] = []
-        tokens = message.replace("\n", " ").split()
-        relative_prefixes = ("backend/", "frontend/", "docs/", "configs/", "scripts/")
-        for token in tokens:
-            cleaned = token.strip("`'\"()[]{}<>,，。；：!?")
-            if not cleaned:
-                continue
-            if cleaned.startswith(("~/", "/")):
-                candidates.append(cleaned)
-                continue
-            if cleaned.startswith(relative_prefixes):
-                candidates.append(str(Path(default_root) / cleaned))
-        return candidates
-
-    def _normalize_existing_path(self, raw_path: str) -> Optional[str]:
-        candidate = Path(os.path.expandvars(os.path.expanduser(raw_path))).resolve()
-        if candidate.exists():
-            return str(candidate if candidate.is_dir() else candidate.parent)
-        return None
-
     def _mark_remaining_subtasks_cancelled(self, state: TaskOrchestrationState) -> None:
         now = time.time()
         for subtask in state.subtasks:
@@ -715,98 +374,3 @@ class TaskOrchestrator:
             item.status in {"completed", "failed", "cancelled"}
             for item in state.subtasks
         )
-
-    # ------------------------------------------------------------------
-    # Planner-owned session todo list
-    # ------------------------------------------------------------------
-
-    # Map orchestration subtask statuses onto control-plane TodoStatus
-    # values. ``cancelled`` collapses to ``not_started`` so the UI does
-    # not display a ghost "in progress" todo after a cancellation.
-    _SUBTASK_TO_TODO_STATUS = {
-        "pending": "not_started",
-        "running": "in_progress",
-        "completed": "completed",
-        "failed": "completed",
-        "cancelled": "not_started",
-    }
-
-    async def _publish_session_todos(self, state: TaskOrchestrationState) -> None:
-        """Mirror orchestration subtasks onto the session's todo list.
-
-        The control-plane ``ControlSessionStore`` caps ``in_progress`` to
-        one item. We honour that by keeping only the first running
-        subtask as ``in_progress`` and demoting the rest to
-        ``not_started`` for display purposes — their real status remains
-        tracked on ``state.subtasks``.
-        """
-        session_id = str(getattr(state, "session_id", "") or "").strip()
-        if not session_id or not state.subtasks:
-            return
-        if self._control_session_store_provider is None:
-            return
-        try:
-            store = self._control_session_store_provider()
-        except Exception:
-            # Control plane not wired (e.g. unit tests) — todo mirror is
-            # purely a UX concern, never block orchestration on it.
-            return
-
-        items: list[dict[str, Any]] = []
-        running_seen = False
-        for subtask in state.subtasks:
-            mapped = self._SUBTASK_TO_TODO_STATUS.get(subtask.status, "not_started")
-            if mapped == "in_progress":
-                if running_seen:
-                    mapped = "not_started"
-                else:
-                    running_seen = True
-            title = (subtask.description or "").strip() or subtask.subtask_id
-            items.append(
-                {
-                    "id": subtask.subtask_id,
-                    "content": title,
-                    "status": mapped,
-                }
-            )
-
-        try:
-            await store.replace_todos(session_id, items)
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.debug(
-                "planner_todos.replace_failed",
-                session_id=session_id,
-                orchestration_id=state.orchestration_id,
-                error=str(exc),
-            )
-            return
-
-        try:
-            from .control.chat_state_persister import persist_todo_state_message
-
-            await persist_todo_state_message(
-                session_id=session_id,
-                user_id=state.user_id,
-                turn_id=state.turn_id,
-                items=items,
-                orchestration_id=state.orchestration_id,
-            )
-        except Exception:  # pragma: no cover - defensive
-            logger.debug("planner_todos.persist_failed", exc_info=True)
-
-        try:
-            from .control.common.events import publish_control_event
-
-            await publish_control_event(
-                "control.todo.updated",
-                {
-                    "session_id": session_id,
-                    "orchestration_id": state.orchestration_id,
-                    "items": items,
-                },
-                session_id=session_id,
-                user_id=state.user_id,
-                turn_id=state.turn_id,
-            )
-        except Exception:  # pragma: no cover - defensive
-            logger.debug("planner_todos.event_failed", exc_info=True)

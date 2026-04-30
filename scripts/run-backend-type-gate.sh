@@ -5,101 +5,80 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON_BIN="${PYTHON:-python}"
 
-cd "$ROOT_DIR/backend"
+cd "$ROOT_DIR/backend/src"
 
 export PYTHONPATH="$ROOT_DIR/backend/src:$ROOT_DIR/sdk/src${PYTHONPATH:+:$PYTHONPATH}"
 
+TYPE_GATE_DIRS=(
+  magi/agent/execution/function_calling
+  magi/agent/task_agents/chat/postprocess
+  magi/agent/workers
+  magi/llm/provider_bridge
+  magi/llm/parsers
+  magi/memory/l1/embeddings
+  magi/memory/l1/entities
+  magi/memory/l1/retrieval
+  magi/memory/l1/storage
+  magi/memory/l2/assertions
+  magi/memory/l2/entities/catalog
+  magi/memory/l2/entities/maintenance
+  magi/memory/l2/extraction
+  magi/memory/l2/governance
+  magi/memory/l2/graph
+  magi/memory/l2/pipeline/prompts
+  magi/memory/l2/pipeline/validation
+  magi/memory/l2/projection
+  magi/memory/l2/retrieval
+  magi/memory/l2/storage
+  magi/memory/l3/embeddings
+  magi/memory/l3/evidence
+  magi/memory/l3/retrieval
+  magi/memory/l3/storage
+  magi/memory/l4/advisory
+  magi/memory/l4/embeddings
+  magi/memory/l4/learning
+  magi/memory/l4/retrieval
+  magi/memory/l4/storage
+  magi/memory/l4/traces
+  magi/api/services/chat_trace/builders
+  magi/chat/read
+  magi/chat/storage
+)
+
+TYPE_GATE_FILES=(
+  magi/llm/base.py
+  magi/llm/concurrency_limiter.py
+  magi/llm/streaming_events.py
+  magi/llm/usage_events.py
+  magi/memory/l2/batch_models.py
+  magi/memory/l2/candidate_models.py
+  magi/memory/l2/entities/models.py
+  magi/memory/l2/episode_models.py
+  magi/memory/l2/evidence_policy.py
+  magi/memory/l2/graph_conflicts.py
+  magi/memory/l2/llm_json_client.py
+  magi/memory/l2/maintenance_schedule.py
+  magi/memory/l2/ontology.py
+  magi/memory/l2/phase1_models.py
+  magi/memory/l2/phase2_models.py
+  magi/memory/l2/phase_aux_models.py
+  magi/memory/l2/phase_model_utils.py
+  magi/memory/l2/phase_models.py
+  magi/memory/l2/pipeline/context.py
+  magi/memory/l2/pipeline/entities/helpers.py
+  magi/memory/l2/pipeline/entities/id_resolution.py
+  magi/memory/l2/pipeline/entities/side_effects.py
+  magi/memory/l2/pipeline/lifecycle.py
+  magi/memory/l2/pipeline/persistence.py
+  magi/memory/l2/pipeline/projection.py
+  magi/memory/l2/pipeline/staging.py
+  magi/memory/l2/pipeline/utils.py
+  magi/memory/l2/pipeline/workers.py
+)
+
 "$PYTHON_BIN" -m mypy \
-  --config-file pyproject.toml \
+  --config-file ../pyproject.toml \
   --follow-imports=skip \
-  src/magi/agent/execution/function_calling_failures.py \
-  src/magi/agent/execution/function_calling_fallback.py \
-  src/magi/agent/execution/function_calling_guardrails.py \
-  src/magi/agent/execution/function_calling_llm.py \
-  src/magi/agent/execution/function_calling_messages.py \
-  src/magi/agent/execution/function_calling_permission.py \
-  src/magi/agent/execution/function_calling_postprocessor.py \
-  src/magi/agent/execution/function_calling_responses.py \
-  src/magi/agent/execution/function_calling_step_executor.py \
-  src/magi/agent/execution/function_calling_tool_execution.py \
-  src/magi/agent/execution/function_calling_tracing.py \
-  src/magi/agent/execution/function_calling_types.py \
-  src/magi/agent/task_agents/chat/postprocess_background.py \
-  src/magi/agent/task_agents/chat/postprocess_intent.py \
-  src/magi/agent/task_agents/chat/postprocess_memory.py \
-  src/magi/agent/task_agents/chat/postprocess_outcomes.py \
-  src/magi/agent/task_agents/chat/postprocess_session.py \
-  src/magi/agent/task_agents/chat/postprocess_tool_events.py \
-  src/magi/agent/workers/worker_actions.py \
-  src/magi/agent/workers/worker_launch.py \
-  src/magi/agent/workers/worker_prompting.py \
-  src/magi/agent/workers/worker_publication.py \
-  src/magi/agent/workers/worker_schema.py \
-  src/magi/agent/workers/worker_status.py \
-  src/magi/llm/base.py \
-  src/magi/llm/concurrency_limiter.py \
-  src/magi/llm/provider_bridge_options.py \
-  src/magi/llm/provider_bridge_requests.py \
-  src/magi/llm/provider_bridge_streaming.py \
-  src/magi/llm/streaming_events.py \
-  src/magi/llm/usage_events.py \
-  src/magi/llm/parsers/content_sanitizer.py \
-  src/magi/llm/parsers/tool_call_parser.py \
-  src/magi/memory/l1/event_store_embeddings.py \
-  src/magi/memory/l1/event_store_entities.py \
-  src/magi/memory/l1/event_store_fts.py \
-  src/magi/memory/l1/event_store_queries.py \
-  src/magi/memory/l1/event_store_rows.py \
-  src/magi/memory/l1/event_store_schema.py \
-  src/magi/memory/l2/batch_models.py \
-  src/magi/memory/l2/candidate_models.py \
-  src/magi/memory/l2/ontology.py \
-  src/magi/memory/l2/pipeline_assertions.py \
-  src/magi/memory/l2/evidence_policy.py \
-  src/magi/memory/l2/graph_conflicts.py \
-  src/magi/memory/l2/llm_json_client.py \
-  src/magi/memory/l2/maintenance_schedule.py \
-  src/magi/memory/l2/entity_maintenance_assertions.py \
-  src/magi/memory/l2/entity_maintenance_catalog.py \
-  src/magi/memory/l2/entity_maintenance_edges.py \
-  src/magi/memory/l2/entity_maintenance_embeddings.py \
-  src/magi/memory/l2/entity_maintenance_episodes.py \
-  src/magi/memory/l2/entity_maintenance_ghosts.py \
-  src/magi/memory/l2/entity_maintenance_predicates.py \
-  src/magi/memory/l2/entity_catalog_embeddings.py \
-  src/magi/memory/l2/entity_catalog_queries.py \
-  src/magi/memory/l2/entity_models.py \
-  src/magi/memory/l2/episode_models.py \
-  src/magi/memory/l2/phase1_models.py \
-  src/magi/memory/l2/phase2_models.py \
-  src/magi/memory/l2/phase_aux_models.py \
-  src/magi/memory/l2/phase_model_utils.py \
-  src/magi/memory/l2/phase_models.py \
-  src/magi/memory/l2/pipeline_context.py \
-  src/magi/memory/l2/pipeline_entity_id_resolution.py \
-  src/magi/memory/l2/pipeline_entity_helpers.py \
-  src/magi/memory/l2/pipeline_entity_side_effects.py \
-  src/magi/memory/l2/pipeline_graph_validation.py \
-  src/magi/memory/l2/pipeline_lifecycle.py \
-  src/magi/memory/l2/pipeline_persistence.py \
-  src/magi/memory/l2/pipeline_projection.py \
-  src/magi/memory/l2/pipeline_staging.py \
-  src/magi/memory/l2/pipeline_structured_hints.py \
-  src/magi/memory/l2/pipeline_utils.py \
-  src/magi/memory/l2/pipeline_workers.py \
-  src/magi/memory/l2/projection_queue_claiming.py \
-  src/magi/memory/l2/workflow_prompts.py \
-  src/magi/memory/l2/store_assertions.py \
-  src/magi/memory/l2/store_candidates.py \
-  src/magi/memory/l2/store_contradictions.py \
-  src/magi/memory/l2/store_edge_embeddings.py \
-  src/magi/memory/l2/store_fact_kind.py \
-  src/magi/memory/l2/store_feedback.py \
-  src/magi/memory/l2/store_forgetting.py \
-  src/magi/memory/l2/store_migrations.py \
-  src/magi/memory/l2/store_queries.py \
-  src/magi/memory/l2/store_graph_conflicts.py \
-  src/magi/memory/l2/store_graph_writes.py \
-  src/magi/memory/l2/store_reconcile.py \
-  src/magi/memory/l2/store_rows.py \
-  src/magi/memory/l2/store_snapshots.py
+  --exclude '(^|/)__init__\.py$' \
+  "${TYPE_GATE_DIRS[@]}" \
+  "${TYPE_GATE_FILES[@]}"

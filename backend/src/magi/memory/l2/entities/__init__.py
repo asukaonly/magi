@@ -1,0 +1,1 @@
+"""Entity-centric storage helpers for L2 cognition."""

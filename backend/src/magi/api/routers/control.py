@@ -44,15 +44,15 @@ from ...agent.control.settings import (
     SessionControlOverride,
     resolve_effective_settings,
 )
-from ...core.runtime_bindings import (
-    require_control_interaction_broker,
-    require_control_session_store,
-    require_control_settings_manager,
-    require_pending_permission_registry,
-    require_permission_rule_store,
-    require_runtime_trace_store,
+from ...agent.control.provider import (
+    resolve_control_interaction_broker,
+    resolve_control_session_store,
+    resolve_control_settings_manager,
+    resolve_pending_permission_registry,
+    resolve_permission_rule_store,
 )
 from ...agent.control.session_store import TodoItem
+from ...runtime_trace.provider import resolve_runtime_trace_store
 
 control_router = APIRouter()
 
@@ -64,7 +64,7 @@ control_router = APIRouter()
 
 def _settings_manager():
     try:
-        return require_control_settings_manager()
+        return resolve_control_settings_manager()
     except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -74,7 +74,7 @@ def _settings_manager():
 
 def _rule_store():
     try:
-        return require_permission_rule_store()
+        return resolve_permission_rule_store()
     except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -84,7 +84,7 @@ def _rule_store():
 
 def _broker():
     try:
-        return require_control_interaction_broker()
+        return resolve_control_interaction_broker()
     except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -94,7 +94,7 @@ def _broker():
 
 def _session_store():
     try:
-        return require_control_session_store()
+        return resolve_control_session_store()
     except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -109,7 +109,7 @@ async def _load_latest_control_notification(
     limit: int = 200,
 ) -> dict[str, Any] | None:
     try:
-        trace_store = require_runtime_trace_store()
+        trace_store = resolve_runtime_trace_store()
     except RuntimeError:
         return None
 
@@ -381,7 +381,7 @@ async def get_pending_permissions(session_id: str) -> dict[str, Any]:
     ``POST /api/control/permission/{request_id}/respond``.
     """
     try:
-        registry = require_pending_permission_registry()
+        registry = resolve_pending_permission_registry()
     except RuntimeError:
         return {"items": []}
     items = [req.to_dict() for req in registry.snapshot(session_id=session_id)]

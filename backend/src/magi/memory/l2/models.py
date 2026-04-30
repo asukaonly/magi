@@ -23,7 +23,7 @@ from .candidate_models import (
     L2GraphCandidate,
     L2UnifiedExtractionResult,
 )
-from .entity_models import (
+from .entities.models import (
     L2BatchEntityResolutionItem,
     L2EntityCandidate,
     L2EntityResolution,

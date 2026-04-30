@@ -5,82 +5,30 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 import time
-from collections import Counter
 from typing import Any
 
 from ...llm import LLMProviderBridge, LLMScenario, ScenarioLLMPool
 from magi_plugin_sdk.i18n import get_current_language
-from .models import (
-    L3Candidate,
-    ThematicEvidenceItem,
-    ThematicEvidencePack,
-    ThematicGenerationResult,
-    ThematicSummaryLLMOutput,
-)
+from .models import L3Candidate, ThematicEvidencePack, ThematicGenerationResult
+from .topic_evidence import TopicEvidencePackMixin
+from .topic_output import TopicOutputParsingMixin
+from .topic_prompts import TOPIC_SUMMARY_OUTPUT_SCHEMA, TOPIC_SUMMARY_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
-_TOP_TERM_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9_-]{2,}")
-_STOP_TERMS = {
-    "about",
-    "across",
-    "after",
-    "and",
-    "are",
-    "first",
-    "for",
-    "from",
-    "into",
-    "job",
-    "jobs",
-    "looks",
-    "more",
-    "multiple",
-    "portfolio",
-    "roles",
-    "should",
-    "stronger",
-    "switch",
-    "than",
-    "that",
-    "the",
-    "this",
-    "want",
-    "year",
-}
 
 
 def _target_language_instruction() -> str:
     language = str(get_current_language() or "en").lower()
-    if language.startswith("zh"):
-        target = "Simplified Chinese (zh-CN)"
-    else:
-        target = "English"
+    target = "Simplified Chinese (zh-CN)" if language.startswith("zh") else "English"
     return (
         f"- Write user-facing generated fields in {target}: content and key_topics.\n"
         "- Preserve event ids, entity ids, URLs, file paths, source names, product names, song titles, and quoted user text as evidence presents them."
     )
 
-TOPIC_SUMMARY_SYSTEM_PROMPT = """You generate thematic memory summaries for a local-first agent.
 
-Rules:
-- Use only the supplied evidence pack.
-- Summarize what repeatedly surfaced around the topic and why it matters.
-- Treat rule_hints as guidance, not as independent evidence.
-- Do not invent entity ids, event ids, or unsupported preferences.
-- Return a JSON object with: content, key_topics, key_entities, importance_aggregate.
-"""
-TOPIC_SUMMARY_OUTPUT_SCHEMA = {
-    "content": "A concise thematic recap grounded in the evidence pack.",
-    "key_topics": ["short_topic_label"],
-    "key_entities": [{"entity_id": "optional_entity_id", "entity_type": "optional_entity_type"}],
-    "importance_aggregate": 0.0,
-}
-
-
-class TopicSummaryLLMService:
-    """Builds topic evidence packs and supports a fallback-safe LLM path."""
+class TopicSummaryLLMService(TopicEvidencePackMixin, TopicOutputParsingMixin):
+    """Build topic evidence packs and support a fallback-safe LLM path."""
 
     def __init__(
         self,
@@ -92,68 +40,6 @@ class TopicSummaryLLMService:
         self._enabled = bool(enabled)
         self._llm_timeout_seconds = float(llm_timeout_seconds)
         self._scenario_llm_pool = scenario_llm_pool
-
-    def build_evidence_pack(
-        self,
-        *,
-        topic: str,
-        events: list[dict[str, Any]],
-    ) -> ThematicEvidencePack:
-        evidence_items = [
-            ThematicEvidenceItem(
-                event_id=str(event.get("event_id") or ""),
-                event_type=str(event.get("event_type") or ""),
-                content=str(event.get("content") or ""),
-                timestamp=float(event["timestamp"]) if event.get("timestamp") is not None else None,
-                importance_score=float(event["importance_score"]) if event.get("importance_score") is not None else None,
-            )
-            for event in events
-            if str(event.get("event_id") or "").strip()
-        ]
-        source_event_ids = [item.event_id for item in evidence_items]
-        importance_values = [item.importance_score for item in evidence_items if item.importance_score is not None]
-        event_type_distribution: dict[str, int] = {}
-        for item in evidence_items:
-            event_type_distribution[item.event_type] = event_type_distribution.get(item.event_type, 0) + 1
-        return ThematicEvidencePack(
-            topic=str(topic).strip(),
-            source_event_count=len(source_event_ids),
-            source_event_ids=source_event_ids,
-            events=evidence_items,
-            importance_aggregate=(sum(importance_values) / len(importance_values)) if importance_values else None,
-            event_type_distribution=event_type_distribution,
-            rule_hints=self._build_rule_hints(evidence_items, event_type_distribution),
-        )
-
-    def parse_llm_output(
-        self,
-        payload: dict[str, Any],
-        *,
-        pack: ThematicEvidencePack,
-    ) -> tuple[L3Candidate, dict[str, Any]]:
-        content = str(payload.get("content") or "").strip()
-        if not content:
-            raise ValueError("Thematic LLM output requires non-empty content")
-        importance = self._normalize_importance_aggregate(payload.get("importance_aggregate"))
-        output = ThematicSummaryLLMOutput(
-            content=content,
-            key_topics=[str(item).strip() for item in payload.get("key_topics", []) if str(item).strip()],
-            key_entities=[item for item in payload.get("key_entities", []) if isinstance(item, dict)],
-            importance_aggregate=importance,
-        )
-        candidate = L3Candidate(
-            summary_type="thematic",
-            summary_category="topic",
-            content=output.content,
-            source_event_ids=list(pack.source_event_ids),
-        )
-        summary_overrides: dict[str, Any] = {
-            "key_topics": list(output.key_topics),
-            "key_entities": list(output.key_entities),
-        }
-        if output.importance_aggregate is not None:
-            summary_overrides["importance_aggregate"] = output.importance_aggregate
-        return candidate, summary_overrides
 
     async def generate_topic_candidate(
         self,
@@ -202,7 +88,7 @@ class TopicSummaryLLMService:
         logger.info("L3 thematic topic LLM call started", extra=log_context)
         try:
             response = await provider_bridge.chat_response(
-                system_prompt=TOPIC_SUMMARY_SYSTEM_PROMPT,
+                system_prompt=TOPIC_SUMMARY_SYSTEM_PROMPT + "\nLanguage Rules:\n" + _target_language_instruction(),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.0,
                 json_mode=True,
@@ -308,41 +194,9 @@ class TopicSummaryLLMService:
             return None
         return adapter, LLMProviderBridge(adapter)
 
-    def _normalize_importance_aggregate(self, value: Any) -> float | None:
-        if value is None:
-            return None
-        numeric = float(value)
-        if numeric < 0.0 or numeric > 1.0:
-            raise ValueError("importance_aggregate must be between 0.0 and 1.0")
-        return numeric
 
-    def _build_rule_hints(
-        self,
-        evidence_items: list[ThematicEvidenceItem],
-        event_type_distribution: dict[str, int],
-    ) -> dict[str, object]:
-        term_counter: Counter[str] = Counter()
-        for item in evidence_items:
-            for token in _TOP_TERM_PATTERN.findall(item.content.lower()):
-                if token in _STOP_TERMS:
-                    continue
-                term_counter[token] += 1
-        high_importance_event_ids = [
-            item.event_id
-            for item in sorted(
-                evidence_items,
-                key=lambda candidate: float(candidate.importance_score or 0.0),
-                reverse=True,
-            )[:3]
-            if item.event_id
-        ]
-        repeated_event_types = [
-            event_type
-            for event_type, count in sorted(event_type_distribution.items())
-            if count > 1 and event_type
-        ]
-        return {
-            "top_terms": [term for term, _count in term_counter.most_common(5)],
-            "high_importance_event_ids": high_importance_event_ids,
-            "repeated_event_types": repeated_event_types,
-        }
+__all__ = [
+    "TOPIC_SUMMARY_OUTPUT_SCHEMA",
+    "TOPIC_SUMMARY_SYSTEM_PROMPT",
+    "TopicSummaryLLMService",
+]

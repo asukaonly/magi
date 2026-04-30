@@ -77,7 +77,7 @@ def client(tmp_path: Path, monkeypatch):
     app.include_router(background_tasks_router, prefix="/api/background-tasks")
     monkeypatch.setattr(
         background_tasks_module,
-        "require_background_task_manager",
+        "resolve_background_task_manager",
         lambda: manager,
     )
     return TestClient(app), manager, store

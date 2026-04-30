@@ -18,14 +18,14 @@ from magi.agent.control.settings_manager import ControlSettingsManager
 from magi.bootstrap.context import RuntimeBootstrapContext
 from magi.bootstrap.control_plane import ControlPlaneModule
 from magi.core.container import get_container
-from magi.core.runtime_bindings import (
-    require_control_interaction_broker,
-    require_control_session_store,
-    require_control_settings_manager,
-    require_pending_permission_registry,
-    require_permission_gateway,
-    require_permission_rule_store,
+from magi.agent.control.provider import (
+    resolve_control_interaction_broker,
+    resolve_control_session_store,
+    resolve_control_settings_manager,
+    resolve_pending_permission_registry,
+    resolve_permission_rule_store,
 )
+from magi.agent.control.permission.provider import get_permission_gateway
 
 
 class _FakeRuntimePaths:
@@ -51,12 +51,12 @@ async def test_control_plane_module_wires_all_singletons(tmp_path: Path) -> None
         assert isinstance(wiring.gateway, PermissionGateway)
 
         # All DI bindings resolve to the same instances.
-        assert require_control_session_store() is wiring.session_store
-        assert require_control_settings_manager() is wiring.settings_manager
-        assert require_control_interaction_broker() is wiring.broker
-        assert require_permission_rule_store() is wiring.rule_store
-        assert require_permission_gateway() is wiring.gateway
-        assert require_pending_permission_registry() is wiring.pending_permissions
+        assert resolve_control_session_store() is wiring.session_store
+        assert resolve_control_settings_manager() is wiring.settings_manager
+        assert resolve_control_interaction_broker() is wiring.broker
+        assert resolve_permission_rule_store() is wiring.rule_store
+        assert get_permission_gateway() is wiring.gateway
+        assert resolve_pending_permission_registry() is wiring.pending_permissions
 
         # The gateway now has a prompter attached: brokered prompter
         # that records to the shared pending-permissions registry.
@@ -84,7 +84,7 @@ async def test_control_plane_module_wires_all_singletons(tmp_path: Path) -> None
     # After shutdown, DI overrides are cleared.
     container = get_container()
     with pytest.raises(RuntimeError):
-        require_permission_gateway()
+        get_permission_gateway()
     # Tidy: make sure container providers really reset.
     assert not container.permission_gateway.overridden
 
@@ -98,7 +98,7 @@ async def test_control_plane_module_without_runtime_paths_uses_inmemory_rules(
     try:
         await module.init()
         # Rules are in-memory only; adding + listing works.
-        store = require_permission_rule_store()
+        store = resolve_permission_rule_store()
         rules = store.list_rules(session_id=None)
         assert rules == []
     finally:

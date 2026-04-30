@@ -7,7 +7,8 @@ from typing import Any
 
 from ...bootstrap.runtime_startup_state import get_runtime_startup_snapshot
 from ...core.container import get_container
-from ...core.runtime_bindings import require_runtime_command_queue, require_runtime_trace_store
+from ...core.runtime_bindings import require_runtime_command_queue
+from ...runtime_trace.provider import resolve_runtime_trace_store
 
 RUNTIME_HEARTBEAT_ROLE = "ipc_worker"
 DEFAULT_RUNTIME_HEARTBEAT_STALE_AFTER_MS = 15_000
@@ -92,7 +93,7 @@ def _resolve_binding(provider_name: str):
 
 async def _get_runtime_worker_status() -> tuple[bool, str, int | None, str | None]:
     try:
-        store = require_runtime_trace_store()
+        store = resolve_runtime_trace_store()
         heartbeat = await store.get_runtime_heartbeat(role=RUNTIME_HEARTBEAT_ROLE)
     except Exception:
         return False, "offline", None, None

@@ -8,8 +8,8 @@ import pytest
 
 from magi.llm.base import LLMAdapter
 from magi.llm.provider_bridge import ProviderResponse, ProviderToolCall
-from magi.agent.execution.function_calling_postprocessor import FunctionCallingPostprocessor
-from magi.agent.execution import function_calling_llm as function_calling_llm_module
+from magi.agent.execution.function_calling.postprocessor import FunctionCallingPostprocessor
+from magi.agent.execution.function_calling import llm as function_calling_llm_module
 from magi.agent.execution.function_calling import FunctionCallingOrchestrator, ToolCall, ToolCallResult
 from magi.config.models import ThinkingDepth
 from magi.tools.schema import ToolResult

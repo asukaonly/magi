@@ -224,6 +224,15 @@ L2 holds:
 - Episodes (bounded activity segments formed from L1 events)
 - Durable projection job queue
 
+Implementation boundary: `L2CognitionStore` remains the public storage facade
+and transaction coordinator in `memory/l2/store.py`, while its mixins are grouped
+by L2 domain rather than by generic helper status: `storage/`, `graph/`,
+`assertions/`, `entities/`, `episodes/`, `projection/`, `extraction/`,
+`retrieval/`, and `governance/`. Entity-domain code lives under
+`memory/l2/entities/`: `catalog/` owns canonical entities and aliases,
+`maintenance/` owns offline cleanup, `models.py` owns entity contracts, and
+`facets.py` owns sidecar entity attributes.
+
 For user-authored chat, durable self-descriptive profile facts such as naming and
 addressing preferences should land in L2 semantic memory, not in bootstrap-only
 state. For example, "call me Hakimi", "don't call me teacher", and explicit
@@ -908,7 +917,7 @@ Main implementation entry points:
 
 - [backend/src/magi/memory/l2/store.py](../backend/src/magi/memory/l2/store.py) — `L2` durable cognition store (knowledge graph, assertions, episodes, projection jobs)
 
-- [backend/src/magi/memory/l2/pipeline.py](../backend/src/magi/memory/l2/pipeline.py) — `L2` extraction and cognition pipeline, durable projection job claim/batching
+- [backend/src/magi/memory/l2/pipeline/__init__.py](../backend/src/magi/memory/l2/pipeline/__init__.py) — `L2` extraction and cognition pipeline facade, durable projection job claim/batching
 
 - [backend/src/magi/memory/l2/episode_formation.py](../backend/src/magi/memory/l2/episode_formation.py) — Streaming episode assignment and consolidation
 
