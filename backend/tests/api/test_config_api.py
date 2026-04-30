@@ -497,6 +497,51 @@ def test_resolve_provider_model_catalog_applies_builtin_and_manual_overrides():
     assert manual_embedding_model.capabilities.embedding is True
 
 
+def test_resolve_provider_model_catalog_includes_manual_image_generation_models():
+    registry = _default_llm_provider_registry()
+    provider = LLMProviderSettings(
+        provider_type="openai",
+        display_name="OpenAI",
+        model_metadata_overrides={
+            "acme-image-1": LLMModelMetadataOverrideSettings(
+                label="Acme Image 1",
+                capabilities=LLMCapabilityOverridesSettings(image_output=True),
+            ),
+        },
+    )
+
+    resolved = resolve_provider_model_catalog(registry, "openai", provider)
+    manual_image_model = next(model for model in resolved.image_generation_models if model.id == "acme-image-1")
+
+    assert manual_image_model.source == "manual"
+    assert manual_image_model.label == "Acme Image 1"
+    assert manual_image_model.capabilities.image_output is True
+    assert all(model.id != "acme-image-1" for model in resolved.chat_models)
+
+
+def test_resolve_llm_profile_accepts_manual_image_generation_models():
+    registry = _default_llm_provider_registry()
+    selection = LLMSelectionSettings(
+        provider_id="openai",
+        model="acme-image-1",
+        capability_override_enabled=False,
+    )
+    provider = LLMProviderSettings(
+        provider_type="openai",
+        display_name="OpenAI",
+        model_metadata_overrides={
+            "acme-image-1": LLMModelMetadataOverrideSettings(
+                capabilities=LLMCapabilityOverridesSettings(image_output=True),
+            ),
+        },
+    )
+
+    resolved = resolve_llm_profile(selection, registry, provider_settings=provider)
+
+    assert resolved.capabilities.image_output is True
+    assert resolved.capabilities.embedding is False
+
+
 def test_onboarding_template_includes_model_capability_defaults():
     template = _build_onboarding_template()
 

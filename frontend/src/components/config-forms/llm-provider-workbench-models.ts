@@ -76,25 +76,21 @@ export const buildProviderWorkbenchModels = (
     });
   }
 
-  const providerMeta = registry.providers.find((item) => item.id === providerId);
-  for (const model of providerMeta?.image_generation_models || []) {
+  for (const model of resolved.image_generation_models) {
     const existing = models.get(model.id);
     if (existing) {
       existing.kinds = Array.from(new Set([...existing.kinds, 'image']));
+      existing.source = model.source;
+      existing.capabilities = model.capabilities;
+      existing.limits = model.limits || {};
       continue;
     }
     models.set(model.id, {
       id: model.id,
       label: model.label || model.id,
-      source: 'builtin',
-      capabilities: {
-        vision: false,
-        image_output: true,
-        tool_calling: false,
-        reasoning: false,
-        embedding: false,
-      },
-      limits: {},
+      source: model.source,
+      capabilities: model.capabilities,
+      limits: model.limits || {},
       kinds: ['image'],
       dimensions: [],
     });

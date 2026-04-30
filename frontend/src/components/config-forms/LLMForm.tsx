@@ -510,11 +510,6 @@ const LLMForm: React.FC<LLMFormProps> = ({
   };
 
   const handleAddProviderModel = (providerId: string, model: string, kind: 'chat' | 'embedding' | 'image' = 'chat') => {
-    if (kind === 'image') {
-      // Image generation models are predefined by the provider registry and not
-      // user-extensible from the workbench yet, so ignore the request.
-      return;
-    }
     const trimmedModel = model.trim();
     if (!trimmedModel) {
       return;
@@ -539,6 +534,27 @@ const LLMForm: React.FC<LLMFormProps> = ({
           limits: { ...(existing?.limits || {}) },
         };
         provider.model_metadata_overrides = overrides;
+      } else if (kind === 'image') {
+        const overrides = { ...(provider.model_metadata_overrides || {}) };
+        const existing = overrides[trimmedModel];
+        const nextModels = (provider.custom_models || []).filter((item) => item !== trimmedModel);
+        provider.custom_models = nextModels;
+        if (provider.custom_default_model === trimmedModel) {
+          provider.custom_default_model = nextModels[0] || '';
+        }
+        overrides[trimmedModel] = {
+          ...(existing || {}),
+          capabilities: {
+            ...(existing?.capabilities || {}),
+            vision: false,
+            image_output: true,
+            tool_calling: false,
+            reasoning: false,
+            embedding: false,
+          },
+          limits: { ...(existing?.limits || {}) },
+        };
+        provider.model_metadata_overrides = overrides;
       } else {
         const nextModels = Array.from(new Set([...(provider.custom_models || []), trimmedModel]));
         provider.custom_models = nextModels;
@@ -551,6 +567,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
           const existing = overrides[trimmedModel];
           const nextCapabilities = { ...(existing?.capabilities || {}) };
           delete nextCapabilities.embedding;
+          delete nextCapabilities.image_output;
           overrides[trimmedModel] = {
             ...(existing || {}),
             capabilities: nextCapabilities,

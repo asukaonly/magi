@@ -234,7 +234,7 @@
       "modelManualEntryChat": "添加聊天模型",
       "modelManualEntryEmbedding": "添加向量模型",
       "modelManualEntryEmbeddingPlaceholder": "输入向量模型 ID",
-      "imageModelsManagedByRegistry": "生图模型由服务商预置，暂不支持手动添加。"
+      "modelManualEntryImage": "添加生图模型"
     },
     "modelKinds": {
       "chat": "聊天模型",

@@ -161,6 +161,7 @@ export interface LLMProviderMeta {
   fields?: Record<string, LLMProviderFieldConfig>;
   resolved_chat_models?: LLMResolvedChatModelMeta[];
   resolved_embedding_models?: LLMResolvedEmbeddingModelMeta[];
+  resolved_image_generation_models?: LLMResolvedImageGenerationModelMeta[];
 }
 
 export interface LLMCustomProviderMeta {
@@ -199,6 +200,21 @@ export interface LLMResolvedChatModelMeta extends LLMChatModelMeta {
   preferred: boolean;
   input_modalities: string[];
   output_modalities: string[];
+}
+
+export interface LLMResolvedImageGenerationModelMeta {
+  id: string;
+  label?: string;
+  description?: string;
+  icon?: string;
+  source: LLMResolvedModelSource;
+  hidden: boolean;
+  preferred: boolean;
+  capabilities: LLMCapabilities;
+  limits: LLMRuntimeLimits;
+  input_modalities: string[];
+  output_modalities: string[];
+  provider_options_example?: Record<string, any>;
 }
 
 export interface LLMEmbeddingModelMeta {
@@ -447,6 +463,7 @@ export const DEFAULT_LLM_LIMITS: LLMLimits = {
 export interface ResolvedProviderModels {
   chat_models: LLMResolvedChatModelMeta[];
   embedding_models: LLMResolvedEmbeddingModelMeta[];
+  image_generation_models: LLMResolvedImageGenerationModelMeta[];
 }
 
 export const resolveProviderModels = (
@@ -458,6 +475,7 @@ export const resolveProviderModels = (
   return {
     chat_models: [...(resolvedProviderMeta?.resolved_chat_models || [])],
     embedding_models: [...(resolvedProviderMeta?.resolved_embedding_models || [])],
+    image_generation_models: [...(resolvedProviderMeta?.resolved_image_generation_models || [])],
   };
 };
 

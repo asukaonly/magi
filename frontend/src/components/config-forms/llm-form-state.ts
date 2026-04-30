@@ -274,9 +274,7 @@ export const resolveProviderDefaultModel = (
     return resolvedModels.embedding_models.find((model) => !model.hidden)?.id || '';
   }
   if (scenario === 'image_generation') {
-    const providerMeta =
-      provider.provider_type === 'custom' ? undefined : getProviderMeta(registry, provider.provider_type);
-    const imageModels = providerMeta?.image_generation_models ?? [];
+    const imageModels = resolvedModels.image_generation_models.filter((model) => !model.hidden);
     return imageModels[0]?.id || '';
   }
   if (scenario === 'context_decider') {
@@ -340,8 +338,26 @@ export const applySelectionDefaults = (
   }
 
   if (scenario === 'image_generation') {
-    // Image generation models are user-configured, no auto-resolution needed.
-    // Just keep the current model value as-is (user types it in).
+    const imageModels = resolvedModels.image_generation_models.filter((model) => !model.hidden);
+    const preferredModelId = selection.model || resolveProviderDefaultModel(registry, providerId, provider, scenario);
+    const matchedModel = imageModels.find((model) => model.id === preferredModelId);
+    const fallbackModel = matchedModel || imageModels[0];
+    if (fallbackModel) {
+      selection.model = fallbackModel.id;
+      selection.embedding_dimension = null;
+      if (!selection.capability_override_enabled) {
+        selection.capabilities = cloneCapabilities({
+          vision: fallbackModel.capabilities.vision,
+          image_output: true,
+          tool_calling: fallbackModel.capabilities.tool_calling,
+          reasoning: fallbackModel.capabilities.reasoning,
+          embedding: false,
+        });
+        selection.limits = cloneLimits(fallbackModel.limits);
+        selection.provider_options = { ...(fallbackModel.provider_options_example || {}) };
+      }
+      return;
+    }
     if (!selection.capability_override_enabled) {
       selection.capabilities = cloneCapabilities({
         vision: false,
@@ -430,9 +446,15 @@ export const normalizeLLMConfig = (value: LLMConfig, registry: LLMProviderRegist
       }
       return Boolean(getResolvedProviderModels(registry, providerId, provider).embedding_models.length);
     })?.[0] || '';
+  const firstEnabledImageProviderId =
+    Object.entries(next.providers).find(([providerId, provider]) => {
+      if (!provider.enabled) {
+        return false;
+      }
+      return Boolean(getResolvedProviderModels(registry, providerId, provider).image_generation_models.length);
+    })?.[0] || '';
 
   for (const scenario of BUILTIN_SCENARIOS) {
-    // Image generation is fully user-managed, so skip auto-normalization.
     if (scenario === 'image_generation') {
       if (!next.selections[scenario]) {
         next.selections[scenario] = {
@@ -451,32 +473,39 @@ export const normalizeLLMConfig = (value: LLMConfig, registry: LLMProviderRegist
           provider_options: {},
         };
       }
-      const sel = next.selections[scenario];
-      if (sel.provider_id && !next.providers[sel.provider_id]?.enabled) {
-        sel.provider_id = '';
-        sel.model = '';
-      }
-      continue;
     }
 
     const selection = cloneSelection(next.selections[scenario]);
     const hasEnabledSelection =
       Boolean(selection.provider_id) &&
       Boolean(next.providers[selection.provider_id]?.enabled);
-    const hasEnabledEmbeddingSelection =
-      scenario !== 'embedding'
-        ? hasEnabledSelection
-        : (hasEnabledSelection &&
+    const hasEnabledScenarioSelection =
+      scenario === 'embedding'
+        ? (hasEnabledSelection &&
             Boolean(
               getResolvedProviderModels(
                 registry,
                 selection.provider_id,
                 next.providers[selection.provider_id]
               ).embedding_models.length
-            ));
+            ))
+        : scenario === 'image_generation'
+          ? (hasEnabledSelection &&
+              Boolean(
+                getResolvedProviderModels(
+                  registry,
+                  selection.provider_id,
+                  next.providers[selection.provider_id]
+                ).image_generation_models.length
+              ))
+          : hasEnabledSelection;
 
     const firstAvailableProviderId =
-      scenario === 'embedding' ? firstEnabledEmbeddingProviderId : firstEnabledProviderId;
+      scenario === 'embedding'
+        ? firstEnabledEmbeddingProviderId
+        : scenario === 'image_generation'
+          ? firstEnabledImageProviderId
+          : firstEnabledProviderId;
 
     if (!firstAvailableProviderId) {
       selection.provider_id = '';
@@ -492,6 +521,14 @@ export const normalizeLLMConfig = (value: LLMConfig, registry: LLMProviderRegist
                 reasoning: false,
                 embedding: true,
               }
+            : scenario === 'image_generation'
+              ? {
+                  vision: false,
+                  image_output: true,
+                  tool_calling: false,
+                  reasoning: false,
+                  embedding: false,
+                }
             : undefined
         );
         selection.limits = cloneLimits();
@@ -501,11 +538,11 @@ export const normalizeLLMConfig = (value: LLMConfig, registry: LLMProviderRegist
       continue;
     }
 
-    const selectedProvider = hasEnabledEmbeddingSelection
+    const selectedProvider = hasEnabledScenarioSelection
       ? next.providers[selection.provider_id]
       : next.providers[firstAvailableProviderId];
 
-    selection.provider_id = hasEnabledEmbeddingSelection
+    selection.provider_id = hasEnabledScenarioSelection
       ? selection.provider_id
       : firstAvailableProviderId;
 

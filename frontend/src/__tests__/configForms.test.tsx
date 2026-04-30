@@ -1,3 +1,4 @@
+import React from 'react';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
@@ -312,6 +313,7 @@ vi.mock('../api/modules/config', async () => {
     const customModels = provider.custom_models || [];
     const chatModels = new Map<string, any>();
     const embeddingModels = new Map<string, any>();
+    const imageGenerationModels = new Map<string, any>();
 
     for (const model of builtinMeta?.chat_models || []) {
       const override = overrides[model.id];
@@ -368,6 +370,31 @@ vi.mock('../api/modules/config', async () => {
       });
     }
 
+    for (const model of builtinMeta?.image_generation_models || []) {
+      const override = overrides[model.id];
+      imageGenerationModels.set(model.id, {
+        id: model.id,
+        label: override?.label || model.label || model.id,
+        description: override?.description,
+        icon: override?.icon,
+        source: 'builtin',
+        hidden: Boolean(override?.hidden),
+        preferred: Boolean(override?.preferred),
+        capabilities: {
+          vision: false,
+          image_output: true,
+          tool_calling: false,
+          reasoning: false,
+          embedding: false,
+          ...(override?.capabilities || {}),
+        },
+        limits: { ...(override?.limits || {}) },
+        input_modalities: override?.input_modalities || ['text'],
+        output_modalities: override?.output_modalities || ['image'],
+        provider_options_example: override?.provider_options_example || model.provider_options_example || {},
+      });
+    }
+
     const customBaseCapabilities =
       provider.provider_type === 'custom'
         ? { ...providerRegistry.custom_provider.capabilities }
@@ -409,7 +436,7 @@ vi.mock('../api/modules/config', async () => {
     }
 
     for (const [modelId, override] of Object.entries(overrides) as Array<[string, any]>) {
-      if (!chatModels.has(modelId) && !override?.capabilities?.embedding) {
+      if (!chatModels.has(modelId) && !override?.capabilities?.embedding && !override?.capabilities?.image_output) {
         const capabilities = { ...customBaseCapabilities, ...(override?.capabilities || {}) };
         const modalities = defaultChatModalities(capabilities);
         chatModels.set(modelId, {
@@ -425,6 +452,36 @@ vi.mock('../api/modules/config', async () => {
           input_modalities: override?.input_modalities || modalities.input,
           output_modalities: override?.output_modalities || modalities.output,
           provider_options_example: override?.provider_options_example || customProviderOptions,
+        });
+      }
+
+      if (override?.capabilities?.image_output && !imageGenerationModels.has(modelId)) {
+        const baseChat = chatModels.get(modelId);
+        imageGenerationModels.set(modelId, {
+          id: modelId,
+          label: override?.label || baseChat?.label || modelId,
+          description: override?.description || baseChat?.description,
+          icon: override?.icon || baseChat?.icon,
+          source: baseChat?.source || 'manual',
+          hidden: Boolean(override?.hidden),
+          preferred: Boolean(override?.preferred),
+          capabilities: {
+            ...(baseChat?.capabilities || {
+              vision: false,
+              image_output: true,
+              tool_calling: false,
+              reasoning: false,
+              embedding: false,
+            }),
+            ...(override?.capabilities || {}),
+            image_output: true,
+            embedding: false,
+          },
+          limits: { ...(baseChat?.limits || customBaseLimits), ...(override?.limits || {}) },
+          input_modalities: override?.input_modalities || ['text'],
+          output_modalities: override?.output_modalities || ['image'],
+          provider_options_example:
+            override?.provider_options_example || baseChat?.provider_options_example || customProviderOptions,
         });
       }
 
@@ -464,6 +521,7 @@ vi.mock('../api/modules/config', async () => {
     return {
       chat_models: Array.from(chatModels.values()),
       embedding_models: Array.from(embeddingModels.values()),
+      image_generation_models: Array.from(imageGenerationModels.values()),
     };
   };
 
@@ -492,6 +550,7 @@ vi.mock('../api/modules/config', async () => {
       fields: provider.provider_type === 'custom' ? providerRegistry.custom_provider.fields : builtinMeta?.fields,
       resolved_chat_models: resolved.chat_models,
       resolved_embedding_models: resolved.embedding_models,
+      resolved_image_generation_models: resolved.image_generation_models,
     };
   };
 
@@ -1309,6 +1368,23 @@ describe('config forms', () => {
           },
           provider_options: {},
         },
+        memory_summarizer: {
+          provider_id: '',
+          model: '',
+          capability_override_enabled: false,
+          capabilities: {
+            vision: false,
+            image_output: false,
+            tool_calling: true,
+            reasoning: true,
+            embedding: false,
+          },
+          limits: {
+            context_window: null,
+            max_output_tokens: null,
+          },
+          provider_options: {},
+        },
         image_generation: {
           provider_id: '',
           model: '',
@@ -1366,6 +1442,52 @@ describe('config forms', () => {
 
     expect(screen.getAllByText('foo-1').length).toBeGreaterThan(0);
     expect(screen.getByLabelText('llm.fields.defaultModel')).toHaveTextContent('foo-1');
+  });
+
+  it('lets users add a custom image model and select it for image generation', async () => {
+    const user = userEvent.setup();
+
+    function ControlledSettingsLlmForm() {
+      const [value, setValue] = React.useState(llmValue as unknown as LLMConfig);
+      return (
+        <LLMForm
+          quickMode={false}
+          surface="settings"
+          showSectionIntro={false}
+          value={value}
+          onChange={setValue}
+        />
+      );
+    }
+
+    render(<ControlledSettingsLlmForm />);
+
+    await user.click(await screen.findByRole('button', { name: 'llm.modelKinds.chat' }));
+    await user.click(screen.getByRole('option', { name: 'llm.modelKinds.image' }));
+    await user.type(screen.getByLabelText('llm.fields.modelManualEntry'), 'gpt-image-custom');
+    await user.click(screen.getByRole('button', { name: 'llm.actions.addModel' }));
+
+    await waitFor(() => {
+      expect(screen.getAllByText('gpt-image-custom').length).toBeGreaterThan(0);
+    });
+
+    const imageTab = screen.getByRole('tab', { name: 'llm.scenarios.image_generation.title' });
+    await user.click(imageTab);
+
+    const imagePanel = screen.getByTestId('llm-scenario-image_generation');
+    const providerField = within(imagePanel).getByLabelText('llm.fields.provider');
+    await waitFor(() => {
+      expect(providerField).toHaveTextContent('OpenAI');
+    });
+
+    const modelField = within(imagePanel).getByLabelText('llm.fields.model');
+    await user.click(modelField);
+
+    await waitFor(() => {
+      const menu = document.querySelector('[data-select-field-menu]');
+      expect(menu).not.toBeNull();
+      expect(within(menu as HTMLElement).getByText('gpt-image-custom')).toBeInTheDocument();
+    });
   });
 
   it('writes model metadata overrides from the provider workbench', async () => {

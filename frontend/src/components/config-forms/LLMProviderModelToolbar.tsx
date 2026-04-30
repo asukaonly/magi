@@ -117,51 +117,42 @@ export function LLMProviderModelToolbar({
         </div>
       </div>
 
-      {modelDraftKind !== 'image' ? (
-        <label className="flex-1 space-y-2">
-          <span className="text-sm font-medium">
-            {modelDraftKind === 'embedding'
-              ? t('llm.fields.modelManualEntryEmbedding')
+      <label className="flex-1 space-y-2">
+        <span className="text-sm font-medium">
+          {modelDraftKind === 'embedding'
+            ? t('llm.fields.modelManualEntryEmbedding')
+            : modelDraftKind === 'image'
+              ? t('llm.fields.modelManualEntryImage')
               : t('llm.fields.modelManualEntryChat')}
-          </span>
-          <input
-            aria-label={t('llm.fields.modelManualEntry')}
-            className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
-            placeholder={
-              modelDraftKind === 'embedding'
-                ? t('llm.fields.modelManualEntryEmbeddingPlaceholder')
+        </span>
+        <input
+          aria-label={t('llm.fields.modelManualEntry')}
+          className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
+          placeholder={
+            modelDraftKind === 'embedding'
+              ? t('llm.fields.modelManualEntryEmbeddingPlaceholder')
+              : modelDraftKind === 'image'
+                ? t('llm.imageGenerationModelPlaceholder')
                 : t('llm.fields.modelManualEntryPlaceholder')
-            }
-            value={modelDraft}
-            onChange={(event) => onModelDraftChange(event.target.value)}
-          />
-        </label>
-      ) : (
-        <div className="flex-1 space-y-2 self-stretch">
-          <span className="text-sm font-medium opacity-0 select-none" aria-hidden="true">
-            {t('llm.fields.modelManualEntryChat')}
-          </span>
-          <p className="rounded-lg bg-muted/40 px-3 py-2.5 text-xs text-muted-foreground">
-            {t('llm.fields.imageModelsManagedByRegistry')}
-          </p>
-        </div>
-      )}
+          }
+          value={modelDraft}
+          onChange={(event) => onModelDraftChange(event.target.value)}
+        />
+      </label>
 
-      {modelDraftKind !== 'image' ? (
-        <button
-          type="button"
-          onClick={() => {
-            onAddProviderModel(providerId, modelDraft, modelDraftKind);
-            onModelDraftChange('');
-          }}
-          className={cn(
-            'inline-flex h-11 min-w-fit items-center justify-center whitespace-nowrap rounded-lg bg-background px-4 text-sm font-medium text-foreground transition hover:bg-accent',
-            isSettingsSurface && 'rounded-md border border-[hsl(var(--settings-subnav-border)/0.8)] bg-transparent hover:bg-[hsl(var(--settings-shell-elevated)/0.42)]'
-          )}
-        >
-          {t('llm.actions.addModel')}
-        </button>
-      ) : null}
+      <button
+        type="button"
+        onClick={() => {
+          onAddProviderModel(providerId, modelDraft, modelDraftKind);
+          onModelDraftChange('');
+        }}
+        className={cn(
+          'inline-flex h-11 min-w-fit items-center justify-center whitespace-nowrap rounded-lg bg-background px-4 text-sm font-medium text-foreground transition hover:bg-accent',
+          isSettingsSurface && 'rounded-md border border-[hsl(var(--settings-subnav-border)/0.8)] bg-transparent hover:bg-[hsl(var(--settings-shell-elevated)/0.42)]'
+        )}
+      >
+        {t('llm.actions.addModel')}
+      </button>
 
       {isCustomProvider && modelDraftKind !== 'image' ? (
         <button

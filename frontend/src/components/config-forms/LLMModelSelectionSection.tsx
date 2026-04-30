@@ -170,8 +170,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
       modelLabel: string;
     }> = [];
     for (const [providerId, provider] of enabledProviders) {
-      const providerMeta = registry.providers.find((p) => p.id === providerId);
-      const imageModels = providerMeta?.image_generation_models ?? [];
+      const imageModels = resolveProviderModels(registry, providerId, provider).image_generation_models;
       for (const model of imageModels) {
         models.push({
           providerId,

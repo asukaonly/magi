@@ -233,7 +233,7 @@
       "modelManualEntryChat": "Add Chat Model",
       "modelManualEntryEmbedding": "Add Embedding Model",
       "modelManualEntryEmbeddingPlaceholder": "Enter embedding model ID",
-      "imageModelsManagedByRegistry": "Image generation models are predefined by the provider; manual add is not supported yet."
+      "modelManualEntryImage": "Add Image Generation Model"
     },
     "modelKinds": {
       "chat": "Chat",
