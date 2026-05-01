@@ -100,7 +100,7 @@ async def test_response_rhythm_planner_splits_short_cjk_sentence_units(monkeypat
     assert plan is not None
     assert [segment.content for segment in plan.segments] == [
         "先别把节奏规划当成第二个回答模型。",
-        "主模型正常说完，保留原来的判断。\n\n然后只把自然断句拆成两三条气泡，让它像聊天而不是报告。",
+        "主模型正常说完，保留原来的判断。\n然后只把自然断句拆成两三条气泡，让它像聊天而不是报告。",
     ]
     payload = json.loads(prompt_service.calls[0]["messages"][0]["content"])
     assert [unit["text"] for unit in payload["units"]] == [

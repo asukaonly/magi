@@ -70,6 +70,10 @@ The backend reconstructs visible content from the original answer units. If the
 planner output is invalid, references unknown units, drops too much content, or
 exceeds limits, the system falls back to one assistant message.
 
+When multiple units are grouped into one visible bubble, they are joined with a
+single line break so the bubble keeps a readable cadence without introducing a
+large paragraph gap.
+
 Triggering should be language-aware. Chinese chat often carries multiple
 semantic moves in fewer characters than English, so the planner uses a lower
 minimum content threshold for CJK text and accepts sentence boundaries without

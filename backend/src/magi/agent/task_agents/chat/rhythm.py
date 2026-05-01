@@ -196,7 +196,7 @@ Schema:
             if not unit_ids or any(unit_id not in unit_lookup for unit_id in unit_ids):
                 return None
             flattened_ids.extend(unit_ids)
-            content = "\n\n".join(unit_lookup[unit_id].text for unit_id in unit_ids).strip()
+            content = self._join_group_content([unit_lookup[unit_id] for unit_id in unit_ids])
             if not content:
                 return None
             delay_ms = self._coerce_delay_ms(group.get("delay_ms"), first=index == 0)
@@ -235,6 +235,10 @@ Schema:
         intent = str(value or "answer").strip().lower()
         allowed = {"acknowledge", "answer", "explain", "tradeoff", "next_step", "afterthought"}
         return intent if intent in allowed else "answer"
+
+    @staticmethod
+    def _join_group_content(units: list[_RhythmUnit]) -> str:
+        return "\n".join(unit.text.strip() for unit in units if unit.text.strip()).strip()
 
 
 __all__ = ["ResponseRhythmPlanner", "is_conversation_rhythm_enabled"]
