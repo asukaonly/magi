@@ -5,7 +5,6 @@ import type { CrossEncoderConfig } from '@/api/modules/config';
 import type { LocalRerankerModelInfo } from '@/api/modules/local-reranker';
 import { SelectField } from '@/components/config-forms/fields';
 import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
 
 interface LLMRerankerModelPanelProps {
   crossEncoderConfig?: CrossEncoderConfig;
@@ -31,6 +30,7 @@ export function LLMRerankerModelPanel({
   onRerankerDelete,
 }: LLMRerankerModelPanelProps) {
   const { t: tApp } = useTranslation('app');
+  const rerankerMode = crossEncoderConfig?.enabled ? 'local' : 'off';
 
   if (!crossEncoderConfig || !onCrossEncoderConfigChange) {
     return (
@@ -42,17 +42,24 @@ export function LLMRerankerModelPanel({
 
   return (
     <div className="space-y-3">
-      <label className="flex items-center justify-between gap-3">
-        <span className="text-sm font-medium">{tApp('settings.memory.fields.reranker_enabled.label')}</span>
-        <Switch
-          checked={crossEncoderConfig.enabled}
-          onCheckedChange={(checked) => onCrossEncoderConfigChange((crossEncoderConfig) => {
-            crossEncoderConfig.enabled = checked;
+      <label className="space-y-2">
+        <span className="text-sm font-medium">{tApp('settings.memory.fields.reranker_mode.label')}</span>
+        <SelectField
+          className="w-full"
+          triggerClassName={inputClassName}
+          value={rerankerMode}
+          allowEmpty={false}
+          options={[
+            { label: tApp('settings.options.off'), value: 'off' },
+            { label: tApp('settings.options.local'), value: 'local' },
+          ]}
+          onChange={(value) => onCrossEncoderConfigChange((crossEncoderConfig) => {
+            crossEncoderConfig.enabled = value === 'local';
           })}
         />
       </label>
 
-      {crossEncoderConfig.enabled ? (
+      {rerankerMode === 'local' ? (
         <>
           <label className="space-y-2">
             <span className="text-sm font-medium">{tApp('settings.memory.fields.reranker_model.label')}</span>
