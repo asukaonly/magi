@@ -6,7 +6,7 @@ import json
 from typing import Any, Protocol, cast
 
 from .....chat import ChatMessageRecord
-from ...common import IncomingFactKind
+from ...common import AssistantResponsePlan, IncomingFactKind
 from ..contracts import ChatRuntimeContext
 from .components import ChatOutcomeWriter
 
@@ -65,6 +65,40 @@ class ChatPostprocessOutcomeMixin:
             execution_mode=execution_mode,
             ux_plan=ux_plan,
             response_text=response_text,
+            attachments=attachments,
+            message_payload=message_payload,
+            started_at_ms=started_at_ms,
+            completed_at_ms=completed_at_ms,
+            run_id=run_id,
+            run_revision=run_revision,
+            run_disposition=run_disposition,
+            reply_to_message_id=reply_to_message_id,
+        )
+
+    async def _persist_segmented_chat_outcome(
+        self,
+        *,
+        turn_id: str | None,
+        response_plan: AssistantResponsePlan,
+        attachments: list[dict[str, Any]] | None = None,
+        message_payload: dict[str, Any] | None = None,
+        started_at_ms: int,
+        completed_at_ms: int,
+        orchestration_id: str | None,
+        execution_mode: str | None,
+        ux_plan: dict[str, Any] | None,
+        run_id: str | None = None,
+        run_revision: int = 0,
+        run_disposition: str | None = None,
+        reply_to_message_id: str | None = None,
+    ) -> list[ChatMessageRecord]:
+        host = cast(_OutcomePostprocessHostProtocol, self)
+        return await host._chat_outcome_writer.persist_segmented_chat_outcome(
+            turn_id=turn_id,
+            orchestration_id=orchestration_id,
+            execution_mode=execution_mode,
+            ux_plan=ux_plan,
+            response_plan=response_plan,
             attachments=attachments,
             message_payload=message_payload,
             started_at_ms=started_at_ms,
@@ -180,4 +214,23 @@ class ChatPostprocessOutcomeMixin:
             user_id=context.user_id,
             session_id=context.session_id,
             final_message=final_message,
+        )
+
+    async def _project_canonical_assistant_response(
+        self,
+        *,
+        context: ChatRuntimeContext,
+        turn_id: str | None,
+        message_id: str | None,
+        response_text: str,
+        created_at_ms: int,
+    ) -> None:
+        host = cast(_OutcomePostprocessHostProtocol, self)
+        await host._chat_outcome_writer.project_canonical_assistant_response(
+            user_id=context.user_id,
+            session_id=context.session_id,
+            turn_id=turn_id,
+            message_id=message_id,
+            content=response_text,
+            created_at_ms=created_at_ms,
         )

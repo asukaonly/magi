@@ -738,6 +738,79 @@ describe('settings page draft saving', () => {
     );
   });
 
+  it('saves the conversation rhythm switch in conversation settings', async () => {
+    const user = userEvent.setup();
+    vi.mocked(configApi.get).mockResolvedValue({
+      data: {
+        ...structuredClone(DEFAULT_SYSTEM_CONFIG),
+        preferences: {
+          ...structuredClone(DEFAULT_SYSTEM_CONFIG.preferences),
+          conversation_rhythm_enabled: true,
+          conversation_rhythm_mode: 'natural',
+        },
+      },
+    } as any);
+
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.conversation' }));
+    const rhythmSwitch = await screen.findByRole('switch', { name: 'settings.fields.conversationRhythm' });
+    expect(rhythmSwitch).toHaveAttribute('data-state', 'checked');
+
+    await user.click(rhythmSwitch);
+    expect(rhythmSwitch).toHaveAttribute('data-state', 'unchecked');
+    expect(screen.getByText('settings.pendingChanges')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+
+    await waitFor(() =>
+      expect(configApi.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          preferences: expect.objectContaining({
+            conversation_rhythm_enabled: false,
+            conversation_rhythm_mode: 'off',
+          }),
+        })
+      )
+    );
+  });
+
+  it('turns off streaming when conversation rhythm is enabled', async () => {
+    const user = userEvent.setup();
+    vi.mocked(configApi.get).mockResolvedValue({
+      data: {
+        ...structuredClone(DEFAULT_SYSTEM_CONFIG),
+        preferences: {
+          ...structuredClone(DEFAULT_SYSTEM_CONFIG.preferences),
+          streaming_chat_enabled: true,
+          conversation_rhythm_enabled: false,
+          conversation_rhythm_mode: 'off',
+        },
+      },
+    } as any);
+
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.conversation' }));
+    const rhythmSwitch = await screen.findByRole('switch', { name: 'settings.fields.conversationRhythm' });
+    expect(rhythmSwitch).toHaveAttribute('data-state', 'unchecked');
+
+    await user.click(rhythmSwitch);
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+
+    await waitFor(() =>
+      expect(configApi.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          preferences: expect.objectContaining({
+            streaming_chat_enabled: false,
+            conversation_rhythm_enabled: true,
+            conversation_rhythm_mode: 'natural',
+          }),
+        })
+      )
+    );
+  });
+
   it('disables media grounding when the current core model lacks vision support', async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);

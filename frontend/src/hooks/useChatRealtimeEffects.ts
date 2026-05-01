@@ -21,7 +21,10 @@ export function useChatRealtimeEffects({
 
   const handleAgentResponseEvent = useCallback((payload: any) => {
     const turnId = String(payload?.turn_id || '').trim();
-    window.dispatchEvent(new Event(APP_EVENTS.SESSION_SYNC));
+    const messageKind = String(payload?.message_kind || '').trim();
+    if (messageKind !== 'assistant_rhythm_segment') {
+      window.dispatchEvent(new Event(APP_EVENTS.SESSION_SYNC));
+    }
     refreshVisibleTrace(turnId);
     if (turnActive && !allowInterjection) {
       clearPendingResponseTurn();

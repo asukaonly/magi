@@ -184,6 +184,8 @@ plugins:
 # =============================================================================
 preferences:
   default_chat_workspace_path: "~/.magi/chat-workspace"
+  conversation_rhythm_enabled: true
+  conversation_rhythm_mode: "natural"
   allow_media_grounding_for_conversation: false
 
 debug: false

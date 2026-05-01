@@ -29,6 +29,29 @@ describe('chat trace state helpers', () => {
     expect(messages[0].kind).toBe('user');
   });
 
+  it('appends rhythm segments for the same turn instead of replacing earlier segments', () => {
+    const first = applyAgentResponse([], {
+      content: '先接住问题。',
+      timestamp: 1000,
+      messageId: 'msg-rhythm-1',
+      messageKind: 'assistant_rhythm_segment',
+      turnId: 'turn-rhythm',
+      payload: { rhythm: { segment_index: 0, segment_count: 2 } },
+    });
+
+    const second = applyAgentResponse(first, {
+      content: '再说明核心答案。',
+      timestamp: 1200,
+      messageId: 'msg-rhythm-2',
+      messageKind: 'assistant_rhythm_segment',
+      turnId: 'turn-rhythm',
+      payload: { rhythm: { segment_index: 1, segment_count: 2 } },
+    });
+
+    expect(second).toHaveLength(2);
+    expect(second.map((message) => message.content)).toEqual(['先接住问题。', '再说明核心答案。']);
+  });
+
   it('classifies control and runtime status surfaces explicitly', () => {
     expect(getChatPresentationSurface({
       id: 'msg-control',
@@ -100,6 +123,26 @@ describe('chat trace state helpers', () => {
       expect(finalAssistant.transcript.showExecutionBubbleFooter).toBe(false);
       expect(finalAssistant.transcript.showHeaderTraceEntry).toBe(true);
       expect(finalAssistant.transcript.belowBubble.showMessageLabel).toBe(false);
+    }
+
+    const secondRhythmSegment = projectChatTimelineMessage({
+      id: 'msg-rhythm-2',
+      role: 'assistant',
+      kind: 'assistant',
+      content: 'Second segment',
+      timestamp: 1002,
+      messageKind: 'assistant_rhythm_segment',
+      payload: {
+        rhythm: {
+          segment_index: 1,
+          segment_count: 2,
+        },
+      },
+    });
+
+    expect(secondRhythmSegment.surface).toBe('transcript');
+    if (secondRhythmSegment.surface === 'transcript') {
+      expect(secondRhythmSegment.transcript.showHeaderTraceEntry).toBe(false);
     }
 
     const interruptedUser = projectChatTimelineMessage({

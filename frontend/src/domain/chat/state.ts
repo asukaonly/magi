@@ -719,6 +719,20 @@ export const applyAgentResponse = (
     )
     : false;
 
+  if (messageKind === 'assistant_rhythm_segment' && turnId) {
+    const incoming = buildAssistantMessage(turnId);
+    const withoutTransientStatus = messages.filter(
+      (message) => !(message.turnId === turnId && isTransientStatusMessage(message)),
+    );
+    const existingIndex = withoutTransientStatus.findIndex(
+      (message) => Boolean(payload.messageId) && message.messageId === payload.messageId,
+    );
+    if (existingIndex >= 0) {
+      return withoutTransientStatus.map((message, index) => (index === existingIndex ? incoming : message));
+    }
+    return [...withoutTransientStatus, incoming];
+  }
+
   if (!turnId) {
     const lastStatusIndex = [...messages]
       .map((message, index) => ({ message, index }))

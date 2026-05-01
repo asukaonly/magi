@@ -60,7 +60,7 @@ def row_to_display_message(row: sqlite3.Row) -> ChatDisplayMessage | None:
             turn_id=turn_id,
             label=label_payload,
         )
-    if message_kind in {"assistant_final", "assistant_interim", "assistant_reaction"}:
+    if message_kind in {"assistant_final", "assistant_interim", "assistant_reaction", "assistant_rhythm_segment"}:
         return ChatDisplayMessage(
             role=role,
             kind="assistant",
@@ -71,6 +71,7 @@ def row_to_display_message(row: sqlite3.Row) -> ChatDisplayMessage | None:
             message_kind=message_kind,
             turn_id=turn_id,
             label=label_payload,
+            payload=dict(payload) if isinstance(payload, dict) else None,
         )
     if message_kind in {
         "status_note",

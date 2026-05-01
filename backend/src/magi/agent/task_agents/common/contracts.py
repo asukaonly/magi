@@ -370,11 +370,32 @@ class ExploreRenderRequest(ExecutionRequest):
 
 
 @dataclass(slots=True)
+class AssistantResponseSegment:
+    """One visible assistant message in a presentation plan."""
+
+    content: str
+    intent: str = "answer"
+    delay_ms: int = 0
+    segment_index: int = 0
+    source_unit_ids: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class AssistantResponsePlan:
+    """Presentation plan for rendering one canonical answer as messages."""
+
+    mode: str = "single"
+    aggregate_text: str = ""
+    segments: list[AssistantResponseSegment] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class ExecutionResult:
     """Normalized execution result returned from a handler."""
 
     mode: ExecutionMode
     response_text: str = ""
+    response_plan: Optional[AssistantResponsePlan] = None
     attachments: list[dict[str, Any]] = field(default_factory=list)
     message_payload: dict[str, Any] = field(default_factory=dict)
     skip_emit: bool = False

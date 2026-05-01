@@ -33,6 +33,10 @@ export function SettingsConversationSection({
   const defaultChatWorkspacePath = draftConfig.preferences.default_chat_workspace_path;
   const effectiveDefaultChatWorkspacePath = defaultChatWorkspacePath ?? defaultChatWorkspaceFallback ?? '';
   const canRestoreDefaultChatWorkspace = defaultChatWorkspacePath !== defaultChatWorkspaceFallback;
+  const rhythmMode = draftConfig.preferences.conversation_rhythm_mode ?? 'off';
+  const conversationRhythmEnabled = Boolean(draftConfig.preferences.conversation_rhythm_enabled)
+    || rhythmMode === 'natural'
+    || rhythmMode === 'expressive';
 
   const handlePickWorkspace = async () => {
     setPickingWorkspace(true);
@@ -103,6 +107,26 @@ export function SettingsConversationSection({
         checked={draftConfig.preferences.streaming_chat_enabled}
         onCheckedChange={(checked) => patchDraftConfig((draft) => {
           draft.preferences.streaming_chat_enabled = checked;
+          if (checked) {
+            draft.preferences.conversation_rhythm_enabled = false;
+            draft.preferences.conversation_rhythm_mode = 'off';
+          }
+        })}
+      />
+
+      <SettingsSwitchRow
+        title={t('settings.conversationRhythmLabel')}
+        description={t('settings.conversationRhythmDesc')}
+        ariaLabel={t('settings.fields.conversationRhythm')}
+        checked={conversationRhythmEnabled}
+        onCheckedChange={(checked) => patchDraftConfig((draft) => {
+          draft.preferences.conversation_rhythm_enabled = checked;
+          draft.preferences.conversation_rhythm_mode = checked
+            ? (draft.preferences.conversation_rhythm_mode === 'expressive' ? 'expressive' : 'natural')
+            : 'off';
+          if (checked) {
+            draft.preferences.streaming_chat_enabled = false;
+          }
         })}
       />
 

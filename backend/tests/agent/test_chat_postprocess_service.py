@@ -13,7 +13,14 @@ from magi.agent.task_agents.chat.postprocess.components import (
 )
 from magi.agent.task_agents.chat.postprocess_service import ChatPostProcessService
 from magi.agent.task_agents.chat.session_run_coordinator import TurnSupersession
-from magi.agent.task_agents.common import ExecutionMode, ExecutionResult, IncomingFactKind, UserMessagePayload
+from magi.agent.task_agents.common import (
+    AssistantResponsePlan,
+    AssistantResponseSegment,
+    ExecutionMode,
+    ExecutionResult,
+    IncomingFactKind,
+    UserMessagePayload,
+)
 from magi.agent.runtime.contracts import FactRecord
 from magi.events.events import EventTypes
 from magi.personality.interaction_analyzer import DEFAULT_ANALYSIS
@@ -460,6 +467,72 @@ async def test_outcome_writer_persists_assistant_message_payload(chat_store: Cha
     assert payload["asset_refs"] == [
         {"asset_ref_id": "asset-1", "event_id": "evt-1", "original_name": "hangzhou.jpg"}
     ]
+
+
+@pytest.mark.asyncio
+async def test_outcome_writer_persists_segmented_chat_outcome(chat_store: ChatStore) -> None:
+    writer = ChatOutcomeWriter(
+        chat_store=chat_store,
+        chat_projector=None,
+        trace_id_factory=lambda turn_id: f"trace:{turn_id}",
+    )
+    await chat_store.create_user_turn(
+        session_id="session-1",
+        user_id="local_user",
+        turn_id="turn-rhythm",
+        message_text="explain rhythm",
+        created_at_ms=1710000000000,
+    )
+
+    records = await writer.persist_segmented_chat_outcome(
+        turn_id="turn-rhythm",
+        orchestration_id=None,
+        execution_mode="direct_llm",
+        ux_plan={"assistant_surface_mode": "final_only"},
+        response_plan=AssistantResponsePlan(
+            mode="multi_message",
+            aggregate_text="完整回答",
+            segments=[
+                AssistantResponseSegment(
+                    content="先接住问题。",
+                    intent="acknowledge",
+                    delay_ms=0,
+                    segment_index=0,
+                    source_unit_ids=["u1"],
+                ),
+                AssistantResponseSegment(
+                    content="再说明核心答案。",
+                    intent="answer",
+                    delay_ms=700,
+                    segment_index=1,
+                    source_unit_ids=["u2"],
+                ),
+            ],
+        ),
+        message_payload={"asset_refs": [{"asset_ref_id": "asset-1"}]},
+        started_at_ms=1710000000000,
+        completed_at_ms=1710000000200,
+    )
+
+    messages = await chat_store.list_messages(session_id="session-1")
+    assert [message.message_kind for message in messages] == [
+        "user_text",
+        "assistant_rhythm_segment",
+        "assistant_rhythm_segment",
+    ]
+    assert [record.message_id for record in records] == [message.message_id for message in messages[1:]]
+
+    first_payload = json.loads(messages[1].payload_json)
+    second_payload = json.loads(messages[2].payload_json)
+    assert first_payload["rhythm"] == {
+        "segment_index": 0,
+        "segment_count": 2,
+        "intent": "acknowledge",
+        "delay_ms": 0,
+        "source_unit_ids": ["u1"],
+    }
+    assert second_payload["rhythm"]["segment_index"] == 1
+    assert second_payload["asset_refs"] == [{"asset_ref_id": "asset-1"}]
 
 
 @pytest.mark.asyncio

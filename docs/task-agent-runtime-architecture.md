@@ -300,6 +300,14 @@ The current call-trace visibility policy intentionally separates storage from pr
 
 Important rule: trace-entry visibility is a UX decision, not the storage boundary. If a user-visible turn produced trace data, prefer preserving retrieval and reload fidelity even when the chat surface chooses a lighter affordance.
 
+Conversation rhythm extends this presentation boundary after execution handlers
+produce a canonical answer. The core direct-LLM, function-calling, and
+orchestration-render handlers still return a single authoritative
+`ExecutionResult.response_text`; chat post-processing may then build a validated
+multi-message presentation plan from that text. See
+[Conversation Rhythm Architecture](./conversation-rhythm-architecture.md) for
+the planner contract, persistence shape, and streaming restrictions.
+
 ### Interruption Dispositions
 
 When a user sends another message while a chat turn is already running, the `SessionRunCoordinator` classifies the interruption into one of four dispositions and routes it accordingly. The classifier lives in `backend/src/magi/agent/task_agents/chat/interruption_classifier.py` and combines rule-based keyword matching with an optional LLM fallback.

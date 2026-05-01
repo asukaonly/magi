@@ -747,6 +747,83 @@ def test_get_conversation_history_reads_from_chat_store_not_fact_events(tmp_path
     assert messages[1].message_kind == "assistant_final"
 
 
+def test_get_conversation_history_collapses_rhythm_segments_for_prompt(tmp_path):
+    service = _build_service(tmp_path)
+    _init_chat_session_store(service._chat_db_path)
+    _insert_session(
+        service._chat_db_path,
+        session_id="s-rhythm",
+        user_id="u1",
+        title="Rhythm",
+        created_at=1000,
+        updated_at=1300,
+        message_count=3,
+    )
+    _insert_chat_turn(
+        service._chat_db_path,
+        turn_id="turn-rhythm",
+        session_id="s-rhythm",
+        user_id="u1",
+        status="completed",
+        response_mode="final_only",
+        created_at_ms=1000,
+        updated_at_ms=1300,
+        completed_at_ms=1300,
+    )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-user-rhythm",
+        session_id="s-rhythm",
+        turn_id="turn-rhythm",
+        user_id="u1",
+        role="user",
+        message_kind="user_text",
+        content_text="怎么做节奏感回复？",
+        created_at_ms=1000,
+        sequence_no=1,
+    )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-rhythm-1",
+        session_id="s-rhythm",
+        turn_id="turn-rhythm",
+        user_id="u1",
+        role="assistant",
+        message_kind="assistant_rhythm_segment",
+        content_text="先接住用户的问题。",
+        payload_json=json.dumps({"rhythm": {"segment_index": 0, "segment_count": 2}}),
+        created_at_ms=1200,
+        sequence_no=2,
+    )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-rhythm-2",
+        session_id="s-rhythm",
+        turn_id="turn-rhythm",
+        user_id="u1",
+        role="assistant",
+        message_kind="assistant_rhythm_segment",
+        content_text="再给出核心实现方案。",
+        payload_json=json.dumps({"rhythm": {"segment_index": 1, "segment_count": 2}}),
+        created_at_ms=1300,
+        sequence_no=3,
+    )
+
+    prompt_history = service.get_conversation_history("u1", "s-rhythm", limit=20)
+    display_history = service.get_display_history("u1", "s-rhythm", limit=20)
+
+    assert [message.content for message in prompt_history] == [
+        "怎么做节奏感回复？",
+        "先接住用户的问题。\n\n再给出核心实现方案。",
+    ]
+    assert prompt_history[1].message_kind == "assistant_final"
+    assert [message.message_kind for message in display_history] == [
+        "user_text",
+        "assistant_rhythm_segment",
+        "assistant_rhythm_segment",
+    ]
+
+
 def test_create_user_turn_persists_reply_target_and_display_history_returns_preview(tmp_path):
     service = _build_service(tmp_path)
     _init_chat_session_store(service._chat_db_path)

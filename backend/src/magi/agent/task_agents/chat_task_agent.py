@@ -45,6 +45,7 @@ from .chat.handlers import (
     build_common_handler_dependencies,
 )
 from .chat.reply_context import ChatReplyContextMixin
+from .chat.rhythm import ResponseRhythmPlanner, is_conversation_rhythm_enabled
 from .chat.session_control import ChatSessionControlMixin
 from .chat.streaming import ChatStreamingMixin, format_llm_error as _format_llm_error
 from .common import FactOnlyHandler, OrchestrationLaunchHandler, OrchestrationUpdateHandler
@@ -196,6 +197,7 @@ class ChatTaskAgent(
                 revision=revision,
             ),
             drain_deferred_turns=self._drain_deferred_turns,
+            response_rhythm_planner=ResponseRhythmPlanner(prompt_service=self._prompt_service),
         )
         self.function_calling_orchestrator = FunctionCallingOrchestrator(
             llm_adapter=llm_adapter,
@@ -334,6 +336,8 @@ class ChatTaskAgent(
         )
         reply_context = await self._resolve_reply_context(run_decision.latest_payload)
         streaming_chat_enabled = bool(get_user_preference("streaming_chat_enabled", False))
+        if is_conversation_rhythm_enabled():
+            streaming_chat_enabled = False
         allow_media_grounding_for_conversation = bool(
             get_user_preference("allow_media_grounding_for_conversation", False)
         )
@@ -426,7 +430,7 @@ class ChatTaskAgent(
 
     def _streaming_enabled(self, _user_id: str) -> bool:
         try:
-            return bool(get_user_preference("streaming_chat_enabled", False))
+            return bool(get_user_preference("streaming_chat_enabled", False)) and not is_conversation_rhythm_enabled()
         except Exception:
             return False
 
