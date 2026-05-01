@@ -618,10 +618,10 @@ export const upsertTraceSummary = (
     {
       id: `${turnId}-assistant`,
       role: 'assistant',
-      kind: 'assistant',
+      kind: 'status',
       content: nextSummary?.headline || 'Thinking...',
       timestamp: Date.now(),
-      messageKind: 'assistant_interim',
+      messageKind: null,
       turnId,
       traceDisplayMode,
       allowTraceCollapse: Boolean(anchorMessage?.allowTraceCollapse),
