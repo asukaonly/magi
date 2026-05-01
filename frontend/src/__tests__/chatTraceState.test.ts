@@ -52,6 +52,38 @@ describe('chat trace state helpers', () => {
     expect(second.map((message) => message.content)).toEqual(['先接住问题。', '再说明核心答案。']);
   });
 
+  it('keeps rhythm segments when the canonical compatibility event arrives later', () => {
+    const first = applyAgentResponse([], {
+      content: '先接住问题。',
+      timestamp: 1000,
+      messageId: 'msg-rhythm-1',
+      messageKind: 'assistant_rhythm_segment',
+      turnId: 'turn-rhythm',
+      payload: { rhythm: { segment_index: 0, segment_count: 2 } },
+    });
+    const second = applyAgentResponse(first, {
+      content: '再说明核心答案。',
+      timestamp: 1200,
+      messageId: 'msg-rhythm-2',
+      messageKind: 'assistant_rhythm_segment',
+      turnId: 'turn-rhythm',
+      payload: { rhythm: { segment_index: 1, segment_count: 2 } },
+    });
+
+    const afterCanonicalEvent = applyAgentResponse(second, {
+      content: '先接住问题。\n再说明核心答案。',
+      timestamp: 1300,
+      turnId: 'turn-rhythm',
+    });
+
+    expect(afterCanonicalEvent).toHaveLength(2);
+    expect(afterCanonicalEvent.map((message) => message.messageKind)).toEqual([
+      'assistant_rhythm_segment',
+      'assistant_rhythm_segment',
+    ]);
+    expect(afterCanonicalEvent.map((message) => message.content)).toEqual(['先接住问题。', '再说明核心答案。']);
+  });
+
   it('classifies control and runtime status surfaces explicitly', () => {
     expect(getChatPresentationSurface({
       id: 'msg-control',

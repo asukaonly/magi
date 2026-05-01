@@ -718,6 +718,14 @@ export const applyAgentResponse = (
         && message.messageKind === 'assistant_interim'
     )
     : false;
+  const hasRhythmSegments = turnId
+    ? messages.some(
+      (message) =>
+        message.turnId === turnId
+        && message.kind === 'assistant'
+        && message.messageKind === 'assistant_rhythm_segment'
+    )
+    : false;
 
   if (messageKind === 'assistant_rhythm_segment' && turnId) {
     const incoming = buildAssistantMessage(turnId);
@@ -731,6 +739,19 @@ export const applyAgentResponse = (
       return withoutTransientStatus.map((message, index) => (index === existingIndex ? incoming : message));
     }
     return [...withoutTransientStatus, incoming];
+  }
+
+  if (hasRhythmSegments && !String(payload.messageId || '').trim()) {
+    return messages.map((message) => {
+      if (message.turnId !== turnId || message.messageKind !== 'assistant_rhythm_segment') {
+        return message;
+      }
+      return {
+        ...message,
+        traceSummary: traceSummary ?? message.traceSummary ?? null,
+        traceAvailable: traceAvailable || Boolean(message.traceAvailable),
+      };
+    });
   }
 
   if (!turnId) {
