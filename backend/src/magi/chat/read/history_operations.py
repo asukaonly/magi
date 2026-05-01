@@ -266,8 +266,8 @@ class ChatHistoryOperationsMixin:
                 f"""
                 SELECT message_id, session_id, turn_id, user_id, role, message_kind,
                        content_text, payload_json, is_final, is_visible, created_at_ms,
-                       sequence_no, replaces_message_id, replaced_by_message_id, reply_to_message_id,
-                       label_json
+                      sequence_no, replaces_message_id, replaced_by_message_id, persona_id,
+                      reply_to_message_id, label_json
                 FROM {CHAT_MESSAGES_TABLE}
                 WHERE session_id = ?
                   AND message_id = ?

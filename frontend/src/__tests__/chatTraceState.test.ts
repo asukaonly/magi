@@ -1057,6 +1057,23 @@ describe('chat trace state helpers', () => {
     ]);
   });
 
+  it('preserves persona id when normalizing history messages', () => {
+    const normalized = normalizeHistoryMessages([
+      {
+        message_id: 'msg-persona',
+        message_kind: 'assistant_final',
+        persona_id: 'persona-asuka',
+        role: 'assistant',
+        content: 'Same thread, different persona.',
+        timestamp: 1000,
+        turn_id: 'turn_persona',
+        kind: 'assistant',
+      },
+    ]);
+
+    expect(normalized[0].personaId).toBe('persona-asuka');
+  });
+
   it('normalizes reply previews from history payloads', () => {
     const normalized = normalizeHistoryMessages([
       {

@@ -102,6 +102,7 @@ vi.mock('@/api/modules/personas', async () => {
     ...actual,
     personasApi: {
       ...actual.personasApi,
+      list: vi.fn().mockResolvedValue({ success: true, data: [] }),
       getGreeting: vi.fn().mockResolvedValue({ success: true, data: { name: 'AI', greeting: '', needs_bootstrap: false } }),
       bootstrapInit: vi.fn().mockResolvedValue({ success: true, data: { bootstrap_active: false, opening: null } }),
     },
@@ -194,6 +195,7 @@ describe('ChatPage', () => {
     openExternalUrlMock.mockReset();
     openExternalUrlMock.mockResolvedValue(undefined);
     toastWarningMock.mockReset();
+    vi.mocked(personasApi.list).mockReset().mockResolvedValue({ success: true, data: [] } as any);
     vi.mocked(personasApi.getGreeting).mockReset().mockResolvedValue({ success: true, data: { name: 'AI', greeting: '', needs_bootstrap: false } } as any);
     vi.mocked(personasApi.bootstrapInit).mockReset().mockResolvedValue({ success: true, data: { bootstrap_active: false, opening: null } } as any);
     vi.mocked(messagesApi.getTrace).mockReset().mockResolvedValue({
@@ -252,6 +254,45 @@ describe('ChatPage', () => {
     expect(screen.getByTestId('chat-workspace-message-count')).toHaveTextContent('2');
     expect(screen.getByText('hello').parentElement).toHaveClass('rounded-xl', 'rounded-tr-sm');
     expect(screen.getByText('world').parentElement?.parentElement).toHaveClass('rounded-xl', 'rounded-tl-sm');
+  });
+
+  it('renders historical assistant messages with their stored persona identity', async () => {
+    vi.mocked(personasApi.list).mockResolvedValue({
+      success: true,
+      data: [
+        {
+          persona_id: 'persona-archived',
+          name: 'Archived Persona',
+          slug: 'archived-persona',
+          locale: 'en',
+          avatar_path: '/avatars/archived.png',
+          group_name: 'custom',
+          sort_order: 0,
+          is_builtin: false,
+          description: '',
+          deleted_at: 1234,
+        },
+      ],
+    } as any);
+    useConversationStore.getState().receiveHistory(
+      'session-1',
+      normalizeHistoryMessages([
+        {
+          role: 'assistant',
+          content: 'Stored persona answer',
+          timestamp: 1000,
+          turn_id: 't-persona',
+          kind: 'assistant',
+          persona_id: 'persona-archived',
+        },
+      ])
+    );
+
+    render(<ChatPage />);
+
+    expect(await screen.findByText('Archived Persona')).toBeInTheDocument();
+    expect(screen.getByText('Stored persona answer')).toBeInTheDocument();
+    expect(personasApi.list).toHaveBeenCalledWith({ includeDeleted: true });
   });
 
   it('keeps context usage visible with a zero placeholder before runtime updates arrive', async () => {

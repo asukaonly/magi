@@ -25,7 +25,6 @@ from .contracts import ChatParseOutcome, ChatRuntimeContext
 from .history_service import ChatHistoryService
 from .postprocess.background import ChatPostprocessBackgroundMixin
 from .postprocess.components import ChatOutcomeWriter, ChatRuntimeNotifier
-from .postprocess.constants import CHAT_TOOL_LOOP_STEP_EVENT_TYPE
 from .postprocess.intent import ChatPostprocessIntentMixin
 from .postprocess.memory import ChatPostprocessMemoryMixin
 from .postprocess.outcomes import ChatPostprocessOutcomeMixin
@@ -69,6 +68,7 @@ class ChatPostProcessService:
         resolve_session_run_status: Callable[[str, str, int], Any] | None = None,
         drain_deferred_turns: Callable[[str], Any] | None = None,
         response_rhythm_planner: Any | None = None,
+        transcript_summarizer: Any | None = None,
     ) -> None:
         self._agent_id = agent_id
         self._history_service = history_service
@@ -100,6 +100,7 @@ class ChatPostProcessService:
         self._resolve_session_run_status = resolve_session_run_status
         self._drain_deferred_turns = drain_deferred_turns
         self._response_rhythm_planner = response_rhythm_planner
+        self._transcript_summarizer = transcript_summarizer
         # Track in-flight background memory-update tasks so they are not
         # garbage collected mid-flight. Entries remove themselves on done.
         self._background_tasks: set[asyncio.Task[Any]] = set()
@@ -288,6 +289,7 @@ class ChatPostProcessService:
                 run_revision=context.session_run_revision,
                 run_disposition=context.session_run_disposition,
                 reply_to_message_id=reply_anchor_message_id,
+                persona_id=context.active_persona_id,
             )
             if not segmented_messages:
                 response_plan = None
@@ -308,8 +310,10 @@ class ChatPostProcessService:
                 run_revision=context.session_run_revision,
                 run_disposition=context.session_run_disposition,
                 reply_to_message_id=reply_anchor_message_id,
+                persona_id=context.active_persona_id,
             )
         await self._finalize_session_run(context)
+        self._schedule_transcript_summary_update(context)
 
         if response_plan is not None:
             await self._project_canonical_assistant_response(
@@ -409,6 +413,30 @@ class ChatPostProcessService:
             trace_available=trace_available,
         )
         return ChatParseOutcome(True, history_stored, memory_updated, False)
+
+    def _schedule_transcript_summary_update(self, context: ChatRuntimeContext) -> None:
+        if self._transcript_summarizer is None:
+            return
+
+        async def _runner() -> None:
+            try:
+                await self._transcript_summarizer.maybe_summarize_session(
+                    user_id=context.user_id,
+                    session_id=context.session_id,
+                )
+            except Exception:
+                logger.exception(
+                    "Background transcript summary failed user_id=%s session_id=%s",
+                    context.user_id,
+                    context.session_id,
+                )
+
+        task = asyncio.create_task(
+            _runner(),
+            name=f"chat-transcript-summary:{context.session_id}",
+        )
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     async def _build_response_rhythm_plan(
         self,
@@ -510,6 +538,7 @@ class ChatPostProcessService:
                 context=context,
                 turn_id=turn_id,
             ),
+            persona_id=context.active_persona_id,
         )
         await self._finalize_session_run(context)
         return True

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { messagesApi } from '@/api';
 import { configApi } from '@/api/modules/config';
-import { personasApi } from '@/api/modules/personas';
+import { personasApi, type PersonaSummary } from '@/api/modules/personas';
 import { DEFAULT_USER_ID } from '@/constants';
 import { APP_EVENTS } from '@/constants/events';
 import { normalizeHistoryMessages, type ChatTimelineMessage } from '@/domain/chat/state';
@@ -22,6 +22,11 @@ type UseChatSessionLifecycleOptions = {
   translate: (key: string, options?: Record<string, unknown>) => string;
 };
 
+export type ChatPersonaIdentity = {
+  name: string;
+  avatar: string;
+};
+
 export function useChatSessionLifecycle({
   currentSessionId,
   setCurrentSessionId,
@@ -33,6 +38,7 @@ export function useChatSessionLifecycle({
 }: UseChatSessionLifecycleOptions) {
   const [aiName, setAiName] = useState('AI');
   const [aiAvatar, setAiAvatar] = useState('');
+  const [assistantPersonas, setAssistantPersonas] = useState<Record<string, ChatPersonaIdentity>>({});
   const [coreModelSupportsVision, setCoreModelSupportsVision] = useState(false);
   const [allowInterjection, setAllowInterjection] = useState(true);
   const bootstrappedSessionIdRef = useRef<string | null>(null);
@@ -78,6 +84,22 @@ export function useChatSessionLifecycle({
   }, [translate]);
 
   const loadPersonality = useCallback(async () => {
+    try {
+      const personasResponse = await personasApi.list({ includeDeleted: true });
+      const personaItems = Array.isArray(personasResponse.data)
+        ? personasResponse.data as PersonaSummary[]
+        : [];
+      setAssistantPersonas(Object.fromEntries(personaItems.map((item) => [
+        item.persona_id,
+        {
+          name: item.name || 'AI',
+          avatar: personasApi.getAvatarUrl(item.avatar_path || ''),
+        },
+      ])));
+    } catch {
+      setAssistantPersonas({});
+    }
+
     try {
       const response = await personasApi.getGreeting();
       const data = response.data as {
@@ -164,6 +186,7 @@ export function useChatSessionLifecycle({
   return {
     aiName,
     aiAvatar,
+    assistantPersonas,
     coreModelSupportsVision,
     allowInterjection,
   };

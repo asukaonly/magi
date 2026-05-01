@@ -227,6 +227,9 @@ Design expectations:
 
 - presets should be loaded from the backend rather than hardcoded into the frontend
 - persona identity should flow through the persona registry APIs instead of filename-based UI state
+- chat messages store the active `persona_id` as the persona snapshot for that turn; display names and avatars are resolved from the current persona registry record at render time
+- chat response generation should also resolve prompt identity from the stored turn `persona_id`, so switching the active persona after enqueue does not change the persona used for that pending reply
+- persona deletion is soft deletion. Ordinary persona lists hide deleted records, while historical chat rendering may use `include_deleted` registry lookups so old messages can still resolve their persona identity.
 - personality content should remain language-aware
 - state-transition behavior should apply only to direct chat turns; analysis, worker, and tool-result rendering should not trigger or inherit temporary persona state changes
 - quick mode should stay simpler than expert mode

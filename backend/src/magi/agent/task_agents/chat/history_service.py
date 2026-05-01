@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -33,6 +32,8 @@ class CachedConversationHistory:
 
     version: int
     messages: list[dict[str, Any]]
+    session_summary: str | None = None
+    session_origin: str | None = None
     loaded_at_ms: int = 0
 
 
@@ -45,7 +46,7 @@ class ChatHistoryService:
         l1_db_path: Path,
         runtime_trace_db_path: Optional[Path] = None,
         history_cache_max_sessions: int = 500,
-        history_fetch_limit: int = 200,
+        history_fetch_limit: int = 1000,
         chat_store: ChatStore | None = None,
         chat_read_service_factory: Callable[[], Any] | None = None,
     ) -> None:
@@ -61,13 +62,22 @@ class ChatHistoryService:
         self._chat_read_service_factory = chat_read_service_factory
 
     async def get_or_load_history(self, user_id: str, session_id: str) -> list[dict[str, Any]]:
+        return (await self.get_or_load_history_context(user_id, session_id)).messages
+
+    async def get_or_load_history_context(
+        self,
+        user_id: str,
+        session_id: str,
+    ) -> CachedConversationHistory:
         history_key = self.history_key(user_id, session_id)
         durable_version = 0
+        active_summary = None
         if self._chat_store is not None:
             durable_version = await self._chat_store.get_history_version(session_id)
+            active_summary = await self._chat_store.get_active_context_summary(session_id=session_id)
         cached_entry = self._conversation_history.get(history_key)
         if cached_entry is not None and cached_entry.version == durable_version:
-            return cached_entry.messages
+            return cached_entry
         try:
             read_service = self._get_chat_read_service()
             history = read_service.get_conversation_history(
@@ -75,12 +85,20 @@ class ChatHistoryService:
                 session_id=session_id,
                 limit=self._history_fetch_limit,
             )
-            self._conversation_history[history_key] = CachedConversationHistory(
+            if active_summary is not None:
+                history = self._filter_history_from_first_kept_message(
+                    history,
+                    first_kept_message_id=active_summary.first_kept_message_id,
+                )
+            cached_history = CachedConversationHistory(
                 version=durable_version,
                 messages=[item.to_prompt_message() for item in history],
+                session_summary=(active_summary.summary_text if active_summary is not None else None),
+                session_origin=(active_summary.session_origin if active_summary is not None else None),
             )
+            self._conversation_history[history_key] = cached_history
             self._update_lru_cache(history_key)
-            return self._conversation_history[history_key].messages
+            return cached_history
         except Exception as exc:
             logger.warning(
                 "Failed to lazy load history | user=%s session=%s error=%s",
@@ -89,8 +107,8 @@ class ChatHistoryService:
                 exc,
             )
             if cached_entry is not None:
-                return cached_entry.messages
-            return []
+                return cached_entry
+            return CachedConversationHistory(version=durable_version, messages=[])
 
     def require_session_id(self, user_id: str, session_id: Optional[str] = None) -> str:
         _ = user_id
@@ -214,6 +232,10 @@ class ChatHistoryService:
             return []
         return cached.messages
 
+    def get_cached_history_context(self, user_id: str, session_id: str) -> CachedConversationHistory | None:
+        active_session = self.require_session_id(user_id, session_id)
+        return self._conversation_history.get(self.history_key(user_id, active_session))
+
     def clear_conversation_history(self, user_id: str, session_id: str) -> None:
         active_session = self.require_session_id(user_id, session_id)
         key = self.history_key(user_id, active_session)
@@ -230,6 +252,20 @@ class ChatHistoryService:
             self._conversation_history.pop(oldest_key, None)
             self._tool_interactions.pop(oldest_key, None)
             logger.debug("Evicted history cache | key=%s", oldest_key)
+
+    @staticmethod
+    def _filter_history_from_first_kept_message(
+        history: list[Any],
+        *,
+        first_kept_message_id: str | None,
+    ) -> list[Any]:
+        normalized_first_kept = str(first_kept_message_id or "").strip()
+        if not normalized_first_kept:
+            return history
+        for index, item in enumerate(history):
+            if str(getattr(item, "message_id", "") or "").strip() == normalized_first_kept:
+                return history[index:]
+        return history
 
     def _get_chat_read_service(self):  # type: ignore[no-untyped-def]
         if self._chat_read_service_factory is not None:

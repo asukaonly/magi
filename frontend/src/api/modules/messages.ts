@@ -55,6 +55,7 @@ export interface MessageData {
 export interface ChatHistoryMessage {
   message_id?: string | null;
   message_kind?: string | null;
+  persona_id?: string | null;
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;

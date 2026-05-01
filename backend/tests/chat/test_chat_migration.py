@@ -32,6 +32,7 @@ async def test_database_initializer_creates_chat_db_with_chat_tables(tmp_path: P
     assert "chat_sessions" in tables
     assert "chat_turns" in tables
     assert "chat_messages" in tables
+    assert "chat_context_summaries" in tables
 
 
 @pytest.mark.asyncio

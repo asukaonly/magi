@@ -79,6 +79,9 @@ class ChatRuntimeContext(BaseRuntimeContext):
     planner_payload: TaskFactPayload = field(default_factory=GenericFactPayload)
     pending_turns: list[PendingTurn] = field(default_factory=list)
     reply_context: "ChatReplyContext | None" = None
+    session_summary: str | None = None
+    session_origin: str | None = None
+    active_persona_id: str | None = None
     streaming_chat_enabled: bool = False
     allow_media_grounding_for_conversation: bool = False
     core_model_supports_vision: bool = False

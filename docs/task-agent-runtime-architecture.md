@@ -211,6 +211,8 @@ Persistence is separated the same way:
   Current path: `~/.magi/data/chat/chat.db`
 
   Assistant chat messages may persist managed attachment payloads in `chat_messages.payload_json`.
+  Chat messages may also store `persona_id` as the active persona identity snapshot for same-thread multi-persona conversations. The row stores only the stable persona ID; display name and avatar are resolved from the persona registry when rendering history.
+  Chat prompt assembly also receives the stored turn `persona_id` and resolves that persona record, including soft-deleted records, when building the system prompt for direct replies, function-calling replies, explore result rendering, and orchestration aggregation.
   Local source plugins should not bypass this boundary by exposing raw local file paths directly to the frontend.
 
 - `runtime_trace.db`
@@ -218,6 +220,19 @@ Persistence is separated the same way:
   Current path: `~/.magi/runtime/runtime_trace.db`
 
   Chat prompt assembly may derive compact recent-tool summaries from recent tool interaction records, but those summaries are explicitly lossy and must not replace `runtime_trace.db` as the source of truth for execution details.
+
+### Session Prompt History And Rolling Summaries
+
+Chat prompt history is selected by context budget instead of a fixed message-count window.
+Short sessions can be passed to the model as raw transcript history. When the raw session tail would exceed the prompt-history budget, prompt assembly keeps the newest raw messages and prepends a compact session-origin anchor so the model still knows where the thread began.
+
+Durable rolling summaries live with chat truth in `chat.db`, not in long-term memory tables. The `chat_context_summaries` table stores session-scoped continuation state: the active summary text, the summary kind, the parent summary, the covered transcript frontier, and the first raw message that should be kept after the summary. A later summary supersedes the previous active summary in the same session/scope, so normal prompt assembly reads only the latest active summary plus the raw tail after its frontier.
+
+`ChatHistoryService` owns the runtime bridge from durable summary state into prompt history. When an active `token_budget` summary exists for a session, the service loads `session_origin` and `summary_text`, trims raw prompt history from `first_kept_message_id`, and passes those fields through `ChatRuntimeContext`. Direct LLM and function-calling execution both feed that summary context into prompt message assembly before appending the current user turn.
+
+`ChatTranscriptSummarizer` runs after chat responses are persisted, off the response critical path. It estimates the prompt-history token footprint, summarizes the older raw range when the retained tail grows beyond the trigger budget, and activates a new `token_budget` summary. If summary A is active, the next summary is generated from summary A plus the newly covered raw range, then summary B supersedes A for normal prompt reads.
+
+Memory retrieval remains a separate input to prompt assembly. Long-term memory can be queried alongside session summaries, but session summaries are not promoted into L1/L2/L3/L4 by default because they are continuation checkpoints rather than canonical cross-session facts.
 
 - `memory/l1_events.db`
   Canonical memory projection only; it stores `user_text` and `assistant_final` as lossy memory facts, but it is no longer the chat transcript source of truth

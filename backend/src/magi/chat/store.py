@@ -9,8 +9,8 @@ import aiosqlite
 
 from ..core.sqlite import sqlite_connection_async
 from .contracts import ChatMessageRecord, ChatSessionRecord
+from .storage.context_summaries import ChatContextSummaryPersistenceMixin
 from .storage.schema import (
-    CHAT_STORE_SCHEMA_SQL,
     ensure_chat_message_columns,
     ensure_chat_session_columns,
     ensure_chat_store_schema,
@@ -25,6 +25,7 @@ from .storage.turns import ChatTurnPersistenceMixin
 
 class ChatStore(
     ChatAttachmentPersistenceMixin,
+    ChatContextSummaryPersistenceMixin,
     ChatMessagePersistenceMixin,
     ChatSessionPersistenceMixin,
     ChatTurnPersistenceMixin,
@@ -74,6 +75,7 @@ class ChatStore(
         run_id: str | None = None,
         run_revision: int = 0,
         run_disposition: str | None = None,
+        persona_id: str | None = None,
     ) -> ChatMessageRecord:
         """Create a user turn and its first transcript message transactionally."""
         await self.initialize()
@@ -93,6 +95,7 @@ class ChatStore(
             sequence_no=1,
             replaces_message_id=None,
             replaced_by_message_id=None,
+            persona_id=str(persona_id or "").strip() or None,
             reply_to_message_id=str(reply_to_message_id or "").strip() or None,
         )
         async with sqlite_connection_async(self.db_path, profile="mixed") as db:
@@ -185,10 +188,11 @@ class ChatStore(
                     sequence_no,
                     replaces_message_id,
                     replaced_by_message_id,
+                    persona_id,
                     reply_to_message_id,
                     label_json
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     message.message_id,
@@ -205,6 +209,7 @@ class ChatStore(
                     message.sequence_no,
                     None,
                     None,
+                    message.persona_id,
                     message.reply_to_message_id,
                     self._serialize_message_label(message.label),
                 ),

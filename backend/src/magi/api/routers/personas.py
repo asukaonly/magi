@@ -13,7 +13,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from ...core.logger import get_logger
-from ...personality.persona_repository import PersonaRepository, PersonaSummary
+from ...personality.persona_repository import PersonaRepository
 from ...personality.persona_seed import list_seed_previews, seed_builtin_personas
 from ...utils.runtime import get_runtime_paths
 
@@ -34,6 +34,7 @@ class PersonaSummaryModel(BaseModel):
     sort_order: int = 0
     is_builtin: bool = False
     description: str = ""
+    deleted_at: Optional[float] = None
 
 
 class PersonaDetailModel(BaseModel):
@@ -49,6 +50,7 @@ class PersonaDetailModel(BaseModel):
     seed_slug: Optional[str] = None
     created_at: float = 0
     updated_at: float = 0
+    deleted_at: Optional[float] = None
 
 
 class PersonaListResponse(BaseModel):
@@ -103,11 +105,11 @@ def _get_repo() -> PersonaRepository:
 # ---- endpoints ----
 
 @personas_router.get("/", response_model=PersonaListResponse)
-async def list_personas():
+async def list_personas(include_deleted: bool = False):
     """List all registered personas."""
     repo = _get_repo()
     await repo.init()
-    summaries = await repo.list_all()
+    summaries = await repo.list_all(include_deleted=include_deleted)
     return PersonaListResponse(
         data=[PersonaSummaryModel(**asdict(s)) for s in summaries],
     )
@@ -204,17 +206,18 @@ async def create_persona(payload: PersonaCreateRequest):
             seed_slug=record.seed_slug,
             created_at=record.created_at,
             updated_at=record.updated_at,
+            deleted_at=record.deleted_at,
         ),
     )
 
 
 @personas_router.get("/{persona_id}", response_model=PersonaDetailResponse)
-async def get_persona(persona_id: str):
+async def get_persona(persona_id: str, include_deleted: bool = False):
     """Get full persona detail by ID."""
     repo = _get_repo()
     await repo.init()
     try:
-        record = await repo.get(persona_id)
+        record = await repo.get(persona_id, include_deleted=include_deleted)
     except KeyError:
         raise HTTPException(status_code=404, detail="Persona not found")
     return PersonaDetailResponse(
@@ -231,6 +234,7 @@ async def get_persona(persona_id: str):
             seed_slug=record.seed_slug,
             created_at=record.created_at,
             updated_at=record.updated_at,
+            deleted_at=record.deleted_at,
         ),
     )
 
@@ -266,6 +270,7 @@ async def update_persona(persona_id: str, payload: PersonaUpdateRequest):
             seed_slug=record.seed_slug,
             created_at=record.created_at,
             updated_at=record.updated_at,
+            deleted_at=record.deleted_at,
         ),
     )
 

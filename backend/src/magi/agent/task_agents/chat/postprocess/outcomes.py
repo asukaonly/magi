@@ -57,6 +57,7 @@ class ChatPostprocessOutcomeMixin:
         run_revision: int = 0,
         run_disposition: str | None = None,
         reply_to_message_id: str | None = None,
+        persona_id: str | None = None,
     ) -> None:
         host = cast(_OutcomePostprocessHostProtocol, self)
         await host._chat_outcome_writer.persist_final_chat_outcome(
@@ -73,6 +74,7 @@ class ChatPostprocessOutcomeMixin:
             run_revision=run_revision,
             run_disposition=run_disposition,
             reply_to_message_id=reply_to_message_id,
+            persona_id=persona_id,
         )
 
     async def _persist_segmented_chat_outcome(
@@ -91,6 +93,7 @@ class ChatPostprocessOutcomeMixin:
         run_revision: int = 0,
         run_disposition: str | None = None,
         reply_to_message_id: str | None = None,
+        persona_id: str | None = None,
     ) -> list[ChatMessageRecord]:
         host = cast(_OutcomePostprocessHostProtocol, self)
         return await host._chat_outcome_writer.persist_segmented_chat_outcome(
@@ -107,6 +110,7 @@ class ChatPostprocessOutcomeMixin:
             run_revision=run_revision,
             run_disposition=run_disposition,
             reply_to_message_id=reply_to_message_id,
+            persona_id=persona_id,
         )
 
     async def _resolve_result_reply_anchor_message_id(

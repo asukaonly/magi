@@ -93,6 +93,7 @@ export const ChatPage: React.FC = () => {
   const {
     aiName,
     aiAvatar,
+    assistantPersonas,
     coreModelSupportsVision,
     allowInterjection,
   } = useChatSessionLifecycle({
@@ -224,6 +225,7 @@ export const ChatPage: React.FC = () => {
         messages={messages}
         assistantName={aiName}
         assistantAvatar={aiAvatar}
+        assistantPersonas={assistantPersonas}
         currentSessionId={currentSessionId}
         shouldReduceMotion={Boolean(shouldReduceMotion)}
         summaries={summaries}

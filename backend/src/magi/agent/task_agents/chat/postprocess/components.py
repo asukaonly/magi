@@ -100,6 +100,7 @@ class ChatOutcomeWriter:
         run_revision: int = 0,
         run_disposition: str | None = None,
         reply_to_message_id: str | None = None,
+        persona_id: str | None = None,
     ) -> None:
         normalized_turn_id = str(turn_id or "").strip()
         if self._chat_store is None or not normalized_turn_id:
@@ -107,6 +108,10 @@ class ChatOutcomeWriter:
         existing_turn = await self._chat_store.get_turn(normalized_turn_id)
         if existing_turn is None:
             return
+        resolved_persona_id = await self._resolve_turn_persona_id(
+            turn_id=normalized_turn_id,
+            fallback_persona_id=persona_id,
+        )
         normalized_ux_plan = ux_plan if isinstance(ux_plan, dict) else {}
         response_mode = str(
             normalized_ux_plan.get("assistant_surface_mode") or existing_turn.response_mode or "final_only"
@@ -165,6 +170,7 @@ class ChatOutcomeWriter:
             sequence_no=await self._chat_store.next_sequence_no(session_id=existing_turn.session_id),
             replaces_message_id=interim_message.message_id if interim_message is not None else None,
             replaced_by_message_id=None,
+            persona_id=resolved_persona_id,
             reply_to_message_id=str(reply_to_message_id or "").strip() or None,
         )
         await self._chat_store.append_message(final_message, attachment_payloads=attachments)
@@ -191,6 +197,7 @@ class ChatOutcomeWriter:
         run_revision: int = 0,
         run_disposition: str | None = None,
         reply_to_message_id: str | None = None,
+        persona_id: str | None = None,
     ) -> list[ChatMessageRecord]:
         normalized_turn_id = str(turn_id or "").strip()
         if self._chat_store is None or not normalized_turn_id:
@@ -198,6 +205,10 @@ class ChatOutcomeWriter:
         existing_turn = await self._chat_store.get_turn(normalized_turn_id)
         if existing_turn is None:
             return []
+        resolved_persona_id = await self._resolve_turn_persona_id(
+            turn_id=normalized_turn_id,
+            fallback_persona_id=persona_id,
+        )
         normalized_ux_plan = ux_plan if isinstance(ux_plan, dict) else {}
         response_mode = str(
             normalized_ux_plan.get("assistant_surface_mode") or existing_turn.response_mode or "final_only"
@@ -268,6 +279,7 @@ class ChatOutcomeWriter:
                 sequence_no=sequence_no + index,
                 replaces_message_id=None,
                 replaced_by_message_id=None,
+                persona_id=resolved_persona_id,
                 reply_to_message_id=segment_reply_to_message_id,
             )
             await self._chat_store.append_message(
@@ -290,6 +302,23 @@ class ChatOutcomeWriter:
         if not payload:
             return "{}"
         return json.dumps(payload, ensure_ascii=False)
+
+    async def _resolve_turn_persona_id(
+        self,
+        *,
+        turn_id: str,
+        fallback_persona_id: str | None,
+    ) -> str | None:
+        normalized_fallback = str(fallback_persona_id or "").strip() or None
+        if self._chat_store is None:
+            return normalized_fallback
+        user_message = await self._chat_store.get_latest_message_for_turn(
+            turn_id,
+            message_kind="user_text",
+        )
+        if user_message is None:
+            return normalized_fallback
+        return str(user_message.persona_id or "").strip() or normalized_fallback
 
     @staticmethod
     def _build_segment_payload_json(
@@ -462,6 +491,10 @@ class ChatOutcomeWriter:
                 sequence_no=await self._chat_store.next_sequence_no(session_id=turn.session_id),
                 replaces_message_id=None,
                 replaced_by_message_id=None,
+                persona_id=await self._resolve_turn_persona_id(
+                    turn_id=turn_id,
+                    fallback_persona_id=None,
+                ),
             )
         )
 

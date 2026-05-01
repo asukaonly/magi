@@ -26,6 +26,7 @@ export interface ChatTimelineMessage {
   timestamp: number;
   messageId?: string;
   messageKind?: string | null;
+  personaId?: string | null;
   turnId?: string;
   reaction?: string | null;
   replyTo?: ChatTimelineReplyPreview | null;
@@ -425,6 +426,7 @@ export const normalizeHistoryMessages = (messages: ChatHistoryMessage[]): ChatTi
       timestamp: normalizeChatTimestamp(message.timestamp),
       messageId: message.message_id || undefined,
       messageKind: message.message_kind || null,
+      personaId: message.persona_id || null,
       turnId: message.turn_id || undefined,
       traceDisplayMode: message.trace_display_mode || null,
       allowTraceCollapse: Boolean(message.allow_trace_collapse),

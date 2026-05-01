@@ -2,13 +2,48 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import inspect
-from typing import Any
+from typing import Any, Callable
 
+from ..core.logger import get_logger
+from ..personality.models import EmotionalState
 from .assembler import PromptContextAssembler, PromptContextRenderer
 from .contracts import PromptPackage
 from .policy import ContextPolicy
 from .scenarios import Scenario
+
+logger = get_logger(__name__)
+
+
+@dataclass(slots=True)
+class _ResolvedPromptPersona:
+    persona_id: str
+    persona_name: str
+    config: Any
+
+
+class _PromptPersonaMemory:
+    """Prompt-only self-memory facade for non-active personas."""
+
+    def __init__(self, *, persona_id: str, persona_name: str, config: Any) -> None:
+        self.persona_id = persona_id
+        self.personality_name = persona_name
+        self._config = config
+
+    async def get_core_personality(self) -> Any:
+        return self._config
+
+    async def get_emotional_state(self) -> EmotionalState:
+        return EmotionalState()
+
+    async def get_relationship(self, user_id: str) -> dict[str, Any]:
+        _ = user_id
+        return {}
+
+    async def get_milestones(self, limit: int = 200) -> list[dict[str, Any]]:
+        _ = limit
+        return []
 
 
 class ContextAssemblyService:
@@ -24,6 +59,7 @@ class ContextAssemblyService:
         retrieval_memory_provider,
         memory=None,
         session_workspace_provider=None,
+        persona_lookup: Callable[[str], Any] | None = None,
         policy: ContextPolicy | None = None,
     ) -> None:
         self._agent_id = agent_id
@@ -33,6 +69,7 @@ class ContextAssemblyService:
         self._retrieval_memory_provider = retrieval_memory_provider
         self._memory = memory
         self._session_workspace_provider = session_workspace_provider
+        self._persona_lookup = persona_lookup
         self._policy = policy or ContextPolicy()
 
     async def build_prompt_package(
@@ -48,6 +85,7 @@ class ContextAssemblyService:
         recent_tool_errors: list[dict[str, Any]] | None = None,
         workspace_path: str | None = None,
         include_tool_catalog: bool = True,
+        persona_id: str | None = None,
     ) -> PromptPackage:
         policy = self._policy.decide(
             user_message=user_message,
@@ -68,20 +106,25 @@ class ContextAssemblyService:
             session_id=session_id,
             workspace_path=workspace_path,
         )
+        prompt_memory, prompt_persona_name, resolved_persona_id = await self._resolve_prompt_persona(
+            persona_id
+        )
         prompt_context = await self._prompt_context_assembler.assemble(
             agent_id=self._agent_id,
             agent_type=self._agent_type,
             scenario=scenario,
             task_category=task_category,
             user_id=user_id,
-            self_memory=self._memory,
+            self_memory=prompt_memory,
             tool_result={"tools": list(tools or [])},
             retrieved_memory_payload=retrieved_memory_payload,
             state_transition_override=None,
-            persona_name=self._memory.personality_name if self._memory else "default",
+            persona_name=prompt_persona_name,
             workspace_path=resolved_workspace_path,
             attachments=list(attachments or []),
         )
+        if resolved_persona_id:
+            prompt_context.metadata["persona_id"] = resolved_persona_id
         system_prompt = self._prompt_context_renderer.render_system_prompt(
             prompt_context,
             include_tool_catalog=include_tool_catalog,
@@ -108,6 +151,7 @@ class ContextAssemblyService:
         recent_tool_errors: list[dict[str, Any]] | None = None,
         workspace_path: str | None = None,
         include_tool_catalog: bool = True,
+        persona_id: str | None = None,
     ):
         package = await self.build_prompt_package(
             user_id=user_id,
@@ -120,6 +164,7 @@ class ContextAssemblyService:
             recent_tool_errors=recent_tool_errors,
             workspace_path=workspace_path,
             include_tool_catalog=include_tool_catalog,
+            persona_id=persona_id,
         )
         return package.prompt_context
 
@@ -136,6 +181,7 @@ class ContextAssemblyService:
         recent_tool_errors: list[dict[str, Any]] | None = None,
         workspace_path: str | None = None,
         include_tool_catalog: bool = True,
+        persona_id: str | None = None,
     ) -> str:
         package = await self.build_prompt_package(
             user_id=user_id,
@@ -148,8 +194,90 @@ class ContextAssemblyService:
             recent_tool_errors=recent_tool_errors,
             workspace_path=workspace_path,
             include_tool_catalog=include_tool_catalog,
+            persona_id=persona_id,
         )
         return package.system_prompt
+
+    async def _resolve_prompt_persona(
+        self,
+        persona_id: str | None,
+    ) -> tuple[Any, str, str | None]:
+        base_memory = self._memory
+        base_persona_name = str(getattr(base_memory, "personality_name", "default") or "default")
+        normalized_persona_id = str(persona_id or "").strip()
+        if not normalized_persona_id:
+            return base_memory, base_persona_name, None
+
+        if (
+            base_memory is not None
+            and str(getattr(base_memory, "persona_id", "") or "").strip() == normalized_persona_id
+        ):
+            return base_memory, base_persona_name, normalized_persona_id
+
+        resolved = await self._lookup_persona_for_prompt(normalized_persona_id)
+        if resolved is None:
+            logger.warning(
+                "Prompt persona lookup failed; falling back to active persona | persona_id=%s",
+                normalized_persona_id,
+            )
+            return base_memory, base_persona_name, None
+        return (
+            _PromptPersonaMemory(
+                persona_id=resolved.persona_id,
+                persona_name=resolved.persona_name,
+                config=resolved.config,
+            ),
+            resolved.persona_name,
+            resolved.persona_id,
+        )
+
+    async def _lookup_persona_for_prompt(self, persona_id: str) -> _ResolvedPromptPersona | None:
+        try:
+            if self._persona_lookup is not None:
+                raw = self._persona_lookup(persona_id)
+                if inspect.isawaitable(raw):
+                    raw = await raw
+                return self._coerce_resolved_prompt_persona(persona_id, raw)
+
+            from ..personality.persona_repository import PersonaRepository
+            from ..utils.runtime import get_runtime_paths
+
+            repo = PersonaRepository(str(get_runtime_paths().persona_registry_db_path))
+            await repo.init()
+            record = await repo.get(persona_id, include_deleted=True)
+            return _ResolvedPromptPersona(
+                persona_id=record.persona_id,
+                persona_name=record.slug or "default",
+                config=record.config,
+            )
+        except Exception as exc:
+            logger.debug("Failed to resolve prompt persona", persona_id=persona_id, error=str(exc))
+            return None
+
+    @staticmethod
+    def _coerce_resolved_prompt_persona(
+        persona_id: str,
+        raw: Any,
+    ) -> _ResolvedPromptPersona | None:
+        if raw is None:
+            return None
+        if isinstance(raw, dict):
+            config = raw.get("config") or raw.get("personality_config")
+            persona_name = str(raw.get("slug") or raw.get("persona_name") or "default").strip()
+            resolved_id = str(raw.get("persona_id") or persona_id).strip()
+        else:
+            config = getattr(raw, "config", None) or getattr(raw, "personality_config", None)
+            persona_name = str(
+                getattr(raw, "slug", None) or getattr(raw, "persona_name", None) or "default"
+            ).strip()
+            resolved_id = str(getattr(raw, "persona_id", None) or persona_id).strip()
+        if config is None or not resolved_id:
+            return None
+        return _ResolvedPromptPersona(
+            persona_id=resolved_id,
+            persona_name=persona_name or "default",
+            config=config,
+        )
 
     async def _resolve_workspace_path(
         self,

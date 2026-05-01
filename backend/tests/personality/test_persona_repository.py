@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import json
-import tempfile
 from pathlib import Path
 
 import pytest
 import pytest_asyncio
 
-from magi.personality.persona_repository import PersonaRepository, PersonaSummary, PersonaRecord
+from magi.personality.persona_repository import PersonaRepository, PersonaSummary
 from magi.personality import persona_seed
 
 
@@ -94,6 +93,15 @@ class TestPersonaRepository:
         pid = await repo.create(_SAMPLE_CONFIG, slug="del")
         await repo.delete(pid)
         assert await repo.count() == 0
+        assert await repo.count(include_deleted=True) == 1
+        with pytest.raises(KeyError):
+            await repo.get(pid)
+        deleted = await repo.get(pid, include_deleted=True)
+        assert deleted.deleted_at is not None
+        assert await repo.list_all() == []
+        assert len(await repo.list_all(include_deleted=True)) == 1
+        with pytest.raises(KeyError):
+            await repo.set_active(pid)
 
     @pytest.mark.asyncio
     async def test_delete_active_raises(self, repo: PersonaRepository) -> None:

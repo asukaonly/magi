@@ -114,6 +114,7 @@ export interface PersonaSummary {
   sort_order: number;
   is_builtin: boolean;
   description: string;
+  deleted_at?: number | null;
 }
 
 export interface PersonaDetail {
@@ -129,6 +130,7 @@ export interface PersonaDetail {
   seed_slug: string | null;
   created_at: number;
   updated_at: number;
+  deleted_at?: number | null;
 }
 
 export interface PersonaListResponse {
@@ -193,10 +195,15 @@ export const selectDefaultSeedPreview = (previews: SeedPreview[]): SeedPreview |
 
 export const personasApi = {
   /** List all registered personas. */
-  list: () => api.get<PersonaSummary[]>('/personas/'),
+  list: (options?: { includeDeleted?: boolean }) => api.get<PersonaSummary[]>('/personas/', {
+    params: options?.includeDeleted ? { include_deleted: true } : undefined,
+  }),
 
   /** Get full detail for a persona by ID. */
-  get: (personaId: string) => api.get<PersonaDetail>('/personas/' + personaId),
+  get: (personaId: string, options?: { includeDeleted?: boolean }) => api.get<PersonaDetail>(
+    '/personas/' + personaId,
+    options?.includeDeleted ? { params: { include_deleted: true } } : undefined,
+  ),
 
   /** Create a new custom persona. Returns detail including assigned persona_id. */
   create: (payload: { config_json: string; locale?: string; slug?: string }) =>

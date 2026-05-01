@@ -137,6 +137,7 @@ async def dispatch_user_message(
     created_at = time.time()
     created_at_ms = int(created_at * 1000)
     turn_id = str(client_turn_id or "").strip() or f"turn_{uuid.uuid4().hex[:12]}"
+    active_persona_id = await _resolve_active_persona_id()
     try:
         created_turn = await chat_store.create_user_turn(
             session_id=resolved_session_id,
@@ -146,6 +147,7 @@ async def dispatch_user_message(
             attachment_payloads=normalized_attachments,
             created_at_ms=created_at_ms,
             reply_to_message_id=normalized_reply_to_message_id,
+            persona_id=active_persona_id,
         )
     except Exception:
         return MessageDispatchOutcome(
@@ -214,6 +216,19 @@ async def dispatch_user_message(
         turn_id=turn_id,
         queue_size=int(queue_size) if isinstance(queue_size, int) else None,
     )
+
+
+async def _resolve_active_persona_id() -> str | None:
+    try:
+        from ...personality.persona_repository import PersonaRepository
+        from ...utils.runtime import get_runtime_paths
+
+        repo = PersonaRepository(str(get_runtime_paths().persona_registry_db_path))
+        await repo.init()
+        active_id = await repo.get_active_id()
+    except Exception:
+        return None
+    return str(active_id or "").strip() or None
 
 
 def _normalize_attachments(attachments: list[dict[str, Any]] | None) -> list[dict[str, Any]]:

@@ -47,6 +47,11 @@ def row_to_display_message(row: sqlite3.Row) -> ChatDisplayMessage | None:
     turn_id = str(row["turn_id"] or "").strip() or None
     timestamp = int(row["created_at_ms"] or 0)
     message_id = str(row["message_id"])
+    persona_id = (
+        str(row["persona_id"] or "").strip() or None
+        if "persona_id" in row.keys()
+        else None
+    )
 
     if message_kind == "user_text":
         return ChatDisplayMessage(
@@ -57,6 +62,7 @@ def row_to_display_message(row: sqlite3.Row) -> ChatDisplayMessage | None:
             timestamp=timestamp,
             message_id=message_id,
             message_kind=message_kind,
+            persona_id=persona_id,
             turn_id=turn_id,
             label=label_payload,
         )
@@ -69,6 +75,7 @@ def row_to_display_message(row: sqlite3.Row) -> ChatDisplayMessage | None:
             timestamp=timestamp,
             message_id=message_id,
             message_kind=message_kind,
+            persona_id=persona_id,
             turn_id=turn_id,
             label=label_payload,
             payload=dict(payload) if isinstance(payload, dict) else None,
@@ -88,6 +95,7 @@ def row_to_display_message(row: sqlite3.Row) -> ChatDisplayMessage | None:
             timestamp=timestamp,
             message_id=message_id,
             message_kind=message_kind,
+            persona_id=persona_id,
             turn_id=turn_id,
             payload=dict(payload) if isinstance(payload, dict) else None,
             label=label_payload,
@@ -100,6 +108,7 @@ def row_to_display_message(row: sqlite3.Row) -> ChatDisplayMessage | None:
             timestamp=timestamp,
             message_id=message_id,
             message_kind=message_kind,
+            persona_id=persona_id,
             turn_id=turn_id,
             payload=dict(payload) if isinstance(payload, dict) else None,
         )

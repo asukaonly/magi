@@ -1,7 +1,7 @@
 """Runtime task agent for chat facts."""
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 from ...agent.orchestration import get_orchestration_store
 from ...agent.task_orchestrator import TaskOrchestrator
@@ -37,10 +37,10 @@ from .chat import (
     SessionRunStore,
     ToolSelection,
 )
+from .chat.direct_handler import DirectLLMHandler
+from .chat.explore_render import ExploreRenderHandler
 from .chat.handlers import (
     ChatHandlerDependencies,
-    DirectLLMHandler,
-    ExploreRenderHandler,
     FunctionCallingHandler,
     build_common_handler_dependencies,
 )
@@ -48,6 +48,7 @@ from .chat.reply_context import ChatReplyContextMixin
 from .chat.rhythm import ResponseRhythmPlanner, is_conversation_rhythm_enabled
 from .chat.session_control import ChatSessionControlMixin
 from .chat.streaming import ChatStreamingMixin, format_llm_error as _format_llm_error
+from .chat.transcript_summarizer import ChatTranscriptSummarizer
 from .common import FactOnlyHandler, OrchestrationLaunchHandler, OrchestrationUpdateHandler
 
 logger = get_logger(__name__)
@@ -76,7 +77,7 @@ class ChatTaskAgent(
         hybrid_retrieval_service=None,
         memory_integration=None,
         history_cache_max_sessions: int = 500,
-        history_fetch_limit: int = 200,
+        history_fetch_limit: int = 1000,
         scenario_prompts_store=None,
         skill_runner=None,
         runtime_trace_store: RuntimeTraceStore | None = None,
@@ -171,6 +172,11 @@ class ChatTaskAgent(
             trace_read_service = ChatTraceReadService()
         except Exception:
             trace_read_service = None
+        self._transcript_summarizer = ChatTranscriptSummarizer(
+            chat_store=chat_store,
+            scenario_llm_pool=llm_pool,
+            llm_adapter=llm_adapter,
+        )
 
         self._postprocess_service = ChatPostProcessService(
             agent_id=self.agent_id,
@@ -198,6 +204,7 @@ class ChatTaskAgent(
             ),
             drain_deferred_turns=self._drain_deferred_turns,
             response_rhythm_planner=ResponseRhythmPlanner(prompt_service=self._prompt_service),
+            transcript_summarizer=self._transcript_summarizer,
         )
         self.function_calling_orchestrator = FunctionCallingOrchestrator(
             llm_adapter=llm_adapter,
@@ -322,7 +329,8 @@ class ChatTaskAgent(
                 updated_at_ms=updated_at_ms,
             )
         session_id = self._history_service.require_session_id(classified.user_id, classified.session_id)
-        history = await self._history_service.get_or_load_history(classified.user_id, session_id)
+        history_context = await self._history_service.get_or_load_history_context(classified.user_id, session_id)
+        history = history_context.messages
         recent_tool_errors = self._history_service.get_recent_tool_errors(
             self._history_service.history_key(classified.user_id, session_id)
         )
@@ -345,6 +353,7 @@ class ChatTaskAgent(
         core_model_supports_vision = bool(
             getattr(getattr(core_selection, "capabilities", None), "vision", False)
         )
+        active_persona_id = await self._resolve_context_persona_id(run_decision.latest_payload)
         return ChatRuntimeContext(
             latest_fact=latest_fact if isinstance(latest_fact, FactRecord) else None,
             recent_facts=list(base_context.recent_facts if isinstance(base_context, TaskAgentRuntimeContext) else []),
@@ -372,10 +381,35 @@ class ChatTaskAgent(
             planner_payload=run_decision.latest_payload,
             pending_turns=list(run_decision.checkpoint_pending_turns),
             reply_context=reply_context,
+            session_summary=history_context.session_summary,
+            session_origin=history_context.session_origin,
+            active_persona_id=active_persona_id,
             streaming_chat_enabled=streaming_chat_enabled,
             allow_media_grounding_for_conversation=allow_media_grounding_for_conversation,
             core_model_supports_vision=core_model_supports_vision,
         )
+
+    async def _resolve_context_persona_id(self, latest_payload: object) -> str | None:
+        turn_id = str(getattr(latest_payload, "turn_id", "") or "").strip()
+        if self._chat_store is not None and turn_id:
+            try:
+                user_message = await self._chat_store.get_latest_message_for_turn(
+                    turn_id,
+                    message_kind="user_text",
+                )
+                if user_message is not None and user_message.persona_id:
+                    return str(user_message.persona_id).strip() or None
+            except Exception:
+                logger.debug("Failed to resolve persona id from user turn", turn_id=turn_id)
+        try:
+            from ...personality.persona_repository import PersonaRepository
+
+            repo = PersonaRepository(str(get_runtime_paths().persona_registry_db_path))
+            await repo.init()
+            active_id = await repo.get_active_id()
+        except Exception:
+            return None
+        return str(active_id or "").strip() or None
 
     async def match_intent(self, context: ChatRuntimeContext):
         return await self._coordinator.match_intent(context)

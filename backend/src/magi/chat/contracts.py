@@ -71,8 +71,35 @@ class ChatMessageRecord:
     sequence_no: int
     replaces_message_id: str | None
     replaced_by_message_id: str | None
+    persona_id: str | None = None
     reply_to_message_id: str | None = None
     label: "ChatMessageLabel | None" = None
+
+
+@dataclass(slots=True)
+class ChatContextSummaryRecord:
+    """Durable rolling summary for one chat session prompt frontier."""
+
+    summary_id: str
+    session_id: str
+    parent_summary_id: str | None
+    status: str
+    summary_kind: str
+    persona_scope: str | None
+    covered_from_message_id: str | None
+    covered_to_message_id: str | None
+    first_kept_message_id: str | None
+    covered_to_sequence_no: int | None
+    session_origin: str
+    summary_text: str
+    prompt_profile: str
+    model_provider: str | None
+    model_id: str | None
+    token_count_before: int | None
+    token_count_after: int | None
+    quality_status: str | None
+    created_at_ms: int
+    updated_at_ms: int
 
 
 @dataclass(slots=True)

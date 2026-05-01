@@ -8,6 +8,7 @@ import { ChatMessageContextMenuOverlay } from './ChatMessageContextMenuOverlay';
 import { StatusTimelineRow } from './StatusTimelineRow';
 import type {
   TimelineAssistantIdentity,
+  TimelineAssistantPersona,
   TimelineExecutionBindings,
   TranscriptTimelineInteractions,
 } from './TimelineRowShared';
@@ -17,6 +18,7 @@ type ChatTimelinePaneProps = {
   messages: ChatTimelineMessage[];
   assistantName: string;
   assistantAvatar: string;
+  assistantPersonas: Record<string, TimelineAssistantPersona>;
   currentSessionId: string | null;
   shouldReduceMotion: boolean;
   summaries: Record<string, ExecutionTraceSummary>;
@@ -50,6 +52,7 @@ export const ChatTimelinePane = ({
   messages,
   assistantName,
   assistantAvatar,
+  assistantPersonas,
   currentSessionId,
   shouldReduceMotion,
   summaries,
@@ -81,6 +84,7 @@ export const ChatTimelinePane = ({
   const assistant: TimelineAssistantIdentity = {
     name: assistantName,
     avatar: assistantAvatar,
+    personas: assistantPersonas,
   };
   const execution: TimelineExecutionBindings = {
     summaries,

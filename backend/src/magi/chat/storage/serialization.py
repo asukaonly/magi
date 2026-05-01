@@ -104,7 +104,16 @@ def row_to_message(row: aiosqlite.Row) -> ChatMessageRecord:
         sequence_no=int(row["sequence_no"]),
         replaces_message_id=str(row["replaces_message_id"]) if row["replaces_message_id"] is not None else None,
         replaced_by_message_id=str(row["replaced_by_message_id"]) if row["replaced_by_message_id"] is not None else None,
-        reply_to_message_id=str(row["reply_to_message_id"]) if row["reply_to_message_id"] is not None else None,
+        persona_id=(
+            str(row["persona_id"])
+            if "persona_id" in row.keys() and row["persona_id"] is not None
+            else None
+        ),
+        reply_to_message_id=(
+            str(row["reply_to_message_id"])
+            if row["reply_to_message_id"] is not None
+            else None
+        ),
         label=parse_message_label(row["label_json"] if "label_json" in row.keys() else None),
     )
 

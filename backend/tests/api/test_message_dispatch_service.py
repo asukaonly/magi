@@ -5,7 +5,6 @@ from dataclasses import dataclass
 import pytest
 
 from magi.api.services import message_dispatch_service as service
-from magi.events.events import REQUIRE_SUBSCRIBER_DELIVERY_METADATA_KEY
 
 
 class _FakeBus:
@@ -58,6 +57,7 @@ class _FakeChatStore:
         attachment_payloads: list[dict[str, object]] | None = None,
         created_at_ms: int,
         reply_to_message_id: str | None = None,
+        persona_id: str | None = None,
     ) -> _FakeCreatedTurn:
         self.created_turns.append(
             {
@@ -68,6 +68,7 @@ class _FakeChatStore:
                 "attachment_payloads": list(attachment_payloads or []),
                 "created_at_ms": created_at_ms,
                 "reply_to_message_id": reply_to_message_id,
+                "persona_id": persona_id,
             }
         )
         return _FakeCreatedTurn(
@@ -138,6 +139,29 @@ async def test_dispatch_user_message_persists_chat_turn_before_enqueue(monkeypat
     assert chat_projector.user_messages[0]["message_id"] == f"msg-{outcome.turn_id}"
     assert chat_projector.user_messages[0]["metadata"] == {}
     assert len(queue.commands) == 1
+
+
+@pytest.mark.asyncio
+async def test_dispatch_user_message_stores_active_persona_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    queue = _FakeRuntimeCommandQueue()
+    chat_store = _FakeChatStore()
+
+    async def _fake_active_persona_id() -> str:
+        return "persona-active"
+
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "get_chat_store", lambda: chat_store)
+    monkeypatch.setattr(service, "_resolve_active_persona_id", _fake_active_persona_id)
+
+    outcome = await service.dispatch_user_message(
+        source="api",
+        user_id="u1",
+        message="hello",
+        session_id="session-for-u1",
+    )
+
+    assert outcome.success is True
+    assert chat_store.created_turns[0]["persona_id"] == "persona-active"
 
 
 @pytest.mark.asyncio
@@ -350,8 +374,10 @@ async def test_dispatch_user_message_returns_chat_persist_failure_before_enqueue
             message_text: str,
             attachment_payloads: list[dict[str, object]] | None = None,
             created_at_ms: int,
+            reply_to_message_id: str | None = None,
+            persona_id: str | None = None,
         ) -> _FakeCreatedTurn:
-            _ = attachment_payloads
+            _ = (attachment_payloads, reply_to_message_id, persona_id)
             raise RuntimeError("persist failed")
 
     queue = _FakeRuntimeCommandQueue()

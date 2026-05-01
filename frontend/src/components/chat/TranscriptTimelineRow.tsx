@@ -3,7 +3,11 @@ import type { ProjectedChatTimelineMessage } from '@/domain/chat/presentation';
 import { formatChatClockTime } from '@/domain/chat/timestamps';
 import { ChatRoleAvatar } from './ChatRoleAvatar';
 import { MessageLabelBadge } from './MessageLabelBadge';
-import type { TimelineRowSharedProps, TranscriptTimelineInteractions } from './TimelineRowShared';
+import type {
+  TimelineAssistantIdentity,
+  TimelineRowSharedProps,
+  TranscriptTimelineInteractions,
+} from './TimelineRowShared';
 import { TraceEntryButton } from './TraceEntryButton';
 import { TranscriptBubbleTop } from './TranscriptBubbleTop';
 import { TimelineExecutionPanel } from './TimelineExecutionPanel';
@@ -36,6 +40,22 @@ const resolveTranscriptContent = (
   return message.content;
 };
 
+const resolveAssistantIdentity = (
+  assistant: TimelineAssistantIdentity,
+  personaId: string | null | undefined,
+): TimelineAssistantIdentity => {
+  const normalizedPersonaId = String(personaId || '').trim();
+  const persona = normalizedPersonaId ? assistant.personas?.[normalizedPersonaId] : undefined;
+  if (!persona) {
+    return assistant;
+  }
+  return {
+    name: persona.name || assistant.name,
+    avatar: persona.avatar || assistant.avatar,
+    personas: assistant.personas,
+  };
+};
+
 type TranscriptTimelineRowProps = TimelineRowSharedProps & {
   projectedMessage: Extract<ProjectedChatTimelineMessage, { surface: 'transcript' }>;
   interactions: TranscriptTimelineInteractions;
@@ -53,16 +73,19 @@ export const TranscriptTimelineRow = ({
   const message = projectedMessage.message;
   const transcript = projectedMessage.transcript;
   const content = resolveTranscriptContent(message, t);
+  const messageAssistant = message.role === 'assistant'
+    ? resolveAssistantIdentity(assistant, message.personaId)
+    : assistant;
 
   return (
     <TranscriptTimelineMessage
       message={message}
       content={content}
-      assistantName={assistant.name}
+      assistantName={messageAssistant.name}
       userNameLabel={t('chat.you')}
       timestampLabel={formatChatClockTime(message.timestamp, i18n.language)}
       shouldReduceMotion={shouldReduceMotion}
-      avatar={<ChatRoleAvatar role={message.role} assistantName={assistant.name} assistantAvatar={assistant.avatar} />}
+      avatar={<ChatRoleAvatar role={message.role} assistantName={messageAssistant.name} assistantAvatar={messageAssistant.avatar} />}
       headerExtras={(
         <TranscriptHeaderActions
           message={message}
