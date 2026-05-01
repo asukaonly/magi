@@ -137,19 +137,11 @@ pub(super) fn query_history(user_id: &str, session_id: &str) -> Value {
                 return None;
             }
 
-            let (kind, role) = match row.message_kind.as_str() {
-                "user_text" => ("user", "user"),
-                "assistant_final" | "assistant_interim" | "assistant_reaction" => {
-                    ("assistant", row.role.as_str())
-                }
-                "todo_state"
-                | "plan_state"
-                | "permission_request"
-                | "ask_request"
-                | "background_task_completion"
-                | "status_note"
-                | "system_notice" => ("status", row.role.as_str()),
-                _ => return None,
+            let kind = display_kind_for_message(row.message_kind.as_str())?;
+            let role = if row.message_kind == "user_text" {
+                "user"
+            } else {
+                row.role.as_str()
             };
 
             let turn_id = row.turn_id.as_deref().filter(|s| !s.is_empty());
@@ -313,6 +305,24 @@ fn payload_is_empty(payload: &Value) -> bool {
     }
 }
 
+fn display_kind_for_message(message_kind: &str) -> Option<&'static str> {
+    match message_kind {
+        "user_text" => Some("user"),
+        "assistant_final"
+        | "assistant_interim"
+        | "assistant_reaction"
+        | "assistant_rhythm_segment" => Some("assistant"),
+        "todo_state"
+        | "plan_state"
+        | "permission_request"
+        | "ask_request"
+        | "background_task_completion"
+        | "status_note"
+        | "system_notice" => Some("status"),
+        _ => None,
+    }
+}
+
 fn parse_label(raw: &Option<String>) -> Option<Value> {
     let raw = raw.as_ref()?;
     let parsed: Value = serde_json::from_str(raw).ok()?;
@@ -329,6 +339,19 @@ fn parse_label(raw: &Option<String>) -> Option<Value> {
         "source": source,
         "created_at_ms": created_at_ms
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::display_kind_for_message;
+
+    #[test]
+    fn rhythm_segments_are_displayed_as_assistant_messages() {
+        assert_eq!(
+            display_kind_for_message("assistant_rhythm_segment"),
+            Some("assistant")
+        );
+    }
 }
 
 fn empty_history(user_id: &str, session_id: &str) -> Value {
