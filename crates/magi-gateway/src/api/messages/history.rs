@@ -67,8 +67,8 @@ pub(super) fn query_history(user_id: &str, session_id: &str) -> Value {
     let mut stmt = match conn.prepare(
         "SELECT message_id, session_id, turn_id, user_id, role, message_kind, \
                 content_text, payload_json, is_final, is_visible, created_at_ms, \
-                sequence_no, replaces_message_id, replaced_by_message_id, reply_to_message_id, \
-                label_json \
+                sequence_no, replaces_message_id, replaced_by_message_id, persona_id, \
+                reply_to_message_id, label_json \
          FROM chat_messages \
          WHERE user_id = ?1 AND session_id = ?2 \
                      AND is_visible = 1 \
@@ -88,6 +88,7 @@ pub(super) fn query_history(user_id: &str, session_id: &str) -> Value {
         content_text: String,
         payload_json: String,
         created_at_ms: i64,
+        persona_id: Option<String>,
         reply_to_message_id: Option<String>,
         label_json: Option<String>,
     }
@@ -102,8 +103,9 @@ pub(super) fn query_history(user_id: &str, session_id: &str) -> Value {
                 content_text: row.get::<_, Option<String>>(6)?.unwrap_or_default(),
                 payload_json: row.get::<_, Option<String>>(7)?.unwrap_or_default(),
                 created_at_ms: row.get::<_, i64>(10)?,
-                reply_to_message_id: row.get::<_, Option<String>>(14)?,
-                label_json: row.get::<_, Option<String>>(15)?,
+                persona_id: row.get::<_, Option<String>>(14)?,
+                reply_to_message_id: row.get::<_, Option<String>>(15)?,
+                label_json: row.get::<_, Option<String>>(16)?,
             })
         })
         .ok()
@@ -178,6 +180,7 @@ pub(super) fn query_history(user_id: &str, session_id: &str) -> Value {
                 "timestamp": row.created_at_ms,
                 "message_id": row.message_id,
                 "message_kind": row.message_kind,
+                "persona_id": row.persona_id,
                 "turn_id": turn_id,
                 "trace_available": trace_available && kind == "assistant",
             });

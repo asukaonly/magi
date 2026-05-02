@@ -282,6 +282,7 @@ async fn native_message_routes_return_history_versions() {
             sequence_no INTEGER NOT NULL DEFAULT 0,
             replaces_message_id TEXT,
             replaced_by_message_id TEXT,
+            persona_id TEXT,
             reply_to_message_id TEXT,
             label_json TEXT
         );
@@ -297,10 +298,10 @@ async fn native_message_routes_return_history_versions() {
         INSERT INTO chat_messages (
             message_id, session_id, turn_id, user_id, role, message_kind,
             content_text, payload_json, is_final, is_visible, created_at_ms, sequence_no,
-            replaces_message_id, replaced_by_message_id, reply_to_message_id, label_json
+            replaces_message_id, replaced_by_message_id, persona_id, reply_to_message_id, label_json
         ) VALUES (
             'msg-1', 's-history', 'turn-1', 'u1', 'user', 'user_text',
-            'hello', '{}', 1, 1, 1000, 1, NULL, NULL, NULL, NULL
+            'hello', '{}', 1, 1, 1000, 1, NULL, NULL, 'persona-1', NULL, NULL
         );",
     )
     .unwrap();
@@ -320,6 +321,7 @@ async fn native_message_routes_return_history_versions() {
     assert_eq!(history["history_version"], 7);
     assert_eq!(history["count"], 1);
     assert_eq!(history["messages"][0]["content"], "hello");
+    assert_eq!(history["messages"][0]["persona_id"], "persona-1");
 
     let (status, sessions) =
         request_json(router, "GET", "/api/messages/sessions?user_id=u1", None).await;
