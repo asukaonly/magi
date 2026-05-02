@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
+import time
+import uuid
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable, Optional, Sequence
 
@@ -18,8 +21,14 @@ logger = get_logger(__name__)
 
 REQUIRED_REGISTERS = ("chat", "analysis", "task", "emotional", "crisis")
 PERSONALITY_GENERATION_MAX_CONCURRENT_LLM_CALLS = 2
+PERSONALITY_GENERATION_JOB_TTL_SECONDS = 30 * 60
 _PERSONALITY_GENERATION_LLM_SEMAPHORE = asyncio.Semaphore(PERSONALITY_GENERATION_MAX_CONCURRENT_LLM_CALLS)
+_PERSONALITY_GENERATION_JOBS: dict[str, "PersonalityGenerationJob"] = {}
 FIXED_SURFACE_LAYER = {"layer_id": "surface", "unlock_condition": None, "modifiers": {}}
+CJK_TEXT_RE = re.compile(r"[\u3400-\u9fff]")
+CJK_INTERNAL_SPACE_RE = re.compile(r"(?<=[\u3400-\u9fff])\s+(?=[\u3400-\u9fff])")
+CJK_BEFORE_PUNCTUATION_RE = re.compile(r"(?<=[\u3400-\u9fff])\s+(?=[，。！？、；：])")
+ENGLISH_BOOTSTRAP_PREFIXES = ("hi, i'm ", "hello, i'm ", "hi, i am ", "hello, i am ")
 DEFAULT_DEEP_LAYERS = (
   {
     "layer_id": "crack",
@@ -49,6 +58,49 @@ class PersonalityGenerationResult:
 
   config: PersonalityConfigModel
   stages: list[dict[str, str]]
+
+
+@dataclass
+class PersonalityGenerationJob:
+  """In-memory state for a single persona generation request."""
+
+  job_id: str
+  status: str
+  stages: list[dict[str, str]]
+  created_at: float
+  updated_at: float
+  result: Optional[PersonalityGenerationResult] = None
+  error: Optional[str] = None
+
+
+def _is_chinese_target(target_language: str) -> bool:
+  return target_language.strip().lower() in {"chinese", "zh", "zh-cn", "中文", "简体中文"}
+
+
+def _payload_looks_chinese(payload: Dict[str, Any]) -> bool:
+  sample = " ".join(
+    str(payload.get(key) or "")
+    for key in ("name", "description")
+  )
+  identity_core = payload.get("identity_core") if isinstance(payload.get("identity_core"), dict) else {}
+  sample = f"{sample} {identity_core.get('identity_statement') or ''}"
+  return bool(CJK_TEXT_RE.search(sample))
+
+
+def _clean_generated_text(value: str) -> str:
+  text = CJK_INTERNAL_SPACE_RE.sub("", value)
+  text = CJK_BEFORE_PUNCTUATION_RE.sub("", text)
+  return text.strip()
+
+
+def _clean_generated_text_tree(value: Any) -> Any:
+  if isinstance(value, str):
+    return _clean_generated_text(value)
+  if isinstance(value, list):
+    return [_clean_generated_text_tree(item) for item in value]
+  if isinstance(value, dict):
+    return {key: _clean_generated_text_tree(item) for key, item in value.items()}
+  return value
 
 
 def _string_list(value: Any) -> list[str]:
@@ -241,6 +293,40 @@ def _complete_signature_triggers(payload: Dict[str, Any]) -> None:
   payload["signature_triggers"] = normalized
 
 
+def _complete_dynamic_state_rules(payload: Dict[str, Any]) -> None:
+  rules = _string_dict(payload.get("dynamic_state_rules"))
+  defaults = {
+    "low_energy": "Reply shorter, reduce performance, and keep only the most useful personality trace.",
+    "high_stress": "Match urgency, remove jokes, and give concrete next steps before any persona texture.",
+    "positive_mood": "Allow a little more warmth or play while keeping the ordinary baseline intact.",
+  }
+  for key, value in defaults.items():
+    rules.setdefault(key, value)
+  payload["dynamic_state_rules"] = rules
+
+
+def _normalize_unlock_condition(value: Any) -> dict[str, Any] | None:
+  if not isinstance(value, dict):
+    return None
+  condition = dict(value)
+  trust_level = condition.get("trust_level_gte")
+  if trust_level is not None:
+    try:
+      normalized_trust = float(trust_level)
+      if normalized_trust > 1:
+        normalized_trust = normalized_trust / 10 if normalized_trust <= 10 else normalized_trust / 100
+      condition["trust_level_gte"] = max(0.0, min(1.0, normalized_trust))
+    except (TypeError, ValueError):
+      condition.pop("trust_level_gte", None)
+  interaction_count = condition.get("interaction_count_gte")
+  if interaction_count is not None:
+    try:
+      condition["interaction_count_gte"] = max(0, int(interaction_count))
+    except (TypeError, ValueError):
+      condition.pop("interaction_count_gte", None)
+  return condition
+
+
 def _complete_persona_layers(payload: Dict[str, Any]) -> None:
   layers = _ensure_list(payload, "persona_layers")
   normalized: list[dict[str, Any]] = [dict(FIXED_SURFACE_LAYER)]
@@ -254,7 +340,7 @@ def _complete_persona_layers(payload: Dict[str, Any]) -> None:
     if layer_id == "surface":
       continue
     seen_ids.add(layer_id)
-    unlock_condition = item.get("unlock_condition") if isinstance(item.get("unlock_condition"), dict) else None
+    unlock_condition = _normalize_unlock_condition(item.get("unlock_condition"))
     modifiers = item.get("modifiers") if isinstance(item.get("modifiers"), dict) else {}
     normalized.append({"layer_id": layer_id, "unlock_condition": unlock_condition, "modifiers": dict(modifiers)})
   for item in DEFAULT_DEEP_LAYERS:
@@ -271,7 +357,7 @@ def _complete_persona_layers(payload: Dict[str, Any]) -> None:
   payload["persona_layers"] = normalized
 
 
-def _complete_bootstrap(payload: Dict[str, Any]) -> None:
+def _complete_bootstrap(payload: Dict[str, Any], target_language: str = "Auto") -> None:
   bootstrap = payload.get("bootstrap")
   if not isinstance(bootstrap, dict):
     bootstrap = {}
@@ -279,14 +365,22 @@ def _complete_bootstrap(payload: Dict[str, Any]) -> None:
   name = str(payload.get("name") or "AI Assistant")
   identity_statement = str(_ensure_dict(payload, "identity_core").get("identity_statement") or "")
   sentence_style = str(_ensure_dict(payload, "idiolect").get("sentence_style") or "")
+  should_use_chinese = _is_chinese_target(target_language) or (target_language == "Auto" and _payload_looks_chinese(payload))
+  current_opening = str(bootstrap.get("opening_line") or "").strip()
+  opening_is_english_fallback = current_opening.lower().startswith(ENGLISH_BOOTSTRAP_PREFIXES)
+  if should_use_chinese:
+    default_style = f"以{name}的语气开启第一次见面：简短、自然、低压力。{sentence_style}".strip()
+    default_opening = f"我是{name}。你希望我怎么称呼你？也可以顺手告诉我一件你希望我记住的小事。"
+  else:
+    default_style = f"Open as {name} with a brief, ordinary first-contact tone. {sentence_style}".strip()
+    default_opening = (
+      f"Hi, I'm {name}. What should I call you, and what's one thing you want me to remember about how you like to talk?"
+    )
   bootstrap["style_instruction"] = str(
     bootstrap.get("style_instruction")
-    or f"Open as {name} with a brief, ordinary first-contact tone. {sentence_style}".strip()
+    or default_style
   )
-  bootstrap["opening_line"] = str(
-    bootstrap.get("opening_line")
-    or f"Hi, I'm {name}. What should I call you, and what's one thing you want me to remember about how you like to talk?"
-  )
+  bootstrap["opening_line"] = default_opening if not current_opening or (should_use_chinese and opening_is_english_fallback) else current_opening
   try:
     bootstrap["max_rounds"] = int(bootstrap.get("max_rounds") or 3)
   except (TypeError, ValueError):
@@ -392,6 +486,7 @@ dynamic_state_rules and milestone_conditions must be objects with concise string
   (
     "Generate two to four quiet-hour clamps for focus, serious work, emotional support, safety, privacy, and security.",
     "Generate three to six signature triggers. They must be situational behavior signatures, not global modes or permanent states.",
+    "At least one trigger should be specific to the user's requested persona concept; do not fall back to only generic domain_hotzone, emotional_resonance, and boundary_violation triggers.",
     "Trigger IDs should be stable snake_case identifiers; behavior shifts should describe deltas from baseline.",
     "Every trigger needs an exit behavior that returns to ordinary baseline when the condition ends.",
     "dynamic_state_rules should describe convergence under low energy, high stress, positive mood, and similar broad states without creating many small special cases.",
@@ -407,7 +502,7 @@ Generate one or two non-surface layers after surface, usually crack and revealed
   (
     "surface is a fixed runtime baseline. Do not add behavior, secrets, modifiers, or unlock conditions to it.",
     "Non-surface layers are diffs from the baseline, not full persona rewrites.",
-    "Unlock conditions should use relationship-depth signals such as trust_level_gte, interaction_count_gte, or milestone_required.",
+    "Unlock conditions should use relationship-depth signals such as trust_level_gte, interaction_count_gte, or milestone_required. trust_level_gte must be a decimal from 0.0 to 1.0, never a 1-5 or 1-10 scale.",
     "Modifiers should stay small and runtime-usable: voice_unlocks, memory_behavior, protective_bias, humor_delta, directness_delta, or similar.",
     "Do not reveal every secret or emotional peak at once; leave room for gradual discovery.",
   ),
@@ -422,7 +517,7 @@ interim_lines must be an object whose values are string arrays.""",
   (
     "Examples should show good replies, not rules about the user. Include ordinary, task, analysis, emotional, and crisis examples where useful.",
     "bootstrap is only for the first meeting. It should be short, low-pressure, and in character.",
-    "The opening line should gently invite the user's name, preferred address, or one thing they care about, without feeling like a form.",
+    "The opening line should use the target language and gently invite the user's name, preferred address, or one thing they care about, without feeling like a form.",
     "Do not make bootstrap a permanent greeting style and do not claim physical-human experiences.",
     "interim_lines should be sparse and practical; empty arrays are acceptable when the persona has no natural line for a tool phase.",
   ),
@@ -462,15 +557,16 @@ INTEGRATION_SYSTEM_PROMPT = _build_stage_system_prompt(
     "Preserve the persona spine unless there is a direct contradiction that must be resolved.",
     "Remove contradictions, duplicated rules, legacy fields, and module-specific drift.",
     "Ensure all five required registers exist and task, analysis, and crisis stay useful before expressive.",
-    "Ensure at least three signature triggers and two quiet-hour clamps are present; normalize them rather than inventing many exceptions.",
+    "Ensure at least three signature triggers and two quiet-hour clamps are present; at least one trigger should be specific to the persona concept rather than a generic fallback.",
     "Keep surface exactly fixed and put relationship-depth behavior only in non-surface layers.",
     "Keep target-language prose consistent, with appearance_prompt in English.",
   ),
 )
 
 
-def normalize_generated_personality_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+def normalize_generated_personality_payload(payload: Dict[str, Any], target_language: str = "Auto") -> Dict[str, Any]:
     """Normalize common scalar mismatches and complete required runtime fields."""
+    payload = _clean_generated_text_tree(payload)
     for field in ("name", "avatar", "description", "appearance_prompt"):
         value = payload.get(field)
         if value is None:
@@ -502,10 +598,10 @@ def normalize_generated_personality_payload(payload: Dict[str, Any]) -> Dict[str
     _complete_quiet_hours(payload)
     _complete_signature_triggers(payload)
     _complete_persona_layers(payload)
-    _complete_bootstrap(payload)
+    _complete_bootstrap(payload, target_language=target_language)
     _complete_examples(payload)
 
-    payload["dynamic_state_rules"] = _string_dict(payload.get("dynamic_state_rules"))
+    _complete_dynamic_state_rules(payload)
     payload["milestone_conditions"] = _string_dict(payload.get("milestone_conditions"))
     interim_lines = payload.get("interim_lines") if isinstance(payload.get("interim_lines"), dict) else {}
     payload["interim_lines"] = {str(key): _string_list(value) for key, value in interim_lines.items()}
@@ -564,9 +660,12 @@ async def _run_generation_stage(
   llm_override: Optional[LLMSettings],
   adapter_resolver: Callable[..., Any],
   adapter_factory: Callable[..., Any],
+  stage_progress_callback: Optional[Callable[[str, str], None]] = None,
 ) -> dict[str, Any]:
   """Run one LLM JSON stage behind the shared generation concurrency gate."""
   async with _PERSONALITY_GENERATION_LLM_SEMAPHORE:
+    if stage_progress_callback is not None:
+      stage_progress_callback(stage_id, "running")
     llm_adapter = adapter_resolver(
       LLMScenario.CORE,
       llm_settings=llm_override,
@@ -604,10 +703,16 @@ async def _run_optional_generation_stage(
   stage_id = str(kwargs["stage_id"])
   try:
     data = await _run_generation_stage(**kwargs)
+    progress_callback = kwargs.get("stage_progress_callback")
+    if callable(progress_callback):
+      progress_callback(stage_id, "completed")
     stages.append({"stage_id": stage_id, "status": "completed"})
     return _pick_keys(data, allowed_keys)
   except Exception as exc:  # noqa: BLE001 - optional sections can be normalized later
     logger.warning("[AI Generate Personality] Optional stage %s failed: %s", stage_id, exc)
+    progress_callback = kwargs.get("stage_progress_callback")
+    if callable(progress_callback):
+      progress_callback(stage_id, "failed")
     stages.append({"stage_id": stage_id, "status": "failed"})
     return {}
 
@@ -623,6 +728,123 @@ def _stage_reports(status_by_id: dict[str, str]) -> list[dict[str, str]]:
   ]
 
 
+def _initial_stage_reports() -> list[dict[str, str]]:
+  return [
+    {"stage_id": item["stage_id"], "label": item["label"], "status": "pending"}
+    for item in GENERATION_STAGE_DEFINITIONS
+  ]
+
+
+def _set_stage_status(stages: list[dict[str, str]], stage_id: str, status: str) -> None:
+  for item in stages:
+    if item.get("stage_id") == stage_id:
+      item["status"] = status
+      return
+  stages.append({"stage_id": stage_id, "label": stage_id, "status": status})
+
+
+def _personality_generation_job_snapshot(job: PersonalityGenerationJob) -> dict[str, Any]:
+  payload: dict[str, Any] = {
+    "job_id": job.job_id,
+    "status": job.status,
+    "stages": [dict(item) for item in job.stages],
+    "created_at": job.created_at,
+    "updated_at": job.updated_at,
+  }
+  if job.result is not None:
+    payload["data"] = job.result.config.model_dump()
+    payload["stages"] = job.result.stages
+  if job.error:
+    payload["error"] = job.error
+  return payload
+
+
+def _cleanup_personality_generation_jobs(now: Optional[float] = None) -> None:
+  current_time = now or time.time()
+  expired_ids = [
+    job_id
+    for job_id, job in _PERSONALITY_GENERATION_JOBS.items()
+    if current_time - job.updated_at > PERSONALITY_GENERATION_JOB_TTL_SECONDS
+  ]
+  for job_id in expired_ids:
+    _PERSONALITY_GENERATION_JOBS.pop(job_id, None)
+
+
+async def start_personality_generation_job(
+  description: str,
+  target_language: str = "Auto",
+  current_config: Optional[PersonalityConfigModel] = None,
+  llm_override: Optional[LLMSettings] = None,
+  *,
+  adapter_resolver: Callable[..., Any] = resolve_adapter_for_scenario,
+  adapter_factory: Callable[..., Any] = create_llm_adapter,
+) -> dict[str, Any]:
+  """Start a background persona generation job and return its initial snapshot."""
+  _cleanup_personality_generation_jobs()
+  now = time.time()
+  job = PersonalityGenerationJob(
+    job_id=str(uuid.uuid4()),
+    status="running",
+    stages=_initial_stage_reports(),
+    created_at=now,
+    updated_at=now,
+  )
+  _PERSONALITY_GENERATION_JOBS[job.job_id] = job
+  asyncio.create_task(_run_personality_generation_job(
+    job,
+    description=description,
+    target_language=target_language,
+    current_config=current_config,
+    llm_override=llm_override,
+    adapter_resolver=adapter_resolver,
+    adapter_factory=adapter_factory,
+  ))
+  return _personality_generation_job_snapshot(job)
+
+
+async def get_personality_generation_job(job_id: str) -> Optional[dict[str, Any]]:
+  """Return a generation job snapshot if the in-memory job is still available."""
+  _cleanup_personality_generation_jobs()
+  job = _PERSONALITY_GENERATION_JOBS.get(job_id)
+  if job is None:
+    return None
+  return _personality_generation_job_snapshot(job)
+
+
+async def _run_personality_generation_job(
+  job: PersonalityGenerationJob,
+  *,
+  description: str,
+  target_language: str,
+  current_config: Optional[PersonalityConfigModel],
+  llm_override: Optional[LLMSettings],
+  adapter_resolver: Callable[..., Any],
+  adapter_factory: Callable[..., Any],
+) -> None:
+  def update_stage(stage_id: str, status: str) -> None:
+    _set_stage_status(job.stages, stage_id, status)
+    job.updated_at = time.time()
+
+  try:
+    result = await generate_personality_config_result(
+      description,
+      target_language=target_language,
+      current_config=current_config,
+      llm_override=llm_override,
+      adapter_resolver=adapter_resolver,
+      adapter_factory=adapter_factory,
+      stage_progress_callback=update_stage,
+    )
+    job.result = result
+    job.stages = result.stages
+    job.status = "completed"
+    job.updated_at = time.time()
+  except Exception as exc:  # noqa: BLE001 - surfaced through job status endpoint
+    job.error = str(exc)
+    job.status = "failed"
+    job.updated_at = time.time()
+
+
 async def generate_personality_config_result(
     description: str,
     target_language: str = "Auto",
@@ -631,6 +853,7 @@ async def generate_personality_config_result(
     *,
     adapter_resolver: Callable[..., Any] = resolve_adapter_for_scenario,
     adapter_factory: Callable[..., Any] = create_llm_adapter,
+    stage_progress_callback: Optional[Callable[[str, str], None]] = None,
 ) -> PersonalityGenerationResult:
   """Generate personality configuration through staged LLM calls."""
   stage_status: list[dict[str, str]] = []
@@ -644,7 +867,10 @@ async def generate_personality_config_result(
       llm_override=llm_override,
       adapter_resolver=adapter_resolver,
       adapter_factory=adapter_factory,
+      stage_progress_callback=stage_progress_callback,
     )
+    if stage_progress_callback is not None:
+      stage_progress_callback("base", "completed")
     stage_status.append({"stage_id": "base", "status": "completed"})
     combined = _pick_keys(
       base_data,
@@ -655,6 +881,7 @@ async def generate_personality_config_result(
       "llm_override": llm_override,
       "adapter_resolver": adapter_resolver,
       "adapter_factory": adapter_factory,
+      "stage_progress_callback": stage_progress_callback,
     }
     module_tasks = [
       _run_optional_generation_stage(
@@ -759,14 +986,19 @@ Resolve contradictions and return the final complete persona configuration JSON.
         llm_override=llm_override,
         adapter_resolver=adapter_resolver,
         adapter_factory=adapter_factory,
+        stage_progress_callback=stage_progress_callback,
       )
       _deep_merge_payload(combined, integrated)
+      if stage_progress_callback is not None:
+        stage_progress_callback("integrate", "completed")
       stage_status.append({"stage_id": "integrate", "status": "completed"})
     except Exception as exc:  # noqa: BLE001 - normalization can still complete the combined draft
       logger.warning("[AI Generate Personality] Integration stage failed: %s", exc)
+      if stage_progress_callback is not None:
+        stage_progress_callback("integrate", "failed")
       stage_status.append({"stage_id": "integrate", "status": "failed"})
 
-    data = normalize_generated_personality_payload(combined)
+    data = normalize_generated_personality_payload(combined, target_language=target_language)
     if not data.get("name"):
       data["name"] = "AI Assistant"
     status_by_id = {item["stage_id"]: item["status"] for item in stage_status}
@@ -806,10 +1038,14 @@ async def generate_personality_config(
 __all__ = [
     "GENERATION_STAGE_DEFINITIONS",
     "PERSONALITY_GENERATION_MAX_CONCURRENT_LLM_CALLS",
+    "PERSONALITY_GENERATION_JOB_TTL_SECONDS",
     "PERSONA_GENERATION_SHARED_DIRECTIVES",
+    "PersonalityGenerationJob",
     "PersonalityGenerationResult",
     "REQUIRED_REGISTERS",
+    "get_personality_generation_job",
     "generate_personality_config",
     "generate_personality_config_result",
     "normalize_generated_personality_payload",
+    "start_personality_generation_job",
 ]

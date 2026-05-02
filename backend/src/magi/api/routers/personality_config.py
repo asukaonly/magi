@@ -33,9 +33,11 @@ from ..services.personality_bootstrap_messages import (
 from ..services.personality_compare import build_personality_diffs, flatten_dict
 from ..services.personality_generation import (
     PersonalityGenerationResult,
+    get_personality_generation_job,
     generate_personality_config,
     generate_personality_config_result,
     normalize_generated_personality_payload,
+    start_personality_generation_job,
 )
 from ..services.personality_registry import sanitize_persona_slug, save_personality_config_to_registry
 from .personality_bootstrap_routes import api_bootstrap_init, api_journal_reflect, personality_bootstrap_router
@@ -51,8 +53,10 @@ from .personality_config_common import (
     _normalize_generated_personality_payload,
     _resolve_persona_id,
     _wait_for_bootstrap_runtime_ready,
+    ai_get_personality_generation_job,
     ai_generate_personality,
     ai_generate_personality_result,
+    ai_start_personality_generation_job,
     sanitize_filename,
     save_personality_to_registry,
 )
@@ -63,9 +67,11 @@ from .personality_config_routes import (
     compare_personalities,
     delete_personality,
     generate_personality,
+    get_personality_generation_status,
     get_personality,
     list_personalities,
     personality_config_core_router,
+    start_personality_generation,
     update_personality,
 )
 from .personality_config_schemas import (
@@ -154,8 +160,10 @@ __all__ = [
     "_persist_bootstrap_assistant_message",
     "_resolve_persona_id",
     "_wait_for_bootstrap_runtime_ready",
+    "ai_get_personality_generation_job",
     "ai_generate_personality",
     "ai_generate_personality_result",
+    "ai_start_personality_generation_job",
     "api_bootstrap_init",
     "api_get_current_personality",
     "api_get_greeting",
@@ -170,6 +178,8 @@ __all__ = [
     "generate_personality",
     "generate_personality_config",
     "generate_personality_config_result",
+    "get_personality_generation_status",
+    "get_personality_generation_job",
     "get_config",
     "get_current_personality_config",
     "get_current_personality_name",
@@ -189,5 +199,7 @@ __all__ = [
     "save_personality_config_to_registry",
     "save_personality_to_registry",
     "set_current_personality_name",
+    "start_personality_generation_job",
+    "start_personality_generation",
     "update_personality",
 ]

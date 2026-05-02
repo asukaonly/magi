@@ -16,6 +16,7 @@ import {
   DEFAULT_PERSONALITY_CONFIG,
   PERSONA_GENERATION_STAGE_IDS,
   type PersonalityConfig,
+  type PersonaGenerationStage,
   type PersonaSummary,
   type SignatureTrigger,
   type PersonaGenerationStageId,
@@ -89,7 +90,27 @@ export interface UsePersonalityReturn {
 // ============================================================================
 
 const CONFIDENCE_OPTIONS = ['Extremely High', 'High', 'Medium', 'Low'] as const;
-const GENERATION_STAGE_ADVANCE_MS = 1800;
+const buildPendingGenerationStages = (): PersonaGenerationStage[] =>
+  PERSONA_GENERATION_STAGE_IDS.map((stageId) => ({ stage_id: stageId, status: 'pending' }));
+
+const getGenerationStageKey = (stages: PersonaGenerationStage[]): PersonaGenerationStageId => {
+  const running = stages.find((stage) => stage.status === 'running');
+  const pending = stages.find((stage) => stage.status === 'pending');
+  const active = running || pending || stages[stages.length - 1];
+  return PERSONA_GENERATION_STAGE_IDS.includes(active?.stage_id as PersonaGenerationStageId)
+    ? (active.stage_id as PersonaGenerationStageId)
+    : PERSONA_GENERATION_STAGE_IDS[0];
+};
+
+const getGenerationProgress = (stages: PersonaGenerationStage[], generating: boolean): number => {
+  if (!generating || stages.length === 0) return 0;
+  const completedCount = stages.filter((stage) => stage.status === 'completed').length;
+  const failedCount = stages.filter((stage) => stage.status === 'failed').length;
+  if (completedCount + failedCount >= stages.length) {
+    return 100;
+  }
+  return Math.round((completedCount / stages.length) * 100);
+};
 
 // ============================================================================
 // Helper Functions
@@ -152,7 +173,7 @@ export function usePersonality(
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
-  const [generationStageIndex, setGenerationStageIndex] = useState(0);
+  const [generationStages, setGenerationStages] = useState<PersonaGenerationStage[]>(buildPendingGenerationStages);
   const [switching, setSwitching] = useState(false);
 
   // Personality state – identity is now UUID-based
@@ -337,15 +358,14 @@ export function usePersonality(
     }
 
     setGenerating(true);
-    setGenerationStageIndex(0);
-    const progressTimer = window.setInterval(() => {
-      setGenerationStageIndex((current) => Math.min(current + 1, PERSONA_GENERATION_STAGE_IDS.length - 1));
-    }, GENERATION_STAGE_ADVANCE_MS);
+    setGenerationStages(buildPendingGenerationStages());
     try {
-      const response = await personasApi.generate({
+      const response = await personasApi.generateWithProgress({
         description: prompt,
         target_language: targetLanguage,
         current_config: config,
+      }, (snapshot) => {
+        setGenerationStages(snapshot.stages?.length ? snapshot.stages : buildPendingGenerationStages());
       });
       const data = (response.data || {}) as Partial<PersonalityConfig>;
       setConfig(mergeConfig(data));
@@ -354,9 +374,7 @@ export function usePersonality(
     } catch (error) {
       handleError(error, 'Generate personality');
     } finally {
-      window.clearInterval(progressTimer);
       setGenerating(false);
-      setGenerationStageIndex(0);
     }
   }, [config, prompt, targetLanguage, t]);
 
@@ -435,10 +453,8 @@ export function usePersonality(
     await loadOne(selectedId);
   }, [loadOne, selectedId]);
 
-  const generationStageKey = PERSONA_GENERATION_STAGE_IDS[generationStageIndex] || PERSONA_GENERATION_STAGE_IDS[0];
-  const generationProgress = generating
-    ? Math.min(94, Math.round(((generationStageIndex + 1) / PERSONA_GENERATION_STAGE_IDS.length) * 100))
-    : 0;
+  const generationStageKey = getGenerationStageKey(generationStages);
+  const generationProgress = getGenerationProgress(generationStages, generating);
 
   // ============================================================================
   // Computed Values

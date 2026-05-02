@@ -129,6 +129,41 @@ async def test_generate_personality_route_uses_staged_facade_result(monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_personality_generation_job_routes_return_progress_snapshots(monkeypatch) -> None:
+    from magi.api.routers import personality_config
+
+    async def _fake_start_job(*args, **kwargs):  # type: ignore[no-untyped-def]
+        _ = args, kwargs
+        return {
+            "job_id": "job-1",
+            "status": "running",
+            "stages": [{"stage_id": "base", "status": "running"}],
+        }
+
+    async def _fake_get_job(job_id: str):
+        assert job_id == "job-1"
+        return {
+            "job_id": "job-1",
+            "status": "completed",
+            "data": {"name": "Generated"},
+            "stages": [{"stage_id": "base", "status": "completed"}],
+        }
+
+    monkeypatch.setattr(personality_config, "ai_start_personality_generation_job", _fake_start_job)
+    monkeypatch.setattr(personality_config, "ai_get_personality_generation_job", _fake_get_job)
+
+    start_response = await personality_config.start_personality_generation(
+        personality_config.AIGenerateRequest(description="生成一个稳定人格")
+    )
+    status_response = await personality_config.get_personality_generation_status("job-1")
+
+    assert start_response.data["job_id"] == "job-1"
+    assert start_response.stages == [{"stage_id": "base", "status": "running"}]
+    assert status_response.data["status"] == "completed"
+    assert status_response.data["data"]["name"] == "Generated"
+
+
+@pytest.mark.asyncio
 async def test_ai_generate_personality_passes_current_draft_to_prompt(monkeypatch) -> None:
     from magi.api.routers import personality_config
 
@@ -302,7 +337,35 @@ def test_normalize_generated_personality_payload_completes_sparse_payload() -> N
     assert payload["persona_layers"][0]["layer_id"] == "surface"
     assert [item["layer_id"] for item in payload["persona_layers"]] == ["surface", "crack", "revealed"]
     assert payload["bootstrap"]["opening_line"]
+    assert set(payload["dynamic_state_rules"]) == {"low_energy", "high_stress", "positive_mood"}
     assert sum(len(item["examples"]) for item in payload["registers"].values()) >= 6
+
+
+def test_normalize_generated_personality_payload_cleans_generation_quality_issues() -> None:
+    from magi.api.routers.personality_config import normalize_generated_personality_payload
+
+    payload = normalize_generated_personality_payload(
+        {
+            "name": "明日香",
+            "description": "强 烈但普通的存在",
+            "identity_core": {"identity_statement": "她并不 是为了表演而存在。"},
+            "idiolect": {"sentence_style": "说话直 接。"},
+            "persona_layers": [
+                {"layer_id": "crack", "unlock_condition": {"trust_level_gte": 2, "interaction_count_gte": "15"}, "modifiers": {}},
+                {"layer_id": "revealed", "unlock_condition": {"trust_level_gte": 4}, "modifiers": {}},
+            ],
+            "bootstrap": {"opening_line": "Hi, I'm 明日香. What should I call you?"},
+        },
+        target_language="Chinese",
+    )
+
+    assert payload["description"] == "强烈但普通的存在"
+    assert payload["identity_core"]["identity_statement"] == "她并不是为了表演而存在。"
+    assert payload["idiolect"]["sentence_style"] == "说话直接。"
+    assert payload["bootstrap"]["opening_line"].startswith("我是明日香")
+    assert payload["persona_layers"][1]["unlock_condition"]["trust_level_gte"] == 0.2
+    assert payload["persona_layers"][1]["unlock_condition"]["interaction_count_gte"] == 15
+    assert payload["persona_layers"][2]["unlock_condition"]["trust_level_gte"] == 0.4
 
 
 def test_personality_generation_stage_prompts_share_directives() -> None:

@@ -169,6 +169,30 @@ async def ai_generate_personality_result(
     )
 
 
+async def ai_start_personality_generation_job(
+    description: str,
+    target_language: str = "Auto",
+    current_config: Optional[PersonalityConfigModel] = None,
+    llm_override: Optional[LLMSettings] = None,
+) -> Dict[str, Any]:
+    """Start a background personality generation job."""
+    legacy = legacy_personality_config_module()
+    return await legacy.start_personality_generation_job(
+        description,
+        target_language=target_language,
+        current_config=current_config,
+        llm_override=llm_override,
+        adapter_resolver=legacy.resolve_adapter_for_scenario,
+        adapter_factory=legacy.create_llm_adapter,
+    )
+
+
+async def ai_get_personality_generation_job(job_id: str) -> Optional[Dict[str, Any]]:
+    """Get a background personality generation job snapshot."""
+    legacy = legacy_personality_config_module()
+    return await legacy.get_personality_generation_job(job_id)
+
+
 __all__ = [
     "_build_diffs",
     "_flatten_dict",
@@ -181,8 +205,10 @@ __all__ = [
     "_normalize_generated_personality_payload",
     "_resolve_persona_id",
     "_wait_for_bootstrap_runtime_ready",
+    "ai_get_personality_generation_job",
     "ai_generate_personality",
     "ai_generate_personality_result",
+    "ai_start_personality_generation_job",
     "legacy_personality_config_module",
     "sanitize_filename",
     "save_personality_to_registry",

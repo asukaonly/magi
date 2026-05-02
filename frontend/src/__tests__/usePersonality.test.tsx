@@ -43,6 +43,7 @@ const mockPersonasApi = vi.hoisted(() => ({
   update: vi.fn(),
   delete: vi.fn(),
   generate: vi.fn(),
+  generateWithProgress: vi.fn(),
 }));
 
 vi.mock('@/api/modules/personas', async () => {
@@ -174,7 +175,7 @@ describe('usePersonality', () => {
       success: true,
       persona_id: 'uuid-asuka',
     });
-    mockPersonasApi.generate.mockResolvedValue({
+    mockPersonasApi.generateWithProgress.mockResolvedValue({
       data: {
         name: 'Generated',
         identity_core: { identity_statement: 'Generated core.' },
@@ -209,8 +210,8 @@ describe('usePersonality', () => {
     await user.type(screen.getByLabelText('generation prompt'), 'make it sharper');
     await user.click(screen.getByRole('button', { name: 'generate' }));
 
-    await waitFor(() => expect(mockPersonasApi.generate).toHaveBeenCalled());
-    expect(mockPersonasApi.generate.mock.calls[0][0]).toMatchObject({
+    await waitFor(() => expect(mockPersonasApi.generateWithProgress).toHaveBeenCalled());
+    expect(mockPersonasApi.generateWithProgress.mock.calls[0][0]).toMatchObject({
       description: 'make it sharper',
       current_config: { name: '七号' },
     });

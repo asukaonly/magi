@@ -106,6 +106,30 @@ export interface PersonalityGenerateResponse {
   stages?: PersonaGenerationStage[];
 }
 
+export interface PersonalityGenerationJobSnapshot {
+  job_id: string;
+  status: 'pending' | 'running' | 'completed' | 'failed' | string;
+  stages: PersonaGenerationStage[];
+  created_at?: number;
+  updated_at?: number;
+  data?: PersonalityConfig;
+  error?: string;
+}
+
+export interface PersonalityGenerationJobResponse {
+  success: boolean;
+  message: string;
+  data?: PersonalityGenerationJobSnapshot;
+  stages?: PersonaGenerationStage[];
+}
+
+export type PersonalityGenerationProgressCallback = (snapshot: PersonalityGenerationJobSnapshot) => void;
+
+const GENERATION_JOB_POLL_MS = 1000;
+const GENERATION_JOB_TIMEOUT_MS = 180000;
+
+const wait = (ms: number): Promise<void> => new Promise((resolve) => window.setTimeout(resolve, ms));
+
 // ---------------------------------------------------------------------------
 // Personality config defaults
 // ---------------------------------------------------------------------------
@@ -335,6 +359,58 @@ export const personasApi = {
     api.post<PersonalityConfig>('/personality/generate', request, {
       timeout: 120000,
     }) as Promise<PersonalityGenerateResponse>,
+
+  /** Start AI personality generation as a background job. */
+  startGenerationJob: (request: AIGenerateRequest) =>
+    api.post<PersonalityGenerationJobSnapshot>('/personality/generation-jobs', request, {
+      timeout: 20000,
+    }) as Promise<PersonalityGenerationJobResponse>,
+
+  /** Poll AI personality generation status. */
+  getGenerationJob: (jobId: string) =>
+    api.get<PersonalityGenerationJobSnapshot>(`/personality/generation-jobs/${jobId}`, {
+      timeout: 20000,
+    }) as Promise<PersonalityGenerationJobResponse>,
+
+  /** AI-generate a personality config with real backend stage progress. */
+  generateWithProgress: async (
+    request: AIGenerateRequest,
+    onProgress?: PersonalityGenerationProgressCallback,
+  ): Promise<PersonalityGenerateResponse> => {
+    const started = await personasApi.startGenerationJob(request);
+    let snapshot = started.data;
+    if (!snapshot?.job_id) {
+      throw new Error('Personality generation job did not start');
+    }
+    onProgress?.(snapshot);
+
+    const startedAt = Date.now();
+    while (snapshot.status !== 'completed' && snapshot.status !== 'failed') {
+      if (Date.now() - startedAt > GENERATION_JOB_TIMEOUT_MS) {
+        throw new Error('Personality generation timed out');
+      }
+      await wait(GENERATION_JOB_POLL_MS);
+      const polled = await personasApi.getGenerationJob(snapshot.job_id);
+      if (!polled.data) {
+        throw new Error('Personality generation job status is unavailable');
+      }
+      snapshot = polled.data;
+      onProgress?.(snapshot);
+    }
+
+    if (snapshot.status === 'failed') {
+      throw new Error(snapshot.error || 'Personality generation failed');
+    }
+    if (!snapshot.data) {
+      throw new Error('Personality generation completed without a result');
+    }
+    return {
+      success: true,
+      message: 'AI personality configuration generated successfully',
+      data: snapshot.data,
+      stages: snapshot.stages,
+    };
+  },
 
   /** Get a greeting from the active persona. */
   getGreeting: () =>
