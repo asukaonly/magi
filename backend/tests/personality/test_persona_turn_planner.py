@@ -81,6 +81,21 @@ def test_planner_uses_analysis_register_and_quiet_clamp_for_architecture_turn() 
     assert [trigger.trigger_id for trigger in plan.active_triggers] == ["domain_hotzone"]
 
 
+def test_planner_suppresses_nonessential_triggers_during_tool_execution() -> None:
+    plan = PersonaTurnPlanner().build_plan(
+        config=_make_config(),
+        user_message="Fix this runtime schema bug in the code",
+        scenario="task",
+        task_category="code",
+        tools=["edit_file"],
+    )
+
+    assert plan.register == "task"
+    assert plan.persona_intensity == 1
+    assert plan.active_triggers == []
+    assert any(item["condition"] == "focused_work" for item in plan.quiet_hours)
+
+
 def test_planner_selects_relationship_layer_and_dynamic_modulation() -> None:
     plan = PersonaTurnPlanner().build_plan(
         config=_make_config(),
@@ -166,6 +181,19 @@ def test_seven_absurdity_turn_activates_play_signature() -> None:
     assert plan.register == "chat"
     assert plan.persona_intensity == 2
     assert _trigger_ids(plan) == ["absurdity"]
+
+
+def test_seven_hostility_trigger_uses_chinese_condition_overlap() -> None:
+    plan = PersonaTurnPlanner().build_plan(
+        config=_load_seven_config(),
+        user_message="别又拿宏大叙事和道德说教压我，这套太空了",
+        scenario="chat",
+        task_category="chat",
+    )
+
+    assert plan.register == "chat"
+    assert plan.persona_intensity == 2
+    assert _trigger_ids(plan) == ["hostility"]
 
 
 def test_seven_crisis_turn_zeros_persona_performance() -> None:

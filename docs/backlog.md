@@ -89,6 +89,7 @@ Recent progress:
 - The main personality detail editor now separates quick and expert editing modes and surfaces minimum-field validation for identity, baseline voice, chat register, signature trigger, and quiet-hour coverage.
 - Persona generation now supports current draft config context, completes required runtime schema surfaces after sparse LLM output, and keeps bootstrap first-meeting behavior separate from normal registers without requiring false human claims.
 - Frontend persona validation is now shared between the editor and save flow, with minimum and expert checks for registers, triggers, quiet hours, examples, layers, and bootstrap content.
+- The planner now suppresses non-essential signature triggers during tool execution and uses more reliable Chinese condition overlap for natural-language trigger activation.
 
 ### 5. Continue runtime boundary cleanup
 

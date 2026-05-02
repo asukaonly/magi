@@ -155,6 +155,7 @@ class PersonaTurnPlanner:
             register=register_name,
             scenario=scenario,
             task_category=task_category,
+            tools=selected_tools,
         )
         quiet_hours = self._select_quiet_hours(
             config=persona_config,
@@ -223,11 +224,14 @@ class PersonaTurnPlanner:
         register: str,
         scenario: str,
         task_category: str,
+        tools: list[str],
     ) -> list[ActivePersonaTrigger]:
         selected: list[ActivePersonaTrigger] = []
         for trigger in config.signature_triggers:
             trigger_id = str(trigger.trigger_id or "").strip()
             if not trigger_id:
+                continue
+            if self._should_suppress_trigger_for_execution(trigger_id=trigger_id, tools=tools):
                 continue
             reason = self._trigger_reason(
                 trigger_id=trigger_id,
@@ -250,6 +254,14 @@ class PersonaTurnPlanner:
             if len(selected) >= 2:
                 break
         return selected
+
+    @staticmethod
+    def _should_suppress_trigger_for_execution(*, trigger_id: str, tools: list[str]) -> bool:
+        if not tools:
+            return False
+        normalized_id = trigger_id.lower()
+        always_allowed = {"crisis", "emotional", "emotional_resonance", "boundary_violation", "safety"}
+        return normalized_id not in always_allowed
 
     def _trigger_reason(
         self,
@@ -442,7 +454,12 @@ class PersonaTurnPlanner:
 def _tokenize_for_overlap(text: str) -> list[str]:
     normalized = str(text or "").lower()
     latin_terms = re.findall(r"[a-z0-9_]{3,}", normalized)
-    cjk_terms = re.findall(r"[\u4e00-\u9fff]{2,}", normalized)
+    cjk_chunks = re.findall(r"[\u4e00-\u9fff]{2,}", normalized)
+    cjk_terms: list[str] = []
+    for chunk in cjk_chunks:
+        cjk_terms.append(chunk)
+        for width in (2, 3, 4):
+            cjk_terms.extend(chunk[index : index + width] for index in range(0, max(len(chunk) - width + 1, 0)))
     return [*latin_terms, *cjk_terms]
 
 

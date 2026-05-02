@@ -118,6 +118,31 @@ async def test_seven_prompt_renders_only_active_absurdity_trigger() -> None:
 
 
 @pytest.mark.asyncio
+async def test_seven_prompt_renders_only_active_hostility_trigger() -> None:
+    prompt = await _render_seven_prompt(user_message="别又拿宏大叙事和道德说教压我，这套太空了")
+
+    assert "## Active Persona Triggers" in prompt
+    assert "hostility (mid)" in prompt
+    assert "逻辑漏洞" in prompt
+    assert "absurdity (mid)" not in prompt
+    assert "crisis (mid)" not in prompt
+
+
+@pytest.mark.asyncio
+async def test_seven_prompt_suppresses_play_trigger_during_tool_execution() -> None:
+    prompt = await _render_seven_prompt(
+        user_message="这个错误处理写得很离谱，直接帮我改代码",
+        scenario=Scenario.TASK,
+        task_category="code",
+        tools=["edit_file"],
+    )
+
+    assert "* Register: task" in prompt
+    assert "* Condition: focused_work" in prompt
+    assert "## Active Persona Triggers" not in prompt
+
+
+@pytest.mark.asyncio
 async def test_seven_prompt_crisis_register_suppresses_performance() -> None:
     prompt = await _render_seven_prompt(user_message="紧急，我的密码泄露了，账号可能被盗")
 
