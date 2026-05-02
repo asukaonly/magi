@@ -78,7 +78,6 @@ class ChatTaskAgent(
         memory_integration=None,
         history_cache_max_sessions: int = 500,
         history_fetch_limit: int = 1000,
-        scenario_prompts_store=None,
         skill_runner=None,
         runtime_trace_store: RuntimeTraceStore | None = None,
         chat_store: ChatStore | None = None,
@@ -104,7 +103,6 @@ class ChatTaskAgent(
         )
         self.prompt_context_assembler = PromptContextAssembler(
             tool_registry=tool_registry,
-            scenario_prompts_store=scenario_prompts_store,
             user_profile_service=UserProfileService(unified_memory=unified_memory),
         )
         self.prompt_context_renderer = PromptContextRenderer()

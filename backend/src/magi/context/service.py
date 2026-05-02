@@ -118,8 +118,8 @@ class ContextAssemblyService:
             self_memory=prompt_memory,
             tool_result={"tools": list(tools or [])},
             retrieved_memory_payload=retrieved_memory_payload,
-            state_transition_override=None,
             persona_name=prompt_persona_name,
+            user_message=user_message,
             workspace_path=resolved_workspace_path,
             attachments=list(attachments or []),
         )

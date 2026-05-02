@@ -358,10 +358,15 @@ The current split is:
 - `ContextAssemblyService`
   Owns prompt-context policy, implicit retrieval query selection, prompt module assembly, and final system prompt rendering
 
+- `PersonaTurnPlanner`
+  Lives in the Personality Layer and produces the per-turn `PersonaTurnPlan` consumed by prompt assembly. Chat runtime provides the current user message, execution mode, intent/tool-routing hints, stored `persona_id`, relationship state, and dynamic persona state as inputs, but it does not interpret persona-specific triggers itself.
+
 - `ChatPromptService`
   Owns plain LLM invocation and chat-specific helper text for aggregation and dossier rendering
 
 This keeps runtime fact assembly in the task agent while moving prompt-context ownership back into the context layer.
+
+Persona behavior follows the same boundary: the task agent builds runtime facts, the Personality Layer plans persona behavior, and the Context Layer renders that plan. The final system prompt should receive the selected register, quiet-hour clamps, active triggers, relationship modifiers, and dynamic-state modulations, not the full raw persona rule library. The durable contract is documented in [Persona Runtime Architecture](./persona-runtime-architecture.md).
 
 Current implicit-memory policy is intentionally conservative:
 

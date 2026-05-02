@@ -16,7 +16,7 @@ import {
   DEFAULT_PERSONALITY_CONFIG,
   type PersonalityConfig,
   type PersonaSummary,
-  type StateTransitionProtocolItem,
+  type SignatureTrigger,
 } from '@/api/modules/personas';
 import { handleError } from '@/utils/error-handler';
 
@@ -89,30 +89,31 @@ const CONFIDENCE_OPTIONS = ['Extremely High', 'High', 'Medium', 'Low'] as const;
 // Helper Functions
 // ============================================================================
 
-const normalizeTransition = (
-  item: Partial<StateTransitionProtocolItem>
-): StateTransitionProtocolItem => ({
-  trigger_type: item.trigger_type || '',
-  trigger_condition: item.trigger_condition || '',
-  target_state_name: item.target_state_name || '',
+const normalizeTrigger = (item: Partial<SignatureTrigger>): SignatureTrigger => ({
+  trigger_id: item.trigger_id || '',
+  activates_when: item.activates_when || '',
   behavior_shift: item.behavior_shift || '',
+  intensity_levels: item.intensity_levels || {},
+  exit_behavior: item.exit_behavior || '',
 });
 
 const mergeConfig = (incoming: Partial<PersonalityConfig>): PersonalityConfig => {
   const next = structuredClone(DEFAULT_PERSONALITY_CONFIG);
-  next.persona_entity.basic_profile = {
-    ...next.persona_entity.basic_profile,
-    ...(incoming.persona_entity?.basic_profile || {}),
-  };
-  next.persona_entity.core_identity = {
-    ...next.persona_entity.core_identity,
-    ...(incoming.persona_entity?.core_identity || {}),
-  };
+  next.name = incoming.name || next.name;
+  next.avatar = incoming.avatar || next.avatar;
+  next.description = incoming.description || next.description;
   next.appearance_prompt = incoming.appearance_prompt || next.appearance_prompt;
-  const transitions = incoming.state_transition_protocol || next.state_transition_protocol;
-  next.state_transition_protocol =
-    transitions.length > 0 ? transitions.map(normalizeTransition) : [normalizeTransition({})];
+  next.identity_core = { ...next.identity_core, ...(incoming.identity_core || {}) };
+  next.idiolect = { ...next.idiolect, ...(incoming.idiolect || {}) };
+  next.registers = { ...next.registers, ...(incoming.registers || {}) };
+  next.quiet_hours = incoming.quiet_hours ?? next.quiet_hours;
+  const triggers = incoming.signature_triggers || next.signature_triggers;
+  next.signature_triggers = triggers.length > 0 ? triggers.map(normalizeTrigger) : [normalizeTrigger({})];
   next.persona_layers = incoming.persona_layers ?? next.persona_layers;
+  next.dynamic_state_rules = incoming.dynamic_state_rules ?? next.dynamic_state_rules;
+  next.milestone_conditions = incoming.milestone_conditions ?? next.milestone_conditions;
+  next.interim_lines = incoming.interim_lines ?? next.interim_lines;
+  next.bootstrap = incoming.bootstrap ?? next.bootstrap;
   return next;
 };
 
@@ -276,7 +277,7 @@ export function usePersonality(
   const save = useCallback(async () => {
     // Validate name in create mode
     if (isNewMode) {
-      const name = config.persona_entity.basic_profile.name?.trim();
+      const name = config.name?.trim();
       if (!name) {
         toast.warning(t('personality.nameRequired'));
         return;
@@ -301,7 +302,7 @@ export function usePersonality(
         // Update existing persona in registry
         const configJson = JSON.stringify(config);
         await personasApi.update(selectedId, {
-          name: config.persona_entity.basic_profile.name,
+          name: config.name,
           config_json: configJson,
         });
         toast.success(t('personality.saveSuccess'));
@@ -464,6 +465,6 @@ export {
   parseLines,
   toLines,
   getInitials,
-  normalizeTransition,
+  normalizeTrigger,
   mergeConfig,
 };

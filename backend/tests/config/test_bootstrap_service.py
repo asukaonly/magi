@@ -16,14 +16,11 @@ from magi.personality.loader import PersonalityConfig
 def _make_config(*, with_bootstrap: bool = True) -> PersonalityConfig:
     """Create a test personality config."""
     data = {
-        "persona_entity": {
-            "basic_profile": {
-                "name": "TestBot",
-            },
-            "core_identity": {
-                "inner_narrative": "A test persona.",
-            },
+        "name": "TestBot",
+        "identity_core": {
+            "identity_statement": "A test persona.",
         },
+        "idiolect": {"sentence_style": "Direct and friendly."},
         "bootstrap": {
             "style_instruction": "Be direct and friendly.",
             "opening_line": "First time meeting, so give me your name, how you want me to call you, and one thing you're into.",

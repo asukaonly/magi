@@ -213,6 +213,8 @@ The frontend may preview unsaved provider edits, but backend-owned catalog resol
 
 Magi supports configurable assistant personality behavior.
 
+The durable architecture source of truth for persona runtime behavior is [Persona Runtime Architecture](./persona-runtime-architecture.md). Product configuration should treat persona as a structured behavior model rather than a single prompt-style filter.
+
 There are two main ways to express personality:
 
 - preset personalities
@@ -231,8 +233,20 @@ Design expectations:
 - chat response generation should also resolve prompt identity from the stored turn `persona_id`, so switching the active persona after enqueue does not change the persona used for that pending reply
 - persona deletion is soft deletion. Ordinary persona lists hide deleted records, while historical chat rendering may use `include_deleted` registry lookups so old messages can still resolve their persona identity.
 - personality content should remain language-aware
-- state-transition behavior should apply only to direct chat turns; analysis, worker, and tool-result rendering should not trigger or inherit temporary persona state changes
+- persona behavior should be planned per turn by the Personality Layer before prompt rendering; final response prompts should receive only the selected register, quiet-hour clamps, active triggers, relationship modifiers, and dynamic-state modulations for that turn
+- ordinary low-performance persona expression should be valid most of the time; personality should usually appear through attention bias, judgment, and conversational stance rather than constant catchphrases
+- state-transition behavior should be replaced by signature triggers and quiet-hour clamps; analysis, worker, and tool-result rendering should use task or analysis registers instead of inheriting casual-chat performance
 - quick mode should stay simpler than expert mode
+
+The custom personality editor should progressively expose:
+
+- identity, values, attention biases, and baseline voice
+- registers for task, casual, analysis, emotional, and crisis turns
+- signature triggers that make the persona more visible only under relevant conditions
+- quiet hours that intentionally reduce persona intensity
+- relationship-depth layers that modify trigger thresholds, memory behavior, and expression bounds rather than replacing the whole tone
+- dynamic-state rules that map mood, energy, and stress into concrete behavior changes
+- few-shot examples by register, including ordinary baseline examples
 
 ## Memory System
 
@@ -304,7 +318,7 @@ Current storage implementation notes:
 - Current `local` reranker execution first tries a configured `llm.providers.local` entry that points to a local OpenAI-compatible service.
 - If that local provider path is unavailable and a managed/external local reranker model file is configured, retrieval may fall back to direct `llama-cli` execution against that local model file.
 - If neither the local provider path nor the local CLI path is available, retrieval falls back to heuristic reranking.
-- `scenario_prompts.db` lives under `~/.magi/data/app/`; `llm_usage.db` lives under `~/.magi/runtime/`.
+- `llm_usage.db` lives under `~/.magi/runtime/`.
 - `runtime_trace.db` is reserved for execution observability and live runtime notifications, not durable chat transcript recovery.
 - rebuildable plugin state belongs under `~/.magi/cache/plugins/<plugin_id>/`, not under memory storage.
 

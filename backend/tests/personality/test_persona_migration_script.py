@@ -26,12 +26,11 @@ def _persona_payload(name: str) -> str:
     return json.dumps(
         {
             "meta": {"group": "legacy", "order": 2},
-            "persona_entity": {
-                "basic_profile": {
-                    "name": name,
-                    "description": f"{name} description",
-                    "avatar": f"{name.lower()}.png",
-                },
+            "name": name,
+            "description": f"{name} description",
+            "avatar": f"{name.lower()}.png",
+            "identity_core": {
+                "identity_statement": f"{name} test persona.",
             },
         },
         ensure_ascii=False,

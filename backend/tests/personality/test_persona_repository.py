@@ -14,13 +14,10 @@ from magi.personality import persona_seed
 
 _SAMPLE_CONFIG = json.dumps({
     "meta": {"group": "test", "order": 5},
-    "persona_entity": {
-        "basic_profile": {
-            "name": "Test Persona",
-            "description": "A test persona",
-            "avatar": "test.jpg",
-        },
-    },
+    "name": "Test Persona",
+    "description": "A test persona",
+    "avatar": "test.jpg",
+    "identity_core": {"identity_statement": "A test persona."},
 })
 
 
@@ -151,7 +148,7 @@ class TestPersonaRepository:
         record = await repo.get(pid)
         assert record.config.name == "Test Persona"
         roundtrip = record.config.to_dict()
-        assert roundtrip["persona_entity"]["basic_profile"]["name"] == "Test Persona"
+        assert roundtrip["name"] == "Test Persona"
 
 
 @pytest.mark.asyncio
@@ -162,12 +159,11 @@ async def test_list_seed_previews_exposes_default_metadata(tmp_path: Path, monke
         json.dumps(
             {
                 "meta": {"group": "general", "order": 1, "default": True},
-                "persona_entity": {
-                    "basic_profile": {
-                        "name": "Nova",
-                        "description": "English default",
-                        "avatar": "nova.png",
-                    }
+                "name": "Nova",
+                "description": "English default",
+                "avatar": "nova.png",
+                "identity_core": {
+                    "identity_statement": "Nova test persona.",
                 },
             }
         ),
@@ -177,12 +173,11 @@ async def test_list_seed_previews_exposes_default_metadata(tmp_path: Path, monke
         json.dumps(
             {
                 "meta": {"group": "general", "order": 2, "recommended": True},
-                "persona_entity": {
-                    "basic_profile": {
-                        "name": "Echo-01",
-                        "description": "Chinese default",
-                        "avatar": "echo.png",
-                    }
+                "name": "Echo-01",
+                "description": "Chinese default",
+                "avatar": "echo.png",
+                "identity_core": {
+                    "identity_statement": "Echo test persona.",
                 },
             }
         ),

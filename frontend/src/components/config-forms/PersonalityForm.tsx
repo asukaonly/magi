@@ -15,7 +15,6 @@ import {
   selectDefaultSeedPreview,
   type PersonalityConfig,
   type SeedPreview,
-  type StateTransitionProtocolItem,
 } from '../../api/modules/personas';
 
 interface PersonalityFormProps {
@@ -26,27 +25,22 @@ interface PersonalityFormProps {
 // Group display order
 const GROUP_ORDER = ['magi', 'general'];
 
-const normalizeTransition = (item: Partial<StateTransitionProtocolItem>): StateTransitionProtocolItem => ({
-  trigger_type: item.trigger_type || '',
-  trigger_condition: item.trigger_condition || '',
-  target_state_name: item.target_state_name || '',
-  behavior_shift: item.behavior_shift || '',
-});
-
 const mergeConfig = (incoming: Partial<PersonalityConfig>): PersonalityConfig => {
   const next = structuredClone(DEFAULT_PERSONALITY_CONFIG);
-  next.persona_entity.basic_profile = {
-    ...next.persona_entity.basic_profile,
-    ...(incoming.persona_entity?.basic_profile || {}),
-  };
-  next.persona_entity.core_identity = {
-    ...next.persona_entity.core_identity,
-    ...(incoming.persona_entity?.core_identity || {}),
-  };
+  next.name = incoming.name || next.name;
+  next.avatar = incoming.avatar || next.avatar;
+  next.description = incoming.description || next.description;
   next.appearance_prompt = incoming.appearance_prompt || next.appearance_prompt;
-  const transitions = incoming.state_transition_protocol || next.state_transition_protocol;
-  next.state_transition_protocol = transitions.length > 0 ? transitions.map(normalizeTransition) : [normalizeTransition({})];
+  next.identity_core = { ...next.identity_core, ...(incoming.identity_core || {}) };
+  next.idiolect = { ...next.idiolect, ...(incoming.idiolect || {}) };
+  next.registers = { ...next.registers, ...(incoming.registers || {}) };
+  next.quiet_hours = incoming.quiet_hours ?? next.quiet_hours;
+  next.signature_triggers = incoming.signature_triggers ?? next.signature_triggers;
   next.persona_layers = incoming.persona_layers ?? next.persona_layers;
+  next.dynamic_state_rules = incoming.dynamic_state_rules ?? next.dynamic_state_rules;
+  next.milestone_conditions = incoming.milestone_conditions ?? next.milestone_conditions;
+  next.interim_lines = incoming.interim_lines ?? next.interim_lines;
+  next.bootstrap = incoming.bootstrap ?? next.bootstrap;
   return next;
 };
 
@@ -85,7 +79,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
     }
 
     const currentPersonality = formInstance.getFieldValue(['personality']) as PersonalityConfig | undefined;
-    const currentName = currentPersonality?.persona_entity?.basic_profile?.name;
+    const currentName = currentPersonality?.name;
     const isBlankSelection = !currentName || currentName === 'AI Assistant';
 
     if (!isBlankSelection) {
@@ -113,13 +107,9 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
       } catch {
         if (cancelled) return;
         const fallbackConfig = mergeConfig({
-          persona_entity: {
-            basic_profile: {
-              name: defaultPreset.name,
-              description: defaultPreset.description,
-              avatar: defaultPreset.avatar,
-            },
-          } as Partial<PersonalityConfig['persona_entity']>,
+          name: defaultPreset.name,
+          description: defaultPreset.description,
+          avatar: defaultPreset.avatar,
         } as Partial<PersonalityConfig>);
         setConfig(fallbackConfig);
         formInstance.setFieldValue(['personality'], fallbackConfig);
@@ -184,7 +174,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
       const avatarValue = response.data?.url || response.data?.filename;
       if (!avatarValue) return;
       patch((d) => {
-        d.persona_entity.basic_profile.avatar = avatarValue;
+        d.avatar = avatarValue;
       });
       resetAvatarBroken(`focus:${avatarValue}`);
     } finally {
@@ -268,20 +258,20 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
             setFieldValue: (name: any, value: any) => void;
           }) => {
             const personalityValue = getFieldValue(['personality']);
-            const selectedPreset = personalityValue?.persona_entity?.basic_profile?.name;
+            const selectedPreset = personalityValue?.name;
             const isCustomSelected = !selectedPreset || selectedPreset === 'AI Assistant';
             const showCustomSection = viewMode === 'focus';
             const focusedPreset = presets.find((item) => item.name === selectedPreset);
             const focusTitle = isCustomSelected && !focusedPreset
               ? t('personality.blankCardTitle')
-              : config.persona_entity.basic_profile.name || selectedPreset;
-            const focusAvatar = config.persona_entity.basic_profile.avatar || focusedPreset?.avatar || '';
+              : config.name || selectedPreset;
+            const focusAvatar = config.avatar || focusedPreset?.avatar || '';
             const focusSubtitle = isCustomSelected && !focusedPreset
               ? t('personality.blankCardDesc')
-              : config.persona_entity.basic_profile.description || focusedPreset?.description || '';
+              : config.description || focusedPreset?.description || '';
             const focusDescription = isCustomSelected
               ? t('personality.blankCardDesc')
-              : config.persona_entity.core_identity.inner_narrative || focusedPreset?.description || '';
+              : config.identity_core.identity_statement || focusedPreset?.description || '';
 
             // Group by backend group field
             const groupedPersonalities = GROUP_ORDER.reduce((acc, group) => {
@@ -543,7 +533,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                                   t={t}
                                   onAvatarUpload={(e) => void handleAvatarUpload(e)}
                                   uploadingAvatar={uploadingAvatar}
-                                  avatarFilename={avatarLabel(config.persona_entity.basic_profile.avatar)}
+                                  avatarFilename={avatarLabel(config.avatar)}
                                 />
                               </div>
                             )}

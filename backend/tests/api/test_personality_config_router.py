@@ -13,28 +13,18 @@ class _FakeLLMAdapter:
         _ = kwargs
         return """
         {
-          "persona_entity": {
-            "basic_profile": {
-              "name": "Astra",
-              "age": "Unknown",
-              "gender": "Unknown",
-              "description": "Helpful",
-              "avatar": "",
-              "occupation": "Assistant"
-            },
-            "core_identity": {
-              "inner_narrative": "A calm assistant shaped by careful observation and consistent support for users in difficult moments.",
-              "language_fingerprint": "Calm and supportive",
-              "attention_bias": ""
-            }
+                    "name": "Astra",
+                    "description": "Helpful",
+                    "avatar": "",
+                    "identity_core": {
+                        "identity_statement": "A calm assistant shaped by careful observation and consistent support for users in difficult moments.",
+                        "values_loved": ["clarity"],
+                        "values_rejected": ["panic"],
+                        "attention_biases": ["user need"]
           },
-          "appearance_prompt": "simple",
-          "state_transition_protocol": [
-            {"trigger_type": "crisis", "trigger_condition": "danger", "target_state_name": "Guardian", "behavior_shift": "protective"},
-            {"trigger_type": "intimacy", "trigger_condition": "trust", "target_state_name": "Confidant", "behavior_shift": "gentle"},
-            {"trigger_type": "hostility", "trigger_condition": "insult", "target_state_name": "Boundary", "behavior_shift": "firm"},
-            {"trigger_type": "absurdity", "trigger_condition": "nonsense", "target_state_name": "Playful", "behavior_shift": "light"}
-          ]
+                    "idiolect": {"sentence_style": "Calm and supportive"},
+                    "registers": {"chat": {"description": "casual", "behavior": "Be calm."}},
+                    "appearance_prompt": "simple"
         }
         """
 
@@ -44,28 +34,18 @@ class _NumericAgeLLMAdapter(_FakeLLMAdapter):
         _ = kwargs
         return """
         {
-          "persona_entity": {
-            "basic_profile": {
-              "name": "Asuka",
-              "age": 14,
-              "gender": "女",
-              "description": "Helpful",
-              "avatar": "",
-              "occupation": "Student"
-            },
-            "core_identity": {
-              "inner_narrative": "A thoughtful assistant persona shaped by observation, duty, and a strong desire to protect the user through precise answers.",
-              "language_fingerprint": "Calm and supportive",
-              "attention_bias": ""
-            }
+                    "name": 14,
+                    "description": "Helpful",
+                    "avatar": "",
+                    "identity_core": {
+                        "identity_statement": "A thoughtful assistant persona shaped by observation, duty, and a strong desire to protect the user through precise answers.",
+                        "values_loved": ["precision"],
+                        "values_rejected": ["carelessness"],
+                        "attention_biases": ["risk"]
           },
-          "appearance_prompt": "simple",
-          "state_transition_protocol": [
-            {"trigger_type": "crisis", "trigger_condition": "danger", "target_state_name": "Guardian", "behavior_shift": "protective"},
-            {"trigger_type": "intimacy", "trigger_condition": "trust", "target_state_name": "Confidant", "behavior_shift": "gentle"},
-            {"trigger_type": "hostility", "trigger_condition": "insult", "target_state_name": "Boundary", "behavior_shift": "firm"},
-            {"trigger_type": "absurdity", "trigger_condition": "nonsense", "target_state_name": "Playful", "behavior_shift": "light"}
-          ]
+                    "idiolect": {"sentence_style": "Calm and supportive"},
+                    "registers": {"chat": {"description": "casual", "behavior": "Be calm."}},
+                    "appearance_prompt": "simple"
         }
         """
 
@@ -94,7 +74,7 @@ async def test_ai_generate_personality_uses_core_scenario(monkeypatch) -> None:
 
     result = await personality_config.ai_generate_personality("一个冷静可靠的助手", target_language="Chinese")
 
-    assert result.persona_entity.basic_profile.name == "Astra"
+    assert result.name == "Astra"
     assert resolver.requested == [LLMScenario.CORE]
 
 
@@ -135,7 +115,7 @@ async def test_ai_generate_personality_prefers_llm_override(monkeypatch) -> None
         ),
     )
 
-    assert result.persona_entity.basic_profile.name == "Astra"
+    assert result.name == "Astra"
     assert captured == {
         "provider_type": "anthropic",
         "api_key": "draft-key",
@@ -182,7 +162,7 @@ async def test_ai_generate_personality_uses_registry_default_base_url_for_builti
         ),
     )
 
-    assert result.persona_entity.basic_profile.name == "Astra"
+    assert result.name == "Astra"
     assert captured == {
         "provider_type": "glm",
         "api_key": "glm-key",
@@ -194,7 +174,7 @@ async def test_ai_generate_personality_uses_registry_default_base_url_for_builti
 
 
 @pytest.mark.asyncio
-async def test_ai_generate_personality_coerces_numeric_basic_profile_fields(monkeypatch) -> None:
+async def test_ai_generate_personality_coerces_numeric_top_level_fields(monkeypatch) -> None:
     from magi.api.routers import personality_config
 
     monkeypatch.setattr(
@@ -205,5 +185,4 @@ async def test_ai_generate_personality_coerces_numeric_basic_profile_fields(monk
 
     result = await personality_config.ai_generate_personality("eva里的明日香", target_language="Chinese")
 
-    assert result.persona_entity.basic_profile.name == "Asuka"
-    assert result.persona_entity.basic_profile.age == "14"
+    assert result.name == "14"

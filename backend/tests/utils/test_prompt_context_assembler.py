@@ -25,6 +25,10 @@ class _FakeSelfMemory:
         _ = user_id
         return {"sentiment_score": 0.6, "trust_level": 0.8}
 
+    async def get_milestones(self, limit: int = 200):
+        _ = limit
+        return []
+
 
 class _FakeL2EntityCatalog:
     async def list_entities(self, entity_ids=None, **kwargs):
@@ -86,7 +90,7 @@ class TestPromptContextAssembler(unittest.IsolatedAsyncioTestCase):
         prompt = renderer.render_system_prompt(assembled)
 
         i1 = prompt.find("# System Definition")
-        i2 = prompt.find("# Persona Entity")
+        i2 = prompt.find("# Persona Runtime Plan")
         i3 = prompt.find("# Profile Memory")
         i4 = prompt.find("# System Information")
         i5 = prompt.find("# Tool Information")

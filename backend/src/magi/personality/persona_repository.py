@@ -111,7 +111,7 @@ class PersonaRepository:
                 for row in rows:
                     try:
                         d = json.loads(row["config_json"])
-                        desc = d.get("persona_entity", {}).get("basic_profile", {}).get("description", "")
+                        desc = d.get("description", "")
                     except (json.JSONDecodeError, TypeError):
                         desc = ""
                     await db.execute("UPDATE personas SET description = ? WHERE persona_id = ?", (desc, row["persona_id"]))
@@ -132,10 +132,9 @@ class PersonaRepository:
     ) -> str:
         """Insert a new persona and return its persona_id."""
         data = json.loads(config_json)
-        bp = data.get("persona_entity", {}).get("basic_profile", {})
-        display_name = bp.get("name", "") or "Unnamed"
-        avatar = bp.get("avatar", "")
-        description = bp.get("description", "")
+        display_name = data.get("name", "") or "Unnamed"
+        avatar = data.get("avatar", "")
+        description = data.get("description", "")
         group = data.get("meta", {}).get("group", "general")
         order = data.get("meta", {}).get("order", 0)
 
@@ -239,13 +238,12 @@ class PersonaRepository:
         if config_json is not None:
             try:
                 data = json.loads(config_json)
-                bp = data.get("persona_entity", {}).get("basic_profile", {})
                 meta = data.get("meta", {})
                 if name is None:
-                    name = bp.get("name") or None
+                    name = data.get("name") or None
                 if avatar_path is None:
-                    avatar_path = bp.get("avatar", "")
-                description = bp.get("description", "")
+                    avatar_path = data.get("avatar", "")
+                description = data.get("description", "")
                 if sort_order is None and "order" in meta:
                     sort_order = meta["order"]
             except (json.JSONDecodeError, TypeError):

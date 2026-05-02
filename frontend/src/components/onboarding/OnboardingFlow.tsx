@@ -87,6 +87,7 @@ const SCENARIO_PRESETS: Record<ScenarioId, Partial<SystemConfig>> = {
       history_behavior: 'delete',
       embedding: { mode: 'off', local: { model_source: 'managed', managed_model_id: null, model_dir_path: null, idle_timeout_seconds: 1800 } },
       reranker: { top_k: 8, cross_encoder: { enabled: false, managed_model_id: null } },
+      query_expansion: { enabled: false },
       l0: { enabled: true, checkpoint_interval_seconds: 30 },
       l1: { enabled: true, vectors_enabled: true },
       l2: { enabled: false, vectors_enabled: false, batch_flush_interval_seconds: 60, auto_extract_relations: false, conflict_arbitration_enabled: false, conflict_arbitration_min_confidence: 0.85 },
@@ -109,6 +110,7 @@ const SCENARIO_PRESETS: Record<ScenarioId, Partial<SystemConfig>> = {
       history_behavior: 'delete',
       embedding: { mode: 'off', local: { model_source: 'managed', managed_model_id: null, model_dir_path: null, idle_timeout_seconds: 1800 } },
       reranker: { top_k: 8, cross_encoder: { enabled: false, managed_model_id: null } },
+      query_expansion: { enabled: false },
       l0: { enabled: true, checkpoint_interval_seconds: 30 },
       l1: { enabled: true, vectors_enabled: true },
       l2: { enabled: true, vectors_enabled: true, batch_flush_interval_seconds: 60, auto_extract_relations: true, conflict_arbitration_enabled: true, conflict_arbitration_min_confidence: 0.85 },
@@ -131,6 +133,7 @@ const SCENARIO_PRESETS: Record<ScenarioId, Partial<SystemConfig>> = {
       history_behavior: 'delete',
       embedding: { mode: 'off', local: { model_source: 'managed', managed_model_id: null, model_dir_path: null, idle_timeout_seconds: 1800 } },
       reranker: { top_k: 8, cross_encoder: { enabled: false, managed_model_id: null } },
+      query_expansion: { enabled: false },
       l0: { enabled: true, checkpoint_interval_seconds: 30 },
       l1: { enabled: true, vectors_enabled: true },
       l2: { enabled: true, vectors_enabled: true, batch_flush_interval_seconds: 60, auto_extract_relations: true, conflict_arbitration_enabled: true, conflict_arbitration_min_confidence: 0.85 },
@@ -357,7 +360,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
 
       // Fallback: match by name, then first persona
       if (!activatedPersonaId) {
-        const selectedName = values.personality?.persona_entity?.basic_profile?.name;
+        const selectedName = values.personality?.name;
         const fallback = personas.find((p) => p.name === selectedName) || personas[0];
         if (fallback) activatedPersonaId = fallback.persona_id;
       }

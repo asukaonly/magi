@@ -210,7 +210,7 @@ def build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "agent.memory.l4.vectors_enabled": config.memory.l4.vectors_enabled,
         "preferences": prune_sparse_value(config.preferences.model_dump(exclude_none=True)),
         "network": config.network.model_dump(),
-        "agent.personality.name": config.personality.persona_entity.basic_profile.name if config.personality.persona_entity.basic_profile.name else "default",
+        "agent.personality.name": config.personality.name if config.personality.name else "default",
         "agent.personality.path": "~/.magi/personalities",
         "agent.personality.enable_evolution": personality_settings.state_memory_enabled,
         "agent.personality.enable_state_memory": personality_settings.state_memory_enabled,

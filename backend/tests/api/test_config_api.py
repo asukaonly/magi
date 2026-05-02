@@ -915,12 +915,12 @@ def test_complete_onboarding_quick_mode_uses_locale_seed_personality(
     payload = SystemConfigModel()
     payload.preferences.user_mode = "quick"
     payload.preferences.language = "zh"
-    payload.personality.persona_entity.basic_profile.name = "Custom Persona"
+    payload.personality.name = "Custom Persona"
 
     captured: dict[str, str] = {}
 
     def _capture_update_paths(config: SystemConfigModel) -> dict:
-        captured["name"] = config.personality.persona_entity.basic_profile.name
+        captured["name"] = config.personality.name
         return {}
 
     monkeypatch.setattr("magi.api.routers.config._build_update_paths", _capture_update_paths)
@@ -945,12 +945,12 @@ def test_complete_onboarding_quick_mode_uses_english_seed_without_zh_fallback(
     payload = SystemConfigModel()
     payload.preferences.user_mode = "quick"
     payload.preferences.language = "en"
-    payload.personality.persona_entity.basic_profile.name = "Custom Persona"
+    payload.personality.name = "Custom Persona"
 
     captured: dict[str, str] = {}
 
     def _capture_update_paths(config: SystemConfigModel) -> dict:
-        captured["name"] = config.personality.persona_entity.basic_profile.name
+        captured["name"] = config.personality.name
         return {}
 
     monkeypatch.setattr("magi.api.routers.config._build_update_paths", _capture_update_paths)

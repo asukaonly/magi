@@ -144,6 +144,14 @@ Execution observability is now a separate concern from durable memory:
 - `L1` keeps canonical memory facts that may participate in recall, cognition, and reflection; execution-scoped outcomes stay out of `L1`
 - runtime trace spans, tool calls, LLM call metrics, and turn-level execution summaries live in the dedicated runtime trace store
 
+### Persona runtime model
+
+Magi treats persona as a structured runtime behavior model rather than a permanent style filter.
+
+The Personality Layer owns persona definitions, relationship depth, dynamic persona state, and per-turn persona planning. For each user-facing model call, it should produce a `PersonaTurnPlan` that selects the current register, quiet-hour clamps, active signature triggers, relationship-layer modifiers, and dynamic-state modulations. The Context Layer then renders that plan alongside memory, profile, runtime, attachment, and tool context.
+
+The durable design is documented in [Persona Runtime Architecture](./persona-runtime-architecture.md).
+
 ## Persistence Boundaries
 
 - `~/.magi/runtime/message_queue.db`
@@ -163,9 +171,6 @@ Execution observability is now a separate concern from durable memory:
 
 - `~/.magi/runtime/runtime_trace.db`
   Runtime execution observability only: turn summaries, spans, LLM metrics, tool calls, intent-resolution details, live notifications, and append-only plugin ingress events produced by the desktop shell
-
-- `~/.magi/data/app/scenario_prompts.db`
-  Scenario prompt policy and prompt metadata
 
 - `~/.magi/runtime/llm_usage.db`
   LLM usage metrics and usage-event persistence
@@ -203,7 +208,6 @@ When adding a new SQLite write path, update this matrix, `contracts/sqlite/gatew
 | `llm_usage.db` | `llm_usage` | LLM usage metrics | Reads usage dashboards; may insert gateway-originated metric rows when no Python runtime call owns the event | Writes provider/runtime usage records for Python LLM execution | Python LLM usage store schema; Rust metrics tests cover read/write shape |
 | `l1_events.db` | `fact_events`, L1 vector/index tables | Canonical lossy memory projection | Read-only for native memory list/stat endpoints; startup may create idempotent performance indexes | Owns all semantic writes, retention, archival, projection, and vector writes | Python memory L1 store schema; Rust may only add documented idempotent indexes |
 | `memory.db` | L0/L2/L3/L4 tables, graph, assertions, summaries, procedures | Lifecycle memory state beyond L1 | Read-only for native memory inspection endpoints; startup may create idempotent performance indexes | Owns all memory writes, cognition, reflection, procedural extraction, conflict resolution, and vector writes | Python memory stores/schema; Rust may only add documented idempotent indexes |
-| `scenario_prompts.db` | scenario prompt policy and metadata | Prompt policy registry | Read-only if surfaced through gateway in the future | Owns scenario prompt CRUD and prompt assembly inputs | Python context/scenario prompt store |
 | `persona_registry.db` | personas and active persona state | Persona registry identity and active selection | No direct native writes currently; proxied to Python persona APIs | Owns persona CRUD, seed import, active persona selection, and runtime cache synchronization | Python persona repository |
 | plugin cache DB/files | plugin-owned cursors and rebuildable state | Owning plugin or sensor contribution | No direct access | Plugin/sensor runtime owns reads and writes through contribution APIs | Owning plugin/sensor package |
 

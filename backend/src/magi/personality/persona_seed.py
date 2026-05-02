@@ -95,14 +95,13 @@ async def list_seed_previews(locale: str) -> list[dict]:
         except Exception:
             continue
 
-        bp = data.get("persona_entity", {}).get("basic_profile", {})
         meta = data.get("meta", {})
         previews.append(
             {
                 "seed_slug": preset_file.stem,
-                "name": bp.get("name", preset_file.stem),
-                "description": bp.get("description", ""),
-                "avatar": bp.get("avatar", ""),
+                "name": data.get("name", preset_file.stem),
+                "description": data.get("description", ""),
+                "avatar": data.get("avatar", ""),
                 "group": meta.get("group", "general"),
                 "order": meta.get("order", 0),
                 "is_default": bool(meta.get("default") or meta.get("is_default")),

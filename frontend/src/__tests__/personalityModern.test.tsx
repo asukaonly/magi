@@ -29,42 +29,35 @@ vi.mock('@/hooks', () => ({
   parseLines: (value: string) => value.split('\n').filter(Boolean),
   toLines: (value: string[]) => value.join('\n'),
   getInitials: (value: string) => value.slice(0, 1),
-  normalizeTransition: (value: Record<string, string>) => ({
-    trigger_type: '',
-    trigger_condition: '',
-    target_state_name: '',
+  normalizeTrigger: (value: Record<string, string>) => ({
+    trigger_id: '',
+    activates_when: '',
     behavior_shift: '',
+    intensity_levels: {},
+    exit_behavior: '',
     ...value,
   }),
 }));
 
+const buildConfig = (name = '七号', description = '赛博乐子人 / 反讽大师') => ({
+  name,
+  description,
+  avatar: '',
+  appearance_prompt: '',
+  identity_core: { identity_statement: '', values_loved: [], values_rejected: [], attention_biases: [] },
+  idiolect: { sentence_style: '', vocab_available: [], vocab_avoided: [], structural_quirks: [] },
+  registers: {},
+  quiet_hours: [],
+  signature_triggers: [],
+  persona_layers: [],
+  dynamic_state_rules: {},
+  milestone_conditions: {},
+  interim_lines: {},
+  bootstrap: null,
+});
+
 const buildHookState = (overrides: Partial<Record<string, unknown>> = {}) => ({
-  config: {
-    persona_entity: {
-      basic_profile: {
-        name: '七号',
-        age: '',
-        gender: '',
-        description: '赛博乐子人 / 反讽大师',
-        avatar: '',
-        occupation: '',
-      },
-      core_identity: {
-        inner_narrative: '',
-        language_fingerprint: '',
-        attention_bias: '',
-      },
-    },
-    appearance_prompt: '',
-    state_transition_protocol: [
-      {
-        trigger_type: '',
-        trigger_condition: '',
-        target_state_name: '',
-        behavior_shift: '',
-      },
-    ],
-  },
+  config: buildConfig(),
   list: [
     { id: 'uuid-seven', name: '七号', displayName: '七号', subtitle: '赛博乐子人 / 反讽大师', avatar: '/static/user-avatars/seven.png' },
     { id: 'uuid-asuka', name: '明日香', displayName: '明日香', subtitle: '傲娇驾驶员', avatar: '' },
@@ -119,32 +112,7 @@ describe('PersonalityModern', () => {
       buildHookState({
         selectedId: 'uuid-asuka',
         selectedInfo: { id: 'uuid-asuka', name: '明日香', displayName: '明日香', subtitle: '傲娇驾驶员' },
-        config: {
-          persona_entity: {
-            basic_profile: {
-              name: '明日香',
-              age: '',
-              gender: '',
-              description: '傲娇驾驶员',
-              avatar: '',
-              occupation: '',
-            },
-            core_identity: {
-              inner_narrative: '',
-              language_fingerprint: '',
-              attention_bias: '',
-            },
-          },
-          appearance_prompt: '',
-          state_transition_protocol: [
-            {
-              trigger_type: '',
-              trigger_condition: '',
-              target_state_name: '',
-              behavior_shift: '',
-            },
-          ],
-        },
+        config: buildConfig('明日香', '傲娇驾驶员'),
       }) as any
     );
 
@@ -160,32 +128,7 @@ describe('PersonalityModern', () => {
         isNewMode: true,
         selectedId: '__new__',
         selectedInfo: undefined,
-        config: {
-          persona_entity: {
-            basic_profile: {
-              name: '',
-              age: '',
-              gender: '',
-              description: '',
-              avatar: '',
-              occupation: '',
-            },
-            core_identity: {
-              inner_narrative: '',
-              language_fingerprint: '',
-              attention_bias: '',
-            },
-          },
-          appearance_prompt: '',
-          state_transition_protocol: [
-            {
-              trigger_type: '',
-              trigger_condition: '',
-              target_state_name: '',
-              behavior_shift: '',
-            },
-          ],
-        },
+        config: buildConfig('', ''),
       }) as any
     );
 
@@ -229,7 +172,7 @@ describe('PersonalityModern', () => {
     const draft = buildHookState().config;
     const updater = patch.mock.calls[0][0] as (value: typeof draft) => void;
     updater(draft);
-    expect(draft.persona_entity.basic_profile.avatar).toBe('/static/user-avatars/test-avatar.png');
+    expect(draft.avatar).toBe('/static/user-avatars/test-avatar.png');
   });
 
   it('shows avatars in the selector cards before falling back to initials', () => {

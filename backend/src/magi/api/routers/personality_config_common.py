@@ -126,8 +126,7 @@ def _build_diffs(from_data: Dict[str, Any], to_data: Dict[str, Any]) -> List[Per
 
 def _normalize_avatar_in_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     legacy = legacy_personality_config_module()
-    basic_profile = payload.get("persona_entity", {}).get("basic_profile", {})
-    basic_profile["avatar"] = legacy.resolve_avatar_public_url(basic_profile.get("avatar", ""))
+    payload["avatar"] = legacy.resolve_avatar_public_url(str(payload.get("avatar") or ""))
     return payload
 
 

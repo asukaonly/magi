@@ -8,53 +8,44 @@ from magi.personality.loader import PersonalityLoader
 
 def test_personality_model_accepts_new_schema():
     payload = {
-        "persona_entity": {
-            "basic_profile": {
-                "name": "Astra",
-                "age": "24",
-                "gender": "Female",
-                "occupation": "Engineer",
-            },
-            "core_identity": {
-                "inner_narrative": "Astra grew up in a strict environment and learned to hide vulnerability behind precision and control.",
-                "language_fingerprint": "Sharp but caring",
-                "attention_bias": "focus, precision, hold on",
-            },
+        "name": "Astra",
+        "description": "Sharp but caring engineer.",
+        "identity_core": {
+            "identity_statement": "Astra grew up in a strict environment and learned to hide vulnerability behind precision and control.",
+            "attention_biases": ["focus", "precision"],
         },
+        "idiolect": {"sentence_style": "Sharp but caring"},
         "appearance_prompt": "anime portrait, silver hair, amber eyes, black coat, cinematic lighting",
-        "state_transition_protocol": [
+        "signature_triggers": [
             {
-                "trigger_condition": "User mentions severe physical pain",
-                "target_state_name": "Panic and Vulnerability",
+                "trigger_id": "crisis",
+                "activates_when": "User mentions severe physical pain",
                 "behavior_shift": "Drops arrogance and gives urgent support.",
             }
         ],
     }
     model = PersonalityConfigModel(**payload)
-    assert model.persona_entity.basic_profile.name == "Astra"
-    assert model.state_transition_protocol[0].target_state_name == "Panic and Vulnerability"
+    assert model.name == "Astra"
+    assert model.signature_triggers[0].trigger_id == "crisis"
 
 
 def test_json_loader_reads_personality_file(tmp_path):
     payload = {
-        "persona_entity": {
-            "basic_profile": {
-                "name": "Kai",
-                "age": "Unknown",
-                "gender": "Unknown",
-                "occupation": "Operator",
-            },
-            "core_identity": {
-                "inner_narrative": "A long background.",
-                "language_fingerprint": "Calm",
-                "attention_bias": "",
-            },
-        },
+        "name": "Kai",
+        "description": "Calm operator persona.",
+        "avatar": "portrait.png",
         "appearance_prompt": "portrait prompt",
-        "state_transition_protocol": [
+        "identity_core": {
+            "identity_statement": "A long background.",
+            "attention_biases": ["risk", "clarity"],
+        },
+        "idiolect": {
+            "sentence_style": "Calm",
+        },
+        "signature_triggers": [
             {
-                "trigger_condition": "User in danger",
-                "target_state_name": "Emergency",
+                "trigger_id": "danger",
+                "activates_when": "User in danger",
                 "behavior_shift": "Immediate care mode",
             }
         ],
@@ -64,14 +55,14 @@ def test_json_loader_reads_personality_file(tmp_path):
     loader = PersonalityLoader(str(tmp_path))
     config = loader.load("kai")
     assert config.name == "Kai"
-    assert config.state_transition_protocol[0].target_state_name == "Emergency"
+    assert config.signature_triggers[0].behavior_shift == "Immediate care mode"
     assert loader.list_available() == ["kai"]
 
 
 def test_build_diffs_detects_new_schema_changes():
     left = PersonalityConfigModel().model_dump()
     right = PersonalityConfigModel().model_dump()
-    right["appearance_prompt"] = "portrait prompt"
+    right["identity_core"]["identity_statement"] = "A different core."
     diffs = _build_diffs(left, right)
     diff_fields = {diff.field for diff in diffs}
-    assert "appearance_prompt" in diff_fields
+    assert "identity_core.identity_statement" in diff_fields

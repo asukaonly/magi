@@ -22,6 +22,10 @@ class _FakeSelfMemory:
         _ = user_id
         return {"sentiment_score": 0.6, "trust_level": 0.8}
 
+    async def get_milestones(self, limit: int = 200):
+        _ = limit
+        return []
+
 
 class _FakeL2EntityCatalog:
     async def list_entities(self, entity_ids=None, **kwargs):

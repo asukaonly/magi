@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Upload, HelpCircle } from 'lucide-react';
+import React from 'react';
+import { Plus, Trash2, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -7,52 +7,8 @@ import {
   CollapsibleTrigger,
   CollapsibleContent,
 } from '@/components/ui/collapsible';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
-import { normalizeTransition } from '@/hooks';
-import type { PersonalityConfig } from '@/api/modules/personas';
-
-/* ── Inline help tip ── */
-const HelpTip: React.FC<{ text: string }> = ({ text }) => {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLSpanElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [open]);
-
-  return (
-    <span ref={ref} className="relative inline-flex items-center">
-      <button
-        type="button"
-        className="ml-1 inline-flex items-center text-muted-foreground/60 transition hover:text-muted-foreground"
-        onClick={() => setOpen((v) => !v)}
-        aria-label="help"
-      >
-        <HelpCircle className="h-3.5 w-3.5" />
-      </button>
-      {open && (
-        <span className="absolute bottom-full left-0 z-10 mb-1 w-56 rounded-md border border-border bg-background px-3 py-2 text-xs leading-relaxed text-foreground shadow-lg">
-          {text}
-        </span>
-      )}
-    </span>
-  );
-};
+import type { PersonalityConfig, PersonaLayerItem, QuietHour, SignatureTrigger } from '@/api/modules/personas';
 
 interface PersonalityDetailEditorProps {
   config: PersonalityConfig;
@@ -63,6 +19,52 @@ interface PersonalityDetailEditorProps {
   avatarFilename?: string;
 }
 
+const REGISTER_KEYS = ['chat', 'analysis', 'task', 'emotional', 'crisis'] as const;
+
+const toLines = (items: string[] = []): string => items.join('\n');
+
+const parseLines = (value: string): string[] =>
+  value
+    .split('\n')
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+const mappingToLines = (value: Record<string, unknown> = {}): string =>
+  Object.entries(value)
+    .map(([key, item]) => `${key}: ${String(item)}`)
+    .join('\n');
+
+const linesToMapping = (value: string): Record<string, string> => {
+  const result: Record<string, string> = {};
+  for (const line of parseLines(value)) {
+    const separator = line.indexOf(':');
+    if (separator <= 0) continue;
+    const key = line.slice(0, separator).trim();
+    const item = line.slice(separator + 1).trim();
+    if (key) result[key] = item;
+  }
+  return result;
+};
+
+const normalizeTrigger = (item: Partial<SignatureTrigger> = {}): SignatureTrigger => ({
+  trigger_id: item.trigger_id || '',
+  activates_when: item.activates_when || '',
+  behavior_shift: item.behavior_shift || '',
+  intensity_levels: item.intensity_levels || {},
+  exit_behavior: item.exit_behavior || '',
+});
+
+const normalizeQuietHour = (item: Partial<QuietHour> = {}): QuietHour => ({
+  condition: item.condition || '',
+  clamps: item.clamps || {},
+});
+
+const normalizeLayer = (item: Partial<PersonaLayerItem> = {}): PersonaLayerItem => ({
+  layer_id: item.layer_id || '',
+  unlock_condition: item.unlock_condition ?? null,
+  modifiers: item.modifiers || {},
+});
+
 const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
   config,
   patch,
@@ -71,596 +73,262 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
   uploadingAvatar = false,
   avatarFilename,
 }) => {
-  const [layersRevealed, setLayersRevealed] = useState(false);
-  const [layersConfirmOpen, setLayersConfirmOpen] = useState(false);
-
   return (
-    <>
-      <div className="space-y-0.5 pr-1">
-        {/* Basic Profile */}
-        <Collapsible className="space-y-1" defaultOpen>
-          <CollapsibleTrigger className="rounded-md px-2 py-1.5 text-sm font-medium hover:bg-muted">
-            {t('personality.sections.basicProfile')}
-          </CollapsibleTrigger>
-          <CollapsibleContent className="pt-2">
-            <div className="grid gap-3 md:grid-cols-3">
-              <label className="space-y-1.5">
-                <span className="text-xs font-medium text-muted-foreground">
-                  {t('personality.fields.name')}
-                </span>
-                <Input
-                  value={config.persona_entity.basic_profile.name}
-                  onChange={(e) =>
-                    patch((d) => {
-                      d.persona_entity.basic_profile.name = e.target.value;
-                    })
-                  }
-                />
-              </label>
-              <label className="space-y-1.5">
-                <span className="text-xs font-medium text-muted-foreground">
-                  {t('personality.fields.age')}
-                </span>
-                <Input
-                  value={config.persona_entity.basic_profile.age}
-                  onChange={(e) =>
-                    patch((d) => {
-                      d.persona_entity.basic_profile.age = e.target.value;
-                    })
-                  }
-                />
-              </label>
-              <label className="space-y-1.5">
-                <span className="text-xs font-medium text-muted-foreground">
-                  {t('personality.fields.gender')}
-                </span>
-                <Input
-                  value={config.persona_entity.basic_profile.gender}
-                  onChange={(e) =>
-                    patch((d) => {
-                      d.persona_entity.basic_profile.gender = e.target.value;
-                    })
-                  }
-                />
-              </label>
-              <label className="space-y-1.5 md:col-span-3">
-                <span className="text-xs font-medium text-muted-foreground">
-                  {t('personality.fields.description')}
-                </span>
-                <Input
-                  value={config.persona_entity.basic_profile.description}
-                  onChange={(e) =>
-                    patch((d) => {
-                      d.persona_entity.basic_profile.description = e.target.value;
-                    })
-                  }
-                />
-              </label>
-              {onAvatarUpload && (
-                <label className="space-y-1.5 md:col-span-3">
-                  <span className="text-xs font-medium text-muted-foreground">
-                    {t('personality.fields.avatar')}
-                  </span>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <input
-                      id="personality-detail-avatar-upload"
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp"
-                      className="hidden"
-                      onChange={onAvatarUpload}
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={uploadingAvatar}
-                      onClick={() => {
-                        const node = document.getElementById(
-                          'personality-detail-avatar-upload'
-                        ) as HTMLInputElement | null;
-                        node?.click();
-                      }}
-                    >
-                      <Upload className="h-4 w-4" />
-                      {uploadingAvatar
-                        ? t('personality.actions.uploadingAvatar')
-                        : t('personality.actions.uploadAvatar')}
-                    </Button>
-                    <span className="text-xs text-muted-foreground">
-                      {avatarFilename || t('personality.noAvatar')}
-                    </span>
-                  </div>
-                </label>
-              )}
-              <label className="space-y-1.5 md:col-span-3">
-                <span className="text-xs font-medium text-muted-foreground">
-                  {t('personality.fields.occupation')}
-                </span>
-                <Input
-                  value={config.persona_entity.basic_profile.occupation}
-                  onChange={(e) =>
-                    patch((d) => {
-                      d.persona_entity.basic_profile.occupation = e.target.value;
-                    })
-                  }
-                />
-              </label>
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
-
-        {/* Core Identity */}
-        <Collapsible className="space-y-1" defaultOpen>
-          <CollapsibleTrigger className="rounded-md px-2 py-1.5 text-sm font-medium hover:bg-muted">
-            {t('personality.sections.coreIdentity')}
-          </CollapsibleTrigger>
-          <CollapsibleContent className="pt-2">
-            <div className="grid gap-3">
-              <label className="space-y-1.5">
-                <span className="text-xs font-medium text-muted-foreground">
-                  {t('personality.fields.innerNarrative')}
-                </span>
-                <AutoResizeTextarea
-                  value={config.persona_entity.core_identity.inner_narrative}
-                  minHeight={120}
-                  className="w-full"
-                  onChange={(e) =>
-                    patch((d) => {
-                      d.persona_entity.core_identity.inner_narrative = e.target.value;
-                    })
-                  }
-                />
-              </label>
-              <label className="space-y-1.5">
-                <span className="text-xs font-medium text-muted-foreground">
-                  {t('personality.fields.languageFingerprint')}
-                </span>
-                <AutoResizeTextarea
-                  value={config.persona_entity.core_identity.language_fingerprint}
-                  minHeight={80}
-                  className="w-full"
-                  onChange={(e) =>
-                    patch((d) => {
-                      d.persona_entity.core_identity.language_fingerprint = e.target.value;
-                    })
-                  }
-                />
-              </label>
-              <label className="space-y-1.5">
-                <span className="text-xs font-medium text-muted-foreground">
-                  {t('personality.fields.attentionBias')}
-                </span>
-                <AutoResizeTextarea
-                  value={config.persona_entity.core_identity.attention_bias}
-                  minHeight={60}
-                  className="w-full"
-                  onChange={(e) =>
-                    patch((d) => {
-                      d.persona_entity.core_identity.attention_bias = e.target.value;
-                    })
-                  }
-                />
-              </label>
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
-
-        {/* Appearance Prompt */}
-        <Collapsible className="space-y-1">
-          <CollapsibleTrigger className="rounded-md px-2 py-1.5 text-sm font-medium hover:bg-muted">
-            {t('personality.sections.appearance')}
-          </CollapsibleTrigger>
-          <CollapsibleContent className="pt-2">
+    <div className="space-y-1 pr-1">
+      <Collapsible className="space-y-1" defaultOpen>
+        <CollapsibleTrigger className="rounded-md px-2 py-1.5 text-sm font-medium hover:bg-muted">
+          {t('personality.sections.basicProfile')}
+        </CollapsibleTrigger>
+        <CollapsibleContent className="pt-2">
+          <div className="grid gap-3 md:grid-cols-2">
             <label className="space-y-1.5">
-              <span className="text-xs font-medium text-muted-foreground">
-                {t('personality.fields.appearancePrompt')}
-              </span>
+              <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.name')}</span>
+              <Input value={config.name} onChange={(event) => patch((draft) => { draft.name = event.target.value; })} />
+            </label>
+            <label className="space-y-1.5">
+              <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.description')}</span>
+              <Input value={config.description} onChange={(event) => patch((draft) => { draft.description = event.target.value; })} />
+            </label>
+            {onAvatarUpload && (
+              <label className="space-y-1.5 md:col-span-2">
+                <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.avatar')}</span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    id="personality-detail-avatar-upload"
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    className="hidden"
+                    onChange={onAvatarUpload}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={uploadingAvatar}
+                    onClick={() => document.getElementById('personality-detail-avatar-upload')?.click()}
+                  >
+                    <Upload className="h-4 w-4" />
+                    {uploadingAvatar ? t('personality.actions.uploadingAvatar') : t('personality.actions.uploadAvatar')}
+                  </Button>
+                  <span className="text-xs text-muted-foreground">{avatarFilename || t('personality.noAvatar')}</span>
+                </div>
+              </label>
+            )}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+
+      <Collapsible className="space-y-1" defaultOpen>
+        <CollapsibleTrigger className="rounded-md px-2 py-1.5 text-sm font-medium hover:bg-muted">
+          {t('personality.sections.identityCore')}
+        </CollapsibleTrigger>
+        <CollapsibleContent className="pt-2">
+          <div className="grid gap-3">
+            <label className="space-y-1.5">
+              <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.identityStatement')}</span>
               <AutoResizeTextarea
-                value={config.appearance_prompt}
+                value={config.identity_core.identity_statement}
+                minHeight={120}
                 className="w-full"
-                onChange={(e) =>
-                  patch((d) => {
-                    d.appearance_prompt = e.target.value;
-                  })
-                }
+                onChange={(event) => patch((draft) => { draft.identity_core.identity_statement = event.target.value; })}
               />
             </label>
-          </CollapsibleContent>
-        </Collapsible>
+            <div className="grid gap-3 md:grid-cols-3">
+              <label className="space-y-1.5">
+                <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.valuesLoved')}</span>
+                <AutoResizeTextarea
+                  value={toLines(config.identity_core.values_loved)}
+                  className="w-full"
+                  onChange={(event) => patch((draft) => { draft.identity_core.values_loved = parseLines(event.target.value); })}
+                />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.valuesRejected')}</span>
+                <AutoResizeTextarea
+                  value={toLines(config.identity_core.values_rejected)}
+                  className="w-full"
+                  onChange={(event) => patch((draft) => { draft.identity_core.values_rejected = parseLines(event.target.value); })}
+                />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.attentionBiases')}</span>
+                <AutoResizeTextarea
+                  value={toLines(config.identity_core.attention_biases)}
+                  className="w-full"
+                  onChange={(event) => patch((draft) => { draft.identity_core.attention_biases = parseLines(event.target.value); })}
+                />
+              </label>
+            </div>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
 
-        {/* State Transition Protocol */}
-        <Collapsible className="space-y-1">
-          <CollapsibleTrigger className="rounded-md px-2 py-1.5 text-sm font-medium hover:bg-muted">
-            {t('personality.sections.stateTransitionProtocol')}
-          </CollapsibleTrigger>
-          <CollapsibleContent className="pt-2">
-            <div className="space-y-3">
-              {config.state_transition_protocol.map((item, index) => (
-                <div key={index} className="rounded-md border border-border/70 p-2">
+      <Collapsible className="space-y-1" defaultOpen>
+        <CollapsibleTrigger className="rounded-md px-2 py-1.5 text-sm font-medium hover:bg-muted">
+          {t('personality.sections.idiolect')}
+        </CollapsibleTrigger>
+        <CollapsibleContent className="pt-2">
+          <div className="grid gap-3">
+            <label className="space-y-1.5">
+              <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.sentenceStyle')}</span>
+              <AutoResizeTextarea
+                value={config.idiolect.sentence_style}
+                className="w-full"
+                onChange={(event) => patch((draft) => { draft.idiolect.sentence_style = event.target.value; })}
+              />
+            </label>
+            <div className="grid gap-3 md:grid-cols-3">
+              <label className="space-y-1.5">
+                <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.vocabAvailable')}</span>
+                <AutoResizeTextarea value={toLines(config.idiolect.vocab_available)} onChange={(event) => patch((draft) => { draft.idiolect.vocab_available = parseLines(event.target.value); })} />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.vocabAvoided')}</span>
+                <AutoResizeTextarea value={toLines(config.idiolect.vocab_avoided)} onChange={(event) => patch((draft) => { draft.idiolect.vocab_avoided = parseLines(event.target.value); })} />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.structuralQuirks')}</span>
+                <AutoResizeTextarea value={toLines(config.idiolect.structural_quirks)} onChange={(event) => patch((draft) => { draft.idiolect.structural_quirks = parseLines(event.target.value); })} />
+              </label>
+            </div>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+
+      <Collapsible className="space-y-1" defaultOpen>
+        <CollapsibleTrigger className="rounded-md px-2 py-1.5 text-sm font-medium hover:bg-muted">
+          {t('personality.sections.registers')}
+        </CollapsibleTrigger>
+        <CollapsibleContent className="pt-2">
+          <div className="space-y-3">
+            {REGISTER_KEYS.map((key) => {
+              const register = config.registers[key] || { description: '', behavior: '', examples: [] };
+              return (
+                <div key={key} className="rounded-md border border-border/70 p-2">
+                  <div className="mb-2 text-xs font-medium text-muted-foreground">{t(`personality.registers.${key}`)}</div>
                   <div className="grid gap-2">
-                    <label className="space-y-1">
-                      <span className="text-xs text-muted-foreground">
-                        {t('personality.fields.triggerCondition')}
-                      </span>
-                      <Input
-                        value={item.trigger_condition}
-                        onChange={(e) =>
-                          patch((d) => {
-                            d.state_transition_protocol[index] = normalizeTransition({
-                              ...d.state_transition_protocol[index],
-                              trigger_condition: e.target.value,
-                            });
-                          })
-                        }
-                      />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-xs text-muted-foreground">
-                        {t('personality.fields.targetStateName')}
-                      </span>
-                      <Input
-                        value={item.target_state_name}
-                        onChange={(e) =>
-                          patch((d) => {
-                            d.state_transition_protocol[index] = normalizeTransition({
-                              ...d.state_transition_protocol[index],
-                              target_state_name: e.target.value,
-                            });
-                          })
-                        }
-                      />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-xs text-muted-foreground">
-                        {t('personality.fields.behaviorShift')}
-                      </span>
-                      <AutoResizeTextarea
-                        value={item.behavior_shift}
-                        minHeight={96}
-                        className="w-full"
-                        onChange={(e) =>
-                          patch((d) => {
-                            d.state_transition_protocol[index] = normalizeTransition({
-                              ...d.state_transition_protocol[index],
-                              behavior_shift: e.target.value,
-                            });
-                          })
-                        }
-                      />
-                    </label>
-                    <div className="flex justify-end">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          patch((d) => {
-                            if (d.state_transition_protocol.length === 1) return;
-                            d.state_transition_protocol.splice(index, 1);
-                          })
-                        }
-                        disabled={config.state_transition_protocol.length === 1}
-                      >
-                        {t('personality.actions.removeTransition')}
-                      </Button>
-                    </div>
+                    <Input
+                      value={register.description}
+                      placeholder={t('personality.fields.registerDescription')}
+                      onChange={(event) => patch((draft) => { draft.registers[key] = { ...register, description: event.target.value }; })}
+                    />
+                    <AutoResizeTextarea
+                      value={register.behavior}
+                      minHeight={76}
+                      placeholder={t('personality.fields.registerBehavior')}
+                      onChange={(event) => patch((draft) => { draft.registers[key] = { ...register, behavior: event.target.value }; })}
+                    />
+                    <AutoResizeTextarea
+                      value={toLines(register.examples)}
+                      minHeight={76}
+                      placeholder={t('personality.fields.registerExamples')}
+                      onChange={(event) => patch((draft) => { draft.registers[key] = { ...register, examples: parseLines(event.target.value) }; })}
+                    />
                   </div>
                 </div>
-              ))}
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  patch((d) => {
-                    d.state_transition_protocol.push(normalizeTransition({}));
-                  })
-                }
-              >
-                {t('personality.actions.addTransition')}
-              </Button>
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
+              );
+            })}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
 
-        {/* Persona Layers — hidden behind confirmation; hide "surface" sentinel layer */}
-        {(config.persona_layers ?? []).some((l) => l.layer_id !== 'surface') && (
-        <Collapsible className="space-y-1">
-          <CollapsibleTrigger className="rounded-md px-2 py-1.5 text-sm font-medium hover:bg-muted">
-            {t('personality.sections.personaLayers')}
-          </CollapsibleTrigger>
-          <CollapsibleContent className="pt-2">
-            {!layersRevealed ? (
-              <button
-                type="button"
-                onClick={() => setLayersConfirmOpen(true)}
-                className="w-full rounded-xl border border-dashed border-border/60 bg-muted/20 px-4 py-6 text-center text-sm text-muted-foreground transition hover:border-primary/40 hover:bg-muted/40 hover:text-foreground"
-              >
-                {t('personality.actions.viewLayersTitle')}
-              </button>
-            ) : (
-              <div className="space-y-4">
-                {(config.persona_layers ?? [])
-                  .map((layer, index) => ({ layer, index }))
-                  .filter(({ layer }) => layer.layer_id !== 'surface')
-                  .map(({ layer, index }) => (
-                  <div
-                    key={`${index}-${layer.layer_id}`}
-                    className="rounded-lg border border-border bg-muted/10 shadow-sm"
-                  >
-                    {/* ── Layer header ── */}
-                    <div className="flex items-center justify-between border-b border-border/50 px-3 py-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-medium text-muted-foreground">
-                          {t('personality.fields.layerId')}
-                          <HelpTip text={t('personality.help.layerId')} />
-                        </span>
-                        <Input
-                          className="h-7 w-40 text-sm"
-                          value={layer.layer_id}
-                          onChange={(e) =>
-                            patch((d) => {
-                              d.persona_layers[index].layer_id = e.target.value;
-                            })
-                          }
-                        />
-                      </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                        onClick={() =>
-                          patch((d) => {
-                            d.persona_layers.splice(index, 1);
-                          })
-                        }
-                      >
-                        {t('personality.actions.removeLayer')}
-                      </Button>
-                    </div>
-
-                    <div className="space-y-4 p-3">
-                      {/* ── Unlock Condition ── */}
-                      <fieldset className="space-y-2">
-                        <legend className="text-xs font-medium text-muted-foreground">
-                          {t('personality.fields.unlockCondition')}
-                          <HelpTip text={t('personality.help.unlockCondition')} />
-                        </legend>
-                        <div className="grid gap-2 md:grid-cols-3">
-                          <label className="space-y-1">
-                            <span className="text-xs text-muted-foreground">
-                              {t('personality.fields.trustLevelGte')}
-                              <HelpTip text={t('personality.help.trustLevelGte')} />
-                            </span>
-                            <Input
-                              type="number"
-                              min={0}
-                              max={1}
-                              step={0.05}
-                              value={(layer.unlock_condition?.trust_level_gte as number) ?? ''}
-                              placeholder={t('personality.fields.trustLevelGtePlaceholder')}
-                              onChange={(e) =>
-                                patch((d) => {
-                                  if (!d.persona_layers[index].unlock_condition)
-                                    d.persona_layers[index].unlock_condition = {};
-                                  const v = e.target.value;
-                                  if (v === '') {
-                                    delete d.persona_layers[index].unlock_condition!.trust_level_gte;
-                                  } else {
-                                    d.persona_layers[index].unlock_condition!.trust_level_gte = parseFloat(v);
-                                  }
-                                })
-                              }
-                              onBlur={() =>
-                                patch((d) => {
-                                  const cond = d.persona_layers[index].unlock_condition;
-                                  if (cond?.trust_level_gte != null) {
-                                    cond.trust_level_gte = Math.min(1, Math.max(0, cond.trust_level_gte as number));
-                                  }
-                                })
-                              }
-                            />
-                          </label>
-                          <label className="space-y-1">
-                            <span className="text-xs text-muted-foreground">
-                              {t('personality.fields.interactionCountGte')}
-                              <HelpTip text={t('personality.help.interactionCountGte')} />
-                            </span>
-                            <Input
-                              type="number"
-                              min={0}
-                              step={1}
-                              value={(layer.unlock_condition?.interaction_count_gte as number) ?? ''}
-                              placeholder={t('personality.fields.interactionCountGtePlaceholder')}
-                              onChange={(e) =>
-                                patch((d) => {
-                                  if (!d.persona_layers[index].unlock_condition)
-                                    d.persona_layers[index].unlock_condition = {};
-                                  const v = e.target.value;
-                                  if (v === '') {
-                                    delete d.persona_layers[index].unlock_condition!.interaction_count_gte;
-                                  } else {
-                                    d.persona_layers[index].unlock_condition!.interaction_count_gte = parseInt(v, 10);
-                                  }
-                                })
-                              }
-                            />
-                          </label>
-                          <label className="space-y-1">
-                            <span className="text-xs text-muted-foreground">
-                              {t('personality.fields.milestoneRequired')}
-                              <HelpTip text={t('personality.help.milestoneRequired')} />
-                            </span>
-                            <Input
-                              value={(layer.unlock_condition?.milestone_required as string) ?? ''}
-                              placeholder={t('personality.fields.milestoneRequiredPlaceholder')}
-                              onChange={(e) =>
-                                patch((d) => {
-                                  if (!d.persona_layers[index].unlock_condition)
-                                    d.persona_layers[index].unlock_condition = {};
-                                  const v = e.target.value;
-                                  if (v === '') {
-                                    delete d.persona_layers[index].unlock_condition!.milestone_required;
-                                  } else {
-                                    d.persona_layers[index].unlock_condition!.milestone_required = v;
-                                  }
-                                })
-                              }
-                            />
-                          </label>
-                        </div>
-                      </fieldset>
-
-                      {/* Persona Override — dynamic key-value pairs */}
-                      <fieldset className="space-y-2">
-                        <legend className="text-xs font-medium text-muted-foreground">
-                          {t('personality.fields.personaOverride')}
-                          <HelpTip text={t('personality.help.personaOverride')} />
-                        </legend>
-                        {Object.entries(layer.persona_override ?? {}).map(
-                          ([key, value], kvIdx) => (
-                            <div key={kvIdx} className="flex items-start gap-2">
-                              <Input
-                                className="w-1/3 shrink-0"
-                                value={key}
-                                placeholder={t('personality.fields.overrideKeyPlaceholder')}
-                                onChange={(e) =>
-                                  patch((d) => {
-                                    const entries = Object.entries(
-                                      d.persona_layers[index].persona_override ?? {}
-                                    );
-                                    if (entries[kvIdx]) entries[kvIdx][0] = e.target.value;
-                                    d.persona_layers[index].persona_override =
-                                      Object.fromEntries(entries);
-                                  })
-                                }
-                              />
-                              <AutoResizeTextarea
-                                className="w-full"
-                                value={value}
-                                onChange={(e) =>
-                                  patch((d) => {
-                                    if (!d.persona_layers[index].persona_override)
-                                      d.persona_layers[index].persona_override = {};
-                                    d.persona_layers[index].persona_override![key] =
-                                      e.target.value;
-                                  })
-                                }
-                              />
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="shrink-0 text-muted-foreground"
-                                onClick={() =>
-                                  patch((d) => {
-                                    const obj = { ...(d.persona_layers[index].persona_override ?? {}) };
-                                    delete obj[key];
-                                    d.persona_layers[index].persona_override =
-                                      Object.keys(obj).length > 0 ? obj : null;
-                                  })
-                                }
-                              >
-                                ×
-                              </Button>
-                            </div>
-                          )
-                        )}
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() =>
-                            patch((d) => {
-                              if (!d.persona_layers[index].persona_override)
-                                d.persona_layers[index].persona_override = {};
-                              d.persona_layers[index].persona_override![
-                                `key_${Object.keys(d.persona_layers[index].persona_override!).length}`
-                              ] = '';
-                            })
-                          }
-                        >
-                          {t('personality.actions.addOverride')}
-                        </Button>
-                      </fieldset>
-
-                      <label className="space-y-1">
-                        <span className="text-xs text-muted-foreground">
-                          {t('personality.fields.behaviorHints')}
-                          <HelpTip text={t('personality.help.behaviorHints')} />
-                        </span>
-                        <AutoResizeTextarea
-                          className="w-full"
-                          value={layer.behavior_hints?.join('\n') ?? ''}
-                          onChange={(e) =>
-                            patch((d) => {
-                              const val = e.target.value;
-                              d.persona_layers[index].behavior_hints = val
-                                ? val.split('\n')
-                                : null;
-                            })
-                          }
-                        />
-                      </label>
-                    </div>
+      <Collapsible className="space-y-1" defaultOpen>
+        <CollapsibleTrigger className="rounded-md px-2 py-1.5 text-sm font-medium hover:bg-muted">
+          {t('personality.sections.signatureTriggers')}
+        </CollapsibleTrigger>
+        <CollapsibleContent className="pt-2">
+          <div className="space-y-3">
+            {config.signature_triggers.map((item, index) => (
+              <div key={index} className="rounded-md border border-border/70 p-2">
+                <div className="grid gap-2">
+                  <Input value={item.trigger_id} placeholder={t('personality.fields.triggerId')} onChange={(event) => patch((draft) => { draft.signature_triggers[index] = normalizeTrigger({ ...item, trigger_id: event.target.value }); })} />
+                  <Input value={item.activates_when} placeholder={t('personality.fields.activatesWhen')} onChange={(event) => patch((draft) => { draft.signature_triggers[index] = normalizeTrigger({ ...item, activates_when: event.target.value }); })} />
+                  <AutoResizeTextarea value={item.behavior_shift} minHeight={76} placeholder={t('personality.fields.behaviorShift')} onChange={(event) => patch((draft) => { draft.signature_triggers[index] = normalizeTrigger({ ...item, behavior_shift: event.target.value }); })} />
+                  <AutoResizeTextarea value={mappingToLines(item.intensity_levels)} placeholder={t('personality.fields.intensityLevels')} onChange={(event) => patch((draft) => { draft.signature_triggers[index] = normalizeTrigger({ ...item, intensity_levels: linesToMapping(event.target.value) }); })} />
+                  <Input value={item.exit_behavior} placeholder={t('personality.fields.exitBehavior')} onChange={(event) => patch((draft) => { draft.signature_triggers[index] = normalizeTrigger({ ...item, exit_behavior: event.target.value }); })} />
+                  <div className="flex justify-end">
+                    <Button type="button" variant="outline" size="sm" disabled={config.signature_triggers.length === 1} onClick={() => patch((draft) => { if (draft.signature_triggers.length > 1) draft.signature_triggers.splice(index, 1); })}>
+                      <Trash2 className="h-4 w-4" />
+                      {t('personality.actions.removeTrigger')}
+                    </Button>
                   </div>
-                ))}
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    patch((d) => {
-                      if (!d.persona_layers) d.persona_layers = [];
-                      d.persona_layers.push({
-                        layer_id: '',
-                        unlock_condition: null,
-                        persona_override: null,
-                        behavior_hints: null,
-                      });
-                    })
-                  }
-                >
-                  {t('personality.actions.addLayer')}
-                </Button>
+                </div>
               </div>
-            )}
-          </CollapsibleContent>
-        </Collapsible>
-        )}
-      </div>
+            ))}
+            <Button type="button" variant="outline" size="sm" onClick={() => patch((draft) => { draft.signature_triggers.push(normalizeTrigger()); })}>
+              <Plus className="h-4 w-4" />
+              {t('personality.actions.addTrigger')}
+            </Button>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
 
-      {/* Layers reveal confirmation dialog */}
-      <Dialog open={layersConfirmOpen} onOpenChange={setLayersConfirmOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>{t('personality.actions.viewLayersTitle')}</DialogTitle>
-            <DialogDescription>
-              {t('personality.actions.viewLayersConfirm')}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setLayersConfirmOpen(false)}
-            >
-              {t('personality.cancel')}
+      <Collapsible className="space-y-1">
+        <CollapsibleTrigger className="rounded-md px-2 py-1.5 text-sm font-medium hover:bg-muted">
+          {t('personality.sections.quietHours')}
+        </CollapsibleTrigger>
+        <CollapsibleContent className="pt-2">
+          <div className="space-y-3">
+            {config.quiet_hours.map((item, index) => (
+              <div key={index} className="rounded-md border border-border/70 p-2">
+                <div className="grid gap-2">
+                  <Input value={item.condition} placeholder={t('personality.fields.quietHourCondition')} onChange={(event) => patch((draft) => { draft.quiet_hours[index] = normalizeQuietHour({ ...item, condition: event.target.value }); })} />
+                  <AutoResizeTextarea value={mappingToLines(item.clamps)} placeholder={t('personality.fields.clamps')} onChange={(event) => patch((draft) => { draft.quiet_hours[index] = normalizeQuietHour({ ...item, clamps: linesToMapping(event.target.value) }); })} />
+                  <div className="flex justify-end">
+                    <Button type="button" variant="outline" size="sm" onClick={() => patch((draft) => { draft.quiet_hours.splice(index, 1); })}>
+                      <Trash2 className="h-4 w-4" />
+                      {t('personality.actions.removeQuietHour')}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+            <Button type="button" variant="outline" size="sm" onClick={() => patch((draft) => { draft.quiet_hours.push(normalizeQuietHour()); })}>
+              <Plus className="h-4 w-4" />
+              {t('personality.actions.addQuietHour')}
             </Button>
-            <Button
-              type="button"
-              onClick={() => {
-                setLayersRevealed(true);
-                setLayersConfirmOpen(false);
-              }}
-            >
-              {t('personality.actions.viewLayersReveal')}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+
+      <Collapsible className="space-y-1">
+        <CollapsibleTrigger className="rounded-md px-2 py-1.5 text-sm font-medium hover:bg-muted">
+          {t('personality.sections.appearance')}
+        </CollapsibleTrigger>
+        <CollapsibleContent className="pt-2">
+          <AutoResizeTextarea value={config.appearance_prompt} className="w-full" onChange={(event) => patch((draft) => { draft.appearance_prompt = event.target.value; })} />
+        </CollapsibleContent>
+      </Collapsible>
+
+      <Collapsible className="space-y-1">
+        <CollapsibleTrigger className="rounded-md px-2 py-1.5 text-sm font-medium hover:bg-muted">
+          {t('personality.sections.personaLayers')}
+        </CollapsibleTrigger>
+        <CollapsibleContent className="pt-2">
+          <div className="space-y-3">
+            {(config.persona_layers || []).map((item, index) => (
+              <div key={index} className="rounded-md border border-border/70 p-2">
+                <div className="grid gap-2">
+                  <Input value={item.layer_id} placeholder={t('personality.fields.layerId')} onChange={(event) => patch((draft) => { draft.persona_layers[index] = normalizeLayer({ ...item, layer_id: event.target.value }); })} />
+                  <AutoResizeTextarea value={mappingToLines(item.unlock_condition || {})} placeholder={t('personality.fields.unlockCondition')} onChange={(event) => patch((draft) => { draft.persona_layers[index] = normalizeLayer({ ...item, unlock_condition: linesToMapping(event.target.value) }); })} />
+                  <AutoResizeTextarea value={mappingToLines(item.modifiers)} placeholder={t('personality.fields.layerModifiers')} onChange={(event) => patch((draft) => { draft.persona_layers[index] = normalizeLayer({ ...item, modifiers: linesToMapping(event.target.value) }); })} />
+                  <div className="flex justify-end">
+                    <Button type="button" variant="outline" size="sm" disabled={item.layer_id === 'surface'} onClick={() => patch((draft) => { draft.persona_layers.splice(index, 1); })}>
+                      <Trash2 className="h-4 w-4" />
+                      {t('personality.actions.removeLayer')}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+            <Button type="button" variant="outline" size="sm" onClick={() => patch((draft) => { draft.persona_layers.push(normalizeLayer({ layer_id: 'crack' })); })}>
+              <Plus className="h-4 w-4" />
+              {t('personality.actions.addLayer')}
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+    </div>
   );
 };
 

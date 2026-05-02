@@ -169,7 +169,7 @@ async def get_personality(name: str = "default"):
 )
 async def update_personality(name: str, config: PersonalityConfigModel, use_ai_name: bool = False):
     legacy = legacy_personality_config_module()
-    target_name = legacy.sanitize_filename(config.persona_entity.basic_profile.name)
+    target_name = legacy.sanitize_filename(config.name)
     actual_name = name
     try:
         if name == "new" or use_ai_name:
@@ -216,7 +216,7 @@ async def generate_personality(request: AIGenerateRequest):
             request.target_language,
             llm_override=request.llm_override,
         )
-        legacy.logger.info("AI generation successful: name=%s", config.persona_entity.basic_profile.name)
+        legacy.logger.info("AI generation successful: name=%s", config.name)
         return PersonalityResponse(
             success=True,
             message="AI personality configuration generated successfully",

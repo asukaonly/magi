@@ -32,9 +32,8 @@ def _mock_config(*, with_bootstrap: bool = True):
     config = MagicMock()
     config.name = "TestBot"
     config.avatar = "avatar.png"
-    config.persona_entity.basic_profile.name = "TestBot"
-    config.persona_entity.core_identity.inner_narrative = "A test persona."
-    config.persona_entity.core_identity.language_fingerprint = "Neutral"
+    config.identity_core.identity_statement = "A test persona."
+    config.idiolect.sentence_style = "Neutral"
     if with_bootstrap:
         config.bootstrap = MagicMock()
         config.bootstrap.opening_line = "Hey, first time here."
@@ -239,8 +238,8 @@ class TestJournalReflectEndpoint:
         )
 
         config = _mock_config(with_bootstrap=False)
-        config.persona_entity.basic_profile.name = "TestBot"
-        config.persona_entity.basic_profile.occupation = "Tester"
+        config.name = "TestBot"
+        config.description = "Tester"
 
         with (
             patch("magi.api.routers.personality_config.get_current_personality_name", return_value="testbot"),

@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from ..personality.turn_planner import PersonaTurnPlan
+
 
 @dataclass
 class IdentityConstraintContext:
@@ -29,14 +31,8 @@ class RetrievalMemoryContext:
 class SelfMemoryContext:
     """Module 2: Agent self-memory from agent perspective."""
 
-    persona_entity: Dict[str, Any] = field(default_factory=dict)
-    dynamic_state: Dict[str, Any] = field(default_factory=dict)
+    persona_turn_plan: Optional[PersonaTurnPlan] = None
     retrieval_memory: RetrievalMemoryContext = field(default_factory=RetrievalMemoryContext)
-    state_transition_override: Optional[str] = None
-    state_transition_behavior_shift: Optional[str] = None  # Active STP behavior directive
-    state_transition_rules: List[Dict[str, str]] = field(default_factory=list)  # STP behavioral rules
-    scenario_prompt: Optional[str] = None  # Scenario behavior constraint prompt
-    active_persona_layers: List[Dict[str, Any]] = field(default_factory=list)  # Unlocked persona layers
     persona_journal_entries: List[Dict[str, Any]] = field(default_factory=list)  # Recent persona reflections
 
 

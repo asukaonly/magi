@@ -39,10 +39,12 @@ export type {
   PersonaDetail,
   SeedPreview,
   PersonalityConfig,
-  BasicProfile,
-  CoreIdentity,
-  PersonaEntity,
-  StateTransitionProtocolItem,
+  IdentityCore,
+  Idiolect,
+  PersonaRegister,
+  SignatureTrigger,
+  QuietHour,
+  PersonaLayerItem,
   AIGenerateRequest,
 } from './modules/personas';
 

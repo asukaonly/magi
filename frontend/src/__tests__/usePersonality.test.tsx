@@ -52,30 +52,20 @@ vi.mock('@/api/modules/personas', async () => {
 });
 
 const buildConfig = (name: string) => ({
-  persona_entity: {
-    basic_profile: {
-      name,
-      age: '',
-      gender: '',
-      description: '',
-      avatar: '',
-      occupation: `${name}-occupation`,
-    },
-    core_identity: {
-      inner_narrative: '',
-      language_fingerprint: '',
-      attention_bias: '',
-    },
-  },
+  name,
+  avatar: '',
+  description: '',
   appearance_prompt: '',
-  state_transition_protocol: [
-    {
-      trigger_type: '',
-      trigger_condition: '',
-      target_state_name: '',
-      behavior_shift: '',
-    },
-  ],
+  identity_core: { identity_statement: '', values_loved: [], values_rejected: [], attention_biases: [] },
+  idiolect: { sentence_style: '', vocab_available: [], vocab_avoided: [], structural_quirks: [] },
+  registers: {},
+  quiet_hours: [],
+  signature_triggers: [],
+  persona_layers: [],
+  dynamic_state_rules: {},
+  milestone_conditions: {},
+  interim_lines: {},
+  bootstrap: null,
 });
 
 const Harness = () => {

@@ -24,6 +24,10 @@ class _FakeMemory:
         _ = user_id
         return {"sentiment_score": 0.2, "trust_level": 0.6}
 
+    async def get_milestones(self, limit: int = 200):
+        _ = limit
+        return []
+
 
 class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
     async def test_build_prompt_package_uses_user_message_for_retrieval_query(self):
@@ -135,13 +139,14 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
     async def test_build_prompt_package_uses_stored_persona_id_for_prompt_identity(self):
         persona_config = PersonalityConfig.from_dict(
             {
-                "persona_entity": {
-                    "basic_profile": {
-                        "name": "Pinned Persona",
-                        "occupation": "Archivist",
-                    },
-                    "core_identity": {
-                        "inner_narrative": "Pinned identity should drive this queued turn.",
+                "name": "Pinned Persona",
+                "identity_core": {
+                    "identity_statement": "Pinned identity should drive this queued turn.",
+                },
+                "registers": {
+                    "chat": {
+                        "description": "Pinned chat",
+                        "behavior": "Answer as the pinned persona.",
                     },
                 }
             }

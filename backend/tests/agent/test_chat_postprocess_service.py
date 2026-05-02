@@ -176,19 +176,12 @@ class _FakeUnifiedMemory:
         return {"summary_id": "summary-1", "summary_category": "task_reflection"}
 
 
-class _FakeStateTransitionItem:
-    trigger_type = "absurdity"
-    trigger_condition = "User makes a clearly absurd joke"
-    target_state_name = "Comedy Mode"
-
-
 class _RecordingPersonalityMemory:
     def __init__(self) -> None:
         self.process_calls: list[dict[str, object]] = []
 
     async def get_core_personality(self):  # type: ignore[no-untyped-def]
         return SimpleNamespace(
-            state_transition_protocol=[_FakeStateTransitionItem()],
             milestone_conditions={},
         )
 
@@ -206,7 +199,7 @@ class _FakeChatProjector:
 
 
 @pytest.mark.asyncio
-async def test_memory_updates_pass_stp_rules_for_direct_chat_scope(monkeypatch) -> None:
+async def test_memory_updates_do_not_pass_stp_rules_after_response(monkeypatch) -> None:
     import magi.agent.task_agents.chat.postprocess.memory as postprocess_module
 
     analysis_calls: list[dict[str, object]] = []
@@ -240,17 +233,14 @@ async def test_memory_updates_pass_stp_rules_for_direct_chat_scope(monkeypatch) 
         user_id="local_user",
         user_message="say something funny",
         response_text="funny response",
-        allow_state_transition=True,
         incoming_fact_kind="user_message",
         execution_mode="direct_llm",
         session_id="session-1",
         turn_id="turn-1",
     )
 
-    assert analysis_calls[-1]["stp_rules"] == [
-        {"trigger_type": "absurdity", "trigger_condition": "User makes a clearly absurd joke"}
-    ]
-    assert memory.process_calls[-1]["allow_state_transition"] is True
+    assert analysis_calls[-1].get("stp_rules") is None
+    assert "allow_state_transition" not in memory.process_calls[-1]
 
 
 @pytest.mark.asyncio
@@ -288,15 +278,14 @@ async def test_memory_updates_skip_stp_rules_outside_direct_chat_scope(monkeypat
         user_id="local_user",
         user_message="analyze apple stock",
         response_text="analysis report",
-        allow_state_transition=False,
         incoming_fact_kind="explore_task_completed",
         execution_mode="explore_task_render",
         session_id="session-1",
         turn_id="turn-1",
     )
 
-    assert analysis_calls[-1]["stp_rules"] is None
-    assert memory.process_calls[-1]["allow_state_transition"] is False
+    assert analysis_calls[-1].get("stp_rules") is None
+    assert "allow_state_transition" not in memory.process_calls[-1]
 
 
 @pytest.mark.asyncio

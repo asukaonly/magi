@@ -67,7 +67,6 @@ def quick_mode_personality_locale_candidates(language: str) -> List[str]:
 
 def quick_mode_personality_sort_key(preset_file: Path, payload: Dict[str, Any]) -> tuple[int, int, str, str]:
     meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
-    profile = payload.get("persona_entity", {}).get("basic_profile", {})
     is_default = bool(
         meta.get("default")
         or meta.get("recommended")
@@ -78,7 +77,7 @@ def quick_mode_personality_sort_key(preset_file: Path, payload: Dict[str, Any]) 
         order = int(meta.get("order", 0))
     except (TypeError, ValueError):
         order = 0
-    name = str(profile.get("name") or preset_file.stem)
+    name = str(payload.get("name") or preset_file.stem)
     return (0 if is_default else 1, order, name, preset_file.stem)
 
 

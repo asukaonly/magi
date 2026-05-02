@@ -159,13 +159,22 @@ Primary packages:
 
 Responsibilities:
 
+- persona schema, presets, registry-facing persona config, and persona generation contracts
 - personality state
 - subjective user interpretation from the personality perspective
-- tone and style behavior
+- relationship depth, milestones, and persona-specific dynamic state
+- persona runtime planning: selecting register, quiet-hour clamps, signature triggers, layer modifiers, and dynamic-state modulations for a turn
+- tone and style behavior as an output of a structured per-turn plan, not as a global prompt filter
 
 Primary packages:
 
 - `personality/`
+
+Notes:
+
+- L8 owns `PersonaTurnPlanner` and the `PersonaTurnPlan` contract described in [Persona Runtime Architecture](./persona-runtime-architecture.md).
+- L8 may consume task/runtime hints from L11 and profile/memory state from lower layers, but persona-specific trigger interpretation must not be duplicated in chat handlers, context rendering, or post-processing.
+- post-processing may update future relationship and dynamic state; it should not be the primary place where the already emitted turn's persona mode is chosen.
 
 ### L9. Sensors Layer
 
@@ -193,11 +202,17 @@ Responsibilities:
 
 - prompt-context assembly
 - recall shaping
-- scenario prompt composition
+- prompt rendering from typed context inputs, including the `PersonaTurnPlan` produced by L8
 
 Primary packages:
 
 - `context/`
+
+Notes:
+
+- L10 consumes the persona behavior plan and renders it into the final system prompt.
+- L10 should not classify registers, activate persona triggers, or evaluate relationship layers itself.
+- scenario prompt storage should not become a second source of persona behavior truth; persona registers and trigger behavior belong in L8 persona config.
 
 ### L11. Agent Runtime
 

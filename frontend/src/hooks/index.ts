@@ -10,7 +10,7 @@ export {
   parseLines,
   toLines,
   getInitials,
-  normalizeTransition,
+  normalizeTrigger,
   mergeConfig,
 } from './usePersonality';
 

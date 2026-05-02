@@ -15,12 +15,11 @@ from magi.personality.persona_repository import PersonaRepository
 _SAMPLE_CONFIG = json.dumps(
     {
         "meta": {"group": "test", "order": 1},
-        "persona_entity": {
-            "basic_profile": {
-                "name": "Trace Persona",
-                "description": "Persona used by active switch characterization.",
-                "avatar": "trace.jpg",
-            }
+        "name": "Trace Persona",
+        "description": "Persona used by active switch characterization.",
+        "avatar": "trace.jpg",
+        "identity_core": {
+            "identity_statement": "A traceable persona used by tests.",
         },
     }
 )

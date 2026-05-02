@@ -8,31 +8,43 @@ from pydantic import BaseModel, Field
 from ...config.models import LLMSettings
 
 
-class BasicProfileModel(BaseModel):
-    name: str = Field(default="AI Assistant")
-    age: str = Field(default="Unknown")
-    gender: str = Field(default="Unknown")
+class IdentityCoreModel(BaseModel):
+    identity_statement: str = Field(default="")
+    values_loved: List[str] = Field(default_factory=list)
+    values_rejected: List[str] = Field(default_factory=list)
+    attention_biases: List[str] = Field(default_factory=list)
+
+
+class IdiolectModel(BaseModel):
+    sentence_style: str = Field(default="")
+    vocab_available: List[str] = Field(default_factory=list)
+    vocab_avoided: List[str] = Field(default_factory=list)
+    structural_quirks: List[str] = Field(default_factory=list)
+
+
+class RegisterModel(BaseModel):
     description: str = Field(default="")
-    avatar: str = Field(default="")
-    occupation: str = Field(default="Assistant")
+    behavior: str = Field(default="")
+    examples: List[str] = Field(default_factory=list)
 
 
-class CoreIdentityModel(BaseModel):
-    inner_narrative: str = Field(default="")
-    language_fingerprint: str = Field(default="")
-    attention_bias: str = Field(default="")
-
-
-class PersonaEntityModel(BaseModel):
-    basic_profile: BasicProfileModel = Field(default_factory=BasicProfileModel)
-    core_identity: CoreIdentityModel = Field(default_factory=CoreIdentityModel)
-
-
-class StateTransitionProtocolItemModel(BaseModel):
-    trigger_type: str = Field(default="")
-    trigger_condition: str = Field(default="")
-    target_state_name: str = Field(default="")
+class SignatureTriggerModel(BaseModel):
+    trigger_id: str = Field(default="")
+    activates_when: str = Field(default="")
     behavior_shift: str = Field(default="")
+    intensity_levels: Dict[str, str] = Field(default_factory=dict)
+    exit_behavior: str = Field(default="")
+
+
+class QuietHourModel(BaseModel):
+    condition: str = Field(default="")
+    clamps: Dict[str, Any] = Field(default_factory=dict)
+
+
+class PersonaLayerModel(BaseModel):
+    layer_id: str = Field(default="")
+    unlock_condition: Optional[Dict[str, Any]] = Field(default=None)
+    modifiers: Dict[str, Any] = Field(default_factory=dict)
 
 
 class BootstrapConfigModel(BaseModel):
@@ -42,9 +54,19 @@ class BootstrapConfigModel(BaseModel):
 
 
 class PersonalityConfigModel(BaseModel):
-    persona_entity: PersonaEntityModel = Field(default_factory=PersonaEntityModel)
+    name: str = Field(default="AI Assistant")
+    avatar: str = Field(default="")
+    description: str = Field(default="")
     appearance_prompt: str = Field(default="")
-    state_transition_protocol: List[StateTransitionProtocolItemModel] = Field(default_factory=list)
+    identity_core: IdentityCoreModel = Field(default_factory=IdentityCoreModel)
+    idiolect: IdiolectModel = Field(default_factory=IdiolectModel)
+    registers: Dict[str, RegisterModel] = Field(default_factory=dict)
+    quiet_hours: List[QuietHourModel] = Field(default_factory=list)
+    signature_triggers: List[SignatureTriggerModel] = Field(default_factory=list)
+    persona_layers: List[PersonaLayerModel] = Field(default_factory=list)
+    dynamic_state_rules: Dict[str, str] = Field(default_factory=dict)
+    milestone_conditions: Dict[str, str] = Field(default_factory=dict)
+    interim_lines: Dict[str, List[str]] = Field(default_factory=dict)
     bootstrap: Optional[BootstrapConfigModel] = Field(default=None)
 
 

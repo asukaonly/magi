@@ -23,24 +23,27 @@ Local-only working drafts, design spikes, and execution plans belong under `docs
 5. [Conversation Rhythm Architecture](./conversation-rhythm-architecture.md)
   Read this when working on multi-bubble assistant turns, chat presentation planning, or rhythm-friendly prompt behavior.
 
-6. [Timeline Domain Architecture](./timeline-domain-architecture.md)
+6. [Persona Runtime Architecture](./persona-runtime-architecture.md)
+  Read this when working on persona schema, persona prompt behavior, relationship-depth layers, dynamic persona state, or per-turn persona planning.
+
+7. [Timeline Domain Architecture](./timeline-domain-architecture.md)
   Read this when working on timeline viewport assembly, clustering, state bands, insight extraction, or sensor-to-timeline data flow.
 
-7. [Memory System Design](./memory-system-design.md)
+8. [Memory System Design](./memory-system-design.md)
   Maintainer-level implementation design for the lifecycle-based memory model.
 
-8. [Unified Plugin Architecture](./plugin-extension-architecture.md)
+9. [Unified Plugin Architecture](./plugin-extension-architecture.md)
   Current design for plugin discovery, contribution registration, and settings metadata.
 
-9. [Plugin Development Guide](./plugin-development-guide.md)
+10. [Plugin Development Guide](./plugin-development-guide.md)
   Practical guide for authoring built-in or external plugins.
 
-10. [Unified Asset Resolver Architecture](./unified-asset-resolver-architecture.md)
+11. [Unified Asset Resolver Architecture](./unified-asset-resolver-architecture.md)
   Read this when working on reusable `asset_refs`, source-specific asset
   resolution, chat attachments, or follow-up routing from memory recall to
   plugin-owned evidence.
 
-11. [Backlog](./backlog.md)
+12. [Backlog](./backlog.md)
   Current development and maintenance follow-ups that are intentionally not mixed into the design docs.
 
 ## Audience Guide
@@ -53,6 +56,9 @@ Local-only working drafts, design spikes, and execution plans belong under `docs
 
 - Runtime and orchestration maintainers
   Use [Layered Agent Architecture](./layered-agent-architecture.md) for ownership rules and [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md) for the current bootstrap and runtime wiring, including pull-sync execution and queue recovery.
+
+- Persona and prompt maintainers
+  Read [Persona Runtime Architecture](./persona-runtime-architecture.md), then [Product Configuration Guide](./product-configuration-guide.md) for user-facing configuration behavior.
 
 - Memory maintainers
   Read [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md), then [Memory System Design](./memory-system-design.md).
