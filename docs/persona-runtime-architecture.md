@@ -372,14 +372,14 @@ Required fields for a minimal custom persona:
 1. one-sentence identity
 2. loved/rejected values
 3. baseline idiolect
-4. default/chat register
-5. two or three signature triggers
-6. two or more quiet hours
+4. default/chat register behavior
 
 Recommended fields for stable behavior:
 
 - attention biases
 - task, analysis, emotional, and crisis registers
+- two or three signature triggers
+- two or more quiet hours
 - examples embedded in each register, including ordinary baseline examples
 - boundaries for what the persona should not joke about
 
@@ -407,9 +407,11 @@ Recommended groups:
 - `Examples`: few-shot examples by register
 - `First meeting`: bootstrap opening and onboarding extraction targets
 
-Quick mode should ask only for the minimal custom persona fields and generate defaults for the rest. Expert mode can expose full trigger, layer, and dynamic-state controls.
+Quick mode should ask only for the fields a normal user can reason about directly: basic profile, stable identity, values, sentence style, and everyday response behavior. It must not expose trigger libraries, quiet-hour clamps, relationship layers, or other runtime structure as first-screen work. Expert mode can expose full trigger, layer, register, and dynamic-state controls, but advanced sections should use progressive disclosure instead of opening every internal structure at once.
 
-The editor and save flow should share one validation contract. Minimum readiness requires name, identity statement, loved/rejected values, baseline idiolect, chat behavior, two complete signature triggers, and two complete quiet hours with clamps. Expert readiness additionally checks all core registers, six examples, unique trigger IDs, layer shape, surface layer presence, and first-meeting bootstrap content.
+The editor and save flow should share one validation contract. Minimum readiness requires name, identity statement, loved/rejected values, baseline idiolect, and chat behavior. Expert readiness additionally checks signature trigger count and shape, quiet-hour count and clamps, all core registers, six examples, unique trigger IDs, layer shape, surface layer presence, and first-meeting bootstrap content. Minimum validation copy should read as save guidance, not as a startup error.
+
+Builtin personas are source-controlled presets. Registry rows created from bundled seed files should be resynchronized from those seed files during startup and registry listing so local development databases do not keep stale builtin configurations after preset updates. Custom personas remain registry-owned and are not overwritten by seed synchronization.
 
 New user-facing copy must use i18n keys and keep Simplified Chinese and English resources aligned.
 

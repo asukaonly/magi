@@ -71,7 +71,7 @@ export const validatePersonalityConfig = (config: PersonalityConfig): PersonaVal
 
   const completeTriggerCount = config.signature_triggers.filter(isCompleteTrigger).length;
   if (completeTriggerCount < 2) {
-    minimumIssues.push(issue('signature_trigger_count', 'personality.validationIssues.signatureTriggerCount', 'minimum'));
+    expertIssues.push(issue('signature_trigger_count', 'personality.validationIssues.signatureTriggerCount', 'expert'));
   }
   if (config.signature_triggers.some((item) => !isCompleteTrigger(item))) {
     expertIssues.push(issue('signature_trigger_shape', 'personality.validationIssues.signatureTriggerShape', 'expert'));
@@ -82,7 +82,7 @@ export const validatePersonalityConfig = (config: PersonalityConfig): PersonaVal
 
   const completeQuietHourCount = config.quiet_hours.filter(isCompleteQuietHour).length;
   if (completeQuietHourCount < 2) {
-    minimumIssues.push(issue('quiet_hour_count', 'personality.validationIssues.quietHourCount', 'minimum'));
+    expertIssues.push(issue('quiet_hour_count', 'personality.validationIssues.quietHourCount', 'expert'));
   }
   if (config.quiet_hours.some((item) => !isCompleteQuietHour(item))) {
     expertIssues.push(issue('quiet_hour_shape', 'personality.validationIssues.quietHourShape', 'expert'));

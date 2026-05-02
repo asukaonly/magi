@@ -34,18 +34,17 @@ class PersonalityModule(LifecycleModule):
         repo = PersonaRepository(str(runtime_paths.persona_registry_db_path))
         await repo.init()
 
-        # Auto-seed builtin personas when registry is empty (first run or
-        # post-migration installs that completed onboarding before the
-        # persona registry existed).
+        # Keep builtin personas aligned with bundled presets. Custom personas
+        # remain registry-owned; builtin records follow their seed files.
         existing = await repo.list_all()
+        user_lang = get_user_preference("language", "zh")
+        locale = resolve_locale(user_lang)
         if not existing:
-            user_lang = get_user_preference("language", "zh")
-            locale = resolve_locale(user_lang)
             logger.info(
                 "Persona registry empty, auto-seeding builtin personas for locale '%s'",
                 locale,
             )
-            await seed_builtin_personas(repo, locale)
+        await seed_builtin_personas(repo, locale)
 
         try:
             active_id = await repo.get_active_id()

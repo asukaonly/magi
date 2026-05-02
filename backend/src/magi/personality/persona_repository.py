@@ -230,6 +230,7 @@ class PersonaRepository:
         config_json: str | None = None,
         slug: str | None = None,
         avatar_path: str | None = None,
+        group_name: str | None = None,
         sort_order: int | None = None,
     ) -> None:
         """Update mutable fields of an existing persona."""
@@ -244,6 +245,8 @@ class PersonaRepository:
                 if avatar_path is None:
                     avatar_path = data.get("avatar", "")
                 description = data.get("description", "")
+                if group_name is None and "group" in meta:
+                    group_name = meta["group"]
                 if sort_order is None and "order" in meta:
                     sort_order = meta["order"]
             except (json.JSONDecodeError, TypeError):
@@ -264,6 +267,9 @@ class PersonaRepository:
         if avatar_path is not None:
             sets.append("avatar_path = ?")
             params.append(avatar_path)
+        if group_name is not None:
+            sets.append("group_name = ?")
+            params.append(group_name)
         if sort_order is not None:
             sets.append("sort_order = ?")
             params.append(sort_order)

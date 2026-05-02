@@ -151,7 +151,7 @@ describe('PersonalityModern', () => {
     expect(screen.queryAllByText('personality.generate')).toHaveLength(0);
   });
 
-  it('starts the personality detail editor in quick mode with missing-field guidance', () => {
+  it('starts the personality detail editor in a focused quick mode', () => {
     vi.mocked(usePersonality).mockReturnValue(
       buildHookState({
         isNewMode: true,
@@ -164,8 +164,10 @@ describe('PersonalityModern', () => {
     render(<PersonalityModern embedded />);
 
     expect(screen.getByRole('tab', { name: 'personality.editorModes.quick' })).toHaveAttribute('data-state', 'active');
-    expect(screen.getByText('personality.validation.missing')).toBeInTheDocument();
-    expect(screen.getByText('personality.registers.chat')).toBeInTheDocument();
+    expect(screen.queryByText('personality.validation.missing')).not.toBeInTheDocument();
+    expect(screen.getByText('personality.fields.chatBehavior')).toBeInTheDocument();
+    expect(screen.queryByText('personality.sections.signatureTriggers')).not.toBeInTheDocument();
+    expect(screen.queryByText('personality.sections.quietHours')).not.toBeInTheDocument();
     expect(screen.queryByText('personality.registers.crisis')).not.toBeInTheDocument();
   });
 
@@ -180,9 +182,12 @@ describe('PersonalityModern', () => {
     return waitFor(() => {
       expect(screen.getByRole('tab', { name: 'personality.editorModes.expert' })).toHaveAttribute('data-state', 'active');
     }).then(() => {
-      expect(screen.getByText('personality.registers.crisis')).toBeInTheDocument();
+      expect(screen.getByText('personality.validation.missing')).toBeInTheDocument();
+      expect(screen.getByText('personality.sections.registers')).toBeInTheDocument();
       expect(screen.getByText('personality.sections.appearance')).toBeInTheDocument();
       expect(screen.getByText('personality.sections.personaLayers')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'personality.sections.registers' }));
+      expect(screen.getByText('personality.registers.crisis')).toBeInTheDocument();
     });
   });
 

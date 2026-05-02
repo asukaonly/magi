@@ -113,8 +113,8 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
     });
   };
 
-  const renderBasicProfile = () => (
-    <Section title={t('personality.sections.basicProfile')}>
+  const renderBasicProfile = (defaultOpen = true) => (
+    <Section title={t('personality.sections.basicProfile')} defaultOpen={defaultOpen}>
       <div className="grid gap-3 md:grid-cols-2">
         <label className="space-y-1.5">
           <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.name')}</span>
@@ -153,8 +153,42 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
     </Section>
   );
 
-  const renderIdentityCore = () => (
+  const renderQuickIdentity = () => (
     <Section title={t('personality.sections.identityCore')}>
+      <div className="grid gap-3">
+        <label className="space-y-1.5">
+          <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.identityStatement')}</span>
+          <AutoResizeTextarea
+            value={config.identity_core.identity_statement}
+            minHeight={112}
+            className="w-full"
+            onChange={(event) => patch((draft) => { draft.identity_core.identity_statement = event.target.value; })}
+          />
+        </label>
+        <div className="grid gap-3 md:grid-cols-2">
+          <label className="space-y-1.5">
+            <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.valuesLoved')}</span>
+            <AutoResizeTextarea
+              value={toLines(config.identity_core.values_loved)}
+              className="w-full"
+              onChange={(event) => patch((draft) => { draft.identity_core.values_loved = parseLines(event.target.value); })}
+            />
+          </label>
+          <label className="space-y-1.5">
+            <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.valuesRejected')}</span>
+            <AutoResizeTextarea
+              value={toLines(config.identity_core.values_rejected)}
+              className="w-full"
+              onChange={(event) => patch((draft) => { draft.identity_core.values_rejected = parseLines(event.target.value); })}
+            />
+          </label>
+        </div>
+      </div>
+    </Section>
+  );
+
+  const renderIdentityCore = (defaultOpen = true) => (
+    <Section title={t('personality.sections.identityCore')} defaultOpen={defaultOpen}>
       <div className="grid gap-3">
         <label className="space-y-1.5">
           <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.identityStatement')}</span>
@@ -195,8 +229,35 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
     </Section>
   );
 
-  const renderIdiolect = () => (
-    <Section title={t('personality.sections.idiolect')}>
+  const renderQuickVoice = () => {
+    const chatRegister = normalizeRegister(config.registers.chat);
+    return (
+      <Section title={t('personality.sections.idiolect')}>
+        <div className="grid gap-3">
+          <label className="space-y-1.5">
+            <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.sentenceStyle')}</span>
+            <AutoResizeTextarea
+              value={config.idiolect.sentence_style}
+              className="w-full"
+              onChange={(event) => patch((draft) => { draft.idiolect.sentence_style = event.target.value; })}
+            />
+          </label>
+          <label className="space-y-1.5">
+            <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.chatBehavior')}</span>
+            <AutoResizeTextarea
+              value={chatRegister.behavior}
+              minHeight={88}
+              className="w-full"
+              onChange={(event) => updateRegister('chat', { ...chatRegister, behavior: event.target.value })}
+            />
+          </label>
+        </div>
+      </Section>
+    );
+  };
+
+  const renderIdiolect = (defaultOpen = true) => (
+    <Section title={t('personality.sections.idiolect')} defaultOpen={defaultOpen}>
       <div className="grid gap-3">
         <label className="space-y-1.5">
           <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.sentenceStyle')}</span>
@@ -252,14 +313,14 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
     );
   };
 
-  const renderRegisters = (keys: readonly (typeof REGISTER_KEYS)[number][]) => (
-    <Section title={t('personality.sections.registers')}>
+  const renderRegisters = (keys: readonly (typeof REGISTER_KEYS)[number][], defaultOpen = true) => (
+    <Section title={t('personality.sections.registers')} defaultOpen={defaultOpen}>
       <div className="space-y-3">{keys.map(renderRegisterEditor)}</div>
     </Section>
   );
 
-  const renderTriggers = (expert: boolean) => (
-    <Section title={t('personality.sections.signatureTriggers')}>
+  const renderTriggers = (expert: boolean, defaultOpen = true) => (
+    <Section title={t('personality.sections.signatureTriggers')} defaultOpen={defaultOpen}>
       <div className="space-y-3">
         {config.signature_triggers.map((item, index) => (
           <div key={index} className="rounded-md border border-border/70 p-2">
@@ -290,8 +351,8 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
     </Section>
   );
 
-  const renderQuietHours = () => (
-    <Section title={t('personality.sections.quietHours')}>
+  const renderQuietHours = (defaultOpen = true) => (
+    <Section title={t('personality.sections.quietHours')} defaultOpen={defaultOpen}>
       <div className="space-y-3">
         {config.quiet_hours.map((item, index) => (
           <div key={index} className="rounded-md border border-border/70 p-2">
@@ -347,22 +408,24 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
     </Section>
   );
 
+  const validationMessage = (() => {
+    if (mode !== 'expert') return '';
+    if (!validation.isMinimumReady) {
+      return t('personality.validation.missing', { fields: missingFields.join(', ') });
+    }
+    if (!validation.isExpertReady) {
+      return t('personality.validation.expertMissing', { fields: expertFields.join(', ') });
+    }
+    return '';
+  })();
+
   return (
     <div className="space-y-3 pr-1">
-      <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-        <div>
-          {validation.isMinimumReady
-            ? t('personality.validation.ready')
-            : t('personality.validation.missing', { fields: missingFields.join(', ') })}
+      {validationMessage ? (
+        <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+          {validationMessage}
         </div>
-        {mode === 'expert' && (
-          <div className="mt-1">
-            {validation.isExpertReady
-              ? t('personality.validation.expertReady')
-              : t('personality.validation.expertMissing', { fields: expertFields.join(', ') })}
-          </div>
-        )}
-      </div>
+      ) : null}
 
       <Tabs value={mode} onValueChange={(value) => setMode(value as EditorMode)}>
         <TabsList className="grid w-full grid-cols-2 sm:w-auto">
@@ -372,20 +435,17 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
 
         <TabsContent value="quick" className="mt-3 space-y-1">
           {renderBasicProfile()}
-          {renderIdentityCore()}
-          {renderIdiolect()}
-          {renderRegisters(['chat'])}
-          {renderTriggers(false)}
-          {renderQuietHours()}
+          {renderQuickIdentity()}
+          {renderQuickVoice()}
         </TabsContent>
 
         <TabsContent value="expert" className="mt-3 space-y-1">
           {renderBasicProfile()}
-          {renderIdentityCore()}
-          {renderIdiolect()}
-          {renderRegisters(REGISTER_KEYS)}
-          {renderTriggers(true)}
-          {renderQuietHours()}
+          {renderIdentityCore(false)}
+          {renderIdiolect(false)}
+          {renderRegisters(REGISTER_KEYS, false)}
+          {renderTriggers(true, false)}
+          {renderQuietHours(false)}
           {renderAppearance()}
           {renderLayers()}
         </TabsContent>

@@ -190,3 +190,54 @@ async def test_list_seed_previews_exposes_default_metadata(tmp_path: Path, monke
     assert previews[0]["seed_slug"] == "nova_assistant"
     assert previews[0]["is_default"] is True
     assert previews[1]["is_recommended"] is True
+
+
+@pytest.mark.asyncio
+async def test_seed_builtin_personas_syncs_existing_seed_config(
+    repo: PersonaRepository,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seed_dir = tmp_path / "zh"
+    seed_dir.mkdir()
+    preset_path = seed_dir / "seven_hacker.json"
+    preset_path.write_text(
+        json.dumps(
+            {
+                "meta": {"group": "magi", "order": 1},
+                "name": "七号",
+                "description": "旧描述",
+                "avatar": "seven.png",
+                "identity_core": {"identity_statement": "旧设定。"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(persona_seed, "_seed_dir", lambda _locale: seed_dir)
+
+    created_ids = await persona_seed.seed_builtin_personas(repo, "zh")
+    assert len(created_ids) == 1
+
+    preset_path.write_text(
+        json.dumps(
+            {
+                "meta": {"group": "general", "order": 7},
+                "name": "七号",
+                "description": "新描述",
+                "avatar": "seven-new.png",
+                "identity_core": {"identity_statement": "新设定。"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    second_created_ids = await persona_seed.seed_builtin_personas(repo, "zh")
+    record = await repo.get_by_seed_slug("seven_hacker")
+
+    assert second_created_ids == []
+    assert record is not None
+    assert record.config.description == "新描述"
+    assert record.avatar_path == "seven-new.png"
+    assert record.group_name == "general"
+    assert record.sort_order == 7
+    assert record.config.identity_core.identity_statement == "新设定。"

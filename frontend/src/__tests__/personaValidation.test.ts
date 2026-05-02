@@ -49,8 +49,8 @@ describe('validatePersonalityConfig', () => {
 
     expect(report.isMinimumReady).toBe(false);
     expect(report.minimumIssues.map((item) => item.key)).toContain('identity_statement');
-    expect(report.minimumIssues.map((item) => item.key)).toContain('signature_trigger_count');
-    expect(report.minimumIssues.map((item) => item.key)).toContain('quiet_hour_count');
+    expect(report.expertIssues.map((item) => item.key)).toContain('signature_trigger_count');
+    expect(report.expertIssues.map((item) => item.key)).toContain('quiet_hour_count');
     expect(report.expertIssues.map((item) => item.key)).toContain('all_registers');
     expect(report.expertIssues.map((item) => item.key)).toContain('bootstrap');
   });

@@ -47,18 +47,22 @@ async def seed_builtin_personas(
     for preset_file in sorted(seed_root.glob("*.json")):
         seed_slug = preset_file.stem
 
-        # Skip if already seeded (idempotent).
         existing = await repo.get_by_seed_slug(seed_slug)
-        if existing is not None:
-            logger.debug("Seed persona '%s' already exists, skipping", seed_slug)
-            continue
-
         try:
             raw = preset_file.read_text(encoding="utf-8")
             # Validate JSON.
             json.loads(raw)
         except Exception:
             logger.warning("Invalid seed preset, skipping: %s", preset_file)
+            continue
+
+        if existing is not None:
+            await repo.update(
+                existing.persona_id,
+                config_json=raw,
+                slug=seed_slug,
+            )
+            logger.debug("Synchronized builtin persona '%s' from seed", seed_slug)
             continue
 
         persona_id = await repo.create(
@@ -71,7 +75,7 @@ async def seed_builtin_personas(
         created_ids.append(persona_id)
 
     logger.info(
-        "Seeded %d builtin personas for locale '%s'",
+        "Seeded %d new builtin personas for locale '%s'",
         len(created_ids),
         locale,
     )
