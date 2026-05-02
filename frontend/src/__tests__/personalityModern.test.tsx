@@ -176,7 +176,10 @@ describe('PersonalityModern', () => {
       buildHookState({
         config: {
           ...buildConfig(),
-          persona_layers: [{ layer_id: 'surface', unlock_condition: null, modifiers: {} }],
+          persona_layers: [
+            { layer_id: 'surface', unlock_condition: null, modifiers: {} },
+            { layer_id: 'crack', unlock_condition: { trust_level_gte: 0.45 }, modifiers: { memory_behavior: 'light' } },
+          ],
         },
       }) as any
     );
@@ -200,7 +203,8 @@ describe('PersonalityModern', () => {
       expect(screen.getByText('personality.actions.viewLayersConfirm')).toBeInTheDocument();
       expect(screen.queryByDisplayValue('surface')).not.toBeInTheDocument();
       fireEvent.click(screen.getByRole('button', { name: 'personality.actions.viewLayersReveal' }));
-      expect(screen.getByDisplayValue('surface')).toBeInTheDocument();
+      expect(screen.queryByDisplayValue('surface')).not.toBeInTheDocument();
+      expect(screen.getByDisplayValue('crack')).toBeInTheDocument();
     });
   });
 

@@ -38,6 +38,7 @@ interface PersonalityDetailEditorProps {
 type EditorMode = 'quick' | 'expert';
 
 const REGISTER_KEYS = ['chat', 'analysis', 'task', 'emotional', 'crisis'] as const;
+const SURFACE_LAYER_ID = 'surface';
 
 const toLines = (items: string[] = []): string => items.join('\n');
 
@@ -119,6 +120,12 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
   const validation = React.useMemo(() => validatePersonalityConfig(config), [config]);
   const missingFields = formatPersonaValidationIssues(validation.minimumIssues, t);
   const expertFields = formatPersonaValidationIssues(validation.expertIssues, t);
+  const editableLayers = React.useMemo(
+    () => (config.persona_layers || [])
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) => item.layer_id !== SURFACE_LAYER_ID),
+    [config.persona_layers]
+  );
 
   const updateRegister = (key: (typeof REGISTER_KEYS)[number], next: PersonaRegister) => {
     patch((draft) => {
@@ -415,14 +422,14 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
       onOpenChange={handleLayersOpenChange}
     >
       <div className="space-y-3">
-        {(config.persona_layers || []).map((item, index) => (
+        {editableLayers.map(({ item, index }) => (
           <div key={index} className="rounded-md border border-border/70 p-2">
             <div className="grid gap-2">
               <Input value={item.layer_id} placeholder={t('personality.fields.layerId')} onChange={(event) => patch((draft) => { draft.persona_layers[index] = normalizeLayer({ ...item, layer_id: event.target.value }); })} />
               <AutoResizeTextarea value={mappingToLines(item.unlock_condition || {})} placeholder={t('personality.fields.unlockCondition')} onChange={(event) => patch((draft) => { draft.persona_layers[index] = normalizeLayer({ ...item, unlock_condition: linesToMapping(event.target.value) }); })} />
               <AutoResizeTextarea value={mappingToLines(item.modifiers)} placeholder={t('personality.fields.layerModifiers')} onChange={(event) => patch((draft) => { draft.persona_layers[index] = normalizeLayer({ ...item, modifiers: linesToMapping(event.target.value) }); })} />
               <div className="flex justify-end">
-                <Button type="button" variant="outline" size="sm" disabled={item.layer_id === 'surface'} onClick={() => patch((draft) => { draft.persona_layers.splice(index, 1); })}>
+                <Button type="button" variant="outline" size="sm" onClick={() => patch((draft) => { draft.persona_layers.splice(index, 1); })}>
                   <Trash2 className="h-4 w-4" />
                   {t('personality.actions.removeLayer')}
                 </Button>
