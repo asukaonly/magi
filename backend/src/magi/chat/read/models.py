@@ -17,6 +17,7 @@ class ChatSessionSummary:
     last_timestamp: int
     message_count: int
     workspace_path: str | None = None
+    history_version: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -28,6 +29,7 @@ class ChatSessionSummary:
             "last_timestamp": self.last_timestamp,
             "message_count": self.message_count,
             "workspace_path": self.workspace_path,
+            "history_version": self.history_version,
         }
 
 

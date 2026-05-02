@@ -91,7 +91,8 @@ class ChatSessionOperationsMixin:
                 workspace_path,
                 updated_at_ms,
                 last_message_at_ms,
-                message_count
+                message_count,
+                history_version
             FROM {CHAT_SESSIONS_TABLE}
             WHERE user_id = ?
               AND session_id = ?
@@ -129,7 +130,8 @@ class ChatSessionOperationsMixin:
                 workspace_path,
                 updated_at_ms,
                 last_message_at_ms,
-                message_count
+                message_count,
+                history_version
             FROM {CHAT_SESSIONS_TABLE}
             WHERE user_id = ?
               AND session_id IN ({placeholders})
@@ -162,7 +164,8 @@ class ChatSessionOperationsMixin:
                     workspace_path,
                     updated_at_ms,
                     last_message_at_ms,
-                    message_count
+                    message_count,
+                    history_version
                 FROM {CHAT_SESSIONS_TABLE}
                 WHERE user_id = ?
                   AND deleted_at_ms IS NULL

@@ -88,11 +88,12 @@ type ConversationState = {
   orderedSessionIds: string[];
   sessionsById: Record<string, ChatSessionListItem>;
   messagesBySession: Record<string, ChatTimelineMessage[]>;
+  historyVersionBySession: Record<string, number>;
   unreadBySession: Record<string, number>;
   setCurrentSessionId: (sessionId: string | null) => void;
   hydrateSessions: (sessions: ChatSessionListItem[], currentSessionId?: string | null) => void;
   upsertSession: (session: ChatSessionListItem) => void;
-  receiveHistory: (sessionId: string, messages: ChatTimelineMessage[]) => void;
+  receiveHistory: (sessionId: string, messages: ChatTimelineMessage[], historyVersion?: number | null) => void;
   upsertMessage: (sessionId: string, message: ChatTimelineMessage) => void;
   appendPendingTurn: (payload: PendingTurnPayload) => void;
   applyTurnUxPlan: (payload: TurnUxPlanPayload) => void;
@@ -112,6 +113,7 @@ const emptyState = {
   orderedSessionIds: [] as string[],
   sessionsById: {} as Record<string, ChatSessionListItem>,
   messagesBySession: {} as Record<string, ChatTimelineMessage[]>,
+  historyVersionBySession: {} as Record<string, number>,
   unreadBySession: {} as Record<string, number>,
 };
 
@@ -398,9 +400,11 @@ export const useConversationStore = create<ConversationState>((set) => ({
       orderedSessionIds: nextSummaryState.orderedSessionIds,
     };
   }),
-  receiveHistory: (sessionId, messages) => set((state) => {
+  receiveHistory: (sessionId, messages, historyVersion) => set((state) => {
     const ensured = ensureSession(state.sessionsById, state.orderedSessionIds, sessionId);
     const previousMessages = state.messagesBySession[sessionId] || [];
+    const normalizedHistoryVersion = Number(historyVersion);
+    const shouldRecordHistoryVersion = Number.isFinite(normalizedHistoryVersion) && normalizedHistoryVersion >= 0;
     return {
       currentSessionId: sessionId,
       sessionsById: ensured.sessionsById,
@@ -409,6 +413,12 @@ export const useConversationStore = create<ConversationState>((set) => ({
         ...state.messagesBySession,
         [sessionId]: mergeHistorySnapshot(previousMessages, messages),
       },
+      historyVersionBySession: shouldRecordHistoryVersion
+        ? {
+          ...state.historyVersionBySession,
+          [sessionId]: Math.trunc(normalizedHistoryVersion),
+        }
+        : state.historyVersionBySession,
       unreadBySession: {
         ...state.unreadBySession,
         [sessionId]: 0,
@@ -797,6 +807,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
     orderedSessionIds: [],
     sessionsById: {},
     messagesBySession: {},
+    historyVersionBySession: {},
     unreadBySession: {},
   }),
 }));

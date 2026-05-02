@@ -137,6 +137,11 @@ def row_to_session_summary(row: sqlite3.Row) -> ChatSessionSummary:
         last_timestamp=int(row["last_message_at_ms"] or row["updated_at_ms"] or 0),
         message_count=int(row["message_count"] or 0),
         workspace_path=str(row["workspace_path"]) if row["workspace_path"] is not None else None,
+        history_version=(
+            int(row["history_version"] or 0)
+            if "history_version" in row.keys()
+            else 0
+        ),
     )
 
 

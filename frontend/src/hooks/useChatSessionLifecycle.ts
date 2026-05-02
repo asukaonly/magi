@@ -22,6 +22,24 @@ type UseChatSessionLifecycleOptions = {
   translate: (key: string, options?: Record<string, unknown>) => string;
 };
 
+const normalizeHistoryVersion = (value: unknown): number | null => {
+  const version = Number(value);
+  if (!Number.isFinite(version) || version < 0) {
+    return null;
+  }
+  return Math.trunc(version);
+};
+
+const hasFreshCachedHistory = (sessionId: string): boolean => {
+  const state = useConversationStore.getState();
+  if (!Object.prototype.hasOwnProperty.call(state.messagesBySession, sessionId)) {
+    return false;
+  }
+  const serverVersion = normalizeHistoryVersion(state.sessionsById[sessionId]?.history_version);
+  const cachedVersion = normalizeHistoryVersion(state.historyVersionBySession[sessionId]);
+  return serverVersion !== null && cachedVersion === serverVersion;
+};
+
 export type ChatPersonaIdentity = {
   name: string;
   avatar: string;
@@ -69,15 +87,27 @@ export function useChatSessionLifecycle({
     };
   }, []);
 
-  const requestHistory = useCallback(async (sessionId: string) => {
+  const requestHistory = useCallback(async (sessionId: string, options: { force?: boolean } = {}) => {
     if (!sessionId) {
+      return;
+    }
+
+    if (!options.force && hasFreshCachedHistory(sessionId)) {
       return;
     }
 
     try {
       const history = await messagesApi.getHistory(USER_ID, sessionId);
       const rawMessages = Array.isArray(history.messages) ? history.messages : [];
-      useConversationStore.getState().receiveHistory(sessionId, normalizeHistoryMessages(rawMessages));
+      const responseVersion = normalizeHistoryVersion(history.history_version);
+      const fallbackVersion = normalizeHistoryVersion(
+        useConversationStore.getState().sessionsById[sessionId]?.history_version,
+      );
+      useConversationStore.getState().receiveHistory(
+        sessionId,
+        normalizeHistoryMessages(rawMessages),
+        responseVersion ?? fallbackVersion,
+      );
     } catch {
       toast.error(translate('chat.loadHistoryFailed'));
     }
@@ -137,7 +167,7 @@ export function useChatSessionLifecycle({
 
       try {
         await personasApi.bootstrapInit(currentSessionId, USER_ID);
-        void requestHistory(currentSessionId);
+        void requestHistory(currentSessionId, { force: true });
       } catch {
         if (bootstrappedSessionIdRef.current === currentSessionId) {
           bootstrappedSessionIdRef.current = null;

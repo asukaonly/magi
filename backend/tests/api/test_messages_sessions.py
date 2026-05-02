@@ -66,6 +66,7 @@ def _init_chat_session_store(db_path: Path) -> None:
             last_message_preview TEXT NOT NULL DEFAULT '',
             last_user_message_preview TEXT NOT NULL DEFAULT '',
             message_count INTEGER NOT NULL DEFAULT 0,
+            history_version INTEGER NOT NULL DEFAULT 0,
             workspace_path TEXT,
             archived_at_ms INTEGER,
             deleted_at_ms INTEGER
@@ -121,6 +122,7 @@ def _insert_session(db_path: Path, **values) -> None:
         "last_message_preview": values.get("last_message_preview", ""),
         "last_user_message_preview": values.get("last_user_message_preview", ""),
         "message_count": values.get("message_count", 0),
+        "history_version": values.get("history_version", 0),
         "workspace_path": values.get("workspace_path"),
         "archived_at_ms": values.get("archived_at"),
         "deleted_at_ms": values.get("deleted_at"),
@@ -132,8 +134,8 @@ def _insert_session(db_path: Path, **values) -> None:
         INSERT INTO {CHAT_SESSIONS_TABLE} (
             session_id, user_id, title, title_overridden, summary, created_at_ms, updated_at_ms,
             last_message_at_ms, last_user_message_at_ms, last_message_preview,
-            last_user_message_preview, message_count, workspace_path, archived_at_ms, deleted_at_ms
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            last_user_message_preview, message_count, history_version, workspace_path, archived_at_ms, deleted_at_ms
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         tuple(payload.values()),
     )
@@ -506,6 +508,7 @@ def test_list_sessions_orders_by_session_metadata(tmp_path):
         last_message_preview="response two",
         last_user_message_preview="hello from session two",
         message_count=2,
+        history_version=7,
         created_at=2000,
         updated_at=2010,
         last_message_at=2010,
@@ -524,6 +527,7 @@ def test_list_sessions_orders_by_session_metadata(tmp_path):
 
     assert [item.session_id for item in sessions] == ["s2", "s1"]
     assert sessions[0].message_count == 2
+    assert sessions[0].history_version == 7
     assert sessions[1].message_count == 2
     assert sessions[0].last_timestamp == 2010
     assert sessions[0].title == "Session Two"
@@ -1308,6 +1312,7 @@ def test_list_sessions_router_response(monkeypatch):
                     last_timestamp=123,
                     message_count=2,
                     workspace_path="/Users/asuka/code/magi",
+                    history_version=9,
                 )
             ]
 
@@ -1316,6 +1321,7 @@ def test_list_sessions_router_response(monkeypatch):
     result = __import__("asyncio").run(messages.list_sessions(user_id="u1", limit=5))
     assert result["user_id"] == "u1"
     assert result["count"] == 1
+    assert result["sessions"][0]["history_version"] == 9
 
 
 def test_list_sessions_exposes_workspace_path(tmp_path):

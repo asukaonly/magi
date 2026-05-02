@@ -25,6 +25,32 @@ describe('conversation store', () => {
     expect(useConversationStore.getState().unreadBySession['session-b']).toBe(1);
   });
 
+  it('records the history version for received session history', () => {
+    const store = useConversationStore.getState();
+
+    store.receiveHistory('session-a', [
+      {
+        id: 'msg-a',
+        role: 'user',
+        kind: 'user',
+        content: 'hello',
+        timestamp: 1000,
+        turnId: 'turn-a',
+      },
+    ], 12);
+
+    expect(useConversationStore.getState().historyVersionBySession['session-a']).toBe(12);
+  });
+
+  it('clears cached history versions on reset', () => {
+    const store = useConversationStore.getState();
+
+    store.receiveHistory('session-a', [], 3);
+    store.reset();
+
+    expect(useConversationStore.getState().historyVersionBySession).toEqual({});
+  });
+
   it('stores persona identity from realtime agent responses', () => {
     applyRealtimeStoreProjection({
       event: 'agent_response',

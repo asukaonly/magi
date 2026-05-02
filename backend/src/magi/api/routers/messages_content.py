@@ -94,20 +94,23 @@ async def get_conversation_history(
         read_service = legacy.get_chat_read_service()
         resolved_session_id = legacy._require_session_id(session_id)
         history = await read_service.aget_display_history(user_id, resolved_session_id)
+        session_summary = await read_service.aget_session_summary(user_id, resolved_session_id)
         messages = [msg.to_dict() for msg in history]
 
         return {
             "user_id": user_id,
             "session_id": resolved_session_id,
             "messages": messages,
-            "count": len(messages)
+            "count": len(messages),
+            "history_version": session_summary.history_version if session_summary is not None else 0,
         }
     except RuntimeError:
         return {
             "user_id": user_id,
             "session_id": session_id,
             "messages": [],
-            "count": 0
+            "count": 0,
+            "history_version": 0,
         }
 
 
