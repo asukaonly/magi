@@ -2549,12 +2549,6 @@
       "emotional": "Emotional",
       "crisis": "Crisis"
     },
-    "languages": {
-      "auto": "Auto Detect",
-      "chinese": "Chinese",
-      "english": "English",
-      "japanese": "Japanese"
-    },
     "noAvatar": "No avatar selected"
   }
 }

@@ -56,8 +56,6 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
     // Form state
     prompt,
     setPrompt,
-    targetLanguage,
-    setTargetLanguage,
 
     // Actions
     patch,
@@ -399,16 +397,6 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                     placeholder={t('personality.generatePlaceholder')}
                     className="h-11 rounded-2xl"
                   />
-                  <select
-                    className="h-11 rounded-2xl border border-input bg-background px-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                    value={targetLanguage}
-                    onChange={(event) => setTargetLanguage(event.target.value)}
-                  >
-                    <option value="Auto">{t('personality.languages.auto')}</option>
-                    <option value="Chinese">{t('personality.languages.chinese')}</option>
-                    <option value="English">{t('personality.languages.english')}</option>
-                    <option value="Japanese">{t('personality.languages.japanese')}</option>
-                  </select>
                   <Button onClick={generate} disabled={generating} className="h-11 rounded-2xl px-5">
                     <Sparkles className="mr-2 h-4 w-4" />
                     {t('personality.generate')}

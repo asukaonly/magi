@@ -196,7 +196,7 @@ async def test_ai_generate_personality_passes_current_draft_to_prompt(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_ai_generate_personality_resolves_auto_language_from_user_input(monkeypatch) -> None:
+async def test_ai_generate_personality_defaults_to_concrete_language(monkeypatch) -> None:
     from magi.api.routers import personality_config
 
     adapter = _FakeLLMAdapter()
@@ -206,11 +206,10 @@ async def test_ai_generate_personality_resolves_auto_language_from_user_input(mo
         lambda *args, **kwargs: adapter,
     )
 
-    await personality_config.ai_generate_personality("生成一个像明日香但更日常的助手", target_language="Auto")
+    await personality_config.ai_generate_personality("Generate an ordinary but vivid assistant")
 
     prompts = "\n".join(str(call["prompt"]) for call in adapter.calls)
-    assert "Target Language: Chinese" in prompts
-    assert "Target Language: Auto" not in prompts
+    assert "Target Language: English" in prompts
 
 
 @pytest.mark.asyncio

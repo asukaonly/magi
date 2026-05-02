@@ -75,8 +75,6 @@ const buildHookState = (overrides: Partial<Record<string, unknown>> = {}) => ({
   switchPrompt: null,
   prompt: '',
   setPrompt: vi.fn(),
-  targetLanguage: 'Auto',
-  setTargetLanguage: vi.fn(),
   patch: vi.fn(),
   selectPersonality: vi.fn(),
   startNewPersonality: vi.fn(),

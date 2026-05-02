@@ -72,7 +72,7 @@ class PersonalityConfigModel(BaseModel):
 
 class AIGenerateRequest(BaseModel):
     description: str = Field(..., description="One-sentence description of AI personality")
-    target_language: str = Field(default="Auto", description="Target language: Auto/Chinese/English etc.")
+    target_language: str = Field(default="English", description="Concrete target language, such as Chinese, English, or Japanese")
     current_config: Optional[PersonalityConfigModel] = Field(None, description="Current configuration (optional)")
     llm_override: Optional[LLMSettings] = Field(None, description="Optional unsaved LLM configuration override")
 

@@ -64,8 +64,6 @@ export interface UsePersonalityReturn {
   // Form state
   prompt: string;
   setPrompt: (value: string) => void;
-  targetLanguage: string;
-  setTargetLanguage: (value: string) => void;
 
   // Actions
   patch: (fn: (draft: PersonalityConfig) => void) => void;
@@ -102,9 +100,11 @@ const getGenerationStageKey = (stages: PersonaGenerationStage[]): PersonaGenerat
     : PERSONA_GENERATION_STAGE_IDS[0];
 };
 
-const resolveAutoTargetLanguage = (targetLanguage: string, uiLanguage?: string): string => {
-  if (targetLanguage !== 'Auto') return targetLanguage;
-  return (uiLanguage || '').toLowerCase().startsWith('zh') ? 'Chinese' : 'English';
+const getGenerationTargetLanguage = (uiLanguage?: string): string => {
+  const language = (uiLanguage || '').toLowerCase();
+  if (language.startsWith('zh')) return 'Chinese';
+  if (language.startsWith('ja')) return 'Japanese';
+  return 'English';
 };
 
 const getGenerationProgress = (stages: PersonaGenerationStage[], generating: boolean): number => {
@@ -190,7 +190,6 @@ export function usePersonality(
 
   // Form state
   const [prompt, setPrompt] = useState('');
-  const [targetLanguage, setTargetLanguage] = useState('Auto');
   const [switchPrompt, setSwitchPrompt] = useState<{
     phrase: string;
     fromName: string;
@@ -367,7 +366,7 @@ export function usePersonality(
     try {
       const response = await personasApi.generateWithProgress({
         description: prompt,
-        target_language: resolveAutoTargetLanguage(targetLanguage, i18n.resolvedLanguage || i18n.language),
+        target_language: getGenerationTargetLanguage(i18n.resolvedLanguage || i18n.language),
         current_config: config,
       }, (snapshot) => {
         setGenerationStages(snapshot.stages?.length ? snapshot.stages : buildPendingGenerationStages());
@@ -381,7 +380,7 @@ export function usePersonality(
     } finally {
       setGenerating(false);
     }
-  }, [config, i18n.language, i18n.resolvedLanguage, prompt, targetLanguage, t]);
+  }, [config, i18n.language, i18n.resolvedLanguage, prompt, t]);
 
   const switchPersonality = useCallback(async () => {
     if (selectedId === currentId) {
@@ -484,8 +483,6 @@ export function usePersonality(
     // Form state
     prompt,
     setPrompt,
-    targetLanguage,
-    setTargetLanguage,
 
     // Actions
     patch,

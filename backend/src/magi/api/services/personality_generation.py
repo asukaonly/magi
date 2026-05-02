@@ -29,7 +29,7 @@ CJK_TEXT_RE = re.compile(r"[\u3400-\u9fff]")
 CJK_INTERNAL_SPACE_RE = re.compile(r"(?<=[\u3400-\u9fff])\s+(?=[\u3400-\u9fff])")
 CJK_BEFORE_PUNCTUATION_RE = re.compile(r"(?<=[\u3400-\u9fff])\s+(?=[，。！？、；：])")
 ENGLISH_BOOTSTRAP_PREFIXES = ("hi, i'm ", "hello, i'm ", "hi, i am ", "hello, i am ")
-AUTO_LANGUAGE_VALUES = {"", "auto", "automatic", "自动"}
+AMBIGUOUS_LANGUAGE_VALUES = {"", "auto", "automatic", "自动"}
 DEFAULT_DEEP_LAYERS = (
   {
     "layer_id": "crack",
@@ -78,8 +78,8 @@ def _is_chinese_target(target_language: str) -> bool:
   return target_language.strip().lower() in {"chinese", "zh", "zh-cn", "中文", "简体中文"}
 
 
-def _is_auto_target(target_language: str) -> bool:
-  return target_language.strip().lower() in AUTO_LANGUAGE_VALUES
+def _is_ambiguous_language_target(target_language: str) -> bool:
+  return target_language.strip().lower() in AMBIGUOUS_LANGUAGE_VALUES
 
 
 def _payload_looks_chinese(payload: Dict[str, Any]) -> bool:
@@ -97,8 +97,8 @@ def _resolve_generation_target_language(
   target_language: str,
   current_config: Optional[PersonalityConfigModel],
 ) -> str:
-  requested_language = (target_language or "Auto").strip()
-  if requested_language and not _is_auto_target(requested_language):
+  requested_language = (target_language or "English").strip()
+  if requested_language and not _is_ambiguous_language_target(requested_language):
     return requested_language
   if CJK_TEXT_RE.search(description):
     return "Chinese"
@@ -377,7 +377,7 @@ def _complete_persona_layers(payload: Dict[str, Any]) -> None:
   payload["persona_layers"] = normalized
 
 
-def _complete_bootstrap(payload: Dict[str, Any], target_language: str = "Auto") -> None:
+def _complete_bootstrap(payload: Dict[str, Any], target_language: str = "English") -> None:
   bootstrap = payload.get("bootstrap")
   if not isinstance(bootstrap, dict):
     bootstrap = {}
@@ -385,7 +385,9 @@ def _complete_bootstrap(payload: Dict[str, Any], target_language: str = "Auto") 
   name = str(payload.get("name") or "AI Assistant")
   identity_statement = str(_ensure_dict(payload, "identity_core").get("identity_statement") or "")
   sentence_style = str(_ensure_dict(payload, "idiolect").get("sentence_style") or "")
-  should_use_chinese = _is_chinese_target(target_language) or (_is_auto_target(target_language) and _payload_looks_chinese(payload))
+  should_use_chinese = _is_chinese_target(target_language) or (
+    _is_ambiguous_language_target(target_language) and _payload_looks_chinese(payload)
+  )
   current_opening = str(bootstrap.get("opening_line") or "").strip()
   opening_is_english_fallback = current_opening.lower().startswith(ENGLISH_BOOTSTRAP_PREFIXES)
   if should_use_chinese:
@@ -584,7 +586,7 @@ INTEGRATION_SYSTEM_PROMPT = _build_stage_system_prompt(
 )
 
 
-def normalize_generated_personality_payload(payload: Dict[str, Any], target_language: str = "Auto") -> Dict[str, Any]:
+def normalize_generated_personality_payload(payload: Dict[str, Any], target_language: str = "English") -> Dict[str, Any]:
     """Normalize common scalar mismatches and complete required runtime fields."""
     payload = _clean_generated_text_tree(payload)
     for field in ("name", "avatar", "description", "appearance_prompt"):
@@ -792,7 +794,7 @@ def _cleanup_personality_generation_jobs(now: Optional[float] = None) -> None:
 
 async def start_personality_generation_job(
   description: str,
-  target_language: str = "Auto",
+  target_language: str = "English",
   current_config: Optional[PersonalityConfigModel] = None,
   llm_override: Optional[LLMSettings] = None,
   *,
@@ -866,14 +868,14 @@ async def _run_personality_generation_job(
 
 
 async def generate_personality_config_result(
-    description: str,
-    target_language: str = "Auto",
+  description: str,
+  target_language: str = "English",
   current_config: Optional[PersonalityConfigModel] = None,
-    llm_override: Optional[LLMSettings] = None,
-    *,
-    adapter_resolver: Callable[..., Any] = resolve_adapter_for_scenario,
-    adapter_factory: Callable[..., Any] = create_llm_adapter,
-    stage_progress_callback: Optional[Callable[[str, str], None]] = None,
+  llm_override: Optional[LLMSettings] = None,
+  *,
+  adapter_resolver: Callable[..., Any] = resolve_adapter_for_scenario,
+  adapter_factory: Callable[..., Any] = create_llm_adapter,
+  stage_progress_callback: Optional[Callable[[str, str], None]] = None,
 ) -> PersonalityGenerationResult:
   """Generate personality configuration through staged LLM calls."""
   stage_status: list[dict[str, str]] = []
@@ -1040,7 +1042,7 @@ Resolve contradictions and return the final complete persona configuration JSON.
 
 async def generate_personality_config(
   description: str,
-  target_language: str = "Auto",
+  target_language: str = "English",
   current_config: Optional[PersonalityConfigModel] = None,
   llm_override: Optional[LLMSettings] = None,
   *,

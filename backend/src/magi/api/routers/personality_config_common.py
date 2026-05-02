@@ -137,7 +137,7 @@ def _normalize_generated_personality_payload(payload: Dict[str, Any]) -> Dict[st
 
 async def ai_generate_personality(
     description: str,
-    target_language: str = "Auto",
+    target_language: str = "English",
     current_config: Optional[PersonalityConfigModel] = None,
     llm_override: Optional[LLMSettings] = None,
 ) -> PersonalityConfigModel:
@@ -153,7 +153,7 @@ async def ai_generate_personality(
 
 async def ai_generate_personality_result(
     description: str,
-    target_language: str = "Auto",
+    target_language: str = "English",
     current_config: Optional[PersonalityConfigModel] = None,
     llm_override: Optional[LLMSettings] = None,
 ):
@@ -171,7 +171,7 @@ async def ai_generate_personality_result(
 
 async def ai_start_personality_generation_job(
     description: str,
-    target_language: str = "Auto",
+    target_language: str = "English",
     current_config: Optional[PersonalityConfigModel] = None,
     llm_override: Optional[LLMSettings] = None,
 ) -> Dict[str, Any]:
