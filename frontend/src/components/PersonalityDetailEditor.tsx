@@ -16,6 +16,7 @@ import type {
   QuietHour,
   SignatureTrigger,
 } from '@/api/modules/personas';
+import { formatPersonaValidationIssues, validatePersonalityConfig } from '@/utils/personaValidation';
 
 interface PersonalityDetailEditorProps {
   config: PersonalityConfig;
@@ -80,30 +81,6 @@ const normalizeRegister = (item?: Partial<PersonaRegister>): PersonaRegister => 
   examples: item?.examples || [],
 });
 
-const firstTrigger = (config: PersonalityConfig): SignatureTrigger =>
-  normalizeTrigger(config.signature_triggers[0]);
-
-const quickMissingFields = (config: PersonalityConfig, t: PersonalityDetailEditorProps['t']): string[] => {
-  const chat = normalizeRegister(config.registers.chat);
-  const trigger = firstTrigger(config);
-  const checks = [
-    { ok: Boolean(config.name.trim()), label: t('personality.fields.name') },
-    { ok: Boolean(config.identity_core.identity_statement.trim()), label: t('personality.fields.identityStatement') },
-    { ok: Boolean(config.idiolect.sentence_style.trim()), label: t('personality.fields.sentenceStyle') },
-    { ok: Boolean(chat.behavior.trim()), label: t('personality.registers.chat') },
-    {
-      ok: Boolean(
-        trigger.trigger_id.trim()
-          && trigger.activates_when.trim()
-          && trigger.behavior_shift.trim()
-      ),
-      label: t('personality.sections.signatureTriggers'),
-    },
-    { ok: config.quiet_hours.some((item) => item.condition.trim()), label: t('personality.sections.quietHours') },
-  ];
-  return checks.filter((item) => !item.ok).map((item) => item.label);
-};
-
 const Section: React.FC<{
   title: string;
   defaultOpen?: boolean;
@@ -126,7 +103,9 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
   avatarFilename,
 }) => {
   const [mode, setMode] = React.useState<EditorMode>('quick');
-  const missingFields = quickMissingFields(config, t);
+  const validation = React.useMemo(() => validatePersonalityConfig(config), [config]);
+  const missingFields = formatPersonaValidationIssues(validation.minimumIssues, t);
+  const expertFields = formatPersonaValidationIssues(validation.expertIssues, t);
 
   const updateRegister = (key: (typeof REGISTER_KEYS)[number], next: PersonaRegister) => {
     patch((draft) => {
@@ -371,9 +350,18 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
   return (
     <div className="space-y-3 pr-1">
       <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-        {missingFields.length === 0
-          ? t('personality.validation.ready')
-          : t('personality.validation.missing', { fields: missingFields.join(', ') })}
+        <div>
+          {validation.isMinimumReady
+            ? t('personality.validation.ready')
+            : t('personality.validation.missing', { fields: missingFields.join(', ') })}
+        </div>
+        {mode === 'expert' && (
+          <div className="mt-1">
+            {validation.isExpertReady
+              ? t('personality.validation.expertReady')
+              : t('personality.validation.expertMissing', { fields: expertFields.join(', ') })}
+          </div>
+        )}
       </div>
 
       <Tabs value={mode} onValueChange={(value) => setMode(value as EditorMode)}>

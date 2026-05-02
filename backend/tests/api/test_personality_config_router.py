@@ -9,8 +9,11 @@ class _FakeLLMAdapter:
     provider_name = "openai"
     model_name = "fake-core"
 
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
     async def generate(self, **kwargs):  # type: ignore[no-untyped-def]
-        _ = kwargs
+        self.calls.append(kwargs)
         return """
         {
                     "name": "Astra",
@@ -75,7 +78,41 @@ async def test_ai_generate_personality_uses_core_scenario(monkeypatch) -> None:
     result = await personality_config.ai_generate_personality("一个冷静可靠的助手", target_language="Chinese")
 
     assert result.name == "Astra"
+    assert set(result.registers) == {"chat", "analysis", "task", "emotional", "crisis"}
+    assert len(result.quiet_hours) >= 2
+    assert len(result.signature_triggers) >= 3
+    assert result.persona_layers[0].layer_id == "surface"
+    assert result.bootstrap is not None
     assert resolver.requested == [LLMScenario.CORE]
+
+
+@pytest.mark.asyncio
+async def test_ai_generate_personality_passes_current_draft_to_prompt(monkeypatch) -> None:
+    from magi.api.routers import personality_config
+
+    adapter = _FakeLLMAdapter()
+    monkeypatch.setattr(
+        personality_config,
+        "resolve_adapter_for_scenario",
+        lambda *args, **kwargs: adapter,
+    )
+
+    current = personality_config.PersonalityConfigModel(
+        name="Draft Persona",
+        identity_core=personality_config.IdentityCoreModel(identity_statement="Keep this explicit draft core."),
+    )
+
+    result = await personality_config.ai_generate_personality(
+        "补全这个人格，不要重写名字",
+        target_language="Chinese",
+        current_config=current,
+    )
+
+    assert result.name == "Astra"
+    prompt = adapter.calls[0]["prompt"]
+    assert "# Existing Draft Config" in prompt
+    assert "Draft Persona" in prompt
+    assert "Keep this explicit draft core" in prompt
 
 
 @pytest.mark.asyncio
@@ -186,3 +223,20 @@ async def test_ai_generate_personality_coerces_numeric_top_level_fields(monkeypa
     result = await personality_config.ai_generate_personality("eva里的明日香", target_language="Chinese")
 
     assert result.name == "14"
+
+
+def test_normalize_generated_personality_payload_completes_sparse_payload() -> None:
+    from magi.api.routers.personality_config import normalize_generated_personality_payload
+
+    payload = normalize_generated_personality_payload({
+        "name": "Sparse",
+        "registers": {"chat": {"behavior": "Stay ordinary."}},
+        "signature_triggers": [{"trigger_id": "focus", "activates_when": "Work", "behavior_shift": "Quieter"}],
+    })
+
+    assert set(payload["registers"]) == {"chat", "analysis", "task", "emotional", "crisis"}
+    assert len(payload["quiet_hours"]) == 2
+    assert len(payload["signature_triggers"]) == 3
+    assert payload["persona_layers"][0]["layer_id"] == "surface"
+    assert payload["bootstrap"]["opening_line"]
+    assert sum(len(item["examples"]) for item in payload["registers"].values()) >= 6

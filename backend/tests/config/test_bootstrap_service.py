@@ -161,6 +161,8 @@ class TestBootstrapOpening:
         assert "guided first-contact opener" in system_prompt
         assert "how they want to be addressed" in system_prompt
         assert "interest, hobby, or topic they care about" in system_prompt
+        assert "Do not claim physical-human experiences" in system_prompt
+        assert "Never mention you are an AI" not in system_prompt
         mock_bridge.chat.assert_awaited_once_with(
             system_prompt=ANY,
             messages=[{"role": "user", "content": "Generate your opening line."}],
@@ -252,6 +254,8 @@ class TestBootstrapReply:
 
         system_prompt = mock_bridge.chat.await_args.kwargs["system_prompt"]
         assert "Prioritize learning the user's name and how they like to be addressed" in system_prompt
+        assert "Do not claim physical-human experiences" in system_prompt
+        assert "Never mention you are an AI" not in system_prompt
 
     @pytest.mark.asyncio
     async def test_final_round_does_not_record_bootstrap_completion(self):

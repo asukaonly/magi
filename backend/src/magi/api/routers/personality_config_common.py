@@ -138,6 +138,7 @@ def _normalize_generated_personality_payload(payload: Dict[str, Any]) -> Dict[st
 async def ai_generate_personality(
     description: str,
     target_language: str = "Auto",
+    current_config: Optional[PersonalityConfigModel] = None,
     llm_override: Optional[LLMSettings] = None,
 ) -> PersonalityConfigModel:
     """Generate personality configuration from description using LLM."""
@@ -145,6 +146,7 @@ async def ai_generate_personality(
     return await legacy.generate_personality_config(
         description,
         target_language=target_language,
+        current_config=current_config,
         llm_override=llm_override,
         adapter_resolver=legacy.resolve_adapter_for_scenario,
         adapter_factory=legacy.create_llm_adapter,

@@ -214,6 +214,7 @@ async def generate_personality(request: AIGenerateRequest):
         config = await legacy.ai_generate_personality(
             request.description,
             request.target_language,
+            current_config=request.current_config,
             llm_override=request.llm_override,
         )
         legacy.logger.info("AI generation successful: name=%s", config.name)

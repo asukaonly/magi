@@ -409,6 +409,8 @@ Recommended groups:
 
 Quick mode should ask only for the minimal custom persona fields and generate defaults for the rest. Expert mode can expose full trigger, layer, and dynamic-state controls.
 
+The editor and save flow should share one validation contract. Minimum readiness requires name, identity statement, loved/rejected values, baseline idiolect, chat behavior, two complete signature triggers, and two complete quiet hours with clamps. Expert readiness additionally checks all core registers, six examples, unique trigger IDs, layer shape, surface layer presence, and first-meeting bootstrap content.
+
 New user-facing copy must use i18n keys and keep Simplified Chinese and English resources aligned.
 
 ## AI Persona Generation
@@ -427,6 +429,10 @@ It must stop generating a fixed set of four dramatic state-transition protocols 
 - optional relationship layers
 
 Generation prompts should explicitly say that ordinary, low-performance replies are valid and desirable for most turns.
+
+Generation may receive an existing draft config. In that case, it should preserve explicit user-authored fields unless the user asks to replace them, then fill missing target-schema fields. Post-generation normalization may complete required runtime surfaces such as core registers, quiet hours, signature triggers, surface layer, examples, and bootstrap defaults so generated personas are immediately editable and runnable.
+
+Bootstrap first-meeting prompts are separate from normal registers. They should guide a short first-contact opening without requiring the persona to conceal being AI or to claim physical-human experiences outside the persona config.
 
 ## Migration From Current Code
 

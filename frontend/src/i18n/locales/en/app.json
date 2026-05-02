@@ -2431,7 +2431,21 @@
     },
     "validation": {
       "ready": "Minimum persona fields are ready.",
-      "missing": "Still missing: {{fields}}"
+      "missing": "Still missing: {{fields}}",
+      "expertReady": "Expert checks are complete.",
+      "expertMissing": "Expert checks: {{fields}}"
+    },
+    "validationIssues": {
+      "signatureTriggerCount": "two complete signature triggers",
+      "signatureTriggerShape": "complete trigger shape",
+      "uniqueTriggerIds": "unique trigger IDs",
+      "quietHourCount": "two complete quiet hours",
+      "quietHourShape": "complete quiet-hour clamps",
+      "allRegisters": "all core registers",
+      "examplesCount": "six register examples",
+      "surfaceLayer": "surface relationship layer",
+      "layerShape": "complete advanced layers",
+      "bootstrap": "first-meeting bootstrap"
     },
     "fields": {
       "name": "Name",

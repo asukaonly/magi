@@ -427,7 +427,21 @@
     },
     "validation": {
       "ready": "最小人格字段已就绪。",
-      "missing": "仍缺少：{{fields}}"
+      "missing": "仍缺少：{{fields}}",
+      "expertReady": "专家校验已完整。",
+      "expertMissing": "专家校验：{{fields}}"
+    },
+    "validationIssues": {
+      "signatureTriggerCount": "两个完整标志触发器",
+      "signatureTriggerShape": "完整触发器结构",
+      "uniqueTriggerIds": "唯一触发器 ID",
+      "quietHourCount": "两个完整低人格时段",
+      "quietHourShape": "完整低人格约束",
+      "allRegisters": "全部核心情景模式",
+      "examplesCount": "六条模式示例",
+      "surfaceLayer": "surface 关系层",
+      "layerShape": "完整高级关系层",
+      "bootstrap": "首次见面引导"
     },
     "fields": {
       "name": "名称",

@@ -231,6 +231,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
       const generated = await personasApi.generate({
         description: oneLiner.trim(),
         target_language: language === 'zh' ? 'Chinese' : 'English',
+        current_config: config,
         llm_override: llmOverride,
       });
       const payload = generated.data?.data;

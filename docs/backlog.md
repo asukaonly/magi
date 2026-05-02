@@ -70,16 +70,16 @@ Status: active
 Why it is open:
 
 - the target design is now documented in [Persona Runtime Architecture](./persona-runtime-architecture.md)
-- backend prompt assembly, API schemas, AI generation, bundled presets, onboarding defaults, and the main frontend editor now consume the new top-level persona schema; remaining work is planner quality, validation depth, and UX refinement
+- backend prompt assembly, API schemas, AI generation, bundled presets, onboarding defaults, and the main frontend editor now consume the new top-level persona schema; remaining work is planner quality refinement and wider end-to-end regression
 - the product needs persona behavior that feels ordinary most of the time, becomes distinctive under relevant triggers, and changes with relationship depth without becoming a constant style performance
 
 Current focus areas:
 
-- harden the new persona schema and `PersonaTurnPlan` contract with broader validation and golden behavior checks
+- harden the new persona schema and `PersonaTurnPlan` contract with wider end-to-end validation and golden behavior checks
 - expand the Personality Layer `PersonaTurnPlanner` beyond the MVP heuristics
 - keep prompt assembly consuming the plan instead of raw persona fragments
 - strengthen bundled preset examples and add golden behavior checks for ordinary, task, emotional, play, and crisis turns
-- refine the personality editor into clearer quick/expert schema groups
+- refine generated/custom persona quality based on real usage samples
 
 Recent progress:
 
@@ -87,6 +87,8 @@ Recent progress:
 - Explore dossier rendering and parent orchestration aggregation now route through analysis persona context; synthesis prompts suppress tool catalog rendering where no tool call should happen.
 - Seven now has planner and prompt-level golden checks for ordinary chat, task work, emotional support, absurdity/play, crisis, and revealed relationship-layer turns.
 - The main personality detail editor now separates quick and expert editing modes and surfaces minimum-field validation for identity, baseline voice, chat register, signature trigger, and quiet-hour coverage.
+- Persona generation now supports current draft config context, completes required runtime schema surfaces after sparse LLM output, and keeps bootstrap first-meeting behavior separate from normal registers without requiring false human claims.
+- Frontend persona validation is now shared between the editor and save flow, with minimum and expert checks for registers, triggers, quiet hours, examples, layers, and bootstrap content.
 
 ### 5. Continue runtime boundary cleanup
 

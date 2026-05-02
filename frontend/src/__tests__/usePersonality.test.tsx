@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { usePersonality } from '@/hooks';
+import { toast } from 'sonner';
 
 const tMock = (key: string, params?: Record<string, string>) => {
   if (key === 'personality.switchConfirm' && params) {
@@ -41,6 +42,7 @@ const mockPersonasApi = vi.hoisted(() => ({
   create: vi.fn(),
   update: vi.fn(),
   delete: vi.fn(),
+  generate: vi.fn(),
 }));
 
 vi.mock('@/api/modules/personas', async () => {
@@ -112,6 +114,31 @@ const Harness = () => {
   );
 };
 
+const GenerateHarness = () => {
+  const { config, prompt, setPrompt, generate } = usePersonality();
+
+  return (
+    <div>
+      <div data-testid="config-name">{config.name}</div>
+      <input aria-label="generation prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} />
+      <button type="button" onClick={() => { void generate(); }}>
+        generate
+      </button>
+    </div>
+  );
+};
+
+const SaveHarness = () => {
+  const { startNewPersonality, save } = usePersonality();
+
+  return (
+    <div>
+      <button type="button" onClick={startNewPersonality}>new</button>
+      <button type="button" onClick={() => { void save(); }}>save</button>
+    </div>
+  );
+};
+
 describe('usePersonality', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -147,6 +174,12 @@ describe('usePersonality', () => {
       success: true,
       persona_id: 'uuid-asuka',
     });
+    mockPersonasApi.generate.mockResolvedValue({
+      data: {
+        name: 'Generated',
+        identity_core: { identity_statement: 'Generated core.' },
+      },
+    });
   });
 
   it('opens a retention prompt and switches via persona registry', async () => {
@@ -165,5 +198,33 @@ describe('usePersonality', () => {
     await waitFor(() =>
       expect(mockPersonasApi.setActive).toHaveBeenCalledWith('uuid-asuka')
     );
+  });
+
+  it('passes the current draft config into AI generation', async () => {
+    const user = userEvent.setup();
+
+    render(<GenerateHarness />);
+
+    await waitFor(() => expect(screen.getByTestId('config-name')).toHaveTextContent('七号'));
+    await user.type(screen.getByLabelText('generation prompt'), 'make it sharper');
+    await user.click(screen.getByRole('button', { name: 'generate' }));
+
+    await waitFor(() => expect(mockPersonasApi.generate).toHaveBeenCalled());
+    expect(mockPersonasApi.generate.mock.calls[0][0]).toMatchObject({
+      description: 'make it sharper',
+      current_config: { name: '七号' },
+    });
+  });
+
+  it('blocks saving a persona that is missing minimum runtime fields', async () => {
+    const user = userEvent.setup();
+
+    render(<SaveHarness />);
+
+    await user.click(screen.getByRole('button', { name: 'new' }));
+    await user.click(screen.getByRole('button', { name: 'save' }));
+
+    expect(mockPersonasApi.create).not.toHaveBeenCalled();
+    expect(toast.warning).toHaveBeenCalledWith('personality.validation.missing');
   });
 });

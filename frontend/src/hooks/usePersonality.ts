@@ -19,6 +19,7 @@ import {
   type SignatureTrigger,
 } from '@/api/modules/personas';
 import { handleError } from '@/utils/error-handler';
+import { formatPersonaValidationIssues, validatePersonalityConfig } from '@/utils/personaValidation';
 
 // ============================================================================
 // Types
@@ -275,6 +276,14 @@ export function usePersonality(
   );
 
   const save = useCallback(async () => {
+    const validation = validatePersonalityConfig(config);
+    if (!validation.isMinimumReady) {
+      toast.warning(t('personality.validation.missing', {
+        fields: formatPersonaValidationIssues(validation.minimumIssues, t).join(', '),
+      }));
+      return;
+    }
+
     // Validate name in create mode
     if (isNewMode) {
       const name = config.name?.trim();
@@ -326,6 +335,7 @@ export function usePersonality(
       const response = await personasApi.generate({
         description: prompt,
         target_language: targetLanguage,
+        current_config: config,
       });
       const data = (response.data || {}) as Partial<PersonalityConfig>;
       setConfig(mergeConfig(data));
