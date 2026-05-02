@@ -107,6 +107,28 @@ async def test_ai_generate_personality_uses_core_scenario(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_generate_personality_route_uses_staged_facade_result(monkeypatch) -> None:
+    from magi.api.routers import personality_config
+
+    async def _fake_generate_result(*args, **kwargs):  # type: ignore[no-untyped-def]
+        _ = args, kwargs
+        return personality_config.PersonalityGenerationResult(
+            config=personality_config.PersonalityConfigModel(name="Route Persona"),
+            stages=[{"stage_id": "base", "status": "completed"}],
+        )
+
+    monkeypatch.setattr(personality_config, "ai_generate_personality_result", _fake_generate_result)
+
+    response = await personality_config.generate_personality(
+        personality_config.AIGenerateRequest(description="生成一个稳定人格")
+    )
+
+    assert response.success is True
+    assert response.data["name"] == "Route Persona"
+    assert response.stages == [{"stage_id": "base", "status": "completed"}]
+
+
+@pytest.mark.asyncio
 async def test_ai_generate_personality_passes_current_draft_to_prompt(monkeypatch) -> None:
     from magi.api.routers import personality_config
 

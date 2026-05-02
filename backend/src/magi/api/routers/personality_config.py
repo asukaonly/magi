@@ -52,6 +52,7 @@ from .personality_config_common import (
     _resolve_persona_id,
     _wait_for_bootstrap_runtime_ready,
     ai_generate_personality,
+    ai_generate_personality_result,
     sanitize_filename,
     save_personality_to_registry,
 )
@@ -154,6 +155,7 @@ __all__ = [
     "_resolve_persona_id",
     "_wait_for_bootstrap_runtime_ready",
     "ai_generate_personality",
+    "ai_generate_personality_result",
     "api_bootstrap_init",
     "api_get_current_personality",
     "api_get_greeting",
