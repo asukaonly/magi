@@ -385,19 +385,19 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
 
             {/* AI Generate Section */}
             {isNewMode ? (
-              <div className="w-full max-w-2xl space-y-3 border-t border-border/30 pt-4">
+              <div className="w-full space-y-3 border-t border-border/30 pt-4">
                 <div className="flex items-center gap-2 text-sm font-medium text-foreground">
                   <Sparkles className="h-4 w-4 text-primary" />
                   {t('personality.generate')}
                 </div>
-                <div className="flex flex-col gap-2 xl:flex-row">
+                <div className="flex w-full flex-col gap-2 md:flex-row">
                   <Input
                     value={prompt}
                     onChange={(event) => setPrompt(event.target.value)}
                     placeholder={t('personality.generatePlaceholder')}
-                    className="h-11 rounded-2xl"
+                    className="h-11 w-full flex-1 rounded-2xl"
                   />
-                  <Button onClick={generate} disabled={generating} className="h-11 rounded-2xl px-5">
+                  <Button onClick={generate} disabled={generating} className="h-11 shrink-0 rounded-2xl px-5 md:min-w-32">
                     <Sparkles className="mr-2 h-4 w-4" />
                     {t('personality.generate')}
                   </Button>
