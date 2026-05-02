@@ -2425,6 +2425,14 @@
       "stateTransitionProtocol": "State Transition Protocol",
       "personaLayers": "Deep Persona Layers"
     },
+    "editorModes": {
+      "quick": "Quick",
+      "expert": "Expert"
+    },
+    "validation": {
+      "ready": "Minimum persona fields are ready.",
+      "missing": "Still missing: {{fields}}"
+    },
     "fields": {
       "name": "Name",
       "age": "Age",

@@ -151,6 +151,41 @@ describe('PersonalityModern', () => {
     expect(screen.queryAllByText('personality.generate')).toHaveLength(0);
   });
 
+  it('starts the personality detail editor in quick mode with missing-field guidance', () => {
+    vi.mocked(usePersonality).mockReturnValue(
+      buildHookState({
+        isNewMode: true,
+        selectedId: '__new__',
+        selectedInfo: undefined,
+        config: buildConfig('', ''),
+      }) as any
+    );
+
+    render(<PersonalityModern embedded />);
+
+    expect(screen.getByRole('tab', { name: 'personality.editorModes.quick' })).toHaveAttribute('data-state', 'active');
+    expect(screen.getByText('personality.validation.missing')).toBeInTheDocument();
+    expect(screen.getByText('personality.registers.chat')).toBeInTheDocument();
+    expect(screen.queryByText('personality.registers.crisis')).not.toBeInTheDocument();
+  });
+
+  it('reveals full register and advanced sections in expert mode', () => {
+    vi.mocked(usePersonality).mockReturnValue(buildHookState() as any);
+
+    render(<PersonalityModern embedded />);
+
+    fireEvent.pointerDown(screen.getByRole('tab', { name: 'personality.editorModes.expert' }), { button: 0 });
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'personality.editorModes.expert' }), { button: 0 });
+
+    return waitFor(() => {
+      expect(screen.getByRole('tab', { name: 'personality.editorModes.expert' })).toHaveAttribute('data-state', 'active');
+    }).then(() => {
+      expect(screen.getByText('personality.registers.crisis')).toBeInTheDocument();
+      expect(screen.getByText('personality.sections.appearance')).toBeInTheDocument();
+      expect(screen.getByText('personality.sections.personaLayers')).toBeInTheDocument();
+    });
+  });
+
   it('uploads an avatar and patches the personality profile', async () => {
     const patch = vi.fn();
     vi.mocked(usePersonality).mockReturnValue(buildHookState({ patch }) as any);

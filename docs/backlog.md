@@ -86,6 +86,7 @@ Recent progress:
 - Direct LLM and function-calling prompt assembly now have tests that lock the persona-planning inputs for scenario, task category, selected tools, and stored persona id.
 - Explore dossier rendering and parent orchestration aggregation now route through analysis persona context; synthesis prompts suppress tool catalog rendering where no tool call should happen.
 - Seven now has planner and prompt-level golden checks for ordinary chat, task work, emotional support, absurdity/play, crisis, and revealed relationship-layer turns.
+- The main personality detail editor now separates quick and expert editing modes and surfaces minimum-field validation for identity, baseline voice, chat register, signature trigger, and quiet-hour coverage.
 
 ### 5. Continue runtime boundary cleanup
 

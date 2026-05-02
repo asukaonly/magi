@@ -2491,6 +2491,14 @@
       "stateTransitionProtocol": "状态切换协议",
       "personaLayers": "深层人格"
     },
+    "editorModes": {
+      "quick": "快速",
+      "expert": "专家"
+    },
+    "validation": {
+      "ready": "最小人格字段已就绪。",
+      "missing": "仍缺少：{{fields}}"
+    },
     "fields": {
       "name": "名称",
       "age": "年龄",
