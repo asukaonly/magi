@@ -172,7 +172,14 @@ describe('PersonalityModern', () => {
   });
 
   it('reveals full register and advanced sections in expert mode', () => {
-    vi.mocked(usePersonality).mockReturnValue(buildHookState() as any);
+    vi.mocked(usePersonality).mockReturnValue(
+      buildHookState({
+        config: {
+          ...buildConfig(),
+          persona_layers: [{ layer_id: 'surface', unlock_condition: null, modifiers: {} }],
+        },
+      }) as any
+    );
 
     render(<PersonalityModern embedded />);
 
@@ -186,8 +193,14 @@ describe('PersonalityModern', () => {
       expect(screen.getByText('personality.sections.registers')).toBeInTheDocument();
       expect(screen.getByText('personality.sections.appearance')).toBeInTheDocument();
       expect(screen.getByText('personality.sections.personaLayers')).toBeInTheDocument();
+      expect(screen.queryByDisplayValue('surface')).not.toBeInTheDocument();
       fireEvent.click(screen.getByRole('button', { name: 'personality.sections.registers' }));
       expect(screen.getByText('personality.registers.crisis')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'personality.sections.personaLayers' }));
+      expect(screen.getByText('personality.actions.viewLayersConfirm')).toBeInTheDocument();
+      expect(screen.queryByDisplayValue('surface')).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'personality.actions.viewLayersReveal' }));
+      expect(screen.getByDisplayValue('surface')).toBeInTheDocument();
     });
   });
 

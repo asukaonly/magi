@@ -145,6 +145,7 @@ export interface PersonaSummary {
   group_name: string;
   sort_order: number;
   is_builtin: boolean;
+  seed_slug?: string | null;
   description: string;
   deleted_at?: number | null;
 }

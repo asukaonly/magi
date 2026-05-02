@@ -2489,7 +2489,7 @@
       "cachedPhrases": "缓存短语",
       "appearance": "外观提示词",
       "stateTransitionProtocol": "状态切换协议",
-      "personaLayers": "关系层"
+      "personaLayers": "深层人格"
     },
     "editorModes": {
       "quick": "快速",
@@ -2509,8 +2509,8 @@
       "quietHourShape": "完整收敛规则",
       "allRegisters": "全部对话模式",
       "examplesCount": "六条对话示例",
-      "surfaceLayer": "基础关系层",
-      "layerShape": "完整关系层",
+      "surfaceLayer": "基础深层人格",
+      "layerShape": "完整深层人格",
       "bootstrap": "首次见面引导"
     },
     "fields": {

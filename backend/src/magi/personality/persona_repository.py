@@ -86,6 +86,7 @@ class PersonaSummary:
     group_name: str
     sort_order: int
     is_builtin: bool
+    seed_slug: Optional[str] = None
     description: str = ""
     deleted_at: float | None = None
 
@@ -389,6 +390,7 @@ class PersonaRepository:
             group_name=row["group_name"],
             sort_order=row["sort_order"],
             is_builtin=bool(row["is_builtin"]),
+            seed_slug=row["seed_slug"] if "seed_slug" in row.keys() else None,
             description=row["description"] if "description" in row.keys() else "",
             deleted_at=row["deleted_at"] if "deleted_at" in row.keys() else None,
         )

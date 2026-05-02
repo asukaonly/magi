@@ -134,6 +134,31 @@ class TestPersonaRepository:
         not_found = await repo.get_by_seed_slug("nonexistent")
         assert not_found is None
 
+        summaries = await repo.list_all()
+        assert summaries[0].seed_slug == "echo_ai_assistant"
+
+    @pytest.mark.asyncio
+    async def test_ensure_active_persona_resolves_display_name(self, repo: PersonaRepository) -> None:
+        from magi.personality.lifecycle import _ensure_active_persona
+
+        pid = await repo.create(
+            json.dumps(
+                {
+                    "name": "七号",
+                    "description": "赛博乐子人",
+                    "identity_core": {"identity_statement": "测试设定。"},
+                }
+            ),
+            slug="seven_hacker",
+            is_builtin=True,
+            seed_slug="seven_hacker",
+        )
+
+        active_id = await _ensure_active_persona(repo, "七号")
+
+        assert active_id == pid
+        assert await repo.get_active_id() == pid
+
     @pytest.mark.asyncio
     async def test_count(self, repo: PersonaRepository) -> None:
         assert await repo.count() == 0

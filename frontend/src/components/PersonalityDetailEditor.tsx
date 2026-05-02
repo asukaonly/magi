@@ -7,6 +7,14 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type {
@@ -84,9 +92,11 @@ const normalizeRegister = (item?: Partial<PersonaRegister>): PersonaRegister => 
 const Section: React.FC<{
   title: string;
   defaultOpen?: boolean;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   children: React.ReactNode;
-}> = ({ title, defaultOpen = true, children }) => (
-  <Collapsible className="space-y-1" defaultOpen={defaultOpen}>
+}> = ({ title, defaultOpen = true, open, onOpenChange, children }) => (
+  <Collapsible className="space-y-1" defaultOpen={defaultOpen} open={open} onOpenChange={onOpenChange}>
     <CollapsibleTrigger className="rounded-md px-2 py-1.5 text-sm font-medium hover:bg-muted">
       {title}
     </CollapsibleTrigger>
@@ -103,6 +113,9 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
   avatarFilename,
 }) => {
   const [mode, setMode] = React.useState<EditorMode>('quick');
+  const [layersOpen, setLayersOpen] = React.useState(false);
+  const [layersUnlocked, setLayersUnlocked] = React.useState(false);
+  const [layerConfirmOpen, setLayerConfirmOpen] = React.useState(false);
   const validation = React.useMemo(() => validatePersonalityConfig(config), [config]);
   const missingFields = formatPersonaValidationIssues(validation.minimumIssues, t);
   const expertFields = formatPersonaValidationIssues(validation.expertIssues, t);
@@ -382,8 +395,25 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
     </Section>
   );
 
+  const handleLayersOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      setLayersOpen(false);
+      return;
+    }
+    if (layersUnlocked) {
+      setLayersOpen(true);
+      return;
+    }
+    setLayerConfirmOpen(true);
+  };
+
   const renderLayers = () => (
-    <Section title={t('personality.sections.personaLayers')} defaultOpen={false}>
+    <Section
+      title={t('personality.sections.personaLayers')}
+      defaultOpen={false}
+      open={layersOpen}
+      onOpenChange={handleLayersOpenChange}
+    >
       <div className="space-y-3">
         {(config.persona_layers || []).map((item, index) => (
           <div key={index} className="rounded-md border border-border/70 p-2">
@@ -450,6 +480,30 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
           {renderLayers()}
         </TabsContent>
       </Tabs>
+
+      <Dialog open={layerConfirmOpen} onOpenChange={setLayerConfirmOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('personality.actions.viewLayersTitle')}</DialogTitle>
+            <DialogDescription>{t('personality.actions.viewLayersConfirm')}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setLayerConfirmOpen(false)}>
+              {t('personality.cancel')}
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                setLayersUnlocked(true);
+                setLayersOpen(true);
+                setLayerConfirmOpen(false);
+              }}
+            >
+              {t('personality.actions.viewLayersReveal')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

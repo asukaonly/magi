@@ -34,6 +34,7 @@ class PersonaSummaryModel(BaseModel):
     group_name: str = "general"
     sort_order: int = 0
     is_builtin: bool = False
+    seed_slug: Optional[str] = None
     description: str = ""
     deleted_at: Optional[float] = None
 

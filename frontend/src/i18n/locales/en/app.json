@@ -2423,7 +2423,7 @@
       "cachedPhrases": "Cached Phrases",
       "appearance": "Appearance Prompt",
       "stateTransitionProtocol": "State Transition Protocol",
-      "personaLayers": "Relationship Layers"
+      "personaLayers": "Deep Persona Layers"
     },
     "editorModes": {
       "quick": "Quick",
@@ -2443,8 +2443,8 @@
       "quietHourShape": "complete restraint rules",
       "allRegisters": "all conversation modes",
       "examplesCount": "six conversation examples",
-      "surfaceLayer": "base relationship layer",
-      "layerShape": "complete relationship layers",
+      "surfaceLayer": "base deep persona layer",
+      "layerShape": "complete deep persona layers",
       "bootstrap": "first-meeting bootstrap"
     },
     "fields": {
