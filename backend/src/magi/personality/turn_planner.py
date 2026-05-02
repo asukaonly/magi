@@ -306,6 +306,15 @@ class PersonaTurnPlanner:
                     "answer_utility": "highest",
                 },
             })
+        if register == "emotional":
+            quiet_hours.append({
+                "condition": "emotional_support",
+                "clamps": {
+                    "persona_intensity_max": 1,
+                    "sarcasm": "none_to_light",
+                    "answer_utility": "highest",
+                },
+            })
         if register == "crisis":
             quiet_hours.append({
                 "condition": "crisis",
@@ -374,7 +383,8 @@ class PersonaTurnPlanner:
             if trust_required is not None and float(relationship.get("trust_level", 0.0) or 0.0) < float(trust_required):
                 continue
             interaction_required = condition.get("interaction_count_gte")
-            if interaction_required is not None and int(relationship.get("interaction_count", 0) or 0) < int(interaction_required):
+            interaction_count = relationship.get("interaction_count", relationship.get("total_interactions", 0))
+            if interaction_required is not None and int(interaction_count or 0) < int(interaction_required):
                 continue
             milestone_required = str(condition.get("milestone_required") or "").strip()
             if milestone_required and milestone_required not in milestone_keys:
