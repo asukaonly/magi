@@ -47,8 +47,6 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
     loading,
     saving,
     generating,
-    generationProgress,
-    generationStageKey,
     switching,
     selectedInfo,
     switchPrompt,
@@ -56,6 +54,8 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
     // Form state
     prompt,
     setPrompt,
+    targetLanguage,
+    setTargetLanguage,
 
     // Actions
     patch,
@@ -77,17 +77,17 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
   // Reset broken state whenever the selected persona or its avatar changes.
   // Watching the config avatar handles the race condition where the old
   // persona's broken avatar fires onError before the new config loads.
-  const avatarValue = config.avatar || '';
+  const avatarValue = config.persona_entity.basic_profile.avatar || '';
   React.useEffect(() => {
     setAvatarBroken(false);
   }, [selectedId, avatarValue]);
 
   const detailTitle = isNewMode
-    ? (config.name || t('personality.newPersonality'))
-    : (config.name || selectedInfo?.displayName || t('personality.title'));
+    ? (config.persona_entity.basic_profile.name || t('personality.newPersonality'))
+    : (config.persona_entity.basic_profile.name || selectedInfo?.displayName || t('personality.title'));
   const detailDescription = isNewMode
     ? t('personality.newPersonalityDesc')
-    : (config.description || selectedInfo?.subtitle || t('settings.personalityDesc'));
+    : (config.persona_entity.basic_profile.description || selectedInfo?.subtitle || t('settings.personalityDesc'));
   const avatarUrl = avatarValue && !avatarBroken ? personasApi.getAvatarUrl(avatarValue) : '';
 
   const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -103,7 +103,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
       }
 
       patch((draft) => {
-        draft.avatar = nextAvatar;
+        draft.persona_entity.basic_profile.avatar = nextAvatar;
       });
       setAvatarBroken(false);
     } catch (error) {
@@ -385,37 +385,33 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
 
             {/* AI Generate Section */}
             {isNewMode ? (
-              <div className="w-full space-y-3 border-t border-border/30 pt-4">
+              <div className="w-full max-w-2xl space-y-3 border-t border-border/30 pt-4">
                 <div className="flex items-center gap-2 text-sm font-medium text-foreground">
                   <Sparkles className="h-4 w-4 text-primary" />
                   {t('personality.generate')}
                 </div>
-                <div className="flex w-full flex-col gap-2 md:flex-row">
+                <div className="flex flex-col gap-2 xl:flex-row">
                   <Input
                     value={prompt}
                     onChange={(event) => setPrompt(event.target.value)}
                     placeholder={t('personality.generatePlaceholder')}
-                    className="h-11 w-full flex-1 rounded-2xl"
+                    className="h-11 rounded-2xl"
                   />
-                  <Button onClick={generate} disabled={generating} className="h-11 shrink-0 rounded-2xl px-5 md:min-w-32">
+                  <select
+                    className="h-11 rounded-2xl border border-input bg-background px-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    value={targetLanguage}
+                    onChange={(event) => setTargetLanguage(event.target.value)}
+                  >
+                    <option value="Auto">{t('personality.languages.auto')}</option>
+                    <option value="Chinese">{t('personality.languages.chinese')}</option>
+                    <option value="English">{t('personality.languages.english')}</option>
+                    <option value="Japanese">{t('personality.languages.japanese')}</option>
+                  </select>
+                  <Button onClick={generate} disabled={generating} className="h-11 rounded-2xl px-5">
                     <Sparkles className="mr-2 h-4 w-4" />
                     {t('personality.generate')}
                   </Button>
                 </div>
-                {generating ? (
-                  <div className="space-y-1.5 rounded-xl border border-border/60 bg-muted/30 px-3 py-2">
-                    <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-                      <span>{t(`personality.generationStages.${generationStageKey}`)}</span>
-                      <span>{generationProgress}%</span>
-                    </div>
-                    <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-                      <div
-                        className="h-full rounded-full bg-primary transition-all duration-500"
-                        style={{ width: `${generationProgress}%` }}
-                      />
-                    </div>
-                  </div>
-                ) : null}
               </div>
             ) : null}
           </div>

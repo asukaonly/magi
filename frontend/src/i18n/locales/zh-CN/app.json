@@ -726,9 +726,9 @@
     "defaultChatWorkspacePlaceholder": "未选择默认目录",
     "defaultChatWorkspacePickFailed": "选择默认对话目录失败：{{message}}",
     "streamingChatLabel": "流式输出",
-    "streamingChatDesc": "开启后消息将逐字显示；它会关闭自然节奏回复。",
+    "streamingChatDesc": "开启后消息将逐字显示，关闭则等待完整回复后一次性呈现。",
     "conversationRhythmLabel": "自然节奏回复",
-    "conversationRhythmDesc": "开启后，较长回复可能拆成几条自然气泡展示，并会关闭流式输出；记忆和追踪仍保留一条完整回答。",
+    "conversationRhythmDesc": "开启后，较长的非流式回复可能拆成几条自然气泡展示，同时仍保留一条完整回答用于记忆和追踪。",
     "mediaGroundingLabel": "在需要时允许助手查看图片附件",
     "mediaGroundingDesc": "开启后，助手在回答问题时可以读取你已添加的图片附件，用图片内容辅助理解上下文。只有当前核心模型支持视觉能力时，图片才会发送给模型。",
     "mediaGroundingUnavailable": "当前核心模型不支持视觉能力，切换到支持视觉的核心模型后才能开启。",
@@ -2471,26 +2471,12 @@
     "delete": "删除",
     "generate": "AI 生成",
     "generatePlaceholder": "一句话描述人格用于 AI 生成",
-    "generationStages": {
-      "base": "理解人格方向",
-      "registers": "设计对话模式",
-      "rules": "生成触发与收敛规则",
-      "layers": "整理深层人格",
-      "bootstrap": "编写初次见面与示例",
-      "appearance": "生成外观提示词",
-      "integrate": "合并并校验人格"
-    },
     "diffPreview": "人格差异预览（前 8 项）",
     "save": "保存配置",
     "saving": "保存中...",
     "sections": {
       "basicInfo": "基础档案",
       "basicProfile": "基础档案",
-      "identityCore": "性格底色",
-      "idiolect": "说话方式",
-      "registers": "对话模式",
-      "signatureTriggers": "触发反应",
-      "quietHours": "收敛规则",
       "coreIdentity": "核心身份",
       "psychologicalTraits": "心理特征",
       "socialResponses": "社交反应",
@@ -2500,53 +2486,12 @@
       "stateTransitionProtocol": "状态切换协议",
       "personaLayers": "深层人格"
     },
-    "editorModes": {
-      "quick": "快速",
-      "expert": "专家"
-    },
-    "validation": {
-      "ready": "已可保存。",
-      "missing": "保存前补充：{{fields}}",
-      "expertReady": "高级结构已完整。",
-      "expertMissing": "可继续完善：{{fields}}"
-    },
-    "validationIssues": {
-      "signatureTriggerCount": "两条触发反应",
-      "signatureTriggerShape": "完整触发反应",
-      "uniqueTriggerIds": "不重复的触发 ID",
-      "quietHourCount": "两条收敛规则",
-      "quietHourShape": "完整收敛规则",
-      "allRegisters": "全部对话模式",
-      "examplesCount": "六条对话示例",
-      "surfaceLayer": "基础深层人格",
-      "layerShape": "完整深层人格",
-      "bootstrap": "首次见面引导"
-    },
     "fields": {
       "name": "名称",
       "age": "年龄",
       "gender": "性别",
       "description": "描述",
       "avatar": "头像",
-      "identityStatement": "身份陈述",
-      "valuesLoved": "喜欢什么（每行一条）",
-      "valuesRejected": "讨厌什么（每行一条）",
-      "attentionBiases": "注意力偏好（每行一条）",
-      "sentenceStyle": "句式风格",
-      "vocabAvailable": "可用词汇（每行一条）",
-      "vocabAvoided": "避免词汇（每行一条）",
-      "structuralQuirks": "结构习惯（每行一条）",
-      "chatBehavior": "日常回应方式",
-      "registerDescription": "模式描述",
-      "registerBehavior": "回应方式",
-      "registerExamples": "示例（每行一条）",
-      "triggerId": "触发 ID",
-      "activatesWhen": "触发条件",
-      "intensityLevels": "强度层级（key: value）",
-      "exitBehavior": "退出行为",
-      "quietHourCondition": "收敛条件",
-      "clamps": "约束（key: value）",
-      "layerModifiers": "层级修饰（key: value）",
       "occupation": "职业",
       "innerNarrative": "内在叙事",
       "languageFingerprint": "语言指纹",
@@ -2595,10 +2540,6 @@
     "actions": {
       "addTransition": "新增状态切换",
       "removeTransition": "移除该切换",
-      "addTrigger": "新增触发反应",
-      "removeTrigger": "移除触发反应",
-      "addQuietHour": "新增收敛规则",
-      "removeQuietHour": "移除收敛规则",
       "uploadAvatar": "上传头像",
       "uploadingAvatar": "上传中...",
       "addLayer": "新增人格层",
@@ -2608,12 +2549,11 @@
       "viewLayersConfirm": "深层人格包含角色的隐藏设定和渐进解锁机制。查看后可能影响你与角色互动的发现乐趣。确定要查看吗？",
       "viewLayersReveal": "确定查看"
     },
-    "registers": {
-      "chat": "日常",
-      "analysis": "分析",
-      "task": "任务",
-      "emotional": "情绪支持",
-      "crisis": "危机"
+    "languages": {
+      "auto": "自动检测",
+      "chinese": "中文",
+      "english": "English",
+      "japanese": "日本語"
     },
     "noAvatar": "未设置头像"
   }
