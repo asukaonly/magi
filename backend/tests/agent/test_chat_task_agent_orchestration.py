@@ -722,7 +722,7 @@ async def test_aggregate_orchestration_uses_analysis_prompt_without_tool_catalog
         "user_id": "u-chat",
         "session_id": "s-chat",
         "user_message": "看下~/code/magi下的代码，分析下代码架构",
-        "task_category": "chat",
+        "task_category": "analysis",
         "scenario": "analysis",
         "include_tool_catalog": False,
         "persona_id": "persona-aggregate",
@@ -902,6 +902,7 @@ async def test_chat_task_agent_renders_explore_dossier_with_analysis_prompt(monk
         task_category="chat",
         tools=None,
         recent_tool_errors=None,
+        include_tool_catalog=True,
         persona_id=None,
     ):
         calls["build_system_prompt"] = {
@@ -910,6 +911,7 @@ async def test_chat_task_agent_renders_explore_dossier_with_analysis_prompt(monk
             "session_id": session_id,
             "user_message": user_message,
             "task_category": task_category,
+            "include_tool_catalog": include_tool_catalog,
             "persona_id": persona_id,
         }
         return "analysis-system-prompt"
@@ -963,6 +965,7 @@ async def test_chat_task_agent_renders_explore_dossier_with_analysis_prompt(monk
         "session_id": "s-chat",
         "user_message": "看下~/code/magi下的代码，分析下代码架构",
         "task_category": "analysis",
+        "include_tool_catalog": False,
         "persona_id": "persona-explore",
     }
     call_llm = calls["call_llm"]

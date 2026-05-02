@@ -212,6 +212,9 @@ async def test_direct_llm_handler_passes_stored_persona_id_into_context_service(
     )
 
     assert context_service.calls[0]["persona_id"] == "persona-turn"
+    assert context_service.calls[0]["scenario"] == "chat"
+    assert context_service.calls[0]["task_category"] == "chat"
+    assert context_service.calls[0]["tools"] == []
 
 
 @pytest.mark.asyncio
@@ -371,6 +374,9 @@ async def test_function_calling_handler_passes_stored_persona_id_into_context_se
     )
 
     assert context_service.calls[0]["persona_id"] == "persona-tool-turn"
+    assert context_service.calls[0]["scenario"] == "chat"
+    assert context_service.calls[0]["task_category"] == "chat"
+    assert context_service.calls[0]["tools"] == ["glob"]
 
 
 @pytest.mark.asyncio

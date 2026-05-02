@@ -140,6 +140,7 @@ class ExploreRenderHandler(BaseExecutionHandler):
             user_message=root_user_message,
             task_category="analysis",
             scenario=Scenario.ANALYSIS,
+            include_tool_catalog=False,
             persona_id=getattr(request.context, "active_persona_id", None),
         )
         messages = filtered_history + [

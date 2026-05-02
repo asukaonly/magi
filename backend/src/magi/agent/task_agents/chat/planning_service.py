@@ -112,7 +112,7 @@ class ChatPlanningService(ChatPlanningPromptMixin):
             user_id=state.user_id,
             session_id=state.session_id,
             user_message=state.root_user_message,
-            task_category="chat",
+            task_category="analysis",
             scenario=Scenario.ANALYSIS,
             include_tool_catalog=False,
             persona_id=str(state.metadata.get("persona_id") or "").strip() or None,
