@@ -392,6 +392,15 @@
     "generating": "Generating...",
     "generateAction": "Generate",
     "generateFailed": "Failed to generate personality",
+    "generationStages": {
+      "base": "Understanding persona direction",
+      "registers": "Designing conversation modes",
+      "rules": "Generating triggers and restraint rules",
+      "layers": "Arranging deep persona layers",
+      "bootstrap": "Writing first-contact copy and examples",
+      "appearance": "Drafting portrait prompt",
+      "integrate": "Merging and validating persona"
+    },
     "expandTitle": "Expand personality details",
     "customNameLabel": "Personality Name",
     "customNamePlaceholder": "e.g. Rational Engineering Advisor",

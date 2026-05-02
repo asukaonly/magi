@@ -47,6 +47,8 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
     loading,
     saving,
     generating,
+    generationProgress,
+    generationStageKey,
     switching,
     selectedInfo,
     switchPrompt,
@@ -412,6 +414,20 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                     {t('personality.generate')}
                   </Button>
                 </div>
+                {generating ? (
+                  <div className="space-y-1.5 rounded-xl border border-border/60 bg-muted/30 px-3 py-2">
+                    <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                      <span>{t(`personality.generationStages.${generationStageKey}`)}</span>
+                      <span>{generationProgress}%</span>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-primary transition-all duration-500"
+                        style={{ width: `${generationProgress}%` }}
+                      />
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </div>

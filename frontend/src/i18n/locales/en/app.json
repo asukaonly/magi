@@ -2405,6 +2405,15 @@
     "delete": "Delete",
     "generate": "AI Generate",
     "generatePlaceholder": "Describe a personality for AI generation",
+    "generationStages": {
+      "base": "Understanding persona direction",
+      "registers": "Designing conversation modes",
+      "rules": "Generating triggers and restraint rules",
+      "layers": "Arranging deep persona layers",
+      "bootstrap": "Writing first-contact copy and examples",
+      "appearance": "Drafting portrait prompt",
+      "integrate": "Merging and validating persona"
+    },
     "diffPreview": "Personality diff preview (first 8)",
     "save": "Save Configuration",
     "saving": "Saving...",

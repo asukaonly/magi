@@ -68,6 +68,8 @@ const buildHookState = (overrides: Partial<Record<string, unknown>> = {}) => ({
   loading: false,
   saving: false,
   generating: false,
+  generationProgress: 0,
+  generationStageKey: 'base',
   switching: false,
   selectedInfo: { id: 'uuid-seven', name: '七号', displayName: '七号', subtitle: '赛博乐子人 / 反讽大师' },
   switchPrompt: null,
@@ -141,6 +143,25 @@ describe('PersonalityModern', () => {
     expect(screen.getAllByText('personality.generate')).toHaveLength(2);
     expect(within(createCard).queryByText('personality.current')).not.toBeInTheDocument();
     expect(createCard.querySelectorAll('.lucide-check')).toHaveLength(0);
+  });
+
+  it('shows staged feedback while generating a new personality', () => {
+    vi.mocked(usePersonality).mockReturnValue(
+      buildHookState({
+        isNewMode: true,
+        selectedId: '__new__',
+        selectedInfo: undefined,
+        config: buildConfig('', ''),
+        generating: true,
+        generationProgress: 43,
+        generationStageKey: 'rules',
+      }) as any
+    );
+
+    render(<PersonalityModern embedded />);
+
+    expect(screen.getByText('personality.generationStages.rules')).toBeInTheDocument();
+    expect(screen.getByText('43%')).toBeInTheDocument();
   });
 
   it('hides AI generation when editing an existing personality', () => {

@@ -211,17 +211,19 @@ async def update_personality(name: str, config: PersonalityConfigModel, use_ai_n
 async def generate_personality(request: AIGenerateRequest):
     legacy = legacy_personality_config_module()
     try:
-        config = await legacy.ai_generate_personality(
+        result = await legacy.ai_generate_personality_result(
             request.description,
             request.target_language,
             current_config=request.current_config,
             llm_override=request.llm_override,
         )
+        config = result.config
         legacy.logger.info("AI generation successful: name=%s", config.name)
         return PersonalityResponse(
             success=True,
             message="AI personality configuration generated successfully",
             data=legacy._normalize_avatar_in_payload(config.model_dump()),
+            stages=result.stages,
         )
     except HTTPException:
         raise

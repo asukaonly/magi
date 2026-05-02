@@ -393,6 +393,15 @@
     "generating": "生成中...",
     "generateAction": "智能生成",
     "generateFailed": "人格生成失败",
+    "generationStages": {
+      "base": "理解人格方向",
+      "registers": "设计对话模式",
+      "rules": "生成触发与收敛规则",
+      "layers": "整理深层人格",
+      "bootstrap": "编写初次见面与示例",
+      "appearance": "生成外观提示词",
+      "integrate": "合并并校验人格"
+    },
     "expandTitle": "展开人格详情编辑",
     "customNameLabel": "人格名称",
     "customNamePlaceholder": "例如：理性工程顾问",

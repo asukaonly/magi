@@ -31,7 +31,12 @@ from ..services.personality_bootstrap_messages import (
     persist_bootstrap_assistant_message as _persist_bootstrap_assistant_message,
 )
 from ..services.personality_compare import build_personality_diffs, flatten_dict
-from ..services.personality_generation import generate_personality_config, normalize_generated_personality_payload
+from ..services.personality_generation import (
+    PersonalityGenerationResult,
+    generate_personality_config,
+    generate_personality_config_result,
+    normalize_generated_personality_payload,
+)
 from ..services.personality_registry import sanitize_persona_slug, save_personality_config_to_registry
 from .personality_bootstrap_routes import api_bootstrap_init, api_journal_reflect, personality_bootstrap_router
 from .personality_config_common import (
@@ -130,6 +135,7 @@ __all__ = [
     "PersonalityConfig",
     "PersonalityConfigModel",
     "PersonalityDiff",
+    "PersonalityGenerationResult",
     "PersonalityResponse",
     "QuietHourModel",
     "RegisterModel",
@@ -161,6 +167,7 @@ __all__ = [
     "flatten_dict",
     "generate_personality",
     "generate_personality_config",
+    "generate_personality_config_result",
     "get_config",
     "get_current_personality_config",
     "get_current_personality_name",

@@ -81,6 +81,31 @@ export interface AIGenerateRequest {
   llm_override?: LLMConfig;
 }
 
+export const PERSONA_GENERATION_STAGE_IDS = [
+  'base',
+  'registers',
+  'rules',
+  'layers',
+  'bootstrap',
+  'appearance',
+  'integrate',
+] as const;
+
+export type PersonaGenerationStageId = (typeof PERSONA_GENERATION_STAGE_IDS)[number];
+
+export interface PersonaGenerationStage {
+  stage_id: PersonaGenerationStageId | string;
+  label?: string;
+  status: 'pending' | 'running' | 'completed' | 'failed' | string;
+}
+
+export interface PersonalityGenerateResponse {
+  success: boolean;
+  message: string;
+  data?: PersonalityConfig;
+  stages?: PersonaGenerationStage[];
+}
+
 // ---------------------------------------------------------------------------
 // Personality config defaults
 // ---------------------------------------------------------------------------
@@ -307,9 +332,9 @@ export const personasApi = {
 
   /** AI-generate a personality config from a description. */
   generate: (request: AIGenerateRequest) =>
-    api.post<{ success: boolean; data?: PersonalityConfig }>('/personality/generate', request, {
+    api.post<PersonalityConfig>('/personality/generate', request, {
       timeout: 120000,
-    }),
+    }) as Promise<PersonalityGenerateResponse>,
 
   /** Get a greeting from the active persona. */
   getGreeting: () =>

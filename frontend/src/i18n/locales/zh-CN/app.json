@@ -2471,6 +2471,15 @@
     "delete": "删除",
     "generate": "AI 生成",
     "generatePlaceholder": "一句话描述人格用于 AI 生成",
+    "generationStages": {
+      "base": "理解人格方向",
+      "registers": "设计对话模式",
+      "rules": "生成触发与收敛规则",
+      "layers": "整理深层人格",
+      "bootstrap": "编写初次见面与示例",
+      "appearance": "生成外观提示词",
+      "integrate": "合并并校验人格"
+    },
     "diffPreview": "人格差异预览（前 8 项）",
     "save": "保存配置",
     "saving": "保存中...",

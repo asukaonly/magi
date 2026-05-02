@@ -14,9 +14,11 @@ import { useTranslation } from 'react-i18next';
 import {
   personasApi,
   DEFAULT_PERSONALITY_CONFIG,
+  PERSONA_GENERATION_STAGE_IDS,
   type PersonalityConfig,
   type PersonaSummary,
   type SignatureTrigger,
+  type PersonaGenerationStageId,
 } from '@/api/modules/personas';
 import { handleError } from '@/utils/error-handler';
 import { formatPersonaValidationIssues, validatePersonalityConfig } from '@/utils/personaValidation';
@@ -47,6 +49,8 @@ export interface UsePersonalityReturn {
   loading: boolean;
   saving: boolean;
   generating: boolean;
+  generationProgress: number;
+  generationStageKey: PersonaGenerationStageId;
   switching: boolean;
   selectedInfo: PersonalityInfo | undefined;
   switchPrompt: {
@@ -85,6 +89,7 @@ export interface UsePersonalityReturn {
 // ============================================================================
 
 const CONFIDENCE_OPTIONS = ['Extremely High', 'High', 'Medium', 'Low'] as const;
+const GENERATION_STAGE_ADVANCE_MS = 1800;
 
 // ============================================================================
 // Helper Functions
@@ -147,6 +152,7 @@ export function usePersonality(
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [generationStageIndex, setGenerationStageIndex] = useState(0);
   const [switching, setSwitching] = useState(false);
 
   // Personality state – identity is now UUID-based
@@ -331,6 +337,10 @@ export function usePersonality(
     }
 
     setGenerating(true);
+    setGenerationStageIndex(0);
+    const progressTimer = window.setInterval(() => {
+      setGenerationStageIndex((current) => Math.min(current + 1, PERSONA_GENERATION_STAGE_IDS.length - 1));
+    }, GENERATION_STAGE_ADVANCE_MS);
     try {
       const response = await personasApi.generate({
         description: prompt,
@@ -344,9 +354,11 @@ export function usePersonality(
     } catch (error) {
       handleError(error, 'Generate personality');
     } finally {
+      window.clearInterval(progressTimer);
       setGenerating(false);
+      setGenerationStageIndex(0);
     }
-  }, [prompt, targetLanguage, t]);
+  }, [config, prompt, targetLanguage, t]);
 
   const switchPersonality = useCallback(async () => {
     if (selectedId === currentId) {
@@ -423,6 +435,11 @@ export function usePersonality(
     await loadOne(selectedId);
   }, [loadOne, selectedId]);
 
+  const generationStageKey = PERSONA_GENERATION_STAGE_IDS[generationStageIndex] || PERSONA_GENERATION_STAGE_IDS[0];
+  const generationProgress = generating
+    ? Math.min(94, Math.round(((generationStageIndex + 1) / PERSONA_GENERATION_STAGE_IDS.length) * 100))
+    : 0;
+
   // ============================================================================
   // Computed Values
   // ============================================================================
@@ -437,6 +454,8 @@ export function usePersonality(
     loading,
     saving,
     generating,
+    generationProgress,
+    generationStageKey,
     switching,
     selectedInfo,
     switchPrompt,

@@ -12,6 +12,7 @@ import type { LLMConfig } from '../../api/modules/config';
 import {
   personasApi,
   DEFAULT_PERSONALITY_CONFIG,
+  PERSONA_GENERATION_STAGE_IDS,
   selectDefaultSeedPreview,
   type PersonalityConfig,
   type SeedPreview,
@@ -24,6 +25,7 @@ interface PersonalityFormProps {
 
 // Group display order
 const GROUP_ORDER = ['magi', 'general'];
+const GENERATION_STAGE_ADVANCE_MS = 1800;
 
 const mergeConfig = (incoming: Partial<PersonalityConfig>): PersonalityConfig => {
   const next = structuredClone(DEFAULT_PERSONALITY_CONFIG);
@@ -50,6 +52,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
   const formInstance = formContext?.instance;
   const [presets, setPresets] = useState<SeedPreview[]>([]);
   const [generating, setGenerating] = useState(false);
+  const [generationStageIndex, setGenerationStageIndex] = useState(0);
   const [oneLiner, setOneLiner] = useState('');
   const [viewMode, setViewMode] = useState<'selection' | 'focus'>('selection');
   const [showDetails, setShowDetails] = useState(false);
@@ -226,6 +229,10 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
   ) => {
     if (!oneLiner.trim()) return;
     setGenerating(true);
+    setGenerationStageIndex(0);
+    const progressTimer = window.setInterval(() => {
+      setGenerationStageIndex((current) => Math.min(current + 1, PERSONA_GENERATION_STAGE_IDS.length - 1));
+    }, GENERATION_STAGE_ADVANCE_MS);
     try {
       const llmOverride = getFieldValue(['llm']) as LLMConfig | undefined;
       const generated = await personasApi.generate({
@@ -234,8 +241,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
         current_config: config,
         llm_override: llmOverride,
       });
-      const payload = generated.data?.data;
-      const data = ((payload && !Array.isArray(payload) ? payload : generated.data) || {}) as Partial<PersonalityConfig>;
+      const data = (generated.data || {}) as Partial<PersonalityConfig>;
       const mergedConfig = mergeConfig(data);
       setConfig(mergedConfig);
       setFieldValue(['personality'], mergedConfig);
@@ -243,9 +249,16 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
     } catch (error: any) {
       toast.error(error?.message || t('personality.generateFailed'));
     } finally {
+      window.clearInterval(progressTimer);
       setGenerating(false);
+      setGenerationStageIndex(0);
     }
   };
+
+  const generationStageKey = PERSONA_GENERATION_STAGE_IDS[generationStageIndex] || PERSONA_GENERATION_STAGE_IDS[0];
+  const generationProgress = generating
+    ? Math.min(94, Math.round(((generationStageIndex + 1) / PERSONA_GENERATION_STAGE_IDS.length) * 100))
+    : 0;
 
   return (
     <>
@@ -509,6 +522,20 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                                 {generating ? t('personality.generating') : t('personality.generateAction')}
                               </Button>
                             </div>
+                            {generating ? (
+                              <div className="mt-2 space-y-1.5 rounded-lg border border-border/60 bg-background/70 px-3 py-2">
+                                <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                                  <span>{t(`personality.generationStages.${generationStageKey}`)}</span>
+                                  <span>{generationProgress}%</span>
+                                </div>
+                                <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                                  <div
+                                    className="h-full rounded-full bg-primary transition-all duration-500"
+                                    style={{ width: `${generationProgress}%` }}
+                                  />
+                                </div>
+                              </div>
+                            ) : null}
                           </div>
                         </motion.div>
                       )}

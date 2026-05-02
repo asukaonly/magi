@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from magi.config.models import LLMProviderSettings, LLMScenario, LLMSelectionSettings, LLMSettings
@@ -63,6 +65,23 @@ class _RecordingResolver:
         return _FakeLLMAdapter()
 
 
+class _ConcurrencyTrackingAdapter(_FakeLLMAdapter):
+    def __init__(self) -> None:
+        super().__init__()
+        self.active_calls = 0
+        self.max_active_calls = 0
+
+    async def generate(self, **kwargs):  # type: ignore[no-untyped-def]
+        self.calls.append(kwargs)
+        self.active_calls += 1
+        self.max_active_calls = max(self.max_active_calls, self.active_calls)
+        try:
+            await asyncio.sleep(0.01)
+            return await super().generate(**kwargs)
+        finally:
+            self.active_calls -= 1
+
+
 @pytest.mark.asyncio
 async def test_ai_generate_personality_uses_core_scenario(monkeypatch) -> None:
     from magi.api.routers import personality_config
@@ -83,7 +102,8 @@ async def test_ai_generate_personality_uses_core_scenario(monkeypatch) -> None:
     assert len(result.signature_triggers) >= 3
     assert result.persona_layers[0].layer_id == "surface"
     assert result.bootstrap is not None
-    assert resolver.requested == [LLMScenario.CORE]
+    assert len(resolver.requested) >= 3
+    assert set(resolver.requested) == {LLMScenario.CORE}
 
 
 @pytest.mark.asyncio
@@ -110,12 +130,29 @@ async def test_ai_generate_personality_passes_current_draft_to_prompt(monkeypatc
 
     assert result.name == "Astra"
     prompt = adapter.calls[0]["prompt"]
-    system_prompt = adapter.calls[0]["system_prompt"]
+    system_prompts = "\n".join(str(call["system_prompt"]) for call in adapter.calls)
     assert "# Existing Draft Config" in prompt
     assert "Draft Persona" in prompt
     assert "Keep this explicit draft core" in prompt
-    assert "exact fixed surface layer" in system_prompt
-    assert "Do not customize, rename, unlock, or put behavior modifiers into surface" in system_prompt
+    assert "fixed baseline" in system_prompts
+    assert "Do not customize, rename, unlock, or put modifiers into surface" in system_prompts
+
+
+@pytest.mark.asyncio
+async def test_ai_generate_personality_limits_parallel_llm_calls(monkeypatch) -> None:
+    from magi.api.routers import personality_config
+    from magi.api.services.personality_generation import PERSONALITY_GENERATION_MAX_CONCURRENT_LLM_CALLS
+
+    adapter = _ConcurrencyTrackingAdapter()
+    monkeypatch.setattr(
+        personality_config,
+        "resolve_adapter_for_scenario",
+        lambda *args, **kwargs: adapter,
+    )
+
+    await personality_config.ai_generate_personality("一个有层次但稳定的人格", target_language="Chinese")
+
+    assert adapter.max_active_calls <= PERSONALITY_GENERATION_MAX_CONCURRENT_LLM_CALLS
 
 
 @pytest.mark.asyncio

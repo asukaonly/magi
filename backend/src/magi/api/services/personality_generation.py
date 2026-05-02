@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
-from typing import Any, Callable, Dict, Iterable, Optional
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, Iterable, Optional, Sequence
 
 from ...config.models import LLMScenario, LLMSettings
 from ...core.logger import get_logger
@@ -15,6 +17,8 @@ logger = get_logger(__name__)
 
 
 REQUIRED_REGISTERS = ("chat", "analysis", "task", "emotional", "crisis")
+PERSONALITY_GENERATION_MAX_CONCURRENT_LLM_CALLS = 2
+_PERSONALITY_GENERATION_LLM_SEMAPHORE = asyncio.Semaphore(PERSONALITY_GENERATION_MAX_CONCURRENT_LLM_CALLS)
 FIXED_SURFACE_LAYER = {"layer_id": "surface", "unlock_condition": None, "modifiers": {}}
 DEFAULT_DEEP_LAYERS = (
   {
@@ -28,6 +32,23 @@ DEFAULT_DEEP_LAYERS = (
     "modifiers": {"voice_unlocks": ["rare direct sincerity"], "protective_bias": "stronger"},
   },
 )
+GENERATION_STAGE_DEFINITIONS = (
+  {"stage_id": "base", "label": "Understand persona spine"},
+  {"stage_id": "registers", "label": "Design conversation registers"},
+  {"stage_id": "rules", "label": "Design triggers and quiet hours"},
+  {"stage_id": "layers", "label": "Design deep persona layers"},
+  {"stage_id": "bootstrap", "label": "Write examples and first contact"},
+  {"stage_id": "appearance", "label": "Draft portrait prompt"},
+  {"stage_id": "integrate", "label": "Integrate and validate"},
+)
+
+
+@dataclass(frozen=True)
+class PersonalityGenerationResult:
+  """Generated persona plus stage reports for UI feedback."""
+
+  config: PersonalityConfigModel
+  stages: list[dict[str, str]]
 
 
 def _string_list(value: Any) -> list[str]:
@@ -65,6 +86,38 @@ def _ensure_list(payload: Dict[str, Any], key: str) -> list[Any]:
     value = []
     payload[key] = value
   return value
+
+
+def _extract_json_object(response_text: str) -> dict[str, Any]:
+  """Parse the first JSON object from an LLM response."""
+  text = response_text.strip()
+  if not text:
+    raise ValueError("AI returned empty response")
+  if text.startswith("```"):
+    lines = text.split("\n")
+    text = "\n".join(lines[1:-1])
+  json_start = text.find("{")
+  json_end = text.rfind("}")
+  if json_start >= 0 and json_end > json_start:
+    text = text[json_start : json_end + 1]
+  data = json.loads(text)
+  if not isinstance(data, dict):
+    raise ValueError("AI returned JSON that is not an object")
+  return data
+
+
+def _pick_keys(payload: dict[str, Any], keys: Sequence[str]) -> dict[str, Any]:
+  return {key: payload[key] for key in keys if key in payload}
+
+
+def _deep_merge_payload(base: dict[str, Any], update: dict[str, Any]) -> dict[str, Any]:
+  """Merge nested personality fragments without deleting existing sections."""
+  for key, value in update.items():
+    if isinstance(value, dict) and isinstance(base.get(key), dict):
+      _deep_merge_payload(base[key], value)
+    else:
+      base[key] = value
+  return base
 
 
 def _default_register(register: str) -> dict[str, Any]:
@@ -386,6 +439,42 @@ You must output ONLY valid JSON. Do not include markdown formatting like ```json
 }
 """
 
+BASE_SPINE_SYSTEM_PROMPT = """You design the stable spine of an AI persona.
+Return ONLY valid JSON with these keys: name, avatar, description, identity_core, idiolect.
+Use the target language for display copy and prose. Keep the persona ordinary and usable, not a catchphrase machine.
+Do not generate runtime sections such as registers, quiet_hours, signature_triggers, persona_layers, examples, bootstrap, or legacy fields."""
+
+REGISTER_SYSTEM_PROMPT = """You design conversation registers for an existing persona spine.
+Return ONLY valid JSON: {"registers": {...}}.
+Registers must include chat, analysis, task, emotional, and crisis. Each register needs description, behavior, and examples.
+Task, analysis, and crisis must prioritize usefulness over performance. Keep examples natural and non-dramatic."""
+
+RULES_SYSTEM_PROMPT = """You design behavioral control rules for an existing persona spine.
+Return ONLY valid JSON with quiet_hours, signature_triggers, dynamic_state_rules, and milestone_conditions.
+quiet_hours reduce persona intensity for focus, serious work, emotional support, safety, privacy, and security.
+signature_triggers are situational behavior signatures, not global modes. Generate three to six."""
+
+LAYERS_SYSTEM_PROMPT = """You design deep persona layers for an existing persona spine.
+Return ONLY valid JSON: {"persona_layers": [...]}.
+The first layer must be exactly {"layer_id":"surface","unlock_condition":null,"modifiers":{}}.
+Do not customize, rename, unlock, or put modifiers into surface. It is the fixed baseline.
+Generate one or two non-surface relationship-depth diffs such as crack/revealed with unlock conditions and small modifiers."""
+
+BOOTSTRAP_SYSTEM_PROMPT = """You design examples and first-contact behavior for an existing persona spine.
+Return ONLY valid JSON with registers, bootstrap, and interim_lines.
+Only include examples inside registers; do not rewrite register descriptions unless needed for examples.
+bootstrap is only for the first meeting and should be short, natural, and in character without pretending to be physically human."""
+
+APPEARANCE_SYSTEM_PROMPT = """You write image-generation prompt material for a persona portrait.
+Return ONLY valid JSON: {"appearance_prompt": "..."}.
+appearance_prompt must be in English, concise, visual, and suitable for Midjourney or Stable Diffusion."""
+
+INTEGRATION_SYSTEM_PROMPT = """You are the final consistency reviewer for a generated AI persona config.
+Return ONLY valid JSON using the full target schema.
+Preserve the persona spine, remove contradictions, keep ordinary baseline behavior, and keep task/analysis/crisis useful.
+Keep surface exactly fixed as {"layer_id":"surface","unlock_condition":null,"modifiers":{}}. Put relationship-depth changes only in non-surface layers.
+Do not add legacy fields."""
+
 
 def normalize_generated_personality_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize common scalar mismatches and complete required runtime fields."""
@@ -431,7 +520,117 @@ def normalize_generated_personality_payload(payload: Dict[str, Any]) -> Dict[str
     return payload
 
 
-async def generate_personality_config(
+def _current_config_block(current_config: Optional[PersonalityConfigModel]) -> str:
+  if current_config is None:
+    return ""
+  return "\n\n# Existing Draft Config\n" + json.dumps(
+    current_config.model_dump(),
+    ensure_ascii=False,
+    indent=2,
+  )
+
+
+def _base_user_prompt(description: str, target_language: str, current_config: Optional[PersonalityConfigModel]) -> str:
+  return f"""# User Context
+Target Language: {target_language}
+
+# User Input
+{description}{_current_config_block(current_config)}
+
+# Task
+Extract the stable persona spine. Preserve explicit user-authored draft fields when they clearly conflict with generated guesses."""
+
+
+def _module_user_prompt(
+  description: str,
+  target_language: str,
+  spine: dict[str, Any],
+  current_config: Optional[PersonalityConfigModel],
+  task: str,
+) -> str:
+  return f"""# User Context
+Target Language: {target_language}
+
+# User Input
+{description}{_current_config_block(current_config)}
+
+# Persona Spine
+{json.dumps(spine, ensure_ascii=False, indent=2)}
+
+# Module Task
+{task}"""
+
+
+async def _run_generation_stage(
+  *,
+  stage_id: str,
+  prompt: str,
+  system_prompt: str,
+  max_tokens: int,
+  temperature: float,
+  llm_override: Optional[LLMSettings],
+  adapter_resolver: Callable[..., Any],
+  adapter_factory: Callable[..., Any],
+) -> dict[str, Any]:
+  """Run one LLM JSON stage behind the shared generation concurrency gate."""
+  async with _PERSONALITY_GENERATION_LLM_SEMAPHORE:
+    llm_adapter = adapter_resolver(
+      LLMScenario.CORE,
+      llm_settings=llm_override,
+      adapter_factory=adapter_factory,
+    )
+    logger.info(
+      "[AI Generate Personality] Stage %s using provider=%s model=%s",
+      stage_id,
+      getattr(llm_adapter, "provider_name", "unknown"),
+      getattr(llm_adapter, "model_name", "unknown"),
+    )
+    response = await llm_adapter.generate(
+      prompt=prompt,
+      max_tokens=max_tokens,
+      temperature=temperature,
+      system_prompt=system_prompt,
+      json_mode=True,
+      disable_thinking=True,
+    )
+  response_text = response.strip()
+  logger.info(
+    "[AI Generate Personality] Stage %s raw response preview: %s",
+    stage_id,
+    response_text[:300],
+  )
+  return _extract_json_object(response_text)
+
+
+async def _run_optional_generation_stage(
+  *,
+  stages: list[dict[str, str]],
+  allowed_keys: Sequence[str],
+  **kwargs: Any,
+) -> dict[str, Any]:
+  stage_id = str(kwargs["stage_id"])
+  try:
+    data = await _run_generation_stage(**kwargs)
+    stages.append({"stage_id": stage_id, "status": "completed"})
+    return _pick_keys(data, allowed_keys)
+  except Exception as exc:  # noqa: BLE001 - optional sections can be normalized later
+    logger.warning("[AI Generate Personality] Optional stage %s failed: %s", stage_id, exc)
+    stages.append({"stage_id": stage_id, "status": "failed"})
+    return {}
+
+
+def _stage_reports(status_by_id: dict[str, str]) -> list[dict[str, str]]:
+  return [
+    {
+      "stage_id": item["stage_id"],
+      "label": item["label"],
+      "status": status_by_id.get(item["stage_id"], "completed"),
+    }
+    for item in GENERATION_STAGE_DEFINITIONS
+  ]
+
+
+async def generate_personality_config_result(
     description: str,
     target_language: str = "Auto",
   current_config: Optional[PersonalityConfigModel] = None,
@@ -439,84 +638,185 @@ async def generate_personality_config(
     *,
     adapter_resolver: Callable[..., Any] = resolve_adapter_for_scenario,
     adapter_factory: Callable[..., Any] = create_llm_adapter,
-) -> PersonalityConfigModel:
-    """Generate personality configuration from description using LLM."""
-    llm_adapter = adapter_resolver(
-        LLMScenario.CORE,
-        llm_settings=llm_override,
-        adapter_factory=adapter_factory,
+) -> PersonalityGenerationResult:
+  """Generate personality configuration through staged LLM calls."""
+  stage_status: list[dict[str, str]] = []
+  try:
+    base_data = await _run_generation_stage(
+      stage_id="base",
+      prompt=_base_user_prompt(description, target_language, current_config),
+      system_prompt=BASE_SPINE_SYSTEM_PROMPT,
+      max_tokens=1100,
+      temperature=0.65,
+      llm_override=llm_override,
+      adapter_resolver=adapter_resolver,
+      adapter_factory=adapter_factory,
     )
-    logger.info(
-        "[AI Generate Personality] Using unified LLM adapter provider=%s model=%s",
-        getattr(llm_adapter, "provider_name", "unknown"),
-        getattr(llm_adapter, "model_name", "unknown"),
+    stage_status.append({"stage_id": "base", "status": "completed"})
+    combined = _pick_keys(
+      base_data,
+      ("name", "avatar", "description", "identity_core", "idiolect"),
     )
 
-    current_config_block = ""
-    if current_config is not None:
-        current_config_block = "\n\n# Existing Draft Config\n" + json.dumps(
-            current_config.model_dump(),
-            ensure_ascii=False,
-            indent=2,
-        )
+    module_kwargs = {
+      "llm_override": llm_override,
+      "adapter_resolver": adapter_resolver,
+      "adapter_factory": adapter_factory,
+    }
+    module_tasks = [
+      _run_optional_generation_stage(
+        stages=stage_status,
+        allowed_keys=("registers",),
+        stage_id="registers",
+        prompt=_module_user_prompt(
+          description,
+          target_language,
+          combined,
+          current_config,
+          "Design all required registers with examples that match the spine.",
+        ),
+        system_prompt=REGISTER_SYSTEM_PROMPT,
+        max_tokens=1500,
+        temperature=0.7,
+        **module_kwargs,
+      ),
+      _run_optional_generation_stage(
+        stages=stage_status,
+        allowed_keys=("quiet_hours", "signature_triggers", "dynamic_state_rules", "milestone_conditions"),
+        stage_id="rules",
+        prompt=_module_user_prompt(
+          description,
+          target_language,
+          combined,
+          current_config,
+          "Design the persona's trigger signatures, quiet-hour clamps, and state convergence rules.",
+        ),
+        system_prompt=RULES_SYSTEM_PROMPT,
+        max_tokens=1500,
+        temperature=0.7,
+        **module_kwargs,
+      ),
+      _run_optional_generation_stage(
+        stages=stage_status,
+        allowed_keys=("persona_layers",),
+        stage_id="layers",
+        prompt=_module_user_prompt(
+          description,
+          target_language,
+          combined,
+          current_config,
+          "Design only the fixed surface baseline and non-surface deep persona layers.",
+        ),
+        system_prompt=LAYERS_SYSTEM_PROMPT,
+        max_tokens=900,
+        temperature=0.65,
+        **module_kwargs,
+      ),
+      _run_optional_generation_stage(
+        stages=stage_status,
+        allowed_keys=("registers", "bootstrap", "interim_lines"),
+        stage_id="bootstrap",
+        prompt=_module_user_prompt(
+          description,
+          target_language,
+          combined,
+          current_config,
+          "Write register examples, bootstrap first-contact copy, and sparse interim lines.",
+        ),
+        system_prompt=BOOTSTRAP_SYSTEM_PROMPT,
+        max_tokens=1300,
+        temperature=0.72,
+        **module_kwargs,
+      ),
+      _run_optional_generation_stage(
+        stages=stage_status,
+        allowed_keys=("appearance_prompt",),
+        stage_id="appearance",
+        prompt=_module_user_prompt(
+          description,
+          target_language,
+          combined,
+          current_config,
+          "Write the portrait prompt only.",
+        ),
+        system_prompt=APPEARANCE_SYSTEM_PROMPT,
+        max_tokens=350,
+        temperature=0.55,
+        **module_kwargs,
+      ),
+    ]
 
-    user_prompt = f"""# User Context
-Target Language: {target_language}
+    for fragment in await asyncio.gather(*module_tasks):
+      _deep_merge_payload(combined, fragment)
 
-# User Input:
-{description}{current_config_block}
-
-# Generation Intent
-If an existing draft config is provided, preserve explicit user-authored fields unless the user input asks to replace them. Fill missing fields into the target schema directly."""
-
-    response_text = ""
     try:
-        response = await llm_adapter.generate(
-            prompt=user_prompt,
-            max_tokens=2600,
-            temperature=0.7,
-            system_prompt=PERSONALITY_GENERATION_SYSTEM_PROMPT,
-            json_mode=True,
-            disable_thinking=True,
-        )
-        response_text = response.strip()
-        logger.info(
-            "[AI Generate Personality] LLM raw response preview: %s",
-            response_text[:300],
-        )
-        if not response_text:
-            raise ValueError("AI returned empty response")
-        if response_text.startswith("```"):
-            lines = response_text.split("\n")
-            response_text = "\n".join(lines[1:-1])
-        json_start = response_text.find("{")
-        json_end = response_text.rfind("}")
-        if json_start >= 0 and json_end > json_start:
-            response_text = response_text[json_start : json_end + 1]
-        data = json.loads(response_text)
-        data = normalize_generated_personality_payload(data)
+      integrated = await _run_generation_stage(
+        stage_id="integrate",
+        prompt=f"""# User Input
+{description}
 
-        if not data.get("name"):
-            data["name"] = "AI Assistant"
+# Combined Draft
+{json.dumps(combined, ensure_ascii=False, indent=2)}
 
-        return PersonalityConfigModel(**data)
-    except json.JSONDecodeError as exc:
-        logger.error(
-            "[AI Generate Personality] JSON decode failed. Response preview: %s",
-            response_text[:500],
-        )
-        raise ValueError(f"AI returned invalid JSON format: {exc}") from exc
-    except Exception:
-        logger.error(
-            "[AI Generate Personality] Generation failed. Response preview: %s",
-            response_text[:500],
-        )
-        raise
+# Task
+Resolve contradictions and return the final complete persona configuration JSON.""",
+        system_prompt=INTEGRATION_SYSTEM_PROMPT,
+        max_tokens=2600,
+        temperature=0.45,
+        llm_override=llm_override,
+        adapter_resolver=adapter_resolver,
+        adapter_factory=adapter_factory,
+      )
+      _deep_merge_payload(combined, integrated)
+      stage_status.append({"stage_id": "integrate", "status": "completed"})
+    except Exception as exc:  # noqa: BLE001 - normalization can still complete the combined draft
+      logger.warning("[AI Generate Personality] Integration stage failed: %s", exc)
+      stage_status.append({"stage_id": "integrate", "status": "failed"})
+
+    data = normalize_generated_personality_payload(combined)
+    if not data.get("name"):
+      data["name"] = "AI Assistant"
+    status_by_id = {item["stage_id"]: item["status"] for item in stage_status}
+    return PersonalityGenerationResult(
+      config=PersonalityConfigModel(**data),
+      stages=_stage_reports(status_by_id),
+    )
+  except json.JSONDecodeError as exc:
+    logger.error("[AI Generate Personality] JSON decode failed: %s", exc)
+    raise ValueError(f"AI returned invalid JSON format: {exc}") from exc
+  except Exception:
+    logger.error("[AI Generate Personality] Generation failed")
+    raise
+
+
+async def generate_personality_config(
+  description: str,
+  target_language: str = "Auto",
+  current_config: Optional[PersonalityConfigModel] = None,
+  llm_override: Optional[LLMSettings] = None,
+  *,
+  adapter_resolver: Callable[..., Any] = resolve_adapter_for_scenario,
+  adapter_factory: Callable[..., Any] = create_llm_adapter,
+) -> PersonalityConfigModel:
+  """Generate personality configuration from description using LLM."""
+  result = await generate_personality_config_result(
+    description,
+    target_language=target_language,
+    current_config=current_config,
+    llm_override=llm_override,
+    adapter_resolver=adapter_resolver,
+    adapter_factory=adapter_factory,
+  )
+  return result.config
 
 
 __all__ = [
+    "GENERATION_STAGE_DEFINITIONS",
     "PERSONALITY_GENERATION_SYSTEM_PROMPT",
+    "PERSONALITY_GENERATION_MAX_CONCURRENT_LLM_CALLS",
+    "PersonalityGenerationResult",
   "REQUIRED_REGISTERS",
     "generate_personality_config",
+    "generate_personality_config_result",
     "normalize_generated_personality_payload",
 ]

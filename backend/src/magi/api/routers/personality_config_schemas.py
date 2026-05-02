@@ -81,6 +81,7 @@ class PersonalityResponse(BaseModel):
     success: bool
     message: str
     data: Optional[Dict[str, Any]] = None
+    stages: Optional[List[Dict[str, Any]]] = None
 
 
 class BootstrapInitRequest(BaseModel):
