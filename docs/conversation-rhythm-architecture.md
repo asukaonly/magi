@@ -20,6 +20,10 @@ afterthought when the answer naturally supports that shape.
 - Every visible segment must carry real information or conversational value.
   Empty filler, fake hesitation, and forced follow-up questions are product bugs.
 - Simple factual requests should stay single-message by default.
+- Short or compact answers should not be split into three bubbles. Three segments
+  are reserved for longer answers with three distinct conversational moves.
+- Non-initial rhythm segments should wait at least one second before appearing;
+  sub-second delays read as UI animation rather than conversational cadence.
 - The feature must degrade to the existing single-message flow whenever planning,
   validation, persistence, or notification fails.
 

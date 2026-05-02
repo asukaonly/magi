@@ -252,8 +252,8 @@ describe('ChatPage', () => {
     expect(screen.queryByText('chat.workspace.label')).not.toBeInTheDocument();
     expect(screen.getByTestId('chat-workspace-path')).toHaveTextContent('/Users/asuka/code/magi');
     expect(screen.getByTestId('chat-workspace-message-count')).toHaveTextContent('2');
-    expect(screen.getByText('hello').parentElement).toHaveClass('rounded-xl', 'rounded-tr-sm');
-    expect(screen.getByText('world').parentElement?.parentElement).toHaveClass('rounded-xl', 'rounded-tl-sm');
+    expect(screen.getByText('hello').parentElement).toHaveClass('w-fit', 'rounded-xl', 'rounded-tr-sm');
+    expect(screen.getByText('world').parentElement?.parentElement).toHaveClass('w-fit', 'rounded-xl', 'rounded-tl-sm');
   });
 
   it('renders historical assistant messages with their stored persona identity', async () => {

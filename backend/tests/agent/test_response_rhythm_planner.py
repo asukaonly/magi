@@ -62,6 +62,7 @@ async def test_response_rhythm_planner_groups_existing_units(monkeypatch) -> Non
         "第三段给出下一步做法：先做内部 JSON 规划和多消息展示，暂时不做 segment 内流式输出。等这个路径稳定后，再考虑更细的延迟调度和用户可见设置。",
     ]
     assert [segment.intent for segment in plan.segments] == ["acknowledge", "answer", "next_step"]
+    assert [segment.delay_ms for segment in plan.segments] == [0, 1000, 1000]
     assert prompt_service.calls[0]["json_mode"] is True
 
 
@@ -102,6 +103,7 @@ async def test_response_rhythm_planner_splits_short_cjk_sentence_units(monkeypat
         "先别把节奏规划当成第二个回答模型。",
         "主模型正常说完，保留原来的判断。\n然后只把自然断句拆成两三条气泡，让它像聊天而不是报告。",
     ]
+    assert [segment.delay_ms for segment in plan.segments] == [0, 1000]
     payload = json.loads(prompt_service.calls[0]["messages"][0]["content"])
     assert [unit["text"] for unit in payload["units"]] == [
         "先别把节奏规划当成第二个回答模型。",
@@ -129,6 +131,36 @@ async def test_response_rhythm_planner_keeps_short_latin_reply_single_message(mo
 
     assert plan is None
     assert prompt_service.calls == []
+
+
+@pytest.mark.asyncio
+async def test_response_rhythm_planner_rejects_three_groups_for_compact_cjk_answer(monkeypatch) -> None:
+    monkeypatch.setattr(
+        rhythm_module,
+        "get_user_preference",
+        lambda key, default=None: True if key == "conversation_rhythm_enabled" else default,
+    )
+    prompt_service = _FakePromptService(
+        json.dumps(
+            {
+                "groups": [
+                    {"unit_ids": ["u1"], "intent": "answer", "delay_ms": 0},
+                    {"unit_ids": ["u2"], "intent": "explain", "delay_ms": 1000},
+                    {"unit_ids": ["u3"], "intent": "afterthought", "delay_ms": 1200},
+                ]
+            }
+        )
+    )
+    planner = ResponseRhythmPlanner(prompt_service=prompt_service)
+
+    plan = await planner.plan(
+        user_message="这是周笑话吗？",
+        response_text="想多了。这是数学笑话。在二进制世界里，0和1就是全部真理。没有性别，只有电平高低。这个误读比这段代码更吵。",
+        execution_mode="direct_llm",
+        ux_plan={"assistant_surface_mode": "final_only"},
+    )
+
+    assert plan is None
 
 
 @pytest.mark.asyncio

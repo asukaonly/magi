@@ -18,6 +18,8 @@ _MAX_UNITS = 12
 _MIN_CONTENT_CHARS = 120
 _MIN_CJK_CONTENT_CHARS = 48
 _MIN_UNITS_FOR_RHYTHM = 2
+_MIN_DELAY_MS = 1000
+_DEFAULT_DELAY_MS = 1200
 _MAX_DELAY_MS = 2400
 _CJK_RE = re.compile(r"[\u3400-\u9fff\uf900-\ufaff]")
 
@@ -132,10 +134,12 @@ Rules:
 - Use only the provided unit ids.
 - Cover every unit exactly once, in the original order.
 - Use at most three groups.
-- Prefer two or three groups when multiple units are self-contained conversational moves.
-- Use one group only when the answer is short, purely transactional, or splitting would hurt meaning.
+- Prefer one group unless multiple units are truly separate conversational moves.
+- Prefer two groups for most splittable answers.
+- Use three groups only for long answers with three distinct moves; never split into three just because three sentence units exist.
+- Use one group when the answer is short, terse, transactional, or splitting would hurt meaning.
 - Never add fake hesitation, filler, or dramatic pauses; every group must carry useful content.
-- Delays must be integers between 0 and 2400 milliseconds.
+- Delays must be integers between 1000 and 2400 milliseconds except the first group.
 - The first group delay should be 0.
 
 Schema:
@@ -180,6 +184,8 @@ Schema:
         if not isinstance(groups, list) or not groups:
             return None
         if len(groups) > _MAX_SEGMENTS:
+            return None
+        if len(groups) >= 3 and len(aggregate_text) < self._min_three_segment_chars(aggregate_text):
             return None
 
         unit_lookup = {unit.unit_id: unit for unit in units}
@@ -227,8 +233,12 @@ Schema:
         try:
             delay = int(value)
         except (TypeError, ValueError):
-            delay = 700
-        return max(0, min(delay, _MAX_DELAY_MS))
+            delay = _DEFAULT_DELAY_MS
+        return max(_MIN_DELAY_MS, min(delay, _MAX_DELAY_MS))
+
+    @staticmethod
+    def _min_three_segment_chars(response_text: str) -> int:
+        return 120 if _CJK_RE.search(response_text) else 260
 
     @staticmethod
     def _normalize_intent(value: Any) -> str:
