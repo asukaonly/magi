@@ -120,7 +120,7 @@ export const ChatComposerShell = ({
             type="button"
             onClick={onPrimaryAction}
             disabled={sendingMessage}
-            className="flex h-8.5 w-8.5 items-center justify-center rounded-lg bg-foreground/88 text-background transition-colors hover:bg-foreground/96 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
+            className="flex h-[34px] w-[34px] items-center justify-center rounded-lg bg-foreground/88 text-background transition-colors hover:bg-foreground/96 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
             aria-label={waitingForReply ? t('chat.stop') : t('chat.send')}
             title={waitingForReply ? t('chat.stop') : t('chat.send')}
           >

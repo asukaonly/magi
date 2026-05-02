@@ -17,7 +17,7 @@ const AutoResizeTextarea = React.forwardRef<HTMLTextAreaElement, AutoResizeTexta
       }
     }, [minHeight]);
 
-    React.useEffect(() => {
+    React.useLayoutEffect(() => {
       adjustHeight();
     }, [value, adjustHeight]);
 
