@@ -232,6 +232,8 @@ Durable rolling summaries live with chat truth in `chat.db`, not in long-term me
 
 `ChatTranscriptSummarizer` runs after chat responses are persisted, off the response critical path. It estimates the prompt-history token footprint, summarizes the older raw range when the retained tail grows beyond the trigger budget, and activates a new `token_budget` summary. If summary A is active, the next summary is generated from summary A plus the newly covered raw range, then summary B supersedes A for normal prompt reads.
 
+Persona switches add a second prompt-history boundary. When a session tail contains messages from an older active persona followed by the current persona's segment, `ChatHistoryService` condenses the older segment into an active `persona_boundary` summary scoped by the current persona ID. Prompt assembly then receives the neutral boundary summary plus only the raw tail for the current persona segment, so continuity survives without carrying another persona's assistant voice into the active persona prompt.
+
 Memory retrieval remains a separate input to prompt assembly. Long-term memory can be queried alongside session summaries, but session summaries are not promoted into L1/L2/L3/L4 by default because they are continuation checkpoints rather than canonical cross-session facts.
 
 - `memory/l1_events.db`

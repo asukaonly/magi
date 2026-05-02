@@ -128,6 +128,8 @@ class ChatTaskAgent(
             history_fetch_limit=history_fetch_limit,
             chat_store=chat_store,
             chat_read_service_factory=self._chat_read_service_factory,
+            scenario_llm_pool=llm_pool,
+            llm_adapter=llm_adapter,
         )
         self._fact_classifier = ChatFactClassifier()
         self._prompt_service = ChatPromptService(
@@ -327,7 +329,12 @@ class ChatTaskAgent(
                 updated_at_ms=updated_at_ms,
             )
         session_id = self._history_service.require_session_id(classified.user_id, classified.session_id)
-        history_context = await self._history_service.get_or_load_history_context(classified.user_id, session_id)
+        active_persona_id = await self._resolve_context_persona_id(run_decision.latest_payload)
+        history_context = await self._history_service.get_or_load_history_context(
+            classified.user_id,
+            session_id,
+            active_persona_id=active_persona_id,
+        )
         history = history_context.messages
         recent_tool_errors = self._history_service.get_recent_tool_errors(
             self._history_service.history_key(classified.user_id, session_id)
@@ -351,7 +358,6 @@ class ChatTaskAgent(
         core_model_supports_vision = bool(
             getattr(getattr(core_selection, "capabilities", None), "vision", False)
         )
-        active_persona_id = await self._resolve_context_persona_id(run_decision.latest_payload)
         return ChatRuntimeContext(
             latest_fact=latest_fact if isinstance(latest_fact, FactRecord) else None,
             recent_facts=list(base_context.recent_facts if isinstance(base_context, TaskAgentRuntimeContext) else []),

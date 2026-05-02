@@ -2,18 +2,25 @@
 from __future__ import annotations
 
 import json
+import inspect
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Awaitable, Callable, Optional
 
+from ....chat import ChatContextSummaryRecord, ChatStore
+from ....config.models import LLMScenario, ThinkingDepth
 from ....core.logger import get_logger
 from ....core.sqlite import connect_sqlite
+from ....llm.provider_bridge import LLMProviderBridge
 from ....utils.runtime import get_runtime_paths
-from ....chat import ChatStore
+from ...trace import now_wall_ms
 
 logger = get_logger(__name__)
 
 FACT_EVENTS_TABLE = "fact_events"
+SUMMARY_KIND_PERSONA_BOUNDARY = "persona_boundary"
+_PERSONA_BOUNDARY_OUTPUT_RESERVE = 4096
+_PERSONA_BOUNDARY_CONTENT_LIMIT = 2400
 _TOOL_STATE_HANDLE_FIELDS = (
     "attachment_id",
     "asset_ref_id",
@@ -27,6 +34,32 @@ _TOOL_STATE_HANDLE_FIELDS = (
 
 
 @dataclass(slots=True)
+class PersonaBoundarySummaryMessage:
+    """One transcript item selected for persona-boundary summarization."""
+
+    message_id: str | None
+    role: str
+    content: str
+    persona_id: str | None
+    message_kind: str | None
+
+
+@dataclass(slots=True)
+class PersonaBoundarySummaryInput:
+    """Input passed to the persona-boundary summary generator."""
+
+    session_id: str
+    active_persona_id: str
+    messages: list[PersonaBoundarySummaryMessage]
+
+
+PersonaBoundarySummaryGenerator = Callable[
+    [PersonaBoundarySummaryInput],
+    str | Awaitable[str],
+]
+
+
+@dataclass(slots=True)
 class CachedConversationHistory:
     """In-memory conversation history paired with the durable transcript version."""
 
@@ -34,6 +67,7 @@ class CachedConversationHistory:
     messages: list[dict[str, Any]]
     session_summary: str | None = None
     session_origin: str | None = None
+    active_persona_id: str | None = None
     loaded_at_ms: int = 0
 
 
@@ -49,6 +83,9 @@ class ChatHistoryService:
         history_fetch_limit: int = 1000,
         chat_store: ChatStore | None = None,
         chat_read_service_factory: Callable[[], Any] | None = None,
+        scenario_llm_pool: Any | None = None,
+        llm_adapter: Any | None = None,
+        persona_boundary_summary_generator: PersonaBoundarySummaryGenerator | None = None,
     ) -> None:
         runtime_paths = get_runtime_paths()
         self._l1_db_path = l1_db_path
@@ -60,23 +97,45 @@ class ChatHistoryService:
         self._history_cache_order: list[str] = []
         self._chat_store = chat_store
         self._chat_read_service_factory = chat_read_service_factory
+        self._scenario_llm_pool = scenario_llm_pool
+        self._llm_adapter = llm_adapter
+        self._persona_boundary_summary_generator = persona_boundary_summary_generator
 
-    async def get_or_load_history(self, user_id: str, session_id: str) -> list[dict[str, Any]]:
-        return (await self.get_or_load_history_context(user_id, session_id)).messages
+    async def get_or_load_history(
+        self,
+        user_id: str,
+        session_id: str,
+        *,
+        active_persona_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        return (
+            await self.get_or_load_history_context(
+                user_id,
+                session_id,
+                active_persona_id=active_persona_id,
+            )
+        ).messages
 
     async def get_or_load_history_context(
         self,
         user_id: str,
         session_id: str,
+        *,
+        active_persona_id: str | None = None,
     ) -> CachedConversationHistory:
         history_key = self.history_key(user_id, session_id)
+        normalized_persona_id = self._normalize_persona_id(active_persona_id)
         durable_version = 0
         active_summary = None
         if self._chat_store is not None:
             durable_version = await self._chat_store.get_history_version(session_id)
             active_summary = await self._chat_store.get_active_context_summary(session_id=session_id)
         cached_entry = self._conversation_history.get(history_key)
-        if cached_entry is not None and cached_entry.version == durable_version:
+        if (
+            cached_entry is not None
+            and cached_entry.version == durable_version
+            and cached_entry.active_persona_id == normalized_persona_id
+        ):
             return cached_entry
         try:
             read_service = self._get_chat_read_service()
@@ -90,11 +149,20 @@ class ChatHistoryService:
                     history,
                     first_kept_message_id=active_summary.first_kept_message_id,
                 )
+            history, persona_boundary_summary = await self._apply_persona_boundary_summary(
+                session_id=session_id,
+                history=history,
+                active_persona_id=normalized_persona_id,
+            )
             cached_history = CachedConversationHistory(
                 version=durable_version,
                 messages=[item.to_prompt_message() for item in history],
-                session_summary=(active_summary.summary_text if active_summary is not None else None),
+                session_summary=self._combine_session_summaries(
+                    active_summary.summary_text if active_summary is not None else None,
+                    persona_boundary_summary,
+                ),
                 session_origin=(active_summary.session_origin if active_summary is not None else None),
+                active_persona_id=normalized_persona_id,
             )
             self._conversation_history[history_key] = cached_history
             self._update_lru_cache(history_key)
@@ -106,9 +174,13 @@ class ChatHistoryService:
                 session_id,
                 exc,
             )
-            if cached_entry is not None:
+            if cached_entry is not None and cached_entry.active_persona_id == normalized_persona_id:
                 return cached_entry
-            return CachedConversationHistory(version=durable_version, messages=[])
+            return CachedConversationHistory(
+                version=durable_version,
+                messages=[],
+                active_persona_id=normalized_persona_id,
+            )
 
     def require_session_id(self, user_id: str, session_id: Optional[str] = None) -> str:
         _ = user_id
@@ -266,6 +338,279 @@ class ChatHistoryService:
             if str(getattr(item, "message_id", "") or "").strip() == normalized_first_kept:
                 return history[index:]
         return history
+
+    async def _apply_persona_boundary_summary(
+        self,
+        *,
+        session_id: str,
+        history: list[Any],
+        active_persona_id: str | None,
+    ) -> tuple[list[Any], str | None]:
+        normalized_persona_id = self._normalize_persona_id(active_persona_id)
+        if not normalized_persona_id or not history:
+            return history, None
+        boundary_index = self._find_persona_boundary_index(history, normalized_persona_id)
+        if boundary_index is None or boundary_index <= 0:
+            return history, None
+        prefix = history[:boundary_index]
+        if not self._history_has_foreign_persona(prefix, normalized_persona_id):
+            return history, None
+        tail = history[boundary_index:]
+        summary_text = await self._get_or_create_persona_boundary_summary(
+            session_id=session_id,
+            active_persona_id=normalized_persona_id,
+            summarized_messages=prefix,
+            retained_messages=tail,
+        )
+        return tail, summary_text
+
+    async def _get_or_create_persona_boundary_summary(
+        self,
+        *,
+        session_id: str,
+        active_persona_id: str,
+        summarized_messages: list[Any],
+        retained_messages: list[Any],
+    ) -> str | None:
+        if not summarized_messages:
+            return None
+        first_kept_message_id = self._message_id(retained_messages[0]) if retained_messages else None
+        covered_from_message_id = self._message_id(summarized_messages[0])
+        covered_to_message_id = self._message_id(summarized_messages[-1])
+        if self._chat_store is not None:
+            active_summary = await self._chat_store.get_active_context_summary(
+                session_id=session_id,
+                summary_kind=SUMMARY_KIND_PERSONA_BOUNDARY,
+                persona_scope=active_persona_id,
+            )
+            if (
+                active_summary is not None
+                and active_summary.covered_to_message_id == covered_to_message_id
+                and active_summary.first_kept_message_id == first_kept_message_id
+                and active_summary.summary_text.strip()
+            ):
+                return active_summary.summary_text
+
+        summary_input = PersonaBoundarySummaryInput(
+            session_id=session_id,
+            active_persona_id=active_persona_id,
+            messages=self._build_persona_boundary_messages(summarized_messages),
+        )
+        summary_text = await self._generate_persona_boundary_summary(summary_input)
+        if not summary_text:
+            summary_text = self._build_persona_boundary_fallback(summary_input)
+        if self._chat_store is None or not summary_text:
+            return summary_text or None
+
+        now_ms = now_wall_ms()
+        await self._chat_store.activate_context_summary(
+            ChatContextSummaryRecord(
+                summary_id=f"persona_boundary_{session_id}_{active_persona_id}_{now_ms}",
+                session_id=session_id,
+                parent_summary_id=None,
+                status="active",
+                summary_kind=SUMMARY_KIND_PERSONA_BOUNDARY,
+                persona_scope=active_persona_id,
+                covered_from_message_id=covered_from_message_id,
+                covered_to_message_id=covered_to_message_id,
+                first_kept_message_id=first_kept_message_id,
+                covered_to_sequence_no=len(summarized_messages),
+                session_origin="Previous transcript range before the current persona segment.",
+                summary_text=summary_text,
+                prompt_profile="persona_boundary",
+                model_provider=self._resolve_model_provider(),
+                model_id=self._resolve_model_id(),
+                token_count_before=None,
+                token_count_after=None,
+                quality_status="generated",
+                created_at_ms=now_ms,
+                updated_at_ms=now_ms,
+            )
+        )
+        return summary_text
+
+    async def _generate_persona_boundary_summary(
+        self,
+        summary_input: PersonaBoundarySummaryInput,
+    ) -> str:
+        if self._persona_boundary_summary_generator is not None:
+            generated = self._persona_boundary_summary_generator(summary_input)
+            if inspect.isawaitable(generated):
+                generated = await generated
+            return str(generated or "").strip()
+        adapter = self._resolve_summary_adapter()
+        if adapter is None:
+            return ""
+        try:
+            bridge = LLMProviderBridge(adapter)
+            response = await bridge.chat(
+                system_prompt=self._build_persona_boundary_system_prompt(),
+                messages=[{"role": "user", "content": self._build_persona_boundary_user_prompt(summary_input)}],
+                max_tokens=_PERSONA_BOUNDARY_OUTPUT_RESERVE,
+                temperature=0.2,
+                thinking_depth=ThinkingDepth.NONE,
+            )
+            return str(response.content or "").strip()
+        except Exception:
+            logger.exception("Persona boundary summary generation failed session_id=%s", summary_input.session_id)
+            return ""
+
+    def _resolve_summary_adapter(self) -> Any | None:
+        if self._scenario_llm_pool is not None:
+            try:
+                return self._scenario_llm_pool.get(LLMScenario.CONTEXT_COMPACT)
+            except (ValueError, KeyError):
+                try:
+                    return self._scenario_llm_pool.get(LLMScenario.CORE)
+                except (ValueError, KeyError):
+                    return None
+        return self._llm_adapter
+
+    def _resolve_model_provider(self) -> str | None:
+        adapter = self._resolve_summary_adapter()
+        if adapter is None:
+            return "summary_generator" if self._persona_boundary_summary_generator is not None else None
+        provider = getattr(adapter, "provider", None) or getattr(adapter, "provider_name", None)
+        return str(provider) if provider is not None else None
+
+    def _resolve_model_id(self) -> str | None:
+        adapter = self._resolve_summary_adapter()
+        if adapter is None:
+            return "persona_boundary_summary_generator" if self._persona_boundary_summary_generator is not None else None
+        model_id = getattr(adapter, "model_id", None) or getattr(adapter, "model_name", None)
+        return str(model_id) if model_id is not None else None
+
+    @staticmethod
+    def _find_persona_boundary_index(history: list[Any], active_persona_id: str) -> int | None:
+        saw_current_segment = False
+        for index in range(len(history) - 1, -1, -1):
+            persona_id = ChatHistoryService._message_persona_id(history[index])
+            if persona_id == active_persona_id:
+                saw_current_segment = True
+                continue
+            if not persona_id:
+                continue
+            if saw_current_segment:
+                return index + 1
+        if not saw_current_segment and any(
+            persona_id and persona_id != active_persona_id
+            for persona_id in (ChatHistoryService._message_persona_id(item) for item in history)
+        ):
+            return len(history)
+        return None
+
+    @staticmethod
+    def _history_has_foreign_persona(history: list[Any], active_persona_id: str) -> bool:
+        return any(
+            persona_id and persona_id != active_persona_id
+            for persona_id in (ChatHistoryService._message_persona_id(item) for item in history)
+        )
+
+    @staticmethod
+    def _build_persona_boundary_messages(history: list[Any]) -> list[PersonaBoundarySummaryMessage]:
+        messages: list[PersonaBoundarySummaryMessage] = []
+        for item in history:
+            content = str(getattr(item, "content", "") or "").strip()
+            if not content:
+                continue
+            if len(content) > _PERSONA_BOUNDARY_CONTENT_LIMIT:
+                content = content[:_PERSONA_BOUNDARY_CONTENT_LIMIT].rstrip() + "\n... [truncated]"
+            messages.append(
+                PersonaBoundarySummaryMessage(
+                    message_id=ChatHistoryService._message_id(item),
+                    role=str(getattr(item, "role", "") or "unknown").strip() or "unknown",
+                    content=content,
+                    persona_id=ChatHistoryService._message_persona_id(item),
+                    message_kind=str(getattr(item, "message_kind", "") or "").strip() or None,
+                )
+            )
+        return messages
+
+    @staticmethod
+    def _build_persona_boundary_system_prompt() -> str:
+        return """You create neutral continuity summaries when a chat thread switches active assistant persona.
+
+Rules:
+- Preserve user requests, facts, decisions, constraints, commitments, unresolved tasks, and concrete artifacts.
+- Do not imitate, quote, or preserve the previous persona's voice, style, jokes, self-reference, or emotional mannerisms.
+- Refer to older assistant turns as previous assistant turns when attribution is needed.
+- Write concise structured plain text that can be inserted into the next prompt.
+- Keep the current active persona authoritative for future replies.""".strip()
+
+    @staticmethod
+    def _build_persona_boundary_user_prompt(summary_input: PersonaBoundarySummaryInput) -> str:
+        return "\n".join(
+            [
+                f"Session ID: {summary_input.session_id}",
+                f"Current active persona ID: {summary_input.active_persona_id}",
+                "",
+                "Summarize the older transcript range below for continuity after a persona switch.",
+                "Remove persona voice and preserve only task/content continuity.",
+                "",
+                "# Older Transcript Range",
+                ChatHistoryService._render_persona_boundary_messages(summary_input.messages),
+                "",
+                "Return the neutral continuity summary only.",
+            ]
+        ).strip()
+
+    @staticmethod
+    def _render_persona_boundary_messages(messages: list[PersonaBoundarySummaryMessage]) -> str:
+        rendered: list[str] = []
+        for message in messages:
+            persona = message.persona_id or "none"
+            message_id = message.message_id or "unknown"
+            message_kind = message.message_kind or "unknown"
+            rendered.append(
+                f"[{message_id}] {message.role} persona={persona} kind={message_kind}:\n{message.content}"
+            )
+        return "\n\n".join(rendered)
+
+    @staticmethod
+    def _build_persona_boundary_fallback(summary_input: PersonaBoundarySummaryInput) -> str:
+        lines = [
+            "Previous transcript range before the current active persona segment:",
+        ]
+        for message in summary_input.messages[:24]:
+            content = message.content.replace("\n", " ").strip()
+            if len(content) > 320:
+                content = content[:320].rstrip() + "..."
+            if message.role == "user":
+                lines.append(f"- User request/context: {content}")
+            elif message.persona_id and message.persona_id != summary_input.active_persona_id:
+                lines.append(f"- Previous assistant turn content, neutralized for continuity: {content}")
+            else:
+                lines.append(f"- Prior {message.role} context: {content}")
+        if len(summary_input.messages) > 24:
+            lines.append(f"- {len(summary_input.messages) - 24} additional older messages were omitted from fallback detail.")
+        return "\n".join(lines).strip()
+
+    @staticmethod
+    def _combine_session_summaries(
+        token_budget_summary: str | None,
+        persona_boundary_summary: str | None,
+    ) -> str | None:
+        token_text = str(token_budget_summary or "").strip()
+        boundary_text = str(persona_boundary_summary or "").strip()
+        if not boundary_text:
+            return token_text or None
+        sections: list[str] = []
+        if token_text:
+            sections.extend(["# Rolling Token-Budget Summary", token_text, ""])
+        sections.extend(["# Persona Boundary Summary", boundary_text])
+        return "\n".join(sections).strip() or None
+
+    @staticmethod
+    def _message_persona_id(item: Any) -> str | None:
+        return ChatHistoryService._normalize_persona_id(getattr(item, "persona_id", None))
+
+    @staticmethod
+    def _message_id(item: Any) -> str | None:
+        return str(getattr(item, "message_id", "") or "").strip() or None
+
+    @staticmethod
+    def _normalize_persona_id(persona_id: str | None) -> str | None:
+        return str(persona_id or "").strip() or None
 
     def _get_chat_read_service(self):  # type: ignore[no-untyped-def]
         if self._chat_read_service_factory is not None:

@@ -192,6 +192,100 @@ async def test_chat_history_service_loads_active_summary_context_and_tail(tmp_pa
 
 
 @pytest.mark.asyncio
+async def test_chat_history_service_summarizes_previous_persona_segment(tmp_path: Path) -> None:
+    chat_store = ChatStore(db_path=str(tmp_path / "chat.db"))
+    await chat_store.initialize()
+    await chat_store.create_user_turn(
+        session_id="s-chat",
+        user_id="u-chat",
+        turn_id="turn-a",
+        message_text="old persona request",
+        created_at_ms=100,
+        persona_id="persona-a",
+    )
+    await chat_store.append_message(
+        ChatMessageRecord(
+            message_id="assistant-a",
+            session_id="s-chat",
+            turn_id="turn-a",
+            user_id="u-chat",
+            role="assistant",
+            message_kind="assistant_final",
+            content_text="old persona answer with its own voice",
+            payload_json="{}",
+            is_final=True,
+            is_visible=True,
+            created_at_ms=150,
+            sequence_no=2,
+            replaces_message_id=None,
+            replaced_by_message_id=None,
+            persona_id="persona-a",
+        )
+    )
+    current_user_message = await chat_store.create_user_turn(
+        session_id="s-chat",
+        user_id="u-chat",
+        turn_id="turn-b",
+        message_text="continue as the current persona",
+        created_at_ms=200,
+        persona_id="persona-b",
+    )
+
+    from magi.chat.read_service import ChatReadService
+
+    isolated_read_service = ChatReadService()
+    isolated_read_service._chat_db_path = tmp_path / "chat.db"
+    isolated_read_service._l1_db_path = tmp_path / "l1.sqlite3"
+    isolated_read_service._runtime_trace_db_path = tmp_path / "runtime_trace.sqlite3"
+
+    calls = []
+
+    async def summary_generator(summary_input):  # type: ignore[no-untyped-def]
+        calls.append(summary_input)
+        return "Neutral continuity from the previous persona segment."
+
+    service = ChatHistoryService(
+        l1_db_path=tmp_path / "l1.sqlite3",
+        runtime_trace_db_path=tmp_path / "runtime_trace.sqlite3",
+        chat_store=chat_store,
+        chat_read_service_factory=lambda: isolated_read_service,
+        persona_boundary_summary_generator=summary_generator,
+    )
+
+    history_context = await service.get_or_load_history_context(
+        "u-chat",
+        "s-chat",
+        active_persona_id="persona-b",
+    )
+
+    assert history_context.messages == [
+        {"role": "user", "content": "continue as the current persona"},
+    ]
+    assert "# Persona Boundary Summary" in (history_context.session_summary or "")
+    assert "Neutral continuity from the previous persona segment." in (history_context.session_summary or "")
+    assert len(calls) == 1
+    assert [message.role for message in calls[0].messages] == ["user", "assistant"]
+    assert calls[0].messages[1].persona_id == "persona-a"
+
+    active_summary = await chat_store.get_active_context_summary(
+        session_id="s-chat",
+        summary_kind="persona_boundary",
+        persona_scope="persona-b",
+    )
+    assert active_summary is not None
+    assert active_summary.first_kept_message_id == current_user_message.message_id
+    assert active_summary.summary_text == "Neutral continuity from the previous persona segment."
+
+    reloaded_context = await service.get_or_load_history_context(
+        "u-chat",
+        "s-chat",
+        active_persona_id="persona-b",
+    )
+    assert reloaded_context.session_summary == history_context.session_summary
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
 async def test_chat_history_service_retries_reload_after_transient_read_failure(tmp_path: Path) -> None:
     chat_store = ChatStore(db_path=str(tmp_path / "chat.db"))
     await chat_store.initialize()
