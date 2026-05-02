@@ -428,11 +428,11 @@ It must stop generating a fixed set of four dramatic state-transition protocols 
 - quiet hours
 - three to six signature triggers
 - at least six examples, including ordinary baseline examples
-- optional relationship layers
+- deep persona layers after the fixed `surface` baseline
 
 Generation prompts should explicitly say that ordinary, low-performance replies are valid and desirable for most turns.
 
-Generation may receive an existing draft config. In that case, it should preserve explicit user-authored fields unless the user asks to replace them, then fill missing target-schema fields. Post-generation normalization may complete required runtime surfaces such as core registers, quiet hours, signature triggers, surface layer, examples, and bootstrap defaults so generated personas are immediately editable and runnable.
+Generation may receive an existing draft config. In that case, it should preserve explicit user-authored fields unless the user asks to replace them, then fill missing target-schema fields. Post-generation normalization may complete required runtime surfaces such as core registers, quiet hours, signature triggers, the fixed `surface` layer, non-surface deep layer defaults, examples, and bootstrap defaults so generated personas are immediately editable and runnable. The generator must not let the model customize `surface`; relationship-depth behavior belongs in non-surface layers such as `crack` and `revealed`.
 
 Bootstrap first-meeting prompts are separate from normal registers. They should guide a short first-contact opening without requiring the persona to conceal being AI or to claim physical-human experiences outside the persona config.
 

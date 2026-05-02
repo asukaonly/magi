@@ -110,9 +110,12 @@ async def test_ai_generate_personality_passes_current_draft_to_prompt(monkeypatc
 
     assert result.name == "Astra"
     prompt = adapter.calls[0]["prompt"]
+    system_prompt = adapter.calls[0]["system_prompt"]
     assert "# Existing Draft Config" in prompt
     assert "Draft Persona" in prompt
     assert "Keep this explicit draft core" in prompt
+    assert "exact fixed surface layer" in system_prompt
+    assert "Do not customize, rename, unlock, or put behavior modifiers into surface" in system_prompt
 
 
 @pytest.mark.asyncio
@@ -238,5 +241,22 @@ def test_normalize_generated_personality_payload_completes_sparse_payload() -> N
     assert len(payload["quiet_hours"]) == 2
     assert len(payload["signature_triggers"]) == 3
     assert payload["persona_layers"][0]["layer_id"] == "surface"
+    assert [item["layer_id"] for item in payload["persona_layers"]] == ["surface", "crack", "revealed"]
     assert payload["bootstrap"]["opening_line"]
     assert sum(len(item["examples"]) for item in payload["registers"].values()) >= 6
+
+
+def test_normalize_generated_personality_payload_keeps_surface_fixed() -> None:
+    from magi.api.routers.personality_config import normalize_generated_personality_payload
+
+    payload = normalize_generated_personality_payload({
+        "name": "Layered",
+        "persona_layers": [
+            {"layer_id": "surface", "unlock_condition": {"trust": 0.2}, "modifiers": {"secret": "too much"}},
+            {"layer_id": "crack", "unlock_condition": {"trust_level_gte": 0.4}, "modifiers": {"warmth": "slightly higher"}},
+            {"layer_id": "surface", "unlock_condition": None, "modifiers": {"duplicate": "ignored"}},
+        ],
+    })
+
+    assert payload["persona_layers"][0] == {"layer_id": "surface", "unlock_condition": None, "modifiers": {}}
+    assert [item["layer_id"] for item in payload["persona_layers"]] == ["surface", "crack", "revealed"]

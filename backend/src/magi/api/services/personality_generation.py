@@ -15,6 +15,19 @@ logger = get_logger(__name__)
 
 
 REQUIRED_REGISTERS = ("chat", "analysis", "task", "emotional", "crisis")
+FIXED_SURFACE_LAYER = {"layer_id": "surface", "unlock_condition": None, "modifiers": {}}
+DEFAULT_DEEP_LAYERS = (
+  {
+    "layer_id": "crack",
+    "unlock_condition": {"trust_level_gte": 0.45, "interaction_count_gte": 30},
+    "modifiers": {"memory_behavior": "May reference shared context lightly."},
+  },
+  {
+    "layer_id": "revealed",
+    "unlock_condition": {"trust_level_gte": 0.75, "milestone_required": "guard_down"},
+    "modifiers": {"voice_unlocks": ["rare direct sincerity"], "protective_bias": "stronger"},
+  },
+)
 
 
 def _string_list(value: Any) -> list[str]:
@@ -177,21 +190,31 @@ def _complete_signature_triggers(payload: Dict[str, Any]) -> None:
 
 def _complete_persona_layers(payload: Dict[str, Any]) -> None:
   layers = _ensure_list(payload, "persona_layers")
-  normalized: list[dict[str, Any]] = []
-  has_surface = False
+  normalized: list[dict[str, Any]] = [dict(FIXED_SURFACE_LAYER)]
+  seen_ids = {"surface"}
   for item in layers:
     if not isinstance(item, dict):
       continue
     layer_id = str(item.get("layer_id") or "").strip()
-    if not layer_id:
+    if not layer_id or layer_id in seen_ids:
       continue
     if layer_id == "surface":
-      has_surface = True
+      continue
+    seen_ids.add(layer_id)
     unlock_condition = item.get("unlock_condition") if isinstance(item.get("unlock_condition"), dict) else None
     modifiers = item.get("modifiers") if isinstance(item.get("modifiers"), dict) else {}
     normalized.append({"layer_id": layer_id, "unlock_condition": unlock_condition, "modifiers": dict(modifiers)})
-  if not has_surface:
-    normalized.insert(0, {"layer_id": "surface", "unlock_condition": None, "modifiers": {}})
+  for item in DEFAULT_DEEP_LAYERS:
+    if len(normalized) >= 3:
+      break
+    if item["layer_id"] in seen_ids:
+      continue
+    normalized.append({
+      "layer_id": item["layer_id"],
+      "unlock_condition": dict(item["unlock_condition"]),
+      "modifiers": dict(item["modifiers"]),
+    })
+    seen_ids.add(str(item["layer_id"]))
   payload["persona_layers"] = normalized
 
 
@@ -253,7 +276,7 @@ You are an elite AI behavioral designer and system architect. Your task is to ta
 
 # Core Directives
 1. Output ordinary baseline behavior first. A believable persona is not a catchphrase machine.
-2. Strong personality should appear through registers, signature triggers, relationship layers, and quiet-hour clamps.
+2. Strong personality should appear through registers, signature triggers, deep persona layers, and quiet-hour clamps.
 3. Do not generate legacy fields such as persona_entity, state_transition_protocol, scenario_prompts, persona_override, or behavior_hints.
 4. Core identity should describe worldview, values, attention habits, and stance. Idiolect should describe a low-intensity voice that can appear in normal replies.
 5. Registers must cover at least chat, analysis, task, emotional, and crisis. Task/analysis/crisis should prioritize usefulness over performance.
@@ -262,6 +285,9 @@ You are an elite AI behavioral designer and system architect. Your task is to ta
 8. Generate at least six examples across registers. Include ordinary baseline examples; do not make every example dramatic.
 9. Bootstrap is only for the first meeting. Keep it separate from normal registers and do not make it a permanent greeting style.
 10. Do not claim physical-human experiences unless the user's requested fictional persona explicitly requires them as fictional backstory.
+11. Use the target language for display names, descriptions, identity prose, register behavior, examples, triggers, and bootstrap copy. Keep appearance_prompt in English.
+12. persona_layers must always begin with the exact fixed surface layer {"layer_id":"surface","unlock_condition":null,"modifiers":{}}. Do not customize, rename, unlock, or put behavior modifiers into surface; it is the required baseline, not hidden content.
+13. Generate one or two non-surface deep layers such as crack/revealed. These layers are relationship-depth diffs with unlock conditions and small modifiers, not full persona rewrites.
 
 # Output Format
 You must output ONLY valid JSON. Do not include markdown formatting like ```json, and do not provide any explanatory text.
