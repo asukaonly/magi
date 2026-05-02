@@ -29,6 +29,7 @@ CJK_TEXT_RE = re.compile(r"[\u3400-\u9fff]")
 CJK_INTERNAL_SPACE_RE = re.compile(r"(?<=[\u3400-\u9fff])\s+(?=[\u3400-\u9fff])")
 CJK_BEFORE_PUNCTUATION_RE = re.compile(r"(?<=[\u3400-\u9fff])\s+(?=[，。！？、；：])")
 ENGLISH_BOOTSTRAP_PREFIXES = ("hi, i'm ", "hello, i'm ", "hi, i am ", "hello, i am ")
+AUTO_LANGUAGE_VALUES = {"", "auto", "automatic", "自动"}
 DEFAULT_DEEP_LAYERS = (
   {
     "layer_id": "crack",
@@ -77,6 +78,10 @@ def _is_chinese_target(target_language: str) -> bool:
   return target_language.strip().lower() in {"chinese", "zh", "zh-cn", "中文", "简体中文"}
 
 
+def _is_auto_target(target_language: str) -> bool:
+  return target_language.strip().lower() in AUTO_LANGUAGE_VALUES
+
+
 def _payload_looks_chinese(payload: Dict[str, Any]) -> bool:
   sample = " ".join(
     str(payload.get(key) or "")
@@ -85,6 +90,21 @@ def _payload_looks_chinese(payload: Dict[str, Any]) -> bool:
   identity_core = payload.get("identity_core") if isinstance(payload.get("identity_core"), dict) else {}
   sample = f"{sample} {identity_core.get('identity_statement') or ''}"
   return bool(CJK_TEXT_RE.search(sample))
+
+
+def _resolve_generation_target_language(
+  description: str,
+  target_language: str,
+  current_config: Optional[PersonalityConfigModel],
+) -> str:
+  requested_language = (target_language or "Auto").strip()
+  if requested_language and not _is_auto_target(requested_language):
+    return requested_language
+  if CJK_TEXT_RE.search(description):
+    return "Chinese"
+  if current_config is not None and _payload_looks_chinese(current_config.model_dump()):
+    return "Chinese"
+  return "English"
 
 
 def _clean_generated_text(value: str) -> str:
@@ -365,7 +385,7 @@ def _complete_bootstrap(payload: Dict[str, Any], target_language: str = "Auto") 
   name = str(payload.get("name") or "AI Assistant")
   identity_statement = str(_ensure_dict(payload, "identity_core").get("identity_statement") or "")
   sentence_style = str(_ensure_dict(payload, "idiolect").get("sentence_style") or "")
-  should_use_chinese = _is_chinese_target(target_language) or (target_language == "Auto" and _payload_looks_chinese(payload))
+  should_use_chinese = _is_chinese_target(target_language) or (_is_auto_target(target_language) and _payload_looks_chinese(payload))
   current_opening = str(bootstrap.get("opening_line") or "").strip()
   opening_is_english_fallback = current_opening.lower().startswith(ENGLISH_BOOTSTRAP_PREFIXES)
   if should_use_chinese:
@@ -857,10 +877,11 @@ async def generate_personality_config_result(
 ) -> PersonalityGenerationResult:
   """Generate personality configuration through staged LLM calls."""
   stage_status: list[dict[str, str]] = []
+  resolved_target_language = _resolve_generation_target_language(description, target_language, current_config)
   try:
     base_data = await _run_generation_stage(
       stage_id="base",
-      prompt=_base_user_prompt(description, target_language, current_config),
+      prompt=_base_user_prompt(description, resolved_target_language, current_config),
       system_prompt=BASE_SPINE_SYSTEM_PROMPT,
       max_tokens=1100,
       temperature=0.65,
@@ -890,7 +911,7 @@ async def generate_personality_config_result(
         stage_id="registers",
         prompt=_module_user_prompt(
           description,
-          target_language,
+          resolved_target_language,
           combined,
           current_config,
           "Design all required registers with examples that match the spine.",
@@ -906,7 +927,7 @@ async def generate_personality_config_result(
         stage_id="rules",
         prompt=_module_user_prompt(
           description,
-          target_language,
+          resolved_target_language,
           combined,
           current_config,
           "Design the persona's trigger signatures, quiet-hour clamps, and state convergence rules.",
@@ -922,7 +943,7 @@ async def generate_personality_config_result(
         stage_id="layers",
         prompt=_module_user_prompt(
           description,
-          target_language,
+          resolved_target_language,
           combined,
           current_config,
           "Design only the fixed surface baseline and non-surface deep persona layers.",
@@ -938,7 +959,7 @@ async def generate_personality_config_result(
         stage_id="bootstrap",
         prompt=_module_user_prompt(
           description,
-          target_language,
+          resolved_target_language,
           combined,
           current_config,
           "Write register examples, bootstrap first-contact copy, and sparse interim lines.",
@@ -954,7 +975,7 @@ async def generate_personality_config_result(
         stage_id="appearance",
         prompt=_module_user_prompt(
           description,
-          target_language,
+          resolved_target_language,
           combined,
           current_config,
           "Write the portrait prompt only.",
@@ -972,7 +993,10 @@ async def generate_personality_config_result(
     try:
       integrated = await _run_generation_stage(
         stage_id="integrate",
-        prompt=f"""# User Input
+        prompt=f"""# User Context
+Target Language: {resolved_target_language}
+
+# User Input
 {description}
 
 # Combined Draft
@@ -998,7 +1022,7 @@ Resolve contradictions and return the final complete persona configuration JSON.
         stage_progress_callback("integrate", "failed")
       stage_status.append({"stage_id": "integrate", "status": "failed"})
 
-    data = normalize_generated_personality_payload(combined, target_language=target_language)
+    data = normalize_generated_personality_payload(combined, target_language=resolved_target_language)
     if not data.get("name"):
       data["name"] = "AI Assistant"
     status_by_id = {item["stage_id"]: item["status"] for item in stage_status}

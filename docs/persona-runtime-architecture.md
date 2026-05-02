@@ -421,6 +421,8 @@ The generator should produce the target schema through a staged pipeline rather 
 
 Each generation stage should share one compact directive set for cross-cutting rules: JSON-only output, ordinary baseline behavior, target-language handling, no legacy fields, no unsupported physical-human claims, fixed `surface`, and utility-first behavior for focus/safety/crisis contexts. Stage-specific prompts should then add a narrow output contract and quality checks for that module instead of repeating one large full-schema prompt. This keeps the model focused while preventing stage prompts from drifting away from the same persona-design principles.
 
+`Auto` target-language selection should be resolved before prompts reach the LLM. Product UI should map `Auto` to the current interface language, and the backend should still infer a concrete target language from the user's input or existing draft when API callers send `Auto` directly. The model should see `Target Language: Chinese` or `Target Language: English`, not an ambiguous `Auto`, so generated descriptions, identity prose, registers, triggers, and bootstrap copy stay aligned with the user's language. `appearance_prompt` remains English.
+
 It must stop generating a fixed set of four dramatic state-transition protocols as the core persona mechanism. Instead, it should generate:
 
 - identity core

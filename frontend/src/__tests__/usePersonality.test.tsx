@@ -17,6 +17,10 @@ const tMock = (key: string, params?: Record<string, string>) => {
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: tMock,
+    i18n: {
+      language: 'zh-CN',
+      resolvedLanguage: 'zh-CN',
+    },
   }),
 }));
 
@@ -213,6 +217,7 @@ describe('usePersonality', () => {
     await waitFor(() => expect(mockPersonasApi.generateWithProgress).toHaveBeenCalled());
     expect(mockPersonasApi.generateWithProgress.mock.calls[0][0]).toMatchObject({
       description: 'make it sharper',
+      target_language: 'Chinese',
       current_config: { name: '七号' },
     });
   });

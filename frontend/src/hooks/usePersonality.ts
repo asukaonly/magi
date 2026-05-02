@@ -102,6 +102,11 @@ const getGenerationStageKey = (stages: PersonaGenerationStage[]): PersonaGenerat
     : PERSONA_GENERATION_STAGE_IDS[0];
 };
 
+const resolveAutoTargetLanguage = (targetLanguage: string, uiLanguage?: string): string => {
+  if (targetLanguage !== 'Auto') return targetLanguage;
+  return (uiLanguage || '').toLowerCase().startsWith('zh') ? 'Chinese' : 'English';
+};
+
 const getGenerationProgress = (stages: PersonaGenerationStage[], generating: boolean): number => {
   if (!generating || stages.length === 0) return 0;
   const completedCount = stages.filter((stage) => stage.status === 'completed').length;
@@ -167,7 +172,7 @@ export function usePersonality(
   options: UsePersonalityOptions = {}
 ): UsePersonalityReturn {
   const { initialPersonalityId } = options;
-  const { t } = useTranslation('app');
+  const { t, i18n } = useTranslation('app');
 
   // Loading states
   const [loading, setLoading] = useState(false);
@@ -362,7 +367,7 @@ export function usePersonality(
     try {
       const response = await personasApi.generateWithProgress({
         description: prompt,
-        target_language: targetLanguage,
+        target_language: resolveAutoTargetLanguage(targetLanguage, i18n.resolvedLanguage || i18n.language),
         current_config: config,
       }, (snapshot) => {
         setGenerationStages(snapshot.stages?.length ? snapshot.stages : buildPendingGenerationStages());
@@ -376,7 +381,7 @@ export function usePersonality(
     } finally {
       setGenerating(false);
     }
-  }, [config, prompt, targetLanguage, t]);
+  }, [config, i18n.language, i18n.resolvedLanguage, prompt, targetLanguage, t]);
 
   const switchPersonality = useCallback(async () => {
     if (selectedId === currentId) {

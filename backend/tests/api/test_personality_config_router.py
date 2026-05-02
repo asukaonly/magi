@@ -196,6 +196,24 @@ async def test_ai_generate_personality_passes_current_draft_to_prompt(monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_ai_generate_personality_resolves_auto_language_from_user_input(monkeypatch) -> None:
+    from magi.api.routers import personality_config
+
+    adapter = _FakeLLMAdapter()
+    monkeypatch.setattr(
+        personality_config,
+        "resolve_adapter_for_scenario",
+        lambda *args, **kwargs: adapter,
+    )
+
+    await personality_config.ai_generate_personality("生成一个像明日香但更日常的助手", target_language="Auto")
+
+    prompts = "\n".join(str(call["prompt"]) for call in adapter.calls)
+    assert "Target Language: Chinese" in prompts
+    assert "Target Language: Auto" not in prompts
+
+
+@pytest.mark.asyncio
 async def test_ai_generate_personality_limits_parallel_llm_calls(monkeypatch) -> None:
     from magi.api.routers import personality_config
     from magi.api.services.personality_generation import PERSONALITY_GENERATION_MAX_CONCURRENT_LLM_CALLS
