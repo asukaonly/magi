@@ -51,7 +51,7 @@ const resolveAssistantIdentity = (
   }
   return {
     name: persona.name || assistant.name,
-    avatar: persona.avatar || assistant.avatar,
+    avatar: persona.avatar || '',
     personas: assistant.personas,
   };
 };
