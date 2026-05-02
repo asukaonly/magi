@@ -283,6 +283,31 @@ def test_normalize_generated_personality_payload_completes_sparse_payload() -> N
     assert sum(len(item["examples"]) for item in payload["registers"].values()) >= 6
 
 
+def test_personality_generation_stage_prompts_share_directives() -> None:
+    from magi.api.services import personality_generation
+
+    stage_prompts = [
+        personality_generation.BASE_SPINE_SYSTEM_PROMPT,
+        personality_generation.REGISTER_SYSTEM_PROMPT,
+        personality_generation.RULES_SYSTEM_PROMPT,
+        personality_generation.LAYERS_SYSTEM_PROMPT,
+        personality_generation.BOOTSTRAP_SYSTEM_PROMPT,
+        personality_generation.APPEARANCE_SYSTEM_PROMPT,
+        personality_generation.INTEGRATION_SYSTEM_PROMPT,
+    ]
+
+    for prompt in stage_prompts:
+        assert personality_generation.PERSONA_GENERATION_SHARED_DIRECTIVES in prompt
+        assert "Output ONLY valid JSON" in prompt
+        assert "Stage Quality Checks" in prompt
+        assert "state_transition_protocol" in prompt
+
+    assert not hasattr(personality_generation, "PERSONALITY_GENERATION_SYSTEM_PROMPT")
+    assert "Do not add behavior, secrets, modifiers" in personality_generation.LAYERS_SYSTEM_PROMPT
+    assert "at least six examples total" in personality_generation.REGISTER_SYSTEM_PROMPT
+    assert "few coherent rules" in personality_generation.RULES_SYSTEM_PROMPT
+
+
 def test_normalize_generated_personality_payload_keeps_surface_fixed() -> None:
     from magi.api.routers.personality_config import normalize_generated_personality_payload
 
