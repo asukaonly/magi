@@ -1,9 +1,13 @@
 """Tests for personality schema and JSON loader."""
 
 import json
+from pathlib import Path
 
 from magi.api.routers.personality_config import PersonalityConfigModel, _build_diffs
 from magi.personality.loader import PersonalityLoader
+
+
+REQUIRED_PERSONA_REGISTERS = ("chat", "analysis", "task", "emotional", "crisis")
 
 
 def test_personality_model_accepts_new_schema():
@@ -66,3 +70,28 @@ def test_build_diffs_detects_new_schema_changes():
     diffs = _build_diffs(left, right)
     diff_fields = {diff.field for diff in diffs}
     assert "identity_core.identity_statement" in diff_fields
+
+
+def test_builtin_personality_presets_are_editor_ready():
+    preset_root = Path(__file__).resolve().parents[2] / "personalities"
+    preset_files = sorted((preset_root / "en").glob("*.json")) + sorted((preset_root / "zh").glob("*.json"))
+
+    assert preset_files
+
+    for preset_file in preset_files:
+        payload = json.loads(preset_file.read_text(encoding="utf-8"))
+        registers = payload.get("registers") or {}
+        assert all(
+            key in registers and registers[key].get("description") and registers[key].get("behavior")
+            for key in REQUIRED_PERSONA_REGISTERS
+        ), preset_file.name
+        assert len(payload.get("quiet_hours") or []) >= 2, preset_file.name
+        assert len(payload.get("signature_triggers") or []) >= 2, preset_file.name
+
+        example_count = sum(len((registers.get(key) or {}).get("examples") or []) for key in REQUIRED_PERSONA_REGISTERS)
+        assert example_count >= 6, preset_file.name
+
+        rendered_behaviors = "\n".join(str((registers.get(key) or {}).get("behavior") or "") for key in REQUIRED_PERSONA_REGISTERS)
+        assert "Scenario Behavioral Protocol" not in rendered_behaviors, preset_file.name
+        assert "System Notice" not in rendered_behaviors, preset_file.name
+        assert "MUST" not in rendered_behaviors, preset_file.name

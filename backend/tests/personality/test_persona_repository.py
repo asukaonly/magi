@@ -125,9 +125,9 @@ class TestPersonaRepository:
             _SAMPLE_CONFIG,
             slug="echo",
             is_builtin=True,
-            seed_slug="echo_ai_ssistant",
+            seed_slug="echo_ai_assistant",
         )
-        found = await repo.get_by_seed_slug("echo_ai_ssistant")
+        found = await repo.get_by_seed_slug("echo_ai_assistant")
         assert found is not None
         assert found.persona_id == pid
 
@@ -169,7 +169,7 @@ async def test_list_seed_previews_exposes_default_metadata(tmp_path: Path, monke
         ),
         encoding="utf-8",
     )
-    (seed_dir / "echo_ai_ssistant.json").write_text(
+    (seed_dir / "echo_ai_assistant.json").write_text(
         json.dumps(
             {
                 "meta": {"group": "general", "order": 2, "recommended": True},

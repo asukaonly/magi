@@ -156,7 +156,7 @@ describe('OnboardingFlow', () => {
           order: 1,
         },
         {
-          seed_slug: 'echo_ai_ssistant',
+          seed_slug: 'echo_ai_assistant',
           name: 'Echo-01',
           description: '',
           avatar: '',
@@ -171,7 +171,7 @@ describe('OnboardingFlow', () => {
         {
           persona_id: 'uuid-echo',
           name: 'Echo-01',
-          slug: 'echo_ai_ssistant',
+          slug: 'echo_ai_assistant',
           locale: 'zh',
           avatar_path: '',
           group_name: 'general',
