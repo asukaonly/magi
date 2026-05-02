@@ -27,7 +27,8 @@ pub async fn message_history(Query(params): Query<HistoryQuery>) -> Json<Value> 
                 "user_id": user_id,
                 "session_id": null,
                 "messages": [],
-                "count": 0
+                "count": 0,
+                "history_version": 0
             }))
         }
     };
@@ -39,7 +40,8 @@ pub async fn message_history(Query(params): Query<HistoryQuery>) -> Json<Value> 
                 "user_id": DEFAULT_USER_ID,
                 "session_id": null,
                 "messages": [],
-                "count": 0
+                "count": 0,
+                "history_version": 0
             })
         });
     Json(result)
@@ -59,6 +61,7 @@ pub(super) fn query_history(user_id: &str, session_id: &str) -> Value {
     let turn_ids_with_trace = load_turns_with_trace(user_id, session_id);
     let trace_summaries = load_trace_summaries(user_id, session_id, &turn_ids_with_trace);
     let turn_ux_preferences = load_turn_ux_preferences(&conn, user_id, session_id);
+    let history_version = load_history_version(&conn, user_id, session_id);
 
     // Load messages
     let mut stmt = match conn.prepare(
@@ -224,8 +227,18 @@ pub(super) fn query_history(user_id: &str, session_id: &str) -> Value {
         "user_id": user_id,
         "session_id": session_id,
         "messages": messages,
-        "count": count
+        "count": count,
+        "history_version": history_version
     })
+}
+
+fn load_history_version(conn: &Connection, user_id: &str, session_id: &str) -> i64 {
+    conn.query_row(
+        "SELECT history_version FROM chat_sessions WHERE user_id = ?1 AND session_id = ?2",
+        rusqlite::params![user_id, session_id],
+        |row| row.get::<_, i64>(0),
+    )
+    .unwrap_or(0)
 }
 
 /// Load turn_ids that have trace data in runtime_trace.db.
@@ -359,6 +372,7 @@ fn empty_history(user_id: &str, session_id: &str) -> Value {
         "user_id": user_id,
         "session_id": session_id,
         "messages": [],
-        "count": 0
+        "count": 0,
+        "history_version": 0
     })
 }
