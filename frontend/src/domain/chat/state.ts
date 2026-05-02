@@ -656,6 +656,7 @@ export const applyAgentResponse = (
     timestamp?: number;
     messageId?: string;
     messageKind?: string | null;
+    personaId?: string | null;
     turnId?: string;
     traceSummary?: NormalizedExecutionTraceSummary | null;
     traceAvailable?: boolean;
@@ -673,6 +674,15 @@ export const applyAgentResponse = (
   const traceAvailable = Boolean(payload.traceAvailable || traceSummary?.traceAvailable);
   const uxPlan = payload.uxPlan || null;
   const messageKind = String(payload.messageKind || '').trim();
+  const hasPayloadPersonaId = payload.personaId !== undefined;
+  const normalizedPayloadPersonaId = String(payload.personaId || '').trim() || null;
+
+  const resolvePersonaId = (existing?: ChatTimelineMessage): string | null => {
+    if (hasPayloadPersonaId) {
+      return normalizedPayloadPersonaId;
+    }
+    return existing?.personaId ?? null;
+  };
 
   if (messageKind === 'assistant_reaction' && turnId) {
     return messages
@@ -695,7 +705,7 @@ export const applyAgentResponse = (
       });
   }
 
-  const buildAssistantMessage = (resolvedTurnId?: string): ChatTimelineMessage => ({
+  const buildAssistantMessage = (resolvedTurnId?: string, existing?: ChatTimelineMessage): ChatTimelineMessage => ({
     id: String(payload.messageId || `${resolvedTurnId || turnId || 'assistant'}-assistant-${timestamp}`),
     role: 'assistant',
     kind: 'assistant',
@@ -704,6 +714,7 @@ export const applyAgentResponse = (
     timestamp,
     messageId: payload.messageId,
     messageKind: payload.messageKind || 'assistant_final',
+    personaId: resolvePersonaId(existing),
     turnId: resolvedTurnId || turnId || undefined,
     traceDisplayMode: uxPlan?.traceDisplayMode ?? null,
     allowTraceCollapse: Boolean(uxPlan?.allowTraceCollapse),
@@ -738,7 +749,9 @@ export const applyAgentResponse = (
       (message) => Boolean(payload.messageId) && message.messageId === payload.messageId,
     );
     if (existingIndex >= 0) {
-      return withoutTransientStatus.map((message, index) => (index === existingIndex ? incoming : message));
+      return withoutTransientStatus.map((message, index) => (
+        index === existingIndex ? { ...incoming, personaId: incoming.personaId ?? message.personaId ?? null } : message
+      ));
     }
     return [...withoutTransientStatus, incoming];
   }
@@ -765,7 +778,7 @@ export const applyAgentResponse = (
     if (lastStatusIndex !== undefined) {
       const fallbackTurnId = messages[lastStatusIndex]?.turnId;
       return messages.map((message, index) =>
-        index === lastStatusIndex ? buildAssistantMessage(fallbackTurnId) : message
+        index === lastStatusIndex ? buildAssistantMessage(fallbackTurnId, message) : message
       );
     }
     const fallbackTurnId = [...messages]
@@ -788,7 +801,7 @@ export const applyAgentResponse = (
     );
     if (existingFinalIndex >= 0) {
       return messages.map((message, index) =>
-        index === existingFinalIndex ? buildAssistantMessage(turnId) : message
+        index === existingFinalIndex ? buildAssistantMessage(turnId, message) : message
       );
     }
     return [...messages, buildAssistantMessage(turnId)];
@@ -798,7 +811,7 @@ export const applyAgentResponse = (
     if (message.turnId !== turnId) return message;
     if (message.kind === 'assistant' || isTransientStatusMessage(message)) {
       replaced = true;
-      return { ...buildAssistantMessage(turnId), turnId };
+      return { ...buildAssistantMessage(turnId, message), turnId };
     }
     return message;
   });
@@ -813,7 +826,7 @@ export const applyAgentResponse = (
 
   if (fallbackStatusIndex !== undefined) {
     return messages.map((message, index) =>
-      index === fallbackStatusIndex ? { ...buildAssistantMessage(turnId), turnId } : message
+      index === fallbackStatusIndex ? { ...buildAssistantMessage(turnId, message), turnId } : message
     );
   }
 

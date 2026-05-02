@@ -354,6 +354,9 @@ class ChatPostProcessService:
         notification_message_kind = (
             notification_message.message_kind if notification_message is not None else None
         )
+        notification_persona_id = (
+            notification_message.persona_id if notification_message is not None else context.active_persona_id
+        )
         notification_response_text = response_text
         if str((ux_plan or {}).get("assistant_surface_mode") or "").strip() == "reaction_only":
             notification_response_text = self._resolve_reaction_notification_text(
@@ -361,6 +364,7 @@ class ChatPostProcessService:
             )
             notification_message_id = None
             notification_message_kind = "assistant_reaction"
+            notification_persona_id = context.active_persona_id
         final_message = (
             notification_message
             if notification_message and notification_message.message_kind == "assistant_final"
@@ -388,6 +392,7 @@ class ChatPostProcessService:
                 ux_plan=result.ux_plan,
                 message_id=notification_message_id,
                 message_kind=notification_message_kind,
+                persona_id=notification_persona_id,
             )
         else:
             # Streaming turns skip agent_response; emit a completion control event so the
@@ -494,6 +499,7 @@ class ChatPostProcessService:
                 ux_plan=result.ux_plan,
                 message_id=message.message_id,
                 message_kind=message.message_kind,
+                persona_id=message.persona_id,
             )
 
     @staticmethod

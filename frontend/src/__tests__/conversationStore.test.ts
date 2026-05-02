@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { applyRealtimeStoreProjection } from '@/realtime/store-projection';
 import { useConversationStore } from '@/stores/conversation-store';
 
 describe('conversation store', () => {
@@ -22,6 +23,86 @@ describe('conversation store', () => {
     });
 
     expect(useConversationStore.getState().unreadBySession['session-b']).toBe(1);
+  });
+
+  it('stores persona identity from realtime agent responses', () => {
+    applyRealtimeStoreProjection({
+      event: 'agent_response',
+      data: {
+        session_id: 'session-a',
+        content: 'hello from seven',
+        timestamp: Date.now() / 1000,
+        turn_id: 'turn-a',
+        message_id: 'msg-a',
+        message_kind: 'assistant_final',
+        persona_id: 'persona-seven',
+      },
+    });
+
+    const message = useConversationStore.getState().messagesBySession['session-a']?.[0];
+
+    expect(message).toEqual(expect.objectContaining({
+      role: 'assistant',
+      content: 'hello from seven',
+      personaId: 'persona-seven',
+    }));
+  });
+
+  it('preserves persona identity when later realtime updates omit it', () => {
+    const store = useConversationStore.getState();
+
+    store.receiveAgentResponse({
+      sessionId: 'session-a',
+      content: 'draft',
+      timestamp: Date.now(),
+      turnId: 'turn-a',
+      messageId: 'msg-a',
+      messageKind: 'assistant_final',
+      personaId: 'persona-seven',
+    });
+    store.receiveAgentResponse({
+      sessionId: 'session-a',
+      content: 'updated',
+      timestamp: Date.now() + 1,
+      turnId: 'turn-a',
+      messageId: 'msg-a',
+      messageKind: 'assistant_final',
+    });
+
+    const message = useConversationStore.getState().messagesBySession['session-a']?.[0];
+
+    expect(message).toEqual(expect.objectContaining({
+      content: 'updated',
+      personaId: 'persona-seven',
+    }));
+  });
+
+  it('stores persona identity on streaming assistant placeholders', () => {
+    const store = useConversationStore.getState();
+
+    store.appendStreamTextDelta({
+      sessionId: 'session-a',
+      turnId: 'turn-a',
+      personaId: 'persona-seven',
+      textDelta: 'hel',
+    });
+    store.appendStreamTextDelta({
+      sessionId: 'session-a',
+      turnId: 'turn-a',
+      textDelta: 'lo',
+    });
+    store.appendStreamTextFlush({
+      sessionId: 'session-a',
+      turnId: 'turn-a',
+    });
+
+    const message = useConversationStore.getState().messagesBySession['session-a']?.[0];
+
+    expect(message).toEqual(expect.objectContaining({
+      content: 'hello',
+      personaId: 'persona-seven',
+      streaming: false,
+    }));
   });
 
   it('clears unread count when a session becomes active', () => {

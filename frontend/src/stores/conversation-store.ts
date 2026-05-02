@@ -22,6 +22,7 @@ type AgentResponsePayload = {
   timestamp: number;
   messageId?: string;
   messageKind?: string | null;
+  personaId?: string | null;
   turnId?: string;
   traceSummary?: NormalizedExecutionTraceSummary | null;
   traceAvailable?: boolean;
@@ -32,12 +33,14 @@ type AgentResponsePayload = {
 type StreamTextDeltaPayload = {
   sessionId: string;
   turnId: string;
+  personaId?: string | null;
   textDelta: string;
 };
 
 type StreamTextFlushPayload = {
   sessionId: string;
   turnId: string;
+  personaId?: string | null;
 };
 
 type StreamReasoningDeltaPayload = {
@@ -45,6 +48,7 @@ type StreamReasoningDeltaPayload = {
   turnId: string;
   source: string;
   stepLabel?: string | null;
+  personaId?: string | null;
   textDelta: string;
 };
 
@@ -55,6 +59,7 @@ type StreamToolCallPayload = {
   toolName?: string | null;
   toolArgsDelta?: string;
   toolArguments?: Record<string, unknown> | null;
+  personaId?: string | null;
   status: 'running' | 'completed';
 };
 
@@ -313,6 +318,7 @@ const mergeTimelineMessage = (
   traceAvailable: typeof incoming.traceAvailable === 'boolean'
     ? incoming.traceAvailable
     : Boolean(existing.traceAvailable),
+  personaId: incoming.personaId ?? existing.personaId ?? null,
 });
 
 const upsertTimelineMessage = (
@@ -486,7 +492,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
       },
     };
   }),
-  receiveAgentResponse: ({ sessionId, content, attachments, timestamp, messageId, messageKind, turnId, traceSummary, traceAvailable, uxPlan, payload }) => set((state) => {
+  receiveAgentResponse: ({ sessionId, content, attachments, timestamp, messageId, messageKind, personaId, turnId, traceSummary, traceAvailable, uxPlan, payload }) => set((state) => {
     const ensured = ensureSession(state.sessionsById, state.orderedSessionIds, sessionId);
     const previousMessages = state.messagesBySession[sessionId] || [];
     const nextMessages = applyAgentResponse(previousMessages, {
@@ -495,6 +501,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
       timestamp,
       messageId,
       messageKind,
+      personaId,
       turnId,
       traceSummary,
       traceAvailable,
@@ -535,7 +542,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
       },
     };
   }),
-  appendStreamTextDelta: ({ sessionId, turnId, textDelta }) => set((state) => {
+  appendStreamTextDelta: ({ sessionId, turnId, personaId, textDelta }) => set((state) => {
     if (!sessionId || !turnId || !textDelta) {
       return state;
     }
@@ -552,6 +559,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
       nextMessages[existingIndex] = {
         ...existing,
         content: existing.content + textDelta,
+        personaId: personaId ?? existing.personaId ?? null,
         streaming: true,
       };
       return {
@@ -569,6 +577,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
       content: textDelta,
       timestamp: Date.now(),
       turnId,
+      personaId: personaId ?? null,
       streaming: true,
     };
     return {
@@ -580,7 +589,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
       },
     };
   }),
-  appendStreamTextFlush: ({ sessionId, turnId }) => set((state) => {
+  appendStreamTextFlush: ({ sessionId, turnId, personaId }) => set((state) => {
     if (!sessionId || !turnId) {
       return state;
     }
@@ -595,6 +604,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
     const nextMessages = [...previousMessages];
     nextMessages[existingIndex] = {
       ...existing,
+      personaId: personaId ?? existing.personaId ?? null,
       streaming: false,
     };
     return {
@@ -604,7 +614,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
       },
     };
   }),
-  appendStreamReasoningDelta: ({ sessionId, turnId, source, stepLabel, textDelta }) => set((state) => {
+  appendStreamReasoningDelta: ({ sessionId, turnId, source, stepLabel, personaId, textDelta }) => set((state) => {
     if (!sessionId || !turnId || !textDelta) {
       return state;
     }
@@ -621,6 +631,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
         content: '',
         timestamp: Date.now(),
         turnId,
+        personaId: personaId ?? null,
         streaming: true,
         reasoning: [],
       };
@@ -628,7 +639,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
       targetIndex = messages.length - 1;
       const target = messages[targetIndex];
       const nextReasoning = appendReasoning(target.reasoning, source, stepLabel, textDelta);
-      messages[targetIndex] = { ...target, reasoning: nextReasoning };
+      messages[targetIndex] = { ...target, personaId: personaId ?? target.personaId ?? null, reasoning: nextReasoning };
       return {
         sessionsById: ensured.sessionsById,
         orderedSessionIds: ensured.orderedSessionIds,
@@ -641,7 +652,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
     const target = previousMessages[targetIndex];
     const nextReasoning = appendReasoning(target.reasoning, source, stepLabel, textDelta);
     const nextMessages = [...previousMessages];
-    nextMessages[targetIndex] = { ...target, reasoning: nextReasoning };
+    nextMessages[targetIndex] = { ...target, personaId: personaId ?? target.personaId ?? null, reasoning: nextReasoning };
     return {
       messagesBySession: {
         ...state.messagesBySession,
@@ -649,7 +660,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
       },
     };
   }),
-  appendStreamToolCall: ({ sessionId, turnId, toolCallId, toolName, toolArgsDelta, toolArguments, status }) => set((state) => {
+  appendStreamToolCall: ({ sessionId, turnId, toolCallId, toolName, toolArgsDelta, toolArguments, personaId, status }) => set((state) => {
     if (!sessionId || !turnId) {
       return state;
     }
@@ -667,6 +678,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
         content: '',
         timestamp: Date.now(),
         turnId,
+        personaId: personaId ?? null,
         streaming: true,
         toolCalls: [],
       };
@@ -682,7 +694,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
         toolArguments,
         status,
       });
-      messages[targetIndex] = { ...target, toolCalls: nextToolCalls };
+      messages[targetIndex] = { ...target, personaId: personaId ?? target.personaId ?? null, toolCalls: nextToolCalls };
       return {
         sessionsById: ensured.sessionsById,
         orderedSessionIds: ensured.orderedSessionIds,
@@ -704,7 +716,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
       status,
     });
     const nextMessages = [...previousMessages];
-    nextMessages[targetIndex] = { ...target, toolCalls: nextToolCalls };
+    nextMessages[targetIndex] = { ...target, personaId: personaId ?? target.personaId ?? null, toolCalls: nextToolCalls };
     return {
       messagesBySession: {
         ...state.messagesBySession,
@@ -780,7 +792,11 @@ export const useConversationStore = create<ConversationState>((set) => ({
       [sessionId]: applyTraceSummaryUpdate(state.messagesBySession[sessionId] || [], turnId, summary),
     },
   })),
-  reset: () => ({
-    ...emptyState,
+  reset: () => set({
+    currentSessionId: null,
+    orderedSessionIds: [],
+    sessionsById: {},
+    messagesBySession: {},
+    unreadBySession: {},
   }),
 }));

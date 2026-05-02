@@ -431,6 +431,7 @@ class ChatTaskAgent(
                 user_id=context.user_id,
                 session_id=context.session_id,
                 turn_id=turn_id,
+                persona_id=context.active_persona_id,
             )
         try:
             async with stream_scope(sink, source="chat"):

@@ -1771,6 +1771,7 @@ async def test_handle_commits_final_chat_message_before_notification(
         turn_id="turn-final",
         message_text="hello",
         created_at_ms=1710000000000,
+        persona_id="persona-seven",
     )
     result = ExecutionResult(
         mode=ExecutionMode.DIRECT_LLM,
@@ -1810,6 +1811,7 @@ async def test_handle_commits_final_chat_message_before_notification(
     payload = json.loads(notifications[0].payload_json)
     assert payload["message_id"] == messages[-1].message_id
     assert payload["message_kind"] == "assistant_final"
+    assert payload["persona_id"] == "persona-seven"
 
 
 @pytest.mark.asyncio
