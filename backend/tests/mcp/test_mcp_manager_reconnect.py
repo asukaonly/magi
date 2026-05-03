@@ -196,3 +196,61 @@ async def test_partially_started_connection_stopped_on_watchdog_cancel():
 
     assert blocking_conns, "blocking reconnect conn never created"
     assert blocking_conns[-1].stopped is True
+
+
+@pytest.mark.asyncio
+async def test_max_restart_attempts_beyond_backoff_length(monkeypatch):
+    """A user-configured max_restart_attempts greater than the backoff array
+    must be honored; the last backoff value is repeated for extra attempts."""
+    registry = ToolRegistry()
+
+    class _DeadConn(_ControllableConn):
+        async def _start_transport(self):
+            self.state = ConnectionState.DISCONNECTED
+
+    starts = {"n": 0}
+
+    def factory(_cfg):
+        starts["n"] += 1
+        if starts["n"] == 1:
+            return _ControllableConn([])
+        return _DeadConn([])
+
+    cfg = MCPServerConfig.model_validate(
+        {
+            "server": {"id": "demo", "name": "Demo"},
+            "transport": {"kind": "stdio", "command": "x"},
+            "runtime": {"max_restart_attempts": 8},
+        }
+    )
+
+    mgr = MCPManager(
+        registry=registry,
+        connection_factory=factory,
+        reconnect_backoff=[0.0, 0.0, 0.0, 0.0, 0.0],  # 5 entries; cfg asks for 8
+    )
+    mgr.add_config(cfg)
+
+    # Patch asyncio.sleep used inside manager to be near-instant so we don't
+    # actually wait 30s on the repeated tail value.
+    import magi.mcp.manager as mgr_mod
+
+    real_sleep = asyncio.sleep
+
+    async def fast_sleep(_delay):
+        await real_sleep(0)
+
+    monkeypatch.setattr(mgr_mod.asyncio, "sleep", fast_sleep)
+
+    await mgr.start_server("demo")
+    mgr._runtimes["demo"].conn.state = ConnectionState.DISCONNECTED  # type: ignore[attr-defined]
+
+    # Wait for runtime to be dropped after exhaustion.
+    for _ in range(200):
+        await real_sleep(0.01)
+        if "demo" not in mgr._runtimes:  # type: ignore[attr-defined]
+            break
+
+    assert "demo" not in mgr._runtimes  # type: ignore[attr-defined]
+    # 1 initial start + 8 reconnect attempts = 9 factory calls.
+    assert starts["n"] == 1 + 8, f"expected 9 starts, got {starts['n']}"

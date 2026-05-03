@@ -229,13 +229,12 @@ class MCPManager:
                 except Exception:
                     pass
 
-                attempts = min(
-                    rt.cfg.runtime.max_restart_attempts,
-                    len(self._reconnect_backoff),
-                )
+                attempts = rt.cfg.runtime.max_restart_attempts
                 reconnected = False
                 for i in range(attempts):
-                    delay = self._reconnect_backoff[i]
+                    delay = self._reconnect_backoff[
+                        min(i, len(self._reconnect_backoff) - 1)
+                    ]
                     await asyncio.sleep(delay)
                     try:
                         new_conn = self._factory(rt.cfg)
