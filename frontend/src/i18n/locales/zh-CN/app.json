@@ -491,6 +491,12 @@
       "unsupportedFiles": "已忽略 {{count}} 个不支持的文件，仅支持文本文件和 PDF。",
       "uploadFailed": "附件上传失败：{{message}}"
     },
+    "mentions": {
+      "label": "插入资源",
+      "heading": "MCP 资源",
+      "loading": "加载中…",
+      "empty": "没有匹配的资源。请确认 MCP 服务器已启动。"
+    },
     "sendFailed": "发送消息失败",
     "clearFailed": "清空对话失败",
     "cleared": "对话已清空",

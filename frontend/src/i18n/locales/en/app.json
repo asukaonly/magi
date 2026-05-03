@@ -491,6 +491,12 @@
       "unsupportedFiles": "Ignored {{count}} unsupported files. Only text files and PDFs are supported.",
       "uploadFailed": "Failed to upload attachments: {{message}}"
     },
+    "mentions": {
+      "label": "Insert resource",
+      "heading": "MCP resources",
+      "loading": "Loading…",
+      "empty": "No matching resources. Make sure an MCP server is running."
+    },
     "sendFailed": "Failed to send message",
     "clearFailed": "Failed to clear chat",
     "cleared": "Chat cleared",

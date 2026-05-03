@@ -17,6 +17,8 @@ import { useConversationStore } from '@/stores';
 import { ChatComposerPane } from '@/components/chat/ChatComposerPane';
 import { ChatPageOverlays } from '@/components/chat/ChatPageOverlays';
 import { ChatTimelinePane } from '@/components/chat/ChatTimelinePane';
+import { ComposerMentionPicker } from '@/components/chat/ComposerMentionPicker';
+import { useChatComposerMentions } from '@/hooks/useChatComposerMentions';
 import { isTranscriptMessage } from '@/domain/chat/presentation';
 const DEFAULT_CHAT_WORKSPACE_DISPLAY = '~/.magi/chat-workspace';
 const toPlainText = (content: string): string => String(content || '')
@@ -140,6 +142,7 @@ export const ChatPage: React.FC = () => {
     composerRef,
     draftAttachments,
     fileInputRef,
+    addMcpResourceDraft,
     handleAttachmentInputChange,
     handleComposerKeyDown,
     handleComposerPaste,
@@ -165,6 +168,31 @@ export const ChatPage: React.FC = () => {
     requestRunCancel,
     translate: t,
   });
+
+  const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const mentions = useChatComposerMentions({
+    inputValue,
+    setInputValue,
+    textareaRef: composerTextareaRef,
+    addMcpResourceDraft,
+  });
+
+  const handleInputChangeWithMentions = React.useCallback(
+    (next: string) => {
+      setInputValue(next);
+      mentions.onValueChange(next);
+    },
+    [mentions, setInputValue],
+  );
+
+  const handleKeyDownWithMentions = React.useCallback(
+    (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (mentions.onKeyDown(event)) return;
+      handleComposerKeyDown(event);
+    },
+    [handleComposerKeyDown, mentions],
+  );
 
   useEffect(() => {
     clearPendingResponseTurnRef.current = clearPendingResponseTurn;
@@ -295,15 +323,16 @@ export const ChatPage: React.FC = () => {
 
       <ChatComposerPane
         composerRef={composerRef}
+        textareaRef={composerTextareaRef}
         replyTarget={replyTarget}
         onCancelReply={() => setReplyTarget(null)}
         attachments={draftAttachments}
         onRemoveAttachment={removeDraftAttachment}
         inputValue={inputValue}
-        onInputChange={setInputValue}
+        onInputChange={handleInputChangeWithMentions}
         onCompositionStart={handleCompositionStart}
         onCompositionEnd={handleCompositionEnd}
-        onKeyDown={handleComposerKeyDown}
+        onKeyDown={handleKeyDownWithMentions}
         onPaste={handleComposerPaste}
         waitingForReply={waitingForReply}
         attachmentMenuOpen={attachmentMenuOpen}
@@ -317,6 +346,18 @@ export const ChatPage: React.FC = () => {
         imageInputRef={imageInputRef}
         fileInputRef={fileInputRef}
         onAttachmentInputChange={handleAttachmentInputChange}
+        pickerSlot={
+          <ComposerMentionPicker
+            open={mentions.state.open}
+            query={mentions.state.open ? mentions.state.query : ''}
+            items={mentions.items}
+            activeIndex={mentions.state.open ? mentions.state.activeIndex : 0}
+            loading={mentions.loading}
+            error={mentions.error}
+            onSelect={mentions.select}
+            onActiveIndexChange={() => undefined}
+          />
+        }
       />
 
       <ChatPageOverlays
