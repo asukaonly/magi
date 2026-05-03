@@ -25,6 +25,7 @@ class LLMProviderConfigModel(BaseModel):
     display_name: str = Field(default="OpenAI")
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
+    image_gen_endpoint: Optional[str] = Field(default=None)
     api_format: Optional[str] = Field(default=None)
     custom_models: List[str] = Field(default_factory=list)
     custom_default_model: Optional[str] = Field(default=None)
@@ -63,6 +64,7 @@ class LLMConfigModel(BaseModel):
         }
     )
     model_runtime_overrides: Dict[str, LLMConcurrencyOverrideSettings] = Field(default_factory=dict)
+    image_generation_timeout: int = Field(default=180, ge=1)
 
 
 class MemoryL0ConfigModel(BaseModel):

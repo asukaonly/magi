@@ -62,6 +62,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         "AUTH_REQUIRED",
         "NO_PROVIDERS_CONFIGURED",
         "PERMISSION_DENIED",
+        "POLICY_BLOCKED",
         "PROVIDER_NOT_CONFIGURED",
         "READ_ONLY",
         "ROLE_NOT_ALLOWED",

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -30,7 +30,9 @@ class LLMModelMetaModel(BaseModel):
 
     id: str
     label: Optional[str] = Field(default=None)
-    capabilities: "LLMChatCapabilitiesModel" = Field(default_factory=_default_chat_capabilities)
+    capabilities: "LLMChatCapabilitiesModel" = Field(
+        default_factory=_default_chat_capabilities
+    )
     limits: LLMLimitsSettings = Field(default_factory=LLMLimitsSettings)
     provider_options_example: Dict[str, Any] = Field(default_factory=dict)
 
@@ -51,7 +53,9 @@ class LLMResolvedModelMetaModel(BaseModel):
     source: str = Field(default="builtin")
     hidden: bool = Field(default=False)
     preferred: bool = Field(default=False)
-    capabilities: LLMCapabilitiesSettings = Field(default_factory=LLMCapabilitiesSettings)
+    capabilities: LLMCapabilitiesSettings = Field(
+        default_factory=LLMCapabilitiesSettings
+    )
     limits: LLMLimitsSettings = Field(default_factory=LLMLimitsSettings)
     input_modalities: list[str] = Field(default_factory=list)
     output_modalities: list[str] = Field(default_factory=list)
@@ -96,6 +100,18 @@ class LLMResolvedEmbeddingModelMetaModel(BaseModel):
         return self
 
 
+class LLMResolvedImageGenerationModelMetaModel(LLMResolvedModelMetaModel):
+    """Resolved metadata for an image-generation-capable model."""
+
+    supported_sizes: list[str] = Field(default_factory=list)
+    supported_qualities: list[str] = Field(default_factory=list)
+    supports_seed: bool = Field(default=False)
+    supports_negative_prompt: bool = Field(default=False)
+    supports_reference: bool = Field(default=False)
+    max_n: int = Field(default=1, ge=1)
+    native_protocol: str = Field(default="custom")
+
+
 class LLMProviderMetaModel(BaseModel):
     id: str
     display_name: Optional[str] = Field(default=None)
@@ -106,12 +122,20 @@ class LLMProviderMetaModel(BaseModel):
     default_base_url: Optional[str] = Field(default=None)
     chat_models: list[LLMModelMetaModel] = Field(default_factory=list)
     embedding_models: list["LLMEmbeddingModelMetaModel"] = Field(default_factory=list)
-    image_generation_models: list["LLMImageGenerationModelMetaModel"] = Field(default_factory=list)
-    audio_generation_models: list["LLMAudioGenerationModelMetaModel"] = Field(default_factory=list)
+    image_generation_models: list["LLMImageGenerationModelMetaModel"] = Field(
+        default_factory=list
+    )
+    audio_generation_models: list["LLMAudioGenerationModelMetaModel"] = Field(
+        default_factory=list
+    )
     fields: Dict[str, LLMProviderFieldModel] = Field(default_factory=dict)
     resolved_chat_models: list[LLMResolvedModelMetaModel] = Field(default_factory=list)
-    resolved_embedding_models: list[LLMResolvedEmbeddingModelMetaModel] = Field(default_factory=list)
-    resolved_image_generation_models: list[LLMResolvedModelMetaModel] = Field(default_factory=list)
+    resolved_embedding_models: list[LLMResolvedEmbeddingModelMetaModel] = Field(
+        default_factory=list
+    )
+    resolved_image_generation_models: list[LLMResolvedImageGenerationModelMetaModel] = (
+        Field(default_factory=list)
+    )
 
     @model_validator(mode="after")
     def normalize_models(self) -> "LLMProviderMetaModel":
@@ -143,15 +167,21 @@ class LLMCustomProviderMetaModel(BaseModel):
 
 class LLMProviderRegistryModel(BaseModel):
     providers: list[LLMProviderMetaModel] = Field(default_factory=list)
-    custom_provider: LLMCustomProviderMetaModel = Field(default_factory=LLMCustomProviderMetaModel)
+    custom_provider: LLMCustomProviderMetaModel = Field(
+        default_factory=LLMCustomProviderMetaModel
+    )
 
 
 class LLMResolvedProviderCatalogModel(BaseModel):
     """Resolved model catalog for a single provider."""
 
     chat_models: list[LLMResolvedModelMetaModel] = Field(default_factory=list)
-    embedding_models: list[LLMResolvedEmbeddingModelMetaModel] = Field(default_factory=list)
-    image_generation_models: list[LLMResolvedModelMetaModel] = Field(default_factory=list)
+    embedding_models: list[LLMResolvedEmbeddingModelMetaModel] = Field(
+        default_factory=list
+    )
+    image_generation_models: list[LLMResolvedImageGenerationModelMetaModel] = Field(
+        default_factory=list
+    )
 
 
 class LLMProviderCatalogEntryModel(BaseModel):
@@ -169,9 +199,15 @@ class LLMProviderCatalogEntryModel(BaseModel):
     api_format: Optional[str] = Field(default=None)
     fields: Dict[str, LLMProviderFieldModel] = Field(default_factory=dict)
     resolved_chat_models: list[LLMResolvedModelMetaModel] = Field(default_factory=list)
-    resolved_embedding_models: list[LLMResolvedEmbeddingModelMetaModel] = Field(default_factory=list)
-    resolved_image_generation_models: list[LLMResolvedModelMetaModel] = Field(default_factory=list)
-    image_generation_models: list[LLMImageGenerationModelMetaModel] = Field(default_factory=list)
+    resolved_embedding_models: list[LLMResolvedEmbeddingModelMetaModel] = Field(
+        default_factory=list
+    )
+    resolved_image_generation_models: list[LLMResolvedImageGenerationModelMetaModel] = (
+        Field(default_factory=list)
+    )
+    image_generation_models: list[LLMImageGenerationModelMetaModel] = Field(
+        default_factory=list
+    )
 
 
 class ResolvedLLMProfile(BaseModel):
@@ -179,7 +215,9 @@ class ResolvedLLMProfile(BaseModel):
 
     provider: str
     model: str
-    capabilities: LLMCapabilitiesSettings = Field(default_factory=LLMCapabilitiesSettings)
+    capabilities: LLMCapabilitiesSettings = Field(
+        default_factory=LLMCapabilitiesSettings
+    )
     limits: LLMLimitsSettings = Field(default_factory=LLMLimitsSettings)
     provider_options: Dict[str, Any] = Field(default_factory=dict)
     capability_override_enabled: bool = Field(default=False)
@@ -217,6 +255,19 @@ class LLMImageGenerationModelMetaModel(BaseModel):
 
     id: str
     label: Optional[str] = Field(default=None)
+    supported_sizes: list[str] = Field(default_factory=list)
+    supported_qualities: list[str] = Field(default_factory=list)
+    supports_seed: bool = Field(default=False)
+    supports_negative_prompt: bool = Field(default=False)
+    supports_reference: bool = Field(default=False)
+    max_n: int = Field(default=1, ge=1)
+    native_protocol: Literal[
+        "openai_images",
+        "gemini_predict",
+        "doubao_seedream",
+        "replicate",
+        "custom",
+    ] = Field(default="custom")
     provider_options_example: Dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")

@@ -67,6 +67,7 @@ export interface LLMProviderConfig {
   display_name: string;
   api_key?: string;
   base_url?: string;
+  image_gen_endpoint?: string;
   api_format?: ApiFormat;
   custom_models?: string[];
   custom_default_model?: string;
@@ -87,6 +88,7 @@ export interface LLMConfig {
   providers: Record<string, LLMProviderConfig>;
   selections: Record<LLMScenario, LLMSelectionConfig>;
   model_runtime_overrides: Record<string, LLMConcurrencyOverrideConfig>;
+  image_generation_timeout?: number;
 }
 
 export interface LLMCapabilities {
@@ -218,6 +220,13 @@ export interface LLMResolvedImageGenerationModelMeta {
   input_modalities: string[];
   output_modalities: string[];
   provider_options_example?: Record<string, any>;
+  supported_sizes?: string[];
+  supported_qualities?: string[];
+  supports_seed?: boolean;
+  supports_negative_prompt?: boolean;
+  supports_reference?: boolean;
+  max_n?: number;
+  native_protocol?: string;
 }
 
 export interface LLMEmbeddingModelMeta {
@@ -243,6 +252,13 @@ export interface LLMGenerationModelMeta {
   id: string;
   label?: string;
   provider_options_example?: Record<string, any>;
+  supported_sizes?: string[];
+  supported_qualities?: string[];
+  supports_seed?: boolean;
+  supports_negative_prompt?: boolean;
+  supports_reference?: boolean;
+  max_n?: number;
+  native_protocol?: string;
 }
 
 export interface LLMProviderRegistry {
@@ -499,6 +515,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
         display_name: 'OpenAI',
         api_key: '',
         base_url: '',
+        image_gen_endpoint: '',
       },
     },
     selections: {
@@ -549,6 +566,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
       },
     },
     model_runtime_overrides: {},
+    image_generation_timeout: 180,
   },
   memory: {
     db_path: '~/.magi/data/memories',

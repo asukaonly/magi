@@ -61,7 +61,11 @@ def _sanitize_log_value(value: Any) -> Any:
         return [_sanitize_log_value(item) for item in value]
     if isinstance(value, dict):
         return {
-            key: ("***MASKED***" if _is_sensitive_log_field(str(key)) else _sanitize_log_value(item))
+            key: (
+                "***MASKED***"
+                if _is_sensitive_log_field(str(key))
+                else _sanitize_log_value(item)
+            )
             for key, item in value.items()
         }
     if hasattr(value, "model_dump"):
@@ -158,8 +162,20 @@ def _default_llm_provider_registry() -> LLMProviderRegistryModel:
                             limits=LLMLimitsSettings(max_concurrency=6),
                         )
                     ],
-                    image_generation_models=[LLMImageGenerationModelMetaModel(id="gpt-image-1", label="GPT Image 1")],
-                    audio_generation_models=[LLMAudioGenerationModelMetaModel(id="gpt-4o-mini-tts", label="GPT-4o Mini TTS")],
+                    image_generation_models=[
+                        LLMImageGenerationModelMetaModel(
+                            id="gpt-image-1",
+                            label="GPT Image 1",
+                            supported_sizes=["1024x1024", "1536x1024", "1024x1536"],
+                            supported_qualities=["auto", "high", "medium", "low"],
+                            native_protocol="openai_images",
+                        )
+                    ],
+                    audio_generation_models=[
+                        LLMAudioGenerationModelMetaModel(
+                            id="gpt-4o-mini-tts", label="GPT-4o Mini TTS"
+                        )
+                    ],
                     fields={
                         "model": LLMProviderFieldModel(visible=True, required=True),
                         "api_key": LLMProviderFieldModel(visible=True, required=True),
@@ -180,8 +196,12 @@ def _default_llm_provider_registry() -> LLMProviderRegistryModel:
                     embedding=False,
                 ),
                 fields={
-                    "custom_name": LLMProviderFieldModel(visible=True, required=True, placeholder="My Provider"),
-                    "api_format": LLMProviderFieldModel(visible=True, required=True, options=["openai", "anthropic"]),
+                    "custom_name": LLMProviderFieldModel(
+                        visible=True, required=True, placeholder="My Provider"
+                    ),
+                    "api_format": LLMProviderFieldModel(
+                        visible=True, required=True, options=["openai", "anthropic"]
+                    ),
                     "model": LLMProviderFieldModel(visible=True, required=True),
                     "api_key": LLMProviderFieldModel(visible=True, required=True),
                     "base_url": LLMProviderFieldModel(visible=True, required=False),
@@ -208,7 +228,9 @@ async def discover_openai_compatible_models(
 ) -> List[str]:
     """Discover models from an OpenAI-compatible /models endpoint."""
     if api_format not in (None, "", "openai"):
-        raise HTTPException(status_code=400, detail="Unsupported model discovery format")
+        raise HTTPException(
+            status_code=400, detail="Unsupported model discovery format"
+        )
 
     endpoint = base_url.rstrip("/") + "/models"
     headers: Dict[str, str] = {"Accept": "application/json"}
@@ -222,18 +244,27 @@ async def discover_openai_compatible_models(
     timeout = aiohttp.ClientTimeout(total=15)
     try:
         async with aiohttp.ClientSession(timeout=timeout, trust_env=False) as session:
-            async with session.get(endpoint, headers=headers, proxy=proxy_url) as response:
+            async with session.get(
+                endpoint, headers=headers, proxy=proxy_url
+            ) as response:
                 if response.status >= 400:
-                    raise HTTPException(status_code=502, detail=f"Model discovery request failed with status {response.status}")
+                    raise HTTPException(
+                        status_code=502,
+                        detail=f"Model discovery request failed with status {response.status}",
+                    )
                 payload = await response.json()
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Failed to discover models: {exc}") from exc
+        raise HTTPException(
+            status_code=502, detail=f"Failed to discover models: {exc}"
+        ) from exc
 
     data = payload.get("data", [])
     if not isinstance(data, list):
-        raise HTTPException(status_code=502, detail="Model discovery response payload is invalid")
+        raise HTTPException(
+            status_code=502, detail="Model discovery response payload is invalid"
+        )
 
     models: List[str] = []
     for item in data:

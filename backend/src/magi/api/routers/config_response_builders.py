@@ -175,6 +175,7 @@ def build_llm_config_model(
             display_name=provider.display_name,
             api_key=(mask_api_key_value(api_key) if (mask_api_key and api_key) else api_key),
             base_url=provider.base_url,
+            image_gen_endpoint=getattr(provider, "image_gen_endpoint", None),
             api_format=provider.api_format,
             custom_models=list(getattr(provider, "custom_models", []) or []),
             custom_default_model=getattr(provider, "custom_default_model", None),
@@ -244,6 +245,7 @@ def build_llm_config_model(
         providers=providers,
         selections=selections,
         model_runtime_overrides=dict(getattr(runtime_config.llm, "model_runtime_overrides", {}) or {}),
+        image_generation_timeout=getattr(runtime_config.llm, "image_generation_timeout", 180),
     )
 
 

@@ -177,6 +177,7 @@ def build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
             if str(selection.provider_id or "").strip() and str(selection.model or "").strip()
         },
         "llm.model_runtime_overrides": model_runtime_overrides,
+        "llm.image_generation_timeout": config.llm.image_generation_timeout,
         "agent.memory.db_path": config.memory.db_path,
         "agent.memory.embedding.mode": config.memory.embedding.mode,
         "agent.memory.embedding.local.model_source": config.memory.embedding.local.model_source,

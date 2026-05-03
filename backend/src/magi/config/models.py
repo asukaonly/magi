@@ -3,6 +3,7 @@ Configuration Models - Pydantic model definitions for application configuration.
 
 These models match the structure in backend/configs/config.example.yaml.
 """
+
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field, model_validator
 from enum import Enum
@@ -12,6 +13,7 @@ from .constants import DEFAULT_MAX_TOKENS, MIN_MAX_TOKENS
 
 class LLMProvider(str, Enum):
     """LLM provider type."""
+
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     GLM = "glm"
@@ -67,7 +69,9 @@ class LLMModelMetadataOverrideSettings(BaseModel):
     label: Optional[str] = Field(default=None)
     description: Optional[str] = Field(default=None)
     icon: Optional[str] = Field(default=None)
-    capabilities: LLMCapabilityOverridesSettings = Field(default_factory=LLMCapabilityOverridesSettings)
+    capabilities: LLMCapabilityOverridesSettings = Field(
+        default_factory=LLMCapabilityOverridesSettings
+    )
     limits: LLMLimitsOverrideSettings = Field(default_factory=LLMLimitsOverrideSettings)
     input_modalities: Optional[List[str]] = Field(default=None)
     output_modalities: Optional[List[str]] = Field(default=None)
@@ -93,6 +97,7 @@ class LLMConcurrencyOverrideSettings(BaseModel):
 
 class MemoryBackend(str, Enum):
     """Memory storage backend type."""
+
     MEMORY = "memory"
     CHROMADB = "chromadb"
     FAISS = "faiss"
@@ -100,12 +105,14 @@ class MemoryBackend(str, Enum):
 
 class EmbeddingBackend(str, Enum):
     """Embedding vector backend type."""
+
     SQLITE_VEC = "sqlite_vec"
     OPENAI = "openai"
 
 
 class EmbeddingMode(str, Enum):
     """Embedding execution mode."""
+
     OFF = "off"
     REMOTE = "remote"
     LOCAL = "local"
@@ -113,6 +120,7 @@ class EmbeddingMode(str, Enum):
 
 class LocalEmbeddingModelSource(str, Enum):
     """How a local embedding model is referenced."""
+
     MANAGED = "managed"
     EXTERNAL = "external"
 
@@ -150,6 +158,7 @@ class TimelineStorageMode(str, Enum):
 # LLM Configuration
 # =============================================================================
 
+
 class ThinkingDepth(str, Enum):
     """Reasoning effort level requested by a caller for a single LLM call.
 
@@ -186,15 +195,21 @@ class LLMProviderSettings(BaseModel):
     display_name: str = Field(default="OpenAI")
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
+    image_gen_endpoint: Optional[str] = Field(default=None)
     api_format: Optional[str] = Field(default=None)
     custom_models: List[str] = Field(default_factory=list)
     custom_default_model: Optional[str] = Field(default=None)
-    model_metadata_overrides: Dict[str, LLMModelMetadataOverrideSettings] = Field(default_factory=dict)
+    model_metadata_overrides: Dict[str, LLMModelMetadataOverrideSettings] = Field(
+        default_factory=dict
+    )
 
     @model_validator(mode="after")
     def validate_custom_model_defaults(self) -> "LLMProviderSettings":
         if self.provider_type == LLMProvider.CUSTOM:
-            if self.custom_default_model and self.custom_default_model not in self.custom_models:
+            if (
+                self.custom_default_model
+                and self.custom_default_model not in self.custom_models
+            ):
                 raise ValueError("Custom default model must exist in custom_models")
         return self
 
@@ -206,8 +221,12 @@ class LLMSelectionSettings(BaseModel):
     model: str = Field(default="gpt-4o-mini")
     embedding_dimension: Optional[int] = Field(default=None, ge=1)
     capability_override_enabled: bool = Field(default=False)
-    capabilities: LLMCapabilitiesSettings = Field(default_factory=LLMCapabilitiesSettings)
-    limits: LLMSelectionLimitsSettings = Field(default_factory=LLMSelectionLimitsSettings)
+    capabilities: LLMCapabilitiesSettings = Field(
+        default_factory=LLMCapabilitiesSettings
+    )
+    limits: LLMSelectionLimitsSettings = Field(
+        default_factory=LLMSelectionLimitsSettings
+    )
     provider_options: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -234,7 +253,10 @@ class LLMSettings(BaseModel):
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     max_tokens: int = Field(default=DEFAULT_MAX_TOKENS, ge=MIN_MAX_TOKENS)
     timeout: int = Field(default=60, ge=1)
-    model_runtime_overrides: Dict[str, LLMConcurrencyOverrideSettings] = Field(default_factory=dict)
+    image_generation_timeout: int = Field(default=180, ge=1)
+    model_runtime_overrides: Dict[str, LLMConcurrencyOverrideSettings] = Field(
+        default_factory=dict
+    )
 
     @model_validator(mode="after")
     def validate_builtin_provider_uniqueness(self) -> "LLMSettings":
@@ -256,7 +278,9 @@ class LLMSettings(BaseModel):
             if provider_type == LLMProvider.CUSTOM.value:
                 continue
             if provider_type in seen_provider_types:
-                raise ValueError(f"Duplicate built-in LLM provider type: {provider_type}")
+                raise ValueError(
+                    f"Duplicate built-in LLM provider type: {provider_type}"
+                )
             seen_provider_types.add(provider_type)
         return self
 
@@ -265,17 +289,23 @@ class LLMSettings(BaseModel):
 # Agent Configuration
 # =============================================================================
 
+
 class EmbeddingSettings(BaseModel):
     """Embedding configuration. Note: embedding model is configured via LLM EMBEDDING scenario."""
+
     backend: EmbeddingBackend = Field(default=EmbeddingBackend.SQLITE_VEC)
     mode: EmbeddingMode = Field(default=EmbeddingMode.OFF)
-    local: "LocalEmbeddingSettings" = Field(default_factory=lambda: LocalEmbeddingSettings())
+    local: "LocalEmbeddingSettings" = Field(
+        default_factory=lambda: LocalEmbeddingSettings()
+    )
 
 
 class LocalEmbeddingSettings(BaseModel):
     """Local ONNX embedding model settings."""
 
-    model_source: LocalEmbeddingModelSource = Field(default=LocalEmbeddingModelSource.MANAGED)
+    model_source: LocalEmbeddingModelSource = Field(
+        default=LocalEmbeddingModelSource.MANAGED
+    )
     managed_model_id: Optional[str] = Field(default=None)
     model_dir_path: Optional[str] = Field(default=None)
     idle_timeout_seconds: int = Field(default=1800, ge=60)
@@ -388,15 +418,24 @@ class EntitySemanticEdgeSettings(BaseModel):
 
 class MemorySettings(BaseModel):
     """Memory configuration."""
+
     db_path: str = Field(default="~/.magi/data/memory")
     retention_days: int = Field(default=90, ge=1)
-    history_behavior: MemoryHistoryBehavior = Field(default=MemoryHistoryBehavior.DELETE)
+    history_behavior: MemoryHistoryBehavior = Field(
+        default=MemoryHistoryBehavior.DELETE
+    )
     async_embeddings: bool = Field(default=True)
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     reranker: MemoryRerankerSettings = Field(default_factory=MemoryRerankerSettings)
-    query_expansion: QueryExpansionSettings = Field(default_factory=QueryExpansionSettings)
-    graph_spreading: GraphSpreadingSettings = Field(default_factory=GraphSpreadingSettings)
-    entity_semantic_edges: EntitySemanticEdgeSettings = Field(default_factory=EntitySemanticEdgeSettings)
+    query_expansion: QueryExpansionSettings = Field(
+        default_factory=QueryExpansionSettings
+    )
+    graph_spreading: GraphSpreadingSettings = Field(
+        default_factory=GraphSpreadingSettings
+    )
+    entity_semantic_edges: EntitySemanticEdgeSettings = Field(
+        default_factory=EntitySemanticEdgeSettings
+    )
     l0: MemoryL0Settings = Field(default_factory=MemoryL0Settings)
     l1: MemoryL1Settings = Field(default_factory=MemoryL1Settings)
     l2: MemoryL2Settings = Field(default_factory=MemoryL2Settings)
@@ -413,6 +452,7 @@ class MemorySettings(BaseModel):
 
 class PersonalitySettings(BaseModel):
     """Personality configuration."""
+
     name: str = Field(default="default")
     path: str = Field(default="~/.magi/personalities")
     enable_evolution: bool = Field(default=True)
@@ -432,6 +472,7 @@ class PersonalitySettings(BaseModel):
 
 class MessageBusSettings(BaseModel):
     """Message bus configuration."""
+
     max_queue_size: int = Field(default=1000, ge=1)
     num_workers: int = Field(default=4, ge=1)
     broadcast_max_concurrency: int = Field(default=8, ge=1)
@@ -440,14 +481,20 @@ class MessageBusSettings(BaseModel):
 
 class MaintenanceSettings(BaseModel):
     """Maintenance daemon configuration."""
+
     enabled: bool = Field(default=True, description="Enable maintenance daemon")
-    interval_seconds: float = Field(default=300.0, ge=10.0, description="Interval between maintenance runs")
+    interval_seconds: float = Field(
+        default=300.0, ge=10.0, description="Interval between maintenance runs"
+    )
     health_check: bool = Field(default=True, description="Enable health checks")
-    log_rotation_check: bool = Field(default=True, description="Enable log rotation checks")
+    log_rotation_check: bool = Field(
+        default=True, description="Enable log rotation checks"
+    )
 
 
 class RuntimeSettings(BaseModel):
     """Runtime configuration for P0/P1 features."""
+
     router_restart_backoff_seconds: float = Field(default=1.0, ge=0.1)
     task_agent_queue_maxsize: int = Field(default=100, ge=1)
     task_agent_enqueue_timeout_ms: float = Field(default=100.0, ge=1.0)
@@ -468,7 +515,9 @@ class BackgroundTasksSettings(BaseModel):
     """
 
     enabled: bool = Field(default=True, description="Feature flag; default on.")
-    max_concurrent: int = Field(default=2, ge=1, description="Hard cap on simultaneously running tasks.")
+    max_concurrent: int = Field(
+        default=2, ge=1, description="Hard cap on simultaneously running tasks."
+    )
     queue_when_full: bool = Field(
         default=True,
         description="Queue tasks when at cap; when false, falls back to foreground.",
@@ -501,7 +550,9 @@ class TimelineSourceSettings(BaseModel):
     enabled: bool = Field(default=True)
     sync_mode: TimelineSyncMode = Field(default=TimelineSyncMode.INTERVAL)
     sync_interval_minutes: int = Field(default=15, ge=1)
-    default_retention_mode: TimelineRetentionMode = Field(default=TimelineRetentionMode.ANALYZE_ONLY)
+    default_retention_mode: TimelineRetentionMode = Field(
+        default=TimelineRetentionMode.ANALYZE_ONLY
+    )
     storage_mode: TimelineStorageMode = Field(default=TimelineStorageMode.MANAGED)
     source_path: Optional[str] = Field(default=None)
     fetch_page_content: bool = Field(default=False)
@@ -531,6 +582,7 @@ class TimelineSettings(BaseModel):
 
 class AgentSettings(BaseModel):
     """Agent configuration."""
+
     name: str = Field(default="magi-agent")
     num_task_agents: int = Field(default=2, ge=1)
     loop_interval: float = Field(default=1.0, ge=0.0)
@@ -541,15 +593,19 @@ class AgentSettings(BaseModel):
     message_bus: MessageBusSettings = Field(default_factory=MessageBusSettings)
     runtime: RuntimeSettings = Field(default_factory=RuntimeSettings)
     maintenance: MaintenanceSettings = Field(default_factory=MaintenanceSettings)
-    background_tasks: BackgroundTasksSettings = Field(default_factory=BackgroundTasksSettings)
+    background_tasks: BackgroundTasksSettings = Field(
+        default_factory=BackgroundTasksSettings
+    )
 
 
 # =============================================================================
 # Server Configuration
 # =============================================================================
 
+
 class ServerSettings(BaseModel):
     """Server configuration."""
+
     host: str = Field(default="0.0.0.0")
     port: int = Field(default=8000, ge=1, le=65535)
     reload: bool = Field(default=True)
@@ -562,8 +618,10 @@ class ServerSettings(BaseModel):
 # Feature Flags
 # =============================================================================
 
+
 class FeatureFlags(BaseModel):
     """Feature flags."""
+
     enable_three_layer_arch: bool = Field(default=False)
     enable_skills: bool = Field(default=True)
     enable_websocket: bool = Field(default=True)
@@ -573,14 +631,17 @@ class FeatureFlags(BaseModel):
 # Tools Configuration
 # =============================================================================
 
+
 class ProviderConfig(BaseModel):
     """Generic provider configuration."""
+
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
 
 
 class WeatherToolSettings(BaseModel):
     """Weather tool configuration."""
+
     enabled: bool = Field(default=True)
     default_provider: str = Field(default="qweather")
     providers: Dict[str, ProviderConfig] = Field(
@@ -594,6 +655,7 @@ class WeatherToolSettings(BaseModel):
 
 class WebSearchToolSettings(BaseModel):
     """Web search tool configuration."""
+
     enabled: bool = Field(default=True)
     default_provider: str = Field(default="duckduckgo")
     providers: Dict[str, ProviderConfig] = Field(
@@ -612,6 +674,7 @@ class WebSearchToolSettings(BaseModel):
 
 class WebFetchToolSettings(BaseModel):
     """Web fetch tool configuration."""
+
     enabled: bool = Field(default=True)
     default_provider: str = Field(default="http")
     providers: Dict[str, ProviderConfig] = Field(
@@ -629,6 +692,7 @@ class WebFetchToolSettings(BaseModel):
 
 class ToolsSettings(BaseModel):
     """Tools configuration."""
+
     weather: WeatherToolSettings = Field(default_factory=WeatherToolSettings)
     web_search: WebSearchToolSettings = Field(default_factory=WebSearchToolSettings)
     web_fetch: WebFetchToolSettings = Field(default_factory=WebFetchToolSettings)
@@ -638,6 +702,7 @@ class ToolsSettings(BaseModel):
 # =============================================================================
 # Other Settings
 # =============================================================================
+
 
 class PluginSettings(BaseModel):
     """Per-plugin persisted runtime state."""
@@ -652,7 +717,9 @@ class PluginSettings(BaseModel):
 class PluginsSettings(BaseModel):
     """Unified plugin runtime configuration."""
 
-    scan_paths: List[str] = Field(default_factory=lambda: ["plugins", "~/.magi/plugins"])
+    scan_paths: List[str] = Field(
+        default_factory=lambda: ["plugins", "~/.magi/plugins"]
+    )
     registry_url: Optional[str] = Field(default=None)
     packages: Dict[str, PluginSettings] = Field(
         default_factory=lambda: {
@@ -699,8 +766,10 @@ class PluginsSettings(BaseModel):
 # Network Proxy
 # =============================================================================
 
+
 class ProxyType(str, Enum):
     """Supported network proxy types."""
+
     HTTP = "http"
     SOCKS5 = "socks5"
 
@@ -730,8 +799,10 @@ class NetworkProxySettings(BaseModel):
 # Root Configuration
 # =============================================================================
 
+
 class AppConfig(BaseModel):
     """Root application configuration."""
+
     llm: LLMSettings = Field(default_factory=LLMSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)
     server: ServerSettings = Field(default_factory=ServerSettings)
