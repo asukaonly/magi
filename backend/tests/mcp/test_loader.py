@@ -77,6 +77,13 @@ def test_missing_directory_returns_empty(tmp_path: Path):
     loader = MCPConfigLoader(tmp_path / "does-not-exist")
     assert loader.load_all() == []
 
+def test_invalid_toml_includes_path_in_error(tmp_path: Path):
+    p = tmp_path / "broken.toml"
+    p.write_text("this is = not valid =[ toml")
+    loader = MCPConfigLoader(tmp_path)
+    with pytest.raises(ValueError, match=r"broken\.toml.*failed to load"):
+        loader.load_all()
+
 def test_index_toml_skipped(tmp_path: Path):
     # index.toml should not be parsed as a server config
     write(tmp_path / "index.toml", "# index file managed by magi\n")

@@ -39,9 +39,13 @@ class MCPConfigLoader:
         for path in sorted(self.root.glob("*.toml")):
             if path.name == "index.toml":
                 continue
-            data = tomllib.loads(path.read_text())
-            data = _expand_strings(data)
-            cfg = MCPServerConfig.model_validate(data)
+            try:
+                with path.open("rb") as f:
+                    data = tomllib.load(f)
+                data = _expand_strings(data)
+                cfg = MCPServerConfig.model_validate(data)
+            except Exception as e:
+                raise ValueError(f"{path}: failed to load MCP config: {e}") from e
             stem = path.stem
             if cfg.server.id != stem:
                 raise ValueError(
