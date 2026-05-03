@@ -97,6 +97,15 @@ export const SkillArgsDialog = ({
           </label>
 
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
+
+          {descriptor.context_mode === 'fork' ? (
+            <div className="rounded-md border border-border/50 bg-muted/40 p-2 text-xs text-muted-foreground">
+              {t('chat.skills.forkNotice', {
+                defaultValue:
+                  'This skill runs as a background task. The result will appear here when finished — you can keep chatting in the meantime.',
+              })}
+            </div>
+          ) : null}
         </div>
 
         <DialogFooter>

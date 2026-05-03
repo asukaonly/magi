@@ -505,6 +505,8 @@
       "kindInternal": "built-in",
       "kindTool": "tool",
       "kindSkill": "skill",
+      "forkLabel": "fork",
+      "forkBadge": "Runs as background task",
       "dangerous": "Dangerous tool — will request confirmation",
       "dangerousNotice": "This is a dangerous tool. You will be prompted to approve it.",
       "dialogDescription": "Provide the arguments for this command. The result will be inserted into the chat timeline.",
@@ -525,7 +527,9 @@
       "dialogDescription": "Provide arguments for this skill. The expanded prompt will be sent as your next message.",
       "argsLabel": "Arguments",
       "send": "Send",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "forkNotice": "This skill runs as a background task. The result will appear here when finished — you can keep chatting in the meantime.",
+      "backgroundQueued": "Started {{title}} in the background."
     },
     "sendFailed": "Failed to send message",
     "clearFailed": "Failed to clear chat",

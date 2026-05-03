@@ -170,6 +170,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/run": {"POST"},
         "/skills": {"GET"},
         "/expand-skill": {"POST"},
+        "/run-skill-as-background": {"POST"},
     },
 
 }

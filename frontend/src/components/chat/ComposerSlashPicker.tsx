@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, Loader2, Slash, Sparkles, Wrench } from 'lucide-react';
+import { AlertTriangle, Loader2, Slash, Sparkles, SquareSplitVertical, Wrench } from 'lucide-react';
 import type { SlashCommandItem } from '@/hooks/useChatComposerCommands';
 
 type ComposerSlashPickerProps = {
@@ -113,6 +113,15 @@ export const ComposerSlashPicker = ({
                   {item.source === 'skill' && item.argumentHint ? (
                     <span className="text-xs font-normal text-muted-foreground">
                       {item.argumentHint}
+                    </span>
+                  ) : null}
+                  {item.source === 'skill' && item.contextMode === 'fork' ? (
+                    <span
+                      className="inline-flex items-center gap-0.5 rounded-sm bg-muted/60 px-1 py-0.5 text-[10px] font-normal uppercase tracking-wide text-muted-foreground"
+                      aria-label={t('chat.commands.forkBadge', { defaultValue: 'Runs as background task' })}
+                    >
+                      <SquareSplitVertical className="h-2.5 w-2.5" />
+                      {t('chat.commands.forkLabel', { defaultValue: 'fork' })}
                     </span>
                   ) : null}
                 </div>

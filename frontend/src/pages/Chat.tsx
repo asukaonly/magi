@@ -261,6 +261,28 @@ export const ChatPage: React.FC = () => {
       const args = argsText.trim()
         ? argsText.trim().split(/\s+/)
         : [];
+
+      // Skills declared `context: fork` run as background tasks; the
+      // completion is delivered back to the timeline via the existing
+      // background_task_completion plumbing. Inline skills expand into
+      // the user's next message.
+      if (descriptor.context_mode === 'fork') {
+        const result = await commandsApi.runSkillAsBackground({
+          user_id: DEFAULT_USER_ID,
+          session_id: currentSessionId,
+          skill_name: descriptor.name,
+          arguments: args,
+          workspace_path: currentSession?.workspace_path ?? null,
+        });
+        toast.success(
+          t('chat.skills.backgroundQueued', {
+            defaultValue: 'Started {{title}} in the background.',
+            title: result.title,
+          }),
+        );
+        return;
+      }
+
       const expansion = await commandsApi.expandSkill({
         user_id: DEFAULT_USER_ID,
         session_id: currentSessionId,
@@ -268,7 +290,6 @@ export const ChatPage: React.FC = () => {
         arguments: args,
         workspace_path: currentSession?.workspace_path ?? null,
       });
-      // Compose the message body: invocation header + rendered prompt.
       const body =
         `${expansion.invocation_text}\n\n${expansion.rendered_prompt}`.trim();
       await messagesApi.sendMessage({

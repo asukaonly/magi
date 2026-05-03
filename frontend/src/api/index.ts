@@ -153,5 +153,7 @@ export type {
   ExpandSkillResponse,
   RunCommandRequest,
   RunCommandResponse,
+  RunSkillAsBackgroundRequest,
+  RunSkillAsBackgroundResponse,
   SkillCommandDescriptor,
 } from './modules/commands';

@@ -375,7 +375,7 @@ describe('ToolArgsDialog', () => {
     fireEvent.change(numberInputs[0], { target: { value: '3' } });
     fireEvent.click(screen.getByRole('button', { name: 'Run' }));
     await waitFor(() => expect(onRun).toHaveBeenCalled());
-    const [, args, invText] = onRun.mock.calls[0] as [unknown, Record<string, unknown>, string];
+    const [, args, invText] = onRun.mock.calls[0] as unknown as [unknown, Record<string, unknown>, string];
     expect(args).toEqual({ text: 'hi', count: 3 });
     expect(invText).toBe('/echo text=hi count=3');
   });
@@ -396,6 +396,35 @@ describe('ToolArgsDialog', () => {
       />,
     );
     expect(screen.getByText(/dangerous tool/i)).toBeTruthy();
+  });
+  it('renders fork badge for skills with context_mode=fork', () => {
+    render(
+      <ComposerSlashPicker
+        open
+        query=""
+        items={[
+          {
+            source: 'skill',
+            name: 'deep-scan',
+            description: 'Audit',
+            argumentHint: undefined,
+            contextMode: 'fork',
+            descriptor: {
+              name: 'deep-scan',
+              description: 'Audit',
+              tags: [],
+              context_mode: 'fork',
+            },
+          },
+        ]}
+        activeIndex={0}
+        loading={false}
+        error={null}
+        onSelect={() => undefined}
+        onActiveIndexChange={() => undefined}
+      />,
+    );
+    expect(screen.getByText('fork')).toBeTruthy();
   });
 });
 
@@ -421,7 +450,7 @@ describe('SkillArgsDialog', () => {
     fireEvent.change(input, { target: { value: '123' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalled());
-    const [desc, argsText] = onSubmit.mock.calls[0] as [{ name: string }, string];
+    const [desc, argsText] = onSubmit.mock.calls[0] as unknown as [{ name: string }, string];
     expect(desc.name).toBe('pr-review');
     expect(argsText).toBe('123');
   });
@@ -445,5 +474,23 @@ describe('SkillArgsDialog', () => {
     fireEvent.change(input, { target: { value: '99' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+  });
+
+  it('shows fork notice when descriptor.context_mode is fork', () => {
+    render(
+      <SkillArgsDialog
+        open
+        descriptor={{
+          name: 'deep-scan',
+          description: 'Audit',
+          argument_hint: '<glob>',
+          tags: [],
+          context_mode: 'fork',
+        }}
+        onClose={() => undefined}
+        onSubmit={async () => undefined}
+      />,
+    );
+    expect(screen.getByText(/background task/i)).toBeTruthy();
   });
 });

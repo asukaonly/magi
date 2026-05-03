@@ -50,6 +50,7 @@ export type SlashCommandItem =
     name: string;
     description: string;
     argumentHint?: string;
+    contextMode?: string;
     descriptor: SkillCommandDescriptor;
   };
 
@@ -173,6 +174,7 @@ export function useChatComposerCommands({
         name: s.name,
         description: s.description,
         argumentHint: s.argument_hint ?? undefined,
+        contextMode: s.context_mode ?? undefined,
         descriptor: s,
       })),
     ];

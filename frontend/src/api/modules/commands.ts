@@ -87,6 +87,18 @@ export const commandsApi = {
     );
     return unwrap(response as ExpandSkillResponse | ApiResponse<ExpandSkillResponse>);
   },
+
+  runSkillAsBackground: async (
+    request: RunSkillAsBackgroundRequest,
+  ): Promise<RunSkillAsBackgroundResponse> => {
+    const response = await api.post<RunSkillAsBackgroundResponse>(
+      '/commands/run-skill-as-background',
+      request,
+    );
+    return unwrap(
+      response as RunSkillAsBackgroundResponse | ApiResponse<RunSkillAsBackgroundResponse>,
+    );
+  },
 };
 
 export interface SkillCommandDescriptor {
@@ -114,6 +126,24 @@ export interface ExpandSkillResponse {
   argument_hint?: string | null;
   allowed_tools?: string[] | null;
   context_mode?: string | null;
+}
+
+export interface RunSkillAsBackgroundRequest {
+  user_id?: string;
+  session_id: string;
+  skill_name: string;
+  arguments?: string[];
+  workspace_path?: string | null;
+  origin_turn_id?: string | null;
+  timeout_seconds?: number | null;
+  max_iterations?: number;
+}
+
+export interface RunSkillAsBackgroundResponse {
+  task_id: string;
+  title: string;
+  invocation_text: string;
+  selected_tools: string[];
 }
 
 export default commandsApi;

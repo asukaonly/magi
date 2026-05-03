@@ -10,6 +10,13 @@ dangerous tools still go through brokered_prompter.
 sent as a normal chat message via the existing dispatch path. Skills are
 distinct from tools: a skill expansion *becomes the user's next turn*
 rather than producing a tool_result row.
+
+`POST /api/commands/run-skill-as-background` renders a skill and enqueues
+it as a BackgroundTask so the sub-agent runs out of band and the user's
+main chat session stays free. Used for skills marked ``context: fork``.
+The completion is delivered back via the existing
+``deliver_background_task_completion`` plumbing as a
+``background_task_completion`` chat message.
 """
 
 from __future__ import annotations
@@ -19,6 +26,11 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from ...agent.background.contracts import (
+    BackgroundTaskSpec,
+    BackgroundTaskTriggerSource,
+)
+from ...agent.background.provider import resolve_background_task_manager
 from ...agent.control.permission.provider import get_permission_gateway
 from ...commands import CommandRunner
 from ...core.logger import get_logger
@@ -236,4 +248,97 @@ async def expand_skill_endpoint(request: ExpandSkillRequest) -> ExpandSkillRespo
         argument_hint=expansion.argument_hint,
         allowed_tools=expansion.allowed_tools,
         context_mode=expansion.context_mode,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Run a skill as a background task (context: fork)
+# ---------------------------------------------------------------------------
+
+
+class RunSkillAsBackgroundRequest(BaseModel):
+    user_id: str = Field(default=DEFAULT_USER_ID)
+    session_id: str = Field(..., min_length=1)
+    skill_name: str = Field(..., min_length=1)
+    arguments: list[str] = Field(default_factory=list)
+    workspace_path: str | None = None
+    origin_turn_id: str | None = None
+    timeout_seconds: int | None = 1800
+    max_iterations: int = 50
+
+
+class RunSkillAsBackgroundResponse(BaseModel):
+    task_id: str
+    title: str
+    invocation_text: str
+    selected_tools: list[str]
+
+
+@commands_router.post(
+    "/run-skill-as-background",
+    response_model=RunSkillAsBackgroundResponse,
+)
+async def run_skill_as_background(
+    request: RunSkillAsBackgroundRequest,
+) -> RunSkillAsBackgroundResponse:
+    """Render a fork-context skill and enqueue it as a background task.
+
+    Validation matches ``expand-skill``: 404 if the skill is missing,
+    403 if it's not user-invocable, 400 if the skill is not declared
+    ``context: fork`` (the caller should use ``expand-skill`` for inline
+    skills instead).
+    """
+    try:
+        expansion = expand_skill(
+            skill_name=request.skill_name,
+            arguments=request.arguments,
+            user_id=request.user_id,
+            session_id=request.session_id,
+            workspace=request.workspace_path,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    if expansion is None:
+        raise HTTPException(
+            status_code=404, detail=f"Skill {request.skill_name!r} not found"
+        )
+    if not expansion.user_invocable:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Skill {request.skill_name!r} is not user-invocable",
+        )
+    if expansion.context_mode != "fork":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Skill {request.skill_name!r} is not declared context: fork."
+                " Use /expand-skill for inline skills."
+            ),
+        )
+
+    try:
+        manager = resolve_background_task_manager()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    title = expansion.invocation_text or f"/{request.skill_name}"
+    selected_tools = list(expansion.allowed_tools or [])
+    spec = BackgroundTaskSpec(
+        user_id=request.user_id,
+        session_id=request.session_id,
+        origin_turn_id=str(request.origin_turn_id or ""),
+        title=title,
+        goal=expansion.rendered_prompt,
+        selected_tools=selected_tools,
+        workspace_path=request.workspace_path,
+        trigger_source=BackgroundTaskTriggerSource.MANUAL,
+        max_iterations=int(request.max_iterations),
+        timeout_seconds=request.timeout_seconds,
+    )
+    task = await manager.enqueue(spec)
+    return RunSkillAsBackgroundResponse(
+        task_id=task.task_id,
+        title=title,
+        invocation_text=expansion.invocation_text,
+        selected_tools=selected_tools,
     )
