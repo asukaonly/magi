@@ -441,7 +441,7 @@ export const ChatPage: React.FC = () => {
               loading={mentions.loading}
               error={mentions.error}
               onSelect={mentions.select}
-              onActiveIndexChange={() => undefined}
+              onActiveIndexChange={mentions.setActiveIndex}
             />
             <ComposerSlashPicker
               open={commands.state.open}
@@ -451,7 +451,7 @@ export const ChatPage: React.FC = () => {
               loading={commands.loading}
               error={commands.error}
               onSelect={commands.select}
-              onActiveIndexChange={() => undefined}
+              onActiveIndexChange={commands.setActiveIndex}
             />
           </>
         }

@@ -238,7 +238,7 @@ describe('ComposerMentionPicker', () => {
         onActiveIndexChange={() => undefined}
       />,
     );
-    expect(screen.getByText(/No matching resources/)).toBeTruthy();
+    expect(screen.getByText('chat.mentions.empty')).toBeTruthy();
   });
 
   it('selects on mouse down', async () => {

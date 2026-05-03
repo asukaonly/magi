@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, Loader2, Slash, Wrench } from 'lucide-react';
 import type { SlashCommandItem } from '@/hooks/useChatComposerCommands';
@@ -13,6 +14,8 @@ type ComposerSlashPickerProps = {
   onActiveIndexChange: (index: number) => void;
 };
 
+const itemId = (index: number) => `slash-option-${index}`;
+
 export const ComposerSlashPicker = ({
   open,
   query,
@@ -24,37 +27,45 @@ export const ComposerSlashPicker = ({
   onActiveIndexChange,
 }: ComposerSlashPickerProps) => {
   const { t } = useTranslation();
+  const activeRef = useRef<HTMLLIElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    activeRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [activeIndex, open]);
 
   if (!open) return null;
+
+  const activeId = items.length > 0 && activeIndex >= 0 ? itemId(activeIndex) : undefined;
 
   return (
     <div
       data-slash-picker
       role="listbox"
-      aria-label={t('chat.commands.label', { defaultValue: 'Run command' })}
+      aria-label={t('chat.commands.label')}
+      aria-activedescendant={activeId}
+      aria-busy={loading}
       className="absolute bottom-full left-0 z-30 mb-2 w-[min(100%,420px)] overflow-hidden rounded-xl border border-border/60 bg-background shadow-lg"
     >
       <div className="border-b border-border/40 bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground">
-        {t('chat.commands.heading', { defaultValue: 'Commands' })}
+        {t('chat.commands.heading')}
         {query ? <span className="ml-1 font-mono text-foreground/80">/{query}</span> : null}
       </div>
 
       {loading && items.length === 0 ? (
         <div className="flex items-center gap-2 px-3 py-3 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
-          {t('chat.commands.loading', { defaultValue: 'Loading…' })}
+          {t('chat.commands.loading')}
         </div>
       ) : null}
 
       {error ? (
-        <div className="px-3 py-3 text-sm text-destructive">{error}</div>
+        <div role="alert" className="px-3 py-3 text-sm text-destructive">{error}</div>
       ) : null}
 
       {!loading && items.length === 0 && !error ? (
         <div className="px-3 py-3 text-sm text-muted-foreground">
-          {t('chat.commands.empty', {
-            defaultValue: 'No matching commands.',
-          })}
+          {t('chat.commands.empty')}
         </div>
       ) : null}
 
@@ -65,6 +76,8 @@ export const ComposerSlashPicker = ({
           return (
             <li
               key={`${item.source}|${item.name}`}
+              id={itemId(index)}
+              ref={active ? activeRef : undefined}
               role="option"
               aria-selected={active}
               className={`flex cursor-pointer items-center gap-3 px-3 py-2 text-sm ${
@@ -83,7 +96,7 @@ export const ComposerSlashPicker = ({
                   {item.source === 'tool' && item.dangerous ? (
                     <AlertTriangle
                       className="h-3 w-3 text-amber-500"
-                      aria-label={t('chat.commands.dangerous', { defaultValue: 'Dangerous tool — will request confirmation' })}
+                      aria-label={t('chat.commands.dangerous')}
                     />
                   ) : null}
                 </div>
@@ -93,8 +106,8 @@ export const ComposerSlashPicker = ({
               </div>
               <span className="text-xs text-muted-foreground/70">
                 {item.source === 'internal'
-                  ? t('chat.commands.kindInternal', { defaultValue: 'built-in' })
-                  : t('chat.commands.kindTool', { defaultValue: 'tool' })}
+                  ? t('chat.commands.kindInternal')
+                  : t('chat.commands.kindTool')}
               </span>
             </li>
           );

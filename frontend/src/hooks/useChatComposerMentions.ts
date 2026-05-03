@@ -10,9 +10,15 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { mcpApi, type MCPResource } from '@/api';
+import { fuzzyScore } from '@/lib/fuzzyMatch';
+import { MRUCache } from '@/lib/mruCache';
 import type { DraftMcpResourceAttachment } from './useChatDraftAttachments';
 
 const MENTION_TRIGGER = '@';
+const mruCache = new MRUCache('mentions');
+
+const mruKey = (item: { serverId: string; uri: string }): string =>
+  `${item.serverId}|${item.uri}`;
 
 export type MentionItem = {
   serverId: string;
@@ -60,17 +66,11 @@ const resourceToItem = (resource: MCPResource): MentionItem => ({
   mimeType: resource.mimeType,
 });
 
-const matchScore = (item: MentionItem, query: string): number => {
-  if (!query) return 1;
-  const q = query.toLowerCase();
-  const name = item.name.toLowerCase();
-  const uri = item.uri.toLowerCase();
-  const server = item.serverId.toLowerCase();
-  if (name.startsWith(q) || uri.startsWith(q)) return 4;
-  if (name.includes(q)) return 3;
-  if (uri.includes(q)) return 2;
-  if (server.includes(q)) return 1;
-  return 0;
+const scoreItem = (item: MentionItem, query: string): number => {
+  const name = fuzzyScore(query, item.name);
+  const uri = fuzzyScore(query, item.uri);
+  const server = fuzzyScore(query, item.serverId);
+  return Math.max(name, uri, Math.floor(server * 0.6));
 };
 
 export function useChatComposerMentions({
@@ -166,9 +166,16 @@ export function useChatComposerMentions({
   const filteredItems = useMemo(() => {
     if (!state.open) return [];
     const scored = resources
-      .map((item) => ({ item, score: matchScore(item, state.query) }))
+      .map((item) => ({
+        item,
+        score: scoreItem(item, state.query),
+        recency: mruCache.recencyRank(mruKey(item)),
+      }))
       .filter(({ score }) => score > 0);
-    scored.sort((a, b) => b.score - a.score);
+    scored.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return b.recency - a.recency;
+    });
     return scored.map(({ item }) => item).slice(0, 50);
   }, [resources, state]);
 
@@ -192,6 +199,7 @@ export function useChatComposerMentions({
         mimeType: item.mimeType,
         description: item.description,
       });
+      mruCache.recordUse(mruKey(item));
       close();
       // Restore focus to the textarea after the picker closes.
       requestAnimationFrame(() => {
@@ -228,6 +236,19 @@ export function useChatComposerMentions({
         });
         return true;
       }
+      if (event.key === 'Home') {
+        event.preventDefault();
+        setState({ ...state, activeIndex: 0 });
+        return true;
+      }
+      if (event.key === 'End') {
+        event.preventDefault();
+        setState({
+          ...state,
+          activeIndex: Math.max(0, filteredItems.length - 1),
+        });
+        return true;
+      }
       if (event.key === 'Enter' || event.key === 'Tab') {
         const item = filteredItems[state.activeIndex];
         if (item) {
@@ -240,6 +261,13 @@ export function useChatComposerMentions({
     },
     [close, filteredItems, select, state],
   );
+
+  const setActiveIndex = useCallback((index: number) => {
+    setState((current) => {
+      if (!current.open) return current;
+      return { ...current, activeIndex: index };
+    });
+  }, []);
 
   useEffect(() => {
     if (!state.open) return undefined;
@@ -262,5 +290,6 @@ export function useChatComposerMentions({
     onKeyDown,
     select,
     close,
+    setActiveIndex,
   };
 }

@@ -16,6 +16,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type React from 'react';
 import { commandsApi, type CommandDescriptor } from '@/api';
+import { fuzzyScore } from '@/lib/fuzzyMatch';
+import { MRUCache } from '@/lib/mruCache';
+
+const mruCache = new MRUCache('commands');
 
 export type SlashCommandSource = 'internal' | 'tool';
 
@@ -79,15 +83,12 @@ const INTERNAL_COMMANDS: Array<Extract<SlashCommandItem, { source: 'internal' }>
   },
 ];
 
-const matchScore = (item: SlashCommandItem, query: string): number => {
-  if (!query) return 1;
-  const q = query.toLowerCase();
-  const name = item.name.toLowerCase();
-  if (name === q) return 5;
-  if (name.startsWith(q)) return 4;
-  if (name.includes(q)) return 3;
-  if (item.description.toLowerCase().includes(q)) return 2;
-  return 0;
+const mruKey = (item: SlashCommandItem): string => `${item.source}|${item.name}`;
+
+const scoreItem = (item: SlashCommandItem, query: string): number => {
+  const name = fuzzyScore(query, item.name);
+  const desc = Math.floor(fuzzyScore(query, item.description) * 0.5);
+  return Math.max(name, desc);
 };
 
 const isAtMessageStart = (value: string, cursor: number): boolean => {
@@ -155,11 +156,16 @@ export function useChatComposerCommands({
       })),
     ];
     const scored = merged
-      .map((item) => ({ item, score: matchScore(item, state.query) }))
+      .map((item) => ({
+        item,
+        score: scoreItem(item, state.query),
+        recency: mruCache.recencyRank(mruKey(item)),
+      }))
       .filter(({ score }) => score > 0);
     scored.sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
-      // internals before tools at equal score, then alpha
+      if (b.recency !== a.recency) return b.recency - a.recency;
+      // internals before tools at equal score+recency, then alpha
       if (a.item.source !== b.item.source) {
         return a.item.source === 'internal' ? -1 : 1;
       }
@@ -194,6 +200,7 @@ export function useChatComposerCommands({
     (item: SlashCommandItem) => {
       // Strip the textarea — the invocation surface is the chat timeline.
       setInputValue('');
+      mruCache.recordUse(mruKey(item));
       close();
       if (item.source === 'internal') {
         void onPickInternal(item.action);
@@ -231,6 +238,16 @@ export function useChatComposerCommands({
         });
         return true;
       }
+      if (event.key === 'Home') {
+        event.preventDefault();
+        setState({ ...state, activeIndex: 0 });
+        return true;
+      }
+      if (event.key === 'End') {
+        event.preventDefault();
+        setState({ ...state, activeIndex: Math.max(0, items.length - 1) });
+        return true;
+      }
       if (event.key === 'Enter' || event.key === 'Tab') {
         const item = items[state.activeIndex];
         if (item) {
@@ -243,6 +260,13 @@ export function useChatComposerCommands({
     },
     [close, items, select, state],
   );
+
+  const setActiveIndex = useCallback((index: number) => {
+    setState((current) => {
+      if (!current.open) return current;
+      return { ...current, activeIndex: index };
+    });
+  }, []);
 
   useEffect(() => {
     if (!state.open) return undefined;
@@ -265,5 +289,6 @@ export function useChatComposerCommands({
     onKeyDown,
     select,
     close,
+    setActiveIndex,
   };
 }
