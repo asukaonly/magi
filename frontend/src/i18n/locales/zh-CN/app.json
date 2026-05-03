@@ -734,12 +734,16 @@
       "empty": "尚未配置 MCP 服务器。添加后其工具与资源会注入到对话中。",
       "confirmDelete": "停止并移除 MCP 服务器 \"{{id}}\"？",
       "toolsAndResources": "{{tools}} 个工具 · {{resources}} 个资源",
+      "importHint": "导入支持 mcp.json 或 claude_desktop_config.json，服务器配置保存在 ~/.magi/config/mcp/ 下。",
       "actions": {
         "add": "添加服务器",
+        "import": "导入…",
         "edit": "编辑",
         "delete": "删除",
         "start": "启动",
-        "stop": "停止"
+        "stop": "停止",
+        "more": "更多操作",
+        "viewLogs": "查看日志"
       },
       "state": {
         "connected": "已连接",
@@ -763,8 +767,35 @@
         "env": "环境变量（每行一个 KEY=VALUE）",
         "url": "接入端点 URL",
         "headers": "请求头（每行一个 HEADER=VALUE）",
+        "advancedShow": "显示高级选项",
+        "advancedHide": "隐藏高级选项",
+        "callTimeout": "调用超时（毫秒）",
+        "initTimeout": "初始化超时（毫秒）",
+        "maxRestart": "最大重启次数",
+        "toolOverrides": "工具覆盖（JSON）",
+        "toolOverridesHint": "用 {dangerous: true|false} 强制工具的安全分类。",
         "save": "保存",
-        "cancel": "取消"
+        "cancel": "取消",
+        "errors": {
+          "command": "stdio 传输需要填写命令。",
+          "url": "HTTP 传输需要填写 URL。",
+          "tool_overrides": "工具覆盖必须是合法的 JSON。"
+        }
+      },
+      "logs": {
+        "title": "日志 · {{id}}",
+        "description": "运行中服务器的最近 500 行 stderr（仅 stdio）。",
+        "loading": "加载日志中…",
+        "empty": "暂无日志输出。"
+      },
+      "import": {
+        "title": "导入 MCP 服务器",
+        "description": "选择要从文件中安装的服务器。",
+        "empty": "未在文件中找到 MCP 服务器条目。",
+        "conflict": "已存在",
+        "confirm": "导入",
+        "parseEmpty": "文件中没有 mcpServers 条目。",
+        "parseFailed": "解析文件失败：{{message}}"
       }
     },
     "defaultChatWorkspacePlaceholder": "未选择默认目录",

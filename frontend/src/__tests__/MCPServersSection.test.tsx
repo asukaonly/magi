@@ -96,4 +96,37 @@ describe('MCPServersSection', () => {
       expect(api.post).toHaveBeenCalledWith('/mcp/servers/demo/start', {});
     });
   });
+
+  it('exposes a kebab "More actions" menu on each row', async () => {
+    vi.mocked(api.get).mockResolvedValue({
+      data: [
+        {
+          id: 'demo',
+          name: 'Demo',
+          description: '',
+          enabled: true,
+          autostart: false,
+          transport: { kind: 'stdio', command: 'npx', args: [], cwd: '', env: {} },
+          runtime: { call_timeout_ms: 60000, init_timeout_ms: 15000, max_restart_attempts: 5 },
+          state: 'connected',
+          tool_count: 0,
+          resource_count: 0,
+          last_error: null,
+        },
+      ],
+    } as any);
+    render(<MCPServersSection />);
+    await screen.findByText('Demo');
+    const moreBtn = screen.getByRole('button', { name: /settings\.mcp\.actions\.more/ });
+    expect(moreBtn).toBeTruthy();
+  });
+
+  it('shows an Import button that triggers a file picker', async () => {
+    vi.mocked(api.get).mockResolvedValueOnce({ data: [] } as any);
+    render(<MCPServersSection />);
+    const importBtn = await screen.findByRole('button', {
+      name: /settings\.mcp\.actions\.import/,
+    });
+    expect(importBtn).toBeTruthy();
+  });
 });

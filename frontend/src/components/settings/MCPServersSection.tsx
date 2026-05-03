@@ -1,10 +1,23 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Plus, Play, Square, Trash2, RefreshCw, Pencil, Loader2 } from 'lucide-react';
+import {
+  Plus,
+  Play,
+  Square,
+  Trash2,
+  RefreshCw,
+  Pencil,
+  Loader2,
+  MoreHorizontal,
+  FileText,
+  Upload,
+  ScrollText,
+} from 'lucide-react';
 
 import { mcpApi } from '@/api/modules/mcp';
 import type {
   MCPServerCreatePayload,
+  MCPServerLogs,
   MCPServerStatus,
   MCPTransport,
   MCPTransportKind,
@@ -20,7 +33,23 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 
@@ -36,6 +65,10 @@ type DraftState = {
   envText: string;
   url: string;
   headersText: string;
+  callTimeoutMs: number;
+  initTimeoutMs: number;
+  maxRestartAttempts: number;
+  toolOverridesJson: string;
 };
 
 const EMPTY_DRAFT: DraftState = {
@@ -50,6 +83,10 @@ const EMPTY_DRAFT: DraftState = {
   envText: '',
   url: '',
   headersText: '',
+  callTimeoutMs: 60000,
+  initTimeoutMs: 15000,
+  maxRestartAttempts: 5,
+  toolOverridesJson: '{}',
 };
 
 const STATE_BADGE: Record<MCPServerStatus['state'], string> = {
@@ -61,39 +98,38 @@ const STATE_BADGE: Record<MCPServerStatus['state'], string> = {
 };
 
 const draftFromServer = (server: MCPServerStatus): DraftState => {
-  if (server.transport.kind === 'stdio') {
-    const env = Object.entries(server.transport.env ?? {})
-      .map(([k, v]) => `${k}=${v}`)
-      .join('\n');
-    return {
-      id: server.id,
-      name: server.name,
-      description: server.description ?? '',
-      enabled: server.enabled,
-      autostart: server.autostart,
-      transportKind: 'stdio',
-      command: server.transport.command,
-      argsText: (server.transport.args ?? []).join(' '),
-      envText: env,
-      url: '',
-      headersText: '',
-    };
-  }
-  const headers = Object.entries(server.transport.headers ?? {})
-    .map(([k, v]) => `${k}=${v}`)
-    .join('\n');
-  return {
+  const base: DraftState = {
     ...EMPTY_DRAFT,
     id: server.id,
     name: server.name,
     description: server.description ?? '',
     enabled: server.enabled,
     autostart: server.autostart,
+    callTimeoutMs: server.runtime.call_timeout_ms,
+    initTimeoutMs: server.runtime.init_timeout_ms,
+    maxRestartAttempts: server.runtime.max_restart_attempts,
+  };
+  if (server.transport.kind === 'stdio') {
+    return {
+      ...base,
+      transportKind: 'stdio',
+      command: server.transport.command,
+      argsText: (server.transport.args ?? []).join(' '),
+      envText: kvToText(server.transport.env ?? {}),
+    };
+  }
+  return {
+    ...base,
     transportKind: 'http',
     url: server.transport.url,
-    headersText: headers,
+    headersText: kvToText(server.transport.headers ?? {}),
   };
 };
+
+const kvToText = (obj: Record<string, string>): string =>
+  Object.entries(obj)
+    .map(([k, v]) => `${k}=${v}`)
+    .join('\n');
 
 const parseKVText = (text: string): Record<string, string> => {
   const out: Record<string, string> = {};
@@ -109,13 +145,15 @@ const parseKVText = (text: string): Record<string, string> => {
   return out;
 };
 
-const buildPayload = (draft: DraftState): MCPServerCreatePayload => {
+const buildPayload = (
+  draft: DraftState,
+): { payload: MCPServerCreatePayload; error?: string } => {
   let transport: MCPTransport;
   if (draft.transportKind === 'stdio') {
-    const args = draft.argsText
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean);
+    const args = draft.argsText.trim().split(/\s+/).filter(Boolean);
+    if (!draft.command.trim()) {
+      return { payload: null as unknown as MCPServerCreatePayload, error: 'command' };
+    }
     transport = {
       kind: 'stdio',
       command: draft.command.trim(),
@@ -124,25 +162,83 @@ const buildPayload = (draft: DraftState): MCPServerCreatePayload => {
       env: parseKVText(draft.envText),
     };
   } else {
+    if (!draft.url.trim()) {
+      return { payload: null as unknown as MCPServerCreatePayload, error: 'url' };
+    }
     transport = {
       kind: 'http',
       url: draft.url.trim(),
       headers: parseKVText(draft.headersText),
     };
   }
+
+  let toolOverrides: Record<string, { dangerous?: boolean | null }> | undefined;
+  if (draft.toolOverridesJson.trim() && draft.toolOverridesJson.trim() !== '{}') {
+    try {
+      toolOverrides = JSON.parse(draft.toolOverridesJson);
+    } catch {
+      return { payload: null as unknown as MCPServerCreatePayload, error: 'tool_overrides' };
+    }
+  }
+
   return {
-    server: {
-      id: draft.id.trim(),
-      name: draft.name.trim() || draft.id.trim(),
-      description: draft.description,
-      enabled: draft.enabled,
-      autostart: draft.autostart,
+    payload: {
+      server: {
+        id: draft.id.trim(),
+        name: draft.name.trim() || draft.id.trim(),
+        description: draft.description,
+        enabled: draft.enabled,
+        autostart: draft.autostart,
+      },
+      transport,
+      runtime: {
+        call_timeout_ms: draft.callTimeoutMs,
+        init_timeout_ms: draft.initTimeoutMs,
+        max_restart_attempts: draft.maxRestartAttempts,
+      },
+      tool_overrides: toolOverrides,
     },
-    transport,
   };
 };
 
-interface ServerEditorDialogProps {
+// -----------------------------------------------------------------------
+// Import: try to parse `mcp.json` or `claude_desktop_config.json` shape
+// and produce a list of partial drafts. Both shapes share an
+// `mcpServers: { <id>: { command, args, env, url, headers } }` structure.
+// -----------------------------------------------------------------------
+
+const draftsFromImportJson = (raw: unknown): DraftState[] => {
+  if (!raw || typeof raw !== 'object') return [];
+  const obj = raw as Record<string, unknown>;
+  const root = (obj.mcpServers ?? obj.servers ?? obj) as Record<string, unknown>;
+  if (!root || typeof root !== 'object') return [];
+  const drafts: DraftState[] = [];
+  for (const [id, val] of Object.entries(root)) {
+    if (!val || typeof val !== 'object') continue;
+    const v = val as Record<string, unknown>;
+    const next: DraftState = { ...EMPTY_DRAFT, id, name: id };
+    if (typeof v.command === 'string') {
+      next.transportKind = 'stdio';
+      next.command = v.command;
+      next.argsText = Array.isArray(v.args) ? (v.args as unknown[]).join(' ') : '';
+      next.envText = v.env && typeof v.env === 'object'
+        ? kvToText(v.env as Record<string, string>)
+        : '';
+    } else if (typeof v.url === 'string') {
+      next.transportKind = 'http';
+      next.url = v.url;
+      next.headersText = v.headers && typeof v.headers === 'object'
+        ? kvToText(v.headers as Record<string, string>)
+        : '';
+    } else {
+      continue;
+    }
+    drafts.push(next);
+  }
+  return drafts;
+};
+
+interface ServerEditorDrawerProps {
   open: boolean;
   initialDraft: DraftState | null;
   isEdit: boolean;
@@ -150,7 +246,7 @@ interface ServerEditorDialogProps {
   onSave: (payload: MCPServerCreatePayload, isEdit: boolean) => Promise<void>;
 }
 
-const ServerEditorDialog: React.FC<ServerEditorDialogProps> = ({
+const ServerEditorDrawer: React.FC<ServerEditorDrawerProps> = ({
   open,
   initialDraft,
   isEdit,
@@ -161,187 +257,465 @@ const ServerEditorDialog: React.FC<ServerEditorDialogProps> = ({
   const [draft, setDraft] = useState<DraftState>(EMPTY_DRAFT);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   useEffect(() => {
     if (open) {
       setDraft(initialDraft ?? EMPTY_DRAFT);
       setError(null);
+      setAdvancedOpen(false);
     }
   }, [open, initialDraft]);
 
   const handleSave = useCallback(async () => {
-    setSaving(true);
     setError(null);
+    const { payload, error: buildError } = buildPayload(draft);
+    if (buildError) {
+      setError(t(`settings.mcp.editor.errors.${buildError}`));
+      return;
+    }
+    setSaving(true);
     try {
-      await onSave(buildPayload(draft), isEdit);
+      await onSave(payload, isEdit);
       onClose();
     } catch (exc: any) {
       setError(exc?.message ?? String(exc));
     } finally {
       setSaving(false);
     }
-  }, [draft, isEdit, onClose, onSave]);
+  }, [draft, isEdit, onClose, onSave, t]);
 
   return (
-    <Dialog open={open} onOpenChange={(next) => (next ? null : onClose())}>
-      <DialogContent className="max-w-xl">
-        <DialogHeader>
-          <DialogTitle>
+    <Sheet open={open} onOpenChange={(next) => (next ? null : onClose())}>
+      <SheetContent
+        side="right"
+        className="flex w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-xl"
+      >
+        <SheetHeader className="border-b px-6 py-4">
+          <SheetTitle>
             {t(isEdit ? 'settings.mcp.editor.editTitle' : 'settings.mcp.editor.createTitle')}
-          </DialogTitle>
-          <DialogDescription>
-            {t('settings.mcp.editor.description')}
-          </DialogDescription>
-        </DialogHeader>
+          </SheetTitle>
+          <SheetDescription>{t('settings.mcp.editor.description')}</SheetDescription>
+        </SheetHeader>
 
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <label className="text-sm">
-              <span className="mb-1 block text-muted-foreground">
-                {t('settings.mcp.editor.id')}
-              </span>
-              <Input
-                value={draft.id}
-                onChange={(e) => setDraft({ ...draft, id: e.target.value })}
-                disabled={isEdit}
-                placeholder="github"
-              />
-            </label>
-            <label className="text-sm">
-              <span className="mb-1 block text-muted-foreground">
-                {t('settings.mcp.editor.name')}
-              </span>
-              <Input
-                value={draft.name}
-                onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-                placeholder="GitHub"
-              />
-            </label>
-          </div>
-
-          <label className="block text-sm">
-            <span className="mb-1 block text-muted-foreground">
-              {t('settings.mcp.editor.descriptionLabel')}
-            </span>
-            <Input
-              value={draft.description}
-              onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-            />
-          </label>
-
-          <div className="flex items-center gap-6 text-sm">
-            <label className="flex items-center gap-2">
-              <Switch
-                checked={draft.enabled}
-                onCheckedChange={(v) => setDraft({ ...draft, enabled: v })}
-              />
-              {t('settings.mcp.editor.enabled')}
-            </label>
-            <label className="flex items-center gap-2">
-              <Switch
-                checked={draft.autostart}
-                onCheckedChange={(v) => setDraft({ ...draft, autostart: v })}
-              />
-              {t('settings.mcp.editor.autostart')}
-            </label>
-          </div>
-
-          <div className="rounded-md border bg-muted/30 p-3 text-sm">
-            <div className="mb-2 flex items-center gap-3">
-              <span className="text-muted-foreground">
-                {t('settings.mcp.editor.transport')}
-              </span>
-              <Button
-                type="button"
-                size="sm"
-                variant={draft.transportKind === 'stdio' ? 'default' : 'outline'}
-                onClick={() => setDraft({ ...draft, transportKind: 'stdio' })}
-              >
-                stdio
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant={draft.transportKind === 'http' ? 'default' : 'outline'}
-                onClick={() => setDraft({ ...draft, transportKind: 'http' })}
-              >
-                http
-              </Button>
+        <div className="flex-1 overflow-y-auto px-6 py-4">
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <label className="text-sm">
+                <span className="mb-1 block text-muted-foreground">
+                  {t('settings.mcp.editor.id')}
+                </span>
+                <Input
+                  value={draft.id}
+                  onChange={(e) => setDraft({ ...draft, id: e.target.value })}
+                  disabled={isEdit}
+                  placeholder="github"
+                />
+              </label>
+              <label className="text-sm">
+                <span className="mb-1 block text-muted-foreground">
+                  {t('settings.mcp.editor.name')}
+                </span>
+                <Input
+                  value={draft.name}
+                  onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                  placeholder="GitHub"
+                />
+              </label>
             </div>
 
-            {draft.transportKind === 'stdio' ? (
-              <div className="space-y-3">
-                <label className="block">
-                  <span className="mb-1 block text-muted-foreground">
-                    {t('settings.mcp.editor.command')}
-                  </span>
-                  <Input
-                    value={draft.command}
-                    onChange={(e) => setDraft({ ...draft, command: e.target.value })}
-                    placeholder="npx"
-                  />
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-muted-foreground">
-                    {t('settings.mcp.editor.args')}
-                  </span>
-                  <Input
-                    value={draft.argsText}
-                    onChange={(e) => setDraft({ ...draft, argsText: e.target.value })}
-                    placeholder="-y @modelcontextprotocol/server-everything"
-                  />
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-muted-foreground">
-                    {t('settings.mcp.editor.env')}
-                  </span>
-                  <Textarea
-                    value={draft.envText}
-                    onChange={(e) => setDraft({ ...draft, envText: e.target.value })}
-                    rows={3}
-                    placeholder="GITHUB_TOKEN=${env:GITHUB_TOKEN}"
-                  />
-                </label>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <label className="block">
-                  <span className="mb-1 block text-muted-foreground">
-                    {t('settings.mcp.editor.url')}
-                  </span>
-                  <Input
-                    value={draft.url}
-                    onChange={(e) => setDraft({ ...draft, url: e.target.value })}
-                    placeholder="https://example.com/mcp"
-                  />
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-muted-foreground">
-                    {t('settings.mcp.editor.headers')}
-                  </span>
-                  <Textarea
-                    value={draft.headersText}
-                    onChange={(e) => setDraft({ ...draft, headersText: e.target.value })}
-                    rows={3}
-                    placeholder="Authorization=Bearer ..."
-                  />
-                </label>
-              </div>
-            )}
-          </div>
+            <label className="block text-sm">
+              <span className="mb-1 block text-muted-foreground">
+                {t('settings.mcp.editor.descriptionLabel')}
+              </span>
+              <Input
+                value={draft.description}
+                onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+              />
+            </label>
 
-          {error ? <p className="text-sm text-destructive">{error}</p> : null}
+            <div className="flex items-center gap-6 text-sm">
+              <label className="flex items-center gap-2">
+                <Switch
+                  checked={draft.enabled}
+                  onCheckedChange={(v) => setDraft({ ...draft, enabled: v })}
+                />
+                {t('settings.mcp.editor.enabled')}
+              </label>
+              <label className="flex items-center gap-2">
+                <Switch
+                  checked={draft.autostart}
+                  onCheckedChange={(v) => setDraft({ ...draft, autostart: v })}
+                />
+                {t('settings.mcp.editor.autostart')}
+              </label>
+            </div>
+
+            <div className="rounded-md border bg-muted/30 p-3 text-sm">
+              <div className="mb-2 flex items-center gap-3">
+                <span className="text-muted-foreground">
+                  {t('settings.mcp.editor.transport')}
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={draft.transportKind === 'stdio' ? 'default' : 'outline'}
+                  onClick={() => setDraft({ ...draft, transportKind: 'stdio' })}
+                >
+                  stdio
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={draft.transportKind === 'http' ? 'default' : 'outline'}
+                  onClick={() => setDraft({ ...draft, transportKind: 'http' })}
+                >
+                  http
+                </Button>
+              </div>
+
+              {draft.transportKind === 'stdio' ? (
+                <div className="space-y-3">
+                  <label className="block">
+                    <span className="mb-1 block text-muted-foreground">
+                      {t('settings.mcp.editor.command')}
+                    </span>
+                    <Input
+                      value={draft.command}
+                      onChange={(e) => setDraft({ ...draft, command: e.target.value })}
+                      placeholder="npx"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-muted-foreground">
+                      {t('settings.mcp.editor.args')}
+                    </span>
+                    <Input
+                      value={draft.argsText}
+                      onChange={(e) => setDraft({ ...draft, argsText: e.target.value })}
+                      placeholder="-y @modelcontextprotocol/server-everything"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-muted-foreground">
+                      {t('settings.mcp.editor.env')}
+                    </span>
+                    <Textarea
+                      value={draft.envText}
+                      onChange={(e) => setDraft({ ...draft, envText: e.target.value })}
+                      rows={3}
+                      placeholder="GITHUB_TOKEN=${env:GITHUB_TOKEN}"
+                    />
+                  </label>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <label className="block">
+                    <span className="mb-1 block text-muted-foreground">
+                      {t('settings.mcp.editor.url')}
+                    </span>
+                    <Input
+                      value={draft.url}
+                      onChange={(e) => setDraft({ ...draft, url: e.target.value })}
+                      placeholder="https://example.com/mcp"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-muted-foreground">
+                      {t('settings.mcp.editor.headers')}
+                    </span>
+                    <Textarea
+                      value={draft.headersText}
+                      onChange={(e) => setDraft({ ...draft, headersText: e.target.value })}
+                      rows={3}
+                      placeholder="Authorization=Bearer ..."
+                    />
+                  </label>
+                </div>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setAdvancedOpen((v) => !v)}
+              className="text-sm font-medium text-muted-foreground hover:text-foreground"
+            >
+              {advancedOpen
+                ? t('settings.mcp.editor.advancedHide')
+                : t('settings.mcp.editor.advancedShow')}
+            </button>
+
+            {advancedOpen ? (
+              <div className="space-y-3 rounded-md border bg-muted/20 p-3 text-sm">
+                <div className="grid grid-cols-3 gap-3">
+                  <label className="block">
+                    <span className="mb-1 block text-muted-foreground">
+                      {t('settings.mcp.editor.callTimeout')}
+                    </span>
+                    <Input
+                      type="number"
+                      min={1000}
+                      value={draft.callTimeoutMs}
+                      onChange={(e) =>
+                        setDraft({ ...draft, callTimeoutMs: Number(e.target.value) || 0 })
+                      }
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-muted-foreground">
+                      {t('settings.mcp.editor.initTimeout')}
+                    </span>
+                    <Input
+                      type="number"
+                      min={1000}
+                      value={draft.initTimeoutMs}
+                      onChange={(e) =>
+                        setDraft({ ...draft, initTimeoutMs: Number(e.target.value) || 0 })
+                      }
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-muted-foreground">
+                      {t('settings.mcp.editor.maxRestart')}
+                    </span>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={draft.maxRestartAttempts}
+                      onChange={(e) =>
+                        setDraft({
+                          ...draft,
+                          maxRestartAttempts: Number(e.target.value) || 0,
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+                <label className="block">
+                  <span className="mb-1 block text-muted-foreground">
+                    {t('settings.mcp.editor.toolOverrides')}
+                  </span>
+                  <Textarea
+                    value={draft.toolOverridesJson}
+                    onChange={(e) => setDraft({ ...draft, toolOverridesJson: e.target.value })}
+                    rows={4}
+                    spellCheck={false}
+                    className="font-mono text-xs"
+                    placeholder='{"create_issue": {"dangerous": true}}'
+                  />
+                  <span className="mt-1 block text-xs text-muted-foreground">
+                    {t('settings.mcp.editor.toolOverridesHint')}
+                  </span>
+                </label>
+              </div>
+            ) : null}
+
+            {error ? <p className="text-sm text-destructive">{error}</p> : null}
+          </div>
         </div>
 
-        <DialogFooter>
-          <DialogClose asChild>
+        <SheetFooter className="border-t px-6 py-4">
+          <SheetClose asChild>
             <Button type="button" variant="outline" disabled={saving}>
               {t('settings.mcp.editor.cancel')}
             </Button>
-          </DialogClose>
-          <Button type="button" onClick={() => void handleSave()} disabled={saving || !draft.id.trim()}>
+          </SheetClose>
+          <Button
+            type="button"
+            onClick={() => void handleSave()}
+            disabled={saving || !draft.id.trim()}
+          >
             {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             {t('settings.mcp.editor.save')}
+          </Button>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
+  );
+};
+
+interface LogsDialogProps {
+  open: boolean;
+  serverId: string | null;
+  onClose: () => void;
+}
+
+const LogsDialog: React.FC<LogsDialogProps> = ({ open, serverId, onClose }) => {
+  const { t } = useTranslation('app');
+  const [logs, setLogs] = useState<MCPServerLogs | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    if (!serverId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      setLogs(await mcpApi.serverLogs(serverId));
+    } catch (exc: any) {
+      setError(exc?.message ?? String(exc));
+    } finally {
+      setLoading(false);
+    }
+  }, [serverId]);
+
+  useEffect(() => {
+    if (open) {
+      void refresh();
+    } else {
+      setLogs(null);
+    }
+  }, [open, refresh]);
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => (next ? null : onClose())}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>
+            {t('settings.mcp.logs.title', { id: serverId ?? '' })}
+          </DialogTitle>
+          <DialogDescription>{t('settings.mcp.logs.description')}</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          {loading ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              {t('settings.mcp.logs.loading')}
+            </div>
+          ) : null}
+          {error ? <p className="text-sm text-destructive">{error}</p> : null}
+          {logs?.last_error ? (
+            <div className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
+              {logs.last_error}
+            </div>
+          ) : null}
+          <pre className="max-h-[60vh] overflow-auto rounded-md border bg-muted/30 p-3 font-mono text-xs">
+            {(logs?.stderr ?? []).join('\n') || t('settings.mcp.logs.empty')}
+          </pre>
+        </div>
+
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => void refresh()} disabled={loading}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            {t('settings.mcp.refresh')}
+          </Button>
+          <DialogClose asChild>
+            <Button type="button">{t('settings.mcp.editor.cancel')}</Button>
+          </DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+interface ImportPreviewDialogProps {
+  open: boolean;
+  drafts: DraftState[];
+  existingIds: Set<string>;
+  onClose: () => void;
+  onImport: (drafts: DraftState[]) => Promise<void>;
+}
+
+const ImportPreviewDialog: React.FC<ImportPreviewDialogProps> = ({
+  open,
+  drafts,
+  existingIds,
+  onClose,
+  onImport,
+}) => {
+  const { t } = useTranslation('app');
+  const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [importing, setImporting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      const next: Record<string, boolean> = {};
+      drafts.forEach((d) => {
+        next[d.id] = !existingIds.has(d.id);
+      });
+      setSelected(next);
+      setError(null);
+    }
+  }, [open, drafts, existingIds]);
+
+  const handleImport = useCallback(async () => {
+    const chosen = drafts.filter((d) => selected[d.id]);
+    if (chosen.length === 0) {
+      onClose();
+      return;
+    }
+    setImporting(true);
+    setError(null);
+    try {
+      await onImport(chosen);
+      onClose();
+    } catch (exc: any) {
+      setError(exc?.message ?? String(exc));
+    } finally {
+      setImporting(false);
+    }
+  }, [drafts, selected, onImport, onClose]);
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => (next ? null : onClose())}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{t('settings.mcp.import.title')}</DialogTitle>
+          <DialogDescription>{t('settings.mcp.import.description')}</DialogDescription>
+        </DialogHeader>
+
+        <ul className="max-h-80 space-y-1 overflow-auto rounded-md border p-2 text-sm">
+          {drafts.length === 0 ? (
+            <li className="px-2 py-1 text-muted-foreground">
+              {t('settings.mcp.import.empty')}
+            </li>
+          ) : (
+            drafts.map((d) => {
+              const conflict = existingIds.has(d.id);
+              return (
+                <li
+                  key={d.id}
+                  className="flex items-center gap-2 rounded px-2 py-1 hover:bg-accent/40"
+                >
+                  <input
+                    type="checkbox"
+                    checked={!!selected[d.id]}
+                    onChange={(e) =>
+                      setSelected({ ...selected, [d.id]: e.target.checked })
+                    }
+                  />
+                  <span className="font-medium">{d.id}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {d.transportKind} · {d.transportKind === 'stdio' ? d.command : d.url}
+                  </span>
+                  {conflict ? (
+                    <span className="ml-auto text-xs text-amber-600">
+                      {t('settings.mcp.import.conflict')}
+                    </span>
+                  ) : null}
+                </li>
+              );
+            })
+          )}
+        </ul>
+
+        {error ? <p className="text-sm text-destructive">{error}</p> : null}
+
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button type="button" variant="outline" disabled={importing}>
+              {t('settings.mcp.editor.cancel')}
+            </Button>
+          </DialogClose>
+          <Button
+            type="button"
+            onClick={() => void handleImport()}
+            disabled={importing || drafts.length === 0}
+          >
+            {importing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            {t('settings.mcp.import.confirm')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -355,16 +729,23 @@ export const MCPServersSection: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingDraft, setEditingDraft] = useState<DraftState | null>(null);
   const [editingIsEdit, setEditingIsEdit] = useState(false);
+
+  const [logsServerId, setLogsServerId] = useState<string | null>(null);
+  const [logsOpen, setLogsOpen] = useState(false);
+
+  const [importDrafts, setImportDrafts] = useState<DraftState[]>([]);
+  const [importOpen, setImportOpen] = useState(false);
+  const importFileInput = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setRefreshError(null);
     try {
-      const list = await mcpApi.listServers();
-      setServers(list);
+      setServers(await mcpApi.listServers());
     } catch (exc: any) {
       setRefreshError(exc?.message ?? String(exc));
     } finally {
@@ -431,8 +812,49 @@ export const MCPServersSection: React.FC = () => {
     }
   };
 
+  const onShowLogs = (server: MCPServerStatus) => {
+    setLogsServerId(server.id);
+    setLogsOpen(true);
+  };
+
+  const handleImportFile = async (file: File) => {
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const drafts = draftsFromImportJson(parsed);
+      if (drafts.length === 0) {
+        alert(t('settings.mcp.import.parseEmpty'));
+        return;
+      }
+      setImportDrafts(drafts);
+      setImportOpen(true);
+    } catch (exc: any) {
+      alert(t('settings.mcp.import.parseFailed', { message: exc?.message ?? String(exc) }));
+    }
+  };
+
+  const onImport = async (drafts: DraftState[]) => {
+    for (const d of drafts) {
+      const { payload, error } = buildPayload(d);
+      if (error) continue;
+      try {
+        await mcpApi.createServer(payload);
+      } catch (exc) {
+        // Continue importing the rest; user will see what landed via refresh.
+        // eslint-disable-next-line no-console
+        console.warn('[mcp] import skipped', d.id, exc);
+      }
+    }
+    await refresh();
+  };
+
   const totalTools = useMemo(
     () => servers.reduce((acc, s) => acc + s.tool_count, 0),
+    [servers],
+  );
+
+  const existingIds = useMemo(
+    () => new Set(servers.map((s) => s.id)),
     [servers],
   );
 
@@ -446,15 +868,43 @@ export const MCPServersSection: React.FC = () => {
               tools: totalTools,
             })}
           </Badge>
-          <Button type="button" variant="outline" size="sm" onClick={() => void refresh()} disabled={loading}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void refresh()}
+            disabled={loading}
+          >
             <RefreshCw className="mr-2 h-4 w-4" />
             {t('settings.mcp.refresh')}
           </Button>
         </div>
-        <Button type="button" size="sm" onClick={onCreate}>
-          <Plus className="mr-2 h-4 w-4" />
-          {t('settings.mcp.actions.add')}
-        </Button>
+        <div className="flex items-center gap-2">
+          <input
+            ref={importFileInput}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void handleImportFile(f);
+              e.target.value = '';
+            }}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => importFileInput.current?.click()}
+          >
+            <Upload className="mr-2 h-4 w-4" />
+            {t('settings.mcp.actions.import')}
+          </Button>
+          <Button type="button" size="sm" onClick={onCreate}>
+            <Plus className="mr-2 h-4 w-4" />
+            {t('settings.mcp.actions.add')}
+          </Button>
+        </div>
       </div>
 
       {refreshError ? (
@@ -474,10 +924,14 @@ export const MCPServersSection: React.FC = () => {
       ) : (
         <ul className="divide-y rounded-md border">
           {servers.map((server) => {
-            const isRunning = server.state === 'connected' || server.state === 'connecting';
+            const isRunning =
+              server.state === 'connected' || server.state === 'connecting';
             const busy = busyId === server.id;
             return (
-              <li key={server.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+              <li
+                key={server.id}
+                className="flex flex-wrap items-center gap-3 px-4 py-3"
+              >
                 <div className="flex flex-1 flex-col gap-1">
                   <div className="flex items-center gap-2">
                     <span className="font-medium">{server.name || server.id}</span>
@@ -520,20 +974,37 @@ export const MCPServersSection: React.FC = () => {
                       {t('settings.mcp.actions.start')}
                     </Button>
                   )}
-                  <Button size="sm" variant="ghost" onClick={() => onEdit(server)} disabled={busy}>
-                    <Pencil className="mr-1.5 h-3.5 w-3.5" />
-                    {t('settings.mcp.actions.edit')}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => void onDelete(server)}
-                    disabled={busy}
-                    className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                  >
-                    <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-                    {t('settings.mcp.actions.delete')}
-                  </Button>
+
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={busy}
+                        aria-label={t('settings.mcp.actions.more')}
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onSelect={() => onEdit(server)}>
+                        <Pencil className="h-3.5 w-3.5" />
+                        {t('settings.mcp.actions.edit')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => onShowLogs(server)}>
+                        <ScrollText className="h-3.5 w-3.5" />
+                        {t('settings.mcp.actions.viewLogs')}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        destructive
+                        onSelect={() => void onDelete(server)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        {t('settings.mcp.actions.delete')}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               </li>
             );
@@ -541,13 +1012,33 @@ export const MCPServersSection: React.FC = () => {
         </ul>
       )}
 
-      <ServerEditorDialog
+      <ServerEditorDrawer
         open={editorOpen}
         initialDraft={editingDraft}
         isEdit={editingIsEdit}
         onClose={() => setEditorOpen(false)}
         onSave={handleSave}
       />
+
+      <LogsDialog
+        open={logsOpen}
+        serverId={logsServerId}
+        onClose={() => setLogsOpen(false)}
+      />
+
+      <ImportPreviewDialog
+        open={importOpen}
+        drafts={importDrafts}
+        existingIds={existingIds}
+        onClose={() => setImportOpen(false)}
+        onImport={onImport}
+      />
+
+      {/* Footnote: hint anchor for keyboard users to find import format */}
+      <p className="flex items-center gap-2 text-xs text-muted-foreground">
+        <FileText className="h-3 w-3" />
+        {t('settings.mcp.importHint')}
+      </p>
     </div>
   );
 };

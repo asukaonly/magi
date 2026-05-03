@@ -735,12 +735,16 @@
       "empty": "No MCP servers configured. Add one to expose its tools and resources to chat.",
       "confirmDelete": "Stop and remove MCP server \"{{id}}\"?",
       "toolsAndResources": "{{tools}} tools · {{resources}} resources",
+      "importHint": "Import accepts mcp.json or claude_desktop_config.json. Servers are persisted under ~/.magi/config/mcp/.",
       "actions": {
         "add": "Add server",
+        "import": "Import…",
         "edit": "Edit",
         "delete": "Delete",
         "start": "Start",
-        "stop": "Stop"
+        "stop": "Stop",
+        "more": "More actions",
+        "viewLogs": "View logs"
       },
       "state": {
         "connected": "Connected",
@@ -764,8 +768,35 @@
         "env": "Environment (KEY=VALUE per line)",
         "url": "Endpoint URL",
         "headers": "Headers (HEADER=VALUE per line)",
+        "advancedShow": "Show advanced",
+        "advancedHide": "Hide advanced",
+        "callTimeout": "Call timeout (ms)",
+        "initTimeout": "Init timeout (ms)",
+        "maxRestart": "Max restart attempts",
+        "toolOverrides": "Tool overrides (JSON)",
+        "toolOverridesHint": "Map of tool name to {dangerous: true|false} to force the safety classification.",
         "save": "Save",
-        "cancel": "Cancel"
+        "cancel": "Cancel",
+        "errors": {
+          "command": "Command is required for stdio transport.",
+          "url": "URL is required for HTTP transport.",
+          "tool_overrides": "Tool overrides must be valid JSON."
+        }
+      },
+      "logs": {
+        "title": "Logs · {{id}}",
+        "description": "Latest 500 stderr lines from the running server (stdio only).",
+        "loading": "Loading logs…",
+        "empty": "No log output yet."
+      },
+      "import": {
+        "title": "Import MCP servers",
+        "description": "Pick which servers from the imported file to install.",
+        "empty": "No MCP servers found in this file.",
+        "conflict": "already exists",
+        "confirm": "Import",
+        "parseEmpty": "No mcpServers entries found in the file.",
+        "parseFailed": "Could not parse file: {{message}}"
       }
     },
     "defaultChatWorkspacePlaceholder": "No default directory selected",
