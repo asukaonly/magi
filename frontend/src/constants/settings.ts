@@ -48,7 +48,11 @@ export const NAV_ITEMS: NavItem[] = [
   { id: 'plugins', icon: PlugZap, children: [{ id: 'pluginsInstalled' }, { id: 'pluginsMarketplace' }] },
   { id: 'timeline', icon: ScrollText },
   { id: 'channels', icon: Radio },
-  { id: 'tools', icon: Wrench },
+  {
+    id: 'tools',
+    icon: Wrench,
+    children: [{ id: 'toolsBuiltin' }, { id: 'toolsPlugins' }, { id: 'toolsSkills' }],
+  },
   {
     id: 'statistics',
     icon: BarChart3,

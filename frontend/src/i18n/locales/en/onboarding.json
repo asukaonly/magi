@@ -429,6 +429,16 @@
       "stateTransitionProtocol": "State Transition Protocol",
       "personaLayers": "Deep Persona Layers"
     },
+    "sectionDescriptions": {
+      "basicProfile": "Name and description mainly support the selector and list UI. The runtime persona is driven by identity core, baseline voice, conversation modes, and rules below.",
+      "identityCore": "Define the stable core of the persona here. Focus on enduring identity, values, and attention habits rather than surface wording.",
+      "idiolect": "This is the low-intensity language fingerprint. It should stay recognizable, but not so strong that every reply feels like a performance.",
+      "registers": "Each conversation mode maps to a situation: casual chat, analysis, execution, emotional support, or crisis handling. Few-shot examples work best as one user line plus one AI line per block.",
+      "signatureTriggers": "Trigger reactions only activate in specific situations. They describe when the persona becomes more visible and what changes when it does.",
+      "quietHours": "Quiet-hour rules intentionally reduce persona intensity during focused execution, serious support, crisis handling, or explicit low-style requests.",
+      "appearance": "Only used for image-generation or portrait prompts. It does not affect chat behavior.",
+      "personaLayers": "Deep persona layers are relationship-depth modifiers, not a second full persona skin."
+    },
     "editorModes": {
       "quick": "Quick",
       "expert": "Expert"
@@ -484,6 +494,9 @@
       "triggerCondition": "Trigger Condition",
       "targetStateName": "Target State",
       "behaviorShift": "Behavior Shift",
+      "triggerCard": "Trigger Reaction #{{index}}",
+      "quietHourCard": "Quiet-Hour Rule #{{index}}",
+      "layerCard": "Deep Layer #{{index}}",
       "layerId": "Layer ID",
       "unlockCondition": "Unlock Condition",
       "trustLevelGte": "Trust Level ≥",
@@ -492,9 +505,36 @@
       "trustLevelGtePlaceholder": "No restriction if empty",
       "interactionCountGtePlaceholder": "No restriction if empty",
       "milestoneRequiredPlaceholder": "No restriction if empty",
-      "personaOverride": "Persona Override",
+      "layerModifiers": "Layer Modifiers",
+      "clampKey": "Clamp Key",
+      "clampValue": "Clamp Value",
       "overrideKeyPlaceholder": "Key",
       "behaviorHints": "Behavior Hints"
+    },
+    "fieldHelp": {
+      "name": "Persona name shown in the selector and runtime surfaces. Keep it short and recognizable.",
+      "description": "Short summary text for persona cards and lists. Keep it to one line and avoid repeating the identity statement.",
+      "avatar": "Only changes the persona's display avatar. It does not affect conversation behavior.",
+      "identityStatement": "Injected directly into the runtime Persona Plan under Identity Core. Write who this persona is, how they interpret the world, and what remains stable over time.",
+      "valuesLoved": "What this persona genuinely values. This affects judgment, stance, and what they endorse.",
+      "valuesRejected": "What this persona naturally rejects. This affects refusal style, criticism targets, and boundaries.",
+      "attentionBiases": "What this persona notices first when interpreting a situation. This affects analysis angle and prioritization.",
+      "sentenceStyle": "Low-intensity sentence rhythm and cadence. It should stay present without overpowering usefulness.",
+      "chatBehavior": "Default day-to-day reply behavior. In quick mode, this is the most direct control over how the persona normally sounds.",
+      "vocabAvailable": "Words or phrases that may appear naturally. Treat them as ammunition, not quotas.",
+      "vocabAvoided": "Words that break the persona voice, such as service-desk phrasing or generic filler.",
+      "structuralQuirks": "Structural habits such as short sentences, conclusion-first writing, or only using lists when needed.",
+      "registerDescription": "A short description of when this mode is used. Good for scene boundaries and planner clarity.",
+      "registerBehavior": "How the AI should behave in this mode. Prefer rules like what to prioritize, suppress, or allow.",
+      "registerExamples": "Few-shot examples. Separate examples with a blank line and use a simple format like “[User: ...]\\nNova: ...”.",
+      "triggerId": "Stable internal identifier such as crisis, intimacy, or shutdown_threat. Keep it short and unique.",
+      "activatesWhen": "Describe the concrete situation that activates the trigger. Avoid vague mood labels when possible.",
+      "behaviorShift": "Describe what changes once the trigger is active. Focus on behavior change rather than repeating lore.",
+      "intensityLevels": "Optional. Use only when this trigger behaves differently at low, mid, or high strength, using key:value lines.",
+      "exitBehavior": "How the persona returns to baseline after the trigger passes: gradual fade, brief afterglow, immediate reset, and so on.",
+      "quietHourCondition": "When personality should recede, usually during execution, crisis handling, serious support, or explicit low-style requests.",
+      "clamps": "These are explicit runtime clamp keys. Prefer known keys such as persona_intensity_max and answer_utility instead of casually inventing new ones.",
+      "appearancePrompt": "Only used for image generation. It does not change the chat persona. Prefer English for model compatibility."
     },
     "help": {
       "layerId": "Unique identifier for this layer, e.g. crack, revealed. Represents the depth stage of persona unlock.",
@@ -502,8 +542,11 @@
       "trustLevelGte": "Trust ranges from 0 to 1, starting at 0.5. Each successful interaction adds +0.02, failure subtracts −0.01.",
       "interactionCountGte": "Total chat turns between the user and AI. Each turn (user message + AI reply) counts as 1.",
       "milestoneRequired": "Milestones are detected by the AI during conversation. Enter a key defined in milestone_conditions of the persona config.",
-      "personaOverride": "Overrides the character's traits (e.g. tone, empathy) when unlocked. Keys are free-form and rendered as 'Attribute: value' in the prompt.",
+      "layerModifiers": "Additional prompt-level modifiers for this relationship layer. Use stable, runtime-meaningful keys like memory_behavior, protective_bias, or voice_unlocks instead of treating this as a full persona replacement.",
       "behaviorHints": "Specific actions the character will take when this layer is unlocked. One per line, describing concrete behaviors at this depth."
+    },
+    "placeholders": {
+      "registerExamples": "[User: What do you think of this plan?]\\nNova: The direction works. The weak point is phase three, so I would add a rollback path first.\\n\\n[User: I'm exhausted today.]\\nNova: Then we lower the load. I can keep this short and decision-focused."
     },
     "actions": {
       "addTransition": "Add Transition Rule",
@@ -512,6 +555,8 @@
       "removeTrigger": "Remove Reaction",
       "addQuietHour": "Add Rule",
       "removeQuietHour": "Remove Rule",
+      "addClamp": "Add Clamp",
+      "removeClamp": "Remove Clamp",
       "backToCards": "Back to cards",
       "editDetails": "Edit details",
       "hideDetails": "Hide details",
@@ -522,6 +567,8 @@
       "addLayer": "Add Layer",
       "removeLayer": "Remove Layer",
       "addOverride": "Add Override",
+      "addModifier": "Add Modifier",
+      "removeModifier": "Remove Modifier",
       "viewLayersTitle": "View Deep Persona Layers",
       "viewLayersConfirm": "Deep persona layers contain hidden character settings and progressive unlock mechanics. Viewing them may spoil the discovery experience. Are you sure?",
       "viewLayersReveal": "Reveal"

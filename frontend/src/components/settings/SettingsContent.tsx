@@ -53,6 +53,12 @@ const INTEGRATION_SECTION_IDS = new Set<string>([
   'channels',
 ]);
 
+const TOOL_SECTION_IDS = new Set<string>([
+  'toolsBuiltin',
+  'toolsPlugins',
+  'toolsSkills',
+]);
+
 export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({ onRequestClose }, ref) => {
   const { t } = useTranslation('app');
 
@@ -251,9 +257,15 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
           />
         );
 
-      case 'tools':
+      case 'toolsBuiltin':
+      case 'toolsPlugins':
+      case 'toolsSkills':
+        if (!TOOL_SECTION_IDS.has(effectiveActiveSection)) {
+          return null;
+        }
         return (
           <SettingsToolsSection
+            view={effectiveActiveSection === 'toolsPlugins' ? 'plugins' : effectiveActiveSection === 'toolsSkills' ? 'skills' : 'builtin'}
             tools={tools}
             toolsLoading={toolsLoading}
             toolsError={toolsError}
@@ -325,11 +337,11 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
           setChannelsSelection={setChannelsSelection}
         />
 
-        <main className="flex min-h-0 flex-1 flex-col">
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <header className="shrink-0 border-b border-[hsl(var(--settings-subnav-border)/0.68)] bg-[hsl(var(--settings-shell-elevated)/0.94)] backdrop-blur-sm">
             <div className="flex h-16 w-full items-center gap-4 px-8">
               <h2 className="text-lg font-semibold tracking-[0.01em] text-foreground">
-                {t(`settings.tabs.${activeSection}`)}
+                {t(`settings.tabs.${effectiveActiveSection}`)}
               </h2>
               <Button
                 type="button"
@@ -344,8 +356,8 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             </div>
           </header>
 
-          <div className="flex-1 min-h-0 overflow-hidden">
-            <div className="h-full w-full px-8 py-8">
+          <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+            <div className="h-full w-full min-w-0 px-8 py-8">
               <ErrorBoundary
                 fallback={
                   <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4">
@@ -367,10 +379,10 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                   key={activeSection}
                   data-testid="settings-section-content"
                   className={cn(
-                    'animate-in fade-in-0 slide-in-from-bottom-2 duration-300 ease-out',
+                    'animate-in fade-in-0 slide-in-from-bottom-2 duration-300 ease-out min-w-0',
                     usesInnerPaneScroll
                       ? 'flex h-full min-h-0 w-full flex-col overflow-hidden'
-                      : 'h-full overflow-y-auto pl-1 pr-2'
+                      : 'h-full overflow-y-auto pl-1 pr-4'
                   )}
                 >
                   {renderSectionContent()}
