@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import enum
 import itertools
+import json
 import logging
 import os
 from typing import Any, Callable
@@ -191,3 +192,159 @@ class StdioConnection(MCPConnection):
                     self._stderr_buf = self._stderr_buf[-500:]
         except asyncio.CancelledError:
             return
+
+
+class HttpConnection(MCPConnection):
+    """Streamable HTTP transport (MCP 2025-03-26).
+
+    Each client message is a POST to the MCP endpoint. The server may answer
+    with either an inline `application/json` JSON-RPC response or a
+    `text/event-stream` SSE stream eventually carrying the response.
+    Notifications/responses receive HTTP 202 with no body.
+
+    A separate GET stream may be opened to receive server-initiated requests
+    and notifications.
+    """
+
+    def __init__(self, transport):
+        super().__init__()
+        from .config import HttpTransport
+
+        if not isinstance(transport, HttpTransport):
+            raise TypeError("HttpConnection requires HttpTransport")
+        self._t = transport
+        self._client = None  # type: ignore[assignment]
+        self._session_id: str | None = None
+        self._listen_task: asyncio.Task | None = None
+        self._post_tasks: set[asyncio.Task] = set()
+
+    async def _start_transport(self) -> None:
+        import httpx
+
+        self._client = httpx.AsyncClient(
+            headers=self._t.headers, timeout=None
+        )
+        self.state = ConnectionState.CONNECTED
+        self._listen_task = asyncio.create_task(self._listen_loop())
+
+    async def _stop_transport(self) -> None:
+        if self._listen_task is not None:
+            self._listen_task.cancel()
+        for t in list(self._post_tasks):
+            t.cancel()
+        if self._client is not None:
+            await self._client.aclose()
+        self.state = ConnectionState.DISCONNECTED
+
+    async def _send_raw(self, msg: Message) -> None:
+        # The base class invokes _send_raw inside request() and immediately
+        # awaits the pending future. Networking must therefore happen in a
+        # background task so that request()'s wait_for can observe the result.
+        task = asyncio.create_task(self._post(msg))
+        self._post_tasks.add(task)
+        task.add_done_callback(self._post_tasks.discard)
+
+    async def _post(self, msg: Message) -> None:
+        import httpx
+
+        assert self._client is not None
+        body = json.loads(encode_message(msg).rstrip(b"\n"))
+        headers = {
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+        }
+        if self._session_id is not None:
+            headers["Mcp-Session-Id"] = self._session_id
+        try:
+            resp = await self._client.post(
+                self._t.url, json=body, headers=headers
+            )
+        except httpx.HTTPError as exc:
+            await self._fail_request(msg, exc)
+            return
+
+        sid = resp.headers.get("mcp-session-id")
+        if sid:
+            self._session_id = sid
+
+        if resp.status_code == 202:
+            await resp.aread()
+            return
+        if resp.status_code >= 400:
+            text = (await resp.aread()).decode("utf-8", errors="replace")
+            await self._fail_request(
+                msg, RuntimeError(f"HTTP {resp.status_code}: {text}")
+            )
+            return
+
+        ctype = resp.headers.get("content-type", "")
+        if ctype.startswith("application/json"):
+            raw = await resp.aread()
+            try:
+                await self._dispatch(parse_message(raw))
+            except Exception:
+                logger.exception("invalid inline JSON response")
+        elif ctype.startswith("text/event-stream"):
+            async for raw in _iter_sse_data(resp):
+                try:
+                    await self._dispatch(parse_message(raw))
+                except Exception:
+                    logger.exception("invalid SSE event")
+        else:
+            await self._fail_request(
+                msg, RuntimeError(f"unexpected content-type: {ctype!r}")
+            )
+
+    async def _fail_request(self, msg: Message, exc: BaseException) -> None:
+        if isinstance(msg, JsonRpcRequest):
+            fut = self._pending.get(msg.id)
+            if fut is not None and not fut.done():
+                fut.set_exception(exc)
+
+    async def _listen_loop(self) -> None:
+        """Open a GET SSE stream for server-initiated messages.
+
+        Best-effort: 405 means the server doesn't support GET listening.
+        """
+        import httpx
+
+        assert self._client is not None
+        try:
+            headers = {"Accept": "text/event-stream"}
+            if self._session_id is not None:
+                headers["Mcp-Session-Id"] = self._session_id
+            async with self._client.stream(
+                "GET", self._t.url, headers=headers
+            ) as r:
+                if r.status_code == 405:
+                    return
+                if r.status_code >= 400:
+                    return
+                async for raw in _iter_sse_data(r):
+                    try:
+                        await self._dispatch(parse_message(raw))
+                    except Exception:
+                        logger.exception("invalid SSE listen event")
+        except (asyncio.CancelledError, httpx.HTTPError):
+            return
+
+
+async def _iter_sse_data(resp):
+    """Yield raw `data:` payloads (bytes) from an SSE response."""
+    buf: list[str] = []
+    async for line in resp.aiter_lines():
+        if line == "":
+            if buf:
+                payload = "\n".join(buf).encode("utf-8")
+                buf = []
+                yield payload
+            continue
+        if line.startswith(":"):
+            continue
+        if line.startswith("data:"):
+            chunk = line[5:]
+            if chunk.startswith(" "):
+                chunk = chunk[1:]
+            buf.append(chunk)
+    if buf:
+        yield "\n".join(buf).encode("utf-8")
