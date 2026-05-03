@@ -142,6 +142,16 @@ class RuntimePaths:
         return self.base_dir / "logs"
 
     @property
+    def config_dir(self) -> Path:
+        """User-editable runtime configuration directory."""
+        return self.base_dir / "config"
+
+    @property
+    def mcp_config_dir(self) -> Path:
+        """Per-server MCP client configuration directory."""
+        return self.config_dir / "mcp"
+
+    @property
     def persona_registry_db_path(self) -> Path:
         """Persona registry database path."""
         return self.app_data_dir / "persona_registry.db"
