@@ -11,6 +11,7 @@ from magi.context.schema import (
     SelfMemoryContext,
     ToolCatalogContext,
 )
+from magi.personality.turn_planner import PersonaTurnPlan
 
 
 class TestPersonaJournalRendering:
@@ -35,18 +36,21 @@ class TestPersonaJournalRendering:
         assert lines == []
 
     def test_journal_in_full_system_prompt(self):
-        """Journal entries should appear between STP rules and scenario prompt."""
+        """Journal entries should appear after persona plan rendering."""
         ctx = PromptAssemblyContext(
             identity_constraints=IdentityConstraintContext(
                 system_definition="System def",
                 core_truths_and_boundaries="Boundaries",
             ),
             self_memory=SelfMemoryContext(
-                persona_entity={"basic_profile": {"name": "Kai"}},
+                persona_turn_plan=PersonaTurnPlan(
+                    persona_name="Kai",
+                    identity_core={"identity_statement": "A focused test persona."},
+                    register="chat",
+                ),
                 persona_journal_entries=[
                     {"content": "Reflected on recent growth.", "timestamp": time.time()},
                 ],
-                scenario_prompt="Be direct and efficient.",
             ),
             profile_memory=ProfileMemoryContext(user_id="u1"),
             runtime_system=RuntimeSystemContext(
@@ -68,10 +72,11 @@ class TestPersonaJournalRendering:
         assert "Internal Reflections" in prompt
         assert "Reflected on recent growth." in prompt
 
-        # Journal should come before scenario prompt
+        # Journal should come after the persona plan and before memory context
+        persona_pos = prompt.index("Persona Runtime Plan")
         journal_pos = prompt.index("Internal Reflections")
-        scenario_pos = prompt.index("Be direct and efficient.")
-        assert journal_pos < scenario_pos
+        memory_pos = prompt.index("Memory Library")
+        assert persona_pos < journal_pos < memory_pos
 
     def test_skips_entries_without_content(self):
         renderer = PromptContextRenderer()

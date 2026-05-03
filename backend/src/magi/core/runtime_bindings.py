@@ -24,3 +24,8 @@ def require_runtime_command_queue():
 def require_agent_runtime():
     """Return the active agent runtime binding."""
     return _require_binding("agent_runtime")
+
+
+def require_scheduler_service():
+    """Return the active scheduler service binding."""
+    return _require_binding("scheduler_service")

@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     sequence_no INTEGER NOT NULL,
     replaces_message_id TEXT,
     replaced_by_message_id TEXT,
+    persona_id TEXT,
     reply_to_message_id TEXT,
     label_json TEXT
 );
@@ -92,6 +93,33 @@ CREATE INDEX IF NOT EXISTS idx_chat_attachments_session_created
     ON chat_attachments(session_id, created_at_ms ASC);
 CREATE INDEX IF NOT EXISTS idx_chat_attachments_message_id
     ON chat_attachments(message_id);
+
+CREATE TABLE IF NOT EXISTS chat_context_summaries (
+    summary_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    parent_summary_id TEXT,
+    status TEXT NOT NULL DEFAULT 'building',
+    summary_kind TEXT NOT NULL,
+    persona_scope TEXT,
+    covered_from_message_id TEXT,
+    covered_to_message_id TEXT,
+    first_kept_message_id TEXT,
+    covered_to_sequence_no INTEGER,
+    session_origin TEXT NOT NULL DEFAULT '',
+    summary_text TEXT NOT NULL,
+    prompt_profile TEXT NOT NULL DEFAULT 'general_chat',
+    model_provider TEXT,
+    model_id TEXT,
+    token_count_before INTEGER,
+    token_count_after INTEGER,
+    quality_status TEXT,
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_chat_context_summaries_session_status
+    ON chat_context_summaries(session_id, status, updated_at_ms DESC);
+CREATE INDEX IF NOT EXISTS idx_chat_context_summaries_frontier
+    ON chat_context_summaries(session_id, summary_kind, persona_scope, covered_to_sequence_no DESC);
 """
 
 
@@ -100,6 +128,7 @@ async def ensure_chat_store_schema(db: aiosqlite.Connection) -> None:
     await ensure_chat_session_columns(db)
     await ensure_chat_turn_columns(db)
     await ensure_chat_message_columns(db)
+    await ensure_chat_context_summary_columns(db)
 
 
 async def ensure_chat_turn_columns(db: aiosqlite.Connection) -> None:
@@ -140,3 +169,36 @@ async def ensure_chat_message_columns(db: aiosqlite.Connection) -> None:
         await db.execute("ALTER TABLE chat_messages ADD COLUMN reply_to_message_id TEXT")
     if "label_json" not in column_names:
         await db.execute("ALTER TABLE chat_messages ADD COLUMN label_json TEXT")
+    if "persona_id" not in column_names:
+        await db.execute("ALTER TABLE chat_messages ADD COLUMN persona_id TEXT")
+
+
+async def ensure_chat_context_summary_columns(db: aiosqlite.Connection) -> None:
+    cursor = await db.execute("PRAGMA table_info(chat_context_summaries)")
+    rows = await cursor.fetchall()
+    if not rows:
+        return
+    column_names = {str(row[1]) for row in rows}
+    migrations = {
+        "parent_summary_id": "ALTER TABLE chat_context_summaries ADD COLUMN parent_summary_id TEXT",
+        "status": "ALTER TABLE chat_context_summaries ADD COLUMN status TEXT NOT NULL DEFAULT 'building'",
+        "summary_kind": "ALTER TABLE chat_context_summaries ADD COLUMN summary_kind TEXT NOT NULL DEFAULT 'token_budget'",
+        "persona_scope": "ALTER TABLE chat_context_summaries ADD COLUMN persona_scope TEXT",
+        "covered_from_message_id": "ALTER TABLE chat_context_summaries ADD COLUMN covered_from_message_id TEXT",
+        "covered_to_message_id": "ALTER TABLE chat_context_summaries ADD COLUMN covered_to_message_id TEXT",
+        "first_kept_message_id": "ALTER TABLE chat_context_summaries ADD COLUMN first_kept_message_id TEXT",
+        "covered_to_sequence_no": "ALTER TABLE chat_context_summaries ADD COLUMN covered_to_sequence_no INTEGER",
+        "session_origin": "ALTER TABLE chat_context_summaries ADD COLUMN session_origin TEXT NOT NULL DEFAULT ''",
+        "summary_text": "ALTER TABLE chat_context_summaries ADD COLUMN summary_text TEXT NOT NULL DEFAULT ''",
+        "prompt_profile": "ALTER TABLE chat_context_summaries ADD COLUMN prompt_profile TEXT NOT NULL DEFAULT 'general_chat'",
+        "model_provider": "ALTER TABLE chat_context_summaries ADD COLUMN model_provider TEXT",
+        "model_id": "ALTER TABLE chat_context_summaries ADD COLUMN model_id TEXT",
+        "token_count_before": "ALTER TABLE chat_context_summaries ADD COLUMN token_count_before INTEGER",
+        "token_count_after": "ALTER TABLE chat_context_summaries ADD COLUMN token_count_after INTEGER",
+        "quality_status": "ALTER TABLE chat_context_summaries ADD COLUMN quality_status TEXT",
+        "created_at_ms": "ALTER TABLE chat_context_summaries ADD COLUMN created_at_ms INTEGER NOT NULL DEFAULT 0",
+        "updated_at_ms": "ALTER TABLE chat_context_summaries ADD COLUMN updated_at_ms INTEGER NOT NULL DEFAULT 0",
+    }
+    for column_name, sql in migrations.items():
+        if column_name not in column_names:
+            await db.execute(sql)

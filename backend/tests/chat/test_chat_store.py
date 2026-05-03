@@ -74,6 +74,7 @@ async def test_chat_store_creates_chat_tables(tmp_path: Path) -> None:
         assert "chat_sessions" in tables
         assert "chat_turns" in tables
         assert "chat_messages" in tables
+        assert "chat_context_summaries" in tables
         journal_mode = _read_journal_mode(db_path)
         assert journal_mode == "wal"
     finally:
@@ -191,6 +192,7 @@ async def test_chat_store_persists_turn_and_message_records(tmp_path: Path) -> N
                 sequence_no=1,
                 replaces_message_id=None,
                 replaced_by_message_id=None,
+                persona_id="persona-a",
             )
         )
         await store.append_message(
@@ -209,6 +211,7 @@ async def test_chat_store_persists_turn_and_message_records(tmp_path: Path) -> N
                 sequence_no=2,
                 replaces_message_id=None,
                 replaced_by_message_id=None,
+                persona_id="persona-a",
             )
         )
 
@@ -219,7 +222,85 @@ async def test_chat_store_persists_turn_and_message_records(tmp_path: Path) -> N
         assert turn.status == "queued"
         assert [message.message_kind for message in messages] == ["user_text", "assistant_final"]
         assert [message.content_text for message in messages] == ["hello", "hi there"]
+        assert [message.persona_id for message in messages] == ["persona-a", "persona-a"]
         assert _read_session_workspace_path(db_path, "session-1") == "/Users/asuka/code/magi"
+    finally:
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_chat_store_activates_latest_context_summary(tmp_path: Path) -> None:
+    from magi.chat import ChatContextSummaryRecord, ChatStore
+
+    db_path = tmp_path / "chat.db"
+    store = ChatStore(db_path=str(db_path))
+    await store.initialize()
+
+    try:
+        await store.create_user_turn(
+            session_id="session-1",
+            user_id="user-1",
+            turn_id="turn-1",
+            message_text="start",
+            created_at_ms=100,
+        )
+        await store.activate_context_summary(
+            ChatContextSummaryRecord(
+                summary_id="summary-a",
+                session_id="session-1",
+                parent_summary_id=None,
+                status="building",
+                summary_kind="token_budget",
+                persona_scope=None,
+                covered_from_message_id="msg-1",
+                covered_to_message_id="msg-10",
+                first_kept_message_id="msg-11",
+                covered_to_sequence_no=10,
+                session_origin="Started with context design.",
+                summary_text="Summary A",
+                prompt_profile="general_chat",
+                model_provider="test",
+                model_id="model-a",
+                token_count_before=1000,
+                token_count_after=200,
+                quality_status="ok",
+                created_at_ms=200,
+                updated_at_ms=200,
+            )
+        )
+        await store.activate_context_summary(
+            ChatContextSummaryRecord(
+                summary_id="summary-b",
+                session_id="session-1",
+                parent_summary_id="summary-a",
+                status="building",
+                summary_kind="token_budget",
+                persona_scope=None,
+                covered_from_message_id="msg-1",
+                covered_to_message_id="msg-20",
+                first_kept_message_id="msg-21",
+                covered_to_sequence_no=20,
+                session_origin="Started with context design.",
+                summary_text="Summary B",
+                prompt_profile="general_chat",
+                model_provider="test",
+                model_id="model-a",
+                token_count_before=1500,
+                token_count_after=250,
+                quality_status="ok",
+                created_at_ms=300,
+                updated_at_ms=300,
+            )
+        )
+
+        active = await store.get_active_context_summary(session_id="session-1")
+
+        assert active is not None
+        assert active.summary_id == "summary-b"
+        assert active.parent_summary_id == "summary-a"
+        assert active.summary_text == "Summary B"
+        assert active.first_kept_message_id == "msg-21"
+        assert await store.get_history_version("session-1") == 3
     finally:
         await store.shutdown()
 
@@ -263,6 +344,7 @@ async def test_chat_store_history_survives_reinitialization(tmp_path: Path) -> N
             turn_id="turn-1",
             message_text="What did I say about sushi?",
             created_at_ms=100,
+            persona_id="persona-history",
         )
         await store.append_message(
             ChatMessageRecord(
@@ -294,6 +376,7 @@ async def test_chat_store_history_survives_reinitialization(tmp_path: Path) -> N
             "What did I say about sushi?",
             "You said sushi is your favorite.",
         ]
+        assert messages[0].persona_id == "persona-history"
         assert await reloaded.get_history_version("session-1") == 1
     finally:
         await reloaded.shutdown()

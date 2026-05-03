@@ -23,6 +23,11 @@ export interface RealtimeStoreProjectionOptions {
   pendingLabel?: string;
 }
 
+const normalizeOptionalString = (value: unknown): string | undefined => {
+  const normalized = String(value || '').trim();
+  return normalized || undefined;
+};
+
 const toExecutionTraceSummary = (
   summary: NonNullable<ReturnType<typeof normalizeTraceSummary>>,
 ): ExecutionTraceSummary => ({
@@ -69,6 +74,7 @@ export const applyRealtimeStoreProjection = (
     const payload = message.data as Record<string, unknown>;
     const sessionId = String(payload.session_id || conversationStore.currentSessionId || '').trim();
     const turnId = String(payload.turn_id || '').trim();
+    const personaId = normalizeOptionalString(payload.persona_id || payload.personaId);
     const timestamp = normalizeChatTimestamp(payload.timestamp);
     const summary = normalizeTraceSummary(payload.trace_summary);
     const uxPlan = normalizeTurnUxPlan(payload.ux_plan);
@@ -107,6 +113,7 @@ export const applyRealtimeStoreProjection = (
         timestamp,
         messageId: payload.message_id ? String(payload.message_id) : undefined,
         messageKind: payload.message_kind ? String(payload.message_kind) : null,
+        personaId,
         turnId: turnId || undefined,
         traceSummary: summary,
         traceAvailable: Boolean(payload.trace_available || summary?.traceAvailable),
@@ -126,6 +133,7 @@ export const applyRealtimeStoreProjection = (
     const payload = message.data as Record<string, unknown>;
     const sessionId = String(payload.session_id || conversationStore.currentSessionId || '').trim();
     const turnId = String(payload.turn_id || '').trim();
+    const personaId = normalizeOptionalString(payload.persona_id || payload.personaId);
     const streamEvent = message.streamEvent ?? normalizeRealtimeStreamEvent(payload);
 
     if (!sessionId || !turnId) {
@@ -139,6 +147,7 @@ export const applyRealtimeStoreProjection = (
       conversationStore.appendStreamToolCall({
         sessionId,
         turnId,
+        personaId,
         toolCallId: streamEvent.toolCallId,
         toolName: streamEvent.toolName,
         toolArgsDelta: streamEvent.toolArgsDelta,
@@ -152,6 +161,7 @@ export const applyRealtimeStoreProjection = (
       conversationStore.appendStreamTextDelta({
         sessionId,
         turnId,
+        personaId,
         textDelta: streamEvent.text,
       });
       return true;
@@ -161,6 +171,7 @@ export const applyRealtimeStoreProjection = (
       conversationStore.appendStreamTextFlush({
         sessionId,
         turnId,
+        personaId,
       });
       return true;
     }
@@ -169,6 +180,7 @@ export const applyRealtimeStoreProjection = (
       conversationStore.appendStreamReasoningDelta({
         sessionId,
         turnId,
+        personaId,
         source: streamEvent.source || 'unknown',
         stepLabel: streamEvent.stepLabel,
         textDelta: streamEvent.text,
@@ -181,6 +193,7 @@ export const applyRealtimeStoreProjection = (
       conversationStore.appendStreamTextDelta({
         sessionId,
         turnId,
+        personaId,
         textDelta: contentDelta,
       });
     }
@@ -188,6 +201,7 @@ export const applyRealtimeStoreProjection = (
       conversationStore.appendStreamTextFlush({
         sessionId,
         turnId,
+        personaId,
       });
     }
     return Boolean(contentDelta) || Boolean(payload.is_final);

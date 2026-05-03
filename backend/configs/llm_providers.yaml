@@ -54,8 +54,22 @@ providers:
     image_generation_models:
       - id: gpt-image-1
         label: GPT Image 1
+        supported_sizes: [1024x1024, 1536x1024, 1024x1536]
+        supported_qualities: [auto, high, medium, low]
+        supports_seed: false
+        supports_negative_prompt: false
+        supports_reference: false
+        max_n: 1
+        native_protocol: openai_images
       - id: dall-e-3
         label: DALL·E 3
+        supported_sizes: [1024x1024, 1792x1024, 1024x1792]
+        supported_qualities: [auto, high, medium, low]
+        supports_seed: false
+        supports_negative_prompt: false
+        supports_reference: false
+        max_n: 1
+        native_protocol: openai_images
     audio_generation_models:
       - id: gpt-4o-mini-tts
         label: GPT-4o Mini TTS

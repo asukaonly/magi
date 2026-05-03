@@ -11,7 +11,7 @@ from .....core.logger import get_logger
 from .....memory.l3.models import TaskOutcomePacket
 from .....personality.feature_flags import get_personality_feature_flags
 from .....personality.interaction_analyzer import analyze_interaction
-from ...common import ExecutionMode, ExecutionResult, IncomingFactKind
+from ...common import ExecutionResult, IncomingFactKind
 from ..contracts import ChatRuntimeContext
 
 logger = get_logger(__name__)
@@ -135,9 +135,6 @@ class ChatPostprocessMemoryMixin:
                         user_id=user_id,
                         user_message=user_message,
                         response_text=response_text,
-                        allow_state_transition=self._allows_state_transition(
-                            context=context, result=result
-                        ),
                         incoming_fact_kind=self._enum_value(context.incoming_fact_kind),
                         execution_mode=self._enum_value(result.mode),
                         session_id=context.session_id,
@@ -174,7 +171,6 @@ class ChatPostprocessMemoryMixin:
         user_id: str,
         user_message: str,
         response_text: str = "",
-        allow_state_transition: bool = True,
         incoming_fact_kind: str | None = None,
         execution_mode: str | None = None,
         session_id: str | None = None,
@@ -182,48 +178,23 @@ class ChatPostprocessMemoryMixin:
     ) -> bool:
         host = cast(_MemoryPostprocessHostProtocol, self)
         features = get_personality_feature_flags()
-        if not (
-            features.state_memory_enabled
-            or features.state_transition_enabled
-            or features.deep_persona_enabled
-        ):
+        if not (features.state_memory_enabled or features.deep_persona_enabled):
             return False
 
-        effective_state_transition = bool(
-            allow_state_transition and features.state_transition_enabled
-        )
         logger.info(
             "[chat.memory] interaction analysis scope user_id=%s session_id=%s turn_id=%s "
-            "incoming_fact_kind=%s execution_mode=%s state_transition_enabled=%s",
+            "incoming_fact_kind=%s execution_mode=%s",
             user_id,
             session_id,
             turn_id,
             incoming_fact_kind,
             execution_mode,
-            effective_state_transition,
         )
 
-        stp_rules: list[dict[str, str]] | None = None
         milestone_conditions: dict[str, str] | None = None
         if host._memory is not None:
             try:
                 config = await host._memory.get_core_personality()
-                if (
-                    effective_state_transition
-                    and hasattr(config, "state_transition_protocol")
-                    and config.state_transition_protocol
-                ):
-                    stp_rules = []
-                    for item in config.state_transition_protocol:
-                        trigger_type = getattr(item, "trigger_type", "")
-                        trigger_condition = getattr(item, "trigger_condition", "")
-                        if trigger_type and trigger_condition:
-                            stp_rules.append(
-                                {
-                                    "trigger_type": trigger_type,
-                                    "trigger_condition": trigger_condition,
-                                }
-                            )
                 if (
                     features.deep_persona_enabled
                     and hasattr(config, "milestone_conditions")
@@ -236,7 +207,6 @@ class ChatPostprocessMemoryMixin:
         analysis = await analyze_interaction(
             user_message,
             response_text,
-            stp_rules=stp_rules,
             milestone_conditions=milestone_conditions,
         )
 
@@ -248,26 +218,13 @@ class ChatPostprocessMemoryMixin:
                         user_id=user_id,
                         user_message=user_message,
                         analysis=analysis,
-                        stp_rules=stp_rules,
                         milestone_conditions=milestone_conditions,
-                        allow_state_transition=effective_state_transition,
                     )
                 )
             except Exception as exc:
                 logger.warning("Failed to process turn outcome: %s", exc)
 
         return updated
-
-    @staticmethod
-    def _allows_state_transition(
-        *,
-        context: ChatRuntimeContext,
-        result: ExecutionResult,
-    ) -> bool:
-        return bool(
-            context.incoming_fact_kind == IncomingFactKind.USER_MESSAGE
-            and result.mode == ExecutionMode.DIRECT_LLM
-        )
 
     @staticmethod
     def _enum_value(value: Any) -> str:

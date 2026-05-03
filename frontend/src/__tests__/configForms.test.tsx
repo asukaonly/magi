@@ -6,6 +6,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { configApi, type LLMConfig } from '../api/modules/config';
 import { SimpleForm as Form } from '../components/onboarding/simple-form';
 import LLMForm from '../components/config-forms/LLMForm';
+import { LLMRerankerModelPanel } from '../components/config-forms/LLMRerankerModelPanel';
 import MemoryForm from '../components/config-forms/MemoryForm';
 
 vi.mock('../api/modules/config', async () => {
@@ -809,6 +810,82 @@ describe('config forms', () => {
     await user.click(inheritCheckbox);
 
     expect(providerSelect).not.toBeDisabled();
+  });
+
+  it('shows a memory summarizer tab for expert onboarding model selection', async () => {
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode={false} view="models" showSectionIntro={false} />
+      </Form>
+    );
+
+    expect(
+      await screen.findByRole('tab', { name: 'llm.scenarios.memory_summarizer.title' })
+    ).toBeInTheDocument();
+  });
+
+  it('keeps the memory summarizer tab hidden for quick onboarding model selection', async () => {
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode view="models" showSectionIntro={false} />
+      </Form>
+    );
+
+    await screen.findByTestId('llm-scenario-core');
+
+    expect(screen.queryByRole('tab', { name: 'llm.scenarios.memory_summarizer.title' })).not.toBeInTheDocument();
+  });
+
+  it('uses an off local mode selector for reranker model selection', async () => {
+    const user = userEvent.setup();
+
+    const rerankerModels = [
+      {
+        id: 'bge-reranker-v2',
+        label: 'BGE Reranker v2',
+        repo: 'BAAI/bge-reranker-v2-m3',
+        max_tokens: 512,
+        size_mb: 438,
+        languages: ['zh', 'en'],
+        recommended: true,
+        description: 'Managed local reranker model.',
+        downloaded: false,
+        download_in_progress: false,
+        download_progress_pct: null,
+      },
+    ];
+
+    const RerankerPanelHarness = () => {
+      const [config, setConfig] = React.useState({ enabled: false, managed_model_id: null as string | null });
+
+      return (
+        <LLMRerankerModelPanel
+          crossEncoderConfig={config}
+          onCrossEncoderConfigChange={(updater) => setConfig((current) => {
+            const next = { ...current };
+            updater(next);
+            return next;
+          })}
+          inputClassName="h-11"
+          rerankerModels={rerankerModels}
+          rerankerDownloadingId={null}
+          rerankerDownloadProgress={null}
+          rerankerDownloadError={null}
+          onRerankerDownload={vi.fn()}
+          onRerankerDelete={vi.fn()}
+        />
+      );
+    };
+
+    render(<RerankerPanelHarness />);
+
+    expect(screen.queryByLabelText('settings.memory.fields.reranker_model.label')).not.toBeInTheDocument();
+
+    await user.click(screen.getByLabelText('settings.memory.fields.reranker_mode.label'));
+    expect(screen.queryByRole('button', { name: 'settings.options.remote' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'settings.options.local' }));
+
+    expect(screen.getByLabelText('settings.memory.fields.reranker_model.label')).toBeInTheDocument();
   });
 
   it('keeps the memory summarizer selection synced to core while inheritance is enabled', async () => {

@@ -18,6 +18,7 @@ from ....tools.schema import ToolExecutionContext
 from ....tools.tool_hint_resolver import ToolHintResolver
 from ..common import (
     ExecutionMode,
+    ExecutionHandlerRegistry,
     ExecutionRequest,
     IncomingFactKind,
     OrchestrationPlan,
@@ -32,8 +33,6 @@ from .contracts import (
     TurnUXPlan,
 )
 from .fact_classifier import ChatFactClassifier
-from .handlers import ExecutionHandlerRegistry
-
 logger = get_logger(__name__)
 
 # Tools the execution LLM always has access to when tool-calling is active,

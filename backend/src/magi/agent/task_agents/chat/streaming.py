@@ -34,6 +34,7 @@ class ChatStreamingMixin:
         user_id: str,
         session_id: str,
         turn_id: str | None,
+        persona_id: str | None = None,
     ) -> None:
         """Forward an LLM stream event to the runtime notifier wire."""
         await self._postprocess_service._runtime_notifier.emit_stream_event(
@@ -41,6 +42,7 @@ class ChatStreamingMixin:
             user_id=user_id,
             session_id=session_id,
             turn_id=turn_id,
+            persona_id=persona_id,
         )
 
     def _build_stream_sink(
@@ -49,6 +51,7 @@ class ChatStreamingMixin:
         user_id: str,
         session_id: str,
         turn_id: str | None,
+        persona_id: str | None = None,
     ):
         agent = self
 
@@ -58,6 +61,7 @@ class ChatStreamingMixin:
                 user_id=user_id,
                 session_id=session_id,
                 turn_id=turn_id,
+                persona_id=persona_id,
             )
 
         return sink
@@ -73,10 +77,12 @@ class ChatStreamingMixin:
             user_id=context.user_id,
             session_id=context.session_id,
             turn_id=turn_id,
+            persona_id=getattr(context, "active_persona_id", None),
         )
         await self._emit_stream_event(
             event=LLMStreamEvent(kind="text_flush"),
             user_id=context.user_id,
             session_id=context.session_id,
             turn_id=turn_id,
+            persona_id=getattr(context, "active_persona_id", None),
         )

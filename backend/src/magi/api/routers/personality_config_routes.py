@@ -169,7 +169,7 @@ async def get_personality(name: str = "default"):
 )
 async def update_personality(name: str, config: PersonalityConfigModel, use_ai_name: bool = False):
     legacy = legacy_personality_config_module()
-    target_name = legacy.sanitize_filename(config.persona_entity.basic_profile.name)
+    target_name = legacy.sanitize_filename(config.name)
     actual_name = name
     try:
         if name == "new" or use_ai_name:
@@ -211,21 +211,77 @@ async def update_personality(name: str, config: PersonalityConfigModel, use_ai_n
 async def generate_personality(request: AIGenerateRequest):
     legacy = legacy_personality_config_module()
     try:
-        config = await legacy.ai_generate_personality(
+        result = await legacy.ai_generate_personality_result(
             request.description,
             request.target_language,
+            current_config=request.current_config,
             llm_override=request.llm_override,
         )
-        legacy.logger.info("AI generation successful: name=%s", config.persona_entity.basic_profile.name)
+        config = result.config
+        legacy.logger.info("AI generation successful: name=%s", config.name)
         return PersonalityResponse(
             success=True,
             message="AI personality configuration generated successfully",
             data=legacy._normalize_avatar_in_payload(config.model_dump()),
+            stages=result.stages,
         )
     except HTTPException:
         raise
     except Exception as exc:
         legacy.logger.error("AI generate personality failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@personality_config_core_router.post(
+    "/generation-jobs",
+    response_model=PersonalityResponse,
+    summary="Start AI personality generation",
+    description="Start a background personality generation job and poll its status for stage progress.",
+)
+async def start_personality_generation(request: AIGenerateRequest):
+    legacy = legacy_personality_config_module()
+    try:
+        snapshot = await legacy.ai_start_personality_generation_job(
+            request.description,
+            request.target_language,
+            current_config=request.current_config,
+            llm_override=request.llm_override,
+        )
+        return PersonalityResponse(
+            success=True,
+            message="AI personality generation started",
+            data=snapshot,
+            stages=snapshot.get("stages"),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        legacy.logger.error("AI personality generation job start failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@personality_config_core_router.get(
+    "/generation-jobs/{job_id}",
+    response_model=PersonalityResponse,
+    summary="Get AI personality generation status",
+    description="Return current status and stage progress for a background personality generation job.",
+)
+async def get_personality_generation_status(job_id: str):
+    legacy = legacy_personality_config_module()
+    try:
+        snapshot = await legacy.ai_get_personality_generation_job(job_id)
+        if snapshot is None:
+            raise HTTPException(status_code=404, detail="Personality generation job not found")
+        return PersonalityResponse(
+            success=True,
+            message="AI personality generation status retrieved",
+            data=snapshot,
+            stages=snapshot.get("stages"),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        legacy.logger.error("AI personality generation job status failed: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

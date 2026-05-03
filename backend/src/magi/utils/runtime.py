@@ -152,11 +152,6 @@ class RuntimePaths:
         return self.memory_dir / "behavior_evolution.db"
 
     @property
-    def scenario_prompts_db_path(self) -> Path:
-        """Scenario prompts database path."""
-        return self.app_data_dir / "scenario_prompts.db"
-
-    @property
     def emotional_db_path(self) -> Path:
         """Emotional state database path."""
         return self.memory_dir / "emotional_state.db"

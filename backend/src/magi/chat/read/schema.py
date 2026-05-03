@@ -7,6 +7,7 @@ CHAT_SESSIONS_TABLE = "chat_sessions"
 CHAT_TURNS_TABLE = "chat_turns"
 CHAT_MESSAGES_TABLE = "chat_messages"
 CHAT_ATTACHMENTS_TABLE = "chat_attachments"
+CHAT_CONTEXT_SUMMARIES_TABLE = "chat_context_summaries"
 
 CHAT_STORE_SCHEMA_SQL = f"""
 CREATE TABLE IF NOT EXISTS {CHAT_SESSIONS_TABLE} (
@@ -60,6 +61,7 @@ CREATE TABLE IF NOT EXISTS {CHAT_MESSAGES_TABLE} (
     sequence_no INTEGER NOT NULL,
     replaces_message_id TEXT,
     replaced_by_message_id TEXT,
+    persona_id TEXT,
     reply_to_message_id TEXT,
     label_json TEXT
 );
@@ -76,6 +78,28 @@ CREATE TABLE IF NOT EXISTS {CHAT_ATTACHMENTS_TABLE} (
     storage_rel_path TEXT NOT NULL,
     sha256 TEXT,
     created_at_ms INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS {CHAT_CONTEXT_SUMMARIES_TABLE} (
+    summary_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    parent_summary_id TEXT,
+    status TEXT NOT NULL DEFAULT 'building',
+    summary_kind TEXT NOT NULL,
+    persona_scope TEXT,
+    covered_from_message_id TEXT,
+    covered_to_message_id TEXT,
+    first_kept_message_id TEXT,
+    covered_to_sequence_no INTEGER,
+    session_origin TEXT NOT NULL DEFAULT '',
+    summary_text TEXT NOT NULL,
+    prompt_profile TEXT NOT NULL DEFAULT 'general_chat',
+    model_provider TEXT,
+    model_id TEXT,
+    token_count_before INTEGER,
+    token_count_after INTEGER,
+    quality_status TEXT,
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL
 );
 """
 
@@ -114,3 +138,33 @@ def ensure_chat_store_schema(conn: sqlite3.Connection) -> None:
         conn.execute(f"ALTER TABLE {CHAT_MESSAGES_TABLE} ADD COLUMN reply_to_message_id TEXT")
     if "label_json" not in message_column_names:
         conn.execute(f"ALTER TABLE {CHAT_MESSAGES_TABLE} ADD COLUMN label_json TEXT")
+    if "persona_id" not in message_column_names:
+        conn.execute(f"ALTER TABLE {CHAT_MESSAGES_TABLE} ADD COLUMN persona_id TEXT")
+
+    summary_column_names = {
+        str(row[1])
+        for row in conn.execute(f"PRAGMA table_info({CHAT_CONTEXT_SUMMARIES_TABLE})").fetchall()
+    }
+    summary_migrations = {
+        "parent_summary_id": f"ALTER TABLE {CHAT_CONTEXT_SUMMARIES_TABLE} ADD COLUMN parent_summary_id TEXT",
+        "status": f"ALTER TABLE {CHAT_CONTEXT_SUMMARIES_TABLE} ADD COLUMN status TEXT NOT NULL DEFAULT 'building'",
+        "summary_kind": f"ALTER TABLE {CHAT_CONTEXT_SUMMARIES_TABLE} ADD COLUMN summary_kind TEXT NOT NULL DEFAULT 'token_budget'",
+        "persona_scope": f"ALTER TABLE {CHAT_CONTEXT_SUMMARIES_TABLE} ADD COLUMN persona_scope TEXT",
+        "covered_from_message_id": f"ALTER TABLE {CHAT_CONTEXT_SUMMARIES_TABLE} ADD COLUMN covered_from_message_id TEXT",
+        "covered_to_message_id": f"ALTER TABLE {CHAT_CONTEXT_SUMMARIES_TABLE} ADD COLUMN covered_to_message_id TEXT",
+        "first_kept_message_id": f"ALTER TABLE {CHAT_CONTEXT_SUMMARIES_TABLE} ADD COLUMN first_kept_message_id TEXT",
+        "covered_to_sequence_no": f"ALTER TABLE {CHAT_CONTEXT_SUMMARIES_TABLE} ADD COLUMN covered_to_sequence_no INTEGER",
+        "session_origin": f"ALTER TABLE {CHAT_CONTEXT_SUMMARIES_TABLE} ADD COLUMN session_origin TEXT NOT NULL DEFAULT ''",
+        "summary_text": f"ALTER TABLE {CHAT_CONTEXT_SUMMARIES_TABLE} ADD COLUMN summary_text TEXT NOT NULL DEFAULT ''",
+        "prompt_profile": f"ALTER TABLE {CHAT_CONTEXT_SUMMARIES_TABLE} ADD COLUMN prompt_profile TEXT NOT NULL DEFAULT 'general_chat'",
+        "model_provider": f"ALTER TABLE {CHAT_CONTEXT_SUMMARIES_TABLE} ADD COLUMN model_provider TEXT",
+        "model_id": f"ALTER TABLE {CHAT_CONTEXT_SUMMARIES_TABLE} ADD COLUMN model_id TEXT",
+        "token_count_before": f"ALTER TABLE {CHAT_CONTEXT_SUMMARIES_TABLE} ADD COLUMN token_count_before INTEGER",
+        "token_count_after": f"ALTER TABLE {CHAT_CONTEXT_SUMMARIES_TABLE} ADD COLUMN token_count_after INTEGER",
+        "quality_status": f"ALTER TABLE {CHAT_CONTEXT_SUMMARIES_TABLE} ADD COLUMN quality_status TEXT",
+        "created_at_ms": f"ALTER TABLE {CHAT_CONTEXT_SUMMARIES_TABLE} ADD COLUMN created_at_ms INTEGER NOT NULL DEFAULT 0",
+        "updated_at_ms": f"ALTER TABLE {CHAT_CONTEXT_SUMMARIES_TABLE} ADD COLUMN updated_at_ms INTEGER NOT NULL DEFAULT 0",
+    }
+    for column_name, sql in summary_migrations.items():
+        if summary_column_names and column_name not in summary_column_names:
+            conn.execute(sql)

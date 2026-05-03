@@ -8,6 +8,7 @@ import { SettingsPage } from '@/pages/Settings';
 import { configApi, DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
 import { pluginsApi } from '@/api/modules/plugins';
 import { sensorsApi } from '@/api/modules/sensors';
+import { skillsApi } from '@/api/modules/skills';
 import { toolsApi } from '@/api/modules/tools';
 
 const {
@@ -176,6 +177,17 @@ vi.mock('@/api/modules/tools', async () => {
       ...actual.toolsApi,
       listWithConfig: vi.fn(),
       updateToolConfig: vi.fn(),
+    },
+  };
+});
+
+vi.mock('@/api/modules/skills', async () => {
+  const actual = await vi.importActual<typeof import('@/api/modules/skills')>('@/api/modules/skills');
+  return {
+    ...actual,
+    skillsApi: {
+      ...actual.skillsApi,
+      list: vi.fn(),
     },
   };
 });
@@ -458,9 +470,32 @@ const toolsFixture = {
         api_key: '',
       },
     },
+    {
+      name: 'browser-automation',
+      display_name: 'Browser Automation',
+      description: 'Plugin-provided browser automation tool',
+      category: 'external',
+      version: '1.0.0',
+      enabled: true,
+      is_ready: true,
+      is_multi_provider: false,
+      providers: [],
+      config_specs: [],
+      current_values: {},
+    },
   ],
-  total: 1,
+  total: 2,
 };
+
+const skillsFixture = [
+  {
+    name: 'browser',
+    description: 'Browser automation skill',
+    user_invocable: true,
+    tags: [],
+    directory: '/tmp/browser',
+  },
+];
 
 describe('settings page draft saving', () => {
   beforeEach(() => {
@@ -513,6 +548,7 @@ describe('settings page draft saving', () => {
       ...(pluginsListFixture.plugins.find((plugin) => plugin.manifest.plugin_id === pluginId) ?? pluginsListFixture.plugins[0]),
       current_settings: updates,
     }) as any);
+    vi.mocked(skillsApi.list).mockResolvedValue(skillsFixture as any);
     vi.mocked(toolsApi.listWithConfig).mockResolvedValue(toolsFixture as any);
     vi.mocked(toolsApi.updateToolConfig).mockResolvedValue({
       success: true,
@@ -738,6 +774,43 @@ describe('settings page draft saving', () => {
     );
   });
 
+  it('saves the conversation rhythm switch in conversation settings', async () => {
+    const user = userEvent.setup();
+    vi.mocked(configApi.get).mockResolvedValue({
+      data: {
+        ...structuredClone(DEFAULT_SYSTEM_CONFIG),
+        preferences: {
+          ...structuredClone(DEFAULT_SYSTEM_CONFIG.preferences),
+          conversation_rhythm_enabled: true,
+          conversation_rhythm_mode: 'natural',
+        },
+      },
+    } as any);
+
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.conversation' }));
+    const rhythmSwitch = await screen.findByRole('switch', { name: 'settings.fields.conversationRhythm' });
+    expect(rhythmSwitch).toHaveAttribute('data-state', 'checked');
+
+    await user.click(rhythmSwitch);
+    expect(rhythmSwitch).toHaveAttribute('data-state', 'unchecked');
+    expect(screen.getByText('settings.pendingChanges')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+
+    await waitFor(() =>
+      expect(configApi.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          preferences: expect.objectContaining({
+            conversation_rhythm_enabled: false,
+            conversation_rhythm_mode: 'off',
+          }),
+        })
+      )
+    );
+  });
+
   it('disables media grounding when the current core model lacks vision support', async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
@@ -908,6 +981,30 @@ describe('settings page draft saving', () => {
               cross_encoder: expect.objectContaining({
                 enabled: true,
               }),
+            }),
+          }),
+        })
+      )
+    );
+  });
+
+  it('saves query expansion control from the general memory section', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.memory' }));
+    await screen.findByRole('heading', { name: 'settings.tabs.memoryGeneral' });
+
+    await user.click(screen.getByRole('switch', { name: 'settings.memory.fields.query_expansion_enabled.label' }));
+
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+
+    await waitFor(() =>
+      expect(configApi.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          memory: expect.objectContaining({
+            query_expansion: expect.objectContaining({
+              enabled: false,
             }),
           }),
         })
@@ -1361,6 +1458,37 @@ describe('settings page draft saving', () => {
     expect(screen.getByRole('heading', { name: 'settings.tabs.statisticsRuntime' })).toBeInTheDocument();
     expect(screen.getByTestId('runtime-statistics-section')).toBeInTheDocument();
     expect(screen.getByTestId('settings-section-content')).not.toHaveClass('max-w-3xl');
+  });
+
+  it('shows grouped tools navigation with dedicated sub-sections', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    const toolsGroupButton = await screen.findByRole('button', { name: 'settings.tabs.tools' });
+
+    expect(toolsGroupButton).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('button', { name: 'settings.tabs.toolsBuiltin' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'settings.tabs.toolsPlugins' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'settings.tabs.toolsSkills' })).not.toBeInTheDocument();
+
+    await user.click(toolsGroupButton);
+
+    expect(toolsGroupButton).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: 'settings.tabs.toolsBuiltin' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'settings.tabs.toolsPlugins' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'settings.tabs.toolsSkills' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'settings.tabs.toolsBuiltin' })).toBeInTheDocument();
+    expect(screen.getByText('tools-config')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'settings.tabs.toolsPlugins' }));
+
+    expect(screen.getByRole('heading', { name: 'settings.tabs.toolsPlugins' })).toBeInTheDocument();
+    expect(screen.getByText('tools-config')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'settings.tabs.toolsSkills' }));
+
+    expect(screen.getByRole('heading', { name: 'settings.tabs.toolsSkills' })).toBeInTheDocument();
+    expect(await screen.findByText('browser')).toBeInTheDocument();
   });
 
 });

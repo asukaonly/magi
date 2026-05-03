@@ -21,7 +21,6 @@ if TYPE_CHECKING:
     from ..memory.hybrid_retrieval import HybridRetrievalService
     from ..plugins import PluginManager, SensorRegistry
     from ..personality.self_memory import SelfMemory
-    from ..context.scenario_prompts import ScenarioPromptsStore
     from ..awareness.scheduler_contrib import SensorSchedulerContrib
     from ..awareness.sensor_hub import SensorHub
     from ..agent.runtime import AgentRuntime, TaskAgentManager
@@ -129,7 +128,7 @@ class PersonalityBootstrapState:
 class ContextBootstrapState:
     """L10 Context Layer state slice."""
 
-    scenario_prompts_store: ScenarioPromptsStore | None = None
+    pass
 
 
 @dataclass

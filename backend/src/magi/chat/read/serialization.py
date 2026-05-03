@@ -47,6 +47,11 @@ def row_to_display_message(row: sqlite3.Row) -> ChatDisplayMessage | None:
     turn_id = str(row["turn_id"] or "").strip() or None
     timestamp = int(row["created_at_ms"] or 0)
     message_id = str(row["message_id"])
+    persona_id = (
+        str(row["persona_id"] or "").strip() or None
+        if "persona_id" in row.keys()
+        else None
+    )
 
     if message_kind == "user_text":
         return ChatDisplayMessage(
@@ -57,10 +62,11 @@ def row_to_display_message(row: sqlite3.Row) -> ChatDisplayMessage | None:
             timestamp=timestamp,
             message_id=message_id,
             message_kind=message_kind,
+            persona_id=persona_id,
             turn_id=turn_id,
             label=label_payload,
         )
-    if message_kind in {"assistant_final", "assistant_interim", "assistant_reaction"}:
+    if message_kind in {"assistant_final", "assistant_interim", "assistant_reaction", "assistant_rhythm_segment"}:
         return ChatDisplayMessage(
             role=role,
             kind="assistant",
@@ -69,8 +75,10 @@ def row_to_display_message(row: sqlite3.Row) -> ChatDisplayMessage | None:
             timestamp=timestamp,
             message_id=message_id,
             message_kind=message_kind,
+            persona_id=persona_id,
             turn_id=turn_id,
             label=label_payload,
+            payload=dict(payload) if isinstance(payload, dict) else None,
         )
     if message_kind in {
         "status_note",
@@ -87,6 +95,7 @@ def row_to_display_message(row: sqlite3.Row) -> ChatDisplayMessage | None:
             timestamp=timestamp,
             message_id=message_id,
             message_kind=message_kind,
+            persona_id=persona_id,
             turn_id=turn_id,
             payload=dict(payload) if isinstance(payload, dict) else None,
             label=label_payload,
@@ -99,6 +108,7 @@ def row_to_display_message(row: sqlite3.Row) -> ChatDisplayMessage | None:
             timestamp=timestamp,
             message_id=message_id,
             message_kind=message_kind,
+            persona_id=persona_id,
             turn_id=turn_id,
             payload=dict(payload) if isinstance(payload, dict) else None,
         )
@@ -127,6 +137,11 @@ def row_to_session_summary(row: sqlite3.Row) -> ChatSessionSummary:
         last_timestamp=int(row["last_message_at_ms"] or row["updated_at_ms"] or 0),
         message_count=int(row["message_count"] or 0),
         workspace_path=str(row["workspace_path"]) if row["workspace_path"] is not None else None,
+        history_version=(
+            int(row["history_version"] or 0)
+            if "history_version" in row.keys()
+            else 0
+        ),
     )
 
 

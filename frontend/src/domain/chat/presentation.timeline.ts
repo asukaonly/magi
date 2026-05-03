@@ -51,6 +51,13 @@ export const projectChatTimelineMessage = (
   }
 
   const isAssistantInterim = message.role === 'assistant' && message.messageKind === 'assistant_interim';
+  const rhythmPayload = message.payload?.rhythm;
+  const rhythmSegmentIndex = rhythmPayload && typeof rhythmPayload === 'object'
+    ? Number((rhythmPayload as Record<string, unknown>).segment_index ?? 0)
+    : 0;
+  const isSecondaryRhythmSegment = message.role === 'assistant'
+    && message.messageKind === 'assistant_rhythm_segment'
+    && rhythmSegmentIndex > 0;
   const replyPreview = buildReplyPreviewFromMessage(message);
   const canQuickLabel = message.role === 'assistant' && Boolean(String(message.messageId || '').trim());
   const showReactionBadge = message.role === 'user'
@@ -66,7 +73,7 @@ export const projectChatTimelineMessage = (
     message,
     surface: 'transcript',
     transcript: {
-      showHeaderTraceEntry: message.role === 'assistant' && !isAssistantInterim,
+      showHeaderTraceEntry: message.role === 'assistant' && !isAssistantInterim && !isSecondaryRhythmSegment,
       showExecutionBubbleFooter: isAssistantInterim,
       bubbleTop: {
         replyTo: message.replyTo ?? null,

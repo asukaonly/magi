@@ -63,7 +63,35 @@ Current focus areas:
 - finish retrieval and prompt integration against the lifecycle model
 - remove superseded legacy memory modules once the new path fully owns production behavior
 
-### 4. Continue runtime boundary cleanup
+### 4. Redesign persona runtime around per-turn planning
+
+Status: active
+
+Why it is open:
+
+- the target design is now documented in [Persona Runtime Architecture](./persona-runtime-architecture.md)
+- backend prompt assembly, API schemas, AI generation, bundled presets, onboarding defaults, and the main frontend editor now consume the new top-level persona schema; remaining work is planner quality refinement and wider end-to-end regression
+- the product needs persona behavior that feels ordinary most of the time, becomes distinctive under relevant triggers, and changes with relationship depth without becoming a constant style performance
+
+Current focus areas:
+
+- harden the new persona schema and `PersonaTurnPlan` contract with wider end-to-end validation and golden behavior checks
+- expand the Personality Layer `PersonaTurnPlanner` beyond the MVP heuristics
+- keep prompt assembly consuming the plan instead of raw persona fragments
+- strengthen bundled preset examples and add golden behavior checks for ordinary, task, emotional, play, and crisis turns
+- refine generated/custom persona quality based on real usage samples
+
+Recent progress:
+
+- Direct LLM and function-calling prompt assembly now have tests that lock the persona-planning inputs for scenario, task category, selected tools, and stored persona id.
+- Explore dossier rendering and parent orchestration aggregation now route through analysis persona context; synthesis prompts suppress tool catalog rendering where no tool call should happen.
+- Seven now has planner and prompt-level golden checks for ordinary chat, task work, emotional support, absurdity/play, crisis, and revealed relationship-layer turns.
+- The main personality detail editor now separates quick and expert editing modes and surfaces minimum-field validation for identity, baseline voice, chat register, signature trigger, and quiet-hour coverage.
+- Persona generation now supports current draft config context, completes required runtime schema surfaces after sparse LLM output, and keeps bootstrap first-meeting behavior separate from normal registers without requiring false human claims.
+- Frontend persona validation is now shared between the editor and save flow, with minimum and expert checks for registers, triggers, quiet hours, examples, layers, and bootstrap content.
+- The planner now suppresses non-essential signature triggers during tool execution and uses more reliable Chinese condition overlap for natural-language trigger activation.
+
+### 5. Continue runtime boundary cleanup
 
 Status: active
 
@@ -79,7 +107,7 @@ Recent progress:
 - Removed unused runtime binding accessors for message bus, user-message sensor, skill loader, and skill runner; those objects remain lifecycle/container-owned without being public boundary helpers.
 - Moved LLM pool, chat store/projector, memory services, plugin/sensor services, skill indexer, runtime trace store, control-plane services, and background task manager access behind domain-owned providers. `core/runtime_bindings.py` now only exposes the runtime command queue and agent runtime boundary accessors.
 
-### 5. Keep service and transport boundaries thin
+### 6. Keep service and transport boundaries thin
 
 Status: active
 
@@ -89,7 +117,7 @@ Open items:
 - keep routers and websocket handlers transport-thin as new product behavior is added
 - avoid reintroducing direct runtime-domain lookups in transport code
 
-### 6. Retire legacy ``task_id`` alias from permission payload
+### 7. Retire legacy ``task_id`` alias from permission payload
 
 Status: done — ``turn_id`` is now the only permission payload runtime-turn identifier.
 

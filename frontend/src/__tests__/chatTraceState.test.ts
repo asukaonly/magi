@@ -29,6 +29,61 @@ describe('chat trace state helpers', () => {
     expect(messages[0].kind).toBe('user');
   });
 
+  it('appends rhythm segments for the same turn instead of replacing earlier segments', () => {
+    const first = applyAgentResponse([], {
+      content: '先接住问题。',
+      timestamp: 1000,
+      messageId: 'msg-rhythm-1',
+      messageKind: 'assistant_rhythm_segment',
+      turnId: 'turn-rhythm',
+      payload: { rhythm: { segment_index: 0, segment_count: 2 } },
+    });
+
+    const second = applyAgentResponse(first, {
+      content: '再说明核心答案。',
+      timestamp: 1200,
+      messageId: 'msg-rhythm-2',
+      messageKind: 'assistant_rhythm_segment',
+      turnId: 'turn-rhythm',
+      payload: { rhythm: { segment_index: 1, segment_count: 2 } },
+    });
+
+    expect(second).toHaveLength(2);
+    expect(second.map((message) => message.content)).toEqual(['先接住问题。', '再说明核心答案。']);
+  });
+
+  it('keeps rhythm segments when the canonical compatibility event arrives later', () => {
+    const first = applyAgentResponse([], {
+      content: '先接住问题。',
+      timestamp: 1000,
+      messageId: 'msg-rhythm-1',
+      messageKind: 'assistant_rhythm_segment',
+      turnId: 'turn-rhythm',
+      payload: { rhythm: { segment_index: 0, segment_count: 2 } },
+    });
+    const second = applyAgentResponse(first, {
+      content: '再说明核心答案。',
+      timestamp: 1200,
+      messageId: 'msg-rhythm-2',
+      messageKind: 'assistant_rhythm_segment',
+      turnId: 'turn-rhythm',
+      payload: { rhythm: { segment_index: 1, segment_count: 2 } },
+    });
+
+    const afterCanonicalEvent = applyAgentResponse(second, {
+      content: '先接住问题。\n再说明核心答案。',
+      timestamp: 1300,
+      turnId: 'turn-rhythm',
+    });
+
+    expect(afterCanonicalEvent).toHaveLength(2);
+    expect(afterCanonicalEvent.map((message) => message.messageKind)).toEqual([
+      'assistant_rhythm_segment',
+      'assistant_rhythm_segment',
+    ]);
+    expect(afterCanonicalEvent.map((message) => message.content)).toEqual(['先接住问题。', '再说明核心答案。']);
+  });
+
   it('classifies control and runtime status surfaces explicitly', () => {
     expect(getChatPresentationSurface({
       id: 'msg-control',
@@ -100,6 +155,26 @@ describe('chat trace state helpers', () => {
       expect(finalAssistant.transcript.showExecutionBubbleFooter).toBe(false);
       expect(finalAssistant.transcript.showHeaderTraceEntry).toBe(true);
       expect(finalAssistant.transcript.belowBubble.showMessageLabel).toBe(false);
+    }
+
+    const secondRhythmSegment = projectChatTimelineMessage({
+      id: 'msg-rhythm-2',
+      role: 'assistant',
+      kind: 'assistant',
+      content: 'Second segment',
+      timestamp: 1002,
+      messageKind: 'assistant_rhythm_segment',
+      payload: {
+        rhythm: {
+          segment_index: 1,
+          segment_count: 2,
+        },
+      },
+    });
+
+    expect(secondRhythmSegment.surface).toBe('transcript');
+    if (secondRhythmSegment.surface === 'transcript') {
+      expect(secondRhythmSegment.transcript.showHeaderTraceEntry).toBe(false);
     }
 
     const interruptedUser = projectChatTimelineMessage({
@@ -521,7 +596,7 @@ describe('chat trace state helpers', () => {
     });
   });
 
-  it('adds an interim assistant bubble when trace activity begins', () => {
+  it('adds a runtime status card when trace activity begins', () => {
     const initial = createPendingTurn('Analyze this repo', 'turn_1', 1000, 'Thinking');
     const summary = normalizeTraceSummary({
       turn_id: 'turn_1',
@@ -539,10 +614,58 @@ describe('chat trace state helpers', () => {
     const next = upsertTraceSummary(initial, 'turn_1', summary);
 
     expect(next).toHaveLength(2);
-    expect(next[1].kind).toBe('assistant');
-    expect(next[1].messageKind).toBe('assistant_interim');
+    expect(next[1].kind).toBe('status');
+    expect(next[1].messageKind).toBeNull();
     expect(next[1].content).toBe('正在执行工具链');
     expect(next[1].traceAvailable).toBe(true);
+  });
+
+  it('removes transient trace status when the final assistant answer arrives', () => {
+    const withTraceStatus = upsertTraceSummary(
+      createPendingTurn('杭州天气怎么样', 'turn_weather', 1000, 'Thinking'),
+      'turn_weather',
+      normalizeTraceSummary({
+        turn_id: 'turn_weather',
+        mode: 'function_calling',
+        status: 'running',
+        headline: 'Running tool chain',
+        active_steps: 1,
+        completed_steps: 0,
+        failed_steps: 0,
+        duration_seconds: 0.4,
+        trace_available: true,
+      })
+    );
+
+    const next = applyAgentResponse(withTraceStatus, {
+      content: '要继续查询天气，请先配置和风天气 API Key。',
+      timestamp: 2000,
+      messageId: 'msg-weather-final',
+      messageKind: 'assistant_final',
+      turnId: 'turn_weather',
+      traceSummary: normalizeTraceSummary({
+        turn_id: 'turn_weather',
+        mode: 'function_calling',
+        status: 'completed',
+        headline: 'Tool chain completed',
+        active_steps: 0,
+        completed_steps: 2,
+        failed_steps: 0,
+        duration_seconds: 1.2,
+        trace_available: true,
+      }),
+      traceAvailable: true,
+    });
+
+    expect(next).toHaveLength(2);
+    expect(next[0].kind).toBe('user');
+    expect(next[1]).toMatchObject({
+      kind: 'assistant',
+      messageKind: 'assistant_final',
+      content: '要继续查询天气，请先配置和风天气 API Key。',
+      turnId: 'turn_weather',
+      traceAvailable: true,
+    });
   });
 
   it('does not add a trace status card when ux plan hides trace display', () => {
@@ -932,6 +1055,23 @@ describe('chat trace state helpers', () => {
         size_bytes: 1024,
       },
     ]);
+  });
+
+  it('preserves persona id when normalizing history messages', () => {
+    const normalized = normalizeHistoryMessages([
+      {
+        message_id: 'msg-persona',
+        message_kind: 'assistant_final',
+        persona_id: 'persona-asuka',
+        role: 'assistant',
+        content: 'Same thread, different persona.',
+        timestamp: 1000,
+        turn_id: 'turn_persona',
+        kind: 'assistant',
+      },
+    ]);
+
+    expect(normalized[0].personaId).toBe('persona-asuka');
   });
 
   it('normalizes reply previews from history payloads', () => {

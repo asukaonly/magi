@@ -27,7 +27,8 @@ pub async fn message_history(Query(params): Query<HistoryQuery>) -> Json<Value> 
                 "user_id": user_id,
                 "session_id": null,
                 "messages": [],
-                "count": 0
+                "count": 0,
+                "history_version": 0
             }))
         }
     };
@@ -39,7 +40,8 @@ pub async fn message_history(Query(params): Query<HistoryQuery>) -> Json<Value> 
                 "user_id": DEFAULT_USER_ID,
                 "session_id": null,
                 "messages": [],
-                "count": 0
+                "count": 0,
+                "history_version": 0
             })
         });
     Json(result)
@@ -59,13 +61,14 @@ pub(super) fn query_history(user_id: &str, session_id: &str) -> Value {
     let turn_ids_with_trace = load_turns_with_trace(user_id, session_id);
     let trace_summaries = load_trace_summaries(user_id, session_id, &turn_ids_with_trace);
     let turn_ux_preferences = load_turn_ux_preferences(&conn, user_id, session_id);
+    let history_version = load_history_version(&conn, user_id, session_id);
 
     // Load messages
     let mut stmt = match conn.prepare(
         "SELECT message_id, session_id, turn_id, user_id, role, message_kind, \
                 content_text, payload_json, is_final, is_visible, created_at_ms, \
-                sequence_no, replaces_message_id, replaced_by_message_id, reply_to_message_id, \
-                label_json \
+                sequence_no, replaces_message_id, replaced_by_message_id, persona_id, \
+                reply_to_message_id, label_json \
          FROM chat_messages \
          WHERE user_id = ?1 AND session_id = ?2 \
                      AND is_visible = 1 \
@@ -85,6 +88,7 @@ pub(super) fn query_history(user_id: &str, session_id: &str) -> Value {
         content_text: String,
         payload_json: String,
         created_at_ms: i64,
+        persona_id: Option<String>,
         reply_to_message_id: Option<String>,
         label_json: Option<String>,
     }
@@ -99,8 +103,9 @@ pub(super) fn query_history(user_id: &str, session_id: &str) -> Value {
                 content_text: row.get::<_, Option<String>>(6)?.unwrap_or_default(),
                 payload_json: row.get::<_, Option<String>>(7)?.unwrap_or_default(),
                 created_at_ms: row.get::<_, i64>(10)?,
-                reply_to_message_id: row.get::<_, Option<String>>(14)?,
-                label_json: row.get::<_, Option<String>>(15)?,
+                persona_id: row.get::<_, Option<String>>(14)?,
+                reply_to_message_id: row.get::<_, Option<String>>(15)?,
+                label_json: row.get::<_, Option<String>>(16)?,
             })
         })
         .ok()
@@ -137,19 +142,11 @@ pub(super) fn query_history(user_id: &str, session_id: &str) -> Value {
                 return None;
             }
 
-            let (kind, role) = match row.message_kind.as_str() {
-                "user_text" => ("user", "user"),
-                "assistant_final" | "assistant_interim" | "assistant_reaction" => {
-                    ("assistant", row.role.as_str())
-                }
-                "todo_state"
-                | "plan_state"
-                | "permission_request"
-                | "ask_request"
-                | "background_task_completion"
-                | "status_note"
-                | "system_notice" => ("status", row.role.as_str()),
-                _ => return None,
+            let kind = display_kind_for_message(row.message_kind.as_str())?;
+            let role = if row.message_kind == "user_text" {
+                "user"
+            } else {
+                row.role.as_str()
             };
 
             let turn_id = row.turn_id.as_deref().filter(|s| !s.is_empty());
@@ -183,6 +180,7 @@ pub(super) fn query_history(user_id: &str, session_id: &str) -> Value {
                 "timestamp": row.created_at_ms,
                 "message_id": row.message_id,
                 "message_kind": row.message_kind,
+                "persona_id": row.persona_id,
                 "turn_id": turn_id,
                 "trace_available": trace_available && kind == "assistant",
             });
@@ -232,8 +230,18 @@ pub(super) fn query_history(user_id: &str, session_id: &str) -> Value {
         "user_id": user_id,
         "session_id": session_id,
         "messages": messages,
-        "count": count
+        "count": count,
+        "history_version": history_version
     })
+}
+
+fn load_history_version(conn: &Connection, user_id: &str, session_id: &str) -> i64 {
+    conn.query_row(
+        "SELECT history_version FROM chat_sessions WHERE user_id = ?1 AND session_id = ?2",
+        rusqlite::params![user_id, session_id],
+        |row| row.get::<_, i64>(0),
+    )
+    .unwrap_or(0)
 }
 
 /// Load turn_ids that have trace data in runtime_trace.db.
@@ -313,6 +321,24 @@ fn payload_is_empty(payload: &Value) -> bool {
     }
 }
 
+fn display_kind_for_message(message_kind: &str) -> Option<&'static str> {
+    match message_kind {
+        "user_text" => Some("user"),
+        "assistant_final"
+        | "assistant_interim"
+        | "assistant_reaction"
+        | "assistant_rhythm_segment" => Some("assistant"),
+        "todo_state"
+        | "plan_state"
+        | "permission_request"
+        | "ask_request"
+        | "background_task_completion"
+        | "status_note"
+        | "system_notice" => Some("status"),
+        _ => None,
+    }
+}
+
 fn parse_label(raw: &Option<String>) -> Option<Value> {
     let raw = raw.as_ref()?;
     let parsed: Value = serde_json::from_str(raw).ok()?;
@@ -331,11 +357,25 @@ fn parse_label(raw: &Option<String>) -> Option<Value> {
     }))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::display_kind_for_message;
+
+    #[test]
+    fn rhythm_segments_are_displayed_as_assistant_messages() {
+        assert_eq!(
+            display_kind_for_message("assistant_rhythm_segment"),
+            Some("assistant")
+        );
+    }
+}
+
 fn empty_history(user_id: &str, session_id: &str) -> Value {
     json!({
         "user_id": user_id,
         "session_id": session_id,
         "messages": [],
-        "count": 0
+        "count": 0,
+        "history_version": 0
     })
 }

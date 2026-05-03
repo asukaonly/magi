@@ -13,8 +13,9 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from ...core.logger import get_logger
-from ...personality.persona_repository import PersonaRepository, PersonaSummary
-from ...personality.persona_seed import list_seed_previews, seed_builtin_personas
+from ...personality.persona_repository import PersonaRepository
+from ...config.loader import get_user_preference
+from ...personality.persona_seed import list_seed_previews, resolve_locale, seed_builtin_personas
 from ...utils.runtime import get_runtime_paths
 
 logger = get_logger(__name__)
@@ -33,7 +34,9 @@ class PersonaSummaryModel(BaseModel):
     group_name: str = "general"
     sort_order: int = 0
     is_builtin: bool = False
+    seed_slug: Optional[str] = None
     description: str = ""
+    deleted_at: Optional[float] = None
 
 
 class PersonaDetailModel(BaseModel):
@@ -49,6 +52,7 @@ class PersonaDetailModel(BaseModel):
     seed_slug: Optional[str] = None
     created_at: float = 0
     updated_at: float = 0
+    deleted_at: Optional[float] = None
 
 
 class PersonaListResponse(BaseModel):
@@ -100,14 +104,28 @@ def _get_repo() -> PersonaRepository:
     return PersonaRepository(str(get_runtime_paths().persona_registry_db_path))
 
 
+async def _sync_registered_builtin_personas(repo: PersonaRepository) -> None:
+    summaries = await repo.list_all(include_deleted=True)
+    locales = {
+        item.locale
+        for item in summaries
+        if item.is_builtin and item.seed_slug and item.deleted_at is None
+    }
+    if not locales:
+        locales = {resolve_locale(get_user_preference("language", "zh"))}
+    for locale in sorted(locales):
+        await seed_builtin_personas(repo, locale)
+
+
 # ---- endpoints ----
 
 @personas_router.get("/", response_model=PersonaListResponse)
-async def list_personas():
+async def list_personas(include_deleted: bool = False):
     """List all registered personas."""
     repo = _get_repo()
     await repo.init()
-    summaries = await repo.list_all()
+    await _sync_registered_builtin_personas(repo)
+    summaries = await repo.list_all(include_deleted=include_deleted)
     return PersonaListResponse(
         data=[PersonaSummaryModel(**asdict(s)) for s in summaries],
     )
@@ -204,17 +222,18 @@ async def create_persona(payload: PersonaCreateRequest):
             seed_slug=record.seed_slug,
             created_at=record.created_at,
             updated_at=record.updated_at,
+            deleted_at=record.deleted_at,
         ),
     )
 
 
 @personas_router.get("/{persona_id}", response_model=PersonaDetailResponse)
-async def get_persona(persona_id: str):
+async def get_persona(persona_id: str, include_deleted: bool = False):
     """Get full persona detail by ID."""
     repo = _get_repo()
     await repo.init()
     try:
-        record = await repo.get(persona_id)
+        record = await repo.get(persona_id, include_deleted=include_deleted)
     except KeyError:
         raise HTTPException(status_code=404, detail="Persona not found")
     return PersonaDetailResponse(
@@ -231,6 +250,7 @@ async def get_persona(persona_id: str):
             seed_slug=record.seed_slug,
             created_at=record.created_at,
             updated_at=record.updated_at,
+            deleted_at=record.deleted_at,
         ),
     )
 
@@ -266,6 +286,7 @@ async def update_persona(persona_id: str, payload: PersonaUpdateRequest):
             seed_slug=record.seed_slug,
             created_at=record.created_at,
             updated_at=record.updated_at,
+            deleted_at=record.deleted_at,
         ),
     )
 

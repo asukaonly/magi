@@ -160,6 +160,7 @@ Current product expectations:
 - parsed text and PDF attachments should be injected into the chat prompt as active attachment context for the current turn
 - image attachments on vision-capable core models should be delivered as multimodal message blocks and routed through direct LLM execution
 - conversation preferences should allow users to decide whether the assistant may inspect prepared media attachments for grounded replies; media grounding must remain disabled unless the selected core model exposes vision capability
+- conversation rhythm may split one assistant turn into several natural chat bubbles when enabled; it takes precedence over streaming output for that turn, must remain presentation-only, preserve one canonical answer for memory and trace, and fall back to a single message when planning is unavailable or invalid
 
 ## Conversation Settings
 
@@ -193,6 +194,8 @@ Current product expectations:
 - advanced users can override capability flags, model limits, and provider-specific JSON options for the current model
 - provider and model catalogs should be delivered by dedicated LLM catalog endpoints that already merge saved custom providers, manual model IDs, and metadata overrides on the backend
 - custom-provider creation fields and defaults should be delivered by a dedicated template endpoint rather than piggybacking on generic config responses
+- image generation model catalogs should expose provider-owned capability metadata such as supported sizes, supported quality values, maximum image count, and native generation protocol
+- image generation runtime configuration should stay separate from chat defaults where behavior differs, including an optional provider-specific image endpoint and a dedicated image generation timeout
 
 At a minimum, the product should support:
 
@@ -204,6 +207,7 @@ At a minimum, the product should support:
 - manual model ID entry for provider-specific additions
 - model capability summary
 - advanced capability override controls for the currently selected model
+- image generation model selection that is constrained to models declared or overridden as image-output capable
 
 The exact provider list may evolve, but the product architecture should keep provider configuration extensible rather than hardcoding one vendor path.
 The frontend may preview unsaved provider edits, but backend-owned catalog resolution remains the source of truth for how manual models and override metadata are interpreted.
@@ -211,6 +215,8 @@ The frontend may preview unsaved provider edits, but backend-owned catalog resol
 ## AI Personality
 
 Magi supports configurable assistant personality behavior.
+
+The durable architecture source of truth for persona runtime behavior is [Persona Runtime Architecture](./persona-runtime-architecture.md). Product configuration should treat persona as a structured behavior model rather than a single prompt-style filter.
 
 There are two main ways to express personality:
 
@@ -226,9 +232,24 @@ Design expectations:
 
 - presets should be loaded from the backend rather than hardcoded into the frontend
 - persona identity should flow through the persona registry APIs instead of filename-based UI state
+- chat messages store the active `persona_id` as the persona snapshot for that turn; display names and avatars are resolved from the current persona registry record at render time
+- chat response generation should also resolve prompt identity from the stored turn `persona_id`, so switching the active persona after enqueue does not change the persona used for that pending reply
+- persona deletion is soft deletion. Ordinary persona lists hide deleted records, while historical chat rendering may use `include_deleted` registry lookups so old messages can still resolve their persona identity.
 - personality content should remain language-aware
-- state-transition behavior should apply only to direct chat turns; analysis, worker, and tool-result rendering should not trigger or inherit temporary persona state changes
+- persona behavior should be planned per turn by the Personality Layer before prompt rendering; final response prompts should receive only the selected register, quiet-hour clamps, active triggers, relationship modifiers, and dynamic-state modulations for that turn
+- ordinary low-performance persona expression should be valid most of the time; personality should usually appear through attention bias, judgment, and conversational stance rather than constant catchphrases
+- state-transition behavior should be replaced by signature triggers and quiet-hour clamps; analysis, worker, and tool-result rendering should use task or analysis registers instead of inheriting casual-chat performance
 - quick mode should stay simpler than expert mode
+
+The custom personality editor should progressively expose:
+
+- identity, values, attention biases, and baseline voice
+- registers for task, casual, analysis, emotional, and crisis turns
+- signature triggers that make the persona more visible only under relevant conditions
+- quiet hours that intentionally reduce persona intensity
+- relationship-depth layers that modify trigger thresholds, memory behavior, and expression bounds rather than replacing the whole tone
+- dynamic-state rules that map mood, energy, and stress into concrete behavior changes
+- few-shot examples by register, including ordinary baseline examples
 
 ## Memory System
 
@@ -300,7 +321,7 @@ Current storage implementation notes:
 - Current `local` reranker execution first tries a configured `llm.providers.local` entry that points to a local OpenAI-compatible service.
 - If that local provider path is unavailable and a managed/external local reranker model file is configured, retrieval may fall back to direct `llama-cli` execution against that local model file.
 - If neither the local provider path nor the local CLI path is available, retrieval falls back to heuristic reranking.
-- `scenario_prompts.db` lives under `~/.magi/data/app/`; `llm_usage.db` lives under `~/.magi/runtime/`.
+- `llm_usage.db` lives under `~/.magi/runtime/`.
 - `runtime_trace.db` is reserved for execution observability and live runtime notifications, not durable chat transcript recovery.
 - rebuildable plugin state belongs under `~/.magi/cache/plugins/<plugin_id>/`, not under memory storage.
 

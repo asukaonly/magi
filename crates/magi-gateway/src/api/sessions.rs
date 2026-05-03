@@ -59,7 +59,7 @@ fn query_sessions(user_id: &str, limit: i64) -> Value {
     let mut stmt = match conn.prepare(
         "SELECT session_id, title, title_overridden, last_message_preview, \
                 last_user_message_preview, workspace_path, updated_at_ms, \
-                last_message_at_ms, message_count \
+                last_message_at_ms, message_count, history_version \
          FROM chat_sessions \
          WHERE user_id = ?1 \
            AND deleted_at_ms IS NULL \
@@ -91,7 +91,8 @@ fn query_sessions(user_id: &str, limit: i64) -> Value {
                 "last_user_message_preview": row.get::<_, String>(4).unwrap_or_default(),
                 "workspace_path": row.get::<_, Option<String>>(5)?,
                 "last_timestamp": last_timestamp,
-                "message_count": row.get::<_, i64>(8)?
+                "message_count": row.get::<_, i64>(8)?,
+                "history_version": row.get::<_, i64>(9)?
             }))
         })
         .ok()

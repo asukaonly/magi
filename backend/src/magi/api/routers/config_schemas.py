@@ -25,6 +25,7 @@ class LLMProviderConfigModel(BaseModel):
     display_name: str = Field(default="OpenAI")
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
+    image_gen_endpoint: Optional[str] = Field(default=None)
     api_format: Optional[str] = Field(default=None)
     custom_models: List[str] = Field(default_factory=list)
     custom_default_model: Optional[str] = Field(default=None)
@@ -63,6 +64,7 @@ class LLMConfigModel(BaseModel):
         }
     )
     model_runtime_overrides: Dict[str, LLMConcurrencyOverrideSettings] = Field(default_factory=dict)
+    image_generation_timeout: int = Field(default=180, ge=1)
 
 
 class MemoryL0ConfigModel(BaseModel):
@@ -157,6 +159,8 @@ class UserPreferencesModel(BaseModel):
     start_minimized: bool = Field(default=False)
     default_chat_workspace_path: Optional[str] = Field(default="~/.magi/chat-workspace")
     streaming_chat_enabled: bool = Field(default=False)
+    conversation_rhythm_enabled: bool = Field(default=True)
+    conversation_rhythm_mode: str = Field(default="natural")
     allow_media_grounding_for_conversation: bool = Field(default=False)
     allow_interjection: bool = Field(default=True)
     allow_ask_in_background: bool = Field(default=False)

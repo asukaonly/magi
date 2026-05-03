@@ -66,6 +66,7 @@ def _init_chat_session_store(db_path: Path) -> None:
             last_message_preview TEXT NOT NULL DEFAULT '',
             last_user_message_preview TEXT NOT NULL DEFAULT '',
             message_count INTEGER NOT NULL DEFAULT 0,
+            history_version INTEGER NOT NULL DEFAULT 0,
             workspace_path TEXT,
             archived_at_ms INTEGER,
             deleted_at_ms INTEGER
@@ -121,6 +122,7 @@ def _insert_session(db_path: Path, **values) -> None:
         "last_message_preview": values.get("last_message_preview", ""),
         "last_user_message_preview": values.get("last_user_message_preview", ""),
         "message_count": values.get("message_count", 0),
+        "history_version": values.get("history_version", 0),
         "workspace_path": values.get("workspace_path"),
         "archived_at_ms": values.get("archived_at"),
         "deleted_at_ms": values.get("deleted_at"),
@@ -132,8 +134,8 @@ def _insert_session(db_path: Path, **values) -> None:
         INSERT INTO {CHAT_SESSIONS_TABLE} (
             session_id, user_id, title, title_overridden, summary, created_at_ms, updated_at_ms,
             last_message_at_ms, last_user_message_at_ms, last_message_preview,
-            last_user_message_preview, message_count, workspace_path, archived_at_ms, deleted_at_ms
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            last_user_message_preview, message_count, history_version, workspace_path, archived_at_ms, deleted_at_ms
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         tuple(payload.values()),
     )
@@ -506,6 +508,7 @@ def test_list_sessions_orders_by_session_metadata(tmp_path):
         last_message_preview="response two",
         last_user_message_preview="hello from session two",
         message_count=2,
+        history_version=7,
         created_at=2000,
         updated_at=2010,
         last_message_at=2010,
@@ -524,6 +527,7 @@ def test_list_sessions_orders_by_session_metadata(tmp_path):
 
     assert [item.session_id for item in sessions] == ["s2", "s1"]
     assert sessions[0].message_count == 2
+    assert sessions[0].history_version == 7
     assert sessions[1].message_count == 2
     assert sessions[0].last_timestamp == 2010
     assert sessions[0].title == "Session Two"
@@ -745,6 +749,83 @@ def test_get_conversation_history_reads_from_chat_store_not_fact_events(tmp_path
     assert [item.content for item in messages] == ["chat-store user", "chat-store reply"]
     assert messages[0].message_id == "msg-user"
     assert messages[1].message_kind == "assistant_final"
+
+
+def test_get_conversation_history_collapses_rhythm_segments_for_prompt(tmp_path):
+    service = _build_service(tmp_path)
+    _init_chat_session_store(service._chat_db_path)
+    _insert_session(
+        service._chat_db_path,
+        session_id="s-rhythm",
+        user_id="u1",
+        title="Rhythm",
+        created_at=1000,
+        updated_at=1300,
+        message_count=3,
+    )
+    _insert_chat_turn(
+        service._chat_db_path,
+        turn_id="turn-rhythm",
+        session_id="s-rhythm",
+        user_id="u1",
+        status="completed",
+        response_mode="final_only",
+        created_at_ms=1000,
+        updated_at_ms=1300,
+        completed_at_ms=1300,
+    )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-user-rhythm",
+        session_id="s-rhythm",
+        turn_id="turn-rhythm",
+        user_id="u1",
+        role="user",
+        message_kind="user_text",
+        content_text="怎么做节奏感回复？",
+        created_at_ms=1000,
+        sequence_no=1,
+    )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-rhythm-1",
+        session_id="s-rhythm",
+        turn_id="turn-rhythm",
+        user_id="u1",
+        role="assistant",
+        message_kind="assistant_rhythm_segment",
+        content_text="先接住用户的问题。",
+        payload_json=json.dumps({"rhythm": {"segment_index": 0, "segment_count": 2}}),
+        created_at_ms=1200,
+        sequence_no=2,
+    )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-rhythm-2",
+        session_id="s-rhythm",
+        turn_id="turn-rhythm",
+        user_id="u1",
+        role="assistant",
+        message_kind="assistant_rhythm_segment",
+        content_text="再给出核心实现方案。",
+        payload_json=json.dumps({"rhythm": {"segment_index": 1, "segment_count": 2}}),
+        created_at_ms=1300,
+        sequence_no=3,
+    )
+
+    prompt_history = service.get_conversation_history("u1", "s-rhythm", limit=20)
+    display_history = service.get_display_history("u1", "s-rhythm", limit=20)
+
+    assert [message.content for message in prompt_history] == [
+        "怎么做节奏感回复？",
+        "先接住用户的问题。\n\n再给出核心实现方案。",
+    ]
+    assert prompt_history[1].message_kind == "assistant_final"
+    assert [message.message_kind for message in display_history] == [
+        "user_text",
+        "assistant_rhythm_segment",
+        "assistant_rhythm_segment",
+    ]
 
 
 def test_create_user_turn_persists_reply_target_and_display_history_returns_preview(tmp_path):
@@ -1231,6 +1312,7 @@ def test_list_sessions_router_response(monkeypatch):
                     last_timestamp=123,
                     message_count=2,
                     workspace_path="/Users/asuka/code/magi",
+                    history_version=9,
                 )
             ]
 
@@ -1239,6 +1321,7 @@ def test_list_sessions_router_response(monkeypatch):
     result = __import__("asyncio").run(messages.list_sessions(user_id="u1", limit=5))
     assert result["user_id"] == "u1"
     assert result["count"] == 1
+    assert result["sessions"][0]["history_version"] == 9
 
 
 def test_list_sessions_exposes_workspace_path(tmp_path):

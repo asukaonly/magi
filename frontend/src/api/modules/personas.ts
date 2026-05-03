@@ -12,45 +12,66 @@ import { getRuntimeConfig } from '@/runtime/config';
 // Personality config types (schema of a persona's `config` field)
 // ---------------------------------------------------------------------------
 
-export interface BasicProfile {
-  name: string;
-  age: string;
-  gender: string;
+export interface IdentityCore {
+  identity_statement: string;
+  values_loved: string[];
+  values_rejected: string[];
+  attention_biases: string[];
+}
+
+export interface Idiolect {
+  sentence_style: string;
+  vocab_available: string[];
+  vocab_avoided: string[];
+  structural_quirks: string[];
+}
+
+export interface PersonaRegister {
   description: string;
-  avatar: string;
-  occupation: string;
+  behavior: string;
+  examples: string[];
 }
 
-export interface CoreIdentity {
-  inner_narrative: string;
-  language_fingerprint: string;
-  attention_bias: string;
-}
-
-export interface PersonaEntity {
-  basic_profile: BasicProfile;
-  core_identity: CoreIdentity;
-}
-
-export interface StateTransitionProtocolItem {
-  trigger_type: string;
-  trigger_condition: string;
-  target_state_name: string;
+export interface SignatureTrigger {
+  trigger_id: string;
+  activates_when: string;
   behavior_shift: string;
+  intensity_levels: Record<string, string>;
+  exit_behavior: string;
+}
+
+export interface QuietHour {
+  condition: string;
+  clamps: Record<string, unknown>;
 }
 
 export interface PersonaLayerItem {
   layer_id: string;
   unlock_condition: Record<string, unknown> | null;
-  persona_override: Record<string, string> | null;
-  behavior_hints: string[] | null;
+  modifiers: Record<string, unknown>;
+}
+
+export interface BootstrapConfig {
+  style_instruction: string;
+  opening_line: string;
+  max_rounds: number;
 }
 
 export interface PersonalityConfig {
-  persona_entity: PersonaEntity;
+  name: string;
+  avatar: string;
+  description: string;
   appearance_prompt: string;
-  state_transition_protocol: StateTransitionProtocolItem[];
+  identity_core: IdentityCore;
+  idiolect: Idiolect;
+  registers: Record<string, PersonaRegister>;
+  quiet_hours: QuietHour[];
+  signature_triggers: SignatureTrigger[];
   persona_layers: PersonaLayerItem[];
+  dynamic_state_rules: Record<string, string>;
+  milestone_conditions: Record<string, string>;
+  interim_lines: Record<string, string[]>;
+  bootstrap: BootstrapConfig | null;
 }
 
 export interface AIGenerateRequest {
@@ -60,44 +81,104 @@ export interface AIGenerateRequest {
   llm_override?: LLMConfig;
 }
 
+export const PERSONA_GENERATION_STAGE_IDS = [
+  'base',
+  'registers',
+  'rules',
+  'layers',
+  'bootstrap',
+  'appearance',
+  'integrate',
+] as const;
+
+export type PersonaGenerationStageId = (typeof PERSONA_GENERATION_STAGE_IDS)[number];
+
+export interface PersonaGenerationStage {
+  stage_id: PersonaGenerationStageId | string;
+  label?: string;
+  status: 'pending' | 'running' | 'completed' | 'failed' | string;
+}
+
+export interface PersonalityGenerateResponse {
+  success: boolean;
+  message: string;
+  data?: PersonalityConfig;
+  stages?: PersonaGenerationStage[];
+}
+
+export interface PersonalityGenerationJobSnapshot {
+  job_id: string;
+  status: 'pending' | 'running' | 'completed' | 'failed' | string;
+  stages: PersonaGenerationStage[];
+  created_at?: number;
+  updated_at?: number;
+  data?: PersonalityConfig;
+  error?: string;
+}
+
+export interface PersonalityGenerationJobResponse {
+  success: boolean;
+  message: string;
+  data?: PersonalityGenerationJobSnapshot;
+  stages?: PersonaGenerationStage[];
+}
+
+export type PersonalityGenerationProgressCallback = (snapshot: PersonalityGenerationJobSnapshot) => void;
+
+const GENERATION_JOB_POLL_MS = 1000;
+const GENERATION_JOB_TIMEOUT_MS = 180000;
+
+const wait = (ms: number): Promise<void> => new Promise((resolve) => window.setTimeout(resolve, ms));
+
 // ---------------------------------------------------------------------------
 // Personality config defaults
 // ---------------------------------------------------------------------------
 
-export const DEFAULT_BASIC_PROFILE: BasicProfile = {
-  name: 'AI Assistant',
-  age: 'Unknown',
-  gender: 'Unknown',
-  description: '',
-  avatar: '',
-  occupation: 'Assistant',
+export const DEFAULT_IDENTITY_CORE: IdentityCore = {
+  identity_statement: '',
+  values_loved: [],
+  values_rejected: [],
+  attention_biases: [],
 };
 
-export const DEFAULT_CORE_IDENTITY: CoreIdentity = {
-  inner_narrative: '',
-  language_fingerprint: '',
-  attention_bias: '',
+export const DEFAULT_IDIOLECT: Idiolect = {
+  sentence_style: '',
+  vocab_available: [],
+  vocab_avoided: [],
+  structural_quirks: [],
 };
 
-export const DEFAULT_PERSONA_ENTITY: PersonaEntity = {
-  basic_profile: DEFAULT_BASIC_PROFILE,
-  core_identity: DEFAULT_CORE_IDENTITY,
-};
-
-export const DEFAULT_STATE_TRANSITION_PROTOCOL: StateTransitionProtocolItem[] = [
+export const DEFAULT_SIGNATURE_TRIGGERS: SignatureTrigger[] = [
   {
-    trigger_type: '',
-    trigger_condition: '',
-    target_state_name: '',
+    trigger_id: '',
+    activates_when: '',
     behavior_shift: '',
+    intensity_levels: {},
+    exit_behavior: '',
   },
 ];
 
 export const DEFAULT_PERSONALITY_CONFIG: PersonalityConfig = {
-  persona_entity: DEFAULT_PERSONA_ENTITY,
+  name: 'AI Assistant',
+  avatar: '',
+  description: '',
   appearance_prompt: '',
-  state_transition_protocol: DEFAULT_STATE_TRANSITION_PROTOCOL,
-  persona_layers: [],
+  identity_core: DEFAULT_IDENTITY_CORE,
+  idiolect: DEFAULT_IDIOLECT,
+  registers: {
+    chat: { description: '', behavior: '', examples: [] },
+    analysis: { description: '', behavior: '', examples: [] },
+    task: { description: '', behavior: '', examples: [] },
+    emotional: { description: '', behavior: '', examples: [] },
+    crisis: { description: '', behavior: '', examples: [] },
+  },
+  quiet_hours: [],
+  signature_triggers: DEFAULT_SIGNATURE_TRIGGERS,
+  persona_layers: [{ layer_id: 'surface', unlock_condition: null, modifiers: {} }],
+  dynamic_state_rules: {},
+  milestone_conditions: {},
+  interim_lines: {},
+  bootstrap: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -113,7 +194,9 @@ export interface PersonaSummary {
   group_name: string;
   sort_order: number;
   is_builtin: boolean;
+  seed_slug?: string | null;
   description: string;
+  deleted_at?: number | null;
 }
 
 export interface PersonaDetail {
@@ -129,6 +212,7 @@ export interface PersonaDetail {
   seed_slug: string | null;
   created_at: number;
   updated_at: number;
+  deleted_at?: number | null;
 }
 
 export interface PersonaListResponse {
@@ -193,10 +277,15 @@ export const selectDefaultSeedPreview = (previews: SeedPreview[]): SeedPreview |
 
 export const personasApi = {
   /** List all registered personas. */
-  list: () => api.get<PersonaSummary[]>('/personas/'),
+  list: (options?: { includeDeleted?: boolean }) => api.get<PersonaSummary[]>('/personas/', {
+    params: options?.includeDeleted ? { include_deleted: true } : undefined,
+  }),
 
   /** Get full detail for a persona by ID. */
-  get: (personaId: string) => api.get<PersonaDetail>('/personas/' + personaId),
+  get: (personaId: string, options?: { includeDeleted?: boolean }) => api.get<PersonaDetail>(
+    '/personas/' + personaId,
+    options?.includeDeleted ? { params: { include_deleted: true } } : undefined,
+  ),
 
   /** Create a new custom persona. Returns detail including assigned persona_id. */
   create: (payload: { config_json: string; locale?: string; slug?: string }) =>
@@ -267,9 +356,61 @@ export const personasApi = {
 
   /** AI-generate a personality config from a description. */
   generate: (request: AIGenerateRequest) =>
-    api.post<{ success: boolean; data?: PersonalityConfig }>('/personality/generate', request, {
+    api.post<PersonalityConfig>('/personality/generate', request, {
       timeout: 120000,
-    }),
+    }) as Promise<PersonalityGenerateResponse>,
+
+  /** Start AI personality generation as a background job. */
+  startGenerationJob: (request: AIGenerateRequest) =>
+    api.post<PersonalityGenerationJobSnapshot>('/personality/generation-jobs', request, {
+      timeout: 20000,
+    }) as Promise<PersonalityGenerationJobResponse>,
+
+  /** Poll AI personality generation status. */
+  getGenerationJob: (jobId: string) =>
+    api.get<PersonalityGenerationJobSnapshot>(`/personality/generation-jobs/${jobId}`, {
+      timeout: 20000,
+    }) as Promise<PersonalityGenerationJobResponse>,
+
+  /** AI-generate a personality config with real backend stage progress. */
+  generateWithProgress: async (
+    request: AIGenerateRequest,
+    onProgress?: PersonalityGenerationProgressCallback,
+  ): Promise<PersonalityGenerateResponse> => {
+    const started = await personasApi.startGenerationJob(request);
+    let snapshot = started.data;
+    if (!snapshot?.job_id) {
+      throw new Error('Personality generation job did not start');
+    }
+    onProgress?.(snapshot);
+
+    const startedAt = Date.now();
+    while (snapshot.status !== 'completed' && snapshot.status !== 'failed') {
+      if (Date.now() - startedAt > GENERATION_JOB_TIMEOUT_MS) {
+        throw new Error('Personality generation timed out');
+      }
+      await wait(GENERATION_JOB_POLL_MS);
+      const polled = await personasApi.getGenerationJob(snapshot.job_id);
+      if (!polled.data) {
+        throw new Error('Personality generation job status is unavailable');
+      }
+      snapshot = polled.data;
+      onProgress?.(snapshot);
+    }
+
+    if (snapshot.status === 'failed') {
+      throw new Error(snapshot.error || 'Personality generation failed');
+    }
+    if (!snapshot.data) {
+      throw new Error('Personality generation completed without a result');
+    }
+    return {
+      success: true,
+      message: 'AI personality configuration generated successfully',
+      data: snapshot.data,
+      stages: snapshot.stages,
+    };
+  },
 
   /** Get a greeting from the active persona. */
   getGreeting: () =>

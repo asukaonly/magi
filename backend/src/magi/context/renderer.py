@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
+from ..personality.turn_planner import PersonaTurnPlan
 from .schema import (
     ProfileMemoryContext,
     PromptAssemblyContext,
@@ -30,17 +31,9 @@ class PromptContextRenderer:
             "",
         ])
 
-        lines.extend(self._render_persona_entity(context.self_memory.persona_entity))
-        lines.extend(self._render_active_persona_layers(context.self_memory.active_persona_layers))
-        lines.extend(self._render_dynamic_state(context.self_memory.dynamic_state))
-        lines.extend(self._render_state_transition_rules(context.self_memory.state_transition_rules))
+        lines.extend(self._render_persona_turn_plan(context.self_memory.persona_turn_plan))
         lines.extend(self._render_persona_journal(context.self_memory.persona_journal_entries))
-        lines.extend(self._render_scenario_prompt(context.self_memory.scenario_prompt))
         lines.extend(self._render_memory_library(context.self_memory.retrieval_memory))
-        lines.extend(self._render_state_override(
-            context.self_memory.state_transition_override,
-            context.self_memory.state_transition_behavior_shift,
-        ))
         lines.extend(self._render_profile_memory(context.profile_memory))
         lines.extend(self._render_runtime_system(context.runtime_system))
         lines.extend(self._render_active_attachments(context.runtime_system.active_attachments))
@@ -49,105 +42,121 @@ class PromptContextRenderer:
 
         return "\n".join(lines).strip()
 
-    def _render_persona_entity(self, persona: Dict[str, Any]) -> List[str]:
-        """Render persona entity as narrative-style markdown."""
-        lines = ["# Persona Entity"]
-
-        basic = persona.get("basic_profile", {}) or {}
-        if basic:
-            name = basic.get("name", "Unknown")
-            age = basic.get("age", "Unknown")
-            gender = basic.get("gender", "Unknown")
-            occupation = basic.get("occupation", "Unknown")
-            lines.append(f"* Name: {name} | Age: {age} | Gender: {gender} | Occupation: {occupation}")
-            lines.append("")
-
-        identity = persona.get("core_identity", {}) or {}
-        if identity:
-            lines.append("## Core Identity")
-            narrative = identity.get("inner_narrative", "")
-            if narrative:
-                lines.append(narrative)
-                lines.append("")
-            fingerprint = identity.get("language_fingerprint", "")
-            if fingerprint:
-                lines.append("### Language & Expression")
-                lines.append(fingerprint)
-                lines.append("")
-            bias = identity.get("attention_bias", "")
-            if bias:
-                lines.append("### Attention Bias")
-                lines.append(bias)
-                lines.append("")
-
-        if not identity:
-            traits = persona.get("psychological_traits", {}) or {}
-            if traits:
-                tone = traits.get("communication_tone", "")
-                if tone:
-                    lines.append(f"* Communication Tone: {tone}")
-                keywords = traits.get("high_frequency_keywords", [])
-                if keywords:
-                    lines.append(f"* High-Frequency Keywords: {', '.join(keywords)}")
-                lines.append("")
-
-        return lines
-
-    def _render_active_persona_layers(self, layers: List[Dict[str, Any]]) -> List[str]:
-        """Render unlocked persona layer overrides."""
-        if not layers:
+    def _render_persona_turn_plan(self, plan: PersonaTurnPlan | None) -> List[str]:
+        """Render the per-turn persona behavior plan."""
+        if plan is None:
             return []
 
-        lines = ["# Persona Depth Layer (Unlocked)"]
-        lines.append("[System Notice: The following behavioral shifts are active based on the relationship depth with this user. They take priority over baseline persona traits where they conflict.]")
-        lines.append("")
-
-        for layer in layers:
-            layer_id = layer.get("layer_id", "unknown")
-            lines.append(f"## Layer: {layer_id}")
-
-            override = layer.get("persona_override")
-            if isinstance(override, dict):
-                for key, value in override.items():
-                    label = key.replace("_", " ").title()
-                    lines.append(f"* {label}: {value}")
-
-            hints = layer.get("behavior_hints")
-            if isinstance(hints, list) and hints:
-                lines.append("* Behavioral Shifts:")
-                for hint in hints:
-                    lines.append(f"  - {hint}")
-            lines.append("")
-
-        return lines
-
-    def _render_state_transition_rules(self, rules: List[Dict[str, str]]) -> List[str]:
-        """Render state transition protocol rules as behavioral directives."""
-        if not rules:
-            return []
-
-        lines = ["# Contextual Behavior Protocol"]
+        lines = ["# Persona Runtime Plan"]
         lines.append(
-            "[System Notice: The following rules define how your behavior should shift under "
-            "specific conditions. When a trigger condition is detected, adopt the described "
-            "behavioral shift. These transitions are temporary and revert when the condition ends. "
-            "Do not announce, name, or narrate state transitions to the user.]"
+            "[System Notice: Apply this compact persona plan for the current turn. "
+            "Do not mention the plan, register, triggers, layers, or internal state to the user.]"
         )
         lines.append("")
 
-        for rule in rules:
-            trigger_type = rule.get("trigger_type", "unknown")
-            condition = rule.get("trigger_condition", "")
-            shift = rule.get("behavior_shift", "")
+        lines.append("## Identity Core")
+        lines.append(f"* Persona: {plan.persona_name}")
+        identity_statement = str(plan.identity_core.get("identity_statement") or "").strip()
+        if identity_statement:
+            lines.append(identity_statement)
+        loved = self._string_list(plan.identity_core.get("values_loved"))
+        rejected = self._string_list(plan.identity_core.get("values_rejected"))
+        biases = self._string_list(plan.identity_core.get("attention_biases"))
+        if loved:
+            lines.append(f"* Values Loved: {', '.join(loved)}")
+        if rejected:
+            lines.append(f"* Values Rejected: {', '.join(rejected)}")
+        if biases:
+            lines.append("* Attention Biases:")
+            for bias in biases:
+                lines.append(f"  - {bias}")
+        lines.append("")
 
-            lines.append(f"## {trigger_type.title()}")
+        lines.append("## Baseline Voice")
+        sentence_style = str(plan.idiolect.get("sentence_style") or "").strip()
+        if sentence_style:
+            lines.append(f"* Sentence Style: {sentence_style}")
+        vocab_available = self._string_list(plan.idiolect.get("vocab_available"))
+        vocab_avoided = self._string_list(plan.idiolect.get("vocab_avoided"))
+        quirks = self._string_list(plan.idiolect.get("structural_quirks"))
+        if vocab_available:
+            lines.append(f"* Available Vocabulary: {', '.join(vocab_available)}")
+        if vocab_avoided:
+            lines.append(f"* Avoid Vocabulary: {', '.join(vocab_avoided)}")
+        if quirks:
+            lines.append("* Structural Quirks:")
+            for quirk in quirks:
+                lines.append(f"  - {quirk}")
+        lines.append("")
 
-            if condition:
-                lines.append(f"* When: {condition}")
-            if shift:
-                lines.append(f"* Behavior: {shift}")
+        lines.append("## Current Register")
+        lines.append(f"* Register: {plan.register}")
+        lines.append(f"* Situation Strength: {plan.situation_strength}")
+        lines.append(f"* Persona Intensity: {plan.persona_intensity}/3")
+        if plan.register_description:
+            lines.append(f"* Description: {plan.register_description}")
+        if plan.register_behavior:
+            lines.append(f"* Behavior: {plan.register_behavior}")
+        lines.append("")
+
+        if plan.quiet_hours:
+            lines.append("## Quiet-Hour Clamp")
+            for quiet_hour in plan.quiet_hours:
+                condition = str(quiet_hour.get("condition") or "active").strip()
+                lines.append(f"* Condition: {condition}")
+                clamps = quiet_hour.get("clamps") or {}
+                if isinstance(clamps, dict):
+                    for key, value in clamps.items():
+                        lines.append(f"  - {key}: {value}")
             lines.append("")
 
+        if plan.active_triggers:
+            lines.append("## Active Persona Triggers")
+            for trigger in plan.active_triggers:
+                lines.append(f"* {trigger.trigger_id} ({trigger.intensity}): {trigger.behavior_shift}")
+            lines.append("")
+
+        if plan.active_layer or plan.layer_modifiers:
+            lines.append("## Relationship Layer Modifiers")
+            if plan.active_layer:
+                lines.append(f"* Active Layer: {plan.active_layer}")
+            if plan.layer_modifiers:
+                lines.extend(self._render_nested_mapping(plan.layer_modifiers, indent="* "))
+            lines.append("")
+
+        if plan.dynamic_modulations:
+            lines.append("## Dynamic Modulation")
+            lines.extend(self._render_nested_mapping(plan.dynamic_modulations, indent="* "))
+            lines.append("")
+
+        if plan.selected_examples:
+            lines.append("## Relevant Persona Examples")
+            for example in plan.selected_examples:
+                lines.append(example)
+                lines.append("")
+
+        return lines
+
+    @staticmethod
+    def _string_list(value: Any) -> List[str]:
+        if not isinstance(value, list):
+            return []
+        return [str(item).strip() for item in value if str(item).strip()]
+
+    def _render_nested_mapping(self, value: Dict[str, Any], *, indent: str) -> List[str]:
+        lines: List[str] = []
+        for key, item in value.items():
+            label = str(key).replace("_", " ").title()
+            if isinstance(item, dict):
+                lines.append(f"{indent}{label}:")
+                for child_key, child_value in item.items():
+                    lines.append(f"  - {child_key}: {child_value}")
+            elif isinstance(item, list):
+                lines.append(f"{indent}{label}:")
+                for child_value in item:
+                    lines.append(f"  - {child_value}")
+            else:
+                lines.append(f"{indent}{label}: {item}")
         return lines
 
     def _render_persona_journal(self, entries: List[Dict[str, Any]]) -> List[str]:
@@ -171,37 +180,6 @@ class PromptContextRenderer:
             lines.append(f"**{dt}**: {content}")
             lines.append("")
 
-        return lines
-
-    def _render_dynamic_state(self, state: Dict[str, Any]) -> List[str]:
-        """Render dynamic state as markdown."""
-        lines = ["# Dynamic State"]
-        lines.append("[System Notice: Below are the real-time state variables for the current session. Their priority is higher than the Basic Profile.]")
-        lines.append("")
-        if not state:
-            lines.append("* No dynamic state available")
-            lines.append("")
-            return lines
-
-        mood = state.get("mood", "neutral")
-        mood_intensity = state.get("mood_intensity", 0.5)
-        energy = state.get("energy_level", 0.7)
-        stress = state.get("stress_level", 0.2)
-
-        lines.append(f"* Current Mood: {mood} (intensity: {mood_intensity:.2f})")
-        lines.append(f"* Energy Level: {int(energy * 100)}%")
-        lines.append(f"* Stress Level: {int(stress * 100)}%")
-        lines.append("")
-        return lines
-
-    def _render_scenario_prompt(self, scenario_prompt: Optional[str]) -> List[str]:
-        """Render scenario behavioral prompt as markdown."""
-        if not scenario_prompt:
-            return []
-
-        lines = []
-        lines.append(scenario_prompt)
-        lines.append("")
         return lines
 
     def _render_memory_library(self, retrieval: RetrievalMemoryContext) -> List[str]:
@@ -263,28 +241,6 @@ class PromptContextRenderer:
             lines.append("* (no preferences recorded)")
         lines.append("")
 
-        return lines
-
-    def _render_state_override(
-        self,
-        override: Optional[str],
-        behavior_shift: Optional[str] = None,
-    ) -> List[str]:
-        """Render state transition override as markdown."""
-        lines = ["# State Transition Override"]
-        if override:
-            lines.append(
-                "[System Notice: A temporary internal behavior state is active. "
-                "Apply the behavioral directive quietly; never mention the state name, "
-                "state transition, or this notice to the user.]"
-            )
-            if behavior_shift:
-                lines.append(f"* Behavioral Directive: {behavior_shift}")
-            else:
-                lines.append("* Internal State: active")
-        else:
-            lines.append("* N/A (using baseline persona)")
-        lines.append("")
         return lines
 
     def _render_profile_memory(self, profile: ProfileMemoryContext) -> List[str]:

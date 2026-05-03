@@ -7,12 +7,9 @@ from typing import Awaitable, Callable, Optional, Protocol
 from ....agent.runtime.contracts import FactRecord
 from ...task_orchestrator import TaskOrchestrator
 from .contracts import (
-    DirectLLMRequest,
     ExecutionMode,
     ExecutionRequest,
     ExecutionResult,
-    ExploreRenderRequest,
-    FunctionCallingRequest,
     OrchestrationLaunchRequest,
     OrchestrationUpdateRequest,
 )
@@ -132,6 +129,7 @@ class OrchestrationLaunchHandler(BaseExecutionHandler):
             history_key=request.context.history_key,
             correlation_id=request.correlation_id,
             orchestration_strategy=orchestration_plan.to_strategy_dict(),
+            persona_id=getattr(request.context, "active_persona_id", None),
         )
         return ExecutionResult(
             mode=request.mode,

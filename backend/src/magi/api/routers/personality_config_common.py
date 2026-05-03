@@ -126,8 +126,7 @@ def _build_diffs(from_data: Dict[str, Any], to_data: Dict[str, Any]) -> List[Per
 
 def _normalize_avatar_in_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     legacy = legacy_personality_config_module()
-    basic_profile = payload.get("persona_entity", {}).get("basic_profile", {})
-    basic_profile["avatar"] = legacy.resolve_avatar_public_url(basic_profile.get("avatar", ""))
+    payload["avatar"] = legacy.resolve_avatar_public_url(str(payload.get("avatar") or ""))
     return payload
 
 
@@ -138,18 +137,60 @@ def _normalize_generated_personality_payload(payload: Dict[str, Any]) -> Dict[st
 
 async def ai_generate_personality(
     description: str,
-    target_language: str = "Auto",
+    target_language: str = "English",
+    current_config: Optional[PersonalityConfigModel] = None,
     llm_override: Optional[LLMSettings] = None,
 ) -> PersonalityConfigModel:
     """Generate personality configuration from description using LLM."""
-    legacy = legacy_personality_config_module()
-    return await legacy.generate_personality_config(
+    result = await ai_generate_personality_result(
         description,
         target_language=target_language,
+        current_config=current_config,
+        llm_override=llm_override,
+    )
+    return result.config
+
+
+async def ai_generate_personality_result(
+    description: str,
+    target_language: str = "English",
+    current_config: Optional[PersonalityConfigModel] = None,
+    llm_override: Optional[LLMSettings] = None,
+):
+    """Generate personality configuration plus stage metadata."""
+    legacy = legacy_personality_config_module()
+    return await legacy.generate_personality_config_result(
+        description,
+        target_language=target_language,
+        current_config=current_config,
         llm_override=llm_override,
         adapter_resolver=legacy.resolve_adapter_for_scenario,
         adapter_factory=legacy.create_llm_adapter,
     )
+
+
+async def ai_start_personality_generation_job(
+    description: str,
+    target_language: str = "English",
+    current_config: Optional[PersonalityConfigModel] = None,
+    llm_override: Optional[LLMSettings] = None,
+) -> Dict[str, Any]:
+    """Start a background personality generation job."""
+    legacy = legacy_personality_config_module()
+    return await legacy.start_personality_generation_job(
+        description,
+        target_language=target_language,
+        current_config=current_config,
+        llm_override=llm_override,
+        adapter_resolver=legacy.resolve_adapter_for_scenario,
+        adapter_factory=legacy.create_llm_adapter,
+    )
+
+
+async def ai_get_personality_generation_job(job_id: str) -> Optional[Dict[str, Any]]:
+    """Get a background personality generation job snapshot."""
+    legacy = legacy_personality_config_module()
+    return await legacy.get_personality_generation_job(job_id)
 
 
 __all__ = [
@@ -164,7 +205,10 @@ __all__ = [
     "_normalize_generated_personality_payload",
     "_resolve_persona_id",
     "_wait_for_bootstrap_runtime_ready",
+    "ai_get_personality_generation_job",
     "ai_generate_personality",
+    "ai_generate_personality_result",
+    "ai_start_personality_generation_job",
     "legacy_personality_config_module",
     "sanitize_filename",
     "save_personality_to_registry",

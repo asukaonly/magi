@@ -38,12 +38,14 @@ class ChatRuntimeNotifier:
         ux_plan: dict[str, Any] | None,
         message_id: str | None,
         message_kind: str | None,
+        persona_id: str | None = None,
     ) -> None:
         if self._runtime_trace_store is None:
             return
         payload = {
             "message_id": message_id,
             "message_kind": message_kind,
+            "persona_id": str(persona_id or "").strip() or None,
             "content": response_text,
             "attachments": list(attachments or []),
             "message_payload": dict(message_payload or {}),
@@ -254,6 +256,7 @@ class ChatRuntimeNotifier:
         user_id: str,
         session_id: str,
         turn_id: str | None,
+        persona_id: str | None = None,
     ) -> None:
         normalized_turn_id = str(turn_id or "").strip()
         if self._runtime_trace_store is None or not normalized_turn_id:
@@ -262,6 +265,7 @@ class ChatRuntimeNotifier:
             "user_id": user_id,
             "session_id": session_id,
             "turn_id": normalized_turn_id,
+            "persona_id": str(persona_id or "").strip() or None,
             "event": event.to_wire_dict(),
             "timestamp": time.time(),
         }

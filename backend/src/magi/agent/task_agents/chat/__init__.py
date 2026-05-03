@@ -7,6 +7,8 @@ from .contracts import (
     IntentDecision,
 )
 from ..common import (
+    AssistantResponsePlan,
+    AssistantResponseSegment,
     ExecutionHandlerRegistry,
     ExecutionMode,
     ExecutionRequest,
@@ -28,6 +30,8 @@ from .session_run_coordinator import CheckpointDecision, SessionFactDecision, Se
 
 __all__ = [
     "CheckpointDecision",
+    "AssistantResponsePlan",
+    "AssistantResponseSegment",
     "ChatExecutionCoordinator",
     "ChatFactClassifier",
     "ChatParseOutcome",

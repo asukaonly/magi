@@ -19,6 +19,7 @@ from .llm_registry_models import (
     LLMProviderMetaModel,
     LLMProviderRegistryModel,
     LLMResolvedEmbeddingModelMetaModel,
+    LLMResolvedImageGenerationModelMetaModel,
     LLMResolvedModelMetaModel,
     LLMResolvedProviderCatalogModel,
 )
@@ -50,7 +51,9 @@ def _apply_limit_overrides(
     return LLMLimitsSettings.model_validate(payload)
 
 
-def _default_chat_modalities(capabilities: LLMCapabilitiesSettings) -> tuple[list[str], list[str]]:
+def _default_chat_modalities(
+    capabilities: LLMCapabilitiesSettings,
+) -> tuple[list[str], list[str]]:
     input_modalities = ["text"]
     if capabilities.vision:
         input_modalities.append("image")
@@ -63,7 +66,9 @@ def _default_chat_modalities(capabilities: LLMCapabilitiesSettings) -> tuple[lis
     return input_modalities, output_modalities
 
 
-def _default_embedding_modalities(capabilities: LLMCapabilitiesSettings) -> tuple[list[str], list[str]]:
+def _default_embedding_modalities(
+    capabilities: LLMCapabilitiesSettings,
+) -> tuple[list[str], list[str]]:
     input_modalities = ["text"]
     if capabilities.vision:
         input_modalities.append("image")
@@ -74,7 +79,9 @@ def _default_embedding_modalities(capabilities: LLMCapabilitiesSettings) -> tupl
     return input_modalities, output_modalities
 
 
-def _default_image_generation_modalities(capabilities: LLMCapabilitiesSettings) -> tuple[list[str], list[str]]:
+def _default_image_generation_modalities(
+    capabilities: LLMCapabilitiesSettings,
+) -> tuple[list[str], list[str]]:
     input_modalities = ["text"]
     if capabilities.vision:
         input_modalities.append("image")
@@ -99,15 +106,29 @@ def _resolve_chat_model(
         limits,
         override.limits if override is not None else None,
     )
-    input_modalities, output_modalities = _default_chat_modalities(resolved_capabilities)
+    input_modalities, output_modalities = _default_chat_modalities(
+        resolved_capabilities
+    )
     return LLMResolvedModelMetaModel(
         id=model_id,
-        label=override.label if override is not None and override.label else label or model_id,
+        label=(
+            override.label
+            if override is not None and override.label
+            else label or model_id
+        ),
         description=override.description if override is not None else None,
         icon=override.icon if override is not None else None,
         source=source,
-        hidden=bool(override.hidden) if override is not None and override.hidden is not None else False,
-        preferred=bool(override.preferred) if override is not None and override.preferred is not None else False,
+        hidden=(
+            bool(override.hidden)
+            if override is not None and override.hidden is not None
+            else False
+        ),
+        preferred=(
+            bool(override.preferred)
+            if override is not None and override.preferred is not None
+            else False
+        ),
         capabilities=resolved_capabilities,
         limits=resolved_limits,
         input_modalities=(
@@ -147,7 +168,9 @@ def _resolve_embedding_model(
         limits,
         override.limits if override is not None else None,
     )
-    input_modalities, output_modalities = _default_embedding_modalities(resolved_capabilities)
+    input_modalities, output_modalities = _default_embedding_modalities(
+        resolved_capabilities
+    )
     resolved_dimensions = (
         list(override.dimensions)
         if override is not None and override.dimensions is not None
@@ -155,12 +178,24 @@ def _resolve_embedding_model(
     )
     return LLMResolvedEmbeddingModelMetaModel(
         id=model_id,
-        label=override.label if override is not None and override.label else label or model_id,
+        label=(
+            override.label
+            if override is not None and override.label
+            else label or model_id
+        ),
         description=override.description if override is not None else None,
         icon=override.icon if override is not None else None,
         source=source,
-        hidden=bool(override.hidden) if override is not None and override.hidden is not None else False,
-        preferred=bool(override.preferred) if override is not None and override.preferred is not None else False,
+        hidden=(
+            bool(override.hidden)
+            if override is not None and override.hidden is not None
+            else False
+        ),
+        preferred=(
+            bool(override.preferred)
+            if override is not None and override.preferred is not None
+            else False
+        ),
         capabilities=resolved_capabilities,
         dimensions=resolved_dimensions,
         limits=resolved_limits,
@@ -191,7 +226,14 @@ def _resolve_image_generation_model(
     limits: LLMLimitsSettings,
     provider_options_example: Dict[str, Any],
     override: Optional[LLMModelMetadataOverrideSettings],
-) -> LLMResolvedModelMetaModel:
+    supported_sizes: Optional[list[str]] = None,
+    supported_qualities: Optional[list[str]] = None,
+    supports_seed: bool = False,
+    supports_negative_prompt: bool = False,
+    supports_reference: bool = False,
+    max_n: int = 1,
+    native_protocol: str = "custom",
+) -> LLMResolvedImageGenerationModelMetaModel:
     resolved_capabilities = _apply_capability_overrides(
         capabilities,
         override.capabilities if override is not None else None,
@@ -202,15 +244,29 @@ def _resolve_image_generation_model(
         limits,
         override.limits if override is not None else None,
     )
-    input_modalities, output_modalities = _default_image_generation_modalities(resolved_capabilities)
-    return LLMResolvedModelMetaModel(
+    input_modalities, output_modalities = _default_image_generation_modalities(
+        resolved_capabilities
+    )
+    return LLMResolvedImageGenerationModelMetaModel(
         id=model_id,
-        label=override.label if override is not None and override.label else label or model_id,
+        label=(
+            override.label
+            if override is not None and override.label
+            else label or model_id
+        ),
         description=override.description if override is not None else None,
         icon=override.icon if override is not None else None,
         source=source,
-        hidden=bool(override.hidden) if override is not None and override.hidden is not None else False,
-        preferred=bool(override.preferred) if override is not None and override.preferred is not None else False,
+        hidden=(
+            bool(override.hidden)
+            if override is not None and override.hidden is not None
+            else False
+        ),
+        preferred=(
+            bool(override.preferred)
+            if override is not None and override.preferred is not None
+            else False
+        ),
         capabilities=resolved_capabilities,
         limits=resolved_limits,
         input_modalities=(
@@ -228,6 +284,13 @@ def _resolve_image_generation_model(
             if override is not None and override.provider_options_example is not None
             else dict(provider_options_example)
         ),
+        supported_sizes=list(supported_sizes or []),
+        supported_qualities=list(supported_qualities or []),
+        supports_seed=bool(supports_seed),
+        supports_negative_prompt=bool(supports_negative_prompt),
+        supports_reference=bool(supports_reference),
+        max_n=max(1, int(max_n or 1)),
+        native_protocol=str(native_protocol or "custom"),
     )
 
 
@@ -314,10 +377,18 @@ def resolve_provider_model_catalog(
     """Resolve provider model metadata by merging registry models with user overrides."""
 
     provider_meta = find_provider_meta(registry, provider_id)
-    provider_type = str(
-        getattr(getattr(provider_settings, "provider_type", ""), "value", getattr(provider_settings, "provider_type", ""))
-        or ""
-    ).strip().lower()
+    provider_type = (
+        str(
+            getattr(
+                getattr(provider_settings, "provider_type", ""),
+                "value",
+                getattr(provider_settings, "provider_type", ""),
+            )
+            or ""
+        )
+        .strip()
+        .lower()
+    )
     overrides = dict(getattr(provider_settings, "model_metadata_overrides", {}) or {})
     custom_models = list(getattr(provider_settings, "custom_models", []) or [])
     manual_base_capabilities = (
@@ -338,7 +409,7 @@ def resolve_provider_model_catalog(
 
     chat_models: dict[str, LLMResolvedModelMetaModel] = {}
     embedding_models: dict[str, LLMResolvedEmbeddingModelMetaModel] = {}
-    image_generation_models: dict[str, LLMResolvedModelMetaModel] = {}
+    image_generation_models: dict[str, LLMResolvedImageGenerationModelMetaModel] = {}
 
     if provider_meta is not None:
         for model in provider_meta.chat_models:
@@ -394,6 +465,13 @@ def resolve_provider_model_catalog(
                 limits=LLMLimitsSettings(),
                 provider_options_example=model.provider_options_example,
                 override=overrides.get(model.id),
+                supported_sizes=model.supported_sizes,
+                supported_qualities=model.supported_qualities,
+                supports_seed=model.supports_seed,
+                supports_negative_prompt=model.supports_negative_prompt,
+                supports_reference=model.supports_reference,
+                max_n=model.max_n,
+                native_protocol=model.native_protocol,
             )
 
     for model_id in custom_models:
@@ -424,7 +502,10 @@ def resolve_provider_model_catalog(
                 override=override,
             )
 
-        if override.capabilities.image_output is True and model_id not in image_generation_models:
+        if (
+            override.capabilities.image_output is True
+            and model_id not in image_generation_models
+        ):
             base_chat_model = chat_models.get(model_id)
             image_capabilities = (
                 base_chat_model.capabilities.model_copy(deep=True)
@@ -441,10 +522,18 @@ def resolve_provider_model_catalog(
             image_capabilities.embedding = False
             image_generation_models[model_id] = _resolve_image_generation_model(
                 model_id=model_id,
-                source=base_chat_model.source if base_chat_model is not None else "manual",
-                label=base_chat_model.label if base_chat_model is not None else model_id,
+                source=(
+                    base_chat_model.source if base_chat_model is not None else "manual"
+                ),
+                label=(
+                    base_chat_model.label if base_chat_model is not None else model_id
+                ),
                 capabilities=image_capabilities,
-                limits=base_chat_model.limits if base_chat_model is not None else LLMLimitsSettings(),
+                limits=(
+                    base_chat_model.limits
+                    if base_chat_model is not None
+                    else LLMLimitsSettings()
+                ),
                 provider_options_example=(
                     base_chat_model.provider_options_example
                     if base_chat_model is not None
@@ -469,11 +558,19 @@ def resolve_provider_model_catalog(
             embedding_capabilities.embedding = True
             embedding_models[model_id] = _resolve_embedding_model(
                 model_id=model_id,
-                source=base_chat_model.source if base_chat_model is not None else "manual",
-                label=base_chat_model.label if base_chat_model is not None else model_id,
+                source=(
+                    base_chat_model.source if base_chat_model is not None else "manual"
+                ),
+                label=(
+                    base_chat_model.label if base_chat_model is not None else model_id
+                ),
                 dimensions=[],
                 capabilities=embedding_capabilities,
-                limits=base_chat_model.limits if base_chat_model is not None else LLMLimitsSettings(),
+                limits=(
+                    base_chat_model.limits
+                    if base_chat_model is not None
+                    else LLMLimitsSettings()
+                ),
                 provider_options_example=(
                     base_chat_model.provider_options_example
                     if base_chat_model is not None

@@ -62,6 +62,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         "AUTH_REQUIRED",
         "NO_PROVIDERS_CONFIGURED",
         "PERMISSION_DENIED",
+        "POLICY_BLOCKED",
         "PROVIDER_NOT_CONFIGURED",
         "READ_ONLY",
         "ROLE_NOT_ALLOWED",
@@ -130,13 +131,16 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         system_prompt: str,
         selected_tools: List[str],
         conversation_history: List[Dict[str, Any]] | None = None,
+        session_summary: str | None = None,
+        session_origin: str | None = None,
         allow_attachment_grounding: bool = False,
     ) -> FunctionCallingStepState:
         """Build the initial loop state for step-wise function calling."""
         messages = append_latest_user_message(
             conversation_history,
             user_message,
-            history_limit=10,
+            session_summary=session_summary,
+            session_origin=session_origin,
         )
         return FunctionCallingStepState(
             messages=messages,
@@ -194,6 +198,8 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         session_run_revision: int = 0,
         turn_id: Optional[str] = None,
         conversation_history: Optional[List[Dict[str, Any]]] = None,
+        session_summary: str | None = None,
+        session_origin: str | None = None,
         max_iterations: int = MAX_ITERATIONS,
         disable_thinking: bool = True,
         intent: str = "unknown",
@@ -224,6 +230,8 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
                 orchestration_strategy=orchestration_strategy,
                 llm_timeout_seconds=llm_timeout_seconds,
                 conversation_history=conversation_history,
+                session_summary=session_summary,
+                session_origin=session_origin,
                 max_iterations=max_iterations,
                 thinking_depth=thinking_depth,
                 disable_thinking=disable_thinking,
@@ -250,6 +258,8 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         orchestration_strategy: Optional[Dict[str, Any]],
         llm_timeout_seconds: Optional[float],
         conversation_history: Optional[List[Dict[str, Any]]],
+        session_summary: str | None,
+        session_origin: str | None,
         max_iterations: int,
         thinking_depth: Optional[ThinkingDepth],
         disable_thinking: bool,
@@ -264,6 +274,8 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
             system_prompt=system_prompt,
             selected_tools=selected_tools,
             conversation_history=conversation_history,
+            session_summary=session_summary,
+            session_origin=session_origin,
         )
         self._current_messages = state.messages
         depth = _coerce_thinking_depth(thinking_depth, disable_thinking)

@@ -53,7 +53,6 @@ class AgentRuntimeModule(LifecycleModule):
             "hybrid retrieval service",
         )
         memory_integration = require_initialized(self._context.memory.memory_integration, "memory integration")
-        scenario_prompts_store = require_initialized(self._context.context.scenario_prompts_store, "scenario prompts store")
         runtime_trace_store = require_initialized(self._context.runtime_trace.store, "runtime trace store")
         chat_store = require_initialized(self._context.chat.store, "chat store")
         chat_projector = require_initialized(self._context.chat.projector, "chat projector")
@@ -85,7 +84,6 @@ class AgentRuntimeModule(LifecycleModule):
                 unified_memory=unified_memory,
                 hybrid_retrieval_service=hybrid_retrieval_service,
                 memory_integration=memory_integration,
-                scenario_prompts_store=scenario_prompts_store,
                 skill_runner=self._context.skills.skill_runner,
                 runtime_trace_store=runtime_trace_store,
                 chat_store=chat_store,

@@ -7,6 +7,7 @@ import pytest
 
 from magi.agent.runtime.contracts import FactRecord
 import magi.agent.task_orchestrator as task_orchestrator_module
+import magi.agent.task_orchestration_workers as task_orchestration_workers_module
 from magi.agent.task_orchestrator import TaskOrchestrator
 from magi.agent.orchestration import SubtaskDefinition, TaskOrchestrationState
 from magi.tools.registry import ToolRegistry
@@ -244,7 +245,7 @@ async def test_rate_limit_retry_uses_extended_budget_and_backoff(monkeypatch: py
         async def save_orchestration(self, state: TaskOrchestrationState) -> None:
             _ = state
 
-    monkeypatch.setattr(task_orchestrator_module.asyncio, "sleep", _fake_sleep)
+    monkeypatch.setattr(task_orchestration_workers_module.asyncio, "sleep", _fake_sleep)
     monkeypatch.setattr(orchestrator._tool_registry, "execute", _fake_execute)
     orchestrator._orchestration_store = _FakeStore()
 
@@ -349,7 +350,7 @@ async def test_start_orchestration_passes_workspace_root_to_planner(monkeypatch:
 
     class _FakeStore:
         async def save_orchestration(self, state: TaskOrchestrationState) -> None:
-            _ = state
+            captured["saved_state"] = state
 
     async def _fake_launch_workers(state: TaskOrchestrationState, *, run_id=None, run_revision=0):  # type: ignore[no-untyped-def]
         _ = (state, run_id, run_revision)
@@ -374,10 +375,12 @@ async def test_start_orchestration_passes_workspace_root_to_planner(monkeypatch:
         history_key="user-1::session-1",
         correlation_id=None,
         orchestration_strategy={"planner": "task_agent", "allow_parallel": True},
+        persona_id="persona-orchestration",
     )
 
     assert result.skip_emit is True
     assert captured["kwargs"]["workspace_root"] == "/Users/asuka/code/magi"
+    assert captured["saved_state"].metadata["persona_id"] == "persona-orchestration"
 
 
 @pytest.mark.asyncio

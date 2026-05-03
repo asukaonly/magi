@@ -13,7 +13,14 @@ from magi.agent.task_agents.chat.postprocess.components import (
 )
 from magi.agent.task_agents.chat.postprocess_service import ChatPostProcessService
 from magi.agent.task_agents.chat.session_run_coordinator import TurnSupersession
-from magi.agent.task_agents.common import ExecutionMode, ExecutionResult, IncomingFactKind, UserMessagePayload
+from magi.agent.task_agents.common import (
+    AssistantResponsePlan,
+    AssistantResponseSegment,
+    ExecutionMode,
+    ExecutionResult,
+    IncomingFactKind,
+    UserMessagePayload,
+)
 from magi.agent.runtime.contracts import FactRecord
 from magi.events.events import EventTypes
 from magi.personality.interaction_analyzer import DEFAULT_ANALYSIS
@@ -169,19 +176,12 @@ class _FakeUnifiedMemory:
         return {"summary_id": "summary-1", "summary_category": "task_reflection"}
 
 
-class _FakeStateTransitionItem:
-    trigger_type = "absurdity"
-    trigger_condition = "User makes a clearly absurd joke"
-    target_state_name = "Comedy Mode"
-
-
 class _RecordingPersonalityMemory:
     def __init__(self) -> None:
         self.process_calls: list[dict[str, object]] = []
 
     async def get_core_personality(self):  # type: ignore[no-untyped-def]
         return SimpleNamespace(
-            state_transition_protocol=[_FakeStateTransitionItem()],
             milestone_conditions={},
         )
 
@@ -199,7 +199,7 @@ class _FakeChatProjector:
 
 
 @pytest.mark.asyncio
-async def test_memory_updates_pass_stp_rules_for_direct_chat_scope(monkeypatch) -> None:
+async def test_memory_updates_do_not_pass_stp_rules_after_response(monkeypatch) -> None:
     import magi.agent.task_agents.chat.postprocess.memory as postprocess_module
 
     analysis_calls: list[dict[str, object]] = []
@@ -233,17 +233,14 @@ async def test_memory_updates_pass_stp_rules_for_direct_chat_scope(monkeypatch) 
         user_id="local_user",
         user_message="say something funny",
         response_text="funny response",
-        allow_state_transition=True,
         incoming_fact_kind="user_message",
         execution_mode="direct_llm",
         session_id="session-1",
         turn_id="turn-1",
     )
 
-    assert analysis_calls[-1]["stp_rules"] == [
-        {"trigger_type": "absurdity", "trigger_condition": "User makes a clearly absurd joke"}
-    ]
-    assert memory.process_calls[-1]["allow_state_transition"] is True
+    assert analysis_calls[-1].get("stp_rules") is None
+    assert "allow_state_transition" not in memory.process_calls[-1]
 
 
 @pytest.mark.asyncio
@@ -281,15 +278,14 @@ async def test_memory_updates_skip_stp_rules_outside_direct_chat_scope(monkeypat
         user_id="local_user",
         user_message="analyze apple stock",
         response_text="analysis report",
-        allow_state_transition=False,
         incoming_fact_kind="explore_task_completed",
         execution_mode="explore_task_render",
         session_id="session-1",
         turn_id="turn-1",
     )
 
-    assert analysis_calls[-1]["stp_rules"] is None
-    assert memory.process_calls[-1]["allow_state_transition"] is False
+    assert analysis_calls[-1].get("stp_rules") is None
+    assert "allow_state_transition" not in memory.process_calls[-1]
 
 
 @pytest.mark.asyncio
@@ -460,6 +456,72 @@ async def test_outcome_writer_persists_assistant_message_payload(chat_store: Cha
     assert payload["asset_refs"] == [
         {"asset_ref_id": "asset-1", "event_id": "evt-1", "original_name": "hangzhou.jpg"}
     ]
+
+
+@pytest.mark.asyncio
+async def test_outcome_writer_persists_segmented_chat_outcome(chat_store: ChatStore) -> None:
+    writer = ChatOutcomeWriter(
+        chat_store=chat_store,
+        chat_projector=None,
+        trace_id_factory=lambda turn_id: f"trace:{turn_id}",
+    )
+    await chat_store.create_user_turn(
+        session_id="session-1",
+        user_id="local_user",
+        turn_id="turn-rhythm",
+        message_text="explain rhythm",
+        created_at_ms=1710000000000,
+    )
+
+    records = await writer.persist_segmented_chat_outcome(
+        turn_id="turn-rhythm",
+        orchestration_id=None,
+        execution_mode="direct_llm",
+        ux_plan={"assistant_surface_mode": "final_only"},
+        response_plan=AssistantResponsePlan(
+            mode="multi_message",
+            aggregate_text="完整回答",
+            segments=[
+                AssistantResponseSegment(
+                    content="先接住问题。",
+                    intent="acknowledge",
+                    delay_ms=0,
+                    segment_index=0,
+                    source_unit_ids=["u1"],
+                ),
+                AssistantResponseSegment(
+                    content="再说明核心答案。",
+                    intent="answer",
+                    delay_ms=700,
+                    segment_index=1,
+                    source_unit_ids=["u2"],
+                ),
+            ],
+        ),
+        message_payload={"asset_refs": [{"asset_ref_id": "asset-1"}]},
+        started_at_ms=1710000000000,
+        completed_at_ms=1710000000200,
+    )
+
+    messages = await chat_store.list_messages(session_id="session-1")
+    assert [message.message_kind for message in messages] == [
+        "user_text",
+        "assistant_rhythm_segment",
+        "assistant_rhythm_segment",
+    ]
+    assert [record.message_id for record in records] == [message.message_id for message in messages[1:]]
+
+    first_payload = json.loads(messages[1].payload_json)
+    second_payload = json.loads(messages[2].payload_json)
+    assert first_payload["rhythm"] == {
+        "segment_index": 0,
+        "segment_count": 2,
+        "intent": "acknowledge",
+        "delay_ms": 0,
+        "source_unit_ids": ["u1"],
+    }
+    assert second_payload["rhythm"]["segment_index"] == 1
+    assert second_payload["asset_refs"] == [{"asset_ref_id": "asset-1"}]
 
 
 @pytest.mark.asyncio
@@ -1709,6 +1771,7 @@ async def test_handle_commits_final_chat_message_before_notification(
         turn_id="turn-final",
         message_text="hello",
         created_at_ms=1710000000000,
+        persona_id="persona-seven",
     )
     result = ExecutionResult(
         mode=ExecutionMode.DIRECT_LLM,
@@ -1748,6 +1811,7 @@ async def test_handle_commits_final_chat_message_before_notification(
     payload = json.loads(notifications[0].payload_json)
     assert payload["message_id"] == messages[-1].message_id
     assert payload["message_kind"] == "assistant_final"
+    assert payload["persona_id"] == "persona-seven"
 
 
 @pytest.mark.asyncio

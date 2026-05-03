@@ -243,6 +243,94 @@ async fn native_read_routes_return_stable_empty_payloads_when_databases_are_miss
 }
 
 #[tokio::test]
+async fn native_message_routes_return_history_versions() {
+    let home = isolated_home("message-history-version");
+    let chat_dir = home.path().join(".magi").join("data").join("chat");
+    std::fs::create_dir_all(&chat_dir).unwrap();
+    let conn = rusqlite::Connection::open(chat_dir.join("chat.db")).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE chat_sessions (
+            session_id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            title_overridden INTEGER NOT NULL DEFAULT 0,
+            summary TEXT NOT NULL DEFAULT '',
+            created_at_ms INTEGER NOT NULL,
+            updated_at_ms INTEGER NOT NULL,
+            last_message_at_ms INTEGER,
+            last_user_message_at_ms INTEGER,
+            last_message_preview TEXT NOT NULL DEFAULT '',
+            last_user_message_preview TEXT NOT NULL DEFAULT '',
+            message_count INTEGER NOT NULL DEFAULT 0,
+            history_version INTEGER NOT NULL DEFAULT 0,
+            workspace_path TEXT,
+            archived_at_ms INTEGER,
+            deleted_at_ms INTEGER
+        );
+        CREATE TABLE chat_messages (
+            message_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            turn_id TEXT,
+            user_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            message_kind TEXT NOT NULL,
+            content_text TEXT,
+            payload_json TEXT,
+            is_final INTEGER NOT NULL DEFAULT 1,
+            is_visible INTEGER NOT NULL DEFAULT 1,
+            created_at_ms INTEGER NOT NULL,
+            sequence_no INTEGER NOT NULL DEFAULT 0,
+            replaces_message_id TEXT,
+            replaced_by_message_id TEXT,
+            persona_id TEXT,
+            reply_to_message_id TEXT,
+            label_json TEXT
+        );
+        INSERT INTO chat_sessions (
+            session_id, user_id, title, title_overridden, summary, created_at_ms, updated_at_ms,
+            last_message_at_ms, last_user_message_at_ms, last_message_preview,
+            last_user_message_preview, message_count, history_version, workspace_path,
+            archived_at_ms, deleted_at_ms
+        ) VALUES (
+            's-history', 'u1', 'History Session', 0, '', 1000, 2000,
+            2000, 1000, 'assistant preview', 'hello', 1, 7, NULL, NULL, NULL
+        );
+        INSERT INTO chat_messages (
+            message_id, session_id, turn_id, user_id, role, message_kind,
+            content_text, payload_json, is_final, is_visible, created_at_ms, sequence_no,
+            replaces_message_id, replaced_by_message_id, persona_id, reply_to_message_id, label_json
+        ) VALUES (
+            'msg-1', 's-history', 'turn-1', 'u1', 'user', 'user_text',
+            'hello', '{}', 1, 1, 1000, 1, NULL, NULL, 'persona-1', NULL, NULL
+        );",
+    )
+    .unwrap();
+    drop(conn);
+
+    let state = test_state().await;
+    let router = api::build_router(state);
+
+    let (status, history) = request_json(
+        router.clone(),
+        "GET",
+        "/api/messages/history?user_id=u1&session_id=s-history",
+        None,
+    )
+    .await;
+    assert_eq!(status, 200, "history={history:?} home={:?}", home.path());
+    assert_eq!(history["history_version"], 7);
+    assert_eq!(history["count"], 1);
+    assert_eq!(history["messages"][0]["content"], "hello");
+    assert_eq!(history["messages"][0]["persona_id"], "persona-1");
+
+    let (status, sessions) =
+        request_json(router, "GET", "/api/messages/sessions?user_id=u1", None).await;
+    assert_eq!(status, 200, "sessions={sessions:?} home={:?}", home.path());
+    assert_eq!(sessions["sessions"][0]["history_version"], 7);
+    drop(home);
+}
+
+#[tokio::test]
 async fn native_task_create_persists_owned_product_fields() {
     let home = isolated_home("task-create");
     let runtime_dir = home.path().join(".magi").join("runtime");

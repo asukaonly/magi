@@ -49,10 +49,10 @@ interface LLMModelSelectionSectionProps {
 }
 
 const BASE_SCENARIOS: LLMScenario[] = ['context_decider', 'core', 'embedding', 'image_generation'];
-const SETTINGS_SCENARIOS: LLMScenario[] = ['context_decider', 'core', 'memory_summarizer', 'embedding', 'image_generation'];
+const ADVANCED_SCENARIOS: LLMScenario[] = ['context_decider', 'core', 'memory_summarizer', 'embedding', 'image_generation'];
 const ALL_SCENARIOS: LLMScenario[] = ['context_decider', 'core', 'memory_summarizer', 'embedding', 'image_generation'];
 type ModelTab = LLMScenario | 'reranker';
-const SETTINGS_MODEL_TABS: ModelTab[] = ['context_decider', 'core', 'memory_summarizer', 'embedding', 'image_generation', 'reranker'];
+const ADVANCED_MODEL_TABS: ModelTab[] = ['context_decider', 'core', 'memory_summarizer', 'embedding', 'image_generation', 'reranker'];
 const BASE_MODEL_TABS: ModelTab[] = ['context_decider', 'core', 'embedding', 'image_generation', 'reranker'];
 
 const compareOptionLabels = (left: { label: string; value: string }, right: { label: string; value: string }) => {
@@ -86,12 +86,13 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
   const { t: tApp } = useTranslation('app');
   const enabledProviders = Object.entries(value.providers).filter(([, provider]) => provider.enabled);
   const isSettingsSurface = surface === 'settings';
+  const showMemorySummarizer = !quickMode;
   const inputClassName = cn(
     'h-11 w-full rounded-xl border border-border/65 bg-background px-3 text-sm shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
     isSettingsSurface && 'rounded-lg'
   );
-  const scenarios = isSettingsSurface ? SETTINGS_SCENARIOS : BASE_SCENARIOS;
-  const modelTabs = isSettingsSurface ? SETTINGS_MODEL_TABS : BASE_MODEL_TABS;
+  const scenarios = showMemorySummarizer ? ADVANCED_SCENARIOS : BASE_SCENARIOS;
+  const modelTabs = showMemorySummarizer ? ADVANCED_MODEL_TABS : BASE_MODEL_TABS;
   const [expandedAdvanced, setExpandedAdvanced] = useState<Record<LLMScenario, boolean>>(() =>
     Object.fromEntries(ALL_SCENARIOS.map((scenario) => [scenario, showAdvancedByDefault])) as Record<LLMScenario, boolean>
   );

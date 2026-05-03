@@ -10,7 +10,7 @@ import json
 import re
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 from ..core.logger import get_logger
@@ -34,7 +34,8 @@ CREATE TABLE IF NOT EXISTS personas (
     seed_slug     TEXT,
     description   TEXT NOT NULL DEFAULT '',
     created_at    REAL NOT NULL,
-    updated_at    REAL NOT NULL
+    updated_at    REAL NOT NULL,
+    deleted_at    REAL
 );
 
 CREATE TABLE IF NOT EXISTS persona_active (
@@ -70,6 +71,7 @@ class PersonaRecord:
     seed_slug: Optional[str]
     created_at: float
     updated_at: float
+    deleted_at: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,7 +86,9 @@ class PersonaSummary:
     group_name: str
     sort_order: int
     is_builtin: bool
+    seed_slug: Optional[str] = None
     description: str = ""
+    deleted_at: float | None = None
 
 
 class PersonaRepository:
@@ -108,10 +112,12 @@ class PersonaRepository:
                 for row in rows:
                     try:
                         d = json.loads(row["config_json"])
-                        desc = d.get("persona_entity", {}).get("basic_profile", {}).get("description", "")
+                        desc = d.get("description", "")
                     except (json.JSONDecodeError, TypeError):
                         desc = ""
                     await db.execute("UPDATE personas SET description = ? WHERE persona_id = ?", (desc, row["persona_id"]))
+            if "deleted_at" not in cols:
+                await db.execute("ALTER TABLE personas ADD COLUMN deleted_at REAL")
             await db.commit()
 
     # ---- create ----
@@ -127,10 +133,9 @@ class PersonaRepository:
     ) -> str:
         """Insert a new persona and return its persona_id."""
         data = json.loads(config_json)
-        bp = data.get("persona_entity", {}).get("basic_profile", {})
-        display_name = bp.get("name", "") or "Unnamed"
-        avatar = bp.get("avatar", "")
-        description = bp.get("description", "")
+        display_name = data.get("name", "") or "Unnamed"
+        avatar = data.get("avatar", "")
+        description = data.get("description", "")
         group = data.get("meta", {}).get("group", "general")
         order = data.get("meta", {}).get("order", 0)
 
@@ -170,43 +175,50 @@ class PersonaRepository:
 
     # ---- read ----
 
-    async def get(self, persona_id: str) -> PersonaRecord:
+    async def get(self, persona_id: str, *, include_deleted: bool = False) -> PersonaRecord:
         """Load a persona by stable ID.  Raises KeyError if not found."""
         async with sqlite_connection_async(self._db_path) as db:
-            row = await db.execute_fetchall(
-                "SELECT * FROM personas WHERE persona_id = ?", (persona_id,)
-            )
+            sql = "SELECT * FROM personas WHERE persona_id = ?"
+            params: tuple[object, ...] = (persona_id,)
+            if not include_deleted:
+                sql += " AND deleted_at IS NULL"
+            row = await db.execute_fetchall(sql, params)
             if not row:
                 raise KeyError(f"Persona not found: {persona_id}")
             return self._row_to_record(row[0])
 
-    async def get_by_slug(self, slug: str) -> PersonaRecord:
+    async def get_by_slug(self, slug: str, *, include_deleted: bool = False) -> PersonaRecord:
         """Load a persona by slug.  Raises KeyError if not found."""
         async with sqlite_connection_async(self._db_path) as db:
-            row = await db.execute_fetchall(
-                "SELECT * FROM personas WHERE slug = ?", (slug,)
-            )
+            sql = "SELECT * FROM personas WHERE slug = ?"
+            params: tuple[object, ...] = (slug,)
+            if not include_deleted:
+                sql += " AND deleted_at IS NULL"
+            row = await db.execute_fetchall(sql, params)
             if not row:
                 raise KeyError(f"Persona slug not found: {slug}")
             return self._row_to_record(row[0])
 
-    async def get_by_seed_slug(self, seed_slug: str) -> PersonaRecord | None:
+    async def get_by_seed_slug(self, seed_slug: str, *, include_deleted: bool = False) -> PersonaRecord | None:
         """Load a builtin persona by its original seed filename stem."""
         async with sqlite_connection_async(self._db_path) as db:
-            row = await db.execute_fetchall(
-                "SELECT * FROM personas WHERE seed_slug = ? AND is_builtin = 1",
-                (seed_slug,),
-            )
+            sql = "SELECT * FROM personas WHERE seed_slug = ? AND is_builtin = 1"
+            params: tuple[object, ...] = (seed_slug,)
+            if not include_deleted:
+                sql += " AND deleted_at IS NULL"
+            row = await db.execute_fetchall(sql, params)
             if not row:
                 return None
             return self._row_to_record(row[0])
 
-    async def list_all(self) -> list[PersonaSummary]:
+    async def list_all(self, *, include_deleted: bool = False) -> list[PersonaSummary]:
         """Return all personas in display order."""
         async with sqlite_connection_async(self._db_path) as db:
-            rows = await db.execute_fetchall(
-                "SELECT * FROM personas ORDER BY sort_order, created_at"
-            )
+            sql = "SELECT * FROM personas"
+            if not include_deleted:
+                sql += " WHERE deleted_at IS NULL"
+            sql += " ORDER BY sort_order, created_at"
+            rows = await db.execute_fetchall(sql)
             return [self._row_to_summary(r) for r in rows]
 
     # ---- update ----
@@ -219,6 +231,7 @@ class PersonaRepository:
         config_json: str | None = None,
         slug: str | None = None,
         avatar_path: str | None = None,
+        group_name: str | None = None,
         sort_order: int | None = None,
     ) -> None:
         """Update mutable fields of an existing persona."""
@@ -227,13 +240,14 @@ class PersonaRepository:
         if config_json is not None:
             try:
                 data = json.loads(config_json)
-                bp = data.get("persona_entity", {}).get("basic_profile", {})
                 meta = data.get("meta", {})
                 if name is None:
-                    name = bp.get("name") or None
+                    name = data.get("name") or None
                 if avatar_path is None:
-                    avatar_path = bp.get("avatar", "")
-                description = bp.get("description", "")
+                    avatar_path = data.get("avatar", "")
+                description = data.get("description", "")
+                if group_name is None and "group" in meta:
+                    group_name = meta["group"]
                 if sort_order is None and "order" in meta:
                     sort_order = meta["order"]
             except (json.JSONDecodeError, TypeError):
@@ -254,6 +268,9 @@ class PersonaRepository:
         if avatar_path is not None:
             sets.append("avatar_path = ?")
             params.append(avatar_path)
+        if group_name is not None:
+            sets.append("group_name = ?")
+            params.append(group_name)
         if sort_order is not None:
             sets.append("sort_order = ?")
             params.append(sort_order)
@@ -270,7 +287,7 @@ class PersonaRepository:
 
         async with sqlite_connection_async(self._db_path) as db:
             result = await db.execute(
-                f"UPDATE personas SET {', '.join(sets)} WHERE persona_id = ?",
+                f"UPDATE personas SET {', '.join(sets)} WHERE persona_id = ? AND deleted_at IS NULL",
                 tuple(params),
             )
             if result.rowcount == 0:
@@ -280,7 +297,7 @@ class PersonaRepository:
     # ---- delete ----
 
     async def delete(self, persona_id: str) -> None:
-        """Delete a persona.  Raises KeyError if not found."""
+        """Soft-delete a persona.  Raises KeyError if not found."""
         async with sqlite_connection_async(self._db_path) as db:
             # Prevent deleting the active persona.
             active_rows = await db.execute_fetchall(
@@ -289,14 +306,16 @@ class PersonaRepository:
             )
             if active_rows:
                 raise ValueError("Cannot delete the currently active persona")
+            now = time.time()
             result = await db.execute(
-                "DELETE FROM personas WHERE persona_id = ?", (persona_id,)
+                "UPDATE personas SET deleted_at = ?, updated_at = ? WHERE persona_id = ? AND deleted_at IS NULL",
+                (now, now, persona_id),
             )
             if result.rowcount == 0:
                 raise KeyError(f"Persona not found: {persona_id}")
             await db.commit()
 
-        logger.info("Deleted persona %s", persona_id)
+        logger.info("Soft-deleted persona %s", persona_id)
 
     # ---- active persona ----
 
@@ -315,7 +334,7 @@ class PersonaRepository:
         async with sqlite_connection_async(self._db_path) as db:
             # Verify persona exists.
             exists = await db.execute_fetchall(
-                "SELECT 1 FROM personas WHERE persona_id = ?", (persona_id,)
+                "SELECT 1 FROM personas WHERE persona_id = ? AND deleted_at IS NULL", (persona_id,)
             )
             if not exists:
                 raise KeyError(f"Persona not found: {persona_id}")
@@ -330,10 +349,13 @@ class PersonaRepository:
 
     # ---- count ----
 
-    async def count(self) -> int:
+    async def count(self, *, include_deleted: bool = False) -> int:
         """Return total number of registered personas."""
         async with sqlite_connection_async(self._db_path) as db:
-            rows = await db.execute_fetchall("SELECT COUNT(*) AS cnt FROM personas")
+            sql = "SELECT COUNT(*) AS cnt FROM personas"
+            if not include_deleted:
+                sql += " WHERE deleted_at IS NULL"
+            rows = await db.execute_fetchall(sql)
             return rows[0]["cnt"]
 
     # ---- helpers ----
@@ -354,6 +376,7 @@ class PersonaRepository:
             seed_slug=row["seed_slug"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            deleted_at=row["deleted_at"] if "deleted_at" in row.keys() else None,
         )
 
     @staticmethod
@@ -367,5 +390,7 @@ class PersonaRepository:
             group_name=row["group_name"],
             sort_order=row["sort_order"],
             is_builtin=bool(row["is_builtin"]),
+            seed_slug=row["seed_slug"] if "seed_slug" in row.keys() else None,
             description=row["description"] if "description" in row.keys() else "",
+            deleted_at=row["deleted_at"] if "deleted_at" in row.keys() else None,
         )

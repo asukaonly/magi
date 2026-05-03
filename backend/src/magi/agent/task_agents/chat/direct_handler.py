@@ -31,6 +31,7 @@ class DirectLLMHandler(BaseExecutionHandler):
             scenario=Scenario.CHAT,
             recent_tool_errors=request.context.recent_tool_errors,
             workspace_path=_resolve_turn_workspace_path(request.context),
+            persona_id=getattr(request.context, "active_persona_id", None),
         )
         return DirectLLMRequest(
             mode=request.mode,
@@ -46,7 +47,8 @@ class DirectLLMHandler(BaseExecutionHandler):
             messages=append_latest_user_message(
                 request.context.history,
                 request.context.latest_user_message,
-                history_limit=10,
+                session_summary=getattr(request.context, "session_summary", None),
+                session_origin=getattr(request.context, "session_origin", None),
                 attachments=list(getattr(request.context.latest_payload, "attachments", []) or []),
                 user_id=request.context.user_id,
                 session_id=request.context.session_id,

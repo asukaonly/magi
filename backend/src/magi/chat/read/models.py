@@ -17,6 +17,7 @@ class ChatSessionSummary:
     last_timestamp: int
     message_count: int
     workspace_path: str | None = None
+    history_version: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -28,6 +29,7 @@ class ChatSessionSummary:
             "last_timestamp": self.last_timestamp,
             "message_count": self.message_count,
             "workspace_path": self.workspace_path,
+            "history_version": self.history_version,
         }
 
 
@@ -70,6 +72,7 @@ class ChatDisplayMessage:
     attachments: list[dict[str, Any]] | None = None
     message_id: str | None = None
     message_kind: str | None = None
+    persona_id: str | None = None
     turn_id: str | None = None
     trace_display_mode: str | None = None
     allow_trace_collapse: bool = False
@@ -86,6 +89,7 @@ class ChatDisplayMessage:
             "timestamp": self.timestamp,
             "message_id": self.message_id,
             "message_kind": self.message_kind,
+            "persona_id": self.persona_id,
             "turn_id": self.turn_id,
             "kind": self.kind,
             "attachments": list(self.attachments or []),

@@ -47,6 +47,7 @@ const getWorkspaceDisplayPath = (workspacePath: string | null | undefined): stri
 export const ChatPage: React.FC = () => {
   const { t } = useTranslation('app');
   const shouldReduceMotion = useReducedMotion();
+  const reduceTimelineMotion = Boolean(shouldReduceMotion);
   const currentSessionId = useConversationStore((state) => state.currentSessionId);
   const currentSession = useConversationStore((state) => (
     state.currentSessionId ? state.sessionsById[state.currentSessionId] || null : null
@@ -63,7 +64,8 @@ export const ChatPage: React.FC = () => {
   const resetConversation = useConversationStore((state) => state.reset);
 
   const [historyImagePreview, setHistoryImagePreview] = useState<HistoryImagePreview | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const timelineScrollRef = useRef<HTMLDivElement>(null);
+  const lastTimelineScrollKeyRef = useRef<string | null>(null);
   const clearPendingResponseTurnRef = useRef<() => void>(() => {});
 
   const {
@@ -93,6 +95,7 @@ export const ChatPage: React.FC = () => {
   const {
     aiName,
     aiAvatar,
+    assistantPersonas,
     coreModelSupportsVision,
     allowInterjection,
   } = useChatSessionLifecycle({
@@ -167,9 +170,45 @@ export const ChatPage: React.FC = () => {
     clearPendingResponseTurnRef.current = clearPendingResponseTurn;
   }, [clearPendingResponseTurn]);
 
+  const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
+  const lastReasoningFootprint = (lastMessage?.reasoning || [])
+    .map((item) => `${item.source}:${item.content.length}`)
+    .join('|');
+  const lastToolFootprint = (lastMessage?.toolCalls || [])
+    .map((item) => `${item.toolCallId || ''}:${item.status}:${item.toolArgsText?.length || 0}`)
+    .join('|');
+  const timelineScrollKey = [
+    currentSessionId || 'none',
+    messages.length,
+    lastMessage?.id || 'empty',
+    lastMessage?.messageId || '',
+    lastMessage?.messageKind || '',
+    lastMessage?.role || '',
+    lastMessage?.kind || '',
+    lastMessage?.content.length || 0,
+    lastMessage?.streaming ? 'streaming' : 'settled',
+    lastReasoningFootprint,
+    lastToolFootprint,
+  ].join('::');
+
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    if (lastTimelineScrollKeyRef.current === timelineScrollKey) {
+      return;
+    }
+    lastTimelineScrollKeyRef.current = timelineScrollKey;
+    const timeline = timelineScrollRef.current;
+    if (!timeline) {
+      return;
+    }
+    if (typeof timeline.scrollTo === 'function') {
+      timeline.scrollTo({
+        top: timeline.scrollHeight,
+        behavior: reduceTimelineMotion ? 'auto' : 'smooth',
+      });
+      return;
+    }
+    timeline.scrollTop = timeline.scrollHeight;
+  }, [reduceTimelineMotion, timelineScrollKey]);
 
   useChatRealtimeEffects({
     allowInterjection,
@@ -224,8 +263,9 @@ export const ChatPage: React.FC = () => {
         messages={messages}
         assistantName={aiName}
         assistantAvatar={aiAvatar}
+        assistantPersonas={assistantPersonas}
         currentSessionId={currentSessionId}
-        shouldReduceMotion={Boolean(shouldReduceMotion)}
+        shouldReduceMotion={reduceTimelineMotion}
         summaries={summaries}
         executionControlByTurnId={executionControlByTurnId}
         cancellingTurnIds={cancellingTurnIds}
@@ -235,7 +275,7 @@ export const ChatPage: React.FC = () => {
         labelPopoverRef={labelPopoverRef}
         messageContextMenu={messageContextMenu}
         messageContextMenuRef={messageContextMenuRef}
-        messagesEndRef={messagesEndRef}
+        timelineRef={timelineScrollRef}
         onSetReplyTarget={setReplyTarget}
         onOpenImagePreview={setHistoryImagePreview}
         onOpenTraceDrawer={openTraceDrawer}

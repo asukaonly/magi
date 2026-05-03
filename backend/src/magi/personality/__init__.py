@@ -10,9 +10,11 @@ from .models import (
     TaskBehaviorProfile,
 )
 from .self_memory import SelfMemory
+from .turn_planner import ActivePersonaTrigger, PersonaTurnPlan, PersonaTurnPlanner
 
 __all__ = [
     "AmbiguityTolerance",
+    "ActivePersonaTrigger",
     "BehaviorEvolutionEngine",
     "EmotionalState",
     "EmotionalStateEngine",
@@ -22,6 +24,8 @@ __all__ = [
     "InteractionType",
     "MilestoneType",
     "PersonalityConfig",
+    "PersonaTurnPlan",
+    "PersonaTurnPlanner",
     "SatisfactionLevel",
     "SelfMemory",
     "TaskBehaviorProfile",

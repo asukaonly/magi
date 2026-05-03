@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 from typing import Any, Optional
 
-from ....chat.workspace import get_default_chat_workspace_path
 from ....core.logger import get_logger
 from ....context.service import ContextAssemblyService
 from ....context.scenarios import Scenario
@@ -113,9 +112,10 @@ class ChatPlanningService(ChatPlanningPromptMixin):
             user_id=state.user_id,
             session_id=state.session_id,
             user_message=state.root_user_message,
-            task_category="chat",
+            task_category="analysis",
             scenario=Scenario.ANALYSIS,
             include_tool_catalog=False,
+            persona_id=str(state.metadata.get("persona_id") or "").strip() or None,
         )
         system_prompt = self._prompt_service.build_aggregation_system_prompt(
             base_system_prompt=system_prompt,

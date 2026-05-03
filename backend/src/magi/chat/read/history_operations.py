@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Protocol, cast
 
@@ -16,6 +17,38 @@ from .schema import (
 )
 
 logger = get_logger(__name__)
+
+
+def _collapse_rhythm_segments_for_prompt(
+    messages: list[ChatDisplayMessage],
+) -> list[ChatDisplayMessage]:
+    collapsed_messages: list[ChatDisplayMessage] = []
+    rhythm_index_by_turn: dict[str, int] = {}
+    for message in messages:
+        if message.message_kind != "assistant_rhythm_segment":
+            collapsed_messages.append(message)
+            continue
+        turn_id = str(message.turn_id or "").strip()
+        if not turn_id:
+            collapsed_messages.append(message)
+            continue
+        existing_index = rhythm_index_by_turn.get(turn_id)
+        if existing_index is not None:
+            existing = collapsed_messages[existing_index]
+            parts = [part for part in (existing.content.strip(), message.content.strip()) if part]
+            existing.content = "\n\n".join(parts)
+            if message.attachments:
+                existing.attachments = message.attachments
+            continue
+        rhythm_index_by_turn[turn_id] = len(collapsed_messages)
+        collapsed_messages.append(
+            replace(
+                message,
+                message_kind="assistant_final",
+                payload=None,
+            )
+        )
+    return collapsed_messages
 
 
 def _get_chat_trace_read_service() -> Any:
@@ -79,7 +112,7 @@ class ChatHistoryOperationsMixin:
             rows = host._query_chat_message_rows(
                 user_id=user_id,
                 session_id=session_id,
-                message_kinds=("user_text", "assistant_final"),
+                message_kinds=("user_text", "assistant_final", "assistant_rhythm_segment"),
                 visible_only=True,
                 exclude_replaced=True,
             )
@@ -94,12 +127,15 @@ class ChatHistoryOperationsMixin:
             display_message = host._row_to_display_message(row)
             if display_message is None or display_message.kind == "status":
                 continue
-            if display_message.kind == "assistant" and row["message_kind"] != "assistant_final":
+            if display_message.kind == "assistant" and row["message_kind"] not in {
+                "assistant_final",
+                "assistant_rhythm_segment",
+            }:
                 continue
             selected_message_rows.append(row)
             messages.append(display_message)
         host._attach_reply_previews(rows=selected_message_rows, messages=messages)
-        return messages
+        return _collapse_rhythm_segments_for_prompt(messages)
 
     def get_display_history(
         self,
@@ -230,8 +266,8 @@ class ChatHistoryOperationsMixin:
                 f"""
                 SELECT message_id, session_id, turn_id, user_id, role, message_kind,
                        content_text, payload_json, is_final, is_visible, created_at_ms,
-                       sequence_no, replaces_message_id, replaced_by_message_id, reply_to_message_id,
-                       label_json
+                      sequence_no, replaces_message_id, replaced_by_message_id, persona_id,
+                      reply_to_message_id, label_json
                 FROM {CHAT_MESSAGES_TABLE}
                 WHERE session_id = ?
                   AND message_id = ?

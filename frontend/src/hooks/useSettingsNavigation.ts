@@ -28,6 +28,7 @@ export function useSettingsNavigation(): UseSettingsNavigationReturn {
     plugins: false,
     timeline: false,
     channels: false,
+    tools: false,
   });
   const [timelineSelection, setTimelineSelection] = useState<string | null>(
     settingsNavigationIntent?.source || initialSearchParams.get('source')

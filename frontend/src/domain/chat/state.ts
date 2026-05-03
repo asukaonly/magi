@@ -26,6 +26,7 @@ export interface ChatTimelineMessage {
   timestamp: number;
   messageId?: string;
   messageKind?: string | null;
+  personaId?: string | null;
   turnId?: string;
   reaction?: string | null;
   replyTo?: ChatTimelineReplyPreview | null;
@@ -425,6 +426,7 @@ export const normalizeHistoryMessages = (messages: ChatHistoryMessage[]): ChatTi
       timestamp: normalizeChatTimestamp(message.timestamp),
       messageId: message.message_id || undefined,
       messageKind: message.message_kind || null,
+      personaId: message.persona_id || null,
       turnId: message.turn_id || undefined,
       traceDisplayMode: message.trace_display_mode || null,
       allowTraceCollapse: Boolean(message.allow_trace_collapse),
@@ -618,10 +620,10 @@ export const upsertTraceSummary = (
     {
       id: `${turnId}-assistant`,
       role: 'assistant',
-      kind: 'assistant',
+      kind: 'status',
       content: nextSummary?.headline || 'Thinking...',
       timestamp: Date.now(),
-      messageKind: 'assistant_interim',
+      messageKind: null,
       turnId,
       traceDisplayMode,
       allowTraceCollapse: Boolean(anchorMessage?.allowTraceCollapse),
@@ -654,6 +656,7 @@ export const applyAgentResponse = (
     timestamp?: number;
     messageId?: string;
     messageKind?: string | null;
+    personaId?: string | null;
     turnId?: string;
     traceSummary?: NormalizedExecutionTraceSummary | null;
     traceAvailable?: boolean;
@@ -671,6 +674,15 @@ export const applyAgentResponse = (
   const traceAvailable = Boolean(payload.traceAvailable || traceSummary?.traceAvailable);
   const uxPlan = payload.uxPlan || null;
   const messageKind = String(payload.messageKind || '').trim();
+  const hasPayloadPersonaId = payload.personaId !== undefined;
+  const normalizedPayloadPersonaId = String(payload.personaId || '').trim() || null;
+
+  const resolvePersonaId = (existing?: ChatTimelineMessage): string | null => {
+    if (hasPayloadPersonaId) {
+      return normalizedPayloadPersonaId;
+    }
+    return existing?.personaId ?? null;
+  };
 
   if (messageKind === 'assistant_reaction' && turnId) {
     return messages
@@ -693,7 +705,7 @@ export const applyAgentResponse = (
       });
   }
 
-  const buildAssistantMessage = (resolvedTurnId?: string): ChatTimelineMessage => ({
+  const buildAssistantMessage = (resolvedTurnId?: string, existing?: ChatTimelineMessage): ChatTimelineMessage => ({
     id: String(payload.messageId || `${resolvedTurnId || turnId || 'assistant'}-assistant-${timestamp}`),
     role: 'assistant',
     kind: 'assistant',
@@ -702,6 +714,7 @@ export const applyAgentResponse = (
     timestamp,
     messageId: payload.messageId,
     messageKind: payload.messageKind || 'assistant_final',
+    personaId: resolvePersonaId(existing),
     turnId: resolvedTurnId || turnId || undefined,
     traceDisplayMode: uxPlan?.traceDisplayMode ?? null,
     allowTraceCollapse: Boolean(uxPlan?.allowTraceCollapse),
@@ -718,6 +731,43 @@ export const applyAgentResponse = (
         && message.messageKind === 'assistant_interim'
     )
     : false;
+  const hasRhythmSegments = turnId
+    ? messages.some(
+      (message) =>
+        message.turnId === turnId
+        && message.kind === 'assistant'
+        && message.messageKind === 'assistant_rhythm_segment'
+    )
+    : false;
+
+  if (messageKind === 'assistant_rhythm_segment' && turnId) {
+    const incoming = buildAssistantMessage(turnId);
+    const withoutTransientStatus = messages.filter(
+      (message) => !(message.turnId === turnId && isTransientStatusMessage(message)),
+    );
+    const existingIndex = withoutTransientStatus.findIndex(
+      (message) => Boolean(payload.messageId) && message.messageId === payload.messageId,
+    );
+    if (existingIndex >= 0) {
+      return withoutTransientStatus.map((message, index) => (
+        index === existingIndex ? { ...incoming, personaId: incoming.personaId ?? message.personaId ?? null } : message
+      ));
+    }
+    return [...withoutTransientStatus, incoming];
+  }
+
+  if (hasRhythmSegments && !String(payload.messageId || '').trim()) {
+    return messages.map((message) => {
+      if (message.turnId !== turnId || message.messageKind !== 'assistant_rhythm_segment') {
+        return message;
+      }
+      return {
+        ...message,
+        traceSummary: traceSummary ?? message.traceSummary ?? null,
+        traceAvailable: traceAvailable || Boolean(message.traceAvailable),
+      };
+    });
+  }
 
   if (!turnId) {
     const lastStatusIndex = [...messages]
@@ -728,7 +778,7 @@ export const applyAgentResponse = (
     if (lastStatusIndex !== undefined) {
       const fallbackTurnId = messages[lastStatusIndex]?.turnId;
       return messages.map((message, index) =>
-        index === lastStatusIndex ? buildAssistantMessage(fallbackTurnId) : message
+        index === lastStatusIndex ? buildAssistantMessage(fallbackTurnId, message) : message
       );
     }
     const fallbackTurnId = [...messages]
@@ -751,7 +801,7 @@ export const applyAgentResponse = (
     );
     if (existingFinalIndex >= 0) {
       return messages.map((message, index) =>
-        index === existingFinalIndex ? buildAssistantMessage(turnId) : message
+        index === existingFinalIndex ? buildAssistantMessage(turnId, message) : message
       );
     }
     return [...messages, buildAssistantMessage(turnId)];
@@ -761,7 +811,7 @@ export const applyAgentResponse = (
     if (message.turnId !== turnId) return message;
     if (message.kind === 'assistant' || isTransientStatusMessage(message)) {
       replaced = true;
-      return { ...buildAssistantMessage(turnId), turnId };
+      return { ...buildAssistantMessage(turnId, message), turnId };
     }
     return message;
   });
@@ -776,7 +826,7 @@ export const applyAgentResponse = (
 
   if (fallbackStatusIndex !== undefined) {
     return messages.map((message, index) =>
-      index === fallbackStatusIndex ? { ...buildAssistantMessage(turnId), turnId } : message
+      index === fallbackStatusIndex ? { ...buildAssistantMessage(turnId, message), turnId } : message
     );
   }
 

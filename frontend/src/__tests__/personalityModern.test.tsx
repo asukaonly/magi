@@ -29,42 +29,35 @@ vi.mock('@/hooks', () => ({
   parseLines: (value: string) => value.split('\n').filter(Boolean),
   toLines: (value: string[]) => value.join('\n'),
   getInitials: (value: string) => value.slice(0, 1),
-  normalizeTransition: (value: Record<string, string>) => ({
-    trigger_type: '',
-    trigger_condition: '',
-    target_state_name: '',
+  normalizeTrigger: (value: Record<string, string>) => ({
+    trigger_id: '',
+    activates_when: '',
     behavior_shift: '',
+    intensity_levels: {},
+    exit_behavior: '',
     ...value,
   }),
 }));
 
+const buildConfig = (name = '七号', description = '赛博乐子人 / 反讽大师') => ({
+  name,
+  description,
+  avatar: '',
+  appearance_prompt: '',
+  identity_core: { identity_statement: '', values_loved: [], values_rejected: [], attention_biases: [] },
+  idiolect: { sentence_style: '', vocab_available: [], vocab_avoided: [], structural_quirks: [] },
+  registers: {},
+  quiet_hours: [],
+  signature_triggers: [],
+  persona_layers: [],
+  dynamic_state_rules: {},
+  milestone_conditions: {},
+  interim_lines: {},
+  bootstrap: null,
+});
+
 const buildHookState = (overrides: Partial<Record<string, unknown>> = {}) => ({
-  config: {
-    persona_entity: {
-      basic_profile: {
-        name: '七号',
-        age: '',
-        gender: '',
-        description: '赛博乐子人 / 反讽大师',
-        avatar: '',
-        occupation: '',
-      },
-      core_identity: {
-        inner_narrative: '',
-        language_fingerprint: '',
-        attention_bias: '',
-      },
-    },
-    appearance_prompt: '',
-    state_transition_protocol: [
-      {
-        trigger_type: '',
-        trigger_condition: '',
-        target_state_name: '',
-        behavior_shift: '',
-      },
-    ],
-  },
+  config: buildConfig(),
   list: [
     { id: 'uuid-seven', name: '七号', displayName: '七号', subtitle: '赛博乐子人 / 反讽大师', avatar: '/static/user-avatars/seven.png' },
     { id: 'uuid-asuka', name: '明日香', displayName: '明日香', subtitle: '傲娇驾驶员', avatar: '' },
@@ -75,6 +68,8 @@ const buildHookState = (overrides: Partial<Record<string, unknown>> = {}) => ({
   loading: false,
   saving: false,
   generating: false,
+  generationProgress: 0,
+  generationStageKey: 'base',
   switching: false,
   selectedInfo: { id: 'uuid-seven', name: '七号', displayName: '七号', subtitle: '赛博乐子人 / 反讽大师' },
   switchPrompt: null,
@@ -119,32 +114,7 @@ describe('PersonalityModern', () => {
       buildHookState({
         selectedId: 'uuid-asuka',
         selectedInfo: { id: 'uuid-asuka', name: '明日香', displayName: '明日香', subtitle: '傲娇驾驶员' },
-        config: {
-          persona_entity: {
-            basic_profile: {
-              name: '明日香',
-              age: '',
-              gender: '',
-              description: '傲娇驾驶员',
-              avatar: '',
-              occupation: '',
-            },
-            core_identity: {
-              inner_narrative: '',
-              language_fingerprint: '',
-              attention_bias: '',
-            },
-          },
-          appearance_prompt: '',
-          state_transition_protocol: [
-            {
-              trigger_type: '',
-              trigger_condition: '',
-              target_state_name: '',
-              behavior_shift: '',
-            },
-          ],
-        },
+        config: buildConfig('明日香', '傲娇驾驶员'),
       }) as any
     );
 
@@ -160,32 +130,7 @@ describe('PersonalityModern', () => {
         isNewMode: true,
         selectedId: '__new__',
         selectedInfo: undefined,
-        config: {
-          persona_entity: {
-            basic_profile: {
-              name: '',
-              age: '',
-              gender: '',
-              description: '',
-              avatar: '',
-              occupation: '',
-            },
-            core_identity: {
-              inner_narrative: '',
-              language_fingerprint: '',
-              attention_bias: '',
-            },
-          },
-          appearance_prompt: '',
-          state_transition_protocol: [
-            {
-              trigger_type: '',
-              trigger_condition: '',
-              target_state_name: '',
-              behavior_shift: '',
-            },
-          ],
-        },
+        config: buildConfig('', ''),
       }) as any
     );
 
@@ -200,12 +145,93 @@ describe('PersonalityModern', () => {
     expect(createCard.querySelectorAll('.lucide-check')).toHaveLength(0);
   });
 
+  it('keeps generation controls stable while generating a new personality', () => {
+    const setTargetLanguage = vi.fn();
+    vi.mocked(usePersonality).mockReturnValue(
+      buildHookState({
+        isNewMode: true,
+        selectedId: '__new__',
+        selectedInfo: undefined,
+        config: buildConfig('', ''),
+        generating: true,
+        targetLanguage: 'Japanese',
+        setTargetLanguage,
+      }) as any
+    );
+
+    render(<PersonalityModern embedded />);
+
+    expect(screen.getByRole('combobox')).toHaveValue('Japanese');
+    expect(screen.getByRole('button', { name: 'personality.generate' })).toBeDisabled();
+
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'English' } });
+
+    expect(setTargetLanguage).toHaveBeenCalledWith('English');
+  });
+
   it('hides AI generation when editing an existing personality', () => {
     vi.mocked(usePersonality).mockReturnValue(buildHookState() as any);
 
     render(<PersonalityModern embedded />);
 
     expect(screen.queryAllByText('personality.generate')).toHaveLength(0);
+  });
+
+  it('starts the personality detail editor in a focused quick mode', () => {
+    vi.mocked(usePersonality).mockReturnValue(
+      buildHookState({
+        isNewMode: true,
+        selectedId: '__new__',
+        selectedInfo: undefined,
+        config: buildConfig('', ''),
+      }) as any
+    );
+
+    render(<PersonalityModern embedded />);
+
+    expect(screen.getByRole('tab', { name: 'personality.editorModes.quick' })).toHaveAttribute('data-state', 'active');
+    expect(screen.queryByText('personality.validation.missing')).not.toBeInTheDocument();
+    expect(screen.getByText('personality.fields.chatBehavior')).toBeInTheDocument();
+    expect(screen.queryByText('personality.sections.signatureTriggers')).not.toBeInTheDocument();
+    expect(screen.queryByText('personality.sections.quietHours')).not.toBeInTheDocument();
+    expect(screen.queryByText('personality.registers.crisis')).not.toBeInTheDocument();
+  });
+
+  it('reveals full register and advanced sections in expert mode', () => {
+    vi.mocked(usePersonality).mockReturnValue(
+      buildHookState({
+        config: {
+          ...buildConfig(),
+          persona_layers: [
+            { layer_id: 'surface', unlock_condition: null, modifiers: {} },
+            { layer_id: 'crack', unlock_condition: { trust_level_gte: 0.45 }, modifiers: { memory_behavior: 'light' } },
+          ],
+        },
+      }) as any
+    );
+
+    render(<PersonalityModern embedded />);
+
+    fireEvent.pointerDown(screen.getByRole('tab', { name: 'personality.editorModes.expert' }), { button: 0 });
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'personality.editorModes.expert' }), { button: 0 });
+
+    return waitFor(() => {
+      expect(screen.getByRole('tab', { name: 'personality.editorModes.expert' })).toHaveAttribute('data-state', 'active');
+    }).then(() => {
+      expect(screen.getByText('personality.validation.missing')).toBeInTheDocument();
+      expect(screen.getByText('personality.sections.registers')).toBeInTheDocument();
+      expect(screen.getByText('personality.sections.appearance')).toBeInTheDocument();
+      expect(screen.getByText('personality.sections.personaLayers')).toBeInTheDocument();
+      expect(screen.queryByDisplayValue('surface')).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'personality.sections.registers' }));
+      expect(screen.getByText('personality.registers.crisis')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'personality.sections.personaLayers' }));
+      expect(screen.getByText('personality.actions.viewLayersConfirm')).toBeInTheDocument();
+      expect(screen.queryByDisplayValue('surface')).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'personality.actions.viewLayersReveal' }));
+      expect(screen.queryByDisplayValue('surface')).not.toBeInTheDocument();
+      expect(screen.getByDisplayValue('crack')).toBeInTheDocument();
+    });
   });
 
   it('uploads an avatar and patches the personality profile', async () => {
@@ -229,7 +255,7 @@ describe('PersonalityModern', () => {
     const draft = buildHookState().config;
     const updater = patch.mock.calls[0][0] as (value: typeof draft) => void;
     updater(draft);
-    expect(draft.persona_entity.basic_profile.avatar).toBe('/static/user-avatars/test-avatar.png');
+    expect(draft.avatar).toBe('/static/user-avatars/test-avatar.png');
   });
 
   it('shows avatars in the selector cards before falling back to initials', () => {

@@ -55,6 +55,7 @@ export interface MessageData {
 export interface ChatHistoryMessage {
   message_id?: string | null;
   message_kind?: string | null;
+  persona_id?: string | null;
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
@@ -75,6 +76,7 @@ export interface ConversationHistory {
   session_id?: string;
   messages: ChatHistoryMessage[];
   count: number;
+  history_version?: number;
 }
 
 export interface ChatSessionListItem {
@@ -86,6 +88,7 @@ export interface ChatSessionListItem {
   last_timestamp: number;
   message_count: number;
   workspace_path?: string | null;
+  history_version?: number;
 }
 
 export interface SessionListResponse {

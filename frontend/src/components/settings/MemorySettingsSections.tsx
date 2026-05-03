@@ -49,20 +49,15 @@ function MemorySwitchRow({
   checked,
   onCheckedChange,
   disabled = false,
-  bordered = true,
 }: {
   label: string;
   description: string;
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
   disabled?: boolean;
-  bordered?: boolean;
 }) {
   return (
-    <label className={[
-      'grid gap-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start',
-      bordered ? 'border-b border-[hsl(var(--settings-subnav-border)/0.6)]' : '',
-    ].join(' ').trim()}>
+    <label className="grid gap-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
       <div className="space-y-1">
         <div className="text-sm font-medium text-foreground">{label}</div>
         <div className="text-xs leading-6 text-muted-foreground">{description}</div>
@@ -116,6 +111,10 @@ export function MemoryGeneralSettingsSection({
       ...DEFAULT_SYSTEM_CONFIG.memory.reranker.cross_encoder,
       ...draftConfig.memory.reranker?.cross_encoder,
     },
+  };
+  const queryExpansionConfig = {
+    ...DEFAULT_SYSTEM_CONFIG.memory.query_expansion,
+    ...draftConfig.memory.query_expansion,
   };
 
   const handlePickMemoryStoragePath = async () => {
@@ -219,10 +218,19 @@ export function MemoryGeneralSettingsSection({
       <MemoryGroup>
         <div className="py-2">
           <MemorySwitchRow
+            label={t('settings.memory.fields.query_expansion_enabled.label')}
+            description={t('settings.memory.fields.query_expansion_enabled.description')}
+            checked={queryExpansionConfig.enabled}
+            onCheckedChange={(checked) => patchDraftConfig((draft) => {
+              draft.memory.query_expansion ??= { ...DEFAULT_SYSTEM_CONFIG.memory.query_expansion };
+              draft.memory.query_expansion.enabled = checked;
+            })}
+          />
+
+          <MemorySwitchRow
             label={t('settings.memory.fields.cross_encoder_enabled.label')}
             description={t('settings.memory.fields.cross_encoder_enabled.description')}
             checked={rerankerConfig.cross_encoder.enabled}
-            bordered={false}
             onCheckedChange={(checked) => patchDraftConfig((draft) => {
               draft.memory.reranker.cross_encoder ??= { ...DEFAULT_SYSTEM_CONFIG.memory.reranker.cross_encoder };
               draft.memory.reranker.cross_encoder.enabled = checked;
@@ -297,7 +305,7 @@ export function MemoryWorkbenchSettingsSection({
           checked={draftConfig.memory.l0.enabled}
           onCheckedChange={(checked) => updateMemoryToggle('l0', checked)}
         />
-        <div className="border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
+        <div className="py-3">
           <NumberField
             label={t('settings.memory.fields.l0_checkpoint_interval_seconds.label')}
             value={draftConfig.memory.l0.checkpoint_interval_seconds}
@@ -393,7 +401,7 @@ export function MemoryKnowledgeSettingsSection({
       </MemoryGroup>
 
       <MemoryGroup>
-        <div className="border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
+        <div className="py-3">
           <NumberField
             label={t('settings.memory.fields.l2_batch_flush_interval_seconds.label')}
             value={draftConfig.memory.l2.batch_flush_interval_seconds}
@@ -418,7 +426,7 @@ export function MemoryKnowledgeSettingsSection({
             draft.memory.l2.conflict_arbitration_enabled = checked;
           })}
         />
-        <div className="border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
+        <div className="py-3">
           <NumberField
             label={t('settings.memory.fields.l2_conflict_arbitration_min_confidence.label')}
             value={draftConfig.memory.l2.conflict_arbitration_min_confidence}

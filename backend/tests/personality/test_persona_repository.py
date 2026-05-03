@@ -3,25 +3,21 @@
 from __future__ import annotations
 
 import json
-import tempfile
 from pathlib import Path
 
 import pytest
 import pytest_asyncio
 
-from magi.personality.persona_repository import PersonaRepository, PersonaSummary, PersonaRecord
+from magi.personality.persona_repository import PersonaRepository, PersonaSummary
 from magi.personality import persona_seed
 
 
 _SAMPLE_CONFIG = json.dumps({
     "meta": {"group": "test", "order": 5},
-    "persona_entity": {
-        "basic_profile": {
-            "name": "Test Persona",
-            "description": "A test persona",
-            "avatar": "test.jpg",
-        },
-    },
+    "name": "Test Persona",
+    "description": "A test persona",
+    "avatar": "test.jpg",
+    "identity_core": {"identity_statement": "A test persona."},
 })
 
 
@@ -94,6 +90,15 @@ class TestPersonaRepository:
         pid = await repo.create(_SAMPLE_CONFIG, slug="del")
         await repo.delete(pid)
         assert await repo.count() == 0
+        assert await repo.count(include_deleted=True) == 1
+        with pytest.raises(KeyError):
+            await repo.get(pid)
+        deleted = await repo.get(pid, include_deleted=True)
+        assert deleted.deleted_at is not None
+        assert await repo.list_all() == []
+        assert len(await repo.list_all(include_deleted=True)) == 1
+        with pytest.raises(KeyError):
+            await repo.set_active(pid)
 
     @pytest.mark.asyncio
     async def test_delete_active_raises(self, repo: PersonaRepository) -> None:
@@ -120,14 +125,39 @@ class TestPersonaRepository:
             _SAMPLE_CONFIG,
             slug="echo",
             is_builtin=True,
-            seed_slug="echo_ai_ssistant",
+            seed_slug="echo_ai_assistant",
         )
-        found = await repo.get_by_seed_slug("echo_ai_ssistant")
+        found = await repo.get_by_seed_slug("echo_ai_assistant")
         assert found is not None
         assert found.persona_id == pid
 
         not_found = await repo.get_by_seed_slug("nonexistent")
         assert not_found is None
+
+        summaries = await repo.list_all()
+        assert summaries[0].seed_slug == "echo_ai_assistant"
+
+    @pytest.mark.asyncio
+    async def test_ensure_active_persona_resolves_display_name(self, repo: PersonaRepository) -> None:
+        from magi.personality.lifecycle import _ensure_active_persona
+
+        pid = await repo.create(
+            json.dumps(
+                {
+                    "name": "七号",
+                    "description": "赛博乐子人",
+                    "identity_core": {"identity_statement": "测试设定。"},
+                }
+            ),
+            slug="seven_hacker",
+            is_builtin=True,
+            seed_slug="seven_hacker",
+        )
+
+        active_id = await _ensure_active_persona(repo, "七号")
+
+        assert active_id == pid
+        assert await repo.get_active_id() == pid
 
     @pytest.mark.asyncio
     async def test_count(self, repo: PersonaRepository) -> None:
@@ -143,7 +173,7 @@ class TestPersonaRepository:
         record = await repo.get(pid)
         assert record.config.name == "Test Persona"
         roundtrip = record.config.to_dict()
-        assert roundtrip["persona_entity"]["basic_profile"]["name"] == "Test Persona"
+        assert roundtrip["name"] == "Test Persona"
 
 
 @pytest.mark.asyncio
@@ -154,27 +184,25 @@ async def test_list_seed_previews_exposes_default_metadata(tmp_path: Path, monke
         json.dumps(
             {
                 "meta": {"group": "general", "order": 1, "default": True},
-                "persona_entity": {
-                    "basic_profile": {
-                        "name": "Nova",
-                        "description": "English default",
-                        "avatar": "nova.png",
-                    }
+                "name": "Nova",
+                "description": "English default",
+                "avatar": "nova.png",
+                "identity_core": {
+                    "identity_statement": "Nova test persona.",
                 },
             }
         ),
         encoding="utf-8",
     )
-    (seed_dir / "echo_ai_ssistant.json").write_text(
+    (seed_dir / "echo_ai_assistant.json").write_text(
         json.dumps(
             {
                 "meta": {"group": "general", "order": 2, "recommended": True},
-                "persona_entity": {
-                    "basic_profile": {
-                        "name": "Echo-01",
-                        "description": "Chinese default",
-                        "avatar": "echo.png",
-                    }
+                "name": "Echo-01",
+                "description": "Chinese default",
+                "avatar": "echo.png",
+                "identity_core": {
+                    "identity_statement": "Echo test persona.",
                 },
             }
         ),
@@ -187,3 +215,54 @@ async def test_list_seed_previews_exposes_default_metadata(tmp_path: Path, monke
     assert previews[0]["seed_slug"] == "nova_assistant"
     assert previews[0]["is_default"] is True
     assert previews[1]["is_recommended"] is True
+
+
+@pytest.mark.asyncio
+async def test_seed_builtin_personas_syncs_existing_seed_config(
+    repo: PersonaRepository,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seed_dir = tmp_path / "zh"
+    seed_dir.mkdir()
+    preset_path = seed_dir / "seven_hacker.json"
+    preset_path.write_text(
+        json.dumps(
+            {
+                "meta": {"group": "magi", "order": 1},
+                "name": "七号",
+                "description": "旧描述",
+                "avatar": "seven.png",
+                "identity_core": {"identity_statement": "旧设定。"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(persona_seed, "_seed_dir", lambda _locale: seed_dir)
+
+    created_ids = await persona_seed.seed_builtin_personas(repo, "zh")
+    assert len(created_ids) == 1
+
+    preset_path.write_text(
+        json.dumps(
+            {
+                "meta": {"group": "general", "order": 7},
+                "name": "七号",
+                "description": "新描述",
+                "avatar": "seven-new.png",
+                "identity_core": {"identity_statement": "新设定。"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    second_created_ids = await persona_seed.seed_builtin_personas(repo, "zh")
+    record = await repo.get_by_seed_slug("seven_hacker")
+
+    assert second_created_ids == []
+    assert record is not None
+    assert record.config.description == "新描述"
+    assert record.avatar_path == "seven-new.png"
+    assert record.group_name == "general"
+    assert record.sort_order == 7
+    assert record.config.identity_core.identity_statement == "新设定。"

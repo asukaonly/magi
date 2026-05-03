@@ -16,10 +16,9 @@ from magi.personality.persona_journal_service import (
 def _make_persona_config():
     """Create a mock PersonalityConfig for testing."""
     mock_config = MagicMock()
-    mock_config.persona_entity = MagicMock()
-    mock_config.persona_entity.basic_profile = MagicMock()
-    mock_config.persona_entity.basic_profile.name = "小凯"
-    mock_config.persona_entity.basic_profile.occupation = "productivity consultant"
+    mock_config.name = "小凯"
+    mock_config.description = "productivity consultant"
+    mock_config.identity_core.identity_statement = "A focused productivity consultant."
     return mock_config
 
 

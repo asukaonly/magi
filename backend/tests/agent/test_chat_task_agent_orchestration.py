@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from magi.chat import ChatMessageRecord, ChatStore
+from magi.chat import ChatContextSummaryRecord, ChatMessageRecord, ChatStore
 from magi.agent.orchestration import (
     OrchestrationStore,
     PlannedSubtask,
@@ -115,6 +115,174 @@ async def test_chat_history_service_reloads_cache_when_history_version_changes(t
         {"role": "user", "content": "hello"},
         {"role": "user", "content": "follow up"},
     ]
+
+
+@pytest.mark.asyncio
+async def test_chat_history_service_loads_active_summary_context_and_tail(tmp_path: Path) -> None:
+    chat_store = ChatStore(db_path=str(tmp_path / "chat.db"))
+    await chat_store.initialize()
+    await chat_store.create_user_turn(
+        session_id="s-chat",
+        user_id="u-chat",
+        turn_id="turn-1",
+        message_text="original topic",
+        created_at_ms=100,
+    )
+    second_message = await chat_store.create_user_turn(
+        session_id="s-chat",
+        user_id="u-chat",
+        turn_id="turn-2",
+        message_text="tail starts here",
+        created_at_ms=200,
+    )
+    await chat_store.create_user_turn(
+        session_id="s-chat",
+        user_id="u-chat",
+        turn_id="turn-3",
+        message_text="latest tail",
+        created_at_ms=300,
+    )
+    await chat_store.activate_context_summary(
+        ChatContextSummaryRecord(
+            summary_id="summary-1",
+            session_id="s-chat",
+            parent_summary_id=None,
+            status="active",
+            summary_kind="token_budget",
+            persona_scope=None,
+            covered_from_message_id="msg-1",
+            covered_to_message_id=second_message.message_id,
+            first_kept_message_id=second_message.message_id,
+            covered_to_sequence_no=2,
+            session_origin="Started with build system debugging.",
+            summary_text="The first turn established the original topic.",
+            prompt_profile="general_chat",
+            model_provider=None,
+            model_id=None,
+            token_count_before=1200,
+            token_count_after=120,
+            quality_status="accepted",
+            created_at_ms=400,
+            updated_at_ms=400,
+        )
+    )
+
+    from magi.chat.read_service import ChatReadService
+
+    isolated_read_service = ChatReadService()
+    isolated_read_service._chat_db_path = tmp_path / "chat.db"
+    isolated_read_service._l1_db_path = tmp_path / "l1.sqlite3"
+    isolated_read_service._runtime_trace_db_path = tmp_path / "runtime_trace.sqlite3"
+
+    service = ChatHistoryService(
+        l1_db_path=tmp_path / "l1.sqlite3",
+        runtime_trace_db_path=tmp_path / "runtime_trace.sqlite3",
+        chat_store=chat_store,
+        chat_read_service_factory=lambda: isolated_read_service,
+    )
+
+    history_context = await service.get_or_load_history_context("u-chat", "s-chat")
+
+    assert history_context.session_origin == "Started with build system debugging."
+    assert history_context.session_summary == "The first turn established the original topic."
+    assert history_context.messages == [
+        {"role": "user", "content": "tail starts here"},
+        {"role": "user", "content": "latest tail"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_chat_history_service_summarizes_previous_persona_segment(tmp_path: Path) -> None:
+    chat_store = ChatStore(db_path=str(tmp_path / "chat.db"))
+    await chat_store.initialize()
+    await chat_store.create_user_turn(
+        session_id="s-chat",
+        user_id="u-chat",
+        turn_id="turn-a",
+        message_text="old persona request",
+        created_at_ms=100,
+        persona_id="persona-a",
+    )
+    await chat_store.append_message(
+        ChatMessageRecord(
+            message_id="assistant-a",
+            session_id="s-chat",
+            turn_id="turn-a",
+            user_id="u-chat",
+            role="assistant",
+            message_kind="assistant_final",
+            content_text="old persona answer with its own voice",
+            payload_json="{}",
+            is_final=True,
+            is_visible=True,
+            created_at_ms=150,
+            sequence_no=2,
+            replaces_message_id=None,
+            replaced_by_message_id=None,
+            persona_id="persona-a",
+        )
+    )
+    current_user_message = await chat_store.create_user_turn(
+        session_id="s-chat",
+        user_id="u-chat",
+        turn_id="turn-b",
+        message_text="continue as the current persona",
+        created_at_ms=200,
+        persona_id="persona-b",
+    )
+
+    from magi.chat.read_service import ChatReadService
+
+    isolated_read_service = ChatReadService()
+    isolated_read_service._chat_db_path = tmp_path / "chat.db"
+    isolated_read_service._l1_db_path = tmp_path / "l1.sqlite3"
+    isolated_read_service._runtime_trace_db_path = tmp_path / "runtime_trace.sqlite3"
+
+    calls = []
+
+    async def summary_generator(summary_input):  # type: ignore[no-untyped-def]
+        calls.append(summary_input)
+        return "Neutral continuity from the previous persona segment."
+
+    service = ChatHistoryService(
+        l1_db_path=tmp_path / "l1.sqlite3",
+        runtime_trace_db_path=tmp_path / "runtime_trace.sqlite3",
+        chat_store=chat_store,
+        chat_read_service_factory=lambda: isolated_read_service,
+        persona_boundary_summary_generator=summary_generator,
+    )
+
+    history_context = await service.get_or_load_history_context(
+        "u-chat",
+        "s-chat",
+        active_persona_id="persona-b",
+    )
+
+    assert history_context.messages == [
+        {"role": "user", "content": "continue as the current persona"},
+    ]
+    assert "# Persona Boundary Summary" in (history_context.session_summary or "")
+    assert "Neutral continuity from the previous persona segment." in (history_context.session_summary or "")
+    assert len(calls) == 1
+    assert [message.role for message in calls[0].messages] == ["user", "assistant"]
+    assert calls[0].messages[1].persona_id == "persona-a"
+
+    active_summary = await chat_store.get_active_context_summary(
+        session_id="s-chat",
+        summary_kind="persona_boundary",
+        persona_scope="persona-b",
+    )
+    assert active_summary is not None
+    assert active_summary.first_kept_message_id == current_user_message.message_id
+    assert active_summary.summary_text == "Neutral continuity from the previous persona segment."
+
+    reloaded_context = await service.get_or_load_history_context(
+        "u-chat",
+        "s-chat",
+        active_persona_id="persona-b",
+    )
+    assert reloaded_context.session_summary == history_context.session_summary
+    assert len(calls) == 1
 
 
 @pytest.mark.asyncio
@@ -579,6 +747,7 @@ async def test_aggregate_orchestration_uses_analysis_prompt_without_tool_catalog
         tools=None,
         recent_tool_errors=None,
         include_tool_catalog=True,
+        persona_id=None,
     ):
         calls["build_system_prompt"] = {
             "user_id": user_id,
@@ -587,6 +756,7 @@ async def test_aggregate_orchestration_uses_analysis_prompt_without_tool_catalog
             "task_category": task_category,
             "scenario": scenario,
             "include_tool_catalog": include_tool_catalog,
+            "persona_id": persona_id,
         }
         return "persona-system-prompt"
 
@@ -607,6 +777,7 @@ async def test_aggregate_orchestration_uses_analysis_prompt_without_tool_catalog
         session_id="s-chat",
         root_user_message="看下~/code/magi下的代码，分析下代码架构",
         planner="task_agent",
+        metadata={"persona_id": "persona-aggregate"},
         subtasks=[
             SubtaskDefinition(
                 subtask_id="subtask_1",
@@ -645,9 +816,10 @@ async def test_aggregate_orchestration_uses_analysis_prompt_without_tool_catalog
         "user_id": "u-chat",
         "session_id": "s-chat",
         "user_message": "看下~/code/magi下的代码，分析下代码架构",
-        "task_category": "chat",
+        "task_category": "analysis",
         "scenario": "analysis",
         "include_tool_catalog": False,
+        "persona_id": "persona-aggregate",
     }
 
     llm_call = calls["call_llm"]
@@ -824,6 +996,8 @@ async def test_chat_task_agent_renders_explore_dossier_with_analysis_prompt(monk
         task_category="chat",
         tools=None,
         recent_tool_errors=None,
+        include_tool_catalog=True,
+        persona_id=None,
     ):
         calls["build_system_prompt"] = {
             "scenario": scenario,
@@ -831,6 +1005,8 @@ async def test_chat_task_agent_renders_explore_dossier_with_analysis_prompt(monk
             "session_id": session_id,
             "user_message": user_message,
             "task_category": task_category,
+            "include_tool_catalog": include_tool_catalog,
+            "persona_id": persona_id,
         }
         return "analysis-system-prompt"
 
@@ -862,6 +1038,7 @@ async def test_chat_task_agent_renders_explore_dossier_with_analysis_prompt(monk
 
     merged = await agent.merge_facts([latest_fact])
     context = await agent.build_context(merged)
+    context.active_persona_id = "persona-explore"
     request = ExecutionRequest(
         mode=ExecutionMode.EXPLORE_TASK_RENDER,
         context=context,
@@ -882,6 +1059,8 @@ async def test_chat_task_agent_renders_explore_dossier_with_analysis_prompt(monk
         "session_id": "s-chat",
         "user_message": "看下~/code/magi下的代码，分析下代码架构",
         "task_category": "analysis",
+        "include_tool_catalog": False,
+        "persona_id": "persona-explore",
     }
     call_llm = calls["call_llm"]
     assert call_llm["system_prompt"] == "analysis-system-prompt"

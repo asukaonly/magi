@@ -1,7 +1,6 @@
 """Shared parent-task orchestration for task agents."""
 from __future__ import annotations
 
-import asyncio
 import time
 import uuid
 from typing import Any, Awaitable, Callable, Optional
@@ -78,6 +77,7 @@ class TaskOrchestrator(
         history_key: str,
         correlation_id: Optional[str],
         orchestration_strategy: dict[str, Any],
+        persona_id: str | None = None,
     ) -> OrchestrationExecutionResult:
         workspace_root = await self._resolve_workspace_root(
             user_id=user_id,
@@ -144,6 +144,7 @@ class TaskOrchestrator(
             metadata={
                 "run_id": run_id,
                 "run_revision": run_revision,
+                "persona_id": str(persona_id or "").strip() or None,
             },
             subtasks=subtasks,
         )

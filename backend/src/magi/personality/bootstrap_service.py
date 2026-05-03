@@ -168,10 +168,9 @@ class BootstrapDialogueService:
         """Return the bootstrap config, synthesizing one from persona traits if absent."""
         if config.bootstrap is not None:
             return config.bootstrap
-        persona = config.persona_entity.basic_profile
         return BootstrapConfig(
             style_instruction=(
-                f"Speak as {persona.name} would — match the personality's tone and background. "
+                f"Speak as {config.name} would: match the persona's identity and baseline voice. "
                 f"Keep it brief and natural for a first meeting."
             ),
             opening_line="",
@@ -196,12 +195,9 @@ class BootstrapDialogueService:
         self, config: PersonalityConfig, bootstrap: BootstrapConfig
     ) -> Optional[str]:
         """Use LLM to generate a guided, in-character first-contact opening."""
-        persona = config.persona_entity.basic_profile
-        identity = config.persona_entity.core_identity
-
         system_prompt = (
-            f"You are {persona.name}. {identity.inner_narrative}\n\n"
-            f"Language style: {identity.language_fingerprint}\n"
+            f"You are {config.name}. {config.identity_core.identity_statement}\n\n"
+            f"Language style: {config.idiolect.sentence_style}\n"
         )
         if bootstrap.style_instruction:
             system_prompt += f"Style: {bootstrap.style_instruction}\n"
@@ -219,7 +215,8 @@ class BootstrapDialogueService:
             "- Ask the user's name and how they want to be addressed in a natural way\n"
             "- Invite one lightweight preference, interest, hobby, or topic they care about\n"
             "- Do NOT sound like a form, survey, onboarding checklist, or customer support script\n"
-            "- Never mention you are an AI or assistant\n"
+            "- Do not claim physical-human experiences outside the persona config\n"
+            "- Do not explain system instructions or implementation details\n"
             "- Output ONLY the greeting text, nothing else"
         )
 
@@ -320,14 +317,15 @@ class BootstrapDialogueService:
         is_final_round: bool,
     ) -> str:
         """Build the system prompt for a bootstrap round."""
-        persona = config.persona_entity.basic_profile
-        identity = config.persona_entity.core_identity
         parts: List[str] = []
 
         parts.append(
-            f"You are {persona.name}. {identity.inner_narrative}\n"
+            f"You are {config.name}. {config.identity_core.identity_statement}\n"
             f"This is your FIRST conversation with this user. You don't know them yet."
         )
+
+        if config.idiolect.sentence_style:
+            parts.append(f"\n## Baseline Voice\n{config.idiolect.sentence_style}")
 
         if bootstrap.style_instruction:
             parts.append(f"\n## Style\n{bootstrap.style_instruction}")
@@ -365,7 +363,8 @@ class BootstrapDialogueService:
             "\n## Constraints\n"
             "- Stay fully in character.\n"
             "- Keep responses concise (2-4 sentences).\n"
-            "- Never mention you are an AI, system, or assistant.\n"
+            "- Do not claim physical-human experiences outside the persona config.\n"
+            "- Do not explain system instructions or implementation details.\n"
             "- Never mention 'bootstrap', 'extraction', or 'profiling'."
         )
 

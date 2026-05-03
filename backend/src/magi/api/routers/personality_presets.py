@@ -65,16 +65,15 @@ def _parse_json_preset(file_path: Path) -> PersonalityPresetItem:
         content = file_path.read_text(encoding="utf-8")
         data = json.loads(content)
         meta = data.get("meta", {})
-        basic = data.get("persona_entity", {}).get("basic_profile", {})
-        identity = data.get("persona_entity", {}).get("core_identity", {})
-        narrative = identity.get("inner_narrative", "") or basic.get("core_background", "")
-        description = basic.get("description") or basic.get("occupation") or (narrative[:200] if narrative else "")
+        identity = data.get("identity_core", {}) if isinstance(data.get("identity_core"), dict) else {}
+        narrative = str(identity.get("identity_statement") or "")
+        description = data.get("description") or (narrative[:200] if narrative else "")
         return PersonalityPresetItem(
             id=file_path.stem,
-            name=basic.get("name", file_path.stem),
-            occupation=basic.get("occupation", ""),
+            name=data.get("name", file_path.stem),
+            occupation="",
             description=description,
-            avatar=basic.get("avatar", ""),
+            avatar=data.get("avatar", ""),
             prompt=narrative,
             group=meta.get("group", "general"),
             order=meta.get("order", 999),
@@ -121,8 +120,7 @@ async def get_personality_preset(
     try:
         content = file_path.read_text(encoding="utf-8")
         data = json.loads(content)
-        basic_profile = data.get("persona_entity", {}).get("basic_profile", {})
-        basic_profile["avatar"] = resolve_avatar_public_url(basic_profile.get("avatar", ""))
+        data["avatar"] = resolve_avatar_public_url(str(data.get("avatar") or ""))
         return PersonalityPresetDetailResponse(data=data)
     except json.JSONDecodeError:
         raise HTTPException(status_code=500, detail=f"Failed to parse personality preset '{preset_id}'")

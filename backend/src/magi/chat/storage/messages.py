@@ -12,8 +12,8 @@ from .serialization import normalize_message_label, parse_message_label, row_to_
 MESSAGE_SELECT_COLUMNS = """
     message_id, session_id, turn_id, user_id, role, message_kind,
     content_text, payload_json, is_final, is_visible, created_at_ms,
-    sequence_no, replaces_message_id, replaced_by_message_id, reply_to_message_id,
-    label_json
+    sequence_no, replaces_message_id, replaced_by_message_id, persona_id,
+    reply_to_message_id, label_json
 """
 
 
@@ -67,10 +67,11 @@ class ChatMessagePersistenceMixin:
                     sequence_no,
                     replaces_message_id,
                     replaced_by_message_id,
+                    persona_id,
                     reply_to_message_id,
                     label_json
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.message_id,
@@ -87,6 +88,7 @@ class ChatMessagePersistenceMixin:
                     record.sequence_no,
                     record.replaces_message_id,
                     record.replaced_by_message_id,
+                    record.persona_id,
                     record.reply_to_message_id,
                     self._serialize_message_label(record.label),
                 ),

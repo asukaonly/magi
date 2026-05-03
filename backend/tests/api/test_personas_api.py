@@ -15,12 +15,11 @@ from magi.personality.persona_repository import PersonaRepository
 _SAMPLE_CONFIG = json.dumps(
     {
         "meta": {"group": "test", "order": 1},
-        "persona_entity": {
-            "basic_profile": {
-                "name": "Trace Persona",
-                "description": "Persona used by active switch characterization.",
-                "avatar": "trace.jpg",
-            }
+        "name": "Trace Persona",
+        "description": "Persona used by active switch characterization.",
+        "avatar": "trace.jpg",
+        "identity_core": {
+            "identity_statement": "A traceable persona used by tests.",
         },
     }
 )
@@ -64,3 +63,27 @@ def test_set_active_persona_updates_registry_and_live_prompt_state(tmp_path, mon
     assert asyncio.run(repo.get_active_id()) == persona_id
     assert state_calls == [("trace_persona", "Trace Persona")]
     assert reload_calls == [("trace_persona", "Trace Persona")]
+
+
+def test_list_personas_can_include_soft_deleted_records(tmp_path, monkeypatch) -> None:
+    repo = PersonaRepository(str(tmp_path / "persona_registry.db"))
+    asyncio.run(repo.init())
+    persona_id = asyncio.run(repo.create(_SAMPLE_CONFIG, locale="en", slug="deleted_persona"))
+    asyncio.run(repo.delete(persona_id))
+
+    monkeypatch.setattr(personas_module, "_get_repo", lambda: repo)
+
+    app = FastAPI()
+    app.include_router(personas_router, prefix="/api/personas")
+    client = TestClient(app)
+
+    default_response = client.get("/api/personas/")
+    include_deleted_response = client.get("/api/personas/?include_deleted=true")
+
+    assert default_response.status_code == 200
+    assert default_response.json()["data"] == []
+    assert include_deleted_response.status_code == 200
+    deleted_items = include_deleted_response.json()["data"]
+    assert len(deleted_items) == 1
+    assert deleted_items[0]["persona_id"] == persona_id
+    assert deleted_items[0]["deleted_at"] is not None

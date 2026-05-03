@@ -4,9 +4,15 @@ import type { TurnExecutionControlState } from '@/domain/chat/presentation';
 import type { ChatTimelineMessage, ChatTimelineReplyPreview } from '@/domain/chat/state';
 import type { LabelPopoverState } from '@/hooks/useChatMessageOverlays';
 
+export type TimelineAssistantPersona = {
+  name: string;
+  avatar: string;
+};
+
 export type TimelineAssistantIdentity = {
   name: string;
   avatar: string;
+  personas?: Record<string, TimelineAssistantPersona>;
 };
 
 export type TimelineExecutionBindings = {

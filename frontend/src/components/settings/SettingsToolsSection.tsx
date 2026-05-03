@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { skillsApi, type SkillItem } from '@/api/modules/skills';
@@ -8,7 +8,10 @@ import { SettingsGroup } from '@/components/settings/SettingsSectionPrimitives';
 import { Switch } from '@/components/ui/switch';
 import type { ToolDraftMap } from '@/types/settings';
 
+type SettingsToolsView = 'builtin' | 'plugins' | 'skills';
+
 interface SettingsToolsSectionProps {
+  view: SettingsToolsView;
   tools: ToolConfig[];
   toolsLoading: boolean;
   toolsError: string | null;
@@ -20,6 +23,7 @@ interface SettingsToolsSectionProps {
 }
 
 export function SettingsToolsSection({
+  view,
   tools,
   toolsLoading,
   toolsError,
@@ -34,7 +38,24 @@ export function SettingsToolsSection({
   const [skillsLoading, setSkillsLoading] = useState(false);
   const [skillsError, setSkillsError] = useState<string | null>(null);
 
+  const visibleTools = useMemo(() => {
+    if (view === 'builtin') {
+      return tools.filter((tool) => tool.category !== 'external');
+    }
+    if (view === 'plugins') {
+      return tools.filter((tool) => tool.category === 'external');
+    }
+    return [];
+  }, [tools, view]);
+
   useEffect(() => {
+    if (view !== 'skills') {
+      setSkills([]);
+      setSkillsError(null);
+      setSkillsLoading(false);
+      return;
+    }
+
     let cancelled = false;
     const loadSkills = async () => {
       setSkillsLoading(true);
@@ -61,21 +82,48 @@ export function SettingsToolsSection({
     return () => {
       cancelled = true;
     };
-  }, [t]);
+  }, [t, view]);
 
   const skillsEnabled = selectedSkills.length > 0;
 
-  return (
-    <div className="space-y-8">
-      <DynamicToolsConfig
-        tools={tools}
-        loading={toolsLoading}
-        error={toolsError}
-        drafts={draftToolDrafts}
-        onUpdateConfig={onToolDraftChange}
-        onUpdateEnabled={onToolEnabledChange}
-      />
+  if (view !== 'skills') {
+    const emptyMessage = view === 'plugins'
+      ? t('settings.toolsEmptyPlugins')
+      : t('settings.toolsEmptyBuiltin');
+    const description = view === 'plugins'
+      ? t('settings.toolsPluginsDesc')
+      : t('settings.toolsBuiltinDesc');
 
+    return (
+      <div className="space-y-6">
+        <p className="text-sm leading-6 text-muted-foreground">{description}</p>
+        {visibleTools.length > 0 ? (
+          <DynamicToolsConfig
+            tools={visibleTools}
+            loading={toolsLoading}
+            error={toolsError}
+            drafts={draftToolDrafts}
+            onUpdateConfig={onToolDraftChange}
+            onUpdateEnabled={onToolEnabledChange}
+          />
+        ) : toolsLoading ? (
+          <div className="py-3 text-sm text-muted-foreground">{t('settings.loadingTools')}</div>
+        ) : toolsError ? (
+          <div className="rounded-md border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
+            {toolsError}
+          </div>
+        ) : (
+          <div className="rounded-lg border border-[hsl(var(--settings-subnav-border)/0.6)] bg-[hsl(var(--settings-shell-elevated)/0.28)] px-4 py-3 text-sm text-muted-foreground">
+            {emptyMessage}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <p className="text-sm leading-6 text-muted-foreground">{t('settings.toolsSkillsDesc')}</p>
       <SettingsGroup
         title={t('tools.skills.label', { ns: 'onboarding' })}
         description={

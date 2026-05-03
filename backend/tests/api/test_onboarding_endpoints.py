@@ -12,14 +12,10 @@ def test_parse_json_preset(tmp_path: Path):
     file_path.write_text(
         json.dumps({
             "meta": {"group": "general", "order": 1},
-            "persona_entity": {
-                "basic_profile": {
-                    "name": "Helper",
-                    "occupation": "A practical helper",
-                },
-                "core_identity": {
-                    "inner_narrative": "Use concise and direct responses.",
-                },
+            "name": "Helper",
+            "description": "A practical helper",
+            "identity_core": {
+                "identity_statement": "Use concise and direct responses.",
             },
         }),
         encoding="utf-8",
@@ -27,7 +23,7 @@ def test_parse_json_preset(tmp_path: Path):
     preset = _parse_json_preset(file_path)
     assert preset.id == "helper"
     assert preset.name == "Helper"
-    assert preset.occupation == "A practical helper"
+    assert preset.description == "A practical helper"
     assert "Use concise" in preset.prompt
 
 

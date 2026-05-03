@@ -19,21 +19,16 @@ from ....context.scenarios import Scenario
 from ..common import (
     BaseExecutionHandler,
     CommonHandlerDependencies,
-    ExecutionHandlerRegistry,
     ExecutionMode,
     ExecutionRequest,
     ExecutionResult,
-    FactOnlyHandler,
     FunctionCallingExecutionResult,
     FunctionCallingRequest,
-    OrchestrationLaunchHandler,
-    OrchestrationUpdateHandler,
 )
 from .history_service import ChatHistoryService
 from .planning_service import ChatPlanningService
 from .prompt_service import ChatPromptService
-from .direct_handler import DirectLLMHandler
-from .explore_render import ExploreRenderHandler, start_explore_task_agent
+from .explore_render import start_explore_task_agent
 from .runtime_control import FunctionCallingRuntimeControlMixin
 from .handler_helpers import (
     build_attachment_preparation_guidance_block as _build_attachment_preparation_guidance_block,
@@ -91,6 +86,7 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
             scenario=Scenario.CHAT,
             recent_tool_errors=request.context.recent_tool_errors,
             workspace_path=_resolve_turn_workspace_path(request.context),
+            persona_id=getattr(request.context, "active_persona_id", None),
         )
         selected_tools = list(request.tool_selection.tools)
         system_prompt = prompt_package.system_prompt
@@ -162,6 +158,8 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
                 session_run_revision=request.context.session_run_revision,
                 turn_id=turn_id,
                 conversation_history=request.context.history,
+                session_summary=getattr(request.context, "session_summary", None),
+                session_origin=getattr(request.context, "session_origin", None),
                 thinking_depth=request.thinking_depth,
                 intent=request.intent.intent,
                 execution_agent_id=request.context.runtime_key,
@@ -215,6 +213,8 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
             system_prompt=request.system_prompt,
             selected_tools=request.selected_tools,
             conversation_history=request.context.history,
+            session_summary=getattr(request.context, "session_summary", None),
+            session_origin=getattr(request.context, "session_origin", None),
             allow_attachment_grounding=(
                 bool(getattr(request.context, "allow_media_grounding_for_conversation", False))
                 and bool(getattr(request.context, "core_model_supports_vision", False))
@@ -323,6 +323,8 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
                         system_prompt=request.system_prompt,
                         selected_tools=request.selected_tools,
                         conversation_history=request.context.history,
+                        session_summary=getattr(request.context, "session_summary", None),
+                        session_origin=getattr(request.context, "session_origin", None),
                         allow_attachment_grounding=(
                             bool(getattr(request.context, "allow_media_grounding_for_conversation", False))
                             and bool(getattr(request.context, "core_model_supports_vision", False))
@@ -344,6 +346,8 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
                         system_prompt=request.system_prompt,
                         selected_tools=request.selected_tools,
                         conversation_history=request.context.history,
+                        session_summary=getattr(request.context, "session_summary", None),
+                        session_origin=getattr(request.context, "session_origin", None),
                         allow_attachment_grounding=(
                             bool(getattr(request.context, "allow_media_grounding_for_conversation", False))
                             and bool(getattr(request.context, "core_model_supports_vision", False))

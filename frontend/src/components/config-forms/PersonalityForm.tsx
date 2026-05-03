@@ -12,10 +12,12 @@ import type { LLMConfig } from '../../api/modules/config';
 import {
   personasApi,
   DEFAULT_PERSONALITY_CONFIG,
+  PERSONA_GENERATION_STAGE_IDS,
   selectDefaultSeedPreview,
   type PersonalityConfig,
+  type PersonaGenerationStage,
+  type PersonaGenerationStageId,
   type SeedPreview,
-  type StateTransitionProtocolItem,
 } from '../../api/modules/personas';
 
 interface PersonalityFormProps {
@@ -25,28 +27,44 @@ interface PersonalityFormProps {
 
 // Group display order
 const GROUP_ORDER = ['magi', 'general'];
+const buildPendingGenerationStages = (): PersonaGenerationStage[] =>
+  PERSONA_GENERATION_STAGE_IDS.map((stageId) => ({ stage_id: stageId, status: 'pending' }));
 
-const normalizeTransition = (item: Partial<StateTransitionProtocolItem>): StateTransitionProtocolItem => ({
-  trigger_type: item.trigger_type || '',
-  trigger_condition: item.trigger_condition || '',
-  target_state_name: item.target_state_name || '',
-  behavior_shift: item.behavior_shift || '',
-});
+const getGenerationStageKey = (stages: PersonaGenerationStage[]): PersonaGenerationStageId => {
+  const running = stages.find((stage) => stage.status === 'running');
+  const pending = stages.find((stage) => stage.status === 'pending');
+  const active = running || pending || stages[stages.length - 1];
+  return PERSONA_GENERATION_STAGE_IDS.includes(active?.stage_id as PersonaGenerationStageId)
+    ? (active.stage_id as PersonaGenerationStageId)
+    : PERSONA_GENERATION_STAGE_IDS[0];
+};
+
+const getGenerationProgress = (stages: PersonaGenerationStage[], generating: boolean): number => {
+  if (!generating || stages.length === 0) return 0;
+  const completedCount = stages.filter((stage) => stage.status === 'completed').length;
+  const failedCount = stages.filter((stage) => stage.status === 'failed').length;
+  if (completedCount + failedCount >= stages.length) {
+    return 100;
+  }
+  return Math.round((completedCount / stages.length) * 100);
+};
 
 const mergeConfig = (incoming: Partial<PersonalityConfig>): PersonalityConfig => {
   const next = structuredClone(DEFAULT_PERSONALITY_CONFIG);
-  next.persona_entity.basic_profile = {
-    ...next.persona_entity.basic_profile,
-    ...(incoming.persona_entity?.basic_profile || {}),
-  };
-  next.persona_entity.core_identity = {
-    ...next.persona_entity.core_identity,
-    ...(incoming.persona_entity?.core_identity || {}),
-  };
+  next.name = incoming.name || next.name;
+  next.avatar = incoming.avatar || next.avatar;
+  next.description = incoming.description || next.description;
   next.appearance_prompt = incoming.appearance_prompt || next.appearance_prompt;
-  const transitions = incoming.state_transition_protocol || next.state_transition_protocol;
-  next.state_transition_protocol = transitions.length > 0 ? transitions.map(normalizeTransition) : [normalizeTransition({})];
+  next.identity_core = { ...next.identity_core, ...(incoming.identity_core || {}) };
+  next.idiolect = { ...next.idiolect, ...(incoming.idiolect || {}) };
+  next.registers = { ...next.registers, ...(incoming.registers || {}) };
+  next.quiet_hours = incoming.quiet_hours ?? next.quiet_hours;
+  next.signature_triggers = incoming.signature_triggers ?? next.signature_triggers;
   next.persona_layers = incoming.persona_layers ?? next.persona_layers;
+  next.dynamic_state_rules = incoming.dynamic_state_rules ?? next.dynamic_state_rules;
+  next.milestone_conditions = incoming.milestone_conditions ?? next.milestone_conditions;
+  next.interim_lines = incoming.interim_lines ?? next.interim_lines;
+  next.bootstrap = incoming.bootstrap ?? next.bootstrap;
   return next;
 };
 
@@ -56,6 +74,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
   const formInstance = formContext?.instance;
   const [presets, setPresets] = useState<SeedPreview[]>([]);
   const [generating, setGenerating] = useState(false);
+  const [generationStages, setGenerationStages] = useState<PersonaGenerationStage[]>(buildPendingGenerationStages);
   const [oneLiner, setOneLiner] = useState('');
   const [viewMode, setViewMode] = useState<'selection' | 'focus'>('selection');
   const [showDetails, setShowDetails] = useState(false);
@@ -85,7 +104,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
     }
 
     const currentPersonality = formInstance.getFieldValue(['personality']) as PersonalityConfig | undefined;
-    const currentName = currentPersonality?.persona_entity?.basic_profile?.name;
+    const currentName = currentPersonality?.name;
     const isBlankSelection = !currentName || currentName === 'AI Assistant';
 
     if (!isBlankSelection) {
@@ -113,13 +132,9 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
       } catch {
         if (cancelled) return;
         const fallbackConfig = mergeConfig({
-          persona_entity: {
-            basic_profile: {
-              name: defaultPreset.name,
-              description: defaultPreset.description,
-              avatar: defaultPreset.avatar,
-            },
-          } as Partial<PersonalityConfig['persona_entity']>,
+          name: defaultPreset.name,
+          description: defaultPreset.description,
+          avatar: defaultPreset.avatar,
         } as Partial<PersonalityConfig>);
         setConfig(fallbackConfig);
         formInstance.setFieldValue(['personality'], fallbackConfig);
@@ -184,7 +199,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
       const avatarValue = response.data?.url || response.data?.filename;
       if (!avatarValue) return;
       patch((d) => {
-        d.persona_entity.basic_profile.avatar = avatarValue;
+        d.avatar = avatarValue;
       });
       resetAvatarBroken(`focus:${avatarValue}`);
     } finally {
@@ -236,15 +251,18 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
   ) => {
     if (!oneLiner.trim()) return;
     setGenerating(true);
+    setGenerationStages(buildPendingGenerationStages());
     try {
       const llmOverride = getFieldValue(['llm']) as LLMConfig | undefined;
-      const generated = await personasApi.generate({
+      const generated = await personasApi.generateWithProgress({
         description: oneLiner.trim(),
         target_language: language === 'zh' ? 'Chinese' : 'English',
+        current_config: config,
         llm_override: llmOverride,
+      }, (snapshot) => {
+        setGenerationStages(snapshot.stages?.length ? snapshot.stages : buildPendingGenerationStages());
       });
-      const payload = generated.data?.data;
-      const data = ((payload && !Array.isArray(payload) ? payload : generated.data) || {}) as Partial<PersonalityConfig>;
+      const data = (generated.data || {}) as Partial<PersonalityConfig>;
       const mergedConfig = mergeConfig(data);
       setConfig(mergedConfig);
       setFieldValue(['personality'], mergedConfig);
@@ -255,6 +273,9 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
       setGenerating(false);
     }
   };
+
+  const generationStageKey = getGenerationStageKey(generationStages);
+  const generationProgress = getGenerationProgress(generationStages, generating);
 
   return (
     <>
@@ -268,20 +289,20 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
             setFieldValue: (name: any, value: any) => void;
           }) => {
             const personalityValue = getFieldValue(['personality']);
-            const selectedPreset = personalityValue?.persona_entity?.basic_profile?.name;
+            const selectedPreset = personalityValue?.name;
             const isCustomSelected = !selectedPreset || selectedPreset === 'AI Assistant';
             const showCustomSection = viewMode === 'focus';
             const focusedPreset = presets.find((item) => item.name === selectedPreset);
             const focusTitle = isCustomSelected && !focusedPreset
               ? t('personality.blankCardTitle')
-              : config.persona_entity.basic_profile.name || selectedPreset;
-            const focusAvatar = config.persona_entity.basic_profile.avatar || focusedPreset?.avatar || '';
+              : config.name || selectedPreset;
+            const focusAvatar = config.avatar || focusedPreset?.avatar || '';
             const focusSubtitle = isCustomSelected && !focusedPreset
               ? t('personality.blankCardDesc')
-              : config.persona_entity.basic_profile.description || focusedPreset?.description || '';
+              : config.description || focusedPreset?.description || '';
             const focusDescription = isCustomSelected
               ? t('personality.blankCardDesc')
-              : config.persona_entity.core_identity.inner_narrative || focusedPreset?.description || '';
+              : config.identity_core.identity_statement || focusedPreset?.description || '';
 
             // Group by backend group field
             const groupedPersonalities = GROUP_ORDER.reduce((acc, group) => {
@@ -518,6 +539,20 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                                 {generating ? t('personality.generating') : t('personality.generateAction')}
                               </Button>
                             </div>
+                            {generating ? (
+                              <div className="mt-2 space-y-1.5 rounded-lg border border-border/60 bg-background/70 px-3 py-2">
+                                <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                                  <span>{t(`personality.generationStages.${generationStageKey}`)}</span>
+                                  <span>{generationProgress}%</span>
+                                </div>
+                                <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                                  <div
+                                    className="h-full rounded-full bg-primary transition-all duration-500"
+                                    style={{ width: `${generationProgress}%` }}
+                                  />
+                                </div>
+                              </div>
+                            ) : null}
                           </div>
                         </motion.div>
                       )}
@@ -543,7 +578,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                                   t={t}
                                   onAvatarUpload={(e) => void handleAvatarUpload(e)}
                                   uploadingAvatar={uploadingAvatar}
-                                  avatarFilename={avatarLabel(config.persona_entity.basic_profile.avatar)}
+                                  avatarFilename={avatarLabel(config.avatar)}
                                 />
                               </div>
                             )}

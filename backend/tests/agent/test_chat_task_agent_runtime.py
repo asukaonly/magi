@@ -84,6 +84,18 @@ def test_chat_task_agent_streaming_enabled_reads_streaming_preference(monkeypatc
     assert calls == [("streaming_chat_enabled", False)]
 
 
+def test_chat_task_agent_disables_streaming_when_rhythm_is_enabled(monkeypatch) -> None:
+    monkeypatch.setattr(
+        chat_task_agent_module,
+        "get_user_preference",
+        lambda key, default=None: True if key == "streaming_chat_enabled" else default,
+    )
+    monkeypatch.setattr(chat_task_agent_module, "is_conversation_rhythm_enabled", lambda: True)
+    agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
+
+    assert agent._streaming_enabled("u-chat") is False
+
+
 @pytest.mark.asyncio
 async def test_chat_task_agent_uses_injected_chat_read_service_for_workspace() -> None:
     class _FakeSessionSummary:
@@ -317,6 +329,7 @@ async def test_call_llm_emits_error_chunk_on_failure(monkeypatch) -> None:
         "get_user_preference",
         lambda key, default=None: key == "streaming_chat_enabled",
     )
+    monkeypatch.setattr(chat_task_agent_module, "is_conversation_rhythm_enabled", lambda: False)
 
     emitted: list[dict] = []
 

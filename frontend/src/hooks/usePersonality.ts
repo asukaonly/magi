@@ -14,11 +14,15 @@ import { useTranslation } from 'react-i18next';
 import {
   personasApi,
   DEFAULT_PERSONALITY_CONFIG,
+  PERSONA_GENERATION_STAGE_IDS,
   type PersonalityConfig,
+  type PersonaGenerationStage,
   type PersonaSummary,
-  type StateTransitionProtocolItem,
+  type SignatureTrigger,
+  type PersonaGenerationStageId,
 } from '@/api/modules/personas';
 import { handleError } from '@/utils/error-handler';
+import { formatPersonaValidationIssues, validatePersonalityConfig } from '@/utils/personaValidation';
 
 // ============================================================================
 // Types
@@ -46,6 +50,8 @@ export interface UsePersonalityReturn {
   loading: boolean;
   saving: boolean;
   generating: boolean;
+  generationProgress: number;
+  generationStageKey: PersonaGenerationStageId;
   switching: boolean;
   selectedInfo: PersonalityInfo | undefined;
   switchPrompt: {
@@ -84,35 +90,64 @@ export interface UsePersonalityReturn {
 // ============================================================================
 
 const CONFIDENCE_OPTIONS = ['Extremely High', 'High', 'Medium', 'Low'] as const;
+const buildPendingGenerationStages = (): PersonaGenerationStage[] =>
+  PERSONA_GENERATION_STAGE_IDS.map((stageId) => ({ stage_id: stageId, status: 'pending' }));
+
+const getGenerationStageKey = (stages: PersonaGenerationStage[]): PersonaGenerationStageId => {
+  const running = stages.find((stage) => stage.status === 'running');
+  const pending = stages.find((stage) => stage.status === 'pending');
+  const active = running || pending || stages[stages.length - 1];
+  return PERSONA_GENERATION_STAGE_IDS.includes(active?.stage_id as PersonaGenerationStageId)
+    ? (active.stage_id as PersonaGenerationStageId)
+    : PERSONA_GENERATION_STAGE_IDS[0];
+};
+
+const getGenerationTargetLanguage = (uiLanguage?: string): string => {
+  const language = (uiLanguage || '').toLowerCase();
+  if (language.startsWith('zh')) return 'Chinese';
+  if (language.startsWith('ja')) return 'Japanese';
+  return 'English';
+};
+
+const getGenerationProgress = (stages: PersonaGenerationStage[], generating: boolean): number => {
+  if (!generating || stages.length === 0) return 0;
+  const completedCount = stages.filter((stage) => stage.status === 'completed').length;
+  const failedCount = stages.filter((stage) => stage.status === 'failed').length;
+  if (completedCount + failedCount >= stages.length) {
+    return 100;
+  }
+  return Math.round((completedCount / stages.length) * 100);
+};
 
 // ============================================================================
 // Helper Functions
 // ============================================================================
 
-const normalizeTransition = (
-  item: Partial<StateTransitionProtocolItem>
-): StateTransitionProtocolItem => ({
-  trigger_type: item.trigger_type || '',
-  trigger_condition: item.trigger_condition || '',
-  target_state_name: item.target_state_name || '',
+const normalizeTrigger = (item: Partial<SignatureTrigger>): SignatureTrigger => ({
+  trigger_id: item.trigger_id || '',
+  activates_when: item.activates_when || '',
   behavior_shift: item.behavior_shift || '',
+  intensity_levels: item.intensity_levels || {},
+  exit_behavior: item.exit_behavior || '',
 });
 
 const mergeConfig = (incoming: Partial<PersonalityConfig>): PersonalityConfig => {
   const next = structuredClone(DEFAULT_PERSONALITY_CONFIG);
-  next.persona_entity.basic_profile = {
-    ...next.persona_entity.basic_profile,
-    ...(incoming.persona_entity?.basic_profile || {}),
-  };
-  next.persona_entity.core_identity = {
-    ...next.persona_entity.core_identity,
-    ...(incoming.persona_entity?.core_identity || {}),
-  };
+  next.name = incoming.name || next.name;
+  next.avatar = incoming.avatar || next.avatar;
+  next.description = incoming.description || next.description;
   next.appearance_prompt = incoming.appearance_prompt || next.appearance_prompt;
-  const transitions = incoming.state_transition_protocol || next.state_transition_protocol;
-  next.state_transition_protocol =
-    transitions.length > 0 ? transitions.map(normalizeTransition) : [normalizeTransition({})];
+  next.identity_core = { ...next.identity_core, ...(incoming.identity_core || {}) };
+  next.idiolect = { ...next.idiolect, ...(incoming.idiolect || {}) };
+  next.registers = { ...next.registers, ...(incoming.registers || {}) };
+  next.quiet_hours = incoming.quiet_hours ?? next.quiet_hours;
+  const triggers = incoming.signature_triggers || next.signature_triggers;
+  next.signature_triggers = triggers.length > 0 ? triggers.map(normalizeTrigger) : [normalizeTrigger({})];
   next.persona_layers = incoming.persona_layers ?? next.persona_layers;
+  next.dynamic_state_rules = incoming.dynamic_state_rules ?? next.dynamic_state_rules;
+  next.milestone_conditions = incoming.milestone_conditions ?? next.milestone_conditions;
+  next.interim_lines = incoming.interim_lines ?? next.interim_lines;
+  next.bootstrap = incoming.bootstrap ?? next.bootstrap;
   return next;
 };
 
@@ -139,12 +174,13 @@ export function usePersonality(
   options: UsePersonalityOptions = {}
 ): UsePersonalityReturn {
   const { initialPersonalityId } = options;
-  const { t } = useTranslation('app');
+  const { t, i18n } = useTranslation('app');
 
   // Loading states
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [generationStages, setGenerationStages] = useState<PersonaGenerationStage[]>(buildPendingGenerationStages);
   const [switching, setSwitching] = useState(false);
 
   // Personality state – identity is now UUID-based
@@ -274,9 +310,17 @@ export function usePersonality(
   );
 
   const save = useCallback(async () => {
+    const validation = validatePersonalityConfig(config);
+    if (!validation.isMinimumReady) {
+      toast.warning(t('personality.validation.missing', {
+        fields: formatPersonaValidationIssues(validation.minimumIssues, t).join(', '),
+      }));
+      return;
+    }
+
     // Validate name in create mode
     if (isNewMode) {
-      const name = config.persona_entity.basic_profile.name?.trim();
+      const name = config.name?.trim();
       if (!name) {
         toast.warning(t('personality.nameRequired'));
         return;
@@ -301,7 +345,7 @@ export function usePersonality(
         // Update existing persona in registry
         const configJson = JSON.stringify(config);
         await personasApi.update(selectedId, {
-          name: config.persona_entity.basic_profile.name,
+          name: config.name,
           config_json: configJson,
         });
         toast.success(t('personality.saveSuccess'));
@@ -321,10 +365,16 @@ export function usePersonality(
     }
 
     setGenerating(true);
+    setGenerationStages(buildPendingGenerationStages());
     try {
-      const response = await personasApi.generate({
+      const response = await personasApi.generateWithProgress({
         description: prompt,
-        target_language: targetLanguage,
+        target_language: targetLanguage === 'Auto'
+          ? getGenerationTargetLanguage(i18n.resolvedLanguage || i18n.language)
+          : targetLanguage,
+        current_config: config,
+      }, (snapshot) => {
+        setGenerationStages(snapshot.stages?.length ? snapshot.stages : buildPendingGenerationStages());
       });
       const data = (response.data || {}) as Partial<PersonalityConfig>;
       setConfig(mergeConfig(data));
@@ -335,7 +385,7 @@ export function usePersonality(
     } finally {
       setGenerating(false);
     }
-  }, [prompt, targetLanguage, t]);
+  }, [config, i18n.language, i18n.resolvedLanguage, prompt, t, targetLanguage]);
 
   const switchPersonality = useCallback(async () => {
     if (selectedId === currentId) {
@@ -412,6 +462,9 @@ export function usePersonality(
     await loadOne(selectedId);
   }, [loadOne, selectedId]);
 
+  const generationStageKey = getGenerationStageKey(generationStages);
+  const generationProgress = getGenerationProgress(generationStages, generating);
+
   // ============================================================================
   // Computed Values
   // ============================================================================
@@ -426,6 +479,8 @@ export function usePersonality(
     loading,
     saving,
     generating,
+    generationProgress,
+    generationStageKey,
     switching,
     selectedInfo,
     switchPrompt,
@@ -464,6 +519,6 @@ export {
   parseLines,
   toLines,
   getInitials,
-  normalizeTransition,
+  normalizeTrigger,
   mergeConfig,
 };

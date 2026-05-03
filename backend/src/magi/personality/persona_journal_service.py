@@ -77,19 +77,14 @@ class PersonaJournalService:
             logger.warning("Cannot generate reflection: persona '%s' not found", persona_name)
             return None
 
-        persona_entity = config.persona_entity
-        persona_desc = ""
-        if persona_entity and hasattr(persona_entity, "basic_profile"):
-            bp = persona_entity.basic_profile
-            name = getattr(bp, "name", persona_name)
-            occupation = getattr(bp, "occupation", "")
-            persona_desc = f"You are {name}"
-            if occupation:
-                persona_desc += f", {occupation}"
+        persona_desc = f"You are {config.name or persona_name}"
+        if config.description:
+            persona_desc += f": {config.description}"
 
         context_parts: List[str] = []
-        if persona_desc:
-            context_parts.append(f"Persona: {persona_desc}")
+        context_parts.append(f"Persona: {persona_desc}")
+        if config.identity_core.identity_statement:
+            context_parts.append(f"Identity core: {config.identity_core.identity_statement}")
 
         if emotional_state:
             mood = emotional_state.get("mood", "neutral")

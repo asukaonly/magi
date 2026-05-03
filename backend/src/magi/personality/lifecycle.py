@@ -14,6 +14,36 @@ from .self_memory import SelfMemory
 logger = get_logger(__name__)
 
 
+async def _ensure_active_persona(
+    repo: PersonaRepository,
+    preferred_name: str,
+) -> str | None:
+    """Ensure registry has an active persona and return its ID."""
+    active_id = await repo.get_active_id()
+    if active_id:
+        record = await repo.get(active_id)
+        if record:
+            return active_id
+
+    summaries = await repo.list_all()
+    if not summaries:
+        return None
+
+    preferred = (preferred_name or "").strip()
+    if preferred and preferred != "default":
+        for summary in summaries:
+            candidates = {summary.name, summary.slug}
+            if summary.seed_slug:
+                candidates.add(summary.seed_slug)
+            if preferred in candidates:
+                await repo.set_active(summary.persona_id)
+                return summary.persona_id
+
+    fallback = summaries[0]
+    await repo.set_active(fallback.persona_id)
+    return fallback.persona_id
+
+
 class PersonalityModule(LifecycleModule):
     """Initialize self-memory personality store (L8)."""
 
@@ -34,21 +64,20 @@ class PersonalityModule(LifecycleModule):
         repo = PersonaRepository(str(runtime_paths.persona_registry_db_path))
         await repo.init()
 
-        # Auto-seed builtin personas when registry is empty (first run or
-        # post-migration installs that completed onboarding before the
-        # persona registry existed).
+        # Keep builtin personas aligned with bundled presets. Custom personas
+        # remain registry-owned; builtin records follow their seed files.
         existing = await repo.list_all()
+        user_lang = get_user_preference("language", "zh")
+        locale = resolve_locale(user_lang)
         if not existing:
-            user_lang = get_user_preference("language", "zh")
-            locale = resolve_locale(user_lang)
             logger.info(
                 "Persona registry empty, auto-seeding builtin personas for locale '%s'",
                 locale,
             )
-            await seed_builtin_personas(repo, locale)
+        await seed_builtin_personas(repo, locale)
 
         try:
-            active_id = await repo.get_active_id()
+            active_id = await _ensure_active_persona(repo, personality_name)
             if active_id:
                 record = await repo.get(active_id)
                 persona_id = record.persona_id

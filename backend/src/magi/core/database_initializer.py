@@ -1,6 +1,5 @@
 """Database initializer for runtime-owned SQLite stores."""
 import logging
-import aiosqlite
 from typing import List, Callable, Awaitable
 
 from .sqlite import sqlite_connection_async
@@ -71,7 +70,6 @@ class DatabaseInitializer:
         await self._init_behavior_evolution_db()
         await self._init_emotional_state_db()
         await self._init_growth_memory_db()
-        await self._init_scenario_prompts_db()
         await self._init_llm_usage_db()
 
         # 2. Run registered custom initializers
@@ -292,23 +290,6 @@ class DatabaseInitializer:
             await db.commit()
         logger.debug(f"Initialized growth_memory.db at {db_path}")
 
-    async def _init_scenario_prompts_db(self) -> None:
-        """Initialize scenario prompts database."""
-        db_path = self.runtime_paths.scenario_prompts_db_path
-        async with sqlite_connection_async(str(db_path), use_row_factory=False) as db:
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS scenario_prompts (
-                    persona TEXT NOT NULL,
-                    scenario TEXT NOT NULL,
-                    prompt TEXT NOT NULL,
-                    created_at REAL NOT NULL,
-                    updated_at REAL NOT NULL,
-                    PRIMARY KEY (persona, scenario)
-                )
-            """)
-            await db.commit()
-        logger.debug(f"Initialized scenario_prompts.db at {db_path}")
-
     async def _init_llm_usage_db(self) -> None:
         """Initialize LLM usage statistics database."""
         db_path = self.runtime_paths.llm_usage_db_path
@@ -352,58 +333,8 @@ class DatabaseInitializer:
             logger.info("Skipping default data insertion (not first run)")
             return
 
-        from ..context.scenario_prompts import DEFAULT_SCENARIO_PROMPTS
-
-        db_path = self.runtime_paths.scenario_prompts_db_path
-        async with sqlite_connection_async(str(db_path), use_row_factory=False) as db:
-            import time
-
-            inserted_count = 0
-            for (persona, scenario), prompt in DEFAULT_SCENARIO_PROMPTS.items():
-                # Only insert default and current persona prompts
-                if persona == "default" or persona == persona_name:
-                    # Check if already exists
-                    cursor = await db.execute(
-                        "SELECT 1 FROM scenario_prompts WHERE persona = ? AND scenario = ?",
-                        (persona, scenario)
-                    )
-                    if not await cursor.fetchone():
-                        now = time.time()
-                        await db.execute(
-                            "INSERT INTO scenario_prompts (persona, scenario, prompt, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-                            (persona, scenario, prompt, now, now)
-                        )
-                        logger.info(f"Inserted default scenario prompt: {persona}/{scenario}")
-                        inserted_count += 1
-
-            # Load persona-specific prompts from personality config
-            if persona_name != "default":
-                try:
-                    from ..personality.active_persona import get_current_personality_config
-                    config = get_current_personality_config()
-                    if config is not None and config.scenario_prompts:
-                        for scenario, prompt in config.scenario_prompts.items():
-                            cursor = await db.execute(
-                                "SELECT 1 FROM scenario_prompts WHERE persona = ? AND scenario = ?",
-                                (persona_name, scenario)
-                            )
-                            if not await cursor.fetchone():
-                                now = time.time()
-                                await db.execute(
-                                    "INSERT INTO scenario_prompts (persona, scenario, prompt, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-                                    (persona_name, scenario, prompt, now, now)
-                                )
-                                logger.info(f"Inserted persona scenario prompt: {persona_name}/{scenario}")
-                                inserted_count += 1
-                except Exception as exc:
-                    logger.warning(f"Could not load persona scenario prompts for {persona_name}: {exc}")
-
-            await db.commit()
-
-            if inserted_count > 0:
-                logger.info(f"Inserted {inserted_count} default scenario prompts")
-
         # Mark initialization complete
+        _ = persona_name
         self.mark_initialized()
 
 

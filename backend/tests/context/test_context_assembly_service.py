@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock
 from unittest.mock import patch
@@ -22,6 +23,10 @@ class _FakeMemory:
     async def get_relationship(self, user_id: str):
         _ = user_id
         return {"sentiment_score": 0.2, "trust_level": 0.6}
+
+    async def get_milestones(self, limit: int = 200):
+        _ = limit
+        return []
 
 
 class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
@@ -130,6 +135,52 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
         session_workspace_provider.assert_awaited_once_with(user_id="u1", session_id="s1")
         self.assertEqual(package.prompt_context.runtime_system.cwd, "/Users/asuka/code/magi")
         self.assertIn("* Working Directory: /Users/asuka/code/magi", package.system_prompt)
+
+    async def test_build_prompt_package_uses_stored_persona_id_for_prompt_identity(self):
+        persona_config = PersonalityConfig.from_dict(
+            {
+                "name": "Pinned Persona",
+                "identity_core": {
+                    "identity_statement": "Pinned identity should drive this queued turn.",
+                },
+                "registers": {
+                    "chat": {
+                        "description": "Pinned chat",
+                        "behavior": "Answer as the pinned persona.",
+                    },
+                }
+            }
+        )
+        persona_lookup = AsyncMock(
+            return_value=SimpleNamespace(
+                persona_id="persona-pinned",
+                slug="pinned_persona",
+                config=persona_config,
+            )
+        )
+        service = ContextAssemblyService(
+            agent_id="chat-agent",
+            agent_type="chat",
+            prompt_context_assembler=PromptContextAssembler(),
+            prompt_context_renderer=PromptContextRenderer(),
+            memory=_FakeMemory(),
+            retrieval_memory_provider=AsyncMock(return_value=self._empty_retrieval_payload()),
+            persona_lookup=persona_lookup,
+        )
+
+        package = await service.build_prompt_package(
+            user_id="u1",
+            session_id="s1",
+            user_message="queued turn",
+            task_category="chat",
+            tools=[],
+            persona_id="persona-pinned",
+        )
+
+        persona_lookup.assert_awaited_once_with("persona-pinned")
+        self.assertEqual(package.prompt_context.metadata["persona_id"], "persona-pinned")
+        self.assertIn("Pinned Persona", package.system_prompt)
+        self.assertIn("Pinned identity should drive this queued turn.", package.system_prompt)
 
     async def test_build_prompt_package_falls_back_to_managed_default_workspace(self):
         retrieval_memory_provider = AsyncMock(return_value=self._empty_retrieval_payload())

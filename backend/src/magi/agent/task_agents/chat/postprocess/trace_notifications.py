@@ -28,6 +28,7 @@ class ChatPostprocessTraceNotificationMixin:
         ux_plan: dict[str, Any] | None,
         message_id: str | None,
         message_kind: str | None,
+        persona_id: str | None = None,
     ) -> None:
         await self._runtime_notifier.emit_agent_response(
             user_id=user_id,
@@ -42,6 +43,7 @@ class ChatPostprocessTraceNotificationMixin:
             ux_plan=ux_plan,
             message_id=message_id,
             message_kind=message_kind,
+            persona_id=persona_id,
         )
 
     async def _emit_turn_ux_plan_notification(

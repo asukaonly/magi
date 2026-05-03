@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any, Callable, TYPE_CHECKING
 
 from ....core.logger import get_logger
@@ -24,7 +25,6 @@ from .contracts import ChatParseOutcome, ChatRuntimeContext
 from .history_service import ChatHistoryService
 from .postprocess.background import ChatPostprocessBackgroundMixin
 from .postprocess.components import ChatOutcomeWriter, ChatRuntimeNotifier
-from .postprocess.constants import CHAT_TOOL_LOOP_STEP_EVENT_TYPE
 from .postprocess.intent import ChatPostprocessIntentMixin
 from .postprocess.memory import ChatPostprocessMemoryMixin
 from .postprocess.outcomes import ChatPostprocessOutcomeMixin
@@ -67,6 +67,8 @@ class ChatPostProcessService:
         complete_session_run: Callable[[str, str, int], Any] | None = None,
         resolve_session_run_status: Callable[[str, str, int], Any] | None = None,
         drain_deferred_turns: Callable[[str], Any] | None = None,
+        response_rhythm_planner: Any | None = None,
+        transcript_summarizer: Any | None = None,
     ) -> None:
         self._agent_id = agent_id
         self._history_service = history_service
@@ -97,6 +99,8 @@ class ChatPostProcessService:
         self._complete_session_run = complete_session_run
         self._resolve_session_run_status = resolve_session_run_status
         self._drain_deferred_turns = drain_deferred_turns
+        self._response_rhythm_planner = response_rhythm_planner
+        self._transcript_summarizer = transcript_summarizer
         # Track in-flight background memory-update tasks so they are not
         # garbage collected mid-flight. Entries remove themselves on done.
         self._background_tasks: set[asyncio.Task[Any]] = set()
@@ -190,6 +194,15 @@ class ChatPostProcessService:
             await self._finalize_session_run(context)
             return ChatParseOutcome(False, False, False, False)
 
+        response_plan = await self._build_response_rhythm_plan(
+            context=context,
+            result=result,
+            response_text=response_text,
+            ux_plan=ux_plan,
+        )
+        if response_plan is not None:
+            result.response_plan = response_plan
+
         history_stored = False
         user_message = result.root_user_message or context.latest_user_message
         if latest_fact.event_type == EventTypes.USER_MESSAGE and user_message:
@@ -256,25 +269,81 @@ class ChatPostProcessService:
             except Exception as exc:
                 logger.debug("Failed to fetch trace snapshot for AI_RESPONSE event: %s", exc)
 
-        await self._persist_final_chat_outcome(
+        reply_anchor_message_id = await self._resolve_result_reply_anchor_message_id(
+            context=context,
             turn_id=turn_id,
-            response_text=response_text,
-            attachments=list(getattr(result, "attachments", []) or []),
-            message_payload=dict(getattr(result, "message_payload", {}) or {}),
-            started_at_ms=started_at_ms,
-            completed_at_ms=now_ms,
-            orchestration_id=result.orchestration_id,
-            execution_mode=self._normalize_mode(result.mode),
-            ux_plan=ux_plan,
-            run_id=context.session_run_id,
-            run_revision=context.session_run_revision,
-            run_disposition=context.session_run_disposition,
-            reply_to_message_id=await self._resolve_result_reply_anchor_message_id(
+        )
+        segmented_messages = []
+        if response_plan is not None:
+            segmented_messages = await self._persist_segmented_chat_outcome(
+                turn_id=turn_id,
+                response_plan=response_plan,
+                attachments=list(getattr(result, "attachments", []) or []),
+                message_payload=dict(getattr(result, "message_payload", {}) or {}),
+                started_at_ms=started_at_ms,
+                completed_at_ms=now_ms,
+                orchestration_id=result.orchestration_id,
+                execution_mode=self._normalize_mode(result.mode),
+                ux_plan=ux_plan,
+                run_id=context.session_run_id,
+                run_revision=context.session_run_revision,
+                run_disposition=context.session_run_disposition,
+                reply_to_message_id=reply_anchor_message_id,
+                persona_id=context.active_persona_id,
+            )
+            if not segmented_messages:
+                response_plan = None
+                result.response_plan = None
+
+        if response_plan is None:
+            await self._persist_final_chat_outcome(
+                turn_id=turn_id,
+                response_text=response_text,
+                attachments=list(getattr(result, "attachments", []) or []),
+                message_payload=dict(getattr(result, "message_payload", {}) or {}),
+                started_at_ms=started_at_ms,
+                completed_at_ms=now_ms,
+                orchestration_id=result.orchestration_id,
+                execution_mode=self._normalize_mode(result.mode),
+                ux_plan=ux_plan,
+                run_id=context.session_run_id,
+                run_revision=context.session_run_revision,
+                run_disposition=context.session_run_disposition,
+                reply_to_message_id=reply_anchor_message_id,
+                persona_id=context.active_persona_id,
+            )
+        await self._finalize_session_run(context)
+        self._schedule_transcript_summary_update(context)
+
+        if response_plan is not None:
+            await self._project_canonical_assistant_response(
                 context=context,
                 turn_id=turn_id,
-            ),
-        )
-        await self._finalize_session_run(context)
+                message_id=segmented_messages[0].message_id if segmented_messages else None,
+                response_text=response_text,
+                created_at_ms=now_ms,
+            )
+            await self._emit_segmented_agent_response_notifications(
+                context=context,
+                result=result,
+                turn_id=turn_id,
+                response_plan=response_plan,
+                messages=segmented_messages,
+                trace_summary=trace_summary,
+                trace_available=trace_available,
+            )
+            await event_emitter.emit_chat_response_event(
+                user_id=context.user_id,
+                session_id=context.session_id,
+                response=response_text,
+                correlation_id=correlation_id,
+                turn_id=turn_id,
+                orchestration_id=result.orchestration_id,
+                trace_summary=trace_summary,
+                trace_available=trace_available,
+            )
+            return ChatParseOutcome(True, history_stored, memory_updated, False)
+
         notification_message = await self._get_notification_chat_message(
             turn_id=turn_id,
             ux_plan=ux_plan,
@@ -285,6 +354,9 @@ class ChatPostProcessService:
         notification_message_kind = (
             notification_message.message_kind if notification_message is not None else None
         )
+        notification_persona_id = (
+            notification_message.persona_id if notification_message is not None else context.active_persona_id
+        )
         notification_response_text = response_text
         if str((ux_plan or {}).get("assistant_surface_mode") or "").strip() == "reaction_only":
             notification_response_text = self._resolve_reaction_notification_text(
@@ -292,6 +364,7 @@ class ChatPostProcessService:
             )
             notification_message_id = None
             notification_message_kind = "assistant_reaction"
+            notification_persona_id = context.active_persona_id
         final_message = (
             notification_message
             if notification_message and notification_message.message_kind == "assistant_final"
@@ -319,6 +392,7 @@ class ChatPostProcessService:
                 ux_plan=result.ux_plan,
                 message_id=notification_message_id,
                 message_kind=notification_message_kind,
+                persona_id=notification_persona_id,
             )
         else:
             # Streaming turns skip agent_response; emit a completion control event so the
@@ -344,6 +418,99 @@ class ChatPostProcessService:
             trace_available=trace_available,
         )
         return ChatParseOutcome(True, history_stored, memory_updated, False)
+
+    def _schedule_transcript_summary_update(self, context: ChatRuntimeContext) -> None:
+        if self._transcript_summarizer is None:
+            return
+
+        async def _runner() -> None:
+            try:
+                await self._transcript_summarizer.maybe_summarize_session(
+                    user_id=context.user_id,
+                    session_id=context.session_id,
+                )
+            except Exception:
+                logger.exception(
+                    "Background transcript summary failed user_id=%s session_id=%s",
+                    context.user_id,
+                    context.session_id,
+                )
+
+        task = asyncio.create_task(
+            _runner(),
+            name=f"chat-transcript-summary:{context.session_id}",
+        )
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
+    async def _build_response_rhythm_plan(
+        self,
+        *,
+        context: ChatRuntimeContext,
+        result: ExecutionResult,
+        response_text: str,
+        ux_plan: dict[str, Any],
+    ):
+        if self._response_rhythm_planner is None:
+            return None
+        try:
+            return await self._response_rhythm_planner.plan(
+                user_message=result.root_user_message or context.latest_user_message,
+                response_text=response_text,
+                execution_mode=self._normalize_mode(result.mode),
+                ux_plan=ux_plan,
+                streamed=bool(getattr(result, "streamed", False)),
+            )
+        except Exception as exc:
+            logger.debug("Conversation rhythm planning failed", error=str(exc))
+            return None
+
+    async def _emit_segmented_agent_response_notifications(
+        self,
+        *,
+        context: ChatRuntimeContext,
+        result: ExecutionResult,
+        turn_id: str | None,
+        response_plan,
+        messages,
+        trace_summary: dict[str, Any] | None,
+        trace_available: bool,
+    ) -> None:
+        attachments = list(getattr(result, "attachments", []) or [])
+        total = len(messages)
+        for index, message in enumerate(messages):
+            if index > 0:
+                delay_ms = 0
+                if index < len(response_plan.segments):
+                    delay_ms = int(response_plan.segments[index].delay_ms or 0)
+                if delay_ms > 0:
+                    await asyncio.sleep(delay_ms / 1000.0)
+            segment_payload = self._parse_message_payload(message.payload_json)
+            await self._emit_agent_response_notification(
+                user_id=context.user_id,
+                session_id=context.session_id,
+                turn_id=turn_id,
+                response_text=str(message.content_text or ""),
+                attachments=attachments if index == total - 1 else [],
+                message_payload=segment_payload,
+                orchestration_id=result.orchestration_id,
+                trace_summary=trace_summary,
+                trace_available=trace_available,
+                ux_plan=result.ux_plan,
+                message_id=message.message_id,
+                message_kind=message.message_kind,
+                persona_id=message.persona_id,
+            )
+
+    @staticmethod
+    def _parse_message_payload(raw_payload_json: str | None) -> dict[str, Any]:
+        if not raw_payload_json:
+            return {}
+        try:
+            parsed = json.loads(raw_payload_json)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
 
     async def _complete_turn_without_visible_response(
         self,
@@ -377,6 +544,7 @@ class ChatPostProcessService:
                 context=context,
                 turn_id=turn_id,
             ),
+            persona_id=context.active_persona_id,
         )
         await self._finalize_session_run(context)
         return True

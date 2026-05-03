@@ -191,6 +191,7 @@ flowchart TD
   Reply-target continuity in chat is intentionally compact but now carries more than plain text excerpts.
   When a user replies to an earlier assistant message, the runtime may include a sanitized structured payload summary from that replied-to message, such as managed attachment references, so follow-up turns can reuse concrete artifacts without re-exposing raw local file paths.
   Tool-driven chat turns may persist this reusable state through assistant message payloads. In particular, function-calling tools can return a sanitized `assistant_payload` with generic `asset_refs`, which later reply turns may see through reply context and hand back to source resolver tools before calling `prepare_chat_attachments`.
+  Tools that directly create local media, such as `image-generation`, should also use the existing managed `chat_attachments` channel for immediate chat presentation and may include attachment-backed `assistant_payload.asset_refs` for reply-turn reuse. They should not rely on raw workspace file paths as the long-lived chat protocol.
   Beyond explicit reply targets, chat prompt assembly may inject a compact `Recent Tool State` block derived from the last few tool interactions in the same session. This block is intentionally lossy: tool name, coarse success/failure state, short outcome summary, limited reusable handles, and coarse duration only.
   Important rule: `Recent Tool State` is continuity guidance for the chat LLM, not the canonical execution audit trail. Exact parameters, full outputs, and detailed timing remain in `runtime_trace.db` and should be queried through trace read APIs or the builtin `trace_query` tool.
 
@@ -211,6 +212,8 @@ Persistence is separated the same way:
   Current path: `~/.magi/data/chat/chat.db`
 
   Assistant chat messages may persist managed attachment payloads in `chat_messages.payload_json`.
+  Chat messages may also store `persona_id` as the active persona identity snapshot for same-thread multi-persona conversations. The row stores only the stable persona ID; display name and avatar are resolved from the persona registry when rendering history.
+  Chat prompt assembly also receives the stored turn `persona_id` and resolves that persona record, including soft-deleted records, when building the system prompt for direct replies, function-calling replies, explore result rendering, and orchestration aggregation.
   Local source plugins should not bypass this boundary by exposing raw local file paths directly to the frontend.
 
 - `runtime_trace.db`
@@ -218,6 +221,21 @@ Persistence is separated the same way:
   Current path: `~/.magi/runtime/runtime_trace.db`
 
   Chat prompt assembly may derive compact recent-tool summaries from recent tool interaction records, but those summaries are explicitly lossy and must not replace `runtime_trace.db` as the source of truth for execution details.
+
+### Session Prompt History And Rolling Summaries
+
+Chat prompt history is selected by context budget instead of a fixed message-count window.
+Short sessions can be passed to the model as raw transcript history. When the raw session tail would exceed the prompt-history budget, prompt assembly keeps the newest raw messages and prepends a compact session-origin anchor so the model still knows where the thread began.
+
+Durable rolling summaries live with chat truth in `chat.db`, not in long-term memory tables. The `chat_context_summaries` table stores session-scoped continuation state: the active summary text, the summary kind, the parent summary, the covered transcript frontier, and the first raw message that should be kept after the summary. A later summary supersedes the previous active summary in the same session/scope, so normal prompt assembly reads only the latest active summary plus the raw tail after its frontier.
+
+`ChatHistoryService` owns the runtime bridge from durable summary state into prompt history. When an active `token_budget` summary exists for a session, the service loads `session_origin` and `summary_text`, trims raw prompt history from `first_kept_message_id`, and passes those fields through `ChatRuntimeContext`. Direct LLM and function-calling execution both feed that summary context into prompt message assembly before appending the current user turn.
+
+`ChatTranscriptSummarizer` runs after chat responses are persisted, off the response critical path. It estimates the prompt-history token footprint, summarizes the older raw range when the retained tail grows beyond the trigger budget, and activates a new `token_budget` summary. If summary A is active, the next summary is generated from summary A plus the newly covered raw range, then summary B supersedes A for normal prompt reads.
+
+Persona switches add a second prompt-history boundary. When a session tail contains messages from an older active persona followed by the current persona's segment, `ChatHistoryService` condenses the older segment into an active `persona_boundary` summary scoped by the current persona ID. Prompt assembly then receives the neutral boundary summary plus only the raw tail for the current persona segment, so continuity survives without carrying another persona's assistant voice into the active persona prompt.
+
+Memory retrieval remains a separate input to prompt assembly. Long-term memory can be queried alongside session summaries, but session summaries are not promoted into L1/L2/L3/L4 by default because they are continuation checkpoints rather than canonical cross-session facts.
 
 - `memory/l1_events.db`
   Canonical memory projection only; it stores `user_text` and `assistant_final` as lossy memory facts, but it is no longer the chat transcript source of truth
@@ -300,6 +318,14 @@ The current call-trace visibility policy intentionally separates storage from pr
 
 Important rule: trace-entry visibility is a UX decision, not the storage boundary. If a user-visible turn produced trace data, prefer preserving retrieval and reload fidelity even when the chat surface chooses a lighter affordance.
 
+Conversation rhythm extends this presentation boundary after execution handlers
+produce a canonical answer. The core direct-LLM, function-calling, and
+orchestration-render handlers still return a single authoritative
+`ExecutionResult.response_text`; chat post-processing may then build a validated
+multi-message presentation plan from that text. See
+[Conversation Rhythm Architecture](./conversation-rhythm-architecture.md) for
+the planner contract, persistence shape, and streaming restrictions.
+
 ### Interruption Dispositions
 
 When a user sends another message while a chat turn is already running, the `SessionRunCoordinator` classifies the interruption into one of four dispositions and routes it accordingly. The classifier lives in `backend/src/magi/agent/task_agents/chat/interruption_classifier.py` and combines rule-based keyword matching with an optional LLM fallback.
@@ -335,10 +361,15 @@ The current split is:
 - `ContextAssemblyService`
   Owns prompt-context policy, implicit retrieval query selection, prompt module assembly, and final system prompt rendering
 
+- `PersonaTurnPlanner`
+  Lives in the Personality Layer and produces the per-turn `PersonaTurnPlan` consumed by prompt assembly. Chat runtime provides the current user message, execution mode, intent/tool-routing hints, stored `persona_id`, relationship state, and dynamic persona state as inputs, but it does not interpret persona-specific triggers itself.
+
 - `ChatPromptService`
   Owns plain LLM invocation and chat-specific helper text for aggregation and dossier rendering
 
 This keeps runtime fact assembly in the task agent while moving prompt-context ownership back into the context layer.
+
+Persona behavior follows the same boundary: the task agent builds runtime facts, the Personality Layer plans persona behavior, and the Context Layer renders that plan. The final system prompt should receive the selected register, quiet-hour clamps, active triggers, relationship modifiers, and dynamic-state modulations, not the full raw persona rule library. The durable contract is documented in [Persona Runtime Architecture](./persona-runtime-architecture.md).
 
 Current implicit-memory policy is intentionally conservative:
 
