@@ -1,6 +1,7 @@
 import pytest
 
 from magi.mcp.config import MCPServerConfig
+from magi.mcp.connection import ConnectionState
 from magi.mcp.manager import MCPManager
 from magi.tools.registry import ToolRegistry
 
@@ -10,14 +11,17 @@ class StubConnection:
         self._tools = tools
         self._resources = resources or []
         self.started = False
+        self.state = ConnectionState.INIT
         self._handlers = {}
         self.calls = []
 
     async def start(self):
         self.started = True
+        self.state = ConnectionState.CONNECTED
 
     async def stop(self):
         self.started = False
+        self.state = ConnectionState.DISCONNECTED
 
     def on_notification(self, method, handler):
         self._handlers.setdefault(method, []).append(handler)
