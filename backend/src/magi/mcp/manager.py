@@ -239,11 +239,20 @@ class MCPManager:
                     await asyncio.sleep(delay)
                     try:
                         new_conn = self._factory(rt.cfg)
-                        await new_conn.start()
-                        if new_conn.state != ConnectionState.CONNECTED:
-                            await new_conn.stop()
-                            continue
-                        rt.conn = new_conn
+                        try:
+                            await new_conn.start()
+                            if new_conn.state != ConnectionState.CONNECTED:
+                                await new_conn.stop()
+                                continue
+                            rt.conn = new_conn
+                        except BaseException:
+                            # Includes asyncio.CancelledError. Avoid leaking
+                            # the partially-started connection.
+                            try:
+                                await new_conn.stop()
+                            except Exception:
+                                pass
+                            raise
                         await self._handshake(rt)
                         await self._reconcile_tools(rt)
                         await self._reconcile_resources(rt)

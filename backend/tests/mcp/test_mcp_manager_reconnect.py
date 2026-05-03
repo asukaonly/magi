@@ -132,3 +132,67 @@ async def test_gives_up_after_max_restart_attempts():
         if "demo" not in mgr._runtimes:  # type: ignore[attr-defined]
             break
     assert "demo" not in mgr._runtimes  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_partially_started_connection_stopped_on_watchdog_cancel():
+    """If the watchdog is cancelled mid-`new_conn.start()`, the new connection
+    must still be stopped to avoid orphaning a subprocess/socket."""
+    registry = ToolRegistry()
+
+    blocking_started = asyncio.Event()
+    release = asyncio.Event()
+
+    class _BlockingConn(_ControllableConn):
+        def __init__(self, tools):
+            super().__init__(tools)
+            self.stopped = False
+
+        async def _start_transport(self):
+            blocking_started.set()
+            await release.wait()
+            self.state = ConnectionState.CONNECTED
+
+        async def _stop_transport(self):
+            self.stopped = True
+            self.state = ConnectionState.DISCONNECTED
+
+    blocking_conns: list[_BlockingConn] = []
+    call_count = {"n": 0}
+
+    def factory(_cfg):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            # First call: ordinary alive conn for initial start.
+            return _ControllableConn([])
+        # Subsequent (reconnect) call: blocking conn we control.
+        c = _BlockingConn([])
+        blocking_conns.append(c)
+        return c
+
+    mgr = MCPManager(
+        registry=registry,
+        connection_factory=factory,
+        reconnect_backoff=[0.0, 0.0],
+    )
+    mgr.add_config(CFG)
+    await mgr.start_server("demo")
+    rt = mgr._runtimes["demo"]  # type: ignore[attr-defined]
+
+    # Trigger disconnect so watchdog enters reconnect path.
+    rt.conn.state = ConnectionState.DISCONNECTED
+
+    # Wait until the new (blocking) connection's start is in-flight.
+    await asyncio.wait_for(blocking_started.wait(), timeout=2.0)
+
+    # Cancel the watchdog while start() is still pending.
+    rt.watchdog.cancel()
+    # Allow start() to proceed past the wait so the cancellation can land.
+    release.set()
+    try:
+        await rt.watchdog
+    except asyncio.CancelledError:
+        pass
+
+    assert blocking_conns, "blocking reconnect conn never created"
+    assert blocking_conns[-1].stopped is True
