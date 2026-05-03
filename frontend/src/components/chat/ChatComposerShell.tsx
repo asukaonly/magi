@@ -1,4 +1,4 @@
-import type { ClipboardEventHandler, KeyboardEventHandler, Ref } from 'react';
+import type { ClipboardEventHandler, KeyboardEventHandler, ReactNode, Ref } from 'react';
 import { ArrowUp, Loader2, Square } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
@@ -9,16 +9,25 @@ import { ComposerDraftAttachments } from './ComposerDraftAttachments';
 import { ComposerReplyPreview } from './ComposerReplyPreview';
 import { ContextUsageRing } from './ContextUsageRing';
 
-type ComposerDraftAttachmentItem = {
-  id: string;
-  kind: 'image' | 'file';
-  name: string;
-  size: number;
-  previewUrl?: string;
-};
+type ComposerDraftAttachmentItem =
+  | {
+    id: string;
+    kind: 'image' | 'file';
+    name: string;
+    size: number;
+    previewUrl?: string;
+  }
+  | {
+    id: string;
+    kind: 'mcp_resource';
+    name: string;
+    serverId: string;
+    uri: string;
+  };
 
 export type ChatComposerShellProps = {
   composerRef: Ref<HTMLDivElement>;
+  textareaRef?: Ref<HTMLTextAreaElement>;
   replyTarget: ChatTimelineReplyPreview | null;
   onCancelReply: () => void;
   attachments: ComposerDraftAttachmentItem[];
@@ -38,10 +47,13 @@ export type ChatComposerShellProps = {
   sessionId: string | null;
   sendingMessage: boolean;
   onPrimaryAction: () => void;
+  /** Picker(s) rendered absolute-positioned above the input area. */
+  pickerSlot?: ReactNode;
 };
 
 export const ChatComposerShell = ({
   composerRef,
+  textareaRef,
   replyTarget,
   onCancelReply,
   attachments,
@@ -61,6 +73,7 @@ export const ChatComposerShell = ({
   sessionId,
   sendingMessage,
   onPrimaryAction,
+  pickerSlot,
 }: ChatComposerShellProps) => {
   const { t } = useTranslation();
 
@@ -83,9 +96,11 @@ export const ChatComposerShell = ({
 
       <div
         data-testid="chat-composer-input"
-        className={attachments.length > 0 ? 'px-5 pb-0 pt-2.5' : 'px-5 pb-0 pt-3'}
+        className={`relative ${attachments.length > 0 ? 'px-5 pb-0 pt-2.5' : 'px-5 pb-0 pt-3'}`}
       >
+        {pickerSlot}
         <AutoResizeTextarea
+          ref={textareaRef}
           value={inputValue}
           onChange={(event) => onInputChange(event.target.value)}
           onCompositionStart={onCompositionStart}

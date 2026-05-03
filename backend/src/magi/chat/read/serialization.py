@@ -66,6 +66,33 @@ def row_to_display_message(row: sqlite3.Row) -> ChatDisplayMessage | None:
             turn_id=turn_id,
             label=label_payload,
         )
+    if message_kind == "command_invocation":
+        return ChatDisplayMessage(
+            role="user",
+            kind="user",
+            content=content,
+            attachments=list(attachments),
+            timestamp=timestamp,
+            message_id=message_id,
+            message_kind=message_kind,
+            persona_id=persona_id,
+            turn_id=turn_id,
+            label=label_payload,
+            payload=dict(payload) if isinstance(payload, dict) else None,
+        )
+    if message_kind == "command_result":
+        return ChatDisplayMessage(
+            role=role,
+            kind="status",
+            content=content,
+            timestamp=timestamp,
+            message_id=message_id,
+            message_kind=message_kind,
+            persona_id=persona_id,
+            turn_id=turn_id,
+            payload=dict(payload) if isinstance(payload, dict) else None,
+            label=label_payload,
+        )
     if message_kind in {"assistant_final", "assistant_interim", "assistant_reaction", "assistant_rhythm_segment"}:
         return ChatDisplayMessage(
             role=role,
@@ -101,6 +128,18 @@ def row_to_display_message(row: sqlite3.Row) -> ChatDisplayMessage | None:
             label=label_payload,
         )
     if message_kind == "background_task_completion":
+        return ChatDisplayMessage(
+            role=role,
+            kind="status",
+            content=content,
+            timestamp=timestamp,
+            message_id=message_id,
+            message_kind=message_kind,
+            persona_id=persona_id,
+            turn_id=turn_id,
+            payload=dict(payload) if isinstance(payload, dict) else None,
+        )
+    if message_kind == "background_task_pending":
         return ChatDisplayMessage(
             role=role,
             kind="status",

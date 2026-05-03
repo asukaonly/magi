@@ -417,6 +417,11 @@
       "owner_file": "backend/src/magi/api/routers/background_tasks.py"
     },
     {
+      "prefix": "/api/commands",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/commands.py"
+    },
+    {
       "prefix": "/api/config",
       "owner": "python-ipc",
       "owner_file": "backend/src/magi/api/routers/config.py"
@@ -440,6 +445,11 @@
       "prefix": "/api/local-reranker",
       "owner": "python-ipc",
       "owner_file": "backend/src/magi/api/routers/local_reranker.py"
+    },
+    {
+      "prefix": "/api/mcp",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/mcp.py"
     },
     {
       "prefix": "/api/memory",

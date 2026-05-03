@@ -267,3 +267,90 @@ async def test_falls_back_to_default_title_when_spec_title_blank(
 
     assert record is not None
     assert "[Background task] Background task" in (record.content_text or "")
+
+
+@pytest.mark.asyncio
+async def test_pending_message_id_replaces_pending_row_on_completion(
+    chat_store: ChatStore,
+) -> None:
+    """Skill-as-background flow writes a pending row, then completion should mark it replaced."""
+    import uuid as _uuid
+    from magi.chat import ChatMessageRecord
+
+    pending_id = f"msg_{_uuid.uuid4().hex[:16]}"
+    pending = ChatMessageRecord(
+        message_id=pending_id,
+        session_id="s1",
+        turn_id=None,
+        user_id="u1",
+        role="system",
+        message_kind="background_task_pending",
+        content_text="[Background task] /deep-scan\n(running…)",
+        payload_json='{"background_task_id":"","background_task_status":"pending"}',
+        is_final=False,
+        is_visible=True,
+        created_at_ms=1_700_000_000_000,
+        sequence_no=1,
+        replaces_message_id=None,
+        replaced_by_message_id=None,
+    )
+    await chat_store.append_message(pending)
+
+    service = _make_service(chat_store)
+    task = _make_task(title="/deep-scan", summary="all clean")
+    task.spec.pending_message_id = pending_id
+
+    record = await service.deliver_background_task_completion(task)
+    assert record is not None
+    assert record.replaces_message_id == pending_id
+
+    # Pending row should now carry replaced_by_message_id pointing to the
+    # completion record, so the read API filters it out.
+    refreshed = await chat_store.get_message(pending_id)
+    assert refreshed is not None
+    assert refreshed.replaced_by_message_id == record.message_id
+
+
+@pytest.mark.asyncio
+async def test_pending_message_id_propagates_for_failed_task(
+    chat_store: ChatStore,
+) -> None:
+    import uuid as _uuid
+    from magi.chat import ChatMessageRecord
+
+    pending_id = f"msg_{_uuid.uuid4().hex[:16]}"
+    pending = ChatMessageRecord(
+        message_id=pending_id,
+        session_id="s1",
+        turn_id=None,
+        user_id="u1",
+        role="system",
+        message_kind="background_task_pending",
+        content_text="[Background task] /deep-scan\n(running…)",
+        payload_json='{"background_task_id":""}',
+        is_final=False,
+        is_visible=True,
+        created_at_ms=1_700_000_000_000,
+        sequence_no=1,
+        replaces_message_id=None,
+        replaced_by_message_id=None,
+    )
+    await chat_store.append_message(pending)
+
+    service = _make_service(chat_store)
+    task = _make_task(
+        status=BackgroundTaskStatus.FAILED,
+        summary=None,
+        error="boom",
+    )
+    task.spec.pending_message_id = pending_id
+
+    record = await service.deliver_background_task_completion(task)
+    assert record is not None
+    assert record.message_kind == "background_task_completion"
+    assert record.replaces_message_id == pending_id
+    assert "boom" in (record.content_text or "")
+
+    refreshed = await chat_store.get_message(pending_id)
+    assert refreshed is not None
+    assert refreshed.replaced_by_message_id == record.message_id

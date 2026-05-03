@@ -8,6 +8,7 @@ from ..core.container import get_container
 
 if TYPE_CHECKING:
     from .indexer import SkillIndexer
+    from .loader import SkillLoader
 
 
 def _require_skills_binding(provider_name: str) -> Any:
@@ -23,3 +24,8 @@ def _require_skills_binding(provider_name: str) -> Any:
 def resolve_skill_indexer() -> "SkillIndexer":
     """Return the active skill indexer binding."""
     return cast("SkillIndexer", _require_skills_binding("skill_indexer"))
+
+
+def resolve_skill_loader() -> "SkillLoader":
+    """Return the active skill loader binding."""
+    return cast("SkillLoader", _require_skills_binding("skill_loader"))

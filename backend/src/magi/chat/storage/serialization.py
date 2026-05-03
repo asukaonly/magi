@@ -61,6 +61,11 @@ def public_attachment_payloads(
         "encoding",
         "page_count",
         "parse_error",
+        # MCP resource attachments — references plus pre-read content.
+        "server_id",
+        "uri",
+        "resolved_text",
+        "resolved_error",
     }
     public_payloads: list[dict[str, object]] = []
     for item in attachment_payloads:

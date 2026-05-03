@@ -131,7 +131,15 @@ def _build_latest_user_message_content(
     for attachment in attachments:
         if not isinstance(attachment, dict):
             continue
-        if str(attachment.get("kind") or "").strip() != "image":
+        kind = str(attachment.get("kind") or "").strip()
+
+        if kind == "mcp_resource":
+            resolved_text = attachment.get("resolved_text")
+            if isinstance(resolved_text, str) and resolved_text.strip():
+                blocks.append({"type": "text", "text": resolved_text})
+            continue
+
+        if kind != "image":
             continue
         storage_path = str(attachment.get("storage_path") or "").strip()
         if not storage_path and user_id and session_id:

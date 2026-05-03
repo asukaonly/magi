@@ -491,6 +491,50 @@
       "unsupportedFiles": "Ignored {{count}} unsupported files. Only text files and PDFs are supported.",
       "uploadFailed": "Failed to upload attachments: {{message}}"
     },
+    "mentions": {
+      "label": "Insert resource",
+      "heading": "MCP resources",
+      "loading": "Loading…",
+      "empty": "No matching resources. Make sure an MCP server is running."
+    },
+    "commands": {
+      "label": "Run command",
+      "heading": "Commands",
+      "loading": "Loading…",
+      "empty": "No matching commands.",
+      "kindInternal": "built-in",
+      "kindTool": "tool",
+      "kindSkill": "skill",
+      "forkLabel": "fork",
+      "forkBadge": "Runs as background task",
+      "dangerous": "Dangerous tool — will request confirmation",
+      "dangerousNotice": "This is a dangerous tool. You will be prompted to approve it.",
+      "dialogDescription": "Provide the arguments for this command. The result will be inserted into the chat timeline.",
+      "noArguments": "This command takes no arguments.",
+      "run": "Run",
+      "cancel": "Cancel",
+      "nothingToCancel": "No active run to cancel.",
+      "errors": {
+        "required": "This field is required.",
+        "integer": "Must be an integer.",
+        "number": "Must be a number.",
+        "boolean": "Must be true or false.",
+        "array_json": "Must be a JSON array.",
+        "object_json": "Must be a JSON object."
+      }
+    },
+    "skills": {
+      "dialogDescription": "Provide arguments for this skill. The expanded prompt will be sent as your next message.",
+      "argsLabel": "Arguments",
+      "send": "Send",
+      "cancel": "Cancel",
+      "forkNotice": "This skill runs as a background task. The result will appear here when finished — you can keep chatting in the meantime.",
+      "backgroundQueued": "Started {{title}} in the background.",
+      "backgroundRunning": "Background task running",
+      "backgroundPendingBadge": "Pending",
+      "backgroundCancel": "Cancel",
+      "backgroundCancelRequested": "Cancellation requested."
+    },
     "sendFailed": "Failed to send message",
     "clearFailed": "Failed to clear chat",
     "cleared": "Chat cleared",
@@ -705,6 +749,7 @@
       "plugins": "Plugins",
       "pluginsInstalled": "Installed",
       "pluginsMarketplace": "Marketplace",
+      "mcpServers": "MCP Servers",
       "tools": "Tools",
       "toolsBuiltin": "Built-in Tools",
       "toolsPlugins": "Plugin Tools",
@@ -726,6 +771,77 @@
     "control": {
       "title": "Safety and execution",
       "description": "Set the default approval mode and whether execution waits for plan approval."
+    },
+    "mcp": {
+      "summary": "{{servers}} servers · {{tools}} tools",
+      "refresh": "Refresh",
+      "loading": "Loading MCP servers…",
+      "empty": "No MCP servers configured. Add one to expose its tools and resources to chat.",
+      "confirmDelete": "Stop and remove MCP server \"{{id}}\"?",
+      "toolsAndResources": "{{tools}} tools · {{resources}} resources",
+      "importHint": "Import accepts mcp.json or claude_desktop_config.json. Servers are persisted under ~/.magi/config/mcp/.",
+      "actions": {
+        "add": "Add server",
+        "import": "Import…",
+        "edit": "Edit",
+        "delete": "Delete",
+        "start": "Start",
+        "stop": "Stop",
+        "more": "More actions",
+        "viewLogs": "View logs"
+      },
+      "state": {
+        "connected": "Connected",
+        "connecting": "Connecting",
+        "disconnected": "Disconnected",
+        "disabled": "Disabled",
+        "error": "Error"
+      },
+      "editor": {
+        "createTitle": "Add MCP server",
+        "editTitle": "Edit MCP server",
+        "description": "Servers are persisted to ~/.magi/config/mcp/<id>.toml. Reconnects use exponential backoff.",
+        "id": "Server ID",
+        "name": "Display name",
+        "descriptionLabel": "Description",
+        "enabled": "Enabled",
+        "autostart": "Start on launch",
+        "transport": "Transport:",
+        "command": "Command",
+        "args": "Arguments (space-separated)",
+        "env": "Environment (KEY=VALUE per line)",
+        "url": "Endpoint URL",
+        "headers": "Headers (HEADER=VALUE per line)",
+        "advancedShow": "Show advanced",
+        "advancedHide": "Hide advanced",
+        "callTimeout": "Call timeout (ms)",
+        "initTimeout": "Init timeout (ms)",
+        "maxRestart": "Max restart attempts",
+        "toolOverrides": "Tool overrides (JSON)",
+        "toolOverridesHint": "Map of tool name to {dangerous: true|false} to force the safety classification.",
+        "save": "Save",
+        "cancel": "Cancel",
+        "errors": {
+          "command": "Command is required for stdio transport.",
+          "url": "URL is required for HTTP transport.",
+          "tool_overrides": "Tool overrides must be valid JSON."
+        }
+      },
+      "logs": {
+        "title": "Logs · {{id}}",
+        "description": "Latest 500 stderr lines from the running server (stdio only).",
+        "loading": "Loading logs…",
+        "empty": "No log output yet."
+      },
+      "import": {
+        "title": "Import MCP servers",
+        "description": "Pick which servers from the imported file to install.",
+        "empty": "No MCP servers found in this file.",
+        "conflict": "already exists",
+        "confirm": "Import",
+        "parseEmpty": "No mcpServers entries found in the file.",
+        "parseFailed": "Could not parse file: {{message}}"
+      }
     },
     "defaultChatWorkspacePlaceholder": "No default directory selected",
     "defaultChatWorkspacePickFailed": "Failed to choose a default chat directory: {{message}}",

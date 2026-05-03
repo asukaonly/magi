@@ -30,6 +30,7 @@ from ..events.lifecycle import (
     RuntimeCommandQueueModule,
 )
 from ..llm.lifecycle import LLMRuntimeModule
+from ..mcp.lifecycle import MCPModule
 from ..memory.lifecycle import (
     L2MaintenanceScheduleRegistrationModule,
     L3SummaryScheduleRegistrationModule,
@@ -119,6 +120,7 @@ def _build_stateful_service_modules(context: RuntimeBootstrapContext) -> list[Li
         _build_runtime_trace_module(context),
         ToolsModule(context),
         SkillsModule(context),
+        MCPModule(context),
         PersonalityModule(context),
         SensorModule(context),
         ContextModule(context),

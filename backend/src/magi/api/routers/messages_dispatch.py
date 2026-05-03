@@ -7,6 +7,7 @@ import time
 from fastapi import APIRouter, HTTPException
 
 from ...core.logger import get_logger
+from ...mcp.attachment_resolver import resolve_attachment_resources
 from ...runtime_defaults import DEFAULT_RUNTIME_NAMESPACE
 from ...utils.agent_logger import get_agent_logger
 from .messages_common import legacy_messages_module
@@ -84,7 +85,9 @@ async def send_user_message(request: UserMessageRequest):
             user_id=request.user_id,
             message=request.message,
             session_id=request.session_id,
-            attachments=list(request.attachments or []),
+            attachments=await resolve_attachment_resources(
+                list(request.attachments or [])
+            ),
             reply_to_message_id=normalized_reply_to_message_id,
             workspace_path=request.workspace_path,
             client_turn_id=request.client_turn_id,

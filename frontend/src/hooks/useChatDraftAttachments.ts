@@ -78,6 +78,27 @@ export interface DraftAttachment {
   previewUrl?: string;
 }
 
+export interface DraftMcpResourceAttachment {
+  id: string;
+  kind: 'mcp_resource';
+  serverId: string;
+  uri: string;
+  name: string;
+  mimeType?: string;
+  description?: string;
+}
+
+export type ComposerDraftItem = DraftAttachment | DraftMcpResourceAttachment;
+
+export const isFileDraftAttachment = (
+  item: ComposerDraftItem,
+): item is DraftAttachment =>
+  item.kind === 'image' || item.kind === 'file';
+
+export const isMcpDraftAttachment = (
+  item: ComposerDraftItem,
+): item is DraftMcpResourceAttachment => item.kind === 'mcp_resource';
+
 interface DraftAttachmentResolution {
   nextAttachments: DraftAttachment[];
   droppedForVision: boolean;
@@ -203,8 +224,8 @@ export function useChatDraftAttachments({
   translate,
 }: UseChatDraftAttachmentsOptions) {
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
-  const [draftAttachments, setDraftAttachments] = useState<DraftAttachment[]>([]);
-  const draftAttachmentsRef = useRef<DraftAttachment[]>([]);
+  const [draftAttachments, setDraftAttachments] = useState<ComposerDraftItem[]>([]);
+  const draftAttachmentsRef = useRef<ComposerDraftItem[]>([]);
   const onSessionResetRef = useRef(onSessionReset);
 
   useEffect(() => {
@@ -217,7 +238,7 @@ export function useChatDraftAttachments({
 
   useEffect(() => () => {
     draftAttachmentsRef.current.forEach((attachment) => {
-      if (attachment.previewUrl) {
+      if (isFileDraftAttachment(attachment) && attachment.previewUrl) {
         URL.revokeObjectURL(attachment.previewUrl);
       }
     });
@@ -246,7 +267,7 @@ export function useChatDraftAttachments({
         return current;
       }
       current.forEach((attachment) => {
-        if (attachment.previewUrl) {
+        if (isFileDraftAttachment(attachment) && attachment.previewUrl) {
           URL.revokeObjectURL(attachment.previewUrl);
         }
       });
@@ -263,7 +284,7 @@ export function useChatDraftAttachments({
   const removeDraftAttachment = useCallback((attachmentId: string) => {
     setDraftAttachments((current) => {
       const target = current.find((attachment) => attachment.id === attachmentId);
-      if (target?.previewUrl) {
+      if (target && isFileDraftAttachment(target) && target.previewUrl) {
         URL.revokeObjectURL(target.previewUrl);
       }
       return current.filter((attachment) => attachment.id !== attachmentId);
@@ -275,13 +296,19 @@ export function useChatDraftAttachments({
       return;
     }
 
+    const fileDrafts = draftAttachmentsRef.current.filter(
+      isFileDraftAttachment,
+    );
+    const otherDrafts = draftAttachmentsRef.current.filter(
+      (item) => !isFileDraftAttachment(item),
+    );
     const resolution = resolveDraftAttachments(
-      draftAttachmentsRef.current,
+      fileDrafts,
       files,
       coreModelSupportsVision,
     );
 
-    setDraftAttachments(resolution.nextAttachments);
+    setDraftAttachments([...otherDrafts, ...resolution.nextAttachments]);
 
     if (resolution.droppedForVision) {
       toast.warning(translate('chat.attachments.visionRequired'));
@@ -299,6 +326,29 @@ export function useChatDraftAttachments({
       toast.warning(translate('chat.attachments.unsupportedFiles', { count: resolution.droppedUnsupportedCount }));
     }
   }, [coreModelSupportsVision, translate]);
+
+  const addMcpResourceDraft = useCallback(
+    (resource: Omit<DraftMcpResourceAttachment, 'id' | 'kind'>) => {
+      setDraftAttachments((current) => {
+        const dupe = current.find(
+          (item) =>
+            isMcpDraftAttachment(item) &&
+            item.serverId === resource.serverId &&
+            item.uri === resource.uri,
+        );
+        if (dupe) {
+          return current;
+        }
+        const next: DraftMcpResourceAttachment = {
+          id: createDraftAttachmentId(),
+          kind: 'mcp_resource',
+          ...resource,
+        };
+        return [...current, next];
+      });
+    },
+    [],
+  );
 
   const handleAttachmentInputChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     addDraftAttachments(Array.from(event.target.files || []));
@@ -322,6 +372,7 @@ export function useChatDraftAttachments({
     draftAttachments,
     clearDraftAttachments,
     removeDraftAttachment,
+    addMcpResourceDraft,
     handleAttachmentInputChange,
     handleComposerPaste,
     setAttachmentMenuOpen,

@@ -156,6 +156,22 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/sessions/{session_id}/permissions": {"GET"},
         "/sessions/{session_id}/ask": {"GET"},
     },
+    "mcp": {
+        "/servers": {"GET", "POST"},
+        "/servers/{server_id}": {"PATCH", "DELETE"},
+        "/servers/{server_id}/start": {"POST"},
+        "/servers/{server_id}/stop": {"POST"},
+        "/servers/{server_id}/logs": {"GET"},
+        "/resources": {"GET"},
+        "/resources/read": {"POST"},
+    },
+    "commands": {
+        "/": {"GET"},
+        "/run": {"POST"},
+        "/skills": {"GET"},
+        "/expand-skill": {"POST"},
+        "/run-skill-as-background": {"POST"},
+    },
 
 }
 
@@ -195,6 +211,8 @@ def register_api_routes(app: FastAPI) -> None:
         background_tasks_router,
         schedules_router,
         control_router,
+        mcp_router,
+        commands_router,
     )
 
     app.include_router(
@@ -280,4 +298,14 @@ def register_api_routes(app: FastAPI) -> None:
         _build_public_router(control_router, _PUBLIC_ROUTE_METHODS["control"]),
         prefix="/api/control",
         tags=["Control"],
+    )
+    app.include_router(
+        _build_public_router(mcp_router, _PUBLIC_ROUTE_METHODS["mcp"]),
+        prefix="/api/mcp",
+        tags=["MCP"],
+    )
+    app.include_router(
+        _build_public_router(commands_router, _PUBLIC_ROUTE_METHODS["commands"]),
+        prefix="/api/commands",
+        tags=["Commands"],
     )

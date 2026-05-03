@@ -5,12 +5,10 @@ import type { ChatAttachment } from '@/api';
 import { DEFAULT_USER_ID } from '@/constants';
 import { APP_EVENTS } from '@/constants/events';
 import { createClientTurnId, type ChatTimelineReplyPreview } from '@/domain/chat/state';
+import type { ComposerDraftItem } from './useChatDraftAttachments';
+import { isFileDraftAttachment, isMcpDraftAttachment } from './useChatDraftAttachments';
 
 const USER_ID = DEFAULT_USER_ID;
-
-type UploadableDraftAttachment = {
-  file: File;
-};
 
 export type PendingTurnPayload = {
   sessionId: string;
@@ -26,7 +24,7 @@ export type UseChatSendMessageOptions = {
   currentSessionId: string | null;
   currentWorkspacePath: string | null | undefined;
   inputValue: string;
-  draftAttachments: UploadableDraftAttachment[];
+  draftAttachments: ComposerDraftItem[];
   replyTarget: ChatTimelineReplyPreview | null;
   allowInterjection: boolean;
   appendPendingTurn: (payload: PendingTurnPayload) => void;
@@ -37,6 +35,17 @@ export type UseChatSendMessageOptions = {
   onPendingResponseTurn: (turnId: string) => void;
   translate: (key: string, options?: Record<string, unknown>) => string;
 };
+
+const mcpResourceToChatAttachment = (
+  item: Extract<ComposerDraftItem, { kind: 'mcp_resource' }>,
+): ChatAttachment => ({
+  attachment_id: item.id,
+  kind: 'mcp_resource',
+  original_name: item.name || item.uri,
+  mime_type: item.mimeType,
+  server_id: item.serverId,
+  uri: item.uri,
+});
 
 export function useChatSendMessage({
   currentSessionId,
@@ -58,15 +67,24 @@ export function useChatSendMessage({
   const uploadDraftAttachments = useCallback(async (
     sessionId: string,
     turnId: string,
-    attachments: UploadableDraftAttachment[],
+    drafts: ComposerDraftItem[],
   ): Promise<ChatAttachment[]> => {
-    if (!attachments.length) {
+    if (!drafts.length) {
       return [];
     }
 
-    return Promise.all(
-      attachments.map((attachment) => messagesApi.uploadAttachment(USER_ID, sessionId, turnId, attachment.file))
-    );
+    const fileDrafts = drafts.filter(isFileDraftAttachment);
+    const mcpDrafts = drafts.filter(isMcpDraftAttachment);
+
+    const uploaded = fileDrafts.length === 0
+      ? []
+      : await Promise.all(
+        fileDrafts.map((draft) =>
+          messagesApi.uploadAttachment(USER_ID, sessionId, turnId, draft.file),
+        ),
+      );
+
+    return [...uploaded, ...mcpDrafts.map(mcpResourceToChatAttachment)];
   }, []);
 
   const handleSendMessage = useCallback(async () => {

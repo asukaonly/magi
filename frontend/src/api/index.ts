@@ -129,3 +129,31 @@ export type {
   TodoItemDTO,
   TodoStatus,
 } from './modules/control';
+
+export { mcpApi } from './modules/mcp';
+export type {
+  MCPHttpTransport,
+  MCPResource,
+  MCPRuntime,
+  MCPServerCreatePayload,
+  MCPServerLogs,
+  MCPServerState,
+  MCPServerStatus,
+  MCPStdioTransport,
+  MCPTransport,
+  MCPTransportKind,
+} from './modules/mcp';
+
+export { commandsApi } from './modules/commands';
+export type {
+  CommandDescriptor,
+  CommandParameter,
+  CommandParameterType,
+  ExpandSkillRequest,
+  ExpandSkillResponse,
+  RunCommandRequest,
+  RunCommandResponse,
+  RunSkillAsBackgroundRequest,
+  RunSkillAsBackgroundResponse,
+  SkillCommandDescriptor,
+} from './modules/commands';

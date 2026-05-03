@@ -1,6 +1,10 @@
 import { motion } from 'framer-motion';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
+import { Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
+import { backgroundTasksApi } from '@/api';
 import { Button } from '@/components/ui/button';
 import { MarkdownBlock } from '@/components/ui/markdown-block';
 import { OPEN_ASK_REQUEST_EVENT, OPEN_PERMISSION_REQUEST_EVENT } from '@/components/control/ui-events';
@@ -32,6 +36,98 @@ const toneClassNameByTone = {
   success: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300',
 } as const;
 
+type BackgroundTaskPendingPresentation = Extract<
+  ReturnType<typeof projectControlStatusCardPresentation>,
+  { kind: 'background_task_pending' }
+>;
+
+const BackgroundTaskPendingCard = ({
+  message,
+  presentation,
+  shouldReduceMotion,
+}: {
+  message: ChatTimelineMessage;
+  presentation: BackgroundTaskPendingPresentation;
+  shouldReduceMotion: boolean;
+}) => {
+  const { t } = useTranslation('app');
+  const navigate = useNavigate();
+  const [cancelling, setCancelling] = useState(false);
+
+  const handleCancel = async () => {
+    if (!presentation.taskId) return;
+    setCancelling(true);
+    try {
+      await backgroundTasksApi.cancel(presentation.taskId, 'user_requested');
+      toast.success(
+        t('chat.skills.backgroundCancelRequested', {
+          defaultValue: 'Cancellation requested.',
+        }),
+      );
+    } catch (exc: any) {
+      toast.error(exc?.message ?? String(exc));
+    } finally {
+      setCancelling(false);
+    }
+  };
+
+  const title =
+    presentation.title || presentation.invocationText || t('tasks.chatCard.defaultTitle');
+
+  return (
+    <motion.div
+      {...cardMotionProps(shouldReduceMotion)}
+      key={message.id}
+      className="mb-5 flex justify-center"
+    >
+      <div className="flex w-full max-w-[75%] flex-col gap-2 rounded-xl border border-border/40 bg-background/60 px-4 py-3 shadow-sm">
+        <div className="flex items-center gap-2">
+          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            {t('chat.skills.backgroundRunning', {
+              defaultValue: 'Background task running',
+            })}
+          </span>
+          <span className="ml-auto inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium border-border/60 bg-muted/40 text-muted-foreground">
+            {t('chat.skills.backgroundPendingBadge', {
+              defaultValue: 'Pending',
+            })}
+          </span>
+        </div>
+        <div className="text-sm font-semibold text-foreground">{title}</div>
+        <div className="flex items-center justify-end gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2 text-xs"
+            onClick={() => {
+              if (presentation.taskId) {
+                navigate(`/tasks?taskId=${encodeURIComponent(presentation.taskId)}`);
+                return;
+              }
+              navigate('/tasks');
+            }}
+          >
+            {t('tasks.chatCard.viewDetails')}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+            onClick={() => void handleCancel()}
+            disabled={cancelling || !presentation.taskId}
+          >
+            {cancelling ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : null}
+            {t('chat.skills.backgroundCancel', { defaultValue: 'Cancel' })}
+          </Button>
+        </div>
+      </div>
+    </motion.div>
+  );
+};
+
 export const ControlStatusCard = ({ message, shouldReduceMotion }: ControlStatusCardProps) => {
   const { t } = useTranslation(['app', 'control']);
   const navigate = useNavigate();
@@ -42,6 +138,15 @@ export const ControlStatusCard = ({ message, shouldReduceMotion }: ControlStatus
   }
 
   switch (presentation.kind) {
+    case 'background_task_pending': {
+      return (
+        <BackgroundTaskPendingCard
+          message={message}
+          presentation={presentation}
+          shouldReduceMotion={shouldReduceMotion}
+        />
+      );
+    }
     case 'background_task_completion': {
       const title = presentation.title || t('tasks.chatCard.defaultTitle');
       const statusLabelKey = `tasks.chatCard.status.${presentation.status || 'unknown'}`;
