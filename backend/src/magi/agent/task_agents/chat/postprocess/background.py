@@ -34,6 +34,8 @@ class ChatPostprocessBackgroundMixin:
         if not session_id or not user_id:
             return None
 
+        pending_message_id = (spec.pending_message_id or "").strip() or None
+
         summary_body = (task.summary or "").strip()
         if task.status is BackgroundTaskStatus.SUCCEEDED and summary_body:
             return await self._deliver_assistant_output_message(
@@ -42,6 +44,7 @@ class ChatPostprocessBackgroundMixin:
                 user_id=user_id,
                 body=summary_body,
                 summary_max_chars=summary_max_chars,
+                pending_message_id=pending_message_id,
             )
 
         title = (spec.title or "").strip() or "Background task"
@@ -80,10 +83,15 @@ class ChatPostprocessBackgroundMixin:
             is_visible=True,
             created_at_ms=completed_at_ms,
             sequence_no=await host._chat_store.next_sequence_no(session_id=session_id),
-            replaces_message_id=None,
+            replaces_message_id=pending_message_id,
             replaced_by_message_id=None,
         )
         await host._chat_store.append_message(record)
+        if pending_message_id is not None:
+            await host._chat_store.mark_message_replaced(
+                message_id=pending_message_id,
+                replaced_by_message_id=record.message_id,
+            )
         await host._chat_store.bump_history_version(session_id)
         return record
 
@@ -95,6 +103,7 @@ class ChatPostprocessBackgroundMixin:
         user_id: str,
         body: str,
         summary_max_chars: int,
+        pending_message_id: str | None = None,
     ) -> ChatMessageRecord | None:
         host = cast(_BackgroundPostprocessHostProtocol, self)
         title = (task.spec.title or "").strip() or "Background task"
@@ -123,9 +132,14 @@ class ChatPostprocessBackgroundMixin:
             is_visible=True,
             created_at_ms=completed_at_ms,
             sequence_no=await host._chat_store.next_sequence_no(session_id=session_id),
-            replaces_message_id=None,
+            replaces_message_id=pending_message_id,
             replaced_by_message_id=None,
         )
         await host._chat_store.append_message(record)
+        if pending_message_id is not None:
+            await host._chat_store.mark_message_replaced(
+                message_id=pending_message_id,
+                replaced_by_message_id=record.message_id,
+            )
         await host._chat_store.bump_history_version(session_id)
         return record

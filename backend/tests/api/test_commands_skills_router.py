@@ -187,9 +187,35 @@ def _stub_manager(monkeypatch):
     return enqueued
 
 
+def _stub_chat_store(monkeypatch):
+    """Wire a fake ChatStore that records appended messages."""
+    appended: list = []
+
+    class _Store:
+        async def append_message(self, record, **kwargs):
+            # The runner calls append twice (placeholder + patched).
+            # Replace any prior copy of the same message_id so the test
+            # sees the final state, mirroring INSERT OR REPLACE in real SQL.
+            for i, existing in enumerate(appended):
+                if existing.message_id == record.message_id:
+                    appended[i] = record
+                    return
+            appended.append(record)
+
+        async def next_sequence_no(self, *, session_id: str) -> int:
+            return len(appended) + 1
+
+        async def bump_history_version(self, session_id: str) -> None:
+            return None
+
+    monkeypatch.setattr(commands_module, "get_chat_store", lambda: _Store())
+    return appended
+
+
 def test_run_skill_as_background_enqueues_task(client):
     c, monkeypatch = client
     enqueued = _stub_manager(monkeypatch)
+    appended = _stub_chat_store(monkeypatch)
 
     r = c.post(
         "/api/commands/run-skill-as-background",
@@ -204,22 +230,34 @@ def test_run_skill_as_background_enqueues_task(client):
     assert body["title"] == "/deep-scan"
     assert body["selected_tools"] == ["read_file", "list_files"]
     assert body["task_id"]
+    assert body["pending_message_id"]
 
     assert len(enqueued) == 1
     spec = enqueued[0]
     assert spec.session_id == "s1"
     assert spec.workspace_path == "/tmp/work"
     assert spec.trigger_source == BackgroundTaskTriggerSource.MANUAL
+    assert spec.pending_message_id == body["pending_message_id"]
     assert "Scan workspace" in spec.goal
-    # PWD substitution carried through.
     assert spec.goal.endswith("for security issues.")
     assert "/tmp/work" in spec.goal
     assert spec.selected_tools == ["read_file", "list_files"]
+
+    # Pending row was written with the patched task_id payload.
+    assert len(appended) == 1
+    pending = appended[0]
+    assert pending.message_kind == "background_task_pending"
+    assert pending.message_id == body["pending_message_id"]
+    import json as _json
+    payload = _json.loads(pending.payload_json)
+    assert payload["background_task_id"] == body["task_id"]
+    assert payload["skill_name"] == "deep-scan"
 
 
 def test_run_skill_as_background_rejects_inline_skill(client):
     c, monkeypatch = client
     _stub_manager(monkeypatch)
+    _stub_chat_store(monkeypatch)
     r = c.post(
         "/api/commands/run-skill-as-background",
         json={"session_id": "s1", "skill_name": "pr-review"},
@@ -231,6 +269,7 @@ def test_run_skill_as_background_rejects_inline_skill(client):
 def test_run_skill_as_background_404_for_missing(client):
     c, monkeypatch = client
     _stub_manager(monkeypatch)
+    _stub_chat_store(monkeypatch)
     r = c.post(
         "/api/commands/run-skill-as-background",
         json={"session_id": "s1", "skill_name": "ghost"},
@@ -241,6 +280,7 @@ def test_run_skill_as_background_404_for_missing(client):
 def test_run_skill_as_background_403_for_non_invocable(client):
     c, monkeypatch = client
     _stub_manager(monkeypatch)
+    _stub_chat_store(monkeypatch)
     r = c.post(
         "/api/commands/run-skill-as-background",
         json={"session_id": "s1", "skill_name": "internal-only"},
@@ -250,6 +290,7 @@ def test_run_skill_as_background_403_for_non_invocable(client):
 
 def test_run_skill_as_background_503_when_manager_unavailable(client):
     c, monkeypatch = client
+    _stub_chat_store(monkeypatch)
 
     def _missing():
         raise RuntimeError("manager binding not initialized")

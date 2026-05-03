@@ -144,6 +144,7 @@ export interface RunSkillAsBackgroundResponse {
   title: string;
   invocation_text: string;
   selected_tools: string[];
+  pending_message_id: string;
 }
 
 export default commandsApi;

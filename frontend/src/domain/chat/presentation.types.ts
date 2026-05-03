@@ -111,6 +111,13 @@ export type ProjectedControlStatusCardPresentation =
     bodyText: string | null;
   }
   | {
+    kind: 'background_task_pending';
+    taskId: string | null;
+    title: string | null;
+    invocationText: string | null;
+    skillName: string | null;
+  }
+  | {
     kind: 'permission_request';
     requestId: string | null;
     tool: string;

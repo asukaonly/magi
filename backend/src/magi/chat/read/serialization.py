@@ -139,6 +139,18 @@ def row_to_display_message(row: sqlite3.Row) -> ChatDisplayMessage | None:
             turn_id=turn_id,
             payload=dict(payload) if isinstance(payload, dict) else None,
         )
+    if message_kind == "background_task_pending":
+        return ChatDisplayMessage(
+            role=role,
+            kind="status",
+            content=content,
+            timestamp=timestamp,
+            message_id=message_id,
+            message_kind=message_kind,
+            persona_id=persona_id,
+            turn_id=turn_id,
+            payload=dict(payload) if isinstance(payload, dict) else None,
+        )
     return None
 
 

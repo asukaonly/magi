@@ -85,6 +85,15 @@ class BackgroundTaskSpec:
     detached foreground run hands off its in-progress state to the
     background worker without losing any context.
     """
+    pending_message_id: str | None = None
+    """Id of the placeholder ``background_task_pending`` chat message.
+
+    When set, ``deliver_background_task_completion`` will mark the
+    pending row replaced by the freshly written completion row, so the
+    UI displays exactly one entry for the task across its lifecycle.
+    Only set by the ``/api/commands/run-skill-as-background`` flow
+    today; legacy detach paths leave it ``None``.
+    """
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -106,6 +115,7 @@ class BackgroundTaskSpec:
                 if self.initial_messages is not None
                 else None
             ),
+            "pending_message_id": self.pending_message_id,
         }
 
     @classmethod
@@ -135,6 +145,11 @@ class BackgroundTaskSpec:
             initial_messages=(
                 [dict(m) for m in data["initial_messages"]]
                 if data.get("initial_messages") is not None
+                else None
+            ),
+            pending_message_id=(
+                str(data["pending_message_id"])
+                if data.get("pending_message_id") is not None
                 else None
             ),
         )

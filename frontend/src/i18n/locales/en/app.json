@@ -529,7 +529,11 @@
       "send": "Send",
       "cancel": "Cancel",
       "forkNotice": "This skill runs as a background task. The result will appear here when finished — you can keep chatting in the meantime.",
-      "backgroundQueued": "Started {{title}} in the background."
+      "backgroundQueued": "Started {{title}} in the background.",
+      "backgroundRunning": "Background task running",
+      "backgroundPendingBadge": "Pending",
+      "backgroundCancel": "Cancel",
+      "backgroundCancelRequested": "Cancellation requested."
     },
     "sendFailed": "Failed to send message",
     "clearFailed": "Failed to clear chat",

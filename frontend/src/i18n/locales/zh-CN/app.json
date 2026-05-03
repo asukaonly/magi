@@ -529,7 +529,11 @@
       "send": "发送",
       "cancel": "取消",
       "forkNotice": "该技能会作为后台任务运行，完成后结果会出现在这里——期间你仍可正常对话。",
-      "backgroundQueued": "已在后台启动 {{title}}。"
+      "backgroundQueued": "已在后台启动 {{title}}。",
+      "backgroundRunning": "后台任务运行中",
+      "backgroundPendingBadge": "执行中",
+      "backgroundCancel": "取消",
+      "backgroundCancelRequested": "已请求取消。"
     },
     "sendFailed": "发送消息失败",
     "clearFailed": "清空对话失败",

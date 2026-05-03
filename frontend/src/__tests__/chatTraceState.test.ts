@@ -594,6 +594,28 @@ describe('chat trace state helpers', () => {
       title: 'Repo sync',
       bodyText: 'Finished successfully',
     });
+
+    expect(projectControlStatusCardPresentation({
+      id: 'bg-pending:msg-1',
+      role: 'system',
+      kind: 'status',
+      messageKind: 'background_task_pending',
+      content: '[Background task] /deep-scan\n(running…)',
+      timestamp: 1100,
+      payload: {
+        background_task_id: 'task-2',
+        background_task_status: 'pending',
+        background_task_title: '/deep-scan',
+        skill_name: 'deep-scan',
+        invocation_text: '/deep-scan',
+      },
+    })).toMatchObject({
+      kind: 'background_task_pending',
+      taskId: 'task-2',
+      title: '/deep-scan',
+      skillName: 'deep-scan',
+      invocationText: '/deep-scan',
+    });
   });
 
   it('adds a runtime status card when trace activity begins', () => {

@@ -21,6 +21,9 @@ The completion is delivered back via the existing
 
 from __future__ import annotations
 
+import json
+import time as _time
+import uuid
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -32,6 +35,8 @@ from ...agent.background.contracts import (
 )
 from ...agent.background.provider import resolve_background_task_manager
 from ...agent.control.permission.provider import get_permission_gateway
+from ...chat import ChatMessageRecord
+from ...chat.provider import get_chat_store
 from ...commands import CommandRunner
 from ...core.logger import get_logger
 from ...runtime_defaults import DEFAULT_USER_ID
@@ -272,6 +277,7 @@ class RunSkillAsBackgroundResponse(BaseModel):
     title: str
     invocation_text: str
     selected_tools: list[str]
+    pending_message_id: str
 
 
 @commands_router.post(
@@ -323,6 +329,41 @@ async def run_skill_as_background(
 
     title = expansion.invocation_text or f"/{request.skill_name}"
     selected_tools = list(expansion.allowed_tools or [])
+
+    # Step 1: pre-mint the pending message_id and write a placeholder
+    # status row to the chat timeline. Cancel/restore on the client uses
+    # this row's payload.task_id; we patch that in once enqueue lands.
+    pending_message_id = f"msg_{uuid.uuid4().hex[:16]}"
+    chat_store = get_chat_store()
+    now_ms = int(_time.time() * 1000)
+    pending_payload: dict[str, Any] = {
+        "background_task_id": "",
+        "background_task_status": "pending",
+        "background_task_title": title,
+        "trigger_source": BackgroundTaskTriggerSource.MANUAL.value,
+        "skill_name": expansion.name,
+        "invocation_text": expansion.invocation_text,
+    }
+    pending_record = ChatMessageRecord(
+        message_id=pending_message_id,
+        session_id=request.session_id,
+        turn_id=None,
+        user_id=request.user_id,
+        role="system",
+        message_kind="background_task_pending",
+        content_text=f"[Background task] {title}\n(running…)",
+        payload_json=json.dumps(pending_payload, ensure_ascii=False),
+        is_final=False,
+        is_visible=True,
+        created_at_ms=now_ms,
+        sequence_no=await chat_store.next_sequence_no(session_id=request.session_id),
+        replaces_message_id=None,
+        replaced_by_message_id=None,
+    )
+    await chat_store.append_message(pending_record)
+    await chat_store.bump_history_version(request.session_id)
+
+    # Step 2: build the spec carrying the pending message id, then enqueue.
     spec = BackgroundTaskSpec(
         user_id=request.user_id,
         session_id=request.session_id,
@@ -334,11 +375,23 @@ async def run_skill_as_background(
         trigger_source=BackgroundTaskTriggerSource.MANUAL,
         max_iterations=int(request.max_iterations),
         timeout_seconds=request.timeout_seconds,
+        pending_message_id=pending_message_id,
     )
     task = await manager.enqueue(spec)
+
+    # Step 3: patch the pending row's payload to embed the real task_id so
+    # the UI's cancel button can target the right task. The completion
+    # listener — which may have already fired for very short tasks —
+    # marks this row replaced via mark_message_replaced(), independent of
+    # this update.
+    pending_payload["background_task_id"] = task.task_id
+    pending_record.payload_json = json.dumps(pending_payload, ensure_ascii=False)
+    await chat_store.append_message(pending_record)
+
     return RunSkillAsBackgroundResponse(
         task_id=task.task_id,
         title=title,
         invocation_text=expansion.invocation_text,
         selected_tools=selected_tools,
+        pending_message_id=pending_message_id,
     )

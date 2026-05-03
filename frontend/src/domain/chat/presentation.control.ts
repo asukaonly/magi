@@ -8,6 +8,7 @@ import type {
 
 const CONTROL_STATUS_MESSAGE_KINDS = new Set([
   'background_task_completion',
+  'background_task_pending',
   'plan_state',
   'todo_state',
   'ask_request',
@@ -127,6 +128,15 @@ export const projectControlStatusCardPresentation = (
         statusTone: getBackgroundTaskTone(status),
         title: String(payload.background_task_title || '').trim() || null,
         bodyText: bodyText || null,
+      };
+    }
+    case 'background_task_pending': {
+      return {
+        kind: 'background_task_pending',
+        taskId: String(payload.background_task_id || '').trim() || null,
+        title: String(payload.background_task_title || '').trim() || null,
+        invocationText: String(payload.invocation_text || '').trim() || null,
+        skillName: String(payload.skill_name || '').trim() || null,
       };
     }
     case 'permission_request': {
