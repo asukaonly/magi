@@ -143,3 +143,12 @@ export type {
   MCPTransport,
   MCPTransportKind,
 } from './modules/mcp';
+
+export { commandsApi } from './modules/commands';
+export type {
+  CommandDescriptor,
+  CommandParameter,
+  CommandParameterType,
+  RunCommandRequest,
+  RunCommandResponse,
+} from './modules/commands';

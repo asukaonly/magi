@@ -497,6 +497,29 @@
       "loading": "Loading…",
       "empty": "No matching resources. Make sure an MCP server is running."
     },
+    "commands": {
+      "label": "Run command",
+      "heading": "Commands",
+      "loading": "Loading…",
+      "empty": "No matching commands.",
+      "kindInternal": "built-in",
+      "kindTool": "tool",
+      "dangerous": "Dangerous tool — will request confirmation",
+      "dangerousNotice": "This is a dangerous tool. You will be prompted to approve it.",
+      "dialogDescription": "Provide the arguments for this command. The result will be inserted into the chat timeline.",
+      "noArguments": "This command takes no arguments.",
+      "run": "Run",
+      "cancel": "Cancel",
+      "nothingToCancel": "No active run to cancel.",
+      "errors": {
+        "required": "This field is required.",
+        "integer": "Must be an integer.",
+        "number": "Must be a number.",
+        "boolean": "Must be true or false.",
+        "array_json": "Must be a JSON array.",
+        "object_json": "Must be a JSON object."
+      }
+    },
     "sendFailed": "Failed to send message",
     "clearFailed": "Failed to clear chat",
     "cleared": "Chat cleared",

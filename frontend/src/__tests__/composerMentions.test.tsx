@@ -1,6 +1,5 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
-import { renderHook } from '@testing-library/react';
 import { useChatComposerMentions } from '@/hooks/useChatComposerMentions';
 import { ComposerMentionPicker } from '@/components/chat/ComposerMentionPicker';
 import { useRef } from 'react';
@@ -50,31 +49,6 @@ beforeEach(() => {
 });
 
 describe('useChatComposerMentions', () => {
-  function setup(initial: string) {
-    const TestHarness = () => {
-      const ref = useRef<HTMLTextAreaElement>(null);
-      const valueRef = useRef(initial);
-      const drafts: any[] = [];
-      const hook = useChatComposerMentions({
-        inputValue: valueRef.current,
-        setInputValue: (v) => {
-          valueRef.current = v;
-        },
-        textareaRef: ref,
-        addMcpResourceDraft: (r) => drafts.push(r),
-      });
-      return (
-        <div>
-          <textarea ref={ref} value={valueRef.current} readOnly />
-          <button data-testid="trigger" onClick={() => hook.onValueChange(valueRef.current)} />
-          <div data-testid="open">{String(hook.state.open)}</div>
-          <div data-testid="items">{hook.items.length}</div>
-        </div>
-      );
-    };
-    return TestHarness;
-  }
-
   it('opens the picker when @ is typed at word boundary', async () => {
     const Harness = () => {
       const ref = useRef<HTMLTextAreaElement>(null);

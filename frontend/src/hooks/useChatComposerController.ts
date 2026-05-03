@@ -120,6 +120,7 @@ export function useChatComposerController({
     handleCompositionStart,
     imageInputRef,
     inputValue,
+    pendingResponseTurnId,
     removeDraftAttachment,
     replyTarget,
     sendingMessage,

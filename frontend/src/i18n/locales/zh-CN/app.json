@@ -497,6 +497,29 @@
       "loading": "加载中…",
       "empty": "没有匹配的资源。请确认 MCP 服务器已启动。"
     },
+    "commands": {
+      "label": "运行命令",
+      "heading": "命令",
+      "loading": "加载中…",
+      "empty": "没有匹配的命令。",
+      "kindInternal": "内置",
+      "kindTool": "工具",
+      "dangerous": "危险工具 — 执行前会要求确认",
+      "dangerousNotice": "这是危险工具，执行前会要求你确认。",
+      "dialogDescription": "为该命令填写参数。结果会插入到对话时间线。",
+      "noArguments": "该命令不需要参数。",
+      "run": "运行",
+      "cancel": "取消",
+      "nothingToCancel": "当前没有运行可取消。",
+      "errors": {
+        "required": "此项必填。",
+        "integer": "必须是整数。",
+        "number": "必须是数字。",
+        "boolean": "必须是 true 或 false。",
+        "array_json": "必须是 JSON 数组。",
+        "object_json": "必须是 JSON 对象。"
+      }
+    },
     "sendFailed": "发送消息失败",
     "clearFailed": "清空对话失败",
     "cleared": "对话已清空",

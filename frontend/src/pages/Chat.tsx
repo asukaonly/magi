@@ -18,7 +18,13 @@ import { ChatComposerPane } from '@/components/chat/ChatComposerPane';
 import { ChatPageOverlays } from '@/components/chat/ChatPageOverlays';
 import { ChatTimelinePane } from '@/components/chat/ChatTimelinePane';
 import { ComposerMentionPicker } from '@/components/chat/ComposerMentionPicker';
+import { ComposerSlashPicker } from '@/components/chat/ComposerSlashPicker';
+import { ToolArgsDialog } from '@/components/chat/ToolArgsDialog';
 import { useChatComposerMentions } from '@/hooks/useChatComposerMentions';
+import { useChatComposerCommands } from '@/hooks/useChatComposerCommands';
+import { commandsApi, messagesApi, type CommandDescriptor } from '@/api';
+import { DEFAULT_USER_ID } from '@/constants';
+import { toast } from 'sonner';
 import { isTranscriptMessage } from '@/domain/chat/presentation';
 const DEFAULT_CHAT_WORKSPACE_DISPLAY = '~/.magi/chat-workspace';
 const toPlainText = (content: string): string => String(content || '')
@@ -151,6 +157,7 @@ export const ChatPage: React.FC = () => {
     handleCompositionStart,
     imageInputRef,
     inputValue,
+    pendingResponseTurnId,
     removeDraftAttachment,
     replyTarget,
     sendingMessage,
@@ -178,20 +185,98 @@ export const ChatPage: React.FC = () => {
     addMcpResourceDraft,
   });
 
+  const [toolDialogDescriptor, setToolDialogDescriptor] = useState<CommandDescriptor | null>(null);
+
+  const handleInternalCommand = React.useCallback(
+    async (action: 'clear' | 'new-session' | 'cancel' | 'help') => {
+      try {
+        if (action === 'clear') {
+          if (!currentSessionId) {
+            toast.warning(t('chat.sessionRequired'));
+            return;
+          }
+          await messagesApi.clearHistory(DEFAULT_USER_ID, currentSessionId);
+          toast.success(t('chat.cleared'));
+          return;
+        }
+        if (action === 'new-session') {
+          const created = await messagesApi.createNewSession(DEFAULT_USER_ID);
+          const newId = created?.session_id ?? null;
+          if (newId) {
+            setCurrentSessionId(String(newId));
+            toast.success(t('chat.sessionSwitched'));
+          }
+          return;
+        }
+        if (action === 'cancel') {
+          if (!pendingResponseTurnId) {
+            toast.info(t('chat.commands.nothingToCancel', { defaultValue: 'No active run to cancel.' }));
+            return;
+          }
+          await requestRunCancel(pendingResponseTurnId);
+          return;
+        }
+        if (action === 'help') {
+          const list = await commandsApi.list();
+          const lines = list.map((c) => `/${c.name} — ${c.description}`).join('\n');
+          toast.message('Commands', {
+            description: lines || t('chat.commands.empty', { defaultValue: 'No matching commands.' }),
+          });
+        }
+      } catch (exc: any) {
+        toast.error(exc?.message ?? String(exc));
+      }
+    },
+    [currentSessionId, pendingResponseTurnId, requestRunCancel, setCurrentSessionId, t],
+  );
+
+  const handleToolPicked = React.useCallback((descriptor: CommandDescriptor) => {
+    setToolDialogDescriptor(descriptor);
+  }, []);
+
+  const handleRunTool = React.useCallback(
+    async (descriptor: CommandDescriptor, args: Record<string, unknown>, invocationText: string) => {
+      if (!currentSessionId) {
+        throw new Error(t('chat.sessionRequired'));
+      }
+      const result = await commandsApi.run({
+        user_id: DEFAULT_USER_ID,
+        session_id: currentSessionId,
+        tool_name: descriptor.name,
+        arguments: args,
+        invocation_text: invocationText,
+        workspace_path: currentSession?.workspace_path ?? null,
+      });
+      if (!result.success && result.error) {
+        toast.error(result.error);
+      }
+    },
+    [currentSession?.workspace_path, currentSessionId, t],
+  );
+
+  const commands = useChatComposerCommands({
+    setInputValue,
+    textareaRef: composerTextareaRef,
+    onPickInternal: handleInternalCommand,
+    onPickTool: handleToolPicked,
+  });
+
   const handleInputChangeWithMentions = React.useCallback(
     (next: string) => {
       setInputValue(next);
       mentions.onValueChange(next);
+      commands.onValueChange(next);
     },
-    [mentions, setInputValue],
+    [commands, mentions, setInputValue],
   );
 
   const handleKeyDownWithMentions = React.useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (mentions.onKeyDown(event)) return;
+      if (commands.onKeyDown(event)) return;
       handleComposerKeyDown(event);
     },
-    [handleComposerKeyDown, mentions],
+    [commands, handleComposerKeyDown, mentions],
   );
 
   useEffect(() => {
@@ -347,17 +432,36 @@ export const ChatPage: React.FC = () => {
         fileInputRef={fileInputRef}
         onAttachmentInputChange={handleAttachmentInputChange}
         pickerSlot={
-          <ComposerMentionPicker
-            open={mentions.state.open}
-            query={mentions.state.open ? mentions.state.query : ''}
-            items={mentions.items}
-            activeIndex={mentions.state.open ? mentions.state.activeIndex : 0}
-            loading={mentions.loading}
-            error={mentions.error}
-            onSelect={mentions.select}
-            onActiveIndexChange={() => undefined}
-          />
+          <>
+            <ComposerMentionPicker
+              open={mentions.state.open}
+              query={mentions.state.open ? mentions.state.query : ''}
+              items={mentions.items}
+              activeIndex={mentions.state.open ? mentions.state.activeIndex : 0}
+              loading={mentions.loading}
+              error={mentions.error}
+              onSelect={mentions.select}
+              onActiveIndexChange={() => undefined}
+            />
+            <ComposerSlashPicker
+              open={commands.state.open}
+              query={commands.state.open ? commands.state.query : ''}
+              items={commands.items}
+              activeIndex={commands.state.open ? commands.state.activeIndex : 0}
+              loading={commands.loading}
+              error={commands.error}
+              onSelect={commands.select}
+              onActiveIndexChange={() => undefined}
+            />
+          </>
         }
+      />
+
+      <ToolArgsDialog
+        open={toolDialogDescriptor !== null}
+        descriptor={toolDialogDescriptor}
+        onClose={() => setToolDialogDescriptor(null)}
+        onRun={handleRunTool}
       />
 
       <ChatPageOverlays
