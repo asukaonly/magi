@@ -504,6 +504,7 @@
       "empty": "没有匹配的命令。",
       "kindInternal": "内置",
       "kindTool": "工具",
+      "kindSkill": "技能",
       "dangerous": "危险工具 — 执行前会要求确认",
       "dangerousNotice": "这是危险工具，执行前会要求你确认。",
       "dialogDescription": "为该命令填写参数。结果会插入到对话时间线。",
@@ -519,6 +520,12 @@
         "array_json": "必须是 JSON 数组。",
         "object_json": "必须是 JSON 对象。"
       }
+    },
+    "skills": {
+      "dialogDescription": "为该技能填写参数。展开后的提示会作为下一条消息发送。",
+      "argsLabel": "参数",
+      "send": "发送",
+      "cancel": "取消"
     },
     "sendFailed": "发送消息失败",
     "clearFailed": "清空对话失败",

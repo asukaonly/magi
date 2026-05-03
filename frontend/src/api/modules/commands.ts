@@ -69,6 +69,51 @@ export const commandsApi = {
     const response = await api.post<RunCommandResponse>('/commands/run', request);
     return unwrap(response as RunCommandResponse | ApiResponse<RunCommandResponse>);
   },
+
+  listSkills: async (): Promise<SkillCommandDescriptor[]> => {
+    const response = await api.get<{ data: SkillCommandDescriptor[] }>(
+      '/commands/skills',
+    );
+    const body = unwrap(
+      response as { data: SkillCommandDescriptor[] } | ApiResponse<{ data: SkillCommandDescriptor[] }>,
+    );
+    return body?.data ?? [];
+  },
+
+  expandSkill: async (request: ExpandSkillRequest): Promise<ExpandSkillResponse> => {
+    const response = await api.post<ExpandSkillResponse>(
+      '/commands/expand-skill',
+      request,
+    );
+    return unwrap(response as ExpandSkillResponse | ApiResponse<ExpandSkillResponse>);
+  },
 };
+
+export interface SkillCommandDescriptor {
+  name: string;
+  description: string;
+  argument_hint?: string | null;
+  category?: string | null;
+  tags: string[];
+  context_mode?: string | null;
+}
+
+export interface ExpandSkillRequest {
+  user_id?: string;
+  session_id: string;
+  skill_name: string;
+  arguments?: string[];
+  workspace_path?: string | null;
+}
+
+export interface ExpandSkillResponse {
+  name: string;
+  rendered_prompt: string;
+  invocation_text: string;
+  description: string;
+  argument_hint?: string | null;
+  allowed_tools?: string[] | null;
+  context_mode?: string | null;
+}
 
 export default commandsApi;

@@ -504,6 +504,7 @@
       "empty": "No matching commands.",
       "kindInternal": "built-in",
       "kindTool": "tool",
+      "kindSkill": "skill",
       "dangerous": "Dangerous tool — will request confirmation",
       "dangerousNotice": "This is a dangerous tool. You will be prompted to approve it.",
       "dialogDescription": "Provide the arguments for this command. The result will be inserted into the chat timeline.",
@@ -519,6 +520,12 @@
         "array_json": "Must be a JSON array.",
         "object_json": "Must be a JSON object."
       }
+    },
+    "skills": {
+      "dialogDescription": "Provide arguments for this skill. The expanded prompt will be sent as your next message.",
+      "argsLabel": "Arguments",
+      "send": "Send",
+      "cancel": "Cancel"
     },
     "sendFailed": "Failed to send message",
     "clearFailed": "Failed to clear chat",

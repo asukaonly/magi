@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import { useRef } from 'react';
 import { useChatComposerCommands } from '@/hooks/useChatComposerCommands';
 import { ComposerSlashPicker } from '@/components/chat/ComposerSlashPicker';
+import { SkillArgsDialog } from '@/components/chat/SkillArgsDialog';
 import { ToolArgsDialog } from '@/components/chat/ToolArgsDialog';
 
 vi.mock('@/api/client', () => ({
@@ -27,9 +28,18 @@ const TOOL_LIST = [
   { name: 'rm', description: 'Remove a file', category: 'test', dangerous: true, parameters: [{ name: 'path', type: 'string', required: true }] },
 ];
 
+const SKILL_LIST = [
+  { name: 'pr-review', description: 'Review a pull request', argument_hint: '<pr_number>', tags: [] },
+  { name: 'standup', description: 'Daily standup template', tags: [] },
+];
+
 beforeEach(() => {
   vi.mocked(api.get).mockReset();
-  vi.mocked(api.get).mockResolvedValue({ data: TOOL_LIST } as any);
+  vi.mocked(api.get).mockImplementation(async (url: string) => {
+    if (url === '/commands/') return { data: TOOL_LIST } as any;
+    if (url === '/commands/skills') return { data: SKILL_LIST } as any;
+    return { data: [] } as any;
+  });
   vi.mocked(api.post).mockReset();
 });
 
@@ -46,6 +56,7 @@ describe('useChatComposerCommands', () => {
         textareaRef: ref,
         onPickInternal: () => undefined,
         onPickTool: () => undefined,
+        onPickSkill: () => undefined,
       });
       return (
         <div>
@@ -84,6 +95,7 @@ describe('useChatComposerCommands', () => {
         textareaRef: ref,
         onPickInternal: () => undefined,
         onPickTool: () => undefined,
+        onPickSkill: () => undefined,
       });
       return (
         <div>
@@ -125,6 +137,7 @@ describe('useChatComposerCommands', () => {
         textareaRef: ref,
         onPickInternal,
         onPickTool: () => undefined,
+        onPickSkill: () => undefined,
       });
       return (
         <div>
@@ -167,6 +180,7 @@ describe('useChatComposerCommands', () => {
         textareaRef: ref,
         onPickInternal: () => undefined,
         onPickTool,
+        onPickSkill: () => undefined,
       });
       return (
         <div>
@@ -198,6 +212,52 @@ describe('useChatComposerCommands', () => {
     });
     expect(onPickTool).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'echo' }),
+    );
+  });
+
+  it('select on skill command invokes onPickSkill', async () => {
+    const onPickSkill = vi.fn();
+    const Harness = () => {
+      const ref = useRef<HTMLTextAreaElement>(null);
+      const hook = useChatComposerCommands({
+        setInputValue: () => undefined,
+        textareaRef: ref,
+        onPickInternal: () => undefined,
+        onPickTool: () => undefined,
+        onPickSkill,
+      });
+      return (
+        <div>
+          <textarea ref={ref} defaultValue="/pr" />
+          <button
+            data-testid="open"
+            onClick={() => {
+              if (ref.current) ref.current.setSelectionRange(3, 3);
+              hook.onValueChange('/pr');
+            }}
+          />
+          <button
+            data-testid="select-skill"
+            onClick={() => {
+              const item = hook.items.find(
+                (i) => i.source === 'skill' && i.name === 'pr-review',
+              );
+              if (item) hook.select(item);
+            }}
+          />
+        </div>
+      );
+    };
+    render(<Harness />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('open'));
+    });
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/commands/skills'));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('select-skill'));
+    });
+    expect(onPickSkill).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'pr-review' }),
     );
   });
 });
@@ -315,7 +375,7 @@ describe('ToolArgsDialog', () => {
     fireEvent.change(numberInputs[0], { target: { value: '3' } });
     fireEvent.click(screen.getByRole('button', { name: 'Run' }));
     await waitFor(() => expect(onRun).toHaveBeenCalled());
-    const [, args, invText] = onRun.mock.calls[0];
+    const [, args, invText] = onRun.mock.calls[0] as [unknown, Record<string, unknown>, string];
     expect(args).toEqual({ text: 'hi', count: 3 });
     expect(invText).toBe('/echo text=hi count=3');
   });
@@ -336,5 +396,54 @@ describe('ToolArgsDialog', () => {
       />,
     );
     expect(screen.getByText(/dangerous tool/i)).toBeTruthy();
+  });
+});
+
+describe('SkillArgsDialog', () => {
+  it('renders argument hint and forwards args text on submit', async () => {
+    const onSubmit = vi.fn(async () => undefined);
+    render(
+      <SkillArgsDialog
+        open
+        descriptor={{
+          name: 'pr-review',
+          description: 'Review a pull request',
+          argument_hint: '<pr_number>',
+          tags: [],
+        }}
+        onClose={() => undefined}
+        onSubmit={onSubmit}
+      />,
+    );
+    expect(screen.getByText(/pr-review/)).toBeTruthy();
+    expect(screen.getByText('<pr_number>')).toBeTruthy();
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: '123' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    const [desc, argsText] = onSubmit.mock.calls[0] as [{ name: string }, string];
+    expect(desc.name).toBe('pr-review');
+    expect(argsText).toBe('123');
+  });
+
+  it('Enter key submits the dialog', async () => {
+    const onSubmit = vi.fn(async () => undefined);
+    render(
+      <SkillArgsDialog
+        open
+        descriptor={{
+          name: 'pr-review',
+          description: '',
+          argument_hint: '<pr>',
+          tags: [],
+        }}
+        onClose={() => undefined}
+        onSubmit={onSubmit}
+      />,
+    );
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: '99' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
   });
 });

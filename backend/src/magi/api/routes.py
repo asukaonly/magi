@@ -168,6 +168,8 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
     "commands": {
         "/": {"GET"},
         "/run": {"POST"},
+        "/skills": {"GET"},
+        "/expand-skill": {"POST"},
     },
 
 }

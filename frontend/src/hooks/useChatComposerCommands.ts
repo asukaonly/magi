@@ -15,13 +15,13 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type React from 'react';
-import { commandsApi, type CommandDescriptor } from '@/api';
+import { commandsApi, type CommandDescriptor, type SkillCommandDescriptor } from '@/api';
 import { fuzzyScore } from '@/lib/fuzzyMatch';
 import { MRUCache } from '@/lib/mruCache';
 
 const mruCache = new MRUCache('commands');
 
-export type SlashCommandSource = 'internal' | 'tool';
+export type SlashCommandSource = 'internal' | 'tool' | 'skill';
 
 export type SlashInternalAction =
   | 'clear'
@@ -44,6 +44,13 @@ export type SlashCommandItem =
     description: string;
     dangerous: boolean;
     descriptor: CommandDescriptor;
+  }
+  | {
+    source: 'skill';
+    name: string;
+    description: string;
+    argumentHint?: string;
+    descriptor: SkillCommandDescriptor;
   };
 
 type SlashState =
@@ -111,6 +118,7 @@ interface UseChatComposerCommandsOptions {
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
   onPickInternal: (action: SlashInternalAction) => void | Promise<void>;
   onPickTool: (descriptor: CommandDescriptor) => void;
+  onPickSkill: (descriptor: SkillCommandDescriptor) => void;
 }
 
 export function useChatComposerCommands({
@@ -118,9 +126,11 @@ export function useChatComposerCommands({
   textareaRef,
   onPickInternal,
   onPickTool,
+  onPickSkill,
 }: UseChatComposerCommandsOptions) {
   const [state, setState] = useState<SlashState>({ open: false });
   const [tools, setTools] = useState<CommandDescriptor[]>([]);
+  const [skills, setSkills] = useState<SkillCommandDescriptor[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fetchedAtRef = useRef<number>(0);
@@ -133,8 +143,12 @@ export function useChatComposerCommands({
     setLoading(true);
     setError(null);
     try {
-      const list = await commandsApi.list();
-      setTools(list);
+      const [toolList, skillList] = await Promise.all([
+        commandsApi.list().catch(() => [] as CommandDescriptor[]),
+        commandsApi.listSkills().catch(() => [] as SkillCommandDescriptor[]),
+      ]);
+      setTools(toolList);
+      setSkills(skillList);
       fetchedAtRef.current = now;
     } catch (exc: any) {
       setError(exc?.message ?? String(exc));
@@ -154,6 +168,13 @@ export function useChatComposerCommands({
         dangerous: t.dangerous,
         descriptor: t,
       })),
+      ...skills.map<SlashCommandItem>((s) => ({
+        source: 'skill',
+        name: s.name,
+        description: s.description,
+        argumentHint: s.argument_hint ?? undefined,
+        descriptor: s,
+      })),
     ];
     const scored = merged
       .map((item) => ({
@@ -165,14 +186,16 @@ export function useChatComposerCommands({
     scored.sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
       if (b.recency !== a.recency) return b.recency - a.recency;
-      // internals before tools at equal score+recency, then alpha
-      if (a.item.source !== b.item.source) {
-        return a.item.source === 'internal' ? -1 : 1;
-      }
+      // Within equal score+recency: internals first, then skills, then tools, alpha.
+      const sourceRank = (s: SlashCommandSource) =>
+        s === 'internal' ? 0 : s === 'skill' ? 1 : 2;
+      const aRank = sourceRank(a.item.source);
+      const bRank = sourceRank(b.item.source);
+      if (aRank !== bRank) return aRank - bRank;
       return a.item.name.localeCompare(b.item.name);
     });
     return scored.map(({ item }) => item);
-  }, [state, tools]);
+  }, [skills, state, tools]);
 
   const onValueChange = useCallback(
     (nextValue: string) => {
@@ -204,14 +227,16 @@ export function useChatComposerCommands({
       close();
       if (item.source === 'internal') {
         void onPickInternal(item.action);
-      } else {
+      } else if (item.source === 'tool') {
         onPickTool(item.descriptor);
+      } else {
+        onPickSkill(item.descriptor);
       }
       requestAnimationFrame(() => {
         textareaRef.current?.focus();
       });
     },
-    [close, onPickInternal, onPickTool, setInputValue, textareaRef],
+    [close, onPickInternal, onPickSkill, onPickTool, setInputValue, textareaRef],
   );
 
   const onKeyDown = useCallback(

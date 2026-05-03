@@ -4,6 +4,12 @@
 records the call as a (command_invocation, command_result) pair in the
 chat timeline. Permission gating reuses the existing PermissionGateway so
 dangerous tools still go through brokered_prompter.
+
+`GET /api/commands/skills` lists user-invocable skills and
+`POST /api/commands/expand-skill` renders one — the rendered text is then
+sent as a normal chat message via the existing dispatch path. Skills are
+distinct from tools: a skill expansion *becomes the user's next turn*
+rather than producing a tool_result row.
 """
 
 from __future__ import annotations
@@ -17,6 +23,8 @@ from ...agent.control.permission.provider import get_permission_gateway
 from ...commands import CommandRunner
 from ...core.logger import get_logger
 from ...runtime_defaults import DEFAULT_USER_ID
+from ...skills.expander import expand_skill
+from ...skills.provider import resolve_skill_indexer
 from ...tools import tool_registry
 
 logger = get_logger(__name__)
@@ -135,3 +143,97 @@ def _resolve_notifier():
         )
 
     return _emit
+
+
+# ---------------------------------------------------------------------------
+# Skills (user-invocable, prompt-style)
+# ---------------------------------------------------------------------------
+
+
+class SkillDescriptor(BaseModel):
+    name: str
+    description: str
+    argument_hint: str | None = None
+    category: str | None = None
+    tags: list[str] = []
+    context_mode: str | None = None  # "fork" | None
+
+
+class ListSkillsResponse(BaseModel):
+    data: list[SkillDescriptor]
+
+
+@commands_router.get("/skills", response_model=ListSkillsResponse)
+async def list_user_invocable_skills() -> ListSkillsResponse:
+    try:
+        indexer = resolve_skill_indexer()
+    except RuntimeError:
+        return ListSkillsResponse(data=[])
+    out: list[SkillDescriptor] = []
+    for name in indexer.get_skill_names():
+        meta = indexer.get_metadata(name)
+        if meta is None or not meta.user_invocable:
+            continue
+        out.append(
+            SkillDescriptor(
+                name=meta.name,
+                description=meta.description or "",
+                argument_hint=meta.argument_hint,
+                category=meta.category,
+                tags=list(meta.tags or []),
+                context_mode=meta.context,
+            )
+        )
+    out.sort(key=lambda s: s.name)
+    return ListSkillsResponse(data=out)
+
+
+class ExpandSkillRequest(BaseModel):
+    user_id: str = Field(default=DEFAULT_USER_ID)
+    session_id: str = Field(default="")
+    skill_name: str = Field(..., min_length=1)
+    arguments: list[str] = Field(default_factory=list)
+    workspace_path: str | None = None
+
+
+class ExpandSkillResponse(BaseModel):
+    name: str
+    rendered_prompt: str
+    invocation_text: str
+    description: str
+    argument_hint: str | None = None
+    allowed_tools: list[str] | None = None
+    context_mode: str | None = None
+
+
+@commands_router.post("/expand-skill", response_model=ExpandSkillResponse)
+async def expand_skill_endpoint(request: ExpandSkillRequest) -> ExpandSkillResponse:
+    try:
+        expansion = expand_skill(
+            skill_name=request.skill_name,
+            arguments=request.arguments,
+            user_id=request.user_id,
+            session_id=request.session_id,
+            workspace=request.workspace_path,
+        )
+    except RuntimeError as exc:
+        # Skill loader binding not initialized yet.
+        raise HTTPException(status_code=503, detail=str(exc))
+    if expansion is None:
+        raise HTTPException(
+            status_code=404, detail=f"Skill {request.skill_name!r} not found"
+        )
+    if not expansion.user_invocable:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Skill {request.skill_name!r} is not user-invocable",
+        )
+    return ExpandSkillResponse(
+        name=expansion.name,
+        rendered_prompt=expansion.rendered_prompt,
+        invocation_text=expansion.invocation_text,
+        description=expansion.description,
+        argument_hint=expansion.argument_hint,
+        allowed_tools=expansion.allowed_tools,
+        context_mode=expansion.context_mode,
+    )

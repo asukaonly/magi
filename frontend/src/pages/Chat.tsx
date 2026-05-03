@@ -19,10 +19,11 @@ import { ChatPageOverlays } from '@/components/chat/ChatPageOverlays';
 import { ChatTimelinePane } from '@/components/chat/ChatTimelinePane';
 import { ComposerMentionPicker } from '@/components/chat/ComposerMentionPicker';
 import { ComposerSlashPicker } from '@/components/chat/ComposerSlashPicker';
+import { SkillArgsDialog } from '@/components/chat/SkillArgsDialog';
 import { ToolArgsDialog } from '@/components/chat/ToolArgsDialog';
 import { useChatComposerMentions } from '@/hooks/useChatComposerMentions';
 import { useChatComposerCommands } from '@/hooks/useChatComposerCommands';
-import { commandsApi, messagesApi, type CommandDescriptor } from '@/api';
+import { commandsApi, messagesApi, type CommandDescriptor, type SkillCommandDescriptor } from '@/api';
 import { DEFAULT_USER_ID } from '@/constants';
 import { toast } from 'sonner';
 import { isTranscriptMessage } from '@/domain/chat/presentation';
@@ -186,6 +187,7 @@ export const ChatPage: React.FC = () => {
   });
 
   const [toolDialogDescriptor, setToolDialogDescriptor] = useState<CommandDescriptor | null>(null);
+  const [skillDialogDescriptor, setSkillDialogDescriptor] = useState<SkillCommandDescriptor | null>(null);
 
   const handleInternalCommand = React.useCallback(
     async (action: 'clear' | 'new-session' | 'cancel' | 'help') => {
@@ -234,6 +236,51 @@ export const ChatPage: React.FC = () => {
     setToolDialogDescriptor(descriptor);
   }, []);
 
+  const handleSkillPicked = React.useCallback(
+    async (descriptor: SkillCommandDescriptor) => {
+      // If the skill declares no argument_hint, expand immediately and submit.
+      // Otherwise open a small dialog so the user can fill them in.
+      if (!descriptor.argument_hint) {
+        try {
+          await runSkillExpansion(descriptor, '');
+        } catch (exc: any) {
+          toast.error(exc?.message ?? String(exc));
+        }
+      } else {
+        setSkillDialogDescriptor(descriptor);
+      }
+    },
+    [],
+  );
+
+  const runSkillExpansion = React.useCallback(
+    async (descriptor: SkillCommandDescriptor, argsText: string) => {
+      if (!currentSessionId) {
+        throw new Error(t('chat.sessionRequired'));
+      }
+      const args = argsText.trim()
+        ? argsText.trim().split(/\s+/)
+        : [];
+      const expansion = await commandsApi.expandSkill({
+        user_id: DEFAULT_USER_ID,
+        session_id: currentSessionId,
+        skill_name: descriptor.name,
+        arguments: args,
+        workspace_path: currentSession?.workspace_path ?? null,
+      });
+      // Compose the message body: invocation header + rendered prompt.
+      const body =
+        `${expansion.invocation_text}\n\n${expansion.rendered_prompt}`.trim();
+      await messagesApi.sendMessage({
+        user_id: DEFAULT_USER_ID,
+        session_id: currentSessionId,
+        message: body,
+        workspace_path: currentSession?.workspace_path ?? null,
+      });
+    },
+    [currentSession?.workspace_path, currentSessionId, t],
+  );
+
   const handleRunTool = React.useCallback(
     async (descriptor: CommandDescriptor, args: Record<string, unknown>, invocationText: string) => {
       if (!currentSessionId) {
@@ -259,6 +306,7 @@ export const ChatPage: React.FC = () => {
     textareaRef: composerTextareaRef,
     onPickInternal: handleInternalCommand,
     onPickTool: handleToolPicked,
+    onPickSkill: handleSkillPicked,
   });
 
   const handleInputChangeWithMentions = React.useCallback(
@@ -462,6 +510,13 @@ export const ChatPage: React.FC = () => {
         descriptor={toolDialogDescriptor}
         onClose={() => setToolDialogDescriptor(null)}
         onRun={handleRunTool}
+      />
+
+      <SkillArgsDialog
+        open={skillDialogDescriptor !== null}
+        descriptor={skillDialogDescriptor}
+        onClose={() => setSkillDialogDescriptor(null)}
+        onSubmit={runSkillExpansion}
       />
 
       <ChatPageOverlays

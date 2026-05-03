@@ -149,6 +149,9 @@ export type {
   CommandDescriptor,
   CommandParameter,
   CommandParameterType,
+  ExpandSkillRequest,
+  ExpandSkillResponse,
   RunCommandRequest,
   RunCommandResponse,
+  SkillCommandDescriptor,
 } from './modules/commands';

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, Loader2, Slash, Wrench } from 'lucide-react';
+import { AlertTriangle, Loader2, Slash, Sparkles, Wrench } from 'lucide-react';
 import type { SlashCommandItem } from '@/hooks/useChatComposerCommands';
 
 type ComposerSlashPickerProps = {
@@ -72,7 +72,18 @@ export const ComposerSlashPicker = ({
       <ul className="max-h-72 overflow-y-auto py-1">
         {items.map((item, index) => {
           const active = index === activeIndex;
-          const Icon = item.source === 'internal' ? Slash : Wrench;
+          const Icon =
+            item.source === 'internal'
+              ? Slash
+              : item.source === 'skill'
+                ? Sparkles
+                : Wrench;
+          const kindLabel =
+            item.source === 'internal'
+              ? t('chat.commands.kindInternal')
+              : item.source === 'skill'
+                ? t('chat.commands.kindSkill', { defaultValue: 'skill' })
+                : t('chat.commands.kindTool');
           return (
             <li
               key={`${item.source}|${item.name}`}
@@ -99,16 +110,17 @@ export const ComposerSlashPicker = ({
                       aria-label={t('chat.commands.dangerous')}
                     />
                   ) : null}
+                  {item.source === 'skill' && item.argumentHint ? (
+                    <span className="text-xs font-normal text-muted-foreground">
+                      {item.argumentHint}
+                    </span>
+                  ) : null}
                 </div>
                 <div className="truncate text-xs text-muted-foreground">
                   {item.description}
                 </div>
               </div>
-              <span className="text-xs text-muted-foreground/70">
-                {item.source === 'internal'
-                  ? t('chat.commands.kindInternal')
-                  : t('chat.commands.kindTool')}
-              </span>
+              <span className="text-xs text-muted-foreground/70">{kindLabel}</span>
             </li>
           );
         })}

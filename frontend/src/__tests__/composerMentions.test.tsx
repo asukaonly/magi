@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import { useChatComposerMentions } from '@/hooks/useChatComposerMentions';
 import { ComposerMentionPicker } from '@/components/chat/ComposerMentionPicker';
