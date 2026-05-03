@@ -238,6 +238,43 @@ def test_patch_updates_and_restarts(client):
     assert body["transport"]["args"] == ["--flag"]
 
 
+def test_http_transport_headers_masked_in_responses(client):
+    c, _ = client
+    body = {
+        "server": {"id": "httpsrv", "name": "HTTP"},
+        "transport": {
+            "kind": "http",
+            "url": "https://example.com/mcp",
+            "headers": {
+                "Authorization": "Bearer secret-token-123",
+                "X-Empty": "",
+            },
+        },
+    }
+    r = c.post("/api/mcp/servers", json=body)
+    assert r.status_code == 201, r.text
+    payload = r.json()
+    # Header names visible, values masked.
+    assert payload["transport"]["headers"]["Authorization"] == "***"
+    # Empty values stay empty.
+    assert payload["transport"]["headers"]["X-Empty"] == ""
+    # Secret must not appear anywhere in response body.
+    assert "secret-token-123" not in r.text
+
+    # Also masked on listing.
+    r = c.get("/api/mcp/servers")
+    assert r.status_code == 200
+    assert "secret-token-123" not in r.text
+    listed = r.json()["data"][0]
+    assert listed["transport"]["headers"]["Authorization"] == "***"
+
+    # Single-server endpoints (start/stop) also mask.
+    r = c.post("/api/mcp/servers/httpsrv/stop")
+    assert r.status_code == 200
+    assert "secret-token-123" not in r.text
+    assert r.json()["transport"]["headers"]["Authorization"] == "***"
+
+
 def test_404_when_unknown_server(client):
     c, _ = client
     assert c.post("/api/mcp/servers/nope/start").status_code == 404

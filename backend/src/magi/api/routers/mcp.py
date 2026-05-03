@@ -48,6 +48,23 @@ def _config_path(server_id: str):
     return get_runtime_paths().mcp_config_dir / f"{server_id}.toml"
 
 
+def _mask_transport(transport_data: dict[str, Any]) -> dict[str, Any]:
+    """Mask sensitive header values for outbound API responses.
+
+    Header *names* are preserved (so the UI can show "Authorization is set"),
+    but non-empty values are replaced with a sentinel. This is read-side only;
+    on-disk config is never touched.
+    """
+    if transport_data.get("kind") != "http":
+        return transport_data
+    headers = transport_data.get("headers")
+    if not isinstance(headers, dict):
+        return transport_data
+    masked = {name: ("***" if value else "") for name, value in headers.items()}
+    transport_data["headers"] = masked
+    return transport_data
+
+
 def _serialize_status(mgr: MCPManager, cfg: MCPServerConfig) -> dict[str, Any]:
     rt = mgr._runtimes.get(cfg.server.id)  # type: ignore[attr-defined]
     if rt is None:
@@ -73,7 +90,7 @@ def _serialize_status(mgr: MCPManager, cfg: MCPServerConfig) -> dict[str, Any]:
         "description": cfg.server.description,
         "enabled": cfg.server.enabled,
         "autostart": cfg.server.autostart,
-        "transport": cfg.transport.model_dump(),
+        "transport": _mask_transport(cfg.transport.model_dump()),
         "runtime": cfg.runtime.model_dump(),
         "state": state,
         "tool_count": tool_count,
