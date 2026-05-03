@@ -165,6 +165,10 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/resources": {"GET"},
         "/resources/read": {"POST"},
     },
+    "commands": {
+        "/": {"GET"},
+        "/run": {"POST"},
+    },
 
 }
 
@@ -205,6 +209,7 @@ def register_api_routes(app: FastAPI) -> None:
         schedules_router,
         control_router,
         mcp_router,
+        commands_router,
     )
 
     app.include_router(
@@ -295,4 +300,9 @@ def register_api_routes(app: FastAPI) -> None:
         _build_public_router(mcp_router, _PUBLIC_ROUTE_METHODS["mcp"]),
         prefix="/api/mcp",
         tags=["MCP"],
+    )
+    app.include_router(
+        _build_public_router(commands_router, _PUBLIC_ROUTE_METHODS["commands"]),
+        prefix="/api/commands",
+        tags=["Commands"],
     )
