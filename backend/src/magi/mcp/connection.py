@@ -4,13 +4,18 @@ import asyncio
 import enum
 import itertools
 import logging
+import os
 from typing import Any, Callable
 
+from .config import StdioTransport
 from .protocol import (
+    FrameDecoder,
     JsonRpcNotification,
     JsonRpcRequest,
     JsonRpcResponse,
     Message,
+    encode_message,
+    parse_message,
 )
 
 logger = logging.getLogger(__name__)
@@ -95,3 +100,94 @@ class MCPConnection:
             logger.warning(
                 "server-initiated request not supported yet: %s", msg.method
             )
+
+
+class StdioConnection(MCPConnection):
+    def __init__(self, transport: StdioTransport):
+        super().__init__()
+        self._t = transport
+        self._proc: asyncio.subprocess.Process | None = None
+        self._reader_task: asyncio.Task | None = None
+        self._stderr_task: asyncio.Task | None = None
+        self._stderr_buf: list[str] = []
+
+    @property
+    def stderr_tail(self) -> list[str]:
+        return list(self._stderr_buf[-500:])
+
+    async def _start_transport(self) -> None:
+        env = {**os.environ, **self._t.env}
+        self._proc = await asyncio.create_subprocess_exec(
+            self._t.command,
+            *self._t.args,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=self._t.cwd or None,
+            env=env,
+        )
+        self.state = ConnectionState.CONNECTED
+        self._reader_task = asyncio.create_task(self._read_loop())
+        self._stderr_task = asyncio.create_task(self._stderr_loop())
+
+    async def _stop_transport(self) -> None:
+        if self._proc is None:
+            return
+        try:
+            if self._proc.returncode is None:
+                self._proc.terminate()
+                try:
+                    await asyncio.wait_for(self._proc.wait(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    self._proc.kill()
+                    await self._proc.wait()
+        finally:
+            for t in (self._reader_task, self._stderr_task):
+                if t is not None:
+                    t.cancel()
+            self.state = ConnectionState.DISCONNECTED
+
+    async def _send_raw(self, msg: Message) -> None:
+        if self._proc is None or self._proc.stdin is None:
+            raise ConnectionError("stdio not started")
+        self._proc.stdin.write(encode_message(msg))
+        await self._proc.stdin.drain()
+
+    async def _read_loop(self) -> None:
+        assert self._proc is not None and self._proc.stdout is not None
+        decoder = FrameDecoder()
+        try:
+            while True:
+                chunk = await self._proc.stdout.read(4096)
+                if not chunk:
+                    break
+                decoder.feed(chunk)
+                while True:
+                    raw = decoder.next()
+                    if raw is None:
+                        break
+                    try:
+                        msg = parse_message(raw)
+                    except Exception:
+                        logger.exception("invalid MCP message frame")
+                        continue
+                    await self._dispatch(msg)
+        except asyncio.CancelledError:
+            return
+        finally:
+            self.state = ConnectionState.DISCONNECTED
+
+    async def _stderr_loop(self) -> None:
+        assert self._proc is not None and self._proc.stderr is not None
+        try:
+            while True:
+                line = await self._proc.stderr.readline()
+                if not line:
+                    break
+                self._stderr_buf.append(
+                    line.decode("utf-8", errors="replace").rstrip()
+                )
+                if len(self._stderr_buf) > 1000:
+                    self._stderr_buf = self._stderr_buf[-500:]
+        except asyncio.CancelledError:
+            return
