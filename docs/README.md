@@ -38,7 +38,10 @@ Local-only working drafts, design spikes, and execution plans belong under `docs
 10. [Plugin Development Guide](./plugin-development-guide.md)
   Practical guide for authoring built-in or external plugins.
 
-11. [Unified Asset Resolver Architecture](./unified-asset-resolver-architecture.md)
+11. [MCP Client Integration](./mcp-integration.md)
+  Reference for connecting Magi to external Model Context Protocol servers — config format, transports, permission model, and troubleshooting.
+
+12. [Unified Asset Resolver Architecture](./unified-asset-resolver-architecture.md)
   Read this when working on reusable `asset_refs`, source-specific asset
   resolution, chat attachments, or follow-up routing from memory recall to
   plugin-owned evidence.
