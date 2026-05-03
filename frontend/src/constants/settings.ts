@@ -13,6 +13,7 @@ import {
   ScrollText,
   PlugZap,
   Radio,
+  Network,
 } from 'lucide-react';
 
 import type { NavItem } from '@/types/settings';
@@ -46,6 +47,7 @@ export const NAV_ITEMS: NavItem[] = [
     ],
   },
   { id: 'plugins', icon: PlugZap, children: [{ id: 'pluginsInstalled' }, { id: 'pluginsMarketplace' }] },
+  { id: 'mcpServers', icon: Network },
   { id: 'timeline', icon: ScrollText },
   { id: 'channels', icon: Radio },
   {

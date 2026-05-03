@@ -22,6 +22,7 @@ import { SettingsNavigationSidebar } from '@/components/settings/SettingsNavigat
 import { SettingsPersonalityRuntimeSection } from '@/components/settings/SettingsPersonalityRuntimeSection';
 import { SettingsPreferencesSection } from '@/components/settings/SettingsPreferencesSection';
 import { SettingsToolsSection } from '@/components/settings/SettingsToolsSection';
+import { MCPServersSection } from '@/components/settings/MCPServersSection';
 import TimelineSourcesSection from '@/components/settings/TimelineSourcesSection';
 import PersonalityModern from '@/pages/PersonalityModern';
 import { Button } from '@/components/ui/button';
@@ -256,6 +257,9 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             onPluginFieldsChange={handlePluginDraftChanges}
           />
         );
+
+      case 'mcpServers':
+        return <MCPServersSection />;
 
       case 'toolsBuiltin':
       case 'toolsPlugins':

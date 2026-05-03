@@ -704,6 +704,7 @@
       "plugins": "插件",
       "pluginsInstalled": "已安装",
       "pluginsMarketplace": "插件市场",
+      "mcpServers": "MCP 服务器",
       "tools": "工具",
       "toolsBuiltin": "内置工具",
       "toolsPlugins": "插件工具",
@@ -725,6 +726,46 @@
     "control": {
       "title": "安全与执行",
       "description": "设置默认审批方式，以及执行前是否先给出计划。"
+    },
+    "mcp": {
+      "summary": "{{servers}} 个服务器 · {{tools}} 个工具",
+      "refresh": "刷新",
+      "loading": "正在加载 MCP 服务器…",
+      "empty": "尚未配置 MCP 服务器。添加后其工具与资源会注入到对话中。",
+      "confirmDelete": "停止并移除 MCP 服务器 \"{{id}}\"？",
+      "toolsAndResources": "{{tools}} 个工具 · {{resources}} 个资源",
+      "actions": {
+        "add": "添加服务器",
+        "edit": "编辑",
+        "delete": "删除",
+        "start": "启动",
+        "stop": "停止"
+      },
+      "state": {
+        "connected": "已连接",
+        "connecting": "连接中",
+        "disconnected": "已断开",
+        "disabled": "已禁用",
+        "error": "错误"
+      },
+      "editor": {
+        "createTitle": "添加 MCP 服务器",
+        "editTitle": "编辑 MCP 服务器",
+        "description": "服务器配置保存在 ~/.magi/config/mcp/<id>.toml。重连采用指数退避策略。",
+        "id": "服务器 ID",
+        "name": "显示名称",
+        "descriptionLabel": "描述",
+        "enabled": "启用",
+        "autostart": "启动时自动连接",
+        "transport": "传输方式：",
+        "command": "可执行命令",
+        "args": "参数（空格分隔）",
+        "env": "环境变量（每行一个 KEY=VALUE）",
+        "url": "接入端点 URL",
+        "headers": "请求头（每行一个 HEADER=VALUE）",
+        "save": "保存",
+        "cancel": "取消"
+      }
     },
     "defaultChatWorkspacePlaceholder": "未选择默认目录",
     "defaultChatWorkspacePickFailed": "选择默认对话目录失败：{{message}}",
