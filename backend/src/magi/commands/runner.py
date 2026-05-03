@@ -129,16 +129,42 @@ class CommandRunner:
                 execution_time_ms=0,
             )
 
-        # Build a synthetic execution context. ``dangerous_tools`` permission
-        # is granted because the user-invocable contract demands explicit
-        # opt-in (metadata or whitelist) and the gateway has already
-        # adjudicated dangerous-ness above.
+        # Fail-closed when the gateway is unavailable: dangerous tools must
+        # NOT execute without explicit adjudication, and non-dangerous tools
+        # must not silently inherit the `dangerous_tools` permission.
+        tool_info = self._registry.get_tool_info(tool_name) or {}
+        tool_is_dangerous = bool(tool_info.get("dangerous", False))
+        gateway_adjudicated = gateway_decision is not None
+        if not gateway_adjudicated and tool_is_dangerous:
+            refusal = (
+                "permission gateway not available; dangerous tool execution refused"
+            )
+            return await self._append_result_message(
+                user_id=user_id,
+                session_id=session_id,
+                turn_id=turn_id,
+                invocation_message_id=invocation_msg.message_id,
+                tool_name=tool_name,
+                arguments=arguments,
+                output_text=refusal,
+                success=False,
+                error=refusal,
+                error_code=ToolErrorCode.PERMISSION_DENIED.value,
+                execution_time_ms=0,
+            )
+
+        # Build a synthetic execution context. ``dangerous_tools`` is only
+        # granted when the gateway has actually adjudicated this call —
+        # otherwise we fall back to ``authenticated`` only.
+        permissions = ["authenticated"]
+        if gateway_adjudicated:
+            permissions.append("dangerous_tools")
         ctx = ToolExecutionContext(
             agent_id=agent_id or user_id,
             task_id=turn_id,
             workspace=workspace or "",
             env_vars={"role": "user"},
-            permissions=["dangerous_tools"],
+            permissions=permissions,
             enabled_features=[],
         )
 

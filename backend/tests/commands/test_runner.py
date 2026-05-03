@@ -156,6 +156,67 @@ async def test_unknown_tool_returns_not_found(_stub_chat_store, resolver):
 
 
 @pytest.mark.asyncio
+async def test_dangerous_tool_refused_when_gateway_missing(_stub_chat_store, resolver):
+    """Fail-closed: without a permission gateway, dangerous tools are refused
+    and their `execute` is never called."""
+    dangerous = _DangerousTool()
+    execute_spy = AsyncMock(side_effect=dangerous.execute)
+    dangerous.execute = execute_spy  # type: ignore[assignment]
+    registry = _build_registry([dangerous])
+
+    runner = CommandRunner(
+        registry=registry,
+        resolver=resolver,
+        permission_gateway_provider=None,
+    )
+    result = await runner.run_tool_command(
+        user_id="u1",
+        session_id="s1",
+        tool_name="rm",
+        arguments={},
+        invocation_text="/rm",
+    )
+    assert result.success is False
+    assert result.error_code == ToolErrorCode.PERMISSION_DENIED.value
+    execute_spy.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_non_dangerous_tool_runs_without_dangerous_permission_when_gateway_missing(
+    _stub_chat_store, resolver
+):
+    """Non-dangerous tools still run when the gateway is absent, but the
+    execution context must not include `dangerous_tools`."""
+    captured_ctx: list = []
+    echo = _EchoTool()
+    original_execute = echo.execute
+
+    async def spy_execute(parameters, context):
+        captured_ctx.append(context)
+        return await original_execute(parameters, context)
+
+    echo.execute = spy_execute  # type: ignore[assignment]
+    registry = _build_registry([echo])
+
+    runner = CommandRunner(
+        registry=registry,
+        resolver=resolver,
+        permission_gateway_provider=None,
+    )
+    result = await runner.run_tool_command(
+        user_id="u1",
+        session_id="s1",
+        tool_name="echo",
+        arguments={"text": "hi"},
+        invocation_text="/echo text=hi",
+    )
+    assert result.success is True
+    assert captured_ctx, "execute was not called"
+    assert "dangerous_tools" not in captured_ctx[0].permissions
+    assert "authenticated" in captured_ctx[0].permissions
+
+
+@pytest.mark.asyncio
 async def test_dangerous_tool_blocked_by_gateway(_stub_chat_store, resolver):
     """Dangerous tool, gateway denies → result is a permission_denied row."""
     registry = _build_registry([_DangerousTool()])
