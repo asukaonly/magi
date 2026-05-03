@@ -2477,6 +2477,11 @@
     "sections": {
       "basicInfo": "基础档案",
       "basicProfile": "基础档案",
+      "identityCore": "性格底色",
+      "idiolect": "说话方式",
+      "registers": "对话模式",
+      "signatureTriggers": "触发反应",
+      "quietHours": "收敛规则",
       "coreIdentity": "核心身份",
       "psychologicalTraits": "心理特征",
       "socialResponses": "社交反应",
@@ -2492,6 +2497,25 @@
       "gender": "性别",
       "description": "描述",
       "avatar": "头像",
+      "identityStatement": "身份陈述",
+      "valuesLoved": "喜欢什么（每行一条）",
+      "valuesRejected": "讨厌什么（每行一条）",
+      "attentionBiases": "注意力偏好（每行一条）",
+      "sentenceStyle": "句式风格",
+      "vocabAvailable": "可用词汇（每行一条）",
+      "vocabAvoided": "避免词汇（每行一条）",
+      "structuralQuirks": "结构习惯（每行一条）",
+      "chatBehavior": "日常回应方式",
+      "registerDescription": "模式描述",
+      "registerBehavior": "回应方式",
+      "registerExamples": "示例（每行一条）",
+      "triggerId": "触发 ID",
+      "activatesWhen": "触发条件",
+      "intensityLevels": "强度层级（key: value）",
+      "exitBehavior": "退出行为",
+      "quietHourCondition": "收敛条件",
+      "clamps": "约束（key: value）",
+      "layerModifiers": "层级修饰（key: value）",
       "occupation": "职业",
       "innerNarrative": "内在叙事",
       "languageFingerprint": "语言指纹",
@@ -2540,6 +2564,10 @@
     "actions": {
       "addTransition": "新增状态切换",
       "removeTransition": "移除该切换",
+      "addTrigger": "新增触发反应",
+      "removeTrigger": "移除触发反应",
+      "addQuietHour": "新增收敛规则",
+      "removeQuietHour": "移除收敛规则",
       "uploadAvatar": "上传头像",
       "uploadingAvatar": "上传中...",
       "addLayer": "新增人格层",
@@ -2548,6 +2576,44 @@
       "viewLayersTitle": "查看深层人格",
       "viewLayersConfirm": "深层人格包含角色的隐藏设定和渐进解锁机制。查看后可能影响你与角色互动的发现乐趣。确定要查看吗？",
       "viewLayersReveal": "确定查看"
+    },
+    "editorModes": {
+      "quick": "快速",
+      "expert": "专家"
+    },
+    "generationStages": {
+      "base": "理解人格方向",
+      "registers": "设计对话模式",
+      "rules": "生成触发与收敛规则",
+      "layers": "整理深层人格",
+      "bootstrap": "编写初次见面与示例",
+      "appearance": "生成外观提示词",
+      "integrate": "合并并校验人格"
+    },
+    "registers": {
+      "chat": "日常",
+      "analysis": "分析",
+      "task": "任务",
+      "emotional": "情绪支持",
+      "crisis": "危机"
+    },
+    "validation": {
+      "ready": "已可保存。",
+      "missing": "保存前补充：{{fields}}",
+      "expertReady": "高级结构已完整。",
+      "expertMissing": "可继续完善：{{fields}}"
+    },
+    "validationIssues": {
+      "signatureTriggerCount": "两条触发反应",
+      "signatureTriggerShape": "完整触发反应",
+      "uniqueTriggerIds": "不重复的触发 ID",
+      "quietHourCount": "两条收敛规则",
+      "quietHourShape": "完整收敛规则",
+      "allRegisters": "全部对话模式",
+      "examplesCount": "六条对话示例",
+      "surfaceLayer": "基础深层人格",
+      "layerShape": "完整深层人格",
+      "bootstrap": "首次见面引导"
     },
     "languages": {
       "target": "生成语言",

@@ -2411,6 +2411,11 @@
     "sections": {
       "basicInfo": "Basic Profile",
       "basicProfile": "Basic Profile",
+      "identityCore": "Personality Core",
+      "idiolect": "Voice",
+      "registers": "Conversation Modes",
+      "signatureTriggers": "Trigger Reactions",
+      "quietHours": "Restraint Rules",
       "coreIdentity": "Core Identity",
       "psychologicalTraits": "Psychological Traits",
       "socialResponses": "Social Responses",
@@ -2426,6 +2431,25 @@
       "gender": "Gender",
       "description": "Description",
       "avatar": "Avatar",
+      "identityStatement": "Identity Statement",
+      "valuesLoved": "Likes (one per line)",
+      "valuesRejected": "Dislikes (one per line)",
+      "attentionBiases": "Attention Biases (one per line)",
+      "sentenceStyle": "Sentence Style",
+      "vocabAvailable": "Available Vocabulary (one per line)",
+      "vocabAvoided": "Avoided Vocabulary (one per line)",
+      "structuralQuirks": "Structural Quirks (one per line)",
+      "chatBehavior": "Daily response style",
+      "registerDescription": "Mode description",
+      "registerBehavior": "Response style",
+      "registerExamples": "Examples (one per line)",
+      "triggerId": "Trigger ID",
+      "activatesWhen": "Activates When",
+      "intensityLevels": "Intensity Levels (key: value)",
+      "exitBehavior": "Exit Behavior",
+      "quietHourCondition": "Restraint Condition",
+      "clamps": "Clamps (key: value)",
+      "layerModifiers": "Layer Modifiers (key: value)",
       "occupation": "Occupation",
       "innerNarrative": "Inner Narrative",
       "languageFingerprint": "Language Fingerprint",
@@ -2474,6 +2498,10 @@
     "actions": {
       "addTransition": "Add Transition",
       "removeTransition": "Remove Transition",
+      "addTrigger": "Add Reaction",
+      "removeTrigger": "Remove Reaction",
+      "addQuietHour": "Add Rule",
+      "removeQuietHour": "Remove Rule",
       "uploadAvatar": "Upload avatar",
       "uploadingAvatar": "Uploading...",
       "addLayer": "Add Layer",
@@ -2482,6 +2510,44 @@
       "viewLayersTitle": "View Deep Persona Layers",
       "viewLayersConfirm": "Deep persona layers contain hidden character settings and progressive unlock mechanics. Viewing them may spoil the discovery experience. Are you sure?",
       "viewLayersReveal": "Reveal"
+    },
+    "editorModes": {
+      "quick": "Quick",
+      "expert": "Expert"
+    },
+    "generationStages": {
+      "base": "Understanding persona direction",
+      "registers": "Designing conversation modes",
+      "rules": "Generating triggers and restraint rules",
+      "layers": "Arranging deep persona layers",
+      "bootstrap": "Writing first-contact copy and examples",
+      "appearance": "Drafting portrait prompt",
+      "integrate": "Merging and validating persona"
+    },
+    "registers": {
+      "chat": "Chat",
+      "analysis": "Analysis",
+      "task": "Task",
+      "emotional": "Emotional",
+      "crisis": "Crisis"
+    },
+    "validation": {
+      "ready": "Ready to save.",
+      "missing": "Complete before saving: {{fields}}",
+      "expertReady": "Advanced structure is complete.",
+      "expertMissing": "Optional refinements: {{fields}}"
+    },
+    "validationIssues": {
+      "signatureTriggerCount": "two trigger reactions",
+      "signatureTriggerShape": "complete trigger reactions",
+      "uniqueTriggerIds": "non-duplicate trigger IDs",
+      "quietHourCount": "two restraint rules",
+      "quietHourShape": "complete restraint rules",
+      "allRegisters": "all conversation modes",
+      "examplesCount": "six conversation examples",
+      "surfaceLayer": "base deep persona layer",
+      "layerShape": "complete deep persona layers",
+      "bootstrap": "first-meeting bootstrap"
     },
     "languages": {
       "target": "Generation language",
