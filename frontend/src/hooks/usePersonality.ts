@@ -64,6 +64,8 @@ export interface UsePersonalityReturn {
   // Form state
   prompt: string;
   setPrompt: (value: string) => void;
+  targetLanguage: string;
+  setTargetLanguage: (value: string) => void;
 
   // Actions
   patch: (fn: (draft: PersonalityConfig) => void) => void;
@@ -190,6 +192,7 @@ export function usePersonality(
 
   // Form state
   const [prompt, setPrompt] = useState('');
+  const [targetLanguage, setTargetLanguage] = useState('Auto');
   const [switchPrompt, setSwitchPrompt] = useState<{
     phrase: string;
     fromName: string;
@@ -366,7 +369,9 @@ export function usePersonality(
     try {
       const response = await personasApi.generateWithProgress({
         description: prompt,
-        target_language: getGenerationTargetLanguage(i18n.resolvedLanguage || i18n.language),
+        target_language: targetLanguage === 'Auto'
+          ? getGenerationTargetLanguage(i18n.resolvedLanguage || i18n.language)
+          : targetLanguage,
         current_config: config,
       }, (snapshot) => {
         setGenerationStages(snapshot.stages?.length ? snapshot.stages : buildPendingGenerationStages());
@@ -380,7 +385,7 @@ export function usePersonality(
     } finally {
       setGenerating(false);
     }
-  }, [config, i18n.language, i18n.resolvedLanguage, prompt, t]);
+  }, [config, i18n.language, i18n.resolvedLanguage, prompt, t, targetLanguage]);
 
   const switchPersonality = useCallback(async () => {
     if (selectedId === currentId) {
@@ -483,6 +488,8 @@ export function usePersonality(
     // Form state
     prompt,
     setPrompt,
+    targetLanguage,
+    setTargetLanguage,
 
     // Actions
     patch,

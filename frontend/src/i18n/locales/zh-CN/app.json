@@ -2550,6 +2550,7 @@
       "viewLayersReveal": "确定查看"
     },
     "languages": {
+      "target": "生成语言",
       "auto": "自动检测",
       "chinese": "中文",
       "english": "English",

@@ -120,12 +120,21 @@ const Harness = () => {
 };
 
 const GenerateHarness = () => {
-  const { config, prompt, setPrompt, generate } = usePersonality();
+  const { config, prompt, setPrompt, targetLanguage, setTargetLanguage, generate } = usePersonality();
 
   return (
     <div>
       <div data-testid="config-name">{config.name}</div>
       <input aria-label="generation prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} />
+      <select
+        aria-label="target language"
+        value={targetLanguage}
+        onChange={(event) => setTargetLanguage(event.target.value)}
+      >
+        <option value="Auto">Auto</option>
+        <option value="English">English</option>
+        <option value="Japanese">Japanese</option>
+      </select>
       <button type="button" onClick={() => { void generate(); }}>
         generate
       </button>
@@ -219,6 +228,23 @@ describe('usePersonality', () => {
       description: 'make it sharper',
       target_language: 'Chinese',
       current_config: { name: '七号' },
+    });
+  });
+
+  it('passes an explicit generation language when selected', async () => {
+    const user = userEvent.setup();
+
+    render(<GenerateHarness />);
+
+    await waitFor(() => expect(screen.getByTestId('config-name')).toHaveTextContent('七号'));
+    await user.selectOptions(screen.getByLabelText('target language'), 'English');
+    await user.type(screen.getByLabelText('generation prompt'), 'make it quieter');
+    await user.click(screen.getByRole('button', { name: 'generate' }));
+
+    await waitFor(() => expect(mockPersonasApi.generateWithProgress).toHaveBeenCalled());
+    expect(mockPersonasApi.generateWithProgress.mock.calls[0][0]).toMatchObject({
+      description: 'make it quieter',
+      target_language: 'English',
     });
   });
 

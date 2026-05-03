@@ -77,17 +77,17 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
   // Reset broken state whenever the selected persona or its avatar changes.
   // Watching the config avatar handles the race condition where the old
   // persona's broken avatar fires onError before the new config loads.
-  const avatarValue = config.persona_entity.basic_profile.avatar || '';
+  const avatarValue = config.avatar || '';
   React.useEffect(() => {
     setAvatarBroken(false);
   }, [selectedId, avatarValue]);
 
   const detailTitle = isNewMode
-    ? (config.persona_entity.basic_profile.name || t('personality.newPersonality'))
-    : (config.persona_entity.basic_profile.name || selectedInfo?.displayName || t('personality.title'));
+    ? (config.name || t('personality.newPersonality'))
+    : (config.name || selectedInfo?.displayName || t('personality.title'));
   const detailDescription = isNewMode
     ? t('personality.newPersonalityDesc')
-    : (config.persona_entity.basic_profile.description || selectedInfo?.subtitle || t('settings.personalityDesc'));
+    : (config.description || selectedInfo?.subtitle || t('settings.personalityDesc'));
   const avatarUrl = avatarValue && !avatarBroken ? personasApi.getAvatarUrl(avatarValue) : '';
 
   const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -103,7 +103,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
       }
 
       patch((draft) => {
-        draft.persona_entity.basic_profile.avatar = nextAvatar;
+        draft.avatar = nextAvatar;
       });
       setAvatarBroken(false);
     } catch (error) {
@@ -398,6 +398,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                     className="h-11 rounded-2xl"
                   />
                   <select
+                    aria-label={t('personality.languages.target')}
                     className="h-11 rounded-2xl border border-input bg-background px-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
                     value={targetLanguage}
                     onChange={(event) => setTargetLanguage(event.target.value)}

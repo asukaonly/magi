@@ -2484,6 +2484,7 @@
       "viewLayersReveal": "Reveal"
     },
     "languages": {
+      "target": "Generation language",
       "auto": "Auto Detect",
       "chinese": "Chinese",
       "english": "English",

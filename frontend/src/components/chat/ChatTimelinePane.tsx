@@ -30,7 +30,8 @@ type ChatTimelinePaneProps = {
   labelPopoverRef: RefObject<HTMLDivElement>;
   messageContextMenu: MessageContextMenuState | null;
   messageContextMenuRef: RefObject<HTMLDivElement>;
-  messagesEndRef: RefObject<HTMLDivElement>;
+  messagesEndRef?: RefObject<HTMLDivElement>;
+  timelineRef: RefObject<HTMLDivElement>;
   onSetReplyTarget: (reply: ChatTimelineReplyPreview | null) => void;
   onOpenImagePreview: (payload: { name: string; url: string }) => void;
   onOpenTraceDrawer: (turnId: string) => void;
@@ -65,6 +66,7 @@ export const ChatTimelinePane = ({
   messageContextMenu,
   messageContextMenuRef,
   messagesEndRef,
+  timelineRef,
   onSetReplyTarget,
   onOpenImagePreview,
   onOpenTraceDrawer,
@@ -131,7 +133,7 @@ export const ChatTimelinePane = ({
   };
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
+    <div ref={timelineRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-3 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
       <ChatMessageContextMenuOverlay
         messageContextMenu={messageContextMenu}
         messageContextMenuRef={messageContextMenuRef}
