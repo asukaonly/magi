@@ -97,7 +97,7 @@ async def test_response_rhythm_planner_preserves_structured_technical_lists(monk
 
 
 @pytest.mark.asyncio
-async def test_response_rhythm_planner_rejects_three_groups_for_technical_answer(monkeypatch) -> None:
+async def test_response_rhythm_planner_uses_prompt_for_unstructured_technical_answer(monkeypatch) -> None:
     monkeypatch.setattr(
         rhythm_module,
         "get_user_preference",
@@ -107,9 +107,7 @@ async def test_response_rhythm_planner_rejects_three_groups_for_technical_answer
         json.dumps(
             {
                 "groups": [
-                    {"unit_ids": ["u1"], "intent": "answer", "delay_ms": 0},
-                    {"unit_ids": ["u2"], "intent": "explain", "delay_ms": 1000},
-                    {"unit_ids": ["u3"], "intent": "next_step", "delay_ms": 1200},
+                    {"unit_ids": ["u1", "u2", "u3"], "intent": "answer", "delay_ms": 0},
                 ]
             }
         )
@@ -131,9 +129,16 @@ async def test_response_rhythm_planner_rejects_three_groups_for_technical_answer
 
     assert plan is None
     assert len(prompt_service.calls) == 1
+    assert "Technical explanations" in prompt_service.calls[0]["system_prompt"]
     payload = json.loads(prompt_service.calls[0]["messages"][0]["content"])
-    assert payload["content_features"]["technical"] is True
-    assert payload["content_features"]["max_groups"] == 2
+    assert payload["content_features"] == {
+        "protected_structure": False,
+        "has_table": False,
+        "has_command_block": False,
+        "has_config_block": False,
+        "has_stack_trace": False,
+        "list_item_count": 0,
+    }
 
 
 @pytest.mark.asyncio
