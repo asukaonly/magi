@@ -7,9 +7,19 @@ from magi.tools.registry import ToolRegistry
 
 
 class StubConnection:
-    def __init__(self, tools, resources=None):
+    def __init__(
+        self,
+        tools,
+        resources=None,
+        resource_templates=None,
+        prompts=None,
+        page_size: int | None = None,
+    ):
         self._tools = tools
         self._resources = resources or []
+        self._resource_templates = resource_templates or []
+        self._prompts = prompts or []
+        self._page_size = page_size
         self.started = False
         self.state = ConnectionState.INIT
         self._handlers = {}
@@ -29,20 +39,55 @@ class StubConnection:
     async def notify(self, method, params=None):
         self.calls.append(("notify", method, params))
 
+    def _paginate(self, items, key, params):
+        if self._page_size is None:
+            return {key: items}
+        cursor = (params or {}).get("cursor")
+        start = int(cursor) if cursor is not None else 0
+        end = start + self._page_size
+        page = items[start:end]
+        result = {key: page}
+        if end < len(items):
+            result["nextCursor"] = str(end)
+        return result
+
     async def request(self, method, params, *, timeout):
         self.calls.append(("request", method, params))
         if method == "initialize":
-            return {"protocolVersion": "2024-11-05", "capabilities": {}}
+            return {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {
+                    "tools": {},
+                    "resources": {},
+                    "prompts": {},
+                },
+            }
         if method == "tools/list":
-            return {"tools": self._tools}
+            return self._paginate(self._tools, "tools", params)
         if method == "resources/list":
-            return {"resources": self._resources}
+            return self._paginate(self._resources, "resources", params)
+        if method == "resources/templates/list":
+            return self._paginate(
+                self._resource_templates, "resourceTemplates", params
+            )
+        if method == "prompts/list":
+            return self._paginate(self._prompts, "prompts", params)
         if method == "tools/call":
             return {
                 "content": [
                     {"type": "text", "text": f"ran {params['name']}"}
                 ],
                 "isError": False,
+            }
+        if method == "prompts/get":
+            return {
+                "description": "",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": {"type": "text", "text": params["name"]},
+                    }
+                ],
             }
         raise RuntimeError(f"unexpected {method}")
 
@@ -55,11 +100,23 @@ CFG = MCPServerConfig.model_validate(
 )
 
 
-def _conn_with(tools, resources=None):
+def _conn_with(
+    tools,
+    resources=None,
+    resource_templates=None,
+    prompts=None,
+    page_size=None,
+):
     holder = {}
 
     def factory(_cfg):
-        c = StubConnection(tools, resources)
+        c = StubConnection(
+            tools,
+            resources,
+            resource_templates,
+            prompts,
+            page_size=page_size,
+        )
         holder["conn"] = c
         return c
 
@@ -169,3 +226,69 @@ async def test_disabled_server_refuses_start():
     mgr.add_config(cfg)
     with pytest.raises(RuntimeError, match="disabled"):
         await mgr.start_server("off")
+
+
+@pytest.mark.asyncio
+async def test_paginated_list_collects_all_pages():
+    registry = ToolRegistry()
+    tools = [
+        {
+            "name": f"t{i}",
+            "description": "",
+            "inputSchema": {"type": "object", "properties": {}},
+        }
+        for i in range(7)
+    ]
+    resources = [
+        {"uri": f"test://r/{i}", "name": f"r{i}", "mimeType": "text/plain"}
+        for i in range(25)
+    ]
+    prompts = [{"name": f"p{i}", "description": ""} for i in range(12)]
+    factory, h = _conn_with(
+        tools,
+        resources=resources,
+        prompts=prompts,
+        page_size=3,
+    )
+    mgr = MCPManager(registry=registry, connection_factory=factory)
+    mgr.add_config(CFG)
+    await mgr.start_server("demo")
+
+    # All tools registered across pages.
+    for i in range(7):
+        assert registry.get_tool(f"mcp__demo__t{i}") is not None
+
+    # Resources fully collected.
+    res = await mgr.list_resources()
+    assert len(res) == 25
+
+    # Prompts fully collected.
+    prs = await mgr.list_prompts()
+    assert len(prs) == 12
+
+    # Verify a cursor was actually used (multi-page).
+    resource_calls = [
+        c for c in h["conn"].calls
+        if c[0] == "request" and c[1] == "resources/list"
+    ]
+    assert len(resource_calls) >= 2
+    assert any(c[2] and "cursor" in c[2] for c in resource_calls)
+
+
+@pytest.mark.asyncio
+async def test_prompt_get_routes_to_running_server():
+    registry = ToolRegistry()
+    factory, h = _conn_with(
+        [],
+        prompts=[{"name": "greet", "description": "say hi"}],
+    )
+    mgr = MCPManager(registry=registry, connection_factory=factory)
+    mgr.add_config(CFG)
+    await mgr.start_server("demo")
+
+    result = await mgr.get_prompt("demo", "greet", {"who": "world"})
+    assert result["messages"][0]["content"]["text"] == "greet"
+    call = next(
+        c for c in h["conn"].calls if c[0] == "request" and c[1] == "prompts/get"
+    )
+    assert call[2] == {"name": "greet", "arguments": {"who": "world"}}

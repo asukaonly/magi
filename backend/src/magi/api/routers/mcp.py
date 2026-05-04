@@ -10,6 +10,9 @@ Endpoints (under `/api/mcp`):
 - `GET    /servers/{id}/logs`    stderr tail (stdio only) + last_error
 - `GET    /resources`            flat list of resources from running servers
 - `POST   /resources/read`       fetch one resource by `{server_id, uri}`
+- `GET    /resource-templates`   flat list of resource templates
+- `GET    /prompts`              flat list of prompts from running servers
+- `POST   /prompts/get`          render a prompt by `{server_id, name, arguments?}`
 """
 
 from __future__ import annotations
@@ -71,6 +74,8 @@ def _serialize_status(mgr: MCPManager, cfg: MCPServerConfig) -> dict[str, Any]:
         state = "disconnected" if cfg.server.enabled else "disabled"
         tool_count = 0
         resource_count = 0
+        resource_template_count = 0
+        prompt_count = 0
         last_error = None
     else:
         state_map = {
@@ -83,6 +88,8 @@ def _serialize_status(mgr: MCPManager, cfg: MCPServerConfig) -> dict[str, Any]:
         state = state_map.get(rt.conn.state, "error")
         tool_count = len(rt.registered_tool_names)
         resource_count = len(rt.resources)
+        resource_template_count = len(rt.resource_templates)
+        prompt_count = len(rt.prompts)
         last_error = rt.last_error
     return {
         "id": cfg.server.id,
@@ -95,6 +102,8 @@ def _serialize_status(mgr: MCPManager, cfg: MCPServerConfig) -> dict[str, Any]:
         "state": state,
         "tool_count": tool_count,
         "resource_count": resource_count,
+        "resource_template_count": resource_template_count,
+        "prompt_count": prompt_count,
         "last_error": last_error,
     }
 
@@ -257,5 +266,38 @@ async def read_resource(payload: ResourceReadPayload) -> dict[str, Any]:
         )
     try:
         return await mgr.read_resource(payload.server_id, payload.uri)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+@mcp_router.get("/resource-templates")
+async def list_resource_templates() -> dict[str, Any]:
+    mgr = _manager()
+    return {"data": await mgr.list_resource_templates()}
+
+
+@mcp_router.get("/prompts")
+async def list_prompts() -> dict[str, Any]:
+    mgr = _manager()
+    return {"data": await mgr.list_prompts()}
+
+
+class PromptGetPayload(BaseModel):
+    server_id: str = Field(..., min_length=1)
+    name: str = Field(..., min_length=1)
+    arguments: dict[str, Any] | None = None
+
+
+@mcp_router.post("/prompts/get")
+async def get_prompt(payload: PromptGetPayload) -> dict[str, Any]:
+    mgr = _manager()
+    if not mgr.is_running(payload.server_id):
+        raise HTTPException(
+            status_code=400, detail=f"server {payload.server_id!r} is not running"
+        )
+    try:
+        return await mgr.get_prompt(
+            payload.server_id, payload.name, payload.arguments
+        )
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc))

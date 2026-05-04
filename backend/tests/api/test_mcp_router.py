@@ -38,11 +38,19 @@ class _StubConn(MCPConnection):
         if not isinstance(msg, JsonRpcRequest):
             return
         if msg.method == "initialize":
-            await self._dispatch(JsonRpcResponse(id=msg.id, result={"protocolVersion": "x"}))
+            await self._dispatch(JsonRpcResponse(
+                id=msg.id,
+                result={
+                    "protocolVersion": "x",
+                    "capabilities": {"tools": {}, "resources": {}},
+                },
+            ))
         elif msg.method == "tools/list":
             await self._dispatch(JsonRpcResponse(id=msg.id, result={"tools": self._tools}))
         elif msg.method == "resources/list":
             await self._dispatch(JsonRpcResponse(id=msg.id, result={"resources": self._resources}))
+        elif msg.method == "resources/templates/list":
+            await self._dispatch(JsonRpcResponse(id=msg.id, result={"resourceTemplates": []}))
         elif msg.method == "resources/read":
             await self._dispatch(
                 JsonRpcResponse(

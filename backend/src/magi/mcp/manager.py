@@ -25,11 +25,15 @@ class _ServerRuntime:
         self.conn = conn
         self.registered_tool_names: list[str] = []
         self.resources: list[dict] = []
+        self.resource_templates: list[dict] = []
+        self.prompts: list[dict] = []
+        self.server_capabilities: dict[str, Any] = {}
         self.watchdog: asyncio.Task | None = None
         self.last_error: str | None = None
 
 
 _DEFAULT_RECONNECT_BACKOFF = [1.0, 2.0, 4.0, 8.0, 30.0]
+_MAX_LIST_PAGES = 50
 
 
 class MCPManager:
@@ -82,6 +86,8 @@ class MCPManager:
             await self._handshake(rt)
             await self._reconcile_tools(rt)
             await self._reconcile_resources(rt)
+            await self._reconcile_resource_templates(rt)
+            await self._reconcile_prompts(rt)
             self._wire_change_notifications(rt)
         except Exception:
             await self.stop_server(server_id)
@@ -128,6 +134,33 @@ class MCPManager:
                 out.append({"server_id": sid, **r})
         return out
 
+    async def list_resource_templates(self) -> list[dict]:
+        out: list[dict] = []
+        for sid, rt in self._runtimes.items():
+            for r in rt.resource_templates:
+                out.append({"server_id": sid, **r})
+        return out
+
+    async def list_prompts(self) -> list[dict]:
+        out: list[dict] = []
+        for sid, rt in self._runtimes.items():
+            for p in rt.prompts:
+                out.append({"server_id": sid, **p})
+        return out
+
+    async def get_prompt(
+        self, server_id: str, name: str, arguments: dict | None = None
+    ) -> dict:
+        rt = self._runtimes[server_id]
+        params: dict[str, Any] = {"name": name}
+        if arguments:
+            params["arguments"] = arguments
+        return await rt.conn.request(
+            "prompts/get",
+            params,
+            timeout=rt.cfg.runtime.call_timeout_ms / 1000.0,
+        )
+
     async def read_resource(self, server_id: str, uri: str) -> dict:
         rt = self._runtimes[server_id]
         return await rt.conn.request(
@@ -138,7 +171,7 @@ class MCPManager:
 
     async def _handshake(self, rt: _ServerRuntime) -> None:
         timeout = rt.cfg.runtime.init_timeout_ms / 1000.0
-        await rt.conn.request(
+        result = await rt.conn.request(
             "initialize",
             {
                 "protocolVersion": "2024-11-05",
@@ -147,6 +180,7 @@ class MCPManager:
             },
             timeout=timeout,
         )
+        rt.server_capabilities = (result or {}).get("capabilities") or {}
         await rt.conn.notify("notifications/initialized")
 
     async def _reconcile_tools(self, rt: _ServerRuntime) -> None:
@@ -154,15 +188,11 @@ class MCPManager:
             self._registry.unregister(name)
         rt.registered_tool_names.clear()
         try:
-            result = await rt.conn.request(
-                "tools/list",
-                None,
-                timeout=rt.cfg.runtime.init_timeout_ms / 1000.0,
-            )
-        except RuntimeError as exc:
+            tools = await self._list_paginated(rt, "tools/list", "tools")
+        except Exception as exc:
             logger.warning("tools/list failed for %s: %s", rt.cfg.server.id, exc)
             return
-        for remote in result.get("tools") or []:
+        for remote in tools:
             override = rt.cfg.tool_overrides.get(remote["name"])
             cls = build_adapter_class(
                 server_id=rt.cfg.server.id,
@@ -177,16 +207,75 @@ class MCPManager:
             )
 
     async def _reconcile_resources(self, rt: _ServerRuntime) -> None:
-        try:
-            result = await rt.conn.request(
-                "resources/list",
-                None,
-                timeout=rt.cfg.runtime.init_timeout_ms / 1000.0,
-            )
-        except RuntimeError:
+        if "resources" not in rt.server_capabilities:
             rt.resources = []
             return
-        rt.resources = result.get("resources") or []
+        try:
+            rt.resources = await self._list_paginated(
+                rt, "resources/list", "resources"
+            )
+        except Exception as exc:
+            logger.debug(
+                "resources/list failed for %s: %s", rt.cfg.server.id, exc
+            )
+            rt.resources = []
+
+    async def _reconcile_resource_templates(self, rt: _ServerRuntime) -> None:
+        if "resources" not in rt.server_capabilities:
+            rt.resource_templates = []
+            return
+        try:
+            rt.resource_templates = await self._list_paginated(
+                rt, "resources/templates/list", "resourceTemplates"
+            )
+        except Exception as exc:
+            logger.debug(
+                "resources/templates/list failed for %s: %s",
+                rt.cfg.server.id,
+                exc,
+            )
+            rt.resource_templates = []
+
+    async def _reconcile_prompts(self, rt: _ServerRuntime) -> None:
+        if "prompts" not in rt.server_capabilities:
+            rt.prompts = []
+            return
+        try:
+            rt.prompts = await self._list_paginated(rt, "prompts/list", "prompts")
+        except Exception as exc:
+            logger.debug(
+                "prompts/list failed for %s: %s", rt.cfg.server.id, exc
+            )
+            rt.prompts = []
+
+    async def _list_paginated(
+        self,
+        rt: _ServerRuntime,
+        method: str,
+        items_key: str,
+    ) -> list[dict]:
+        timeout = rt.cfg.runtime.init_timeout_ms / 1000.0
+        items: list[dict] = []
+        cursor: str | None = None
+        for _ in range(_MAX_LIST_PAGES):
+            params: dict[str, Any] | None = (
+                {"cursor": cursor} if cursor is not None else None
+            )
+            result = await rt.conn.request(method, params, timeout=timeout)
+            page = result.get(items_key)
+            if page:
+                items.extend(page)
+            next_cursor = result.get("nextCursor")
+            if not next_cursor:
+                return items
+            cursor = next_cursor
+        logger.warning(
+            "MCP %s on %s exceeded %d pages; truncating",
+            method,
+            rt.cfg.server.id,
+            _MAX_LIST_PAGES,
+        )
+        return items
 
     def _wire_change_notifications(self, rt: _ServerRuntime) -> None:
         rt.conn.on_notification(
@@ -196,6 +285,10 @@ class MCPManager:
         rt.conn.on_notification(
             "notifications/resources/list_changed",
             lambda _p: asyncio.create_task(self._reconcile_resources(rt)),
+        )
+        rt.conn.on_notification(
+            "notifications/prompts/list_changed",
+            lambda _p: asyncio.create_task(self._reconcile_prompts(rt)),
         )
 
     async def _watchdog_loop(self, server_id: str) -> None:
@@ -255,6 +348,8 @@ class MCPManager:
                         await self._handshake(rt)
                         await self._reconcile_tools(rt)
                         await self._reconcile_resources(rt)
+                        await self._reconcile_resource_templates(rt)
+                        await self._reconcile_prompts(rt)
                         self._wire_change_notifications(rt)
                         rt.last_error = None
                         reconnected = True

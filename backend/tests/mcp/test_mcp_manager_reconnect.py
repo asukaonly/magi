@@ -32,7 +32,17 @@ class _ControllableConn(MCPConnection):
             return
         if msg.method == "initialize":
             await self._dispatch(
-                JsonRpcResponse(id=msg.id, result={"protocolVersion": "x"})
+                JsonRpcResponse(
+                    id=msg.id,
+                    result={
+                        "protocolVersion": "x",
+                        "capabilities": {
+                            "tools": {},
+                            "resources": {},
+                            "prompts": {},
+                        },
+                    },
+                )
             )
         elif msg.method == "tools/list":
             await self._dispatch(
@@ -41,6 +51,14 @@ class _ControllableConn(MCPConnection):
         elif msg.method == "resources/list":
             await self._dispatch(
                 JsonRpcResponse(id=msg.id, result={"resources": []})
+            )
+        elif msg.method == "resources/templates/list":
+            await self._dispatch(
+                JsonRpcResponse(id=msg.id, result={"resourceTemplates": []})
+            )
+        elif msg.method == "prompts/list":
+            await self._dispatch(
+                JsonRpcResponse(id=msg.id, result={"prompts": []})
             )
 
     def trigger_disconnect(self):
