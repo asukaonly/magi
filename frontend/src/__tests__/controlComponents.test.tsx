@@ -1,7 +1,8 @@
 /**
  * Smoke tests for the control-plane components.
  */
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { PermissionModal } from '@/components/control/PermissionModal';
@@ -11,12 +12,26 @@ import { RealtimeProvider } from '@/realtime/provider';
 import type { AskStateDTO, PendingPermissionDTO } from '@/api/modules/control';
 import { useConversationStore } from '@/stores';
 
+const { toastWarningMock } = vi.hoisted(() => ({
+  toastWarningMock: vi.fn(),
+}));
+
 let bridgeListener: ((message: Record<string, unknown>) => void) | null = null;
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string) => key,
   }),
+}));
+
+vi.mock('sonner', () => ({
+  toast: {
+    warning: toastWarningMock,
+    error: vi.fn(),
+    success: vi.fn(),
+    info: vi.fn(),
+    message: vi.fn(),
+  },
 }));
 
 vi.mock('@/api/modules/control', async () => {
@@ -85,11 +100,13 @@ const baseRequest: PendingPermissionDTO = {
   turn_id: null,
   agent_id: 'a1',
   origin: 'main_loop',
-  tool: 'git_push',
-  tool_args: { remote: 'origin', branch: 'main' },
+  tool_name: 'git_push',
+  arguments: { remote: 'origin', branch: 'main' },
   risk_level: 'high',
+  workspace: null,
   preview: null,
-  created_at_ms: 0,
+  signals: [],
+  created_at: 0,
 };
 
 const baseAsk: AskStateDTO = {
@@ -110,6 +127,7 @@ describe('PermissionModal', () => {
   it('renders the pending tool and posts allow with the selected scope', async () => {
     const { respondPermission } = await import('@/api/modules/control');
     const onResolved = vi.fn();
+    const user = userEvent.setup();
     render(
       <PermissionModal
         request={baseRequest}
@@ -120,8 +138,9 @@ describe('PermissionModal', () => {
     );
     expect(screen.getByTestId('permission-modal')).toBeInTheDocument();
     expect(screen.getByText('git_push')).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('scope-session'));
-    fireEvent.click(screen.getByTestId('allow-btn'));
+    await user.click(screen.getByTestId('allow-scope-trigger'));
+    await user.click(await screen.findByTestId('allow-scope-session'));
+    await user.click(screen.getByTestId('allow-btn'));
     await waitFor(() => {
       expect(respondPermission).toHaveBeenCalledWith('req-1', {
         outcome: 'allow',
@@ -135,6 +154,7 @@ describe('PermissionModal', () => {
 
   it('posts deny when user rejects', async () => {
     const { respondPermission } = await import('@/api/modules/control');
+    const user = userEvent.setup();
     render(
       <PermissionModal
         request={baseRequest}
@@ -142,13 +162,35 @@ describe('PermissionModal', () => {
         onOpenChange={() => undefined}
       />,
     );
-    fireEvent.click(screen.getByTestId('deny-btn'));
+    await user.click(screen.getByTestId('deny-scope-trigger'));
+    await user.click(await screen.findByTestId('deny-scope-session'));
+    await user.click(screen.getByTestId('deny-btn'));
     await waitFor(() => {
       expect(respondPermission).toHaveBeenCalledWith('req-1', {
         outcome: 'deny',
-        scope: 'one_shot',
+        scope: 'session',
       });
     });
+  });
+
+  it('requires a pattern before submitting a pattern rule', async () => {
+    const { respondPermission } = await import('@/api/modules/control');
+    const user = userEvent.setup();
+    render(
+      <PermissionModal
+        request={baseRequest}
+        open
+        onOpenChange={() => undefined}
+      />,
+    );
+    await user.click(screen.getByTestId('allow-scope-trigger'));
+    await user.click(await screen.findByTestId('allow-scope-persistent_pattern'));
+    await user.click(screen.getByTestId('allow-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByText('permission.pattern_required')).toBeInTheDocument();
+    });
+    expect(respondPermission).not.toHaveBeenCalled();
   });
 });
 
@@ -179,6 +221,36 @@ describe('PermissionModalHost', () => {
       const messages = useConversationStore.getState().messagesBySession['sid-1'] || [];
       expect(messages.some((message) => message.messageKind === 'permission_request')).toBe(true);
     });
+  });
+
+  it('auto closes and shows a timeout toast when the active request disappears', async () => {
+    const controlApi = await import('@/api/modules/control');
+    vi.mocked(controlApi.listPendingPermissions)
+      .mockResolvedValueOnce([baseRequest])
+      .mockResolvedValueOnce([]);
+
+    render(
+      <RealtimeProvider>
+        <PermissionModalHost sessionId="sid-1" intervalMs={0} />
+      </RealtimeProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('permission-modal')).toBeInTheDocument();
+    });
+
+    act(() => {
+      bridgeListener?.({
+        event: 'control.permission.requested',
+        data: { session_id: 'sid-1', request_id: 'req-1' },
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('permission-modal')).not.toBeInTheDocument();
+    });
+
+    expect(toastWarningMock).toHaveBeenCalledWith('permission.toast_timed_out');
   });
 });
 

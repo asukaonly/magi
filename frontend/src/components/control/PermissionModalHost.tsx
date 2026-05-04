@@ -5,6 +5,9 @@
  * surface so any pending prompt automatically surfaces.
  */
 import { useEffect, useState } from 'react';
+import { useRef } from 'react';
+import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import { useConversationStore } from '@/stores';
 import { PermissionModal } from './PermissionModal';
 import { usePendingPermissions } from './usePendingPermissions';
@@ -19,6 +22,7 @@ export function PermissionModalHost({
   sessionId,
   intervalMs = 1500,
 }: PermissionModalHostProps) {
+  const { t } = useTranslation('control');
   const upsertMessage = useConversationStore((state) => state.upsertMessage);
   const removeMessage = useConversationStore((state) => state.removeMessage);
   const { items, refresh } = usePendingPermissions({
@@ -27,9 +31,13 @@ export function PermissionModalHost({
     enabled: Boolean(sessionId),
   });
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const resolvedRequestIdsRef = useRef<Set<string>>(new Set());
+  const previousActiveRequestIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     setDismissed(new Set());
+    resolvedRequestIdsRef.current = new Set();
+    previousActiveRequestIdRef.current = null;
   }, [sessionId]);
 
   useEffect(() => {
@@ -81,15 +89,15 @@ export function PermissionModalHost({
         role: 'assistant',
         kind: 'status',
         messageKind: 'permission_request',
-        content: item.tool,
-        timestamp: Number(item.created_at_ms || Date.now()),
+        content: item.tool_name,
+        timestamp: item.created_at ? item.created_at * 1000 : Date.now(),
         turnId,
         payload: {
           permission_request_id: item.request_id,
-          tool: item.tool,
+          tool: item.tool_name,
           risk_level: item.risk_level,
           origin: item.origin,
-          tool_args: item.tool_args,
+          tool_args: item.arguments,
         },
       });
     });
@@ -97,6 +105,25 @@ export function PermissionModalHost({
 
   const active =
     items.find((req) => !dismissed.has(req.request_id)) ?? null;
+
+  useEffect(() => {
+    const previousActiveRequestId = previousActiveRequestIdRef.current;
+    const currentActiveRequestId = active?.request_id ?? null;
+
+    if (previousActiveRequestId && previousActiveRequestId !== currentActiveRequestId) {
+      const stillPending = items.some((item) => item.request_id === previousActiveRequestId);
+      const wasResolved = resolvedRequestIdsRef.current.has(previousActiveRequestId);
+      const wasDismissed = dismissed.has(previousActiveRequestId);
+
+      if (!stillPending && !wasResolved && !wasDismissed && sessionId) {
+        toast.warning(t('permission.toast_timed_out'));
+      }
+
+      resolvedRequestIdsRef.current.delete(previousActiveRequestId);
+    }
+
+    previousActiveRequestIdRef.current = currentActiveRequestId;
+  }, [active?.request_id, dismissed, items, sessionId, t]);
 
   return (
     <PermissionModal
@@ -111,7 +138,8 @@ export function PermissionModalHost({
           });
         }
       }}
-      onResolved={() => {
+      onResolved={(requestId) => {
+        resolvedRequestIdsRef.current.add(requestId);
         void refresh();
       }}
     />
