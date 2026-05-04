@@ -3,9 +3,16 @@
 Loads `~/.magi/config/mcp/*.toml`, instantiates an :class:`MCPManager`
 bound to the global `tool_registry`, and starts any servers marked
 `autostart = true`. On shutdown, stops every running server.
+
+Autostart runs in the background so a slow or unreachable MCP server
+cannot block the rest of the runtime from finishing initialisation.
+Tools register into the registry as each server's handshake completes;
+callers that race the autostart will simply not see those tools yet.
 """
 
 from __future__ import annotations
+
+import asyncio
 
 from ..bootstrap.context import RuntimeBootstrapContext
 from ..bootstrap.lifecycle import LifecycleModule
@@ -37,6 +44,7 @@ class MCPModule(LifecycleModule):
         )
         self._context = context
         self._manager: MCPManager | None = None
+        self._autostart_task: asyncio.Task | None = None
 
     async def _init(self) -> None:
         global _active_manager
@@ -59,21 +67,47 @@ class MCPModule(LifecycleModule):
         for cfg in configs:
             manager.add_config(cfg)
 
-        try:
-            await manager.start_all_autostart()
-        except Exception:
-            logger.exception("MCP autostart raised")
+        autostart_count = sum(
+            1 for c in configs if c.server.enabled and c.server.autostart
+        )
+        if autostart_count:
+            self._autostart_task = asyncio.create_task(
+                self._run_autostart(manager), name="mcp_autostart"
+            )
 
         self._manager = manager
         _active_manager = manager
         logger.info(
             "MCP module initialized",
             servers=len(configs),
-            running=sum(1 for c in configs if manager.is_running(c.server.id)),
+            autostart_pending=autostart_count,
         )
+
+    @staticmethod
+    async def _run_autostart(manager: MCPManager) -> None:
+        try:
+            await manager.start_all_autostart()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("MCP autostart raised")
+        else:
+            logger.info(
+                "MCP autostart completed",
+                running=sum(
+                    1 for c in manager.list_configs() if manager.is_running(c.server.id)
+                ),
+            )
 
     async def _shutdown(self) -> None:
         global _active_manager
+        if self._autostart_task is not None and not self._autostart_task.done():
+            self._autostart_task.cancel()
+            try:
+                await self._autostart_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._autostart_task = None
         if self._manager is not None:
             try:
                 await self._manager.stop_all()
