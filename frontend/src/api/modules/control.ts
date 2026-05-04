@@ -158,11 +158,13 @@ export interface PendingPermissionDTO {
   turn_id: string | null;
   agent_id: string | null;
   origin: string | null;
-  tool: string;
-  tool_args: Record<string, unknown>;
+  tool_name: string;
+  arguments: Record<string, unknown>;
   risk_level: string;
-  preview: Record<string, unknown> | null;
-  created_at_ms: number;
+  workspace: string | null;
+  preview: string | null;
+  signals: string[];
+  created_at: number;
 }
 
 export async function listPendingPermissions(
