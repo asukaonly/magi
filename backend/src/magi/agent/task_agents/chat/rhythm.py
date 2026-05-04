@@ -22,6 +22,30 @@ _MIN_DELAY_MS = 1000
 _DEFAULT_DELAY_MS = 1200
 _MAX_DELAY_MS = 2400
 _CJK_RE = re.compile(r"[\u3400-\u9fff\uf900-\ufaff]")
+_LIST_ITEM_RE = re.compile(r"(?m)^\s*(?:[-*+]\s+|\d+[.)、]\s+|[一二三四五六七八九十]+[、.]\s*)")
+_TABLE_ROW_RE = re.compile(r"(?m)^\s*\|[^\n|]+(?:\|[^\n|]+)+\|\s*$")
+_CONFIG_LINE_RE = re.compile(r"(?m)^\s{0,4}[A-Za-z_][\w.-]*:\s+\S+")
+_COMMAND_LINE_RE = re.compile(
+    r"(?m)^\s*(?:\$\s+|(?:npm|pnpm|yarn|pip|pytest|python|uvicorn|cargo|git|docker|tauri)\b\s+)"
+)
+_STACK_TRACE_RE = re.compile(
+    r"(?m)^\s*(?:Traceback \(most recent call last\)|File \".+\", line \d+|[A-Za-z0-9_.]+(?:Error|Exception):)"
+)
+_TECHNICAL_TERM_RE = re.compile(
+    r"\b(?:API|MCP|SDK|URI|URL|JSON|YAML|HTTP|HTTPS|WebSocket|server|client|session|plugin|config|"
+    r"schema|database|SQLite|Redis|vector|embedding|LLM|prompt|tool|trace|runtime|backend|frontend|"
+    r"sidecar)\b|"
+    r"(?:参数|配置|字段|接口|协议|架构|机制|服务器|客户端|会话|资源|订阅|数据库|索引|向量|嵌入|"
+    r"插件|工具|调用|日志|错误|异常|堆栈|请求|响应|返回|缓存|模型|提示词|运行时|前端|后端|"
+    r"路由|队列|事件)",
+    re.IGNORECASE,
+)
+_TECHNICAL_REQUEST_RE = re.compile(
+    r"\b(?:API|MCP|SDK|URI|URL|JSON|YAML|server|client|session|config|runtime)\b|"
+    r"(?:怎么实现|如何实现|原理|机制|架构|参数|配置|接口|协议|代码|报错|错误|异常|排查|"
+    r"为什么|设计|文档|说明|工具|调用|实现|技术)",
+    re.IGNORECASE,
+)
 
 
 def is_conversation_rhythm_enabled() -> bool:
@@ -46,6 +70,32 @@ class _RhythmUnit:
     text: str
 
 
+@dataclass(slots=True)
+class _ContentFeatures:
+    has_code_block: bool
+    has_table: bool
+    has_command_block: bool
+    has_config_block: bool
+    has_stack_trace: bool
+    list_item_count: int
+    technical_term_count: int
+    technical_request: bool
+
+    @property
+    def has_protected_structure(self) -> bool:
+        if self.has_code_block or self.has_table or self.has_command_block or self.has_config_block:
+            return True
+        if self.has_stack_trace:
+            return True
+        if self.list_item_count >= 3:
+            return True
+        return self.list_item_count >= 2 and self.is_technical
+
+    @property
+    def is_technical(self) -> bool:
+        return self.technical_request or self.technical_term_count >= 3
+
+
 class ResponseRhythmPlanner:
     """Build an internal multi-message presentation plan from final text."""
 
@@ -68,6 +118,12 @@ class ResponseRhythmPlanner:
         normalized_response = str(response_text or "").strip()
         if len(normalized_response) < self._min_content_chars(normalized_response):
             return None
+        content_features = self._detect_content_features(
+            user_message=user_message,
+            response_text=normalized_response,
+        )
+        if content_features.has_protected_structure:
+            return None
         units = self._split_units(normalized_response)
         if len(units) < _MIN_UNITS_FOR_RHYTHM or len(units) > _MAX_UNITS:
             return None
@@ -82,6 +138,7 @@ class ResponseRhythmPlanner:
                             response_text=normalized_response,
                             execution_mode=execution_mode,
                             units=units,
+                            content_features=content_features,
                         ),
                     }
                 ],
@@ -92,7 +149,12 @@ class ResponseRhythmPlanner:
         except Exception as exc:
             logger.debug("Conversation rhythm planner call failed", error=str(exc))
             return None
-        return self._parse_plan(raw_plan, units=units, aggregate_text=normalized_response)
+        return self._parse_plan(
+            raw_plan,
+            units=units,
+            aggregate_text=normalized_response,
+            content_features=content_features,
+        )
 
     @staticmethod
     def _is_enabled() -> bool:
@@ -123,6 +185,22 @@ class ResponseRhythmPlanner:
         return units
 
     @staticmethod
+    def _detect_content_features(*, user_message: str, response_text: str) -> _ContentFeatures:
+        config_line_count = len(_CONFIG_LINE_RE.findall(response_text))
+        table_row_count = len(_TABLE_ROW_RE.findall(response_text))
+        combined_text = f"{user_message}\n{response_text}"
+        return _ContentFeatures(
+            has_code_block="```" in response_text,
+            has_table=table_row_count >= 2,
+            has_command_block=bool(_COMMAND_LINE_RE.search(response_text)),
+            has_config_block=config_line_count >= 2,
+            has_stack_trace=bool(_STACK_TRACE_RE.search(response_text)),
+            list_item_count=len(_LIST_ITEM_RE.findall(response_text)),
+            technical_term_count=len(_TECHNICAL_TERM_RE.findall(response_text)),
+            technical_request=bool(_TECHNICAL_REQUEST_RE.search(combined_text)),
+        )
+
+    @staticmethod
     def _build_system_prompt() -> str:
         return """You are an internal chat presentation planner.
 
@@ -138,6 +216,7 @@ Rules:
 - Prefer two groups for most splittable answers.
 - Use three groups only for long answers with three distinct moves; never split into three just because three sentence units exist.
 - Use one group when the answer is short, terse, transactional, or splitting would hurt meaning.
+- Technical or structured answers should usually stay one group. If splitting still helps, use at most two groups and keep lists, steps, definitions, command/config details, and error analysis intact.
 - Never add fake hesitation, filler, or dramatic pauses; every group must carry useful content.
 - Delays must be integers between 1000 and 2400 milliseconds except the first group.
 - The first group delay should be 0.
@@ -157,11 +236,19 @@ Schema:
         response_text: str,
         execution_mode: str | None,
         units: list[_RhythmUnit],
+        content_features: _ContentFeatures,
     ) -> str:
         payload = {
             "user_message": str(user_message or ""),
             "execution_mode": execution_mode,
             "canonical_answer": response_text,
+            "content_features": {
+                "technical": content_features.is_technical,
+                "protected_structure": content_features.has_protected_structure,
+                "list_item_count": content_features.list_item_count,
+                "technical_term_count": content_features.technical_term_count,
+                "max_groups": ResponseRhythmPlanner._max_groups_for_features(content_features),
+            },
             "units": [{"id": unit.unit_id, "text": unit.text} for unit in units],
         }
         return json.dumps(payload, ensure_ascii=False)
@@ -172,6 +259,7 @@ Schema:
         *,
         units: list[_RhythmUnit],
         aggregate_text: str,
+        content_features: _ContentFeatures,
     ) -> AssistantResponsePlan | None:
         try:
             parsed = json.loads(str(raw_plan or "").strip())
@@ -183,7 +271,8 @@ Schema:
         groups = parsed.get("groups")
         if not isinstance(groups, list) or not groups:
             return None
-        if len(groups) > _MAX_SEGMENTS:
+        max_groups = self._max_groups_for_features(content_features)
+        if len(groups) > max_groups:
             return None
         if len(groups) >= 3 and len(aggregate_text) < self._min_three_segment_chars(aggregate_text):
             return None
@@ -239,6 +328,14 @@ Schema:
     @staticmethod
     def _min_three_segment_chars(response_text: str) -> int:
         return 120 if _CJK_RE.search(response_text) else 260
+
+    @staticmethod
+    def _max_groups_for_features(content_features: _ContentFeatures) -> int:
+        if content_features.has_protected_structure:
+            return 1
+        if content_features.is_technical:
+            return 2
+        return _MAX_SEGMENTS
 
     @staticmethod
     def _normalize_intent(value: Any) -> str:

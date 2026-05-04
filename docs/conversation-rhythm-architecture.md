@@ -20,8 +20,16 @@ afterthought when the answer naturally supports that shape.
 - Every visible segment must carry real information or conversational value.
   Empty filler, fake hesitation, and forced follow-up questions are product bugs.
 - Simple factual requests should stay single-message by default.
+- Structured technical answers should stay single-message by default when they
+  contain numbered lists, command or config details, tables, stack traces, or
+  dense implementation mechanics. In these cases the internal structure already
+  provides reading rhythm, and splitting into separate chat bubbles can hurt
+  scanning, copying, and later reference.
 - Short or compact answers should not be split into three bubbles. Three segments
   are reserved for longer answers with three distinct conversational moves.
+- Technical answers that are not structurally protected may be split only when
+  the split keeps definitions, steps, and technical bodies intact; they should
+  use at most two visible bubbles.
 - Non-initial rhythm segments should wait at least one second before appearing;
   sub-second delays read as UI animation rather than conversational cadence.
 - The feature must degrade to the existing single-message flow whenever planning,
@@ -73,6 +81,13 @@ Preferred contract:
 The backend reconstructs visible content from the original answer units. If the
 planner output is invalid, references unknown units, drops too much content, or
 exceeds limits, the system falls back to one assistant message.
+
+Before calling the planner, the backend performs deterministic content-feature
+detection. Code blocks, tables, command/config blocks, stack traces, and dense
+numbered or bulleted lists bypass rhythm planning entirely. Technical answers
+without those protected structures may still reach the planner, but validation
+caps them at two groups so a compact mechanism explanation does not become a
+three-message sequence.
 
 When multiple units are grouped into one visible bubble, they are joined with a
 single line break so the bubble keeps a readable cadence without introducing a
