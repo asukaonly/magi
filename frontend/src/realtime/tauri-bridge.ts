@@ -18,7 +18,12 @@ type RealtimeStatus = {
 
 type RealtimeStatusListener = (status: RealtimeStatus) => void;
 
-/** All Tauri event names the notification bridge can emit. */
+/** All Tauri event names the notification bridge can emit.
+ *
+ * Tauri rejects event names containing `.`, so control-plane channels are
+ * carried over the IPC hop with `:` separators (e.g. ``control:permission:requested``)
+ * and translated back to the dotted form expected by app code in the dispatcher.
+ */
 const BRIDGE_EVENTS = [
   'agent_response',
   'agent_response_chunk',
@@ -29,15 +34,18 @@ const BRIDGE_EVENTS = [
   'chat_message_upserted',
   'chat_message_hidden',
   'background_task_state_changed',
-  // Control-plane channels (forwarded by the Rust bridge; see
-  // backend/src/magi/agent/control/common/events.py).
-  'control.permission.requested',
-  'control.ask.requested',
-  'control.todo.updated',
-  'control.plan.updated',
-  'control.background.suspended',
-  'control.background.resumed',
+  // Control-plane channels (forwarded by the Rust bridge with `.` → `:` swap;
+  // see backend/src/magi/agent/control/common/events.py).
+  'control:permission:requested',
+  'control:ask:requested',
+  'control:todo:updated',
+  'control:plan:updated',
+  'control:background:suspended',
+  'control:background:resumed',
 ] as const;
+
+const denormalizeBridgeEventName = (name: string): string =>
+  name.startsWith('control:') ? name.replace(/:/g, '.') : name;
 
 interface BridgePayload {
   channel: string;
@@ -56,16 +64,23 @@ export class TauriBridgeClient {
   async connect(): Promise<void> {
     if (this.connected) return;
 
-    const { listen } = await import('@tauri-apps/api/event');
+    let listenFn: typeof import('@tauri-apps/api/event').listen;
+    try {
+      const mod = await import('@tauri-apps/api/event');
+      listenFn = mod.listen;
+    } catch {
+      return;
+    }
 
     for (const eventName of BRIDGE_EVENTS) {
-      const unlistenFn = await listen<BridgePayload>(eventName, (event) => {
+      const unlistenFn = await listenFn<BridgePayload>(eventName, (event) => {
         const payload = event.payload;
         const data = payload.data;
+        const dispatchedName = denormalizeBridgeEventName(eventName);
         const message: RealtimeMessage = {
-          event: eventName,
+          event: dispatchedName,
           data,
-          streamEvent: eventName === 'agent_response_chunk' ? normalizeRealtimeStreamEvent(data) : null,
+          streamEvent: dispatchedName === 'agent_response_chunk' ? normalizeRealtimeStreamEvent(data) : null,
         };
         this.listeners.forEach((listener) => listener(message));
       });
