@@ -367,7 +367,7 @@ export const ChatPage: React.FC = () => {
     lastMessage?.messageKind || '',
     lastMessage?.role || '',
     lastMessage?.kind || '',
-    lastMessage?.content.length || 0,
+    lastMessage?.content?.length || 0,
     lastMessage?.streaming ? 'streaming' : 'settled',
     lastReasoningFootprint,
     lastToolFootprint,
