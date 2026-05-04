@@ -7,6 +7,7 @@ import pytest
 
 from magi.agent.execution.function_calling import FunctionCallingOrchestrator, ToolCall, ToolCallResult
 from magi.tools.builtin.memory_query_tool import MemoryQueryTool
+from magi.agent.turn_input import UserTurnInput
 
 
 class _FakeToolRegistry:
@@ -35,7 +36,7 @@ def test_build_step_state_does_not_duplicate_latest_user_message_from_history() 
     orchestrator = _build_orchestrator()
 
     step_state = orchestrator.build_step_state(
-        user_message="Inspect the repository.",
+        turn=UserTurnInput(text="Inspect the repository.", attachments=[], user_id=None, session_id=None),
         system_prompt="system prompt",
         selected_tools=["memory_query"],
         conversation_history=[{"role": "user", "content": "Inspect the repository."}],
@@ -64,7 +65,7 @@ def test_build_tools_parameter_includes_array_items_schema_for_openai_tools() ->
 async def test_step_executor_executes_one_llm_decision_and_one_tool_batch(monkeypatch) -> None:
     orchestrator = _build_orchestrator()
     step_state = orchestrator.build_step_state(
-        user_message="Inspect the repository.",
+        turn=UserTurnInput(text="Inspect the repository.", attachments=[], user_id=None, session_id=None),
         system_prompt="system prompt",
         selected_tools=["memory_query"],
         conversation_history=[],
@@ -137,7 +138,7 @@ async def test_step_executor_executes_one_llm_decision_and_one_tool_batch(monkey
 async def test_step_executor_serializes_tool_messages_without_ascii_escaping(monkeypatch) -> None:
     orchestrator = _build_orchestrator()
     step_state = orchestrator.build_step_state(
-        user_message="我喜欢什么天气？",
+        turn=UserTurnInput(text="我喜欢什么天气？", attachments=[], user_id=None, session_id=None),
         system_prompt="system prompt",
         selected_tools=["memory_query"],
         conversation_history=[],
@@ -219,7 +220,7 @@ async def test_step_executor_serializes_tool_messages_without_ascii_escaping(mon
 async def test_step_executor_collects_chat_attachments_from_tool_results(monkeypatch) -> None:
     orchestrator = _build_orchestrator()
     step_state = orchestrator.build_step_state(
-        user_message="Send the selected photos.",
+        turn=UserTurnInput(text="Send the selected photos.", attachments=[], user_id=None, session_id=None),
         system_prompt="system prompt",
         selected_tools=["prepare_chat_attachments"],
         conversation_history=[],
@@ -294,7 +295,7 @@ async def test_step_executor_collects_chat_attachments_from_tool_results(monkeyp
 async def test_step_executor_skips_attachment_grounding_when_disabled(monkeypatch) -> None:
     orchestrator = _build_orchestrator()
     step_state = orchestrator.build_step_state(
-        user_message="Send the selected photos.",
+        turn=UserTurnInput(text="Send the selected photos.", attachments=[], user_id=None, session_id=None),
         system_prompt="system prompt",
         selected_tools=["prepare_chat_attachments"],
         conversation_history=[],
@@ -370,7 +371,7 @@ async def test_step_executor_skips_attachment_grounding_when_disabled(monkeypatc
 async def test_step_executor_collects_assistant_message_payload_from_tool_results(monkeypatch) -> None:
     orchestrator = _build_orchestrator()
     step_state = orchestrator.build_step_state(
-        user_message="Send the selected photos.",
+        turn=UserTurnInput(text="Send the selected photos.", attachments=[], user_id=None, session_id=None),
         system_prompt="system prompt",
         selected_tools=["memory_query"],
         conversation_history=[],
@@ -450,7 +451,7 @@ async def test_step_executor_collects_assistant_message_payload_from_tool_result
 async def test_step_executor_collects_historical_recall_asset_refs_into_message_payload(monkeypatch) -> None:
     orchestrator = _build_orchestrator()
     step_state = orchestrator.build_step_state(
-        user_message="Send the recalled photo.",
+        turn=UserTurnInput(text="Send the recalled photo.", attachments=[], user_id=None, session_id=None),
         system_prompt="system prompt",
         selected_tools=["memory_query"],
         conversation_history=[],
@@ -537,7 +538,7 @@ async def test_step_executor_collects_historical_recall_asset_refs_into_message_
 async def test_step_executor_returns_control_after_one_step_until_called_again(monkeypatch) -> None:
     orchestrator = _build_orchestrator()
     step_state = orchestrator.build_step_state(
-        user_message="Inspect the repository.",
+        turn=UserTurnInput(text="Inspect the repository.", attachments=[], user_id=None, session_id=None),
         system_prompt="system prompt",
         selected_tools=["memory_query"],
         conversation_history=[],

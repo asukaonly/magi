@@ -17,6 +17,7 @@ from magi.agent.run_control import (
 )
 from magi.tools.builtin.detach_to_background_tool import DetachToBackgroundTool
 from magi.tools.schema import ToolExecutionContext
+from magi.agent.turn_input import UserTurnInput
 
 
 def _ctx() -> ToolExecutionContext:
@@ -187,7 +188,7 @@ async def test_orchestrator_bind_makes_detach_tool_flip_signal_and_exit(
     monkeypatch.setattr(orchestrator, "_execute_tool_call", _fake_execute_tool_call)
 
     outcome = await orchestrator.execute_with_tools(
-        user_message="do a long task",
+        turn=UserTurnInput(text="do a long task", attachments=[], user_id=None, session_id=None),
         system_prompt="sys",
         selected_tools=["detach_to_background"],
         user_id="u",

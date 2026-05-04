@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, TYPE_CHECKING
 
 from .schema import SkillContent, SkillResult
+from ..agent.turn_input import UserTurnInput
 from ..chat.workspace import get_default_chat_workspace_path
 from ..llm.base import LLMAdapter
 from ..llm.provider_bridge import LLMProviderBridge
@@ -250,7 +251,12 @@ class SkillSubagent:
 
         # Execute with tools
         result = await self._function_calling_orchestrator.execute_with_tools(
-            user_message=user_message,
+            turn=UserTurnInput(
+                text=user_message,
+                attachments=[],
+                user_id=context.get("user_id", "subagent"),
+                session_id=self.subagent_id,
+            ),
             system_prompt=full_system_prompt,
             selected_tools=self._available_tools,
             user_id=context.get("user_id", "subagent"),

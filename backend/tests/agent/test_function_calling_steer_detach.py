@@ -17,6 +17,7 @@ from magi.agent.run_control import (
     SteerInbox,
     SteerMessage,
 )
+from magi.agent.turn_input import UserTurnInput
 
 
 class _FakeToolRegistry:
@@ -75,7 +76,7 @@ async def test_execute_with_tools_injects_steer_messages_before_next_llm_call(
     monkeypatch.setattr(orchestrator, "_call_llm_with_tools", _fake_call_llm_with_tools)
 
     outcome = await orchestrator.execute_with_tools(
-        user_message="Write a sorting example.",
+        turn=UserTurnInput(text="Write a sorting example.", attachments=[], user_id=None, session_id=None),
         system_prompt="system prompt",
         selected_tools=[],
         user_id="u",
@@ -115,7 +116,7 @@ async def test_execute_with_tools_skips_empty_steer_messages(monkeypatch) -> Non
     monkeypatch.setattr(orchestrator, "_call_llm_with_tools", _fake_call_llm_with_tools)
 
     outcome = await orchestrator.execute_with_tools(
-        user_message="hi",
+        turn=UserTurnInput(text="hi", attachments=[], user_id=None, session_id=None),
         system_prompt="sys",
         selected_tools=[],
         user_id="u",
@@ -174,7 +175,7 @@ async def test_execute_with_tools_returns_detached_with_snapshot(monkeypatch) ->
     monkeypatch.setattr(orchestrator, "_execute_tool_call", _fake_execute_tool_call)
 
     outcome = await orchestrator.execute_with_tools(
-        user_message="start work",
+        turn=UserTurnInput(text="start work", attachments=[], user_id=None, session_id=None),
         system_prompt="sys",
         selected_tools=["noop_tool"],
         user_id="u",
@@ -213,7 +214,7 @@ async def test_execute_with_tools_detach_before_first_llm_call(monkeypatch) -> N
     monkeypatch.setattr(orchestrator, "_call_llm_with_tools", _never_called)
 
     outcome = await orchestrator.execute_with_tools(
-        user_message="hi",
+        turn=UserTurnInput(text="hi", attachments=[], user_id=None, session_id=None),
         system_prompt="sys",
         selected_tools=[],
         user_id="u",
@@ -246,7 +247,7 @@ async def test_execute_with_tools_without_signals_behaves_like_before(monkeypatc
     monkeypatch.setattr(orchestrator, "_call_llm_with_tools", _fake_call_llm_with_tools)
 
     outcome = await orchestrator.execute_with_tools(
-        user_message="hi",
+        turn=UserTurnInput(text="hi", attachments=[], user_id=None, session_id=None),
         system_prompt="sys",
         selected_tools=[],
         user_id="u",

@@ -30,6 +30,7 @@ from magi.agent.task_agents.common.contracts import (
     ToolSelection,
     UserMessagePayload,
 )
+from magi.agent.turn_input import UserTurnInput
 
 
 # ----------------------------------------------------------------------
@@ -37,8 +38,7 @@ from magi.agent.task_agents.common.contracts import (
 # ----------------------------------------------------------------------
 
 
-def _make_request(
-    *,
+def _make_request(*,
     user_message: str = "summarise the recent PRs",
     tools: list[str] | None = None,
     workspace_path: str | None = None,
@@ -118,8 +118,7 @@ def test_default_ack_text_handles_empty_title() -> None:
 
 
 def test_build_spec_captures_request_snapshot() -> None:
-    request = _make_request(
-        user_message="deep research: renewable energy storage trends",
+    request = _make_request(user_message="deep research: renewable energy storage trends",
         tools=["deep_research"],
         workspace_path="/home/u/repos/energy",
         turn_id="turn-xyz",
@@ -206,8 +205,7 @@ async def test_launch_service_enqueues_task_and_returns_ack(
     manager: BackgroundTaskManager,
 ) -> None:
     service = BackgroundLaunchService(manager)
-    request = _make_request(
-        user_message="deep research job",
+    request = _make_request(user_message="deep research job",
         tools=["deep_research"],
         turn_id="turn-7",
     )
@@ -300,7 +298,7 @@ async def test_run_fn_wraps_execute_with_tools_outcome() -> None:
     assert result.result_payload["status"] == "completed"
     assert len(orchestrator.calls) == 1
     call = orchestrator.calls[0]
-    assert call["user_message"] == "do the thing"
+    assert call["turn"].text == "do the thing"
     assert call["selected_tools"] == ["deep_research"]
     assert call["user_id"] == "u1"
     assert call["session_id"] == "s1"
@@ -373,7 +371,7 @@ async def test_run_fn_resumes_from_initial_messages_when_present() -> None:
 
     assert result.summary == "resumed answer"
     call = orchestrator.calls[0]
-    assert call["user_message"] == ""
+    assert call["turn"].text == ""
     assert call["conversation_history"] == snapshot_messages
     # The background runner must deep-copy so a later mutation of the
     # spec payload cannot retroactively change the live orchestrator

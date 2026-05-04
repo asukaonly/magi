@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ....agent.message_utils import append_latest_user_message
+from ....agent.turn_input import UserTurnInput
 from ....context.scenarios import Scenario
 from ..common import (
     BaseExecutionHandler,
@@ -21,11 +22,18 @@ class DirectLLMHandler(BaseExecutionHandler):
     mode = ExecutionMode.DIRECT_LLM
 
     async def build_request(self, request: ExecutionRequest) -> DirectLLMRequest:
+        attachments = list(getattr(request.context.latest_payload, "attachments", []) or [])
+        turn = UserTurnInput(
+            text=request.context.latest_user_message,
+            attachments=attachments,
+            user_id=request.context.user_id,
+            session_id=request.context.session_id,
+        )
         prompt_package = await self._deps.context_service.build_prompt_package(
             user_id=request.context.user_id,
             session_id=request.context.session_id,
             user_message=request.context.latest_user_message,
-            attachments=list(getattr(request.context.latest_payload, "attachments", []) or []),
+            attachments=attachments,
             task_category=request.intent.intent,
             tools=request.tool_selection.tools,
             scenario=Scenario.CHAT,
@@ -46,12 +54,9 @@ class DirectLLMHandler(BaseExecutionHandler):
             ),
             messages=append_latest_user_message(
                 request.context.history,
-                request.context.latest_user_message,
+                turn,
                 session_summary=getattr(request.context, "session_summary", None),
                 session_origin=getattr(request.context, "session_origin", None),
-                attachments=list(getattr(request.context.latest_payload, "attachments", []) or []),
-                user_id=request.context.user_id,
-                session_id=request.context.session_id,
             ),
             thinking_depth=request.intent.thinking_depth,
         )

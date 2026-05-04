@@ -74,16 +74,18 @@ class _FakeOrchestrator:
     def build_step_state(
         self,
         *,
-        user_message: str,
+        turn: Any,
         system_prompt: str,
         selected_tools: list[str],
         conversation_history: Any = None,
+        session_summary: Any = None,
+        session_origin: Any = None,
         allow_attachment_grounding: bool = False,
     ) -> FunctionCallingStepState:
-        _ = (system_prompt, selected_tools, conversation_history, allow_attachment_grounding)
-        self.build_step_state_calls.append(user_message)
+        _ = (system_prompt, selected_tools, conversation_history, session_summary, session_origin, allow_attachment_grounding)
+        self.build_step_state_calls.append(turn.text)
         return FunctionCallingStepState(
-            messages=[{"role": "user", "content": user_message}],
+            messages=[{"role": "user", "content": turn.text}],
             effective_system_prompt="system prompt",
             tools=[],
         )

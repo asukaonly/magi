@@ -12,6 +12,7 @@ from ....llm.streaming_events import LLMStreamEvent, emit_stream_event, get_stre
 from ....runtime_trace import RuntimeTraceStore
 from ...cancel import CancelToken, null_cancel_token
 from ...message_utils import append_latest_user_message
+from ...turn_input import UserTurnInput
 from ...run_control import (
     DetachSignal,
     OrchestratorSnapshot,
@@ -127,7 +128,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
     def build_step_state(
         self,
         *,
-        user_message: str,
+        turn: UserTurnInput,
         system_prompt: str,
         selected_tools: List[str],
         conversation_history: List[Dict[str, Any]] | None = None,
@@ -138,7 +139,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         """Build the initial loop state for step-wise function calling."""
         messages = append_latest_user_message(
             conversation_history,
-            user_message,
+            turn,
             session_summary=session_summary,
             session_origin=session_origin,
         )
@@ -169,11 +170,13 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
             List[Dict[str, Any]],
             append_latest_user_message(
                 messages,
-                reminder,
+                UserTurnInput(
+                    text=reminder,
+                    attachments=list(attachments),
+                    user_id=user_id,
+                    session_id=session_id,
+                ),
                 history_limit=max(len(messages), 1) + 1,
-                attachments=attachments,
-                user_id=user_id,
-                session_id=session_id,
             ),
         )
 
@@ -189,7 +192,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
 
     async def execute_with_tools(
         self,
-        user_message: str,
+        turn: UserTurnInput,
         system_prompt: str,
         selected_tools: List[str],
         user_id: str,
@@ -216,7 +219,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         """Execute with continuous tool calling."""
         with bind_detach_signal(detach_signal):
             return await self._execute_with_tools_impl(
-                user_message=user_message,
+                turn=turn,
                 system_prompt=system_prompt,
                 selected_tools=selected_tools,
                 user_id=user_id,
@@ -244,7 +247,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
     async def _execute_with_tools_impl(
         self,
         *,
-        user_message: str,
+        turn: UserTurnInput,
         system_prompt: str,
         selected_tools: list[str],
         user_id: str,
@@ -270,7 +273,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
     ) -> ExecutionOutcome:
         token = cancel_token if cancel_token is not None else null_cancel_token()
         state = self.build_step_state(
-            user_message=user_message,
+            turn=turn,
             system_prompt=system_prompt,
             selected_tools=selected_tools,
             conversation_history=conversation_history,
@@ -292,7 +295,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
                 return self._build_detached_outcome(state, detach_signal)
             step_outcome = await self.step_executor.execute_step(
                 state=state,
-                user_message=user_message,
+                user_message=turn.text,
                 thinking_depth=depth,
                 user_id=user_id,
                 session_id=session_id,

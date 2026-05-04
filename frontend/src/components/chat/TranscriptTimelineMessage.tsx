@@ -18,7 +18,6 @@ type TranscriptTimelineMessageProps = {
   avatar: ReactNode;
   headerExtras?: ReactNode;
   bubbleTop?: ReactNode;
-  bubbleFooter?: ReactNode;
   belowBubble?: ReactNode;
   onContextMenu?: MouseEventHandler<HTMLDivElement>;
 };
@@ -103,7 +102,6 @@ export const TranscriptTimelineMessage = ({
   avatar,
   headerExtras,
   bubbleTop,
-  bubbleFooter,
   belowBubble,
   onContextMenu,
 }: TranscriptTimelineMessageProps) => {
@@ -119,7 +117,7 @@ export const TranscriptTimelineMessage = ({
   >
     <div className={message.role === 'user' ? 'flex max-w-[75%] flex-row-reverse gap-3' : 'flex max-w-[75%] gap-3'}>
       {avatar}
-      <div className={message.role === 'user' ? 'items-end' : 'items-start'}>
+      <div className={message.role === 'user' ? 'flex flex-col items-end' : 'flex flex-col items-start'}>
         <div className="mb-1 flex items-center gap-2">
           <span className="text-xs font-medium text-muted-foreground">
             {message.role === 'user' ? userNameLabel : assistantName}
@@ -130,8 +128,8 @@ export const TranscriptTimelineMessage = ({
         <div
           onContextMenu={onContextMenu}
           className={message.role === 'user'
-            ? 'rounded-xl rounded-tr-sm border border-transparent bg-[#f6e7de] px-4 py-2.5 text-[#6f3f2d] shadow-[0_14px_34px_rgba(168,93,62,0.09),inset_0_1px_0_rgba(255,255,255,0.42)]'
-            : 'rounded-xl rounded-tl-sm border border-border/35 bg-muted/35 px-4 py-2.5'}
+            ? 'w-fit max-w-full rounded-xl rounded-tr-sm border border-transparent bg-[#f6e7de] px-4 py-2.5 text-[#6f3f2d] shadow-[0_14px_34px_rgba(168,93,62,0.09),inset_0_1px_0_rgba(255,255,255,0.42)]'
+            : 'w-fit max-w-full rounded-xl rounded-tl-sm border border-border/35 bg-muted/35 px-4 py-2.5'}
         >
           {bubbleTop}
           {message.role === 'assistant' ? (
@@ -147,7 +145,6 @@ export const TranscriptTimelineMessage = ({
           ) : renderedContent ? (
             <p className="m-0 whitespace-pre-wrap text-sm">{renderedContent}</p>
           ) : null}
-          {bubbleFooter}
         </div>
         {belowBubble}
       </div>

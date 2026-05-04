@@ -28,6 +28,7 @@ from magi.agent.task_agents.common.contracts import (
     ToolSelection,
     UserMessagePayload,
 )
+from magi.agent.turn_input import UserTurnInput
 
 
 # ----------------------------------------------------------------------
@@ -92,8 +93,7 @@ class _FakeOrchestrator:
 # ----------------------------------------------------------------------
 
 
-def _make_request(
-    *, user_message: str = "summarise the PRs", tools: list[str] | None = None
+def _make_request(*, user_message: str = "summarise the PRs", tools: list[str] | None = None
 ) -> FunctionCallingRequest:
     payload = UserMessagePayload(
         user_id="u1",

@@ -14,6 +14,7 @@ from ....agent.run_control import (
     SteerInbox,
     bind_detach_signal,
 )
+from ....agent.turn_input import UserTurnInput
 from ....context.service import ContextAssemblyService
 from ....context.scenarios import Scenario
 from ..common import (
@@ -149,7 +150,12 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
 
             cancel_token = self._build_cancel_token(request)
             execution_outcome = await self._deps.function_calling_orchestrator.execute_with_tools(
-                user_message=request.context.latest_user_message,
+                turn=UserTurnInput(
+                    text=request.context.latest_user_message,
+                    attachments=list(getattr(request.context.latest_payload, "attachments", []) or []),
+                    user_id=request.context.user_id,
+                    session_id=request.context.session_id,
+                ),
                 system_prompt=request.system_prompt,
                 selected_tools=request.selected_tools,
                 user_id=request.context.user_id,
@@ -208,8 +214,17 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
         current_revision = int(getattr(request.context, "session_run_revision", 0) or 0)
         current_turn_id = getattr(request.context.latest_payload, "turn_id", None)
         cancel_token = self._build_cancel_token(request)
+
+        def _build_turn(text: str) -> UserTurnInput:
+            return UserTurnInput(
+                text=text,
+                attachments=list(getattr(request.context.latest_payload, "attachments", []) or []),
+                user_id=request.context.user_id,
+                session_id=request.context.session_id,
+            )
+
         step_state = orchestrator.build_step_state(
-            user_message=current_user_message,
+            turn=_build_turn(current_user_message),
             system_prompt=request.system_prompt,
             selected_tools=request.selected_tools,
             conversation_history=request.context.history,
@@ -319,7 +334,7 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
                     current_user_message = str(active_run.root_user_message or current_user_message)
                     current_turn_id = active_run.root_turn_id or current_turn_id
                     step_state = orchestrator.build_step_state(
-                        user_message=current_user_message,
+                        turn=_build_turn(current_user_message),
                         system_prompt=request.system_prompt,
                         selected_tools=request.selected_tools,
                         conversation_history=request.context.history,
@@ -342,7 +357,7 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
                     current_user_message = str(checkpoint.visible_user_message or current_user_message)
                     current_turn_id = checkpoint.pending_turns[-1].turn_id or current_turn_id
                     step_state = orchestrator.build_step_state(
-                        user_message=current_user_message,
+                        turn=_build_turn(current_user_message),
                         system_prompt=request.system_prompt,
                         selected_tools=request.selected_tools,
                         conversation_history=request.context.history,

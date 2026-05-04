@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ..chat import get_chat_read_service
+from .turn_input import UserTurnInput
 
 DEFAULT_HISTORY_TOKEN_BUDGET = 96_000
 _CHARS_PER_TOKEN_ESTIMATE = 4
@@ -16,35 +17,31 @@ _SESSION_CONTEXT_ROLE = "user"
 
 def append_latest_user_message(
     history: list[dict[str, Any]] | None,
-    latest_user_message: str,
+    turn: UserTurnInput,
     *,
     history_limit: int | None = None,
     history_token_budget: int | None = DEFAULT_HISTORY_TOKEN_BUDGET,
     session_summary: str | None = None,
     session_origin: str | None = None,
-    attachments: list[dict[str, Any]] | None = None,
-    user_id: str | None = None,
-    session_id: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Return prompt history with the current user message appended once.
+    """Return prompt history with the current user turn appended once.
 
-    When ``history_limit`` is omitted, selection is token-budget based: keep
-    as much available session history as fits, preserve a compact session
-    origin anchor when the head must be dropped, and reserve room for the
-    latest user message.
+    The ``turn`` carries text + attachments together so callers cannot drop
+    one without dropping the other. When ``history_limit`` is omitted,
+    selection is token-budget based.
     """
     source_messages = _normalize_prompt_messages(history or [])
-    normalized_latest = str(latest_user_message or "").strip()
+    normalized_latest = str(turn.text or "").strip()
     latest_content = _build_latest_user_message_content(
         normalized_latest,
-        attachments or [],
-        user_id=user_id,
-        session_id=session_id,
+        list(turn.attachments or []),
+        user_id=turn.user_id,
+        session_id=turn.session_id,
     )
     # Remove all trailing user messages that match the current message to
     # collapse duplicates caused by retried sends that had no assistant
     # response in between.
-    if not attachments:
+    if not turn.attachments:
         while source_messages and _is_matching_user_message(source_messages[-1], normalized_latest):
             source_messages.pop()
 
