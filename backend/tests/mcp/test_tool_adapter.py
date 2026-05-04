@@ -76,7 +76,35 @@ def test_readonly_hint_makes_safe():
     cls = build_adapter_class(
         "s", remote, manager=None, call_timeout_ms=1000, override=None
     )
-    assert cls().schema.dangerous is False
+    schema = cls().schema
+    assert schema.dangerous is False
+    # readOnlyHint also surfaces the tool in the `/`-picker by default.
+    assert schema.metadata.get("user_invocable") is True
+
+
+def test_no_annotation_keeps_user_invocable_off():
+    remote = {
+        "name": "x",
+        "description": "d",
+        "inputSchema": {"type": "object", "properties": {}},
+    }
+    cls = build_adapter_class(
+        "s", remote, manager=None, call_timeout_ms=1000, override=None
+    )
+    assert "user_invocable" not in cls().schema.metadata
+
+
+def test_destructive_hint_keeps_user_invocable_off():
+    remote = {
+        "name": "x",
+        "description": "d",
+        "inputSchema": {"type": "object", "properties": {}},
+        "annotations": {"destructiveHint": True},
+    }
+    cls = build_adapter_class(
+        "s", remote, manager=None, call_timeout_ms=1000, override=None
+    )
+    assert "user_invocable" not in cls().schema.metadata
 
 
 @pytest.mark.asyncio

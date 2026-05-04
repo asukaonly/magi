@@ -66,6 +66,21 @@ def _infer_dangerous(annotations: dict | None, override) -> bool:
     return True
 
 
+def _infer_user_invocable(annotations: dict | None) -> bool:
+    """Surface read-only MCP tools in the `/`-picker by default.
+
+    The MCP `tools/list` response may carry annotations (per the 2025
+    spec). When the server marks a tool ``readOnlyHint=true`` we treat
+    it as safe enough to expose to the user as a one-click `/` command.
+    Anything else (destructive, unknown, missing annotations) stays
+    hidden and can still be opted in via the user_invocable_tools.toml
+    whitelist.
+    """
+    if not annotations:
+        return False
+    return annotations.get("readOnlyHint") is True
+
+
 def build_adapter_class(
     server_id: str,
     remote: dict,
@@ -78,6 +93,14 @@ def build_adapter_class(
     annotations = remote.get("annotations") or {}
     parameters = _translate_params(remote.get("inputSchema"))
     dangerous = _infer_dangerous(annotations, override)
+    user_invocable = _infer_user_invocable(annotations)
+
+    metadata: dict[str, Any] = {
+        "mcp_server_id": server_id,
+        "mcp_tool_name": remote["name"],
+    }
+    if user_invocable:
+        metadata["user_invocable"] = True
 
     schema = ToolSchema(
         name=qualified_name,
@@ -85,7 +108,7 @@ def build_adapter_class(
         category="mcp",
         parameters=parameters,
         dangerous=dangerous,
-        metadata={"mcp_server_id": server_id, "mcp_tool_name": remote["name"]},
+        metadata=metadata,
     )
 
     class _Adapter(Tool):
