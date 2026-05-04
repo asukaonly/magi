@@ -3,9 +3,64 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer
 
 from ...config.models import LLMSettings
+
+
+SUPPORTED_LAYER_MODIFIER_KEYS = (
+    "behavior_shifts",
+    "memory_behavior",
+    "protective_bias",
+    "voice_unlocks",
+    "humor_delta",
+    "directness_delta",
+    "register_unlocks",
+    "trigger_threshold_shifts",
+    "sarcasm_bounds",
+)
+
+
+def _normalize_optional_text(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _normalize_optional_text_list(value: Any) -> Optional[List[str]]:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        items = [line.strip() for line in value.splitlines() if line.strip()]
+        return items or None
+    if isinstance(value, list):
+        items = [str(item).strip() for item in value if str(item).strip()]
+        return items or None
+    return None
+
+
+def _normalize_optional_float(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    if isinstance(value, str) and not value.strip():
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_optional_float_mapping(value: Any) -> Optional[Dict[str, float]]:
+    if not isinstance(value, dict):
+        return None
+    result: Dict[str, float] = {}
+    for raw_key, raw_value in value.items():
+        key = str(raw_key).strip()
+        number = _normalize_optional_float(raw_value)
+        if key and number is not None:
+            result[key] = number
+    return result or None
 
 
 class IdentityCoreModel(BaseModel):
@@ -41,10 +96,59 @@ class QuietHourModel(BaseModel):
     clamps: Dict[str, Any] = Field(default_factory=dict)
 
 
+class LayerModifiersModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    behavior_shifts: Optional[List[str]] = Field(default=None)
+    memory_behavior: Optional[str] = Field(default=None)
+    protective_bias: Optional[str] = Field(default=None)
+    voice_unlocks: Optional[List[str]] = Field(default=None)
+    humor_delta: Optional[float] = Field(default=None)
+    directness_delta: Optional[float] = Field(default=None)
+    register_unlocks: Optional[List[str]] = Field(default=None)
+    trigger_threshold_shifts: Optional[Dict[str, float]] = Field(default=None)
+    sarcasm_bounds: Optional[str] = Field(default=None)
+
+    @field_validator("behavior_shifts", "voice_unlocks", "register_unlocks", mode="before")
+    @classmethod
+    def _validate_text_lists(cls, value: Any) -> Optional[List[str]]:
+        return _normalize_optional_text_list(value)
+
+    @field_validator("memory_behavior", "protective_bias", "sarcasm_bounds", mode="before")
+    @classmethod
+    def _validate_text_fields(cls, value: Any) -> Optional[str]:
+        return _normalize_optional_text(value)
+
+    @field_validator("humor_delta", "directness_delta", mode="before")
+    @classmethod
+    def _validate_float_fields(cls, value: Any) -> Optional[float]:
+        return _normalize_optional_float(value)
+
+    @field_validator("trigger_threshold_shifts", mode="before")
+    @classmethod
+    def _validate_float_mapping(cls, value: Any) -> Optional[Dict[str, float]]:
+        return _normalize_optional_float_mapping(value)
+
+    @model_serializer(mode="plain")
+    def _serialize(self) -> Dict[str, Any]:
+        payload = {
+            "behavior_shifts": self.behavior_shifts,
+            "memory_behavior": self.memory_behavior,
+            "protective_bias": self.protective_bias,
+            "voice_unlocks": self.voice_unlocks,
+            "humor_delta": self.humor_delta,
+            "directness_delta": self.directness_delta,
+            "register_unlocks": self.register_unlocks,
+            "trigger_threshold_shifts": self.trigger_threshold_shifts,
+            "sarcasm_bounds": self.sarcasm_bounds,
+        }
+        return {key: value for key, value in payload.items() if value is not None}
+
+
 class PersonaLayerModel(BaseModel):
     layer_id: str = Field(default="")
     unlock_condition: Optional[Dict[str, Any]] = Field(default=None)
-    modifiers: Dict[str, Any] = Field(default_factory=dict)
+    modifiers: LayerModifiersModel = Field(default_factory=LayerModifiersModel)
 
 
 class BootstrapConfigModel(BaseModel):

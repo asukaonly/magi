@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from pydantic import ValidationError
 
 from magi.config.models import LLMProviderSettings, LLMScenario, LLMSelectionSettings, LLMSettings
 
@@ -428,3 +429,70 @@ def test_normalize_generated_personality_payload_keeps_surface_fixed() -> None:
 
     assert payload["persona_layers"][0] == {"layer_id": "surface", "unlock_condition": None, "modifiers": {}}
     assert [item["layer_id"] for item in payload["persona_layers"]] == ["surface", "crack", "revealed"]
+
+
+def test_personality_config_model_rejects_unknown_layer_modifier_keys() -> None:
+    from magi.api.routers.personality_config_schemas import PersonalityConfigModel
+
+    with pytest.raises(ValidationError):
+        PersonalityConfigModel(
+            persona_layers=[
+                {
+                    "layer_id": "crack",
+                    "unlock_condition": {"trust_level_gte": 0.4},
+                    "modifiers": {"persona_override": "do not allow"},
+                }
+            ]
+        )
+
+
+def test_personality_config_model_coerces_supported_layer_modifier_shapes() -> None:
+    from magi.api.routers.personality_config_schemas import PersonalityConfigModel
+
+    model = PersonalityConfigModel(
+        persona_layers=[
+            {
+                "layer_id": "crack",
+                "unlock_condition": {"trust_level_gte": 0.4},
+                "modifiers": {
+                    "memory_behavior": "  May reference prior context lightly.  ",
+                    "voice_unlocks": "rare direct sincerity\nquiet admission",
+                    "humor_delta": "0.25",
+                    "trigger_threshold_shifts": {"intimacy": "-0.15", "hostility": "bad"},
+                },
+            }
+        ]
+    )
+
+    assert model.persona_layers[0].modifiers.model_dump() == {
+        "memory_behavior": "May reference prior context lightly.",
+        "voice_unlocks": ["rare direct sincerity", "quiet admission"],
+        "humor_delta": 0.25,
+        "trigger_threshold_shifts": {"intimacy": -0.15},
+    }
+
+
+def test_normalize_generated_personality_payload_prunes_unknown_layer_modifiers() -> None:
+    from magi.api.routers.personality_config import normalize_generated_personality_payload
+
+    payload = normalize_generated_personality_payload(
+        {
+            "name": "Layered",
+            "persona_layers": [
+                {
+                    "layer_id": "crack",
+                    "unlock_condition": {"trust_level_gte": 0.4},
+                    "modifiers": {
+                        "voice_unlocks": "rare direct sincerity\nquiet admission",
+                        "directness_delta": "+0.2",
+                        "persona_override": "legacy",
+                    },
+                }
+            ],
+        }
+    )
+
+    assert payload["persona_layers"][1]["modifiers"] == {
+        "voice_unlocks": ["rare direct sincerity", "quiet admission"],
+        "directness_delta": 0.2,
+    }

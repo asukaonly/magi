@@ -182,6 +182,20 @@ Layers should not use `persona_override` to replace tone wholesale. They should 
 }
 ```
 
+Supported layer modifier keys are intentionally narrow so UI, schema validation, and runtime planning stay aligned:
+
+| Key | Value Shape | Purpose |
+|---|---|---|
+| `behavior_shifts` | `string[]` | Concrete behaviors that appear at this relationship depth. |
+| `memory_behavior` | `string` | Short rule for how prior shared context may surface. |
+| `protective_bias` | `string` | Short note describing how protective stance changes. |
+| `voice_unlocks` | `string[]` | New voice traits or phrasings unlocked at this depth. |
+| `humor_delta` | `number` | Relative humor increase or decrease, usually small. |
+| `directness_delta` | `number` | Relative directness increase or decrease, usually small. |
+| `register_unlocks` | `string[]` | Optional register IDs that become available at this layer. |
+| `trigger_threshold_shifts` | `Record<string, number>` | Per-trigger numeric adjustments such as `intimacy: -0.15`. |
+| `sarcasm_bounds` | `string` | Short rule constraining where sarcasm may land. |
+
 Layer evaluation can remain deterministic: trust threshold, interaction count, milestone requirements, and optional decay or breach rules.
 
 ### Modulator B: Dynamic State

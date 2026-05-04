@@ -14,7 +14,7 @@ from ...config.models import LLMScenario, LLMSettings
 from ...core.logger import get_logger
 from ...llm import create_llm_adapter
 from ...llm.draft import resolve_adapter_for_scenario
-from ..routers.personality_config_schemas import PersonalityConfigModel
+from ..routers.personality_config_schemas import LayerModifiersModel, PersonalityConfigModel, SUPPORTED_LAYER_MODIFIER_KEYS
 
 logger = get_logger(__name__)
 
@@ -361,7 +361,13 @@ def _complete_persona_layers(payload: Dict[str, Any]) -> None:
       continue
     seen_ids.add(layer_id)
     unlock_condition = _normalize_unlock_condition(item.get("unlock_condition"))
-    modifiers = item.get("modifiers") if isinstance(item.get("modifiers"), dict) else {}
+    raw_modifiers = item.get("modifiers") if isinstance(item.get("modifiers"), dict) else {}
+    filtered_modifiers = {
+      key: raw_modifiers[key]
+      for key in SUPPORTED_LAYER_MODIFIER_KEYS
+      if key in raw_modifiers
+    }
+    modifiers = LayerModifiersModel.model_validate(filtered_modifiers).model_dump()
     normalized.append({"layer_id": layer_id, "unlock_condition": unlock_condition, "modifiers": dict(modifiers)})
   for item in DEFAULT_DEEP_LAYERS:
     if len(normalized) >= 3:
