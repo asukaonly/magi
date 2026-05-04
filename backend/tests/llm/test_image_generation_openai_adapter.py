@@ -13,7 +13,14 @@ from magi.llm.image_generation import (
     ImageGenerationCapability,
     ImageGenerationRequest,
 )
+from magi.llm.image_generation.factory import create_image_generation_adapter
 from magi.llm.image_generation.providers.openai_images import OpenAIImagesAdapter
+from magi.config.llm_registry_models import (
+    LLMImageGenerationModelMetaModel,
+    LLMProviderMetaModel,
+    LLMProviderRegistryModel,
+)
+from magi.config.models import LLMProvider, LLMProviderSettings
 
 
 class _FakeImagesClient:
@@ -30,9 +37,7 @@ class _FakeImagesClient:
 
 
 class _ProviderError(Exception):
-    def __init__(
-        self, message: str, *, status_code: int, code: str | None = None
-    ) -> None:
+    def __init__(self, message: str, *, status_code: int, code: str | None = None) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.code = code
@@ -51,15 +56,50 @@ def _adapter(model: str = "gpt-image-1") -> OpenAIImagesAdapter:
     )
 
 
+def test_create_image_adapter_uses_provider_image_generation_overrides() -> None:
+    registry = LLMProviderRegistryModel(
+        providers=[
+            LLMProviderMetaModel(
+                id="openai",
+                image_generation_models=[
+                    LLMImageGenerationModelMetaModel(
+                        id="gpt-image-1",
+                        native_protocol="openai_images",
+                    )
+                ],
+            )
+        ]
+    )
+    provider = LLMProviderSettings(
+        provider_type=LLMProvider.OPENAI,
+        api_key="chat-key",
+        base_url="https://chat.example.com/v1",
+    )
+    provider.image_generation.api_key = "image-key"
+    provider.image_generation.base_url = "https://images.example.com/v1"
+    provider.image_generation.timeout = 222
+
+    adapter = create_image_generation_adapter(
+        provider_id="openai",
+        provider_settings=provider,
+        model="gpt-image-1",
+        registry=registry,
+        timeout=180,
+    )
+
+    assert isinstance(adapter, OpenAIImagesAdapter)
+    assert adapter._timeout == 222
+    assert str(adapter._client.base_url).rstrip("/") == "https://images.example.com/v1"
+    assert adapter._client.api_key == "image-key"
+
+
 @pytest.mark.asyncio
 async def test_openai_images_adapter_sends_unified_payload() -> None:
     image_data = base64.b64encode(b"fake-image").decode("ascii")
     fake_images = _FakeImagesClient(
         response=SimpleNamespace(
             data=[
-                SimpleNamespace(
-                    b64_json=image_data, url=None, revised_prompt="a brighter prompt"
-                )
+                SimpleNamespace(b64_json=image_data, url=None, revised_prompt="a brighter prompt")
             ]
         )
     )

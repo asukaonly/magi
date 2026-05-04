@@ -21,7 +21,9 @@ from ..services.llm_testing_service import get_llm_provider_registry
 from .config_schemas import LLMSelectionConfigModel, SystemConfigModel
 
 
-def selection_limits_from_registry_limits(limits: LLMLimitsSettings | None) -> LLMSelectionLimitsSettings:
+def selection_limits_from_registry_limits(
+    limits: LLMLimitsSettings | None,
+) -> LLMSelectionLimitsSettings:
     if limits is None:
         return LLMSelectionLimitsSettings()
     return LLMSelectionLimitsSettings(
@@ -30,11 +32,15 @@ def selection_limits_from_registry_limits(limits: LLMLimitsSettings | None) -> L
     )
 
 
-def normalize_masked_config_secrets(config: SystemConfigModel, runtime_config: Any) -> SystemConfigModel:
+def normalize_masked_config_secrets(
+    config: SystemConfigModel, runtime_config: Any
+) -> SystemConfigModel:
     return normalize_masked_secrets(config, runtime_config)
 
 
-def apply_llm_registry_defaults(config: SystemConfigModel, registry: LLMProviderRegistryModel) -> None:
+def apply_llm_registry_defaults(
+    config: SystemConfigModel, registry: LLMProviderRegistryModel
+) -> None:
     for provider_id, provider in config.llm.providers.items():
         provider_meta = find_provider_meta(registry, provider_id)
         if provider_meta is None:
@@ -177,7 +183,6 @@ def build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
             if str(selection.provider_id or "").strip() and str(selection.model or "").strip()
         },
         "llm.model_runtime_overrides": model_runtime_overrides,
-        "llm.image_generation_timeout": config.llm.image_generation_timeout,
         "agent.memory.db_path": config.memory.db_path,
         "agent.memory.embedding.mode": config.memory.embedding.mode,
         "agent.memory.embedding.local.model_source": config.memory.embedding.local.model_source,
@@ -225,14 +230,22 @@ def build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "tools.web_search.enabled": config.tools.builtIn.webSearch.enabled,
         "tools.web_search.default_provider": config.tools.builtIn.webSearch.provider,
         "tools.web_fetch.enabled": config.tools.builtIn.webFetch.enabled,
-        "tools.web_fetch.default_provider": "browser" if config.tools.builtIn.webFetch.usePlaywright else "http",
+        "tools.web_fetch.default_provider": (
+            "browser" if config.tools.builtIn.webFetch.usePlaywright else "http"
+        ),
     }
     if config.tools.builtIn.weather.apiKey is not None:
-        updates[f"tools.weather.providers.{config.tools.builtIn.weather.provider}.api_key"] = config.tools.builtIn.weather.apiKey
+        updates[f"tools.weather.providers.{config.tools.builtIn.weather.provider}.api_key"] = (
+            config.tools.builtIn.weather.apiKey
+        )
     if config.tools.builtIn.weather.apiUrl is not None:
-        updates[f"tools.weather.providers.{config.tools.builtIn.weather.provider}.base_url"] = config.tools.builtIn.weather.apiUrl
+        updates[f"tools.weather.providers.{config.tools.builtIn.weather.provider}.base_url"] = (
+            config.tools.builtIn.weather.apiUrl
+        )
     if config.tools.builtIn.webSearch.apiKey is not None:
-        updates[f"tools.web_search.providers.{config.tools.builtIn.webSearch.provider}.api_key"] = config.tools.builtIn.webSearch.apiKey
+        updates[f"tools.web_search.providers.{config.tools.builtIn.webSearch.provider}.api_key"] = (
+            config.tools.builtIn.webSearch.apiKey
+        )
     return updates
 
 

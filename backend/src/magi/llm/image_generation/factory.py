@@ -39,11 +39,7 @@ def _coerce_provider_type(provider_settings: LLMProviderSettings) -> str:
 def _fallback_protocol(provider_settings: LLMProviderSettings) -> str | None:
     provider_type = _coerce_provider_type(provider_settings)
     if provider_type == "custom":
-        api_format = (
-            str(getattr(provider_settings, "api_format", "") or "openai")
-            .strip()
-            .lower()
-        )
+        api_format = str(getattr(provider_settings, "api_format", "") or "openai").strip().lower()
         return "openai_images" if api_format in ("", "openai") else None
     if provider_type in {
         "openai",
@@ -70,9 +66,7 @@ def _image_meta_from_settings(
     if builtin_meta is not None:
         return builtin_meta
 
-    resolved_catalog = resolve_provider_model_catalog(
-        registry, provider_id, provider_settings
-    )
+    resolved_catalog = resolve_provider_model_catalog(registry, provider_id, provider_settings)
     lowered_model = str(model or "").strip().lower()
     resolved_meta = next(
         (
@@ -160,7 +154,9 @@ def create_image_generation_adapter(
     proxy_url: str | None = None,
 ):
     """Create an image generation adapter from provider settings and registry metadata."""
-    if not provider_settings.api_key:
+    image_generation = getattr(provider_settings, "image_generation", None)
+    api_key = getattr(image_generation, "api_key", None) or provider_settings.api_key
+    if not api_key:
         raise ImageGenInvalidParameterError(
             f"Provider '{provider_id}' is missing an API key.",
             field="api_key",
@@ -195,16 +191,14 @@ def create_image_generation_adapter(
             provider_id=provider_id,
         )
 
-    base_url = (
-        getattr(provider_settings, "image_gen_endpoint", None)
-        or provider_settings.base_url
-    )
+    base_url = getattr(image_generation, "base_url", None) or provider_settings.base_url
+    effective_timeout = int(getattr(image_generation, "timeout", None) or timeout)
     return adapter_class(
         provider_id=provider_id,
-        api_key=provider_settings.api_key,
+        api_key=api_key,
         model=model,
         base_url=base_url,
-        timeout=timeout,
+        timeout=effective_timeout,
         proxy_url=proxy_url,
         capability=_capability_from_meta(meta),
     )

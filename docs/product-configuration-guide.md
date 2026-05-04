@@ -195,7 +195,7 @@ Current product expectations:
 - provider and model catalogs should be delivered by dedicated LLM catalog endpoints that already merge saved custom providers, manual model IDs, and metadata overrides on the backend
 - custom-provider creation fields and defaults should be delivered by a dedicated template endpoint rather than piggybacking on generic config responses
 - image generation model catalogs should expose provider-owned capability metadata such as supported sizes, supported quality values, maximum image count, and native generation protocol
-- image generation runtime configuration should stay separate from chat defaults where behavior differs, including an optional provider-specific image endpoint and a dedicated image generation timeout
+- image generation runtime configuration should stay separate from chat defaults where behavior differs; each provider may expose an `image_generation` sub-configuration for image-only API key, Base URL, and timeout overrides while inheriting the provider connection when fields are empty
 
 At a minimum, the product should support:
 

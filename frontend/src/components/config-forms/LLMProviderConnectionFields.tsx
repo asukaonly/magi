@@ -32,6 +32,87 @@ export function LLMProviderConnectionFields({
   onProviderDefaultModelChange,
 }: LLMProviderConnectionFieldsProps) {
   const { t } = useTranslation('onboarding');
+  const imageGeneration = provider.image_generation || {};
+
+  const updateImageGeneration = (
+    updater: (current: NonNullable<LLMProviderConfig['image_generation']>) => NonNullable<LLMProviderConfig['image_generation']>
+  ) => {
+    onProviderChange(providerId, (draftProvider) => {
+      draftProvider.image_generation = updater({
+        api_key: draftProvider.image_generation?.api_key || '',
+        base_url: draftProvider.image_generation?.base_url || '',
+        timeout: draftProvider.image_generation?.timeout ?? 180,
+      });
+    });
+  };
+
+  const renderImageGenerationConnectionFields = () => (
+    <div
+      className={cn(
+        'space-y-4 rounded-[20px] bg-muted/40 p-4',
+        isSettingsSurface &&
+          'space-y-5 rounded-none border-t border-[hsl(var(--settings-subnav-border)/0.72)] bg-transparent p-0 pt-5 shadow-none'
+      )}
+    >
+      <div className="space-y-1">
+        <div className="text-sm font-medium text-foreground">{t('llm.imageGenerationConnection.title')}</div>
+        <p className="text-xs leading-5 text-muted-foreground">{t('llm.imageGenerationConnection.desc')}</p>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <label className="space-y-2">
+          <span className="text-sm font-medium">{t('llm.imageGenerationConnection.apiKey')}</span>
+          <input
+            aria-label={t('llm.imageGenerationConnection.apiKey')}
+            className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
+            type={showApiKey ? 'text' : 'password'}
+            placeholder={t('llm.imageGenerationConnection.apiKeyPlaceholder')}
+            value={imageGeneration.api_key || ''}
+            onChange={(event) =>
+              updateImageGeneration((current) => ({
+                ...current,
+                api_key: event.target.value,
+              }))
+            }
+          />
+        </label>
+
+        <label className="space-y-2">
+          <span className="text-sm font-medium">{t('llm.imageGenerationConnection.timeout')}</span>
+          <input
+            aria-label={t('llm.imageGenerationConnection.timeout')}
+            className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
+            type="number"
+            min={1}
+            value={imageGeneration.timeout ?? 180}
+            onChange={(event) => {
+              const timeout = Number(event.target.value);
+              updateImageGeneration((current) => ({
+                ...current,
+                timeout: Number.isFinite(timeout) && timeout > 0 ? Math.floor(timeout) : 180,
+              }));
+            }}
+          />
+        </label>
+      </div>
+
+      <label className="space-y-2">
+        <span className="text-sm font-medium">{t('llm.imageGenerationConnection.baseUrl')}</span>
+        <input
+          aria-label={t('llm.imageGenerationConnection.baseUrl')}
+          className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
+          placeholder={provider.base_url || providerMeta?.default_base_url || ''}
+          value={imageGeneration.base_url || ''}
+          onChange={(event) =>
+            updateImageGeneration((current) => ({
+              ...current,
+              base_url: event.target.value,
+            }))
+          }
+        />
+      </label>
+    </div>
+  );
 
   if (provider.provider_type !== 'custom') {
     return (
@@ -59,6 +140,8 @@ export function LLMProviderConnectionFields({
             }
           />
         </label>
+
+        {renderImageGenerationConnectionFields()}
       </>
     );
   }
@@ -123,6 +206,8 @@ export function LLMProviderConnectionFields({
           }
         />
       </label>
+
+      {renderImageGenerationConnectionFields()}
 
       <div
         className={cn(

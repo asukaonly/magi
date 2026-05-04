@@ -187,6 +187,14 @@
         "custom": "自定义供应商"
       }
     },
+    "imageGenerationConnection": {
+      "title": "生图连接配置",
+      "desc": "单独覆盖生图使用的 API Key、Base URL 和超时时间。留空则继承上方供应商连接。",
+      "apiKey": "生图 API Key",
+      "apiKeyPlaceholder": "继承供应商 API Key",
+      "baseUrl": "生图 Base URL",
+      "timeout": "生图超时（秒）"
+    },
     "scenarios": {
       "context_decider": {
         "title": "规划模型",

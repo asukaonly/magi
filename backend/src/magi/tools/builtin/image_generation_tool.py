@@ -109,12 +109,17 @@ class ImageGenerationTool(Tool):
     def _configured_timeout_seconds() -> int:
         try:
             config = get_config()
+            selection = config.llm.selections.get(LLMScenario.IMAGE_GENERATION.value)
+            provider_settings = (
+                config.llm.providers.get(selection.provider_id) if selection is not None else None
+            )
+            image_generation = getattr(provider_settings, "image_generation", None)
             return max(
                 1,
                 int(
                     getattr(
-                        config.llm,
-                        "image_generation_timeout",
+                        image_generation,
+                        "timeout",
                         DEFAULT_IMAGE_GENERATION_TIMEOUT_SECONDS,
                     )
                     or DEFAULT_IMAGE_GENERATION_TIMEOUT_SECONDS

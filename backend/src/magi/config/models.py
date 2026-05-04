@@ -187,6 +187,14 @@ class LLMScenario(str, Enum):
     IMAGE_GENERATION = "image_generation"
 
 
+class LLMProviderImageGenerationSettings(BaseModel):
+    """Provider-specific image generation connection settings."""
+
+    api_key: Optional[str] = Field(default=None)
+    base_url: Optional[str] = Field(default=None)
+    timeout: int = Field(default=180, ge=1)
+
+
 class LLMProviderSettings(BaseModel):
     """Reusable provider connection settings."""
 
@@ -195,7 +203,9 @@ class LLMProviderSettings(BaseModel):
     display_name: str = Field(default="OpenAI")
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
-    image_gen_endpoint: Optional[str] = Field(default=None)
+    image_generation: LLMProviderImageGenerationSettings = Field(
+        default_factory=LLMProviderImageGenerationSettings
+    )
     api_format: Optional[str] = Field(default=None)
     custom_models: List[str] = Field(default_factory=list)
     custom_default_model: Optional[str] = Field(default=None)
@@ -206,10 +216,7 @@ class LLMProviderSettings(BaseModel):
     @model_validator(mode="after")
     def validate_custom_model_defaults(self) -> "LLMProviderSettings":
         if self.provider_type == LLMProvider.CUSTOM:
-            if (
-                self.custom_default_model
-                and self.custom_default_model not in self.custom_models
-            ):
+            if self.custom_default_model and self.custom_default_model not in self.custom_models:
                 raise ValueError("Custom default model must exist in custom_models")
         return self
 
@@ -221,12 +228,8 @@ class LLMSelectionSettings(BaseModel):
     model: str = Field(default="gpt-4o-mini")
     embedding_dimension: Optional[int] = Field(default=None, ge=1)
     capability_override_enabled: bool = Field(default=False)
-    capabilities: LLMCapabilitiesSettings = Field(
-        default_factory=LLMCapabilitiesSettings
-    )
-    limits: LLMSelectionLimitsSettings = Field(
-        default_factory=LLMSelectionLimitsSettings
-    )
+    capabilities: LLMCapabilitiesSettings = Field(default_factory=LLMCapabilitiesSettings)
+    limits: LLMSelectionLimitsSettings = Field(default_factory=LLMSelectionLimitsSettings)
     provider_options: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -253,10 +256,7 @@ class LLMSettings(BaseModel):
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     max_tokens: int = Field(default=DEFAULT_MAX_TOKENS, ge=MIN_MAX_TOKENS)
     timeout: int = Field(default=60, ge=1)
-    image_generation_timeout: int = Field(default=180, ge=1)
-    model_runtime_overrides: Dict[str, LLMConcurrencyOverrideSettings] = Field(
-        default_factory=dict
-    )
+    model_runtime_overrides: Dict[str, LLMConcurrencyOverrideSettings] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_builtin_provider_uniqueness(self) -> "LLMSettings":
@@ -272,15 +272,11 @@ class LLMSettings(BaseModel):
 
         seen_provider_types: set[str] = set()
         for provider in self.providers.values():
-            provider_type = str(
-                getattr(provider.provider_type, "value", provider.provider_type)
-            )
+            provider_type = str(getattr(provider.provider_type, "value", provider.provider_type))
             if provider_type == LLMProvider.CUSTOM.value:
                 continue
             if provider_type in seen_provider_types:
-                raise ValueError(
-                    f"Duplicate built-in LLM provider type: {provider_type}"
-                )
+                raise ValueError(f"Duplicate built-in LLM provider type: {provider_type}")
             seen_provider_types.add(provider_type)
         return self
 
@@ -295,17 +291,13 @@ class EmbeddingSettings(BaseModel):
 
     backend: EmbeddingBackend = Field(default=EmbeddingBackend.SQLITE_VEC)
     mode: EmbeddingMode = Field(default=EmbeddingMode.OFF)
-    local: "LocalEmbeddingSettings" = Field(
-        default_factory=lambda: LocalEmbeddingSettings()
-    )
+    local: "LocalEmbeddingSettings" = Field(default_factory=lambda: LocalEmbeddingSettings())
 
 
 class LocalEmbeddingSettings(BaseModel):
     """Local ONNX embedding model settings."""
 
-    model_source: LocalEmbeddingModelSource = Field(
-        default=LocalEmbeddingModelSource.MANAGED
-    )
+    model_source: LocalEmbeddingModelSource = Field(default=LocalEmbeddingModelSource.MANAGED)
     managed_model_id: Optional[str] = Field(default=None)
     model_dir_path: Optional[str] = Field(default=None)
     idle_timeout_seconds: int = Field(default=1800, ge=60)
@@ -421,18 +413,12 @@ class MemorySettings(BaseModel):
 
     db_path: str = Field(default="~/.magi/data/memory")
     retention_days: int = Field(default=90, ge=1)
-    history_behavior: MemoryHistoryBehavior = Field(
-        default=MemoryHistoryBehavior.DELETE
-    )
+    history_behavior: MemoryHistoryBehavior = Field(default=MemoryHistoryBehavior.DELETE)
     async_embeddings: bool = Field(default=True)
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     reranker: MemoryRerankerSettings = Field(default_factory=MemoryRerankerSettings)
-    query_expansion: QueryExpansionSettings = Field(
-        default_factory=QueryExpansionSettings
-    )
-    graph_spreading: GraphSpreadingSettings = Field(
-        default_factory=GraphSpreadingSettings
-    )
+    query_expansion: QueryExpansionSettings = Field(default_factory=QueryExpansionSettings)
+    graph_spreading: GraphSpreadingSettings = Field(default_factory=GraphSpreadingSettings)
     entity_semantic_edges: EntitySemanticEdgeSettings = Field(
         default_factory=EntitySemanticEdgeSettings
     )
@@ -487,9 +473,7 @@ class MaintenanceSettings(BaseModel):
         default=300.0, ge=10.0, description="Interval between maintenance runs"
     )
     health_check: bool = Field(default=True, description="Enable health checks")
-    log_rotation_check: bool = Field(
-        default=True, description="Enable log rotation checks"
-    )
+    log_rotation_check: bool = Field(default=True, description="Enable log rotation checks")
 
 
 class RuntimeSettings(BaseModel):
@@ -593,9 +577,7 @@ class AgentSettings(BaseModel):
     message_bus: MessageBusSettings = Field(default_factory=MessageBusSettings)
     runtime: RuntimeSettings = Field(default_factory=RuntimeSettings)
     maintenance: MaintenanceSettings = Field(default_factory=MaintenanceSettings)
-    background_tasks: BackgroundTasksSettings = Field(
-        default_factory=BackgroundTasksSettings
-    )
+    background_tasks: BackgroundTasksSettings = Field(default_factory=BackgroundTasksSettings)
 
 
 # =============================================================================
@@ -717,9 +699,7 @@ class PluginSettings(BaseModel):
 class PluginsSettings(BaseModel):
     """Unified plugin runtime configuration."""
 
-    scan_paths: List[str] = Field(
-        default_factory=lambda: ["plugins", "~/.magi/plugins"]
-    )
+    scan_paths: List[str] = Field(default_factory=lambda: ["plugins", "~/.magi/plugins"])
     registry_url: Optional[str] = Field(default=None)
     packages: Dict[str, PluginSettings] = Field(
         default_factory=lambda: {

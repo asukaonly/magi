@@ -67,11 +67,17 @@ export interface LLMProviderConfig {
   display_name: string;
   api_key?: string;
   base_url?: string;
-  image_gen_endpoint?: string;
+  image_generation?: LLMProviderImageGenerationConfig;
   api_format?: ApiFormat;
   custom_models?: string[];
   custom_default_model?: string;
   model_metadata_overrides?: Record<string, LLMModelMetadataOverride>;
+}
+
+export interface LLMProviderImageGenerationConfig {
+  api_key?: string;
+  base_url?: string;
+  timeout?: number;
 }
 
 export interface LLMSelectionConfig {
@@ -88,7 +94,6 @@ export interface LLMConfig {
   providers: Record<string, LLMProviderConfig>;
   selections: Record<LLMScenario, LLMSelectionConfig>;
   model_runtime_overrides: Record<string, LLMConcurrencyOverrideConfig>;
-  image_generation_timeout?: number;
 }
 
 export interface LLMCapabilities {
@@ -515,7 +520,11 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
         display_name: 'OpenAI',
         api_key: '',
         base_url: '',
-        image_gen_endpoint: '',
+        image_generation: {
+          api_key: '',
+          base_url: '',
+          timeout: 180,
+        },
       },
     },
     selections: {
@@ -566,7 +575,6 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
       },
     },
     model_runtime_overrides: {},
-    image_generation_timeout: 180,
   },
   memory: {
     db_path: '~/.magi/data/memories',

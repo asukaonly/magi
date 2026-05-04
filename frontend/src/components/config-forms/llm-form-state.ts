@@ -40,12 +40,21 @@ const cloneRuntimeOverride = (
   max_concurrency: value?.max_concurrency ?? null,
 });
 
+const cloneImageGenerationConfig = (
+  value?: Partial<LLMProviderConfig['image_generation']>
+): NonNullable<LLMProviderConfig['image_generation']> => ({
+  api_key: value?.api_key || '',
+  base_url: value?.base_url || '',
+  timeout: value?.timeout ?? 180,
+});
+
 export const cloneProvider = (value?: Partial<LLMProviderConfig>): LLMProviderConfig => ({
   enabled: Boolean(value?.enabled),
   provider_type: value?.provider_type || 'openai',
   display_name: value?.display_name || '',
   api_key: value?.api_key || '',
   base_url: value?.base_url || '',
+  image_generation: cloneImageGenerationConfig(value?.image_generation),
   api_format: value?.api_format,
   custom_models: [...(value?.custom_models || [])],
   custom_default_model: value?.custom_default_model || '',

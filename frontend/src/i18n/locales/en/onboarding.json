@@ -186,6 +186,14 @@
         "custom": "Custom Provider"
       }
     },
+    "imageGenerationConnection": {
+      "title": "Image Generation Connection",
+      "desc": "Override the API key, Base URL, and timeout used only by image generation. Leave fields empty to inherit the provider connection above.",
+      "apiKey": "Image API Key",
+      "apiKeyPlaceholder": "Inherit provider API Key",
+      "baseUrl": "Image Base URL",
+      "timeout": "Image Timeout (seconds)"
+    },
     "scenarios": {
       "context_decider": {
         "title": "Planning Model",

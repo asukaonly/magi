@@ -42,7 +42,7 @@ def test_system_config_defaults_include_llm_provider_pool_and_selections():
     assert "core" in config.llm.selections
     assert hasattr(config.llm, "model_runtime_overrides")
     assert config.llm.model_runtime_overrides == {}
-    assert config.llm.image_generation_timeout == 180
+    assert config.llm.providers["openai"].image_generation.timeout == 180
     assert "max_concurrency" not in config.llm.selections["core"].limits.model_dump()
 
 
@@ -50,8 +50,11 @@ def test_runtime_llm_defaults_include_image_generation_settings():
     registry = _default_llm_provider_registry()
     defaults = build_runtime_llm_defaults(registry)
 
-    assert defaults["image_generation_timeout"] == 180
-    assert defaults["providers"]["openai"]["image_gen_endpoint"] == ""
+    assert defaults["providers"]["openai"]["image_generation"] == {
+        "api_key": "",
+        "base_url": "",
+        "timeout": 180,
+    }
 
 
 def test_resolved_image_generation_models_include_capability_metadata():
@@ -119,9 +122,7 @@ def test_build_system_config_loads_default_chat_workspace_path_from_raw_yaml(
 ):
     monkeypatch.setattr(
         "magi.api.routers.config._read_raw_yaml",
-        lambda: {
-            "preferences": {"default_chat_workspace_path": "/Users/asuka/code/magi"}
-        },
+        lambda: {"preferences": {"default_chat_workspace_path": "/Users/asuka/code/magi"}},
     )
 
     config = _build_system_config()
@@ -159,9 +160,7 @@ def test_llm_settings_reject_duplicate_builtin_provider_types():
                 },
             },
             selections={
-                "context_decider": LLMSelectionSettings(
-                    provider_id="openai", model="gpt-5.2"
-                ),
+                "context_decider": LLMSelectionSettings(provider_id="openai", model="gpt-5.2"),
                 "core": LLMSelectionSettings(provider_id="openai", model="gpt-5.2"),
             },
         )
@@ -171,9 +170,7 @@ def test_llm_settings_require_context_decider_and_core_selections():
     with pytest.raises(ValueError):
         LLMSettings(
             selections={
-                "context_decider": LLMSelectionSettings(
-                    provider_id="openai", model="gpt-5.2"
-                ),
+                "context_decider": LLMSelectionSettings(provider_id="openai", model="gpt-5.2"),
             }
         )
 
@@ -232,8 +229,8 @@ def test_build_update_paths_contains_new_sections():
     config.memory.l0.enabled = not current.memory.l0.enabled
     config.preferences.default_chat_workspace_path = "/Users/asuka/code/magi"
     config.memory.l2.batch_flush_interval_seconds = 90
-    config.llm.model_runtime_overrides["openai::gpt-5.2::chat"] = (
-        LLMConcurrencyOverrideSettings(max_concurrency=7)
+    config.llm.model_runtime_overrides["openai::gpt-5.2::chat"] = LLMConcurrencyOverrideSettings(
+        max_concurrency=7
     )
     config.memory.l2.conflict_arbitration_enabled = False
     config.memory.l2.conflict_arbitration_min_confidence = 0.9
@@ -247,20 +244,12 @@ def test_build_update_paths_contains_new_sections():
     assert updates["agent.memory.db_path"] == "/Users/asuka/.magi/data/custom-memories"
     assert updates["agent.memory.reranker.top_k"] == 12
     assert updates["agent.memory.reranker.cross_encoder.enabled"] is True
-    assert (
-        updates["agent.memory.reranker.cross_encoder.managed_model_id"]
-        == "bge-reranker-v2-m3"
-    )
+    assert updates["agent.memory.reranker.cross_encoder.managed_model_id"] == "bge-reranker-v2-m3"
     assert updates["agent.memory.query_expansion.enabled"] is False
     assert "agent.memory.l0.enabled" in updates
     assert updates["agent.memory.l0.enabled"] == config.memory.l0.enabled
     assert updates["agent.memory.l2.batch_flush_interval_seconds"] == 90
-    assert (
-        updates["llm.model_runtime_overrides"]["openai::gpt-5.2::chat"][
-            "max_concurrency"
-        ]
-        == 7
-    )
+    assert updates["llm.model_runtime_overrides"]["openai::gpt-5.2::chat"]["max_concurrency"] == 7
     assert "max_concurrency" not in config.llm.selections["core"].limits.model_dump()
     assert updates["agent.memory.l2.conflict_arbitration_enabled"] is False
     assert updates["agent.memory.l2.conflict_arbitration_min_confidence"] == 0.9
@@ -273,10 +262,7 @@ def test_build_update_paths_contains_new_sections():
         updates["timeline"]["sources"]["photo_library"]["enabled"]
         == config.timeline.sources.photo_library.enabled
     )
-    assert (
-        updates["preferences"]["default_chat_workspace_path"]
-        == "/Users/asuka/code/magi"
-    )
+    assert updates["preferences"]["default_chat_workspace_path"] == "/Users/asuka/code/magi"
     assert "agent.memory.async_embeddings" not in updates
     assert "agent.memory.embedding.backend" not in updates
     assert "agent.memory.l4.enabled" not in updates
@@ -308,9 +294,7 @@ def test_build_update_paths_persists_model_metadata_overrides():
     updates = _build_update_paths(config)
 
     assert (
-        updates["llm.providers"]["openai"]["model_metadata_overrides"]["gpt-4o-mini"][
-            "label"
-        ]
+        updates["llm.providers"]["openai"]["model_metadata_overrides"]["gpt-4o-mini"]["label"]
         == "OpenAI Compact"
     )
     assert (
@@ -320,9 +304,9 @@ def test_build_update_paths_persists_model_metadata_overrides():
         is True
     )
     assert (
-        updates["llm.providers"]["openai"]["model_metadata_overrides"]["gpt-4o-mini"][
-            "limits"
-        ]["max_output_tokens"]
+        updates["llm.providers"]["openai"]["model_metadata_overrides"]["gpt-4o-mini"]["limits"][
+            "max_output_tokens"
+        ]
         == 4096
     )
 
@@ -356,9 +340,7 @@ def test_timeline_defaults_include_source_retention_and_edge_whitelists():
     assert "browser_history" not in config.timeline.sources.model_dump(mode="json")
     assert "chat" not in config.timeline.sources.model_dump(mode="json")
     assert "manual_journal" not in config.timeline.sources.model_dump(mode="json")
-    assert (
-        config.timeline.sources.photo_library.default_retention_mode == "analyze_only"
-    )
+    assert config.timeline.sources.photo_library.default_retention_mode == "analyze_only"
     assert "CAPTURED" in config.timeline.sources.photo_library.edge_whitelist
     assert "DISLIKES" not in config.timeline.sources.photo_library.edge_whitelist
 
@@ -373,15 +355,27 @@ def test_onboarding_template_includes_timeline_defaults():
 
 
 def test_build_update_paths_skip_masked_api_key():
-    current = _build_system_config(mask_api_key=False)
-    config = SystemConfigModel.model_validate(current.model_dump(mode="json"))
-    config.llm.providers["openai"].display_name = "OpenAI Override"
-    config.llm.providers["openai"].api_key = "***"
-    updates = _build_update_paths(config)
-    assert (
-        updates["llm.providers"]["openai"].get("api_key")
-        == current.llm.providers["openai"].api_key
-    )
+    runtime_config = get_config()
+    original_image_api_key = runtime_config.llm.providers["openai"].image_generation.api_key
+    runtime_config.llm.providers["openai"].image_generation.api_key = "sk-image-openai"
+
+    try:
+        current = _build_system_config(mask_api_key=False)
+        config = SystemConfigModel.model_validate(current.model_dump(mode="json"))
+        config.llm.providers["openai"].display_name = "OpenAI Override"
+        config.llm.providers["openai"].api_key = "***"
+        config.llm.providers["openai"].image_generation.api_key = "***"
+        updates = _build_update_paths(config)
+        assert (
+            updates["llm.providers"]["openai"].get("api_key")
+            == current.llm.providers["openai"].api_key
+        )
+        assert (
+            updates["llm.providers"]["openai"]["image_generation"].get("api_key")
+            == "sk-image-openai"
+        )
+    finally:
+        runtime_config.llm.providers["openai"].image_generation.api_key = original_image_api_key
 
 
 def test_build_system_config_returns_real_llm_api_keys_by_default(
@@ -409,22 +403,15 @@ def test_build_update_paths_applies_builtin_provider_defaults_before_save():
             base_url="",
         )
     }
-    config.llm.selections["context_decider"] = LLMSelectionConfigModel(
-        provider_id="glm", model=""
-    )
+    config.llm.selections["context_decider"] = LLMSelectionConfigModel(provider_id="glm", model="")
     config.llm.selections["core"] = LLMSelectionConfigModel(provider_id="glm", model="")
-    config.llm.selections["embedding"] = LLMSelectionConfigModel(
-        provider_id="glm", model=""
-    )
+    config.llm.selections["embedding"] = LLMSelectionConfigModel(provider_id="glm", model="")
 
     updates = _build_update_paths(config)
 
     assert updates["llm.providers"]["glm"]["provider_type"] == "glm"
     assert updates["llm.providers"]["glm"]["display_name"] == "Z.ai"
-    assert (
-        updates["llm.providers"]["glm"]["base_url"]
-        == "https://open.bigmodel.cn/api/paas/v4"
-    )
+    assert updates["llm.providers"]["glm"]["base_url"] == "https://open.bigmodel.cn/api/paas/v4"
     assert updates["llm.selections"]["context_decider"]["model"] == "glm-4.6"
     assert updates["llm.selections"]["core"]["model"] == "glm-5"
     assert updates["llm.selections"]["embedding"]["model"] == "embedding-3"
@@ -442,9 +429,7 @@ def test_build_update_paths_does_not_depend_on_legacy_llm_env_vars(
         api_key="glm-key",
         base_url="https://open.bigmodel.cn/api/paas/v4",
     )
-    config.llm.selections["core"] = LLMSelectionSettings(
-        provider_id="glm", model="glm-4.7-flash"
-    )
+    config.llm.selections["core"] = LLMSelectionSettings(provider_id="glm", model="glm-4.7-flash")
     monkeypatch.delenv("LLM_API_KEY", raising=False)
 
     updates = _build_update_paths(config)
@@ -570,18 +555,14 @@ def test_resolve_provider_model_catalog_applies_builtin_and_manual_overrides():
             ),
             "acme-vision-embed": LLMModelMetadataOverrideSettings(
                 label="Acme Vision Embed",
-                capabilities=LLMCapabilityOverridesSettings(
-                    vision=True, embedding=True
-                ),
+                capabilities=LLMCapabilityOverridesSettings(vision=True, embedding=True),
             ),
         },
     )
 
     resolved = resolve_provider_model_catalog(registry, "openai", provider)
 
-    builtin_model = next(
-        model for model in resolved.chat_models if model.id == "gpt-4o-mini"
-    )
+    builtin_model = next(model for model in resolved.chat_models if model.id == "gpt-4o-mini")
     manual_chat_model = next(
         model for model in resolved.chat_models if model.id == "acme-vision-embed"
     )
@@ -613,9 +594,7 @@ def test_resolve_provider_model_catalog_includes_manual_image_generation_models(
 
     resolved = resolve_provider_model_catalog(registry, "openai", provider)
     manual_image_model = next(
-        model
-        for model in resolved.image_generation_models
-        if model.id == "acme-image-1"
+        model for model in resolved.image_generation_models if model.id == "acme-image-1"
     )
 
     assert manual_image_model.source == "manual"
@@ -678,12 +657,8 @@ def test_onboarding_template_ignores_llm_environment_variables(
     template = _build_onboarding_template()
 
     assert template.llm.providers
-    assert all(
-        provider.enabled is False for provider in template.llm.providers.values()
-    )
-    assert all(
-        provider.api_key in (None, "") for provider in template.llm.providers.values()
-    )
+    assert all(provider.enabled is False for provider in template.llm.providers.values())
+    assert all(provider.api_key in (None, "") for provider in template.llm.providers.values())
     assert template.llm.selections["core"].provider_id == ""
     assert template.llm.selections["core"].model == ""
 
@@ -934,9 +909,7 @@ def test_update_config_preserves_close_to_tray_enabled_preference_in_preferences
 
     monkeypatch.setattr("magi.api.routers.config.save_config", _fake_save_config)
     monkeypatch.setattr("magi.api.routers.config.reload_config", lambda: get_config())
-    monkeypatch.setattr(
-        "magi.api.routers.config.refresh_runtime_llm_config", lambda config: None
-    )
+    monkeypatch.setattr("magi.api.routers.config.refresh_runtime_llm_config", lambda config: None)
 
     payload = SystemConfigModel().model_dump(mode="json")
     payload["preferences"]["close_to_tray_enabled"] = False
@@ -974,12 +947,8 @@ def test_update_config_persists_changed_settings_and_returns_rebuilt_config(
         "magi.api.routers.config._build_update_paths", lambda config: expected_updates
     )
     monkeypatch.setattr("magi.api.routers.config.save_config", _fake_save_config)
-    monkeypatch.setattr(
-        "magi.api.routers.config.reload_config", lambda: refreshed_config
-    )
-    monkeypatch.setattr(
-        "magi.api.routers.config.refresh_runtime_llm_config", lambda config: None
-    )
+    monkeypatch.setattr("magi.api.routers.config.reload_config", lambda: refreshed_config)
+    monkeypatch.setattr("magi.api.routers.config.refresh_runtime_llm_config", lambda config: None)
     monkeypatch.setattr(
         "magi.api.routers.config._build_system_config",
         lambda mask_api_key=False: returned_config,
@@ -990,9 +959,7 @@ def test_update_config_persists_changed_settings_and_returns_rebuilt_config(
     assert response.status_code == 200
     assert captured_updates == expected_updates
     assert response.json()["data"]["memory"]["l0"]["enabled"] is False
-    assert (
-        response.json()["data"]["tools"]["builtIn"]["webFetch"]["usePlaywright"] is True
-    )
+    assert response.json()["data"]["tools"]["builtIn"]["webFetch"]["usePlaywright"] is True
 
 
 def test_complete_onboarding_reloads_config_and_refreshes_runtime_llm_cache(
@@ -1031,13 +998,9 @@ def test_complete_onboarding_reloads_config_and_refreshes_runtime_llm_cache(
         "magi.api.routers.config._enqueue_runtime_llm_refresh_command",
         _fake_enqueue_runtime_llm_refresh_command,
     )
-    monkeypatch.setattr(
-        "magi.core.runtime_bindings.require_agent_runtime", lambda: object()
-    )
+    monkeypatch.setattr("magi.core.runtime_bindings.require_agent_runtime", lambda: object())
 
-    response = client.post(
-        "/config/onboarding-complete", json=payload.model_dump(mode="json")
-    )
+    response = client.post("/config/onboarding-complete", json=payload.model_dump(mode="json"))
 
     assert response.status_code == 200
     assert calls == ["save", "reload", "refresh", "enqueue"]
@@ -1061,21 +1024,13 @@ def test_complete_onboarding_quick_mode_uses_locale_seed_personality(
         captured["name"] = config.personality.name
         return {}
 
-    monkeypatch.setattr(
-        "magi.api.routers.config._build_update_paths", _capture_update_paths
-    )
+    monkeypatch.setattr("magi.api.routers.config._build_update_paths", _capture_update_paths)
     monkeypatch.setattr("magi.api.routers.config.save_config", lambda _: True)
     monkeypatch.setattr("magi.api.routers.config.reload_config", lambda: get_config())
-    monkeypatch.setattr(
-        "magi.api.routers.config.refresh_runtime_llm_config", lambda _: None
-    )
-    monkeypatch.setattr(
-        "magi.core.runtime_bindings.require_agent_runtime", lambda: object()
-    )
+    monkeypatch.setattr("magi.api.routers.config.refresh_runtime_llm_config", lambda _: None)
+    monkeypatch.setattr("magi.core.runtime_bindings.require_agent_runtime", lambda: object())
 
-    response = client.post(
-        "/config/onboarding-complete", json=payload.model_dump(mode="json")
-    )
+    response = client.post("/config/onboarding-complete", json=payload.model_dump(mode="json"))
 
     assert response.status_code == 200
     assert captured["name"] == "Echo-01"
@@ -1099,21 +1054,13 @@ def test_complete_onboarding_quick_mode_uses_english_seed_without_zh_fallback(
         captured["name"] = config.personality.name
         return {}
 
-    monkeypatch.setattr(
-        "magi.api.routers.config._build_update_paths", _capture_update_paths
-    )
+    monkeypatch.setattr("magi.api.routers.config._build_update_paths", _capture_update_paths)
     monkeypatch.setattr("magi.api.routers.config.save_config", lambda _: True)
     monkeypatch.setattr("magi.api.routers.config.reload_config", lambda: get_config())
-    monkeypatch.setattr(
-        "magi.api.routers.config.refresh_runtime_llm_config", lambda _: None
-    )
-    monkeypatch.setattr(
-        "magi.core.runtime_bindings.require_agent_runtime", lambda: object()
-    )
+    monkeypatch.setattr("magi.api.routers.config.refresh_runtime_llm_config", lambda _: None)
+    monkeypatch.setattr("magi.core.runtime_bindings.require_agent_runtime", lambda: object())
 
-    response = client.post(
-        "/config/onboarding-complete", json=payload.model_dump(mode="json")
-    )
+    response = client.post("/config/onboarding-complete", json=payload.model_dump(mode="json"))
 
     assert response.status_code == 200
     assert captured["name"] == "Nova"

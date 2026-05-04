@@ -22,6 +22,7 @@ from .config_schemas import (
     FullPersonalityConfigModel,
     GraphSpreadingConfigModel,
     LLMConfigModel,
+    LLMProviderImageGenerationConfigModel,
     LLMProviderConfigModel,
     LLMSelectionConfigModel,
     MemoryConfigModel,
@@ -47,11 +48,17 @@ def build_memory_config(raw: Dict[str, Any], runtime_config: Any) -> MemoryConfi
     return MemoryConfigModel(
         db_path=memory_cfg.db_path,
         retention_days=memory_cfg.retention_days,
-        history_behavior=getattr(memory_cfg.history_behavior, "value", str(memory_cfg.history_behavior)),
+        history_behavior=getattr(
+            memory_cfg.history_behavior, "value", str(memory_cfg.history_behavior)
+        ),
         embedding=EmbeddingConfigModel(
             mode=getattr(memory_cfg.embedding.mode, "value", str(memory_cfg.embedding.mode)),
             local=EmbeddingLocalConfigModel(
-                model_source=getattr(memory_cfg.embedding.local.model_source, "value", str(memory_cfg.embedding.local.model_source)),
+                model_source=getattr(
+                    memory_cfg.embedding.local.model_source,
+                    "value",
+                    str(memory_cfg.embedding.local.model_source),
+                ),
                 managed_model_id=memory_cfg.embedding.local.managed_model_id,
                 model_dir_path=memory_cfg.embedding.local.model_dir_path,
                 idle_timeout_seconds=memory_cfg.embedding.local.idle_timeout_seconds,
@@ -114,7 +121,9 @@ def build_tools(raw: Dict[str, Any], runtime_config: Any) -> ToolsConfigModel:
     weather_provider = built_in.get("weather", {}).get("provider", weather_runtime.default_provider)
     weather_provider_cfg = weather_runtime.providers.get(weather_provider)
 
-    web_search_provider = built_in.get("webSearch", {}).get("provider", web_search_runtime.default_provider)
+    web_search_provider = built_in.get("webSearch", {}).get(
+        "provider", web_search_runtime.default_provider
+    )
     web_search_provider_cfg = web_search_runtime.providers.get(web_search_provider)
 
     use_playwright = built_in.get("webFetch", {}).get(
@@ -169,13 +178,23 @@ def build_llm_config_model(
     providers: Dict[str, LLMProviderConfigModel] = {}
     for provider_id, provider in getattr(runtime_config.llm, "providers", {}).items():
         api_key = provider.api_key
+        image_generation = getattr(provider, "image_generation", None)
+        image_api_key = getattr(image_generation, "api_key", None)
         providers[provider_id] = LLMProviderConfigModel(
             enabled=provider.enabled,
             provider_type=str(getattr(provider.provider_type, "value", provider.provider_type)),
             display_name=provider.display_name,
             api_key=(mask_api_key_value(api_key) if (mask_api_key and api_key) else api_key),
             base_url=provider.base_url,
-            image_gen_endpoint=getattr(provider, "image_gen_endpoint", None),
+            image_generation=LLMProviderImageGenerationConfigModel(
+                api_key=(
+                    mask_api_key_value(image_api_key)
+                    if (mask_api_key and image_api_key)
+                    else image_api_key
+                ),
+                base_url=getattr(image_generation, "base_url", None),
+                timeout=getattr(image_generation, "timeout", 180),
+            ),
             api_format=provider.api_format,
             custom_models=list(getattr(provider, "custom_models", []) or []),
             custom_default_model=getattr(provider, "custom_default_model", None),
@@ -219,7 +238,8 @@ def build_llm_config_model(
                 capabilities=capabilities,
                 limits=(
                     selection_limits_from_registry_limits(embedding_meta.limits)
-                    if embedding_meta is not None and not bool(selection.capability_override_enabled)
+                    if embedding_meta is not None
+                    and not bool(selection.capability_override_enabled)
                     else selection.limits
                 ),
                 provider_options=provider_options,
@@ -244,8 +264,9 @@ def build_llm_config_model(
     return LLMConfigModel(
         providers=providers,
         selections=selections,
-        model_runtime_overrides=dict(getattr(runtime_config.llm, "model_runtime_overrides", {}) or {}),
-        image_generation_timeout=getattr(runtime_config.llm, "image_generation_timeout", 180),
+        model_runtime_overrides=dict(
+            getattr(runtime_config.llm, "model_runtime_overrides", {}) or {}
+        ),
     )
 
 

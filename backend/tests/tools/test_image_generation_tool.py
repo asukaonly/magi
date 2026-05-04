@@ -36,9 +36,7 @@ class _FakeAdapter:
         self.error = error
         self.requests: list[ImageGenerationRequest] = []
 
-    async def generate(
-        self, request: ImageGenerationRequest
-    ) -> ImageGenerationResponse:
+    async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
         self.requests.append(request)
         if self.error is not None:
             raise self.error
@@ -83,7 +81,7 @@ def _config() -> AppConfig:
         provider_id="openai",
         model="gpt-image-1",
     )
-    config.llm.image_generation_timeout = 181
+    config.llm.providers["openai"].image_generation.timeout = 181
     return config
 
 
@@ -113,10 +111,16 @@ async def test_image_generation_tool_saves_and_returns_chat_attachment(
         "load_llm_provider_registry",
         lambda *_args, **_kwargs: LLMProviderRegistryModel(),
     )
+    adapter_kwargs: dict[str, object] = {}
+
+    def fake_create_image_generation_adapter(**kwargs):
+        adapter_kwargs.update(kwargs)
+        return fake_adapter
+
     monkeypatch.setattr(
         image_tool_module,
         "create_image_generation_adapter",
-        lambda **_kwargs: fake_adapter,
+        fake_create_image_generation_adapter,
     )
 
     tool = ImageGenerationTool()
@@ -133,20 +137,16 @@ async def test_image_generation_tool_saves_and_returns_chat_attachment(
     assert Path(result.data["paths"][0]).is_file()
     assert result.data["artifacts"][0]["attachment_id"] == "attachment-1"
     assert result.data["chat_attachments"][0]["attachment_id"] == "attachment-1"
-    assert (
-        result.data["assistant_payload"]["asset_refs"][0]["attachment_id"]
-        == "attachment-1"
-    )
+    assert result.data["assistant_payload"]["asset_refs"][0]["attachment_id"] == "attachment-1"
     assert fake_adapter.requests[0].prompt == "draw a small desk"
+    assert adapter_kwargs["timeout"] == 181
 
 
 @pytest.mark.asyncio
 async def test_image_generation_tool_maps_rate_limit(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    fake_adapter = _FakeAdapter(
-        error=ImageGenRateLimitError("slow down", status_code=429)
-    )
+    fake_adapter = _FakeAdapter(error=ImageGenRateLimitError("slow down", status_code=429))
 
     monkeypatch.setattr(image_tool_module, "get_config", _config)
     monkeypatch.setattr(

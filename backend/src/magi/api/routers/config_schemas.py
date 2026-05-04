@@ -1,4 +1,5 @@
 """Pydantic schemas for the system configuration API."""
+
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
@@ -19,17 +20,27 @@ class AgentConfigModel(BaseModel):
     description: Optional[str] = Field(default="Magi AI Agent Framework")
 
 
+class LLMProviderImageGenerationConfigModel(BaseModel):
+    api_key: Optional[str] = Field(default=None)
+    base_url: Optional[str] = Field(default=None)
+    timeout: int = Field(default=180, ge=1)
+
+
 class LLMProviderConfigModel(BaseModel):
     enabled: bool = Field(default=True)
     provider_type: str = Field(default="openai")
     display_name: str = Field(default="OpenAI")
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
-    image_gen_endpoint: Optional[str] = Field(default=None)
+    image_generation: LLMProviderImageGenerationConfigModel = Field(
+        default_factory=LLMProviderImageGenerationConfigModel
+    )
     api_format: Optional[str] = Field(default=None)
     custom_models: List[str] = Field(default_factory=list)
     custom_default_model: Optional[str] = Field(default=None)
-    model_metadata_overrides: Dict[str, LLMModelMetadataOverrideSettings] = Field(default_factory=dict)
+    model_metadata_overrides: Dict[str, LLMModelMetadataOverrideSettings] = Field(
+        default_factory=dict
+    )
 
 
 class LLMSelectionConfigModel(BaseModel):
@@ -44,9 +55,7 @@ class LLMSelectionConfigModel(BaseModel):
 
 class LLMConfigModel(BaseModel):
     providers: Dict[str, LLMProviderConfigModel] = Field(
-        default_factory=lambda: {
-            "openai": LLMProviderConfigModel()
-        }
+        default_factory=lambda: {"openai": LLMProviderConfigModel()}
     )
     selections: Dict[str, LLMSelectionConfigModel] = Field(
         default_factory=lambda: {
@@ -64,7 +73,6 @@ class LLMConfigModel(BaseModel):
         }
     )
     model_runtime_overrides: Dict[str, LLMConcurrencyOverrideSettings] = Field(default_factory=dict)
-    image_generation_timeout: int = Field(default=180, ge=1)
 
 
 class MemoryL0ConfigModel(BaseModel):
@@ -141,7 +149,9 @@ class MemoryConfigModel(BaseModel):
     reranker: MemoryRerankerConfigModel = Field(default_factory=MemoryRerankerConfigModel)
     query_expansion: QueryExpansionConfigModel = Field(default_factory=QueryExpansionConfigModel)
     graph_spreading: GraphSpreadingConfigModel = Field(default_factory=GraphSpreadingConfigModel)
-    entity_semantic_edges: EntitySemanticEdgeConfigModel = Field(default_factory=EntitySemanticEdgeConfigModel)
+    entity_semantic_edges: EntitySemanticEdgeConfigModel = Field(
+        default_factory=EntitySemanticEdgeConfigModel
+    )
     l0: MemoryL0ConfigModel = Field(default_factory=MemoryL0ConfigModel)
     l1: MemoryL1ConfigModel = Field(default_factory=MemoryL1ConfigModel)
     l2: MemoryL2ConfigModel = Field(default_factory=MemoryL2ConfigModel)

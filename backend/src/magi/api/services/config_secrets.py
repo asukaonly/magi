@@ -31,22 +31,34 @@ def normalize_masked_secrets(config: SystemConfigModel, runtime_config: Any) -> 
     normalized = SystemConfigModel.model_validate(config.model_dump())
 
     for provider_id, provider in normalized.llm.providers.items():
-        if not is_masked_api_key(provider.api_key):
-            continue
         runtime_provider = runtime_config.llm.providers.get(provider_id)
-        provider.api_key = runtime_provider.api_key if runtime_provider is not None else None
+        if is_masked_api_key(provider.api_key):
+            provider.api_key = runtime_provider.api_key if runtime_provider is not None else None
+
+        image_api_key = provider.image_generation.api_key
+        if is_masked_api_key(image_api_key):
+            runtime_image_generation = (
+                runtime_provider.image_generation if runtime_provider is not None else None
+            )
+            provider.image_generation.api_key = (
+                runtime_image_generation.api_key if runtime_image_generation is not None else None
+            )
 
     weather_api_key = normalized.tools.builtIn.weather.apiKey
     if is_masked_api_key(weather_api_key):
         weather_provider = normalized.tools.builtIn.weather.provider
         runtime_weather = runtime_config.tools.weather.providers.get(weather_provider)
-        normalized.tools.builtIn.weather.apiKey = runtime_weather.api_key if runtime_weather is not None else None
+        normalized.tools.builtIn.weather.apiKey = (
+            runtime_weather.api_key if runtime_weather is not None else None
+        )
 
     web_search_api_key = normalized.tools.builtIn.webSearch.apiKey
     if is_masked_api_key(web_search_api_key):
         web_search_provider = normalized.tools.builtIn.webSearch.provider
         runtime_web_search = runtime_config.tools.web_search.providers.get(web_search_provider)
-        normalized.tools.builtIn.webSearch.apiKey = runtime_web_search.api_key if runtime_web_search is not None else None
+        normalized.tools.builtIn.webSearch.apiKey = (
+            runtime_web_search.api_key if runtime_web_search is not None else None
+        )
 
     return normalized
 

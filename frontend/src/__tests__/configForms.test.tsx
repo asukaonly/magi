@@ -765,6 +765,23 @@ describe('config forms', () => {
     expect(screen.getByLabelText('llm.fields.baseUrl')).toHaveValue('');
   });
 
+  it('shows image generation connection fields in provider settings', async () => {
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
+      </Form>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('llm-provider-detail-pane')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('llm.imageGenerationConnection.title')).toBeInTheDocument();
+    expect(screen.getByLabelText('llm.imageGenerationConnection.apiKey')).toBeInTheDocument();
+    expect(screen.getByLabelText('llm.imageGenerationConnection.baseUrl')).toBeInTheDocument();
+    expect(screen.getByLabelText('llm.imageGenerationConnection.timeout')).toHaveValue(180);
+  });
+
   it('lets user switch the core scenario model and shows vision warning', async () => {
     const user = userEvent.setup();
 
