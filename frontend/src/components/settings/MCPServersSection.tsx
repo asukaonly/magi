@@ -41,15 +41,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
-import {
-  Sheet,
-  SheetClose,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 
@@ -286,17 +277,14 @@ const ServerEditorDrawer: React.FC<ServerEditorDrawerProps> = ({
   }, [draft, isEdit, onClose, onSave, t]);
 
   return (
-    <Sheet open={open} onOpenChange={(next) => (next ? null : onClose())}>
-      <SheetContent
-        side="right"
-        className="flex w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-xl"
-      >
-        <SheetHeader className="border-b px-6 py-4">
-          <SheetTitle>
+    <Dialog open={open} onOpenChange={(next) => (next ? null : onClose())}>
+      <DialogContent className="settings-theme-surface flex max-h-[85vh] w-full max-w-2xl flex-col gap-0 overflow-hidden p-0">
+        <DialogHeader className="border-b px-6 py-4">
+          <DialogTitle>
             {t(isEdit ? 'settings.mcp.editor.editTitle' : 'settings.mcp.editor.createTitle')}
-          </SheetTitle>
-          <SheetDescription>{t('settings.mcp.editor.description')}</SheetDescription>
-        </SheetHeader>
+          </DialogTitle>
+          <DialogDescription>{t('settings.mcp.editor.description')}</DialogDescription>
+        </DialogHeader>
 
         <div className="flex-1 overflow-y-auto px-6 py-4">
           <div className="space-y-4">
@@ -514,23 +502,24 @@ const ServerEditorDrawer: React.FC<ServerEditorDrawerProps> = ({
           </div>
         </div>
 
-        <SheetFooter className="border-t px-6 py-4">
-          <SheetClose asChild>
-            <Button type="button" variant="outline" disabled={saving}>
+        <DialogFooter className="border-t px-6 py-4">
+          <DialogClose asChild>
+            <Button type="button" variant="outline" size="sm" disabled={saving}>
               {t('settings.mcp.editor.cancel')}
             </Button>
-          </SheetClose>
+          </DialogClose>
           <Button
             type="button"
+            size="sm"
             onClick={() => void handleSave()}
             disabled={saving || !draft.id.trim()}
           >
             {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             {t('settings.mcp.editor.save')}
           </Button>
-        </SheetFooter>
-      </SheetContent>
-    </Sheet>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 };
 
@@ -569,7 +558,7 @@ const LogsDialog: React.FC<LogsDialogProps> = ({ open, serverId, onClose }) => {
 
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? null : onClose())}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="settings-theme-surface max-w-2xl">
         <DialogHeader>
           <DialogTitle>
             {t('settings.mcp.logs.title', { id: serverId ?? '' })}
@@ -596,12 +585,12 @@ const LogsDialog: React.FC<LogsDialogProps> = ({ open, serverId, onClose }) => {
         </div>
 
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => void refresh()} disabled={loading}>
+          <Button type="button" variant="outline" size="sm" onClick={() => void refresh()} disabled={loading}>
             <RefreshCw className="mr-2 h-4 w-4" />
             {t('settings.mcp.refresh')}
           </Button>
           <DialogClose asChild>
-            <Button type="button">{t('settings.mcp.editor.cancel')}</Button>
+            <Button type="button" size="sm">{t('settings.mcp.editor.cancel')}</Button>
           </DialogClose>
         </DialogFooter>
       </DialogContent>
@@ -660,7 +649,7 @@ const ImportPreviewDialog: React.FC<ImportPreviewDialogProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? null : onClose())}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="settings-theme-surface max-w-lg">
         <DialogHeader>
           <DialogTitle>{t('settings.mcp.import.title')}</DialogTitle>
           <DialogDescription>{t('settings.mcp.import.description')}</DialogDescription>
@@ -705,12 +694,13 @@ const ImportPreviewDialog: React.FC<ImportPreviewDialogProps> = ({
 
         <DialogFooter>
           <DialogClose asChild>
-            <Button type="button" variant="outline" disabled={importing}>
+            <Button type="button" variant="outline" size="sm" disabled={importing}>
               {t('settings.mcp.editor.cancel')}
             </Button>
           </DialogClose>
           <Button
             type="button"
+            size="sm"
             onClick={() => void handleImport()}
             disabled={importing || drafts.length === 0}
           >

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useChatShellStore } from '@/stores';
 import { Button } from '@/components/ui/button';
@@ -18,19 +17,8 @@ import {
 } from '@/runtime/desktop';
 import SettingsCenterDialog from './SettingsCenterDialog';
 
-const getSettingsReturnPath = (state: unknown): string | null => {
-  if (!state || typeof state !== 'object') return null;
-  const candidate = (state as { returnTo?: unknown }).returnTo;
-  if (typeof candidate !== 'string') return null;
-  if (!candidate.startsWith('/') || candidate.startsWith('//')) return null;
-  if (candidate.startsWith('/settings')) return null;
-  return candidate;
-};
-
 const ShellOverlays = () => {
   const { t } = useTranslation('app');
-  const location = useLocation();
-  const navigate = useNavigate();
   const activePanel = useChatShellStore((state) => state.activePanel);
   const setActivePanel = useChatShellStore((state) => state.setActivePanel);
   const clearSettingsNavigationIntent = useChatShellStore((state) => state.clearSettingsNavigationIntent);
@@ -43,10 +31,7 @@ const ShellOverlays = () => {
     }
     setActivePanel('none');
     clearSettingsNavigationIntent();
-    if (location.pathname === '/settings') {
-      navigate(getSettingsReturnPath(location.state) ?? '/chat');
-    }
-  }, [clearSettingsNavigationIntent, location.pathname, location.state, navigate, setActivePanel]);
+  }, [clearSettingsNavigationIntent, setActivePanel]);
 
   useEffect(() => {
     let dispose: (() => void | Promise<void>) | undefined;
@@ -56,11 +41,6 @@ const ShellOverlays = () => {
         onOpenSettings: () => {
           clearSettingsNavigationIntent();
           setActivePanel('settings');
-          if (location.pathname !== '/settings') {
-            navigate('/settings', {
-              state: { returnTo: `${location.pathname}${location.search}${location.hash}` },
-            });
-          }
         },
         onRequestQuit: () => {
           setQuitConfirmOpen(true);
@@ -73,7 +53,7 @@ const ShellOverlays = () => {
     return () => {
       void dispose?.();
     };
-  }, [clearSettingsNavigationIntent, location.hash, location.pathname, location.search, navigate, setActivePanel]);
+  }, [clearSettingsNavigationIntent, setActivePanel]);
 
   const handleCancelQuit = useCallback(async () => {
     await cancelExitRequest();

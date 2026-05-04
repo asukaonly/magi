@@ -180,37 +180,39 @@ The LLM configuration layer defines how Magi talks to language models.
 
 Current product expectations:
 
-- multiple providers can be selected
-- model name is configurable
-- API credentials are stored safely
-- custom base URLs are supported where applicable
+- providers are explicit configured instances; a fresh config starts with no providers
+- multiple provider instances can share the same provider type when they represent different accounts, gateways, or service scopes
+- each provider instance stores provider-level default `api_key` and `base_url` values plus service-specific overrides under `services.chat`, `services.embedding`, `services.image_generation`, and future service blocks
+- service-specific API credentials and custom Base URLs are optional overrides; blank service fields inherit the provider-level defaults
 - expert-facing configuration can expose more fields than quick mode
 - provider/model metadata should come from the backend registry rather than hardcoded frontend lists
 - each selected model can expose a capability profile such as vision, reasoning, tool calling, and embedding support
 - users can review the active model capability profile during onboarding and later in settings
-- users can inspect provider model catalogs in Settings and edit per-model metadata without mutating the shipped registry
-- model metadata editing applies to built-in models, discovered models, and manually added model IDs through a user override layer
-- provider model workbenches should expose at least display label, icon, capability toggles, hidden/preferred flags, and key numeric limits
+- users add or edit provider instances from provider templates or a custom-provider template
+- custom providers may define manual chat model IDs and a selectable default model
 - advanced users can override capability flags, model limits, and provider-specific JSON options for the current model
-- provider and model catalogs should be delivered by dedicated LLM catalog endpoints that already merge saved custom providers, manual model IDs, and metadata overrides on the backend
+- provider and model catalogs should be delivered by dedicated LLM catalog endpoints that already merge saved provider instances, manual chat/embedding model IDs, and metadata overrides on the backend
 - custom-provider creation fields and defaults should be delivered by a dedicated template endpoint rather than piggybacking on generic config responses
 - image generation model catalogs should expose provider-owned capability metadata such as supported sizes, supported quality values, maximum image count, and native generation protocol
-- image generation runtime configuration should stay separate from chat defaults where behavior differs; each provider may expose an `image_generation` sub-configuration for image-only API key, Base URL, and timeout overrides while inheriting the provider connection when fields are empty
+- image generation runtime configuration is not inferred from chat settings; it uses `services.image_generation` for timeout and native protocol, and uses service-specific API key/Base URL overrides when present before falling back to the provider-level defaults
+- image generation models must come from provider-owned registry metadata or native adapter support; manually marking a chat model as `image_output` must not create an image generation model
 
 At a minimum, the product should support:
 
-- provider selection
+- adding, editing, enabling, disabling, and deleting provider instances
+- provider-template selection
+- provider-level API key and Base URL input
+- collapsible service sections with service-specific API key and custom endpoint override input plus explicit inheritance hints
+- service-local model catalog management in the provider editor, with connection testing available from the chat service section
+- provider selection per scenario
 - model selection
-- API key input
-- optional custom endpoint configuration
-- model catalog inspection per provider
-- manual model ID entry for provider-specific additions
+- manual chat model ID entry for custom providers
 - model capability summary
 - advanced capability override controls for the currently selected model
-- image generation model selection that is constrained to models declared or overridden as image-output capable
+- image generation model selection constrained to models declared with native image-generation metadata
 
 The exact provider list may evolve, but the product architecture should keep provider configuration extensible rather than hardcoding one vendor path.
-The frontend may preview unsaved provider edits, but backend-owned catalog resolution remains the source of truth for how manual models and override metadata are interpreted.
+The frontend may preview unsaved provider edits, but backend-owned catalog resolution remains the source of truth for how manual models, service-specific availability, and override metadata are interpreted.
 
 ## AI Personality
 
@@ -318,7 +320,7 @@ Current storage implementation notes:
 - Layer vectors are stored per layer (`L1/L3/L4` vector tables) instead of a shared `embeddings.db`.
 - The vector backend is fixed to sqlite and vector writes stay async; Settings no longer exposes backend or scheduling switches.
 - Managed local reranker assets belong under `~/.magi/cache/models/rerank/<managed_model_id>/`; externally referenced local reranker files stay in place and are referenced by path only.
-- Current `local` reranker execution first tries a configured `llm.providers.local` entry that points to a local OpenAI-compatible service.
+- Current `local` reranker execution first tries a configured provider instance such as `llm.providers.local.services.chat` that points to a local OpenAI-compatible service.
 - If that local provider path is unavailable and a managed/external local reranker model file is configured, retrieval may fall back to direct `llama-cli` execution against that local model file.
 - If neither the local provider path nor the local CLI path is available, retrieval falls back to heuristic reranking.
 - `llm_usage.db` lives under `~/.magi/runtime/`.

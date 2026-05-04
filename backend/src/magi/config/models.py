@@ -187,25 +187,51 @@ class LLMScenario(str, Enum):
     IMAGE_GENERATION = "image_generation"
 
 
-class LLMProviderImageGenerationSettings(BaseModel):
-    """Provider-specific image generation connection settings."""
+class LLMProviderConnectionSettings(BaseModel):
+    """Connection settings for one provider-backed service."""
 
+    enabled: bool = Field(default=True)
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
+
+
+class LLMProviderImageGenerationSettings(LLMProviderConnectionSettings):
+    """Provider-specific image generation service settings."""
+
+    enabled: bool = Field(default=False)
     timeout: int = Field(default=180, ge=1)
+    native_protocol: Optional[str] = Field(default=None)
+
+
+class LLMProviderTTSSettings(LLMProviderConnectionSettings):
+    """Provider-specific speech generation service settings."""
+
+    enabled: bool = Field(default=False)
+    model: Optional[str] = Field(default=None)
+    voice: Optional[str] = Field(default=None)
+    response_format: Optional[str] = Field(default=None)
+
+
+class LLMProviderServicesSettings(BaseModel):
+    """Service-specific provider configuration."""
+
+    chat: LLMProviderConnectionSettings = Field(default_factory=LLMProviderConnectionSettings)
+    embedding: LLMProviderConnectionSettings = Field(default_factory=LLMProviderConnectionSettings)
+    image_generation: LLMProviderImageGenerationSettings = Field(
+        default_factory=LLMProviderImageGenerationSettings
+    )
+    tts: LLMProviderTTSSettings = Field(default_factory=LLMProviderTTSSettings)
 
 
 class LLMProviderSettings(BaseModel):
-    """Reusable provider connection settings."""
+    """Reusable provider instance settings."""
 
     enabled: bool = Field(default=True)
     provider_type: LLMProvider = Field(default=LLMProvider.OPENAI)
     display_name: str = Field(default="OpenAI")
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
-    image_generation: LLMProviderImageGenerationSettings = Field(
-        default_factory=LLMProviderImageGenerationSettings
-    )
+    services: LLMProviderServicesSettings = Field(default_factory=LLMProviderServicesSettings)
     api_format: Optional[str] = Field(default=None)
     custom_models: List[str] = Field(default_factory=list)
     custom_default_model: Optional[str] = Field(default=None)
@@ -224,8 +250,8 @@ class LLMProviderSettings(BaseModel):
 class LLMSelectionSettings(BaseModel):
     """Per-scenario model selection."""
 
-    provider_id: str = Field(default="openai")
-    model: str = Field(default="gpt-4o-mini")
+    provider_id: str = Field(default="")
+    model: str = Field(default="")
     embedding_dimension: Optional[int] = Field(default=None, ge=1)
     capability_override_enabled: bool = Field(default=False)
     capabilities: LLMCapabilitiesSettings = Field(default_factory=LLMCapabilitiesSettings)
@@ -236,20 +262,17 @@ class LLMSelectionSettings(BaseModel):
 class LLMSettings(BaseModel):
     """Scenario-based LLM configuration."""
 
-    providers: Dict[str, LLMProviderSettings] = Field(
-        default_factory=lambda: {
-            "openai": LLMProviderSettings(
-                provider_type=LLMProvider.OPENAI,
-                display_name="OpenAI",
-            )
-        }
-    )
+    providers: Dict[str, LLMProviderSettings] = Field(default_factory=dict)
     selections: Dict[str, LLMSelectionSettings] = Field(
         default_factory=lambda: {
             LLMScenario.CONTEXT_DECIDER.value: LLMSelectionSettings(),
             LLMScenario.CORE.value: LLMSelectionSettings(),
+            LLMScenario.MEMORY_SUMMARIZER.value: LLMSelectionSettings(),
             LLMScenario.EMBEDDING.value: LLMSelectionSettings(
                 capabilities=LLMCapabilitiesSettings(embedding=True),
+            ),
+            LLMScenario.IMAGE_GENERATION.value: LLMSelectionSettings(
+                capabilities=LLMCapabilitiesSettings(image_output=True),
             ),
         }
     )
@@ -259,7 +282,7 @@ class LLMSettings(BaseModel):
     model_runtime_overrides: Dict[str, LLMConcurrencyOverrideSettings] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def validate_builtin_provider_uniqueness(self) -> "LLMSettings":
+    def validate_required_selections(self) -> "LLMSettings":
         # EMBEDDING is optional - system falls back to local model if not configured
         required_scenarios = {
             LLMScenario.CONTEXT_DECIDER.value,
@@ -270,14 +293,6 @@ class LLMSettings(BaseModel):
             missing_names = ", ".join(sorted(missing_scenarios))
             raise ValueError(f"Missing required LLM selections: {missing_names}")
 
-        seen_provider_types: set[str] = set()
-        for provider in self.providers.values():
-            provider_type = str(getattr(provider.provider_type, "value", provider.provider_type))
-            if provider_type == LLMProvider.CUSTOM.value:
-                continue
-            if provider_type in seen_provider_types:
-                raise ValueError(f"Duplicate built-in LLM provider type: {provider_type}")
-            seen_provider_types.add(provider_type)
         return self
 
 

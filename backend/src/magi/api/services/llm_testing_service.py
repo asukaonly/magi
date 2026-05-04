@@ -291,7 +291,11 @@ async def test_llm_provider_connection(
         provider=_sanitize_log_value(provider),
     )
     runtime_provider = LLMProviderSettings.model_validate(provider.model_dump())
-    registry_meta = find_provider_meta(get_llm_provider_registry(), provider_id)
+    provider_type = str(
+        getattr(getattr(runtime_provider, "provider_type", ""), "value", runtime_provider.provider_type)
+        or provider_id
+    )
+    registry_meta = find_provider_meta(get_llm_provider_registry(), provider_type)
     adapter = build_adapter_from_provider(
         runtime_provider,
         model=model,

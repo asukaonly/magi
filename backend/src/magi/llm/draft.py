@@ -51,7 +51,11 @@ def build_adapter_from_provider(
     """Build a temporary adapter from provider settings."""
     if not provider.enabled:
         raise ValueError("LLM provider must be enabled before use")
-    if not (provider.api_key or "").strip():
+    chat_service = provider.services.chat
+    if not chat_service.enabled:
+        raise ValueError("LLM provider chat service must be enabled before use")
+    api_key = (chat_service.api_key or provider.api_key or "").strip()
+    if not api_key:
         raise ValueError("LLM provider API key is required")
     if not (model or "").strip():
         raise ValueError("LLM model is required")
@@ -62,9 +66,9 @@ def build_adapter_from_provider(
 
     return adapter_factory(
         provider_type=_resolve_runtime_provider_type(provider),
-        api_key=(provider.api_key or "").strip(),
+        api_key=api_key,
         model=model.strip(),
-        base_url=(provider.base_url or "").strip() or _resolve_default_base_url(provider, default_base_url) or None,
+        base_url=(chat_service.base_url or provider.base_url or "").strip() or _resolve_default_base_url(provider, default_base_url) or None,
         timeout=timeout,
         proxy_url=proxy_url,
     )

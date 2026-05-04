@@ -17,6 +17,7 @@ from ...config.llm_registry import (
 from ...config.models import LLMProviderSettings
 from ...core.logger import get_logger
 from .config import LLMProviderConfigModel
+from .config_schemas import LLMProviderConnectionConfigModel, LLMProviderServicesConfigModel
 from ..services.llm_testing_service import (
     DiscoverLLMModelsApiResponseModel,
     DiscoverLLMModelsResponseModel,
@@ -66,6 +67,10 @@ def _build_custom_provider_defaults(registry_meta: LLMCustomProviderMetaModel) -
         display_name=registry_meta.display_name or "",
         api_key="",
         base_url="",
+        services=LLMProviderServicesConfigModel(
+            chat=LLMProviderConnectionConfigModel(enabled=True, api_key="", base_url=""),
+            embedding=LLMProviderConnectionConfigModel(enabled=False, api_key="", base_url=""),
+        ),
         api_format="openai",
         custom_models=[],
         custom_default_model="",
@@ -135,10 +140,18 @@ async def discover_llm_provider_models(payload: DiscoverLLMModelsRequestModel):
 
 @llm_router.post("/providers/test", response_model=TestLLMProviderApiResponseModel)
 async def test_llm_provider_connection(payload: TestLLMProviderRequestModel):
-    registry_meta = find_provider_meta(_load_llm_provider_registry(), payload.provider_id)
     provider_payload = LLMProviderConfigModel.model_validate(payload.provider)
+    registry_meta = find_provider_meta(
+        _load_llm_provider_registry(),
+        str(provider_payload.provider_type or payload.provider_id).strip().lower(),
+    )
+    chat_service = provider_payload.services.chat
     if not (provider_payload.base_url or "").strip() and registry_meta and registry_meta.default_base_url:
         provider_payload.base_url = registry_meta.default_base_url
+    if not (chat_service.api_key or "").strip() and provider_payload.api_key:
+        chat_service.api_key = provider_payload.api_key
+    if not (chat_service.base_url or "").strip() and provider_payload.base_url:
+        chat_service.base_url = provider_payload.base_url
     try:
         result = await _test_llm_provider_connection(
             payload.provider_id,

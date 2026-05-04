@@ -3,6 +3,18 @@ from __future__ import annotations
 from magi.config.models import AppConfig, LLMProvider
 
 
+def _custom_provider(base_provider, *, display_name: str, base_url: str, api_key: str, models: list[str]):
+    provider = base_provider.model_copy(deep=True)
+    provider.provider_type = LLMProvider.CUSTOM
+    provider.display_name = display_name
+    provider.services.chat.base_url = base_url
+    provider.services.chat.api_key = api_key
+    provider.api_format = "openai"
+    provider.custom_models = list(models)
+    provider.custom_default_model = models[0]
+    return provider
+
+
 class DummyAdapter:
     def __init__(self, *, provider_name: str, model_name: str) -> None:
         self._provider_name = provider_name
@@ -25,15 +37,27 @@ def _build_test_config() -> AppConfig:
                     "enabled": True,
                     "provider_type": LLMProvider.OPENAI,
                     "display_name": "OpenAI",
-                    "api_key": "sk-openai",
-                    "base_url": "https://api.openai.com/v1",
+                    "services": {
+                        "chat": {
+                            "api_key": "sk-openai",
+                            "base_url": "https://api.openai.com/v1",
+                        },
+                        "embedding": {
+                            "api_key": "sk-openai",
+                            "base_url": "https://api.openai.com/v1",
+                        },
+                    },
                 },
                 "anthropic": {
                     "enabled": True,
                     "provider_type": LLMProvider.ANTHROPIC,
                     "display_name": "Anthropic",
-                    "api_key": "sk-anthropic",
-                    "base_url": "https://api.anthropic.com/v1",
+                    "services": {
+                        "chat": {
+                            "api_key": "sk-anthropic",
+                            "base_url": "https://api.anthropic.com/v1",
+                        },
+                    },
                 },
             },
             "selections": {
@@ -189,16 +213,12 @@ def test_scenario_llm_pool_maps_custom_provider_to_runtime_api_format():
 
     created: list[dict[str, object]] = []
     config = _build_test_config()
-    config.llm.providers["custom_openai"] = config.llm.providers["openai"].model_copy(
-        update={
-            "provider_type": LLMProvider.CUSTOM,
-            "display_name": "My Gateway",
-            "base_url": "https://llm.example.com/v1",
-            "api_key": "sk-custom",
-            "api_format": "openai",
-            "custom_models": ["gpt-4.1-mini"],
-            "custom_default_model": "gpt-4.1-mini",
-        }
+    config.llm.providers["custom_openai"] = _custom_provider(
+        config.llm.providers["openai"],
+        display_name="My Gateway",
+        base_url="https://llm.example.com/v1",
+        api_key="sk-custom",
+        models=["gpt-4.1-mini"],
     )
     config.llm.selections["core"].provider_id = "custom_openai"
     config.llm.selections["core"].model = "gpt-4.1-mini"
@@ -230,16 +250,12 @@ def test_scenario_llm_pool_detects_glm_compatible_custom_provider() -> None:
 
     created: list[dict[str, object]] = []
     config = _build_test_config()
-    config.llm.providers["custom_glm"] = config.llm.providers["openai"].model_copy(
-        update={
-            "provider_type": LLMProvider.CUSTOM,
-            "display_name": "Zai",
-            "base_url": "https://open.bigmodel.cn/api/coding/paas/v4",
-            "api_key": "sk-custom-glm",
-            "api_format": "openai",
-            "custom_models": ["glm-5"],
-            "custom_default_model": "glm-5",
-        }
+    config.llm.providers["custom_glm"] = _custom_provider(
+        config.llm.providers["openai"],
+        display_name="Zai",
+        base_url="https://open.bigmodel.cn/api/coding/paas/v4",
+        api_key="sk-custom-glm",
+        models=["glm-5"],
     )
     config.llm.selections["core"].provider_id = "custom_glm"
     config.llm.selections["core"].model = "glm-5"
@@ -271,16 +287,12 @@ def test_scenario_llm_pool_detects_dashscope_custom_provider() -> None:
 
     created: list[dict[str, object]] = []
     config = _build_test_config()
-    config.llm.providers["custom_dashscope"] = config.llm.providers["openai"].model_copy(
-        update={
-            "provider_type": LLMProvider.CUSTOM,
-            "display_name": "Bailian",
-            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-            "api_key": "sk-custom-dashscope",
-            "api_format": "openai",
-            "custom_models": ["qwen-plus"],
-            "custom_default_model": "qwen-plus",
-        }
+    config.llm.providers["custom_dashscope"] = _custom_provider(
+        config.llm.providers["openai"],
+        display_name="Bailian",
+        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        api_key="sk-custom-dashscope",
+        models=["qwen-plus"],
     )
     config.llm.selections["core"].provider_id = "custom_dashscope"
     config.llm.selections["core"].model = "qwen-plus"
@@ -313,16 +325,12 @@ def test_dashscope_provider_takes_priority_over_glm_model_name() -> None:
 
     created: list[dict[str, object]] = []
     config = _build_test_config()
-    config.llm.providers["custom_dashscope_glm"] = config.llm.providers["openai"].model_copy(
-        update={
-            "provider_type": LLMProvider.CUSTOM,
-            "display_name": "Bailian",
-            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-            "api_key": "sk-dashscope",
-            "api_format": "openai",
-            "custom_models": ["glm-4"],
-            "custom_default_model": "glm-4",
-        }
+    config.llm.providers["custom_dashscope_glm"] = _custom_provider(
+        config.llm.providers["openai"],
+        display_name="Bailian",
+        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        api_key="sk-dashscope",
+        models=["glm-4"],
     )
     config.llm.selections["core"].provider_id = "custom_dashscope_glm"
     config.llm.selections["core"].model = "glm-4"

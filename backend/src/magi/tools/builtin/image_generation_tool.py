@@ -113,7 +113,11 @@ class ImageGenerationTool(Tool):
             provider_settings = (
                 config.llm.providers.get(selection.provider_id) if selection is not None else None
             )
-            image_generation = getattr(provider_settings, "image_generation", None)
+            image_generation = getattr(
+                getattr(provider_settings, "services", None),
+                "image_generation",
+                None,
+            )
             return max(
                 1,
                 int(
@@ -172,7 +176,16 @@ class ImageGenerationTool(Tool):
                 execution_time=time.time() - start,
             )
 
-        if not provider_settings.api_key:
+        image_generation = provider_settings.services.image_generation
+        if not image_generation.enabled:
+            return ToolResult(
+                success=False,
+                error=f"Provider '{selection.provider_id}' does not have image generation enabled.",
+                error_code=ToolErrorCode.PROVIDER_NOT_CONFIGURED.value,
+                execution_time=time.time() - start,
+            )
+
+        if not (image_generation.api_key or provider_settings.api_key):
             return ToolResult(
                 success=False,
                 error=f"Provider '{selection.provider_id}' is missing an API key.",

@@ -9,8 +9,8 @@
     --foreground: 20 15% 18%;
     --card: 0 0% 100%;
     --card-foreground: 20 15% 18%;
-    --primary: 18 90% 52%;
-    --primary-foreground: 0 0% 100%;
+    --primary: 25 45% 44%;
+    --primary-foreground: 34 32% 96%;
     --secondary: 25 15% 92%;
     --secondary-foreground: 20 20% 28%;
     --muted: 25 12% 94%;
@@ -21,7 +21,7 @@
     --destructive-foreground: 0 0% 100%;
     --border: 20 12% 86%;
     --input: 20 12% 86%;
-    --ring: 18 90% 52%;
+    --ring: 24 38% 48%;
     --sidebar-background-start: 34 18% 93%;
     --sidebar-background-end: 31 16% 91%;
     --sidebar-border: 31 11% 82%;
@@ -43,8 +43,6 @@
     --settings-foreground: 22 16% 22%;
     --settings-card: 35 20% 96%;
     --settings-card-foreground: 22 16% 22%;
-    --settings-primary: 25 45% 44%;
-    --settings-primary-foreground: 34 32% 96%;
     --settings-secondary: 32 16% 90%;
     --settings-secondary-foreground: 24 16% 28%;
     --settings-muted: 32 14% 92%;
@@ -53,7 +51,6 @@
     --settings-accent-foreground: 24 16% 26%;
     --settings-border: 30 14% 82%;
     --settings-input: 30 14% 82%;
-    --settings-ring: 24 38% 48%;
     --settings-nav-active: 31 22% 84%;
     --settings-nav-active-foreground: 24 18% 24%;
     --settings-nav-hover: 31 20% 88%;
@@ -114,8 +111,8 @@
     --foreground: 210 24% 94%;
     --card: 222 22% 13%;
     --card-foreground: 210 24% 94%;
-    --primary: 175 70% 45%;
-    --primary-foreground: 220 28% 9%;
+    --primary: 25 46% 56%;
+    --primary-foreground: 25 20% 12%;
     --secondary: 220 18% 18%;
     --secondary-foreground: 210 18% 84%;
     --muted: 220 18% 16%;
@@ -126,7 +123,7 @@
     --destructive-foreground: 210 24% 94%;
     --border: 220 18% 22%;
     --input: 220 18% 22%;
-    --ring: 175 70% 45%;
+    --ring: 25 46% 56%;
     --sidebar-background-start: 222 18% 12%;
     --sidebar-background-end: 220 16% 10%;
     --sidebar-border: 220 12% 22%;
@@ -148,8 +145,6 @@
     --settings-foreground: 30 18% 92%;
     --settings-card: 223 16% 14%;
     --settings-card-foreground: 30 18% 92%;
-    --settings-primary: 25 46% 56%;
-    --settings-primary-foreground: 25 20% 12%;
     --settings-secondary: 221 14% 18%;
     --settings-secondary-foreground: 30 12% 84%;
     --settings-muted: 221 14% 17%;
@@ -158,7 +153,6 @@
     --settings-accent-foreground: 30 18% 92%;
     --settings-border: 222 12% 24%;
     --settings-input: 222 12% 24%;
-    --settings-ring: 25 46% 56%;
     --settings-nav-active: 24 20% 25%;
     --settings-nav-active-foreground: 30 20% 94%;
     --settings-nav-hover: 222 14% 18%;
@@ -274,8 +268,6 @@
     --foreground: var(--settings-foreground);
     --card: var(--settings-card);
     --card-foreground: var(--settings-card-foreground);
-    --primary: var(--settings-primary);
-    --primary-foreground: var(--settings-primary-foreground);
     --secondary: var(--settings-secondary);
     --secondary-foreground: var(--settings-secondary-foreground);
     --muted: var(--settings-muted);
@@ -284,7 +276,6 @@
     --accent-foreground: var(--settings-accent-foreground);
     --border: var(--settings-border);
     --input: var(--settings-input);
-    --ring: var(--settings-ring);
     background: hsl(var(--background));
     color: hsl(var(--foreground));
   }

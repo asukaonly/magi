@@ -376,7 +376,6 @@ def resolve_provider_model_catalog(
 ) -> LLMResolvedProviderCatalogModel:
     """Resolve provider model metadata by merging registry models with user overrides."""
 
-    provider_meta = find_provider_meta(registry, provider_id)
     provider_type = (
         str(
             getattr(
@@ -389,6 +388,7 @@ def resolve_provider_model_catalog(
         .strip()
         .lower()
     )
+    provider_meta = find_provider_meta(registry, provider_type or provider_id)
     overrides = dict(getattr(provider_settings, "model_metadata_overrides", {}) or {})
     custom_models = list(getattr(provider_settings, "custom_models", []) or [])
     manual_base_capabilities = (
@@ -499,46 +499,6 @@ def resolve_provider_model_catalog(
                 capabilities=manual_base_capabilities,
                 limits=manual_base_limits,
                 provider_options_example=manual_provider_options,
-                override=override,
-            )
-
-        if (
-            override.capabilities.image_output is True
-            and model_id not in image_generation_models
-        ):
-            base_chat_model = chat_models.get(model_id)
-            image_capabilities = (
-                base_chat_model.capabilities.model_copy(deep=True)
-                if base_chat_model is not None
-                else LLMCapabilitiesSettings(
-                    vision=False,
-                    image_output=True,
-                    tool_calling=False,
-                    reasoning=False,
-                    embedding=False,
-                )
-            )
-            image_capabilities.image_output = True
-            image_capabilities.embedding = False
-            image_generation_models[model_id] = _resolve_image_generation_model(
-                model_id=model_id,
-                source=(
-                    base_chat_model.source if base_chat_model is not None else "manual"
-                ),
-                label=(
-                    base_chat_model.label if base_chat_model is not None else model_id
-                ),
-                capabilities=image_capabilities,
-                limits=(
-                    base_chat_model.limits
-                    if base_chat_model is not None
-                    else LLMLimitsSettings()
-                ),
-                provider_options_example=(
-                    base_chat_model.provider_options_example
-                    if base_chat_model is not None
-                    else manual_provider_options
-                ),
                 override=override,
             )
 

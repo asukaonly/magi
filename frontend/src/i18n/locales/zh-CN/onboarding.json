@@ -26,6 +26,9 @@
     "enterApp": "进入应用",
     "enableL1": "一键启用 L1"
   },
+  "common": {
+    "cancel": "取消"
+  },
   "messages": {
     "saveFailed": "保存失败",
     "requiredFieldMissing": "请先补全必填项再继续。",
@@ -163,7 +166,26 @@
     },
     "providerConfiguration": {
       "title": "供应商配置",
-      "desc": "在这里维护可用供应商和连接信息。内置供应商会展示可用模型列表。",
+      "desc": "在这里维护已配置的供应商实例，以及每个实例开放的服务。",
+      "addProvider": "添加供应商",
+      "editProvider": "编辑",
+      "deleteProvider": "删除",
+      "saveProvider": "保存供应商",
+      "emptyTitle": "尚未配置供应商",
+      "emptyDesc": "添加一个供应商实例，用于对话、向量、生图或语音服务。",
+      "editorDesc": "先选择供应商模板，再配置这个实例要使用的服务端点。",
+      "providerTemplate": "供应商模板",
+      "servicesTitle": "服务",
+      "nativeProtocol": "原生协议",
+      "modelDefaultProtocol": "使用模型默认协议",
+      "ttsModel": "语音模型",
+      "ttsVoice": "音色",
+      "showKey": "显示",
+      "hideKey": "隐藏",
+      "providerConnectionHint": "服务里的 API Key 和 Base URL 是可选覆盖项。留空时会继承上方供应商级连接配置。",
+      "inheritApiKeyPlaceholder": "继承供应商 API Key",
+      "inheritBaseUrlPlaceholder": "继承供应商 Base URL",
+      "imageModelsManaged": "生图模型由原生供应商元数据提供。",
       "testTitle": "连接测试",
       "testDesc": "用当前草稿配置直接向上游模型发一条 hi，快速确认 API Key 和 Base URL 是否可用。",
       "testSuccess": "连接成功",
@@ -185,6 +207,18 @@
       "providerKinds": {
         "builtin": "内置供应商",
         "custom": "自定义供应商"
+      },
+      "serviceLabels": {
+        "chat": "对话",
+        "embedding": "向量",
+        "image_generation": "生图",
+        "tts": "语音"
+      },
+      "serviceDescriptions": {
+        "chat": "对话与推理请求。",
+        "embedding": "远程向量嵌入请求。",
+        "image_generation": "通过原生生图 API 处理文生图请求。",
+        "tts": "文本转语音请求。"
       }
     },
     "imageGenerationConnection": {
@@ -217,8 +251,8 @@
       },
       "image_generation": {
         "title": "生图模型",
-        "desc": "根据文字描述生成图片。选择供应商并输入生图模型 ID（如 gpt-image-1）。生图模型不内置，需手动填写你的供应商支持的模型 ID。",
-        "notConfiguredHint": "生图模型尚未配置。请选择供应商并输入模型 ID，以启用生图工具。"
+        "desc": "通过供应商原生生图 API 根据文字描述生成图片。",
+        "notConfiguredHint": "生图尚未配置。请在支持生图模型的供应商上启用生图服务。"
       },
       "reranker": {
         "title": "精排模型",

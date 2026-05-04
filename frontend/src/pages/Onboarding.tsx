@@ -28,7 +28,7 @@ const OnboardingPage: React.FC = () => {
         const coreProvider = coreProviderId ? template.llm?.providers?.[coreProviderId] : undefined;
 
         // If onboarding is seeded from masked environment credentials, clear cached local edits.
-        if (coreProvider?.api_key?.endsWith('****')) {
+        if (coreProvider?.services?.chat?.api_key?.endsWith('****')) {
           localStorage.removeItem(STORAGE_KEY);
         }
 

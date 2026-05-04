@@ -24,12 +24,10 @@ def test_llm_provider_catalog_returns_builtin_and_saved_custom_providers() -> No
     runtime_config = get_config()
     provider_id = "custom_catalog_test"
     original_provider = runtime_config.llm.providers.get(provider_id)
-    runtime_config.llm.providers[provider_id] = LLMProviderSettings(
+    custom_provider = LLMProviderSettings(
         enabled=True,
         provider_type="custom",
         display_name="Workspace Proxy",
-        api_key="sk-proxy",
-        base_url="https://proxy.example.com/v1",
         api_format="openai",
         custom_models=["foo-vision"],
         custom_default_model="foo-vision",
@@ -40,6 +38,9 @@ def test_llm_provider_catalog_returns_builtin_and_saved_custom_providers() -> No
             )
         },
     )
+    custom_provider.services.chat.api_key = "sk-proxy"
+    custom_provider.services.chat.base_url = "https://proxy.example.com/v1"
+    runtime_config.llm.providers[provider_id] = custom_provider
 
     try:
         client = _build_client()
@@ -80,8 +81,29 @@ def test_llm_provider_catalog_preview_resolves_draft_provider_overrides() -> Non
                     "enabled": True,
                     "provider_type": "openai",
                     "display_name": "OpenAI",
-                    "api_key": "sk-openai",
-                    "base_url": "https://api.openai.com/v1",
+                    "services": {
+                        "chat": {
+                            "enabled": True,
+                            "api_key": "sk-openai",
+                            "base_url": "https://api.openai.com/v1",
+                        },
+                        "embedding": {
+                            "enabled": True,
+                            "api_key": "sk-openai",
+                            "base_url": "https://api.openai.com/v1",
+                        },
+                        "image_generation": {
+                            "enabled": False,
+                            "api_key": "",
+                            "base_url": "https://api.openai.com/v1",
+                            "timeout": 180,
+                        },
+                        "tts": {
+                            "enabled": False,
+                            "api_key": "",
+                            "base_url": "https://api.openai.com/v1",
+                        },
+                    },
                     "custom_models": ["acme-vision-embed"],
                     "custom_default_model": "acme-vision-embed",
                     "model_metadata_overrides": {

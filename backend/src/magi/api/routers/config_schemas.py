@@ -20,10 +20,36 @@ class AgentConfigModel(BaseModel):
     description: Optional[str] = Field(default="Magi AI Agent Framework")
 
 
-class LLMProviderImageGenerationConfigModel(BaseModel):
+class LLMProviderConnectionConfigModel(BaseModel):
+    enabled: bool = Field(default=True)
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
+
+
+class LLMProviderImageGenerationConfigModel(LLMProviderConnectionConfigModel):
+    enabled: bool = Field(default=False)
     timeout: int = Field(default=180, ge=1)
+    native_protocol: Optional[str] = Field(default=None)
+
+
+class LLMProviderTTSConfigModel(LLMProviderConnectionConfigModel):
+    enabled: bool = Field(default=False)
+    model: Optional[str] = Field(default=None)
+    voice: Optional[str] = Field(default=None)
+    response_format: Optional[str] = Field(default=None)
+
+
+class LLMProviderServicesConfigModel(BaseModel):
+    chat: LLMProviderConnectionConfigModel = Field(
+        default_factory=LLMProviderConnectionConfigModel
+    )
+    embedding: LLMProviderConnectionConfigModel = Field(
+        default_factory=LLMProviderConnectionConfigModel
+    )
+    image_generation: LLMProviderImageGenerationConfigModel = Field(
+        default_factory=LLMProviderImageGenerationConfigModel
+    )
+    tts: LLMProviderTTSConfigModel = Field(default_factory=LLMProviderTTSConfigModel)
 
 
 class LLMProviderConfigModel(BaseModel):
@@ -32,8 +58,8 @@ class LLMProviderConfigModel(BaseModel):
     display_name: str = Field(default="OpenAI")
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
-    image_generation: LLMProviderImageGenerationConfigModel = Field(
-        default_factory=LLMProviderImageGenerationConfigModel
+    services: LLMProviderServicesConfigModel = Field(
+        default_factory=LLMProviderServicesConfigModel
     )
     api_format: Optional[str] = Field(default=None)
     custom_models: List[str] = Field(default_factory=list)
@@ -44,8 +70,8 @@ class LLMProviderConfigModel(BaseModel):
 
 
 class LLMSelectionConfigModel(BaseModel):
-    provider_id: str = Field(default="openai")
-    model: str = Field(default="gpt-4o-mini")
+    provider_id: str = Field(default="")
+    model: str = Field(default="")
     embedding_dimension: Optional[int] = Field(default=None, ge=1)
     capability_override_enabled: bool = Field(default=False)
     capabilities: LLMCapabilitiesSettings = Field(default_factory=LLMCapabilitiesSettings)
@@ -54,13 +80,12 @@ class LLMSelectionConfigModel(BaseModel):
 
 
 class LLMConfigModel(BaseModel):
-    providers: Dict[str, LLMProviderConfigModel] = Field(
-        default_factory=lambda: {"openai": LLMProviderConfigModel()}
-    )
+    providers: Dict[str, LLMProviderConfigModel] = Field(default_factory=dict)
     selections: Dict[str, LLMSelectionConfigModel] = Field(
         default_factory=lambda: {
             "context_decider": LLMSelectionConfigModel(),
             "core": LLMSelectionConfigModel(),
+            "memory_summarizer": LLMSelectionConfigModel(),
             "embedding": LLMSelectionConfigModel(
                 capabilities=LLMCapabilitiesSettings(
                     vision=False,
@@ -68,6 +93,15 @@ class LLMConfigModel(BaseModel):
                     tool_calling=False,
                     reasoning=False,
                     embedding=True,
+                ),
+            ),
+            "image_generation": LLMSelectionConfigModel(
+                capabilities=LLMCapabilitiesSettings(
+                    vision=False,
+                    image_output=True,
+                    tool_calling=False,
+                    reasoning=False,
+                    embedding=False,
                 ),
             ),
         }

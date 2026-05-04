@@ -81,7 +81,7 @@ describe('shell overlays', () => {
     expect(screen.getByTestId('settings-center-dialog')).toHaveTextContent('open');
   });
 
-  it('returns to the opening route when settings closes', async () => {
+  it('closes settings without changing the current route', async () => {
     const user = userEvent.setup();
     useChatShellStore.setState({
       currentSessionId: null,
@@ -90,9 +90,8 @@ describe('shell overlays', () => {
 
     render(
       <MemoryRouter initialEntries={[{
-        pathname: '/settings',
-        search: '?section=timeline&source=screen_time',
-        state: { returnTo: '/tasks?tab=scheduled' },
+        pathname: '/tasks',
+        search: '?tab=scheduled',
       }]}
       >
         <ShellOverlays />
@@ -105,6 +104,7 @@ describe('shell overlays', () => {
     await user.click(screen.getByRole('button', { name: 'close settings' }));
 
     expect(screen.getByTestId('location')).toHaveTextContent('/tasks?tab=scheduled');
+    expect(useChatShellStore.getState().activePanel).toBe('none');
   });
 
   it('shows quit confirmation and forwards confirm and cancel actions', async () => {

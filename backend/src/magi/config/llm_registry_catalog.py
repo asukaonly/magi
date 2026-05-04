@@ -4,9 +4,59 @@ from __future__ import annotations
 
 from typing import Dict, Optional
 
-from .models import LLMProviderSettings
+from .models import LLMProvider, LLMProviderSettings
 from .llm_registry_model_resolution import resolve_provider_model_catalog
-from .llm_registry_models import LLMProviderCatalogEntryModel, LLMProviderRegistryModel
+from .llm_registry_models import LLMProviderCatalogEntryModel, LLMProviderMetaModel, LLMProviderRegistryModel
+
+
+def _provider_type_value(provider_settings: LLMProviderSettings) -> str:
+    return str(
+        getattr(
+            getattr(provider_settings, "provider_type", ""),
+            "value",
+            getattr(provider_settings, "provider_type", ""),
+        )
+        or ""
+    ).strip().lower()
+
+
+def _chat_base_url(provider_settings: LLMProviderSettings) -> str | None:
+    return (
+        getattr(getattr(provider_settings.services, "chat", None), "base_url", None)
+        or provider_settings.base_url
+    )
+
+
+def _build_builtin_template_entry(
+    registry: LLMProviderRegistryModel,
+    provider_meta: LLMProviderMetaModel,
+    provider_settings: LLMProviderSettings | None = None,
+) -> LLMProviderCatalogEntryModel:
+    resolved_catalog = resolve_provider_model_catalog(
+        registry,
+        provider_meta.id,
+        provider_settings,
+    )
+    return LLMProviderCatalogEntryModel(
+        id=provider_meta.id,
+        provider_type=provider_meta.id,
+        source="builtin",
+        display_name=provider_meta.display_name,
+        description=provider_meta.description,
+        icon=provider_meta.icon,
+        default_model=(
+            getattr(provider_settings, "custom_default_model", None)
+            or provider_meta.default_model
+        ),
+        default_classify_model=provider_meta.default_classify_model,
+        default_base_url=provider_meta.default_base_url,
+        api_format=getattr(provider_settings, "api_format", None),
+        fields=dict(provider_meta.fields),
+        resolved_chat_models=resolved_catalog.chat_models,
+        resolved_embedding_models=resolved_catalog.embedding_models,
+        resolved_image_generation_models=resolved_catalog.image_generation_models,
+        image_generation_models=list(provider_meta.image_generation_models),
+    )
 
 
 def build_provider_catalog(
@@ -20,40 +70,11 @@ def build_provider_catalog(
 
     for provider_meta in registry.providers:
         provider_settings = provider_settings_by_id.get(provider_meta.id)
-        resolved_catalog = resolve_provider_model_catalog(
-            registry,
-            provider_meta.id,
-            provider_settings,
-        )
-        catalog_entries.append(
-            LLMProviderCatalogEntryModel(
-                id=provider_meta.id,
-                provider_type=provider_meta.id,
-                source="builtin",
-                display_name=provider_meta.display_name,
-                description=provider_meta.description,
-                icon=provider_meta.icon,
-                default_model=(
-                    getattr(provider_settings, "custom_default_model", None)
-                    or provider_meta.default_model
-                ),
-                default_classify_model=provider_meta.default_classify_model,
-                default_base_url=provider_meta.default_base_url,
-                api_format=getattr(provider_settings, "api_format", None),
-                fields=dict(provider_meta.fields),
-                resolved_chat_models=resolved_catalog.chat_models,
-                resolved_embedding_models=resolved_catalog.embedding_models,
-                resolved_image_generation_models=resolved_catalog.image_generation_models,
-                image_generation_models=list(provider_meta.image_generation_models),
-            )
-        )
+        catalog_entries.append(_build_builtin_template_entry(registry, provider_meta, provider_settings))
 
     for provider_id, provider_settings in provider_settings_by_id.items():
-        provider_type = str(
-            getattr(getattr(provider_settings, "provider_type", ""), "value", getattr(provider_settings, "provider_type", ""))
-            or ""
-        ).strip().lower()
-        if provider_type != "custom":
+        provider_type = _provider_type_value(provider_settings)
+        if provider_id == provider_type:
             continue
 
         resolved_catalog = resolve_provider_model_catalog(
@@ -61,23 +82,40 @@ def build_provider_catalog(
             provider_id,
             provider_settings,
         )
-        default_model = (
-            getattr(provider_settings, "custom_default_model", None)
-            or (provider_settings.custom_models[0] if provider_settings.custom_models else None)
-        )
+        provider_meta = next((item for item in registry.providers if item.id == provider_type), None)
+        is_custom = provider_type == LLMProvider.CUSTOM.value
+        default_model = getattr(provider_settings, "custom_default_model", None)
+        if not default_model and provider_settings.custom_models:
+            default_model = provider_settings.custom_models[0]
+        if not default_model and provider_meta is not None:
+            default_model = provider_meta.default_model
         catalog_entries.append(
             LLMProviderCatalogEntryModel(
                 id=provider_id,
-                provider_type="custom",
-                source="custom",
-                display_name=provider_settings.display_name or registry.custom_provider.display_name or provider_id,
-                description=registry.custom_provider.description,
-                icon=registry.custom_provider.icon,
+                provider_type=provider_type or "custom",
+                source="custom" if is_custom else "builtin",
+                display_name=(
+                    provider_settings.display_name
+                    or (registry.custom_provider.display_name if is_custom else None)
+                    or (provider_meta.display_name if provider_meta is not None else None)
+                    or provider_id
+                ),
+                description=(
+                    registry.custom_provider.description
+                    if is_custom
+                    else (provider_meta.description if provider_meta is not None else None)
+                ),
+                icon=(
+                    registry.custom_provider.icon
+                    if is_custom
+                    else (provider_meta.icon if provider_meta is not None else None)
+                ),
                 default_model=default_model,
                 default_classify_model=default_model,
-                default_base_url=provider_settings.base_url,
+                default_base_url=_chat_base_url(provider_settings)
+                or (provider_meta.default_base_url if provider_meta is not None else None),
                 api_format=provider_settings.api_format,
-                fields=dict(registry.custom_provider.fields),
+                fields=dict(registry.custom_provider.fields if is_custom else (provider_meta.fields if provider_meta is not None else {})),
                 resolved_chat_models=resolved_catalog.chat_models,
                 resolved_embedding_models=resolved_catalog.embedding_models,
                 resolved_image_generation_models=resolved_catalog.image_generation_models,

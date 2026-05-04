@@ -15,7 +15,7 @@ interface LLMProviderModelToolbarProps {
   discoveryLoading: boolean;
   onModelDraftChange: (value: string) => void;
   onModelDraftKindChange: (kind: LLMProviderModelKind) => void;
-  onAddProviderModel: (providerId: string, model: string, kind: LLMProviderModelKind) => void;
+  onAddProviderModel: (providerId: string, model: string, kind: Exclude<LLMProviderModelKind, 'image'>) => void;
   onDiscoverProviderModels: (providerId: string) => void;
 }
 
@@ -117,42 +117,46 @@ export function LLMProviderModelToolbar({
         </div>
       </div>
 
-      <label className="flex-1 space-y-2">
-        <span className="text-sm font-medium">
-          {modelDraftKind === 'embedding'
-            ? t('llm.fields.modelManualEntryEmbedding')
-            : modelDraftKind === 'image'
-              ? t('llm.fields.modelManualEntryImage')
-              : t('llm.fields.modelManualEntryChat')}
-        </span>
-        <input
-          aria-label={t('llm.fields.modelManualEntry')}
-          className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
-          placeholder={
-            modelDraftKind === 'embedding'
-              ? t('llm.fields.modelManualEntryEmbeddingPlaceholder')
-              : modelDraftKind === 'image'
-                ? t('llm.imageGenerationModelPlaceholder')
-                : t('llm.fields.modelManualEntryPlaceholder')
-          }
-          value={modelDraft}
-          onChange={(event) => onModelDraftChange(event.target.value)}
-        />
-      </label>
+      {modelDraftKind === 'image' ? (
+        <div className="flex min-h-11 flex-1 items-center rounded-lg border border-dashed border-border/80 px-3 text-sm text-muted-foreground">
+          {t('llm.providerConfiguration.imageModelsManaged')}
+        </div>
+      ) : (
+        <>
+          <label className="flex-1 space-y-2">
+            <span className="text-sm font-medium">
+              {modelDraftKind === 'embedding'
+                ? t('llm.fields.modelManualEntryEmbedding')
+                : t('llm.fields.modelManualEntryChat')}
+            </span>
+            <input
+              aria-label={t('llm.fields.modelManualEntry')}
+              className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
+              placeholder={
+                modelDraftKind === 'embedding'
+                  ? t('llm.fields.modelManualEntryEmbeddingPlaceholder')
+                  : t('llm.fields.modelManualEntryPlaceholder')
+              }
+              value={modelDraft}
+              onChange={(event) => onModelDraftChange(event.target.value)}
+            />
+          </label>
 
-      <button
-        type="button"
-        onClick={() => {
-          onAddProviderModel(providerId, modelDraft, modelDraftKind);
-          onModelDraftChange('');
-        }}
-        className={cn(
-          'inline-flex h-11 min-w-fit items-center justify-center whitespace-nowrap rounded-lg bg-background px-4 text-sm font-medium text-foreground transition hover:bg-accent',
-          isSettingsSurface && 'rounded-md border border-[hsl(var(--settings-subnav-border)/0.8)] bg-transparent hover:bg-[hsl(var(--settings-shell-elevated)/0.42)]'
-        )}
-      >
-        {t('llm.actions.addModel')}
-      </button>
+          <button
+            type="button"
+            onClick={() => {
+              onAddProviderModel(providerId, modelDraft, modelDraftKind);
+              onModelDraftChange('');
+            }}
+            className={cn(
+              'inline-flex h-11 min-w-fit items-center justify-center whitespace-nowrap rounded-lg bg-background px-4 text-sm font-medium text-foreground transition hover:bg-accent',
+              isSettingsSurface && 'rounded-md border border-[hsl(var(--settings-subnav-border)/0.8)] bg-transparent hover:bg-[hsl(var(--settings-shell-elevated)/0.42)]'
+            )}
+          >
+            {t('llm.actions.addModel')}
+          </button>
+        </>
+      )}
 
       {isCustomProvider && modelDraftKind !== 'image' ? (
         <button

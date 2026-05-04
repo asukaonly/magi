@@ -67,17 +67,35 @@ export interface LLMProviderConfig {
   display_name: string;
   api_key?: string;
   base_url?: string;
-  image_generation?: LLMProviderImageGenerationConfig;
+  services: LLMProviderServicesConfig;
   api_format?: ApiFormat;
   custom_models?: string[];
   custom_default_model?: string;
   model_metadata_overrides?: Record<string, LLMModelMetadataOverride>;
 }
 
-export interface LLMProviderImageGenerationConfig {
+export interface LLMProviderConnectionConfig {
+  enabled: boolean;
   api_key?: string;
   base_url?: string;
+}
+
+export interface LLMProviderImageGenerationConfig extends LLMProviderConnectionConfig {
   timeout?: number;
+  native_protocol?: string | null;
+}
+
+export interface LLMProviderTTSConfig extends LLMProviderConnectionConfig {
+  model?: string | null;
+  voice?: string | null;
+  response_format?: string | null;
+}
+
+export interface LLMProviderServicesConfig {
+  chat: LLMProviderConnectionConfig;
+  embedding: LLMProviderConnectionConfig;
+  image_generation: LLMProviderImageGenerationConfig;
+  tts: LLMProviderTTSConfig;
 }
 
 export interface LLMSelectionConfig {
@@ -498,9 +516,11 @@ export interface ResolvedProviderModels {
 export const resolveProviderModels = (
   registry: LLMProviderRegistry,
   providerId: string,
-  _provider?: LLMProviderConfig
+  provider?: LLMProviderConfig
 ): ResolvedProviderModels => {
-  const resolvedProviderMeta = registry.providers.find((item) => item.id === providerId);
+  const resolvedProviderMeta =
+    registry.providers.find((item) => item.id === providerId) ||
+    registry.providers.find((item) => item.id === provider?.provider_type);
   return {
     chat_models: [...(resolvedProviderMeta?.resolved_chat_models || [])],
     embedding_models: [...(resolvedProviderMeta?.resolved_embedding_models || [])],
@@ -513,20 +533,7 @@ const unwrapConfigResponse = <T>(response: GatewayResponse<T>): T => unwrapGatew
 export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   agent: { name: 'magi-agent', description: 'Magi AI Agent Framework' },
   llm: {
-    providers: {
-      openai: {
-        enabled: false,
-        provider_type: 'openai',
-        display_name: 'OpenAI',
-        api_key: '',
-        base_url: '',
-        image_generation: {
-          api_key: '',
-          base_url: '',
-          timeout: 180,
-        },
-      },
-    },
+    providers: {},
     selections: {
       context_decider: {
         provider_id: '',

@@ -85,6 +85,11 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
   const { t } = useTranslation('onboarding');
   const { t: tApp } = useTranslation('app');
   const enabledProviders = Object.entries(value.providers).filter(([, provider]) => provider.enabled);
+  const enabledChatProviders = enabledProviders.filter(([, provider]) => provider.services?.chat?.enabled);
+  const enabledEmbeddingProviders = enabledProviders.filter(([, provider]) => provider.services?.embedding?.enabled);
+  const enabledImageGenerationProviders = enabledProviders.filter(
+    ([, provider]) => provider.services?.image_generation?.enabled
+  );
   const isSettingsSurface = surface === 'settings';
   const showMemorySummarizer = !quickMode;
   const inputClassName = cn(
@@ -133,7 +138,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
       modelLabel: string;
       dimensions: number[];
     }> = [];
-    for (const [providerId, provider] of enabledProviders) {
+    for (const [providerId, provider] of enabledEmbeddingProviders) {
       const providerModels = resolveProviderModels(registry, providerId, provider).embedding_models.filter(
         (model) => !model.hidden
       );
@@ -160,7 +165,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
         }
       )
     );
-  }, [enabledProviders, registry.providers]);
+  }, [enabledEmbeddingProviders, registry.providers]);
 
   // Collect all image generation models from all enabled providers
   const allImageGenerationModels = useMemo(() => {
@@ -170,7 +175,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
       modelId: string;
       modelLabel: string;
     }> = [];
-    for (const [providerId, provider] of enabledProviders) {
+    for (const [providerId, provider] of enabledImageGenerationProviders) {
       const imageModels = resolveProviderModels(registry, providerId, provider).image_generation_models;
       for (const model of imageModels) {
         models.push({
@@ -187,7 +192,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
         { label: `${right.modelLabel} (${right.providerName})`, value: `${right.providerId}::${right.modelId}` }
       )
     );
-  }, [enabledProviders, registry.providers]);
+  }, [enabledImageGenerationProviders, registry.providers]);
 
   // Auto-correct: if mode is 'remote' but no remote embedding models are available, switch to 'off'
   useEffect(() => {
@@ -312,7 +317,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
         scenario={scenario}
         selection={selection}
         provider={value.providers[selection.provider_id]}
-        enabledProviders={enabledProviders}
+        enabledProviders={enabledChatProviders}
         registry={registry}
         quickMode={quickMode}
         inputClassName={inputClassName}
@@ -364,7 +369,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
       <LLMImageGenerationScenarioPanel
         scenario={scenario}
         selection={selection}
-        enabledProviders={enabledProviders}
+        enabledProviders={enabledImageGenerationProviders}
         imageGenerationModels={allImageGenerationModels}
         quickMode={quickMode}
         inputClassName={inputClassName}

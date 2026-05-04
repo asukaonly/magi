@@ -53,7 +53,14 @@ class ScenarioLLMPool:
             raise ValueError(
                 f"LLM scenario '{scenario.value}' references disabled provider '{selection.provider_id}'"
             )
-        if not provider.api_key:
+        service = provider.services.embedding if scenario == LLMScenario.EMBEDDING else provider.services.chat
+        service_label = "embedding" if scenario == LLMScenario.EMBEDDING else "chat"
+        if not service.enabled:
+            raise ValueError(
+                f"LLM provider '{selection.provider_id}' has {service_label} service disabled for scenario '{scenario.value}'"
+            )
+        api_key = service.api_key or provider.api_key
+        if not api_key:
             raise ValueError(
                 f"LLM provider '{selection.provider_id}' is missing an API key for scenario '{scenario.value}'"
             )
@@ -62,9 +69,9 @@ class ScenarioLLMPool:
         proxy_url = self._config.network.proxy_url() if hasattr(self._config, "network") else None
         adapter = self._adapter_factory(
             provider_type=provider_type,
-            api_key=provider.api_key,
+            api_key=api_key,
             model=selection.model,
-            base_url=provider.base_url,
+            base_url=service.base_url or provider.base_url,
             timeout=self._config.llm.timeout,
             embedding_dimension=selection.embedding_dimension if scenario == LLMScenario.EMBEDDING else None,
             proxy_url=proxy_url,
@@ -106,7 +113,7 @@ class ScenarioLLMPool:
         """Infer the concrete OpenAI-compatible provider for custom gateways."""
         hint_values = [
             getattr(provider, "display_name", None),
-            getattr(provider, "base_url", None),
+            getattr(getattr(getattr(provider, "services", None), "chat", None), "base_url", None),
             getattr(provider, "custom_default_model", None),
             selected_model,
         ]

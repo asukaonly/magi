@@ -36,25 +36,6 @@ def _coerce_provider_type(provider_settings: LLMProviderSettings) -> str:
     )
 
 
-def _fallback_protocol(provider_settings: LLMProviderSettings) -> str | None:
-    provider_type = _coerce_provider_type(provider_settings)
-    if provider_type == "custom":
-        api_format = str(getattr(provider_settings, "api_format", "") or "openai").strip().lower()
-        return "openai_images" if api_format in ("", "openai") else None
-    if provider_type in {
-        "openai",
-        "glm",
-        "glm_codeplan",
-        "deepseek",
-        "dashscope",
-        "kimi",
-        "minimax",
-        "local",
-    }:
-        return "openai_images"
-    return None
-
-
 def _image_meta_from_settings(
     *,
     provider_id: str,
@@ -62,7 +43,8 @@ def _image_meta_from_settings(
     model: str,
     registry: LLMProviderRegistryModel,
 ) -> Optional[LLMImageGenerationModelMetaModel]:
-    builtin_meta = find_image_generation_model_meta(registry, provider_id, model)
+    registry_provider_id = _coerce_provider_type(provider_settings) or provider_id
+    builtin_meta = find_image_generation_model_meta(registry, registry_provider_id, model)
     if builtin_meta is not None:
         return builtin_meta
 
@@ -82,6 +64,13 @@ def _image_meta_from_settings(
         id=resolved_meta.id,
         label=resolved_meta.label,
         provider_options_example=dict(resolved_meta.provider_options_example or {}),
+        supported_sizes=list(resolved_meta.supported_sizes or []),
+        supported_qualities=list(resolved_meta.supported_qualities or []),
+        supports_seed=bool(resolved_meta.supports_seed),
+        supports_negative_prompt=bool(resolved_meta.supports_negative_prompt),
+        supports_reference=bool(resolved_meta.supports_reference),
+        max_n=resolved_meta.max_n,
+        native_protocol=resolved_meta.native_protocol,
     )
 
 
@@ -114,9 +103,12 @@ def image_generation_protocol_of(
         model=model,
         registry=registry,
     )
+    image_generation = provider_settings.services.image_generation
+    if image_generation.native_protocol:
+        return str(image_generation.native_protocol).strip().lower()
     if meta is not None and meta.native_protocol and meta.native_protocol != "custom":
         return str(meta.native_protocol).strip().lower()
-    return _fallback_protocol(provider_settings)
+    return None
 
 
 def is_image_generation_supported(
@@ -127,6 +119,8 @@ def is_image_generation_supported(
     registry: LLMProviderRegistryModel,
 ) -> bool:
     """Return whether a provider/model can be routed to an implemented image adapter."""
+    if not provider_settings.enabled or not provider_settings.services.image_generation.enabled:
+        return False
     meta = _image_meta_from_settings(
         provider_id=provider_id,
         provider_settings=provider_settings,
@@ -154,8 +148,14 @@ def create_image_generation_adapter(
     proxy_url: str | None = None,
 ):
     """Create an image generation adapter from provider settings and registry metadata."""
-    image_generation = getattr(provider_settings, "image_generation", None)
-    api_key = getattr(image_generation, "api_key", None) or provider_settings.api_key
+    image_generation = provider_settings.services.image_generation
+    if not provider_settings.enabled or not image_generation.enabled:
+        raise ImageGenInvalidParameterError(
+            f"Provider '{provider_id}' does not have image generation enabled.",
+            field="image_generation.enabled",
+            provider_id=provider_id,
+        )
+    api_key = image_generation.api_key or provider_settings.api_key
     if not api_key:
         raise ImageGenInvalidParameterError(
             f"Provider '{provider_id}' is missing an API key.",
@@ -191,8 +191,8 @@ def create_image_generation_adapter(
             provider_id=provider_id,
         )
 
-    base_url = getattr(image_generation, "base_url", None) or provider_settings.base_url
-    effective_timeout = int(getattr(image_generation, "timeout", None) or timeout)
+    base_url = image_generation.base_url or provider_settings.base_url
+    effective_timeout = int(image_generation.timeout or timeout)
     return adapter_class(
         provider_id=provider_id,
         api_key=api_key,

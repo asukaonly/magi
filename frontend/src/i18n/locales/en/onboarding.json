@@ -26,6 +26,9 @@
     "enterApp": "Enter App",
     "enableL1": "Enable L1"
   },
+  "common": {
+    "cancel": "Cancel"
+  },
   "messages": {
     "saveFailed": "Save failed",
     "requiredFieldMissing": "Please complete required fields before continuing.",
@@ -162,7 +165,26 @@
     },
     "providerConfiguration": {
       "title": "Provider Configuration",
-      "desc": "Manage available providers and connection details here. Built-in providers show their model lists.",
+      "desc": "Manage configured provider instances and the services each instance exposes.",
+      "addProvider": "Add Provider",
+      "editProvider": "Edit",
+      "deleteProvider": "Delete",
+      "saveProvider": "Save Provider",
+      "emptyTitle": "No providers configured",
+      "emptyDesc": "Add a provider instance for chat, embeddings, image generation, or speech.",
+      "editorDesc": "Choose a provider template, then configure the service endpoints this instance should use.",
+      "providerTemplate": "Provider Template",
+      "servicesTitle": "Services",
+      "nativeProtocol": "Native Protocol",
+      "modelDefaultProtocol": "Use model default",
+      "ttsModel": "Speech Model",
+      "ttsVoice": "Voice",
+      "showKey": "Show",
+      "hideKey": "Hide",
+      "providerConnectionHint": "Service API keys and Base URLs are optional overrides. Leave them empty to inherit the provider-level connection above.",
+      "inheritApiKeyPlaceholder": "Inherit provider API Key",
+      "inheritBaseUrlPlaceholder": "Inherit provider Base URL",
+      "imageModelsManaged": "Image models are provided by native provider metadata.",
       "testTitle": "Connection Test",
       "testDesc": "Send a direct hi request with the current draft settings to verify the API key and Base URL.",
       "testSuccess": "Connection succeeded",
@@ -184,6 +206,18 @@
       "providerKinds": {
         "builtin": "Built-in Provider",
         "custom": "Custom Provider"
+      },
+      "serviceLabels": {
+        "chat": "Chat",
+        "embedding": "Embedding",
+        "image_generation": "Image Generation",
+        "tts": "Speech"
+      },
+      "serviceDescriptions": {
+        "chat": "Chat and reasoning requests.",
+        "embedding": "Remote vector embedding requests.",
+        "image_generation": "Text-to-image requests through a native image API.",
+        "tts": "Text-to-speech requests."
       }
     },
     "imageGenerationConnection": {
@@ -216,8 +250,8 @@
       },
       "image_generation": {
         "title": "Image Generation",
-        "desc": "Generates images from text prompts. Select a provider and enter the image generation model ID (e.g. gpt-image-1). The model is not built-in — you need to manually specify the model your provider supports.",
-        "notConfiguredHint": "Image generation is not configured. Select a provider and enter the model ID to enable the image generation tool."
+        "desc": "Generates images from text prompts through provider-native image APIs.",
+        "notConfiguredHint": "Image generation is not configured. Enable an image generation service on a provider with supported image models."
       },
       "reranker": {
         "title": "Reranker",

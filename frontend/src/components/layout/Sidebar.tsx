@@ -363,7 +363,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const conversationActive = activePanel === 'conversation' || isConversationRoute;
   const timelineActive = activePanel === 'timeline' || location.pathname === '/timeline';
   const memoryActive = activePanel === 'memory' || isMemoryRoute;
-  const settingsActive = activePanel === 'settings' || location.pathname === '/settings';
+  const settingsActive = activePanel === 'settings';
   const tasksActive = activePanel === 'tasks' || location.pathname === '/tasks';
   const conversationExpanded = expandedSection === 'conversation';
   const memoryExpanded = expandedSection === 'memory';
@@ -690,9 +690,6 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
             onClick={() => {
               clearSettingsNavigationIntent();
               setActivePanel('settings');
-              navigate('/settings', {
-                state: { returnTo: `${location.pathname}${location.search}${location.hash}` },
-              });
             }}
             aria-label={t('shell.settings')}
             aria-current={settingsActive ? 'page' : undefined}

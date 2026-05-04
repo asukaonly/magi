@@ -34,15 +34,13 @@ def normalize_masked_secrets(config: SystemConfigModel, runtime_config: Any) -> 
         runtime_provider = runtime_config.llm.providers.get(provider_id)
         if is_masked_api_key(provider.api_key):
             provider.api_key = runtime_provider.api_key if runtime_provider is not None else None
-
-        image_api_key = provider.image_generation.api_key
-        if is_masked_api_key(image_api_key):
-            runtime_image_generation = (
-                runtime_provider.image_generation if runtime_provider is not None else None
-            )
-            provider.image_generation.api_key = (
-                runtime_image_generation.api_key if runtime_image_generation is not None else None
-            )
+        runtime_services = getattr(runtime_provider, "services", None)
+        for service_name in ("chat", "embedding", "image_generation", "tts"):
+            service = getattr(provider.services, service_name)
+            if not is_masked_api_key(service.api_key):
+                continue
+            runtime_service = getattr(runtime_services, service_name, None)
+            service.api_key = runtime_service.api_key if runtime_service is not None else None
 
     weather_api_key = normalized.tools.builtIn.weather.apiKey
     if is_masked_api_key(weather_api_key):

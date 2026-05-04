@@ -245,19 +245,21 @@ async def test_ai_generate_personality_prefers_llm_override(monkeypatch) -> None
 
     monkeypatch.setattr(personality_config, "create_llm_adapter", _fake_create_llm_adapter)
 
+    draft_provider = LLMProviderSettings(
+        enabled=True,
+        provider_type="custom",
+        api_format="anthropic",
+        display_name="Draft Claude",
+    )
+    draft_provider.services.chat.api_key = "draft-key"
+    draft_provider.services.chat.base_url = "https://relay.example.com"
+
     result = await personality_config.ai_generate_personality(
         "一个冷静可靠的助手",
         target_language="Chinese",
         llm_override=LLMSettings(
             providers={
-                "draft-provider": LLMProviderSettings(
-                    enabled=True,
-                    provider_type="custom",
-                    api_format="anthropic",
-                    display_name="Draft Claude",
-                    api_key="draft-key",
-                    base_url="https://relay.example.com",
-                )
+                "draft-provider": draft_provider
             },
             selections={
                 "context_decider": LLMSelectionSettings(provider_id="draft-provider", model="claude-sonnet-4-6"),
@@ -293,18 +295,20 @@ async def test_ai_generate_personality_uses_registry_default_base_url_for_builti
 
     monkeypatch.setattr(personality_config, "create_llm_adapter", _fake_create_llm_adapter)
 
+    glm_provider = LLMProviderSettings(
+        enabled=True,
+        provider_type="glm",
+        display_name="Z.ai",
+    )
+    glm_provider.services.chat.api_key = "glm-key"
+    glm_provider.services.chat.base_url = ""
+
     result = await personality_config.ai_generate_personality(
         "一个冷静可靠的助手",
         target_language="Chinese",
         llm_override=LLMSettings(
             providers={
-                "glm": LLMProviderSettings(
-                    enabled=True,
-                    provider_type="glm",
-                    display_name="Z.ai",
-                    api_key="glm-key",
-                    base_url="",
-                )
+                "glm": glm_provider
             },
             selections={
                 "context_decider": LLMSelectionSettings(provider_id="glm", model="glm-4.7-flash"),

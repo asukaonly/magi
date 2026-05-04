@@ -11,42 +11,6 @@ from .llm_registry_models import LLMProviderRegistryModel
 def build_runtime_llm_defaults(registry: LLMProviderRegistryModel) -> Dict[str, Any]:
     """Build runtime LLM defaults from provider registry metadata."""
     providers: Dict[str, Any] = {}
-    for provider in registry.providers:
-        provider_id = provider.id
-        providers[provider_id] = {
-            "enabled": False,
-            "provider_type": provider_id,
-            "display_name": provider.display_name or provider_id.title(),
-            "api_key": "",
-            "base_url": provider.default_base_url or "",
-            "image_generation": {
-                "api_key": "",
-                "base_url": "",
-                "timeout": 180,
-            },
-            "api_format": None,
-            "custom_models": [],
-            "custom_default_model": "",
-            "model_metadata_overrides": {},
-        }
-
-    if not providers:
-        providers["openai"] = {
-            "enabled": False,
-            "provider_type": "openai",
-            "display_name": "OpenAI",
-            "api_key": "",
-            "base_url": "https://api.openai.com/v1",
-            "image_generation": {
-                "api_key": "",
-                "base_url": "",
-                "timeout": 180,
-            },
-            "api_format": None,
-            "custom_models": [],
-            "custom_default_model": "",
-            "model_metadata_overrides": {},
-        }
 
     empty_selection = {
         "provider_id": "",
@@ -78,12 +42,25 @@ def build_runtime_llm_defaults(registry: LLMProviderRegistryModel) -> Dict[str, 
         },
     }
 
+    image_generation_selection = {
+        **empty_selection,
+        "capabilities": {
+            "vision": False,
+            "image_output": True,
+            "tool_calling": False,
+            "reasoning": False,
+            "embedding": False,
+        },
+    }
+
     return {
         "providers": providers,
         "selections": {
             "context_decider": dict(empty_selection),
             "core": dict(empty_selection),
+            "memory_summarizer": dict(empty_selection),
             "embedding": embedding_selection,
+            "image_generation": image_generation_selection,
         },
         "model_runtime_overrides": {},
         "temperature": 0.7,

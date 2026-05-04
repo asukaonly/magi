@@ -186,8 +186,7 @@ def test_loader_creates_default_scenario_llm_config(tmp_path: Path, monkeypatch)
     llm_data = yaml.safe_load((tmp_path / "config" / "llm.yaml").read_text(encoding="utf-8")) or {}
 
     assert llm_data == {}
-    assert "openai" in config.llm.providers
-    assert config.llm.providers["openai"].enabled is False
+    assert config.llm.providers == {}
     assert "context_decider" in config.llm.selections
     assert "core" in config.llm.selections
     assert config.llm.selections["context_decider"].provider_id == ""
@@ -205,8 +204,7 @@ def test_loader_ignores_llm_environment_overrides(tmp_path: Path, monkeypatch) -
     loader = ConfigLoader()
     config = loader.load()
 
-    assert config.llm.providers["openai"].api_key == ""
-    assert config.llm.providers["openai"].enabled is False
+    assert config.llm.providers == {}
     assert config.llm.selections["context_decider"].provider_id == ""
     assert config.llm.selections["context_decider"].model == ""
     assert config.llm.selections["core"].provider_id == ""
@@ -224,7 +222,7 @@ def test_loader_creates_llm_split_file_and_loads_default_llm_config(tmp_path: Pa
 
     assert llm_file.exists()
     assert llm_data == {}
-    assert config.llm.providers["openai"].enabled is False
+    assert config.llm.providers == {}
     assert config.llm.selections["core"].provider_id == ""
     assert config.llm.selections["core"].model == ""
 
@@ -237,7 +235,10 @@ def test_loader_save_writes_llm_overrides_only(tmp_path: Path, monkeypatch) -> N
     saved = loader.save(
         {
             "llm.providers.openai.enabled": True,
-            "llm.providers.openai.api_key": "sk-test",
+            "llm.providers.openai.provider_type": "openai",
+            "llm.providers.openai.display_name": "OpenAI",
+            "llm.providers.openai.services.chat.api_key": "sk-test",
+            "llm.providers.openai.services.chat.base_url": "https://api.openai.com/v1",
             "llm.selections.core.provider_id": "openai",
             "llm.selections.core.model": "gpt-5",
         }
@@ -247,7 +248,9 @@ def test_loader_save_writes_llm_overrides_only(tmp_path: Path, monkeypatch) -> N
 
     assert saved is True
     assert llm_data["providers"]["openai"]["enabled"] is True
-    assert llm_data["providers"]["openai"]["api_key"] == "sk-test"
+    assert llm_data["providers"]["openai"]["provider_type"] == "openai"
+    assert llm_data["providers"]["openai"]["services"]["chat"]["api_key"] == "sk-test"
+    assert llm_data["providers"]["openai"]["services"]["chat"]["base_url"] == "https://api.openai.com/v1"
     assert llm_data["selections"]["core"]["provider_id"] == "openai"
     assert llm_data["selections"]["core"]["model"] == "gpt-5"
     assert "temperature" not in llm_data
@@ -259,7 +262,7 @@ def test_loader_reloads_after_external_llm_file_change(tmp_path: Path, monkeypat
     loader = ConfigLoader()
     config = loader.load()
 
-    assert config.llm.providers["openai"].model_metadata_overrides == {}
+    assert config.llm.providers == {}
 
     llm_file = tmp_path / "config" / "llm.yaml"
     llm_file.write_text(
@@ -267,6 +270,9 @@ def test_loader_reloads_after_external_llm_file_change(tmp_path: Path, monkeypat
             {
                 "providers": {
                     "openai": {
+                        "enabled": True,
+                        "provider_type": "openai",
+                        "display_name": "OpenAI",
                         "model_metadata_overrides": {
                             "gpt-5.2": {
                                 "capabilities": {

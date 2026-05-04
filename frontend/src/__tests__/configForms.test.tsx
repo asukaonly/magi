@@ -62,6 +62,19 @@ vi.mock('../api/modules/config', async () => {
             dimensions: [1536, 512],
           },
         ],
+        image_generation_models: [
+          {
+            id: 'gpt-image-1',
+            label: 'GPT Image 1',
+            supported_sizes: ['1024x1024'],
+            supported_qualities: ['standard'],
+            supports_seed: false,
+            supports_negative_prompt: false,
+            supports_reference: true,
+            max_n: 4,
+            native_protocol: 'openai_images',
+          },
+        ],
         fields: {
           api_key: { visible: true, required: true },
           base_url: { visible: true, required: false },
@@ -287,8 +300,12 @@ vi.mock('../api/modules/config', async () => {
     enabled: true,
     provider_type: 'custom' as const,
     display_name: '',
-    api_key: '',
-    base_url: '',
+    services: {
+      chat: { enabled: true, api_key: '', base_url: '' },
+      embedding: { enabled: false, api_key: '', base_url: '' },
+      image_generation: { enabled: false, api_key: '', base_url: '', timeout: 180, native_protocol: null },
+      tts: { enabled: false, api_key: '', base_url: '', model: '', voice: '', response_format: '' },
+    },
     api_format: 'openai' as const,
     custom_models: [],
     custom_default_model: '',
@@ -456,36 +473,6 @@ vi.mock('../api/modules/config', async () => {
         });
       }
 
-      if (override?.capabilities?.image_output && !imageGenerationModels.has(modelId)) {
-        const baseChat = chatModels.get(modelId);
-        imageGenerationModels.set(modelId, {
-          id: modelId,
-          label: override?.label || baseChat?.label || modelId,
-          description: override?.description || baseChat?.description,
-          icon: override?.icon || baseChat?.icon,
-          source: baseChat?.source || 'manual',
-          hidden: Boolean(override?.hidden),
-          preferred: Boolean(override?.preferred),
-          capabilities: {
-            ...(baseChat?.capabilities || {
-              vision: false,
-              image_output: true,
-              tool_calling: false,
-              reasoning: false,
-              embedding: false,
-            }),
-            ...(override?.capabilities || {}),
-            image_output: true,
-            embedding: false,
-          },
-          limits: { ...(baseChat?.limits || customBaseLimits), ...(override?.limits || {}) },
-          input_modalities: override?.input_modalities || ['text'],
-          output_modalities: override?.output_modalities || ['image'],
-          provider_options_example:
-            override?.provider_options_example || baseChat?.provider_options_example || customProviderOptions,
-        });
-      }
-
       if (override?.capabilities?.embedding && !embeddingModels.has(modelId)) {
         const baseChat = chatModels.get(modelId);
         const capabilities = {
@@ -546,7 +533,7 @@ vi.mock('../api/modules/config', async () => {
         provider.custom_default_model ||
         builtinMeta?.default_model ||
         resolved.chat_models[0]?.id,
-      default_base_url: provider.base_url || builtinMeta?.default_base_url || '',
+      default_base_url: provider.services?.chat?.base_url || builtinMeta?.default_base_url || '',
       api_format: provider.api_format,
       fields: provider.provider_type === 'custom' ? providerRegistry.custom_provider.fields : builtinMeta?.fields,
       resolved_chat_models: resolved.chat_models,
@@ -561,8 +548,18 @@ vi.mock('../api/modules/config', async () => {
         enabled: providers[providerMeta.id]?.enabled ?? false,
         provider_type: providerMeta.id,
         display_name: providers[providerMeta.id]?.display_name || providerMeta.display_name || providerMeta.id,
-        api_key: providers[providerMeta.id]?.api_key || '',
-        base_url: providers[providerMeta.id]?.base_url || providerMeta.default_base_url || '',
+        services: providers[providerMeta.id]?.services || {
+          chat: { enabled: true, api_key: '', base_url: providerMeta.default_base_url || '' },
+          embedding: { enabled: Boolean(providerMeta.embedding_models?.length), api_key: '', base_url: providerMeta.default_base_url || '' },
+          image_generation: {
+            enabled: Boolean(providerMeta.image_generation_models?.length),
+            api_key: '',
+            base_url: providerMeta.default_base_url || '',
+            timeout: 180,
+            native_protocol: null,
+          },
+          tts: { enabled: false, api_key: '', base_url: providerMeta.default_base_url || '', model: '', voice: '', response_format: '' },
+        },
         api_format: providers[providerMeta.id]?.api_format,
         custom_models: providers[providerMeta.id]?.custom_models || [],
         custom_default_model: providers[providerMeta.id]?.custom_default_model || '',
@@ -615,6 +612,12 @@ describe('config forms', () => {
         display_name: 'OpenAI',
         api_key: 'sk-openai',
         base_url: 'https://api.openai.com/v1',
+        services: {
+          chat: { enabled: true, api_key: 'sk-openai', base_url: 'https://api.openai.com/v1' },
+          embedding: { enabled: true, api_key: 'sk-openai', base_url: 'https://api.openai.com/v1' },
+          image_generation: { enabled: true, api_key: 'sk-image-openai', base_url: 'https://api.openai.com/v1', timeout: 180, native_protocol: 'openai_images' },
+          tts: { enabled: false, api_key: '', base_url: 'https://api.openai.com/v1', model: '', voice: '', response_format: '' },
+        },
       },
       anthropic: {
         enabled: false,
@@ -622,6 +625,12 @@ describe('config forms', () => {
         display_name: 'Anthropic',
         api_key: '',
         base_url: 'https://api.anthropic.com/v1',
+        services: {
+          chat: { enabled: true, api_key: '', base_url: 'https://api.anthropic.com/v1' },
+          embedding: { enabled: false, api_key: '', base_url: 'https://api.anthropic.com/v1' },
+          image_generation: { enabled: false, api_key: '', base_url: 'https://api.anthropic.com/v1', timeout: 180, native_protocol: null },
+          tts: { enabled: false, api_key: '', base_url: 'https://api.anthropic.com/v1', model: '', voice: '', response_format: '' },
+        },
       },
       glm: {
         enabled: true,
@@ -629,6 +638,12 @@ describe('config forms', () => {
         display_name: 'Z.ai',
         api_key: 'sk-glm',
         base_url: 'https://open.bigmodel.cn/api/paas/v4',
+        services: {
+          chat: { enabled: true, api_key: 'sk-glm', base_url: 'https://open.bigmodel.cn/api/paas/v4' },
+          embedding: { enabled: true, api_key: 'sk-glm', base_url: 'https://open.bigmodel.cn/api/paas/v4' },
+          image_generation: { enabled: false, api_key: '', base_url: 'https://open.bigmodel.cn/api/paas/v4', timeout: 180, native_protocol: null },
+          tts: { enabled: false, api_key: '', base_url: 'https://open.bigmodel.cn/api/paas/v4', model: '', voice: '', response_format: '' },
+        },
       },
     },
     selections: {
@@ -666,6 +681,23 @@ describe('config forms', () => {
         },
         provider_options: {},
       },
+      memory_summarizer: {
+        provider_id: 'openai',
+        model: 'gpt-5.2',
+        capability_override_enabled: false,
+        capabilities: {
+          vision: true,
+          image_output: false,
+          tool_calling: true,
+          reasoning: true,
+          embedding: false,
+        },
+        limits: {
+          context_window: 400000,
+          max_output_tokens: 128000,
+        },
+        provider_options: {},
+      },
       embedding: {
         provider_id: 'openai',
         model: 'text-embedding-3-large',
@@ -683,6 +715,23 @@ describe('config forms', () => {
         },
         provider_options: {},
       },
+      image_generation: {
+        provider_id: 'openai',
+        model: 'gpt-image-1',
+        capability_override_enabled: false,
+        capabilities: {
+          vision: false,
+          image_output: true,
+          tool_calling: false,
+          reasoning: false,
+          embedding: false,
+        },
+        limits: {
+          context_window: null,
+          max_output_tokens: null,
+        },
+        provider_options: {},
+      },
     },
     model_runtime_overrides: {},
   };
@@ -696,12 +745,13 @@ describe('config forms', () => {
 
     const providerList = await screen.findByTestId('llm-provider-list-pane');
 
-    expect(within(providerList).getByText('OpenAI')).toBeInTheDocument();
-    expect(within(providerList).getByText('Anthropic')).toBeInTheDocument();
-    expect(within(providerList).getByText('Z.ai')).toBeInTheDocument();
+    expect(within(providerList).getByTestId('llm-provider-row-openai')).toHaveTextContent('OpenAI');
+    expect(within(providerList).getByTestId('llm-provider-row-anthropic')).toHaveTextContent('Anthropic');
+    expect(within(providerList).getByTestId('llm-provider-row-glm')).toHaveTextContent('Z.ai');
     expect(within(providerList).getByTestId('llm-provider-icon-openai')).toBeInTheDocument();
     expect(within(providerList).getByTestId('llm-provider-icon-anthropic')).toBeInTheDocument();
     expect(within(providerList).getByTestId('llm-provider-icon-zai')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'llm.providerConfiguration.addProvider' })).toBeInTheDocument();
   });
 
   it('pins enabled providers above disabled providers in the settings provider list', async () => {
@@ -712,9 +762,9 @@ describe('config forms', () => {
     );
 
     const providerList = await screen.findByTestId('llm-provider-list-pane');
-    const openAiButton = within(providerList).getByText('OpenAI').closest('button');
-    const zaiButton = within(providerList).getByText('Z.ai').closest('button');
-    const anthropicButton = within(providerList).getByText('Anthropic').closest('button');
+    const openAiButton = within(providerList).getByTestId('llm-provider-row-openai');
+    const zaiButton = within(providerList).getByTestId('llm-provider-row-glm');
+    const anthropicButton = within(providerList).getByTestId('llm-provider-row-anthropic');
 
     expect(openAiButton).toBeTruthy();
     expect(zaiButton).toBeTruthy();
@@ -727,18 +777,16 @@ describe('config forms', () => {
     ).toBeTruthy();
   });
 
-  it('uses a switch control for provider enablement in the detail pane', async () => {
+  it('uses a switch control for provider enablement in the provider list', async () => {
     render(
       <Form initialValues={{ llm: llmValue }}>
         <LLMForm quickMode />
       </Form>
     );
 
-    await waitFor(() => {
-      expect(screen.getByTestId('llm-provider-detail-pane')).toBeInTheDocument();
-    });
+    const providerRow = await screen.findByTestId('llm-provider-row-openai');
 
-    expect(screen.getByRole('switch', { name: 'llm.fields.enabled' })).toBeInTheDocument();
+    expect(within(providerRow).getByRole('switch', { name: 'llm.fields.enabled' })).toBeInTheDocument();
   });
 
   it('does not prefill default base url for inactive built-in providers', async () => {
@@ -749,7 +797,13 @@ describe('config forms', () => {
         ...llmValue.providers,
         anthropic: {
           ...llmValue.providers.anthropic,
-          base_url: '',
+          services: {
+            ...llmValue.providers.anthropic.services,
+            chat: {
+              ...llmValue.providers.anthropic.services.chat,
+              base_url: '',
+            },
+          },
         },
       },
     };
@@ -760,26 +814,158 @@ describe('config forms', () => {
       </Form>
     );
 
-    await user.click((await screen.findByText('Anthropic')).closest('button') as HTMLButtonElement);
+    const providerRow = await screen.findByTestId('llm-provider-row-anthropic');
+    await user.click(within(providerRow).getByRole('button', { name: 'llm.providerConfiguration.editProvider' }));
+    const dialog = screen.getByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: /llm.providerConfiguration.serviceLabels.chat/ }));
 
-    expect(screen.getByLabelText('llm.fields.baseUrl')).toHaveValue('');
+    expect(within(dialog).getByLabelText('llm.providerConfiguration.serviceLabels.chat llm.fields.baseUrl')).toHaveValue('');
   });
 
-  it('shows image generation connection fields in provider settings', async () => {
+  it('shows image generation connection fields in the provider editor', async () => {
+    const user = userEvent.setup();
+
     render(
       <Form initialValues={{ llm: llmValue }}>
         <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
       </Form>
     );
 
-    await waitFor(() => {
-      expect(screen.getByTestId('llm-provider-detail-pane')).toBeInTheDocument();
-    });
+    const providerRow = await screen.findByTestId('llm-provider-row-openai');
+    await user.click(within(providerRow).getByRole('button', { name: 'llm.providerConfiguration.editProvider' }));
+    const dialog = screen.getByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: /llm.providerConfiguration.serviceLabels.image_generation/ }));
 
-    expect(screen.getByText('llm.imageGenerationConnection.title')).toBeInTheDocument();
-    expect(screen.getByLabelText('llm.imageGenerationConnection.apiKey')).toBeInTheDocument();
-    expect(screen.getByLabelText('llm.imageGenerationConnection.baseUrl')).toBeInTheDocument();
-    expect(screen.getByLabelText('llm.imageGenerationConnection.timeout')).toHaveValue(180);
+    expect(within(dialog).getByLabelText('llm.providerConfiguration.serviceLabels.image_generation llm.fields.apiKey')).toBeInTheDocument();
+    expect(within(dialog).getByLabelText('llm.providerConfiguration.serviceLabels.image_generation llm.fields.baseUrl')).toBeInTheDocument();
+    expect(within(dialog).getByLabelText('llm.imageGenerationConnection.timeout')).toHaveValue(180);
+  });
+
+  it('keeps expanded service configuration visible when the service is disabled', async () => {
+    const user = userEvent.setup();
+    const valueWithDisabledEmbedding = {
+      ...llmValue,
+      providers: {
+        ...llmValue.providers,
+        openai: {
+          ...llmValue.providers.openai,
+          services: {
+            ...llmValue.providers.openai.services,
+            embedding: {
+              ...llmValue.providers.openai.services.embedding,
+              enabled: false,
+            },
+          },
+        },
+      },
+    };
+
+    render(
+      <Form initialValues={{ llm: valueWithDisabledEmbedding }}>
+        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
+      </Form>
+    );
+
+    const providerRow = await screen.findByTestId('llm-provider-row-openai');
+    await user.click(within(providerRow).getByRole('button', { name: 'llm.providerConfiguration.editProvider' }));
+    const dialog = screen.getByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: /llm.providerConfiguration.serviceLabels.embedding/ }));
+
+    expect(within(dialog).getByRole('switch', { name: 'llm.providerConfiguration.serviceLabels.embedding' })).not.toBeChecked();
+    expect(within(dialog).getByLabelText('llm.providerConfiguration.serviceLabels.embedding llm.fields.apiKey')).toBeInTheDocument();
+    expect(within(dialog).getByLabelText('llm.providerConfiguration.serviceLabels.embedding llm.fields.baseUrl')).toBeInTheDocument();
+    expect(within(dialog).getAllByText('Text Embedding 3 Small').length).toBeGreaterThan(0);
+    expect(within(dialog).getByTestId('llm-provider-model-editor')).toBeInTheDocument();
+  });
+
+  it('shows provider-level connection defaults, inherited service placeholders, models, and test controls', async () => {
+    const user = userEvent.setup();
+    const inheritedConnectionValue = {
+      ...llmValue,
+      providers: {
+        ...llmValue.providers,
+        openai: {
+          ...llmValue.providers.openai,
+          services: {
+            ...llmValue.providers.openai.services,
+            chat: {
+              ...llmValue.providers.openai.services.chat,
+              api_key: '',
+              base_url: '',
+            },
+          },
+        },
+      },
+    };
+
+    render(
+      <Form initialValues={{ llm: inheritedConnectionValue }}>
+        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
+      </Form>
+    );
+
+    const providerRow = await screen.findByTestId('llm-provider-row-openai');
+    await user.click(within(providerRow).getByRole('button', { name: 'llm.providerConfiguration.editProvider' }));
+    const dialog = screen.getByRole('dialog');
+
+    const providerApiKeyField = within(dialog)
+      .getAllByLabelText(/llm.fields.apiKey/)
+      .find((field) => field.getAttribute('aria-label') === 'llm.fields.apiKey');
+    const providerBaseUrlField = within(dialog)
+      .getAllByLabelText(/llm.fields.baseUrl/)
+      .find((field) => field.getAttribute('aria-label') === 'llm.fields.baseUrl');
+
+    expect(providerApiKeyField).toHaveValue('sk-openai');
+    expect(providerBaseUrlField).toHaveValue('https://api.openai.com/v1');
+    expect(within(dialog).queryByLabelText('llm.providerConfiguration.serviceLabels.chat llm.fields.apiKey')).not.toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole('button', { name: /llm.providerConfiguration.serviceLabels.chat/ }));
+
+    expect(within(dialog).getByLabelText('llm.providerConfiguration.serviceLabels.chat llm.fields.apiKey')).toHaveAttribute(
+      'placeholder',
+      'llm.providerConfiguration.inheritApiKeyPlaceholder'
+    );
+    expect(within(dialog).getByLabelText('llm.providerConfiguration.serviceLabels.chat llm.fields.baseUrl')).toHaveAttribute(
+      'placeholder',
+      'llm.providerConfiguration.inheritBaseUrlPlaceholder'
+    );
+    expect(within(dialog).queryByText('llm.providerConfiguration.serviceLabels.tts')).not.toBeInTheDocument();
+    expect(within(dialog).getByTestId('llm-provider-model-list-pane')).toBeInTheDocument();
+    expect(within(dialog).getByTestId('llm-provider-model-editor')).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole('button', { name: 'llm.actions.testConnection' }));
+    expect(within(dialog).getByText('llm.providerConfiguration.testTitle')).toBeInTheDocument();
+    expect(within(dialog).getByLabelText('llm.providerConfiguration.testModelLabel')).toBeInTheDocument();
+
+    await user.click(within(dialog).getByText('llm.providerConfiguration.servicesTitle'));
+    expect(within(dialog).queryByText('llm.providerConfiguration.testTitle')).not.toBeInTheDocument();
+  });
+
+  it('refreshes service model content after switching provider templates in the add dialog', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
+      </Form>
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'llm.providerConfiguration.addProvider' }));
+    const dialog = screen.getByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Z.ai' }));
+    await user.click(within(dialog).getByRole('button', { name: /llm.providerConfiguration.serviceLabels.chat/ }));
+
+    const providerBaseUrlField = within(dialog)
+      .getAllByLabelText(/llm.fields.baseUrl/)
+      .find((field) => field.getAttribute('aria-label') === 'llm.fields.baseUrl');
+
+    expect(providerBaseUrlField).toHaveValue('https://open.bigmodel.cn/api/paas/v4');
+    expect(within(dialog).getByLabelText('llm.providerConfiguration.serviceLabels.chat llm.fields.baseUrl')).toHaveAttribute(
+      'placeholder',
+      'llm.providerConfiguration.inheritBaseUrlPlaceholder'
+    );
+    expect(within(dialog).getAllByText('GLM-5').length).toBeGreaterThan(0);
+    expect(within(dialog).queryByText('GPT-5')).not.toBeInTheDocument();
   });
 
   it('lets user switch the core scenario model and shows vision warning', async () => {
@@ -940,8 +1126,12 @@ describe('config forms', () => {
           enabled: true,
           provider_type: 'custom',
           display_name: 'Proxy',
-          api_key: 'sk-proxy',
-          base_url: 'https://proxy.example.com/v1',
+          services: {
+            chat: { enabled: true, api_key: 'sk-proxy', base_url: 'https://proxy.example.com/v1' },
+            embedding: { enabled: false, api_key: '', base_url: 'https://proxy.example.com/v1' },
+            image_generation: { enabled: false, api_key: '', base_url: 'https://proxy.example.com/v1', timeout: 180, native_protocol: null },
+            tts: { enabled: false, api_key: '', base_url: 'https://proxy.example.com/v1', model: '', voice: '', response_format: '' },
+          },
           api_format: 'openai',
           custom_models: ['foo-vision'],
           custom_default_model: 'foo-vision',
@@ -990,8 +1180,12 @@ describe('config forms', () => {
           enabled: true,
           provider_type: 'custom',
           display_name: 'Zen',
-          api_key: 'sk-zen',
-          base_url: 'https://proxy.example.com/v1',
+          services: {
+            chat: { enabled: true, api_key: 'sk-zen', base_url: 'https://proxy.example.com/v1' },
+            embedding: { enabled: false, api_key: '', base_url: 'https://proxy.example.com/v1' },
+            image_generation: { enabled: false, api_key: '', base_url: 'https://proxy.example.com/v1', timeout: 180, native_protocol: null },
+            tts: { enabled: false, api_key: '', base_url: 'https://proxy.example.com/v1', model: '', voice: '', response_format: '' },
+          },
           api_format: 'openai',
           custom_models: ['openai/gpt-5.2'],
           custom_default_model: 'openai/gpt-5.2',
@@ -1018,8 +1212,6 @@ describe('config forms', () => {
       },
     };
 
-    const user = userEvent.setup();
-
     render(
       <Form initialValues={{ llm: customValue }}>
         <LLMForm quickMode={false} surface="settings" view="all" showSectionIntro={false} />
@@ -1031,14 +1223,6 @@ describe('config forms', () => {
       expect(within(coreCard).getByLabelText('llm.fields.model')).toHaveTextContent('openai/gpt-5.2');
     });
     expect(screen.queryByText('llm.warnings.coreVisionMissing')).not.toBeInTheDocument();
-
-    const providerList = await screen.findByTestId('llm-provider-list-pane');
-    await user.click((within(providerList).getByText('Zen') as HTMLElement).closest('button') as HTMLButtonElement);
-    const modelList = await screen.findByTestId('llm-provider-model-list-pane');
-    await user.click((within(modelList).getAllByText('openai/gpt-5.2')[0] as HTMLElement).closest('button') as HTMLButtonElement);
-
-    const editor = screen.getByTestId('llm-provider-model-editor');
-    expect(within(editor).getByRole('switch', { name: 'llm.modelFields.vision' })).toHaveAttribute('aria-checked', 'true');
   });
 
   it('sorts model options alphabetically in the scenario model menu', async () => {
@@ -1154,8 +1338,12 @@ describe('config forms', () => {
         enabled: true,
         provider_type: 'custom',
         display_name: '',
-        api_key: '',
-        base_url: '',
+        services: {
+          chat: { enabled: true, api_key: '', base_url: '' },
+          embedding: { enabled: false, api_key: '', base_url: '' },
+          image_generation: { enabled: false, api_key: '', base_url: '', timeout: 180, native_protocol: null },
+          tts: { enabled: false, api_key: '', base_url: '', model: '', voice: '', response_format: '' },
+        },
         api_format: 'openai',
         custom_models: [],
         custom_default_model: '',
@@ -1169,8 +1357,12 @@ describe('config forms', () => {
           enabled: true,
           provider_type: 'openai',
           display_name: 'OpenAI',
-          api_key: 'sk-openai',
-          base_url: 'https://api.openai.com/v1',
+          services: {
+            chat: { enabled: true, api_key: 'sk-openai', base_url: 'https://api.openai.com/v1' },
+            embedding: { enabled: false, api_key: '', base_url: 'https://api.openai.com/v1' },
+            image_generation: { enabled: false, api_key: '', base_url: 'https://api.openai.com/v1', timeout: 180, native_protocol: null },
+            tts: { enabled: false, api_key: '', base_url: 'https://api.openai.com/v1', model: '', voice: '', response_format: '' },
+          },
         },
       },
       selections: {
@@ -1502,320 +1694,117 @@ describe('config forms', () => {
 
     render(<LLMForm quickMode={false} value={blankValue} onChange={onChange} />);
 
-    await waitFor(() => {
-      expect(screen.getByText('llm.providerConfiguration.title')).toBeInTheDocument();
-    });
+    expect(await screen.findByText('llm.providerConfiguration.title')).toBeInTheDocument();
+    expect(screen.getByText('llm.providerConfiguration.emptyTitle')).toBeInTheDocument();
 
-    await waitFor(() => {
-      expect(onChange).toHaveBeenCalled();
-    });
+    const latest = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0] ?? blankValue;
 
-    const latest = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0];
-
-    expect(latest.providers.openai.enabled).toBe(false);
-    expect(latest.providers.anthropic.enabled).toBe(false);
-    expect(latest.providers.glm.enabled).toBe(false);
+    expect(latest.providers).toEqual({});
     expect(latest.selections.context_decider.provider_id).toBe('');
     expect(latest.selections.context_decider.model).toBe('');
     expect(latest.selections.core.provider_id).toBe('');
     expect(latest.selections.core.model).toBe('');
   });
 
-  it('lets users add a custom provider model manually', async () => {
+  it('adds a provider instance from a built-in template', async () => {
     const user = userEvent.setup();
-
-    render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode />
-      </Form>
-    );
-
-    await user.click(await screen.findByText('llm.actions.addCustomProvider'));
-    await user.type(screen.getByLabelText('llm.fields.modelManualEntry'), 'foo-1');
-    await user.click(screen.getByRole('button', { name: 'llm.actions.addModel' }));
-
-    expect(screen.getAllByText('foo-1').length).toBeGreaterThan(0);
-    expect(screen.getByLabelText('llm.fields.defaultModel')).toHaveTextContent('foo-1');
-  });
-
-  it('lets users add a custom image model and select it for image generation', async () => {
-    const user = userEvent.setup();
+    let latestValue: LLMConfig | null = null;
 
     function ControlledSettingsLlmForm() {
-      const [value, setValue] = React.useState(llmValue as unknown as LLMConfig);
+      const [value, setValue] = React.useState({ providers: {}, selections: llmValue.selections, model_runtime_overrides: {} } as unknown as LLMConfig);
       return (
         <LLMForm
           quickMode={false}
           surface="settings"
+          view="providers"
           showSectionIntro={false}
           value={value}
-          onChange={setValue}
+          onChange={(nextValue) => {
+            latestValue = nextValue;
+            setValue(nextValue);
+          }}
         />
       );
     }
 
     render(<ControlledSettingsLlmForm />);
 
-    await user.click(await screen.findByRole('button', { name: 'llm.modelKinds.chat' }));
-    await user.click(screen.getByRole('option', { name: 'llm.modelKinds.image' }));
-    await user.type(screen.getByLabelText('llm.fields.modelManualEntry'), 'gpt-image-custom');
-    await user.click(screen.getByRole('button', { name: 'llm.actions.addModel' }));
+    await user.click(await screen.findByRole('button', { name: 'llm.providerConfiguration.addProvider' }));
+    const dialog = screen.getByRole('dialog');
+    await user.type(within(dialog).getByLabelText('llm.fields.apiKey'), 'sk-new-openai');
+    await user.click(screen.getByRole('button', { name: 'llm.providerConfiguration.saveProvider' }));
 
     await waitFor(() => {
-      expect(screen.getAllByText('gpt-image-custom').length).toBeGreaterThan(0);
-    });
-
-    const imageTab = screen.getByRole('tab', { name: 'llm.scenarios.image_generation.title' });
-    await user.click(imageTab);
-
-    const imagePanel = screen.getByTestId('llm-scenario-image_generation');
-    const providerField = within(imagePanel).getByLabelText('llm.fields.provider');
-    await waitFor(() => {
-      expect(providerField).toHaveTextContent('OpenAI');
-    });
-
-    const modelField = within(imagePanel).getByLabelText('llm.fields.model');
-    await user.click(modelField);
-
-    await waitFor(() => {
-      const menu = document.querySelector('[data-select-field-menu]');
-      expect(menu).not.toBeNull();
-      expect(within(menu as HTMLElement).getByText('gpt-image-custom')).toBeInTheDocument();
+      expect(Object.values(latestValue?.providers || {}).some(
+        (provider) => provider.provider_type === 'openai' && provider.api_key === 'sk-new-openai'
+      )).toBe(true);
     });
   });
 
-  it('writes model metadata overrides from the provider workbench', async () => {
+  it('adds a custom provider with chat models from the provider dialog', async () => {
     const user = userEvent.setup();
-    const onChange = vi.fn();
+    let latestValue: LLMConfig | null = null;
 
-    render(
-      <LLMForm
-        quickMode={false}
-        surface="settings"
-        view="providers"
-        showSectionIntro={false}
-        value={llmValue as unknown as LLMConfig}
-        onChange={onChange}
-      />
-    );
-
-    const modelList = await screen.findByTestId('llm-provider-model-list-pane');
-    await user.click(within(modelList).getByText('GPT-5.2'));
-    await user.click(screen.getByRole('switch', { name: 'llm.modelFields.reasoning' }));
-
-    expect(onChange).toHaveBeenCalled();
-    const overrideCall = onChange.mock.calls.find(
-      (args: any[]) => args[0]?.providers?.openai?.model_metadata_overrides?.['gpt-5.2']?.capabilities?.reasoning === false
-    );
-    expect(overrideCall).toBeTruthy();
-  });
-
-  it('reflects persisted capability overrides in the provider workbench toggles', async () => {
-    const user = userEvent.setup();
-    const overrideValue = {
-      ...structuredClone(llmValue),
-      providers: {
-        ...structuredClone(llmValue.providers),
-        glm: {
-          ...structuredClone(llmValue.providers.glm),
-          model_metadata_overrides: {
-            'glm-5': {
-              capabilities: {
-                vision: true,
-              },
-            },
-          },
-        },
-      },
-    };
-
-    render(
-      <Form initialValues={{ llm: overrideValue }}>
-        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
-      </Form>
-    );
-
-    await user.click((await screen.findByText('Z.ai')).closest('button') as HTMLButtonElement);
-    const modelList = await screen.findByTestId('llm-provider-model-list-pane');
-    await user.click((within(modelList).getByText('GLM-5') as HTMLElement).closest('button') as HTMLButtonElement);
-
-    const editor = screen.getByTestId('llm-provider-model-editor');
-    expect((within(modelList).getByText('GLM-5') as HTMLElement).closest('button')).toHaveAttribute('aria-current', 'true');
-    expect(within(editor).getByRole('switch', { name: 'llm.modelFields.vision' })).toHaveAttribute('aria-checked', 'true');
-  });
-
-  it('keeps the provider workbench focused on name, capabilities, and limits', async () => {
-    const user = userEvent.setup();
-
-    render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
-      </Form>
-    );
-
-    const modelList = await screen.findByTestId('llm-provider-model-list-pane');
-    await user.click((within(modelList).getByText('GPT-5.2') as HTMLElement).closest('button') as HTMLButtonElement);
-
-    const editor = screen.getByTestId('llm-provider-model-editor');
-    expect(within(editor).getByLabelText('llm.fields.displayName')).toBeInTheDocument();
-    expect(within(editor).queryByLabelText('llm.modelFields.icon')).not.toBeInTheDocument();
-    expect(within(editor).queryByLabelText('llm.modelFields.description')).not.toBeInTheDocument();
-    expect(within(editor).queryByRole('switch', { name: 'llm.modelFields.hidden' })).not.toBeInTheDocument();
-    expect(within(editor).queryByRole('switch', { name: 'llm.modelFields.preferred' })).not.toBeInTheDocument();
-  });
-
-  it('lets users remove a custom provider and falls back to builtin providers', async () => {
-    const user = userEvent.setup();
-
-    render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode />
-      </Form>
-    );
-
-    await user.click(await screen.findByText('llm.actions.addCustomProvider'));
-    expect(screen.getByDisplayValue('llm.customProviderDefaultName')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'llm.actions.removeProvider' })).toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: 'llm.actions.removeProvider' }));
-
-    await waitFor(() => {
-      expect(screen.queryByDisplayValue('llm.customProviderDefaultName')).not.toBeInTheDocument();
-    });
-    expect(screen.getByLabelText('llm.fields.apiKey')).toHaveValue('sk-openai');
-    expect(screen.queryByRole('button', { name: 'llm.actions.removeProvider' })).not.toBeInTheDocument();
-  });
-
-  it('uses a selectable default model instead of free text for custom providers', async () => {
-    const user = userEvent.setup();
-
-    render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode />
-      </Form>
-    );
-
-    await user.click(await screen.findByText('llm.actions.addCustomProvider'));
-
-    const defaultModelField = screen.getByLabelText('llm.fields.defaultModel');
-    expect(defaultModelField.tagName).toBe('BUTTON');
-    expect(defaultModelField).toBeDisabled();
-
-    await user.type(screen.getByLabelText('llm.fields.modelManualEntry'), 'foo-1');
-    await user.click(screen.getByRole('button', { name: 'llm.actions.addModel' }));
-
-    expect(screen.getByLabelText('llm.fields.defaultModel').tagName).toBe('BUTTON');
-    expect(screen.getByLabelText('llm.fields.defaultModel')).toHaveTextContent('foo-1');
-  });
-
-  it('shows default model before model entry and adds a model id placeholder for custom providers', async () => {
-    const user = userEvent.setup();
-
-    render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
-      </Form>
-    );
-
-    await user.click(await screen.findByText('llm.actions.addCustomProvider'));
-
-    const defaultModelField = screen.getByLabelText('llm.fields.defaultModel');
-    const modelEntryField = screen.getByLabelText('llm.fields.modelManualEntry');
-
-    expect(modelEntryField).toHaveAttribute('placeholder', 'llm.fields.modelManualEntryPlaceholder');
-    expect(
-      defaultModelField.compareDocumentPosition(modelEntryField) & Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
-  });
-
-  it('removes the ambiguous custom api format option', async () => {
-    const user = userEvent.setup();
-
-    render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode />
-      </Form>
-    );
-
-    await user.click(await screen.findByText('llm.actions.addCustomProvider'));
-
-    const apiFormatSelect = screen.getByLabelText('llm.fields.apiFormat');
-    await user.click(apiFormatSelect);
-
-    expect(screen.queryByRole('button', { name: 'llm.apiFormatOptions.custom' })).not.toBeInTheDocument();
-  });
-
-  it('fetches custom provider models on demand', async () => {
-    const user = userEvent.setup();
-
-    render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode />
-      </Form>
-    );
-
-    await user.click(await screen.findByText('llm.actions.addCustomProvider'));
-    await user.type(screen.getByLabelText('llm.fields.baseUrl'), 'https://proxy.example.com/v1');
-    await user.click(screen.getByRole('button', { name: 'llm.actions.fetchModels' }));
-
-    await waitFor(() => {
-      expect(screen.getAllByText('fetched-model-1').length).toBeGreaterThan(0);
-    });
-    expect(screen.getByLabelText('llm.fields.defaultModel')).toHaveTextContent('fetched-model-1');
-    expect(configApi.discoverLLMProviderModels).toHaveBeenCalled();
-  });
-
-  it('tests the active provider with current draft credentials', async () => {
-    const user = userEvent.setup();
-
-    render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode />
-      </Form>
-    );
-
-    await user.clear(await screen.findByLabelText('llm.fields.apiKey'));
-    await user.type(screen.getByLabelText('llm.fields.apiKey'), 'sk-draft-openai');
-    await user.click(screen.getByRole('button', { name: 'llm.actions.testConnection' }));
-    const testMenu = await screen.findByTestId('llm-provider-test-model-menu');
-    await user.click((within(testMenu).getByText('GPT-5.2') as HTMLElement).closest('button') as HTMLButtonElement);
-
-    await waitFor(() => {
-      expect(configApi.testLLMProviderConnection).toHaveBeenCalledWith({
-        provider_id: 'openai',
-        model: 'gpt-5.2',
-        provider: expect.objectContaining({
-          provider_type: 'openai',
-          api_key: 'sk-draft-openai',
-          base_url: 'https://api.openai.com/v1',
-        }),
-      });
-    });
-
-    expect(screen.getByText('llm.providerConfiguration.testSuccess')).toBeInTheDocument();
-  });
-
-  it('lets users choose which chat model to test', async () => {
-    const user = userEvent.setup();
-
-    render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode />
-      </Form>
-    );
-
-    await user.click(await screen.findByRole('button', { name: 'llm.actions.testConnection' }));
-    const testMenu = await screen.findByTestId('llm-provider-test-model-menu');
-    await user.click((within(testMenu).getByText('GPT-4.1 Mini') as HTMLElement).closest('button') as HTMLButtonElement);
-
-    await waitFor(() => {
-      expect(configApi.testLLMProviderConnection).toHaveBeenCalledWith(
-        expect.objectContaining({
-          provider_id: 'openai',
-          model: 'gpt-4.1-mini',
-        })
+    function ControlledSettingsLlmForm() {
+      const [value, setValue] = React.useState({ providers: {}, selections: llmValue.selections, model_runtime_overrides: {} } as unknown as LLMConfig);
+      return (
+        <LLMForm
+          quickMode={false}
+          surface="settings"
+          view="providers"
+          showSectionIntro={false}
+          value={value}
+          onChange={(nextValue) => {
+            latestValue = nextValue;
+            setValue(nextValue);
+          }}
+        />
       );
+    }
+
+    render(<ControlledSettingsLlmForm />);
+
+    await user.click(await screen.findByRole('button', { name: 'llm.providerConfiguration.addProvider' }));
+    await user.click(screen.getByRole('button', { name: 'llm.providerConfiguration.providerKinds.custom' }));
+    const dialog = screen.getByRole('dialog');
+    await user.clear(screen.getByLabelText('llm.fields.displayName'));
+    await user.type(screen.getByLabelText('llm.fields.displayName'), 'Proxy');
+    await user.type(within(dialog).getByLabelText('llm.fields.apiKey'), 'sk-proxy');
+    await user.type(within(dialog).getByLabelText('llm.fields.baseUrl'), 'https://proxy.example.com/v1');
+    await user.click(within(dialog).getByRole('button', { name: /llm.providerConfiguration.serviceLabels.chat/ }));
+    const customModelsField = within(dialog).getByLabelText('llm.providerConfiguration.serviceLabels.chat llm.fields.modelManualEntry');
+    await user.type(customModelsField, 'foo-1');
+    await user.click(within(dialog).getByRole('button', { name: 'llm.actions.addModel' }));
+    await user.type(customModelsField, 'foo-2');
+    await user.click(within(dialog).getByRole('button', { name: 'llm.actions.addModel' }));
+    await user.click(screen.getByRole('button', { name: 'llm.providerConfiguration.saveProvider' }));
+
+    await waitFor(() => {
+      expect(Object.values(latestValue?.providers || {}).some(
+        (provider) =>
+          provider.provider_type === 'custom' &&
+          provider.display_name === 'Proxy' &&
+          provider.base_url === 'https://proxy.example.com/v1' &&
+          provider.custom_models?.includes('foo-1') &&
+          provider.custom_models?.includes('foo-2')
+      )).toBe(true);
     });
+  });
+
+  it('uses provider-native image models without a manual image model entry', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode={false} surface="settings" view="models" showSectionIntro={false} />
+      </Form>
+    );
+
+    await user.click(await screen.findByRole('tab', { name: 'llm.scenarios.image_generation.title' }));
+    const imagePanel = screen.getByTestId('llm-scenario-image_generation');
+    expect(within(imagePanel).getByLabelText('llm.fields.provider')).toHaveTextContent('OpenAI');
+    expect(within(imagePanel).getByLabelText('llm.fields.model')).toHaveTextContent('GPT Image 1');
+    expect(screen.queryByLabelText('llm.fields.modelManualEntry')).not.toBeInTheDocument();
   });
 
   it('lets users reveal and hide provider api keys locally', async () => {
@@ -1827,7 +1816,11 @@ describe('config forms', () => {
       </Form>
     );
 
-    const apiKeyField = await screen.findByLabelText('llm.fields.apiKey');
+    const providerRow = await screen.findByTestId('llm-provider-row-openai');
+    await user.click(within(providerRow).getByRole('button', { name: 'llm.providerConfiguration.editProvider' }));
+
+    const dialog = screen.getByRole('dialog');
+    const apiKeyField = await within(dialog).findByLabelText('llm.fields.apiKey');
     const fieldWrapper = apiKeyField.parentElement?.parentElement;
 
     expect(apiKeyField).toHaveAttribute('type', 'password');
@@ -1840,7 +1833,7 @@ describe('config forms', () => {
     expect(apiKeyField).toHaveAttribute('type', 'password');
   });
 
-  it('uses the registry default base url when testing a built-in provider with a blank field', async () => {
+  it('shows the registry default base url as the placeholder for a blank built-in provider service', async () => {
     const user = userEvent.setup();
     const glmWithoutBaseUrl = {
       ...llmValue,
@@ -1866,7 +1859,13 @@ describe('config forms', () => {
         ...llmValue.providers,
         glm: {
           ...llmValue.providers.glm,
-          base_url: '',
+          services: {
+            ...llmValue.providers.glm.services,
+            chat: {
+              ...llmValue.providers.glm.services.chat,
+              base_url: '',
+            },
+          },
         },
       },
     };
@@ -1878,22 +1877,15 @@ describe('config forms', () => {
     );
 
     const providerList = await screen.findByTestId('llm-provider-list-pane');
-    await user.click((within(providerList).getByText('Z.ai') as HTMLElement).closest('button') as HTMLButtonElement);
-    await user.click(screen.getByRole('button', { name: 'llm.actions.testConnection' }));
-    const testMenu = await screen.findByTestId('llm-provider-test-model-menu');
-    expect(within(testMenu).queryByText('Embedding-3')).not.toBeInTheDocument();
-    await user.click((within(testMenu).getByText('GLM-5') as HTMLElement).closest('button') as HTMLButtonElement);
+    const providerRow = within(providerList).getByTestId('llm-provider-row-glm');
+    await user.click(within(providerRow).getByRole('button', { name: 'llm.providerConfiguration.editProvider' }));
+    const dialog = screen.getByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: /llm.providerConfiguration.serviceLabels.chat/ }));
 
-    await waitFor(() => {
-      expect(configApi.testLLMProviderConnection).toHaveBeenCalledWith({
-        provider_id: 'glm',
-        model: 'glm-5',
-        provider: expect.objectContaining({
-          provider_type: 'glm',
-          base_url: 'https://open.bigmodel.cn/api/paas/v4',
-        }),
-      });
-    });
+    expect(within(dialog).getByLabelText('llm.providerConfiguration.serviceLabels.chat llm.fields.baseUrl')).toHaveAttribute(
+      'placeholder',
+      'llm.providerConfiguration.inheritBaseUrlPlaceholder'
+    );
   });
 
   it('memory form renders L2/L3/L4 layer toggles', async () => {

@@ -1,7 +1,7 @@
 /**
  * Chat page - desktop-focused conversation workspace
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, useReducedMotion } from 'framer-motion';
 import { ChatWorkspaceStatusBar } from '@/components/chat/ChatWorkspaceStatusBar';
@@ -373,6 +373,23 @@ export const ChatPage: React.FC = () => {
     lastToolFootprint,
   ].join('::');
 
+  const wasAtTimelineBottomRef = useRef(true);
+
+  useEffect(() => {
+    const timeline = timelineScrollRef.current;
+    if (!timeline) return;
+    const STICKY_THRESHOLD = 32;
+    const updateStickiness = () => {
+      const distanceFromBottom = timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight;
+      wasAtTimelineBottomRef.current = distanceFromBottom <= STICKY_THRESHOLD;
+    };
+    updateStickiness();
+    timeline.addEventListener('scroll', updateStickiness, { passive: true });
+    return () => {
+      timeline.removeEventListener('scroll', updateStickiness);
+    };
+  }, []);
+
   useEffect(() => {
     if (lastTimelineScrollKeyRef.current === timelineScrollKey) {
       return;
@@ -387,10 +404,36 @@ export const ChatPage: React.FC = () => {
         top: timeline.scrollHeight,
         behavior: reduceTimelineMotion ? 'auto' : 'smooth',
       });
-      return;
+    } else {
+      timeline.scrollTop = timeline.scrollHeight;
     }
-    timeline.scrollTop = timeline.scrollHeight;
+    wasAtTimelineBottomRef.current = true;
   }, [reduceTimelineMotion, timelineScrollKey]);
+
+  useEffect(() => {
+    const timeline = timelineScrollRef.current;
+    if (!timeline || typeof ResizeObserver === 'undefined') return;
+    let lastClientHeight = timeline.clientHeight;
+    const observer = new ResizeObserver(() => {
+      const nextClientHeight = timeline.clientHeight;
+      const heightShrank = nextClientHeight < lastClientHeight;
+      lastClientHeight = nextClientHeight;
+      if (!heightShrank) return;
+      if (!wasAtTimelineBottomRef.current) return;
+      timeline.scrollTop = timeline.scrollHeight;
+    });
+    observer.observe(timeline);
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    const timeline = timelineScrollRef.current;
+    if (!timeline) return;
+    if (!wasAtTimelineBottomRef.current) return;
+    timeline.scrollTop = timeline.scrollHeight;
+  }, [inputValue]);
 
   useChatRealtimeEffects({
     allowInterjection,

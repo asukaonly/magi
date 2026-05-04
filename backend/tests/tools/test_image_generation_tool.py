@@ -73,15 +73,17 @@ def _config() -> AppConfig:
             enabled=True,
             provider_type=LLMProvider.OPENAI,
             display_name="OpenAI",
-            api_key="test-key",
-            base_url="https://api.openai.com/v1",
         )
     }
+    image_service = config.llm.providers["openai"].services.image_generation
+    image_service.enabled = True
+    image_service.api_key = "test-key"
+    image_service.base_url = "https://api.openai.com/v1"
+    image_service.timeout = 181
     config.llm.selections[LLMScenario.IMAGE_GENERATION.value] = LLMSelectionSettings(
         provider_id="openai",
         model="gpt-image-1",
     )
-    config.llm.providers["openai"].image_generation.timeout = 181
     return config
 
 

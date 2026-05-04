@@ -72,12 +72,11 @@ def test_create_image_adapter_uses_provider_image_generation_overrides() -> None
     )
     provider = LLMProviderSettings(
         provider_type=LLMProvider.OPENAI,
-        api_key="chat-key",
-        base_url="https://chat.example.com/v1",
     )
-    provider.image_generation.api_key = "image-key"
-    provider.image_generation.base_url = "https://images.example.com/v1"
-    provider.image_generation.timeout = 222
+    provider.services.image_generation.enabled = True
+    provider.services.image_generation.api_key = "image-key"
+    provider.services.image_generation.base_url = "https://images.example.com/v1"
+    provider.services.image_generation.timeout = 222
 
     adapter = create_image_generation_adapter(
         provider_id="openai",

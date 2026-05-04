@@ -403,23 +403,29 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
 
     for (const [providerId, provider] of Object.entries(providers) as [string, any][]) {
       if (!provider?.enabled) continue;
+      const chatService = provider.services?.chat;
 
       if (provider.provider_type === 'custom') {
         if (!provider.display_name?.trim()) {
           return { valid: false, message: t('llm.validation.customProviderNameRequired') };
         }
-        if (!provider.api_key?.trim()) {
+        if (chatService?.enabled && !(chatService.api_key?.trim() || provider.api_key?.trim())) {
           return { valid: false, message: t('llm.validation.customProviderApiKeyRequired') };
         }
-        if (!provider.base_url?.trim()) {
+        if (chatService?.enabled && !(chatService.base_url?.trim() || provider.base_url?.trim())) {
           return { valid: false, message: t('llm.validation.customProviderBaseUrlRequired') };
         }
         if (!provider.custom_models?.length) {
           return { valid: false, message: t('llm.validation.customProviderModelRequired') };
         }
-      } else {
-        if (!provider.api_key?.trim()) {
-          return { valid: false, message: t('llm.validation.apiKeyRequired', { provider: provider.display_name || providerId }) };
+      }
+
+      for (const service of Object.values(provider.services || {}) as any[]) {
+        if (service?.enabled && !(service.api_key?.trim() || provider.api_key?.trim())) {
+          return {
+            valid: false,
+            message: t('llm.validation.apiKeyRequired', { provider: provider.display_name || providerId }),
+          };
         }
       }
     }

@@ -5,6 +5,7 @@ import { ArrowRight, CheckCircle2, MessageSquare, Settings, Sparkles, UserRound 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { useChatShellStore } from '@/stores';
 import { cn } from '@/lib/utils';
 
 const mockStats = {
@@ -17,6 +18,8 @@ const mockStats = {
 const Dashboard: React.FC = () => {
   const { t } = useTranslation('app');
   const navigate = useNavigate();
+  const setActivePanel = useChatShellStore((state) => state.setActivePanel);
+  const clearSettingsNavigationIntent = useChatShellStore((state) => state.clearSettingsNavigationIntent);
   const stats = useMemo(() => mockStats, []);
   const recentActivities = useMemo(
     () => [
@@ -74,7 +77,7 @@ const Dashboard: React.FC = () => {
               </span>
               <ArrowRight className="h-4 w-4 text-muted-foreground" />
             </Button>
-            <Button variant="outline" className="w-full justify-between" onClick={() => navigate('/settings')}>
+            <Button variant="outline" className="w-full justify-between" onClick={() => { clearSettingsNavigationIntent(); setActivePanel('settings'); }}>
               <span className="inline-flex items-center gap-2">
                 <Settings className="h-4 w-4" />
                 {t('dashboard.quickActions.openSettings')}

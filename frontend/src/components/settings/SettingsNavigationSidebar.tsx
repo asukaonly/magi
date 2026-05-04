@@ -48,7 +48,7 @@ export function SettingsNavigationSidebar({
   return (
     <nav className="flex w-56 shrink-0 flex-col border-r border-[hsl(var(--settings-subnav-border)/0.72)] bg-[hsl(var(--settings-shell)/0.78)]">
       <div className="flex h-16 shrink-0 items-center border-b border-[hsl(var(--settings-subnav-border)/0.68)] bg-[hsl(var(--settings-shell-elevated)/0.94)] px-5 backdrop-blur-sm">
-        <p className="text-base font-semibold tracking-[0.01em] text-foreground">
+        <p className="text-base font-semibold leading-6 tracking-[0.01em] text-foreground">
           {t('settings.shellTitle')}
         </p>
       </div>

@@ -59,26 +59,9 @@ vi.mock('../pages/Personality', () => ({
   default: () => <div data-testid="personality-page">personality-page</div>,
 }));
 
-vi.mock('../components/layout/ShellRouteHost', () => ({
-  default: ({ overlay }: { overlay: string }) => (
-    <div data-testid={`shell-route-${overlay}`}>{overlay}</div>
-  ),
-}));
-
 describe('app shell routing', () => {
   beforeEach(() => {
     window.history.replaceState({}, '', '/chat');
-  });
-
-  it('renders settings from the shell instead of through the chat page', async () => {
-    window.history.replaceState({}, '', '/settings');
-    vi.resetModules();
-    const { default: AppRouter } = await import('@/router');
-
-    render(<AppRouter />);
-
-    expect(await screen.findByTestId('shell-route-settings')).toBeInTheDocument();
-    expect(screen.queryByTestId('chat-page')).not.toBeInTheDocument();
   });
 
   it('renders memory routes and personality as dedicated routes instead of through the chat page', async () => {

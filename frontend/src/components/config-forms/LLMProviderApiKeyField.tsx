@@ -35,10 +35,10 @@ export function LLMProviderApiKeyField({
           aria-label={t('llm.fields.apiKey')}
           className={cn(fieldClassName, 'pr-10', isSettingsSurface && 'rounded-lg')}
           type={showApiKey ? 'text' : 'password'}
-          value={provider?.api_key || ''}
+          value={provider?.services?.chat?.api_key || ''}
           onChange={(event) =>
             onProviderChange(providerId, (draftProvider) => {
-              draftProvider.api_key = event.target.value;
+              draftProvider.services.chat.api_key = event.target.value;
             })
           }
         />

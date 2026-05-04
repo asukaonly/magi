@@ -75,13 +75,9 @@ export function LLMImageGenerationScenarioPanel({
               onChange={(nextValue) => onScenarioModelChange(scenario, nextValue)}
             />
           ) : (
-            <input
-              aria-label={t('llm.fields.model')}
-              className={inputClassName}
-              value={selection.model || ''}
-              placeholder={t('llm.imageGenerationModelPlaceholder')}
-              onChange={(event) => onScenarioModelChange(scenario, event.target.value)}
-            />
+            <div className={cn(inputClassName, 'flex items-center text-muted-foreground')}>
+              {t('llm.providerConfiguration.imageModelsManaged')}
+            </div>
           )}
         </label>
       </div>

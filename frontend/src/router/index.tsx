@@ -5,7 +5,6 @@ import React from 'react';
 import { createBrowserRouter, Navigate, RouterProvider, useRouteError } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import MainLayout from '../components/layout/MainLayout';
-import ShellRouteHost from '../components/layout/ShellRouteHost';
 import { configApi } from '../api/modules/config';
 import { LoadingSpinner } from '../components/ui/loading-spinner';
 
@@ -133,14 +132,6 @@ const router = createBrowserRouter([
         element: (
           <React.Suspense fallback={<LoadingFallback />}>
             <ChatPage />
-          </React.Suspense>
-        ),
-      },
-      {
-        path: 'settings',
-        element: (
-          <React.Suspense fallback={<LoadingFallback />}>
-            <ShellRouteHost overlay="settings" />
           </React.Suspense>
         ),
       },

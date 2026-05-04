@@ -21,6 +21,27 @@ from ..services.llm_testing_service import get_llm_provider_registry
 from .config_schemas import LLMSelectionConfigModel, SystemConfigModel
 
 
+CHAT_SCENARIOS = {"context_decider", "core", "memory_summarizer"}
+
+
+def _provider_type_value(provider: Any) -> str:
+    return str(
+        getattr(getattr(provider, "provider_type", ""), "value", getattr(provider, "provider_type", ""))
+        or ""
+    ).strip().lower()
+
+
+def _provider_meta_for_selection(
+    config: SystemConfigModel,
+    registry: LLMProviderRegistryModel,
+    provider_id: str,
+):
+    provider = config.llm.providers.get(provider_id)
+    if provider is None:
+        return None
+    return find_provider_meta(registry, _provider_type_value(provider) or provider_id)
+
+
 def selection_limits_from_registry_limits(
     limits: LLMLimitsSettings | None,
 ) -> LLMSelectionLimitsSettings:
@@ -42,11 +63,12 @@ def apply_llm_registry_defaults(
     config: SystemConfigModel, registry: LLMProviderRegistryModel
 ) -> None:
     for provider_id, provider in config.llm.providers.items():
-        provider_meta = find_provider_meta(registry, provider_id)
+        provider_type = _provider_type_value(provider) or provider_id
+        provider_meta = find_provider_meta(registry, provider_type)
         if provider_meta is None:
             continue
 
-        provider.provider_type = provider_id
+        provider.provider_type = provider_type
         if not provider.display_name:
             provider.display_name = provider_meta.display_name or provider_id.upper()
         if not (provider.base_url or "").strip():
@@ -56,14 +78,14 @@ def apply_llm_registry_defaults(
         if not selection.provider_id:
             continue
 
-        provider_meta = find_provider_meta(registry, selection.provider_id)
+        provider_meta = _provider_meta_for_selection(config, registry, selection.provider_id)
         if provider_meta is None:
             continue
 
         if selection_id == "embedding":
             embedding_model_meta = find_embedding_model_meta(
                 registry,
-                selection.provider_id,
+                str(provider_meta.id),
                 selection.model,
             )
             if embedding_model_meta is None and provider_meta.embedding_models:
@@ -162,6 +184,18 @@ def build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         if not provider.enabled:
             raise ValueError(
                 f"LLM selection '{selection_id}' references disabled provider '{selection.provider_id}'"
+            )
+        if selection_id in CHAT_SCENARIOS and not provider.services.chat.enabled:
+            raise ValueError(
+                f"LLM selection '{selection_id}' references provider '{selection.provider_id}' with chat disabled"
+            )
+        if selection_id == "embedding" and not provider.services.embedding.enabled:
+            raise ValueError(
+                f"LLM selection '{selection_id}' references provider '{selection.provider_id}' with embedding disabled"
+            )
+        if selection_id == "image_generation" and not provider.services.image_generation.enabled:
+            raise ValueError(
+                f"LLM selection '{selection_id}' references provider '{selection.provider_id}' with image generation disabled"
             )
 
     llm_providers: Dict[str, Any] = {}

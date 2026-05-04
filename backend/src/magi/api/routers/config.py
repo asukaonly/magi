@@ -236,8 +236,9 @@ async def test_config(config: SystemConfigModel):
     context_selection = config.llm.selections.get("context_decider")
     if not core_selection or not context_selection:
         return ConfigResponse(success=False, message="LLM selections are required", data=None)
-    if not core_selection.provider_id or not core_selection.model:
-        return ConfigResponse(success=False, message="LLM provider is required", data=None)
+    for selection in (core_selection, context_selection):
+        if bool(selection.provider_id) != bool(selection.model):
+            return ConfigResponse(success=False, message="LLM provider and model must be set together", data=None)
     return ConfigResponse(success=True, message="Configuration valid", data=config)
 
 

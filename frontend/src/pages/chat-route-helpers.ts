@@ -3,7 +3,6 @@ import type React from 'react';
 
 export const panelByPathname = (pathname: string): ChatPanelType => {
   if (pathname === '/' || pathname === '/chat') return 'conversation';
-  if (pathname === '/settings') return 'settings';
   if (pathname === '/events' || pathname.startsWith('/memory')) return 'memory';
   if (pathname === '/timeline') return 'timeline';
   if (pathname === '/tasks') return 'tasks';
@@ -14,7 +13,7 @@ export const shouldRenderChatWorkspace = (pathname: string): boolean =>
   pathname === '/' || pathname === '/chat';
 
 export const shouldClosePanelToChat = (pathname: string): boolean =>
-  pathname === '/settings' || pathname === '/events' || pathname.startsWith('/memory');
+  pathname === '/events' || pathname.startsWith('/memory');
 
 export const shouldSubmitOnEnter = (
   event: Pick<React.KeyboardEvent<HTMLTextAreaElement>, 'key' | 'shiftKey' | 'nativeEvent'>,

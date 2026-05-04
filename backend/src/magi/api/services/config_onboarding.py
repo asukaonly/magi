@@ -10,37 +10,20 @@ from ...core.logger import get_logger
 from ...utils.packaged_paths import get_backend_root
 from ..routers.config_schemas import (
     FullPersonalityConfigModel,
-    LLMProviderConfigModel,
     SystemConfigModel,
 )
-from .llm_testing_service import get_llm_provider_registry
 
 logger = get_logger(__name__)
 
 
 def build_onboarding_template() -> SystemConfigModel:
     template = SystemConfigModel()
-    registry = get_llm_provider_registry()
-
-    if registry.providers:
-        template.llm.providers = {
-            provider.id: LLMProviderConfigModel(
-                enabled=False,
-                provider_type=provider.id,
-                display_name=provider.display_name or provider.id.title(),
-                base_url="",
-                custom_models=[],
-                custom_default_model=None,
-                model_metadata_overrides={},
-            )
-            for provider in registry.providers
-        }
-        for selection_id in ("context_decider", "core", "embedding"):
-            selection = template.llm.selections[selection_id]
-            selection.provider_id = ""
-            selection.model = ""
-            selection.embedding_dimension = None
-            selection.provider_options = {}
+    template.llm.providers = {}
+    for selection in template.llm.selections.values():
+        selection.provider_id = ""
+        selection.model = ""
+        selection.embedding_dimension = None
+        selection.provider_options = {}
 
     template.preferences.onboarding_completed = False
     template.preferences.user_mode = None

@@ -29,7 +29,7 @@ describe('chat shell state', () => {
   });
 
   it('maps route path to panel type', () => {
-    expect(panelByPathname('/settings')).toBe('settings');
+    expect(panelByPathname('/settings')).toBe('none');
     expect(panelByPathname('/personality')).toBe('none');
     expect(panelByPathname('/events')).toBe('memory');
     expect(panelByPathname('/memory/overview')).toBe('memory');
@@ -46,10 +46,10 @@ describe('chat shell state', () => {
     expect(shouldRenderChatWorkspace('/personality')).toBe(false);
   });
 
-  it('returns settings and memory panels to chat when closed', () => {
-    expect(shouldClosePanelToChat('/settings')).toBe(true);
+  it('returns memory panels to chat when closed', () => {
     expect(shouldClosePanelToChat('/events')).toBe(true);
     expect(shouldClosePanelToChat('/memory/overview')).toBe(true);
+    expect(shouldClosePanelToChat('/settings')).toBe(false);
     expect(shouldClosePanelToChat('/personality')).toBe(false);
     expect(shouldClosePanelToChat('/timeline')).toBe(false);
     expect(shouldClosePanelToChat('/chat')).toBe(false);

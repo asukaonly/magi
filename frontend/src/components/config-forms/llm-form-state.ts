@@ -40,12 +40,39 @@ const cloneRuntimeOverride = (
   max_concurrency: value?.max_concurrency ?? null,
 });
 
-const cloneImageGenerationConfig = (
-  value?: Partial<LLMProviderConfig['image_generation']>
-): NonNullable<LLMProviderConfig['image_generation']> => ({
+const cloneConnectionConfig = (
+  value?: Partial<LLMProviderConfig['services']['chat']>,
+  defaultEnabled = true
+): LLMProviderConfig['services']['chat'] => ({
+  enabled: value?.enabled ?? defaultEnabled,
   api_key: value?.api_key || '',
   base_url: value?.base_url || '',
+});
+
+const cloneImageGenerationConfig = (
+  value?: Partial<LLMProviderConfig['services']['image_generation']>
+): LLMProviderConfig['services']['image_generation'] => ({
+  ...cloneConnectionConfig(value, false),
   timeout: value?.timeout ?? 180,
+  native_protocol: value?.native_protocol ?? null,
+});
+
+const cloneTTSConfig = (
+  value?: Partial<LLMProviderConfig['services']['tts']>
+): LLMProviderConfig['services']['tts'] => ({
+  ...cloneConnectionConfig(value, false),
+  model: value?.model || '',
+  voice: value?.voice || '',
+  response_format: value?.response_format || '',
+});
+
+const cloneServices = (
+  value?: Partial<LLMProviderConfig['services']>
+): LLMProviderConfig['services'] => ({
+  chat: cloneConnectionConfig(value?.chat, true),
+  embedding: cloneConnectionConfig(value?.embedding, true),
+  image_generation: cloneImageGenerationConfig(value?.image_generation),
+  tts: cloneTTSConfig(value?.tts),
 });
 
 export const cloneProvider = (value?: Partial<LLMProviderConfig>): LLMProviderConfig => ({
@@ -54,7 +81,7 @@ export const cloneProvider = (value?: Partial<LLMProviderConfig>): LLMProviderCo
   display_name: value?.display_name || '',
   api_key: value?.api_key || '',
   base_url: value?.base_url || '',
-  image_generation: cloneImageGenerationConfig(value?.image_generation),
+  services: cloneServices(value?.services),
   api_format: value?.api_format,
   custom_models: [...(value?.custom_models || [])],
   custom_default_model: value?.custom_default_model || '',
@@ -136,6 +163,11 @@ export const buildRegistryFromCatalog = (
 const getProviderMeta = (registry: LLMProviderRegistry, providerId?: string) =>
   registry.providers.find((provider) => provider.id === providerId);
 
+const getProviderTemplateMeta = (registry: LLMProviderRegistry, provider?: LLMProviderConfig) => {
+  if (!provider) return undefined;
+  return registry.providers.find((item) => item.id === provider.provider_type);
+};
+
 const getResolvedProviderModels = (
   registry: LLMProviderRegistry,
   providerId: string,
@@ -147,11 +179,11 @@ export const resolveProviderActionBaseUrl = (
   providerId: string,
   provider: LLMProviderConfig | undefined
 ): string => {
-  const configured = (provider?.base_url || '').trim();
+  const configured = (provider?.services?.chat?.base_url || provider?.base_url || '').trim();
   if (configured) {
     return configured;
   }
-  return getProviderMeta(registry, providerId)?.default_base_url || '';
+  return getProviderMeta(registry, providerId)?.default_base_url || getProviderTemplateMeta(registry, provider)?.default_base_url || '';
 };
 
 const normalizeBaseUrlHost = (value?: string): string | null => {
@@ -174,6 +206,7 @@ const detectOpenAICompatibleRuntimeProvider = (
 ): string => {
   const hintValues = [
     provider?.display_name,
+    provider?.services?.chat?.base_url,
     provider?.base_url,
     provider?.custom_default_model,
     selectedModel,
@@ -234,7 +267,7 @@ export const buildRuntimeOverrideKey = ({
   const runtimeProvider = resolveRuntimeProviderType(provider, normalizedModel);
   const baseUrl = resolveProviderActionBaseUrl(registry, providerId, provider);
   const host = normalizeBaseUrlHost(baseUrl) || runtimeProvider;
-  const requestFamily = scenario === 'embedding' ? 'embedding' : 'chat';
+  const requestFamily = scenario === 'embedding' ? 'embedding' : scenario === 'image_generation' ? 'image_generation' : 'chat';
   return `${runtimeProvider}::${host}::${normalizedModel}::${requestFamily}`;
 };
 
@@ -261,6 +294,10 @@ export const resolveSelectionDefaultMaxConcurrency = ({
     const embeddingModel = resolvedModels.embedding_models.find((item) => item.id === model);
     return embeddingModel?.limits?.max_concurrency ?? null;
   }
+  if (scenario === 'image_generation') {
+    const imageModel = resolvedModels.image_generation_models.find((item) => item.id === model);
+    return imageModel?.limits?.max_concurrency ?? null;
+  }
 
   const chatModel = resolvedModels.chat_models.find((item) => item.id === model);
   return chatModel?.limits?.max_concurrency ?? null;
@@ -275,8 +312,7 @@ export const resolveProviderDefaultModel = (
   if (!provider) {
     return '';
   }
-  const providerMeta =
-    provider.provider_type === 'custom' ? undefined : getProviderMeta(registry, provider.provider_type);
+  const providerMeta = getProviderTemplateMeta(registry, provider);
   const resolvedModels = getResolvedProviderModels(registry, providerId, provider);
 
   if (scenario === 'embedding') {
@@ -428,29 +464,25 @@ export const applySelectionDefaults = (
 export const normalizeLLMConfig = (value: LLMConfig, registry: LLMProviderRegistry): LLMConfig => {
   const next = cloneLLMConfig(value);
 
-  for (const providerMeta of registry.providers.filter((provider) => provider.source !== 'custom')) {
-    if (!next.providers[providerMeta.id]) {
-      next.providers[providerMeta.id] = {
-        enabled: false,
-        provider_type: (providerMeta.provider_type || providerMeta.id) as LLMProviderConfig['provider_type'],
-        display_name: providerMeta.display_name || providerMeta.id,
-        api_key: '',
-        base_url: '',
-        model_metadata_overrides: {},
-      };
-    } else {
-      next.providers[providerMeta.id] = {
-        ...cloneProvider(next.providers[providerMeta.id]),
-        provider_type: (providerMeta.provider_type || providerMeta.id) as LLMProviderConfig['provider_type'],
-        display_name: next.providers[providerMeta.id].display_name || providerMeta.display_name || providerMeta.id,
-      };
-    }
+  for (const providerId of Object.keys(next.providers)) {
+    const provider = next.providers[providerId];
+    const providerMeta = getProviderTemplateMeta(registry, provider);
+    next.providers[providerId] = {
+      ...cloneProvider(provider),
+      display_name: provider.display_name || providerMeta?.display_name || providerId,
+    };
   }
 
-  const firstEnabledProviderId = Object.entries(next.providers).find(([, provider]) => provider.enabled)?.[0] || '';
+  const firstEnabledProviderId =
+    Object.entries(next.providers).find(
+      ([, provider]) => provider.enabled && Boolean(provider.services?.chat?.enabled)
+    )?.[0] || '';
   const firstEnabledEmbeddingProviderId =
     Object.entries(next.providers).find(([providerId, provider]) => {
       if (!provider.enabled) {
+        return false;
+      }
+      if (!provider.services?.embedding?.enabled) {
         return false;
       }
       return Boolean(getResolvedProviderModels(registry, providerId, provider).embedding_models.length);
@@ -458,6 +490,9 @@ export const normalizeLLMConfig = (value: LLMConfig, registry: LLMProviderRegist
   const firstEnabledImageProviderId =
     Object.entries(next.providers).find(([providerId, provider]) => {
       if (!provider.enabled) {
+        return false;
+      }
+      if (!provider.services?.image_generation?.enabled) {
         return false;
       }
       return Boolean(getResolvedProviderModels(registry, providerId, provider).image_generation_models.length);
@@ -491,6 +526,7 @@ export const normalizeLLMConfig = (value: LLMConfig, registry: LLMProviderRegist
     const hasEnabledScenarioSelection =
       scenario === 'embedding'
         ? (hasEnabledSelection &&
+            Boolean(next.providers[selection.provider_id]?.services?.embedding?.enabled) &&
             Boolean(
               getResolvedProviderModels(
                 registry,
@@ -500,6 +536,7 @@ export const normalizeLLMConfig = (value: LLMConfig, registry: LLMProviderRegist
             ))
         : scenario === 'image_generation'
           ? (hasEnabledSelection &&
+              Boolean(next.providers[selection.provider_id]?.services?.image_generation?.enabled) &&
               Boolean(
                 getResolvedProviderModels(
                   registry,
@@ -507,7 +544,7 @@ export const normalizeLLMConfig = (value: LLMConfig, registry: LLMProviderRegist
                   next.providers[selection.provider_id]
                 ).image_generation_models.length
               ))
-          : hasEnabledSelection;
+          : hasEnabledSelection && Boolean(next.providers[selection.provider_id]?.services?.chat?.enabled);
 
     const firstAvailableProviderId =
       scenario === 'embedding'

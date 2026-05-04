@@ -344,7 +344,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <header className="shrink-0 border-b border-[hsl(var(--settings-subnav-border)/0.68)] bg-[hsl(var(--settings-shell-elevated)/0.94)] backdrop-blur-sm">
             <div className="flex h-16 w-full items-center gap-4 px-8">
-              <h2 className="text-lg font-semibold tracking-[0.01em] text-foreground">
+              <h2 className="text-base font-semibold leading-6 tracking-[0.01em] text-foreground">
                 {t(`settings.tabs.${effectiveActiveSection}`)}
               </h2>
               <Button

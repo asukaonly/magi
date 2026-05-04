@@ -33,6 +33,52 @@ from magi.config.llm_registry import (
 )
 
 
+def _provider_settings(
+    provider_type: str = "openai",
+    *,
+    display_name: str = "OpenAI",
+    api_key: str = "sk-test",
+    base_url: str = "https://api.openai.com/v1",
+) -> LLMProviderSettings:
+    provider = LLMProviderSettings(provider_type=provider_type, display_name=display_name)
+    provider.api_key = api_key
+    provider.base_url = base_url
+    provider.services.chat.api_key = api_key
+    provider.services.chat.base_url = base_url
+    provider.services.embedding.api_key = api_key
+    provider.services.embedding.base_url = base_url
+    provider.services.image_generation.enabled = True
+    provider.services.image_generation.api_key = api_key
+    provider.services.image_generation.base_url = base_url
+    return provider
+
+
+def _provider_config_model(
+    provider_type: str = "openai",
+    *,
+    display_name: str = "OpenAI",
+    api_key: str = "sk-test",
+    base_url: str = "https://api.openai.com/v1",
+) -> LLMProviderConfigModel:
+    return LLMProviderConfigModel(
+        enabled=True,
+        provider_type=provider_type,
+        display_name=display_name,
+        api_key=api_key,
+        base_url=base_url,
+        services={
+            "chat": {"enabled": True, "api_key": api_key, "base_url": base_url},
+            "embedding": {"enabled": True, "api_key": api_key, "base_url": base_url},
+            "image_generation": {
+                "enabled": True,
+                "api_key": api_key,
+                "base_url": base_url,
+                "timeout": 180,
+            },
+        },
+    )
+
+
 def test_system_config_defaults_include_llm_provider_pool_and_selections():
     config = SystemConfigModel()
 
@@ -42,7 +88,8 @@ def test_system_config_defaults_include_llm_provider_pool_and_selections():
     assert "core" in config.llm.selections
     assert hasattr(config.llm, "model_runtime_overrides")
     assert config.llm.model_runtime_overrides == {}
-    assert config.llm.providers["openai"].image_generation.timeout == 180
+    assert config.llm.providers == {}
+    assert config.llm.selections["image_generation"].capabilities.image_output is True
     assert "max_concurrency" not in config.llm.selections["core"].limits.model_dump()
 
 
@@ -50,11 +97,8 @@ def test_runtime_llm_defaults_include_image_generation_settings():
     registry = _default_llm_provider_registry()
     defaults = build_runtime_llm_defaults(registry)
 
-    assert defaults["providers"]["openai"]["image_generation"] == {
-        "api_key": "",
-        "base_url": "",
-        "timeout": 180,
-    }
+    assert defaults["providers"] == {}
+    assert defaults["selections"]["image_generation"]["capabilities"]["image_output"] is True
 
 
 def test_resolved_image_generation_models_include_capability_metadata():
@@ -149,21 +193,22 @@ def test_memory_config_rejects_l2_conflict_arbitration_threshold_above_maximum()
         SystemConfigModel(memory={"l2": {"conflict_arbitration_min_confidence": 1.1}})
 
 
-def test_llm_settings_reject_duplicate_builtin_provider_types():
-    with pytest.raises(ValueError):
-        LLMSettings(
-            providers={
-                "openai": {"provider_type": "openai", "display_name": "OpenAI"},
-                "openai_copy": {
-                    "provider_type": "openai",
-                    "display_name": "OpenAI Copy",
-                },
+def test_llm_settings_allow_multiple_instances_of_same_provider_type():
+    settings = LLMSettings(
+        providers={
+            "openai_primary": {"provider_type": "openai", "display_name": "OpenAI"},
+            "openai_image": {
+                "provider_type": "openai",
+                "display_name": "OpenAI Image",
             },
-            selections={
-                "context_decider": LLMSelectionSettings(provider_id="openai", model="gpt-5.2"),
-                "core": LLMSelectionSettings(provider_id="openai", model="gpt-5.2"),
-            },
-        )
+        },
+        selections={
+            "context_decider": LLMSelectionSettings(provider_id="openai_primary", model="gpt-5.2"),
+            "core": LLMSelectionSettings(provider_id="openai_primary", model="gpt-5.2"),
+        },
+    )
+
+    assert set(settings.providers) == {"openai_primary", "openai_image"}
 
 
 def test_llm_settings_require_context_decider_and_core_selections():
@@ -283,6 +328,7 @@ def test_build_system_config_hides_internal_memory_vector_backend_settings():
 def test_build_update_paths_persists_model_metadata_overrides():
     current = _build_system_config(mask_api_key=False)
     config = SystemConfigModel.model_validate(current.model_dump(mode="json"))
+    config.llm.providers["openai"] = _provider_config_model()
     config.llm.providers["openai"].model_metadata_overrides = {
         "gpt-4o-mini": LLMModelMetadataOverrideSettings(
             label="OpenAI Compact",
@@ -314,6 +360,7 @@ def test_build_update_paths_persists_model_metadata_overrides():
 def test_build_update_paths_prunes_empty_null_fields_from_model_metadata_overrides():
     current = _build_system_config(mask_api_key=False)
     config = SystemConfigModel.model_validate(current.model_dump(mode="json"))
+    config.llm.providers["openai"] = _provider_config_model()
     config.llm.providers["openai"].model_metadata_overrides = {
         "gpt-5.2": LLMModelMetadataOverrideSettings(
             capabilities=LLMCapabilityOverridesSettings(vision=True),
@@ -356,48 +403,54 @@ def test_onboarding_template_includes_timeline_defaults():
 
 def test_build_update_paths_skip_masked_api_key():
     runtime_config = get_config()
-    original_image_api_key = runtime_config.llm.providers["openai"].image_generation.api_key
-    runtime_config.llm.providers["openai"].image_generation.api_key = "sk-image-openai"
+    original_provider = runtime_config.llm.providers.get("openai")
+    runtime_config.llm.providers["openai"] = _provider_settings(api_key="sk-openai")
+    runtime_config.llm.providers["openai"].services.image_generation.api_key = "sk-image-openai"
 
     try:
         current = _build_system_config(mask_api_key=False)
         config = SystemConfigModel.model_validate(current.model_dump(mode="json"))
         config.llm.providers["openai"].display_name = "OpenAI Override"
-        config.llm.providers["openai"].api_key = "***"
-        config.llm.providers["openai"].image_generation.api_key = "***"
+        config.llm.providers["openai"].services.chat.api_key = "***"
+        config.llm.providers["openai"].services.image_generation.api_key = "***"
         updates = _build_update_paths(config)
         assert (
-            updates["llm.providers"]["openai"].get("api_key")
-            == current.llm.providers["openai"].api_key
+            updates["llm.providers"]["openai"]["services"]["chat"].get("api_key")
+            == current.llm.providers["openai"].services.chat.api_key
         )
         assert (
-            updates["llm.providers"]["openai"]["image_generation"].get("api_key")
+            updates["llm.providers"]["openai"]["services"]["image_generation"].get("api_key")
             == "sk-image-openai"
         )
     finally:
-        runtime_config.llm.providers["openai"].image_generation.api_key = original_image_api_key
+        if original_provider is None:
+            runtime_config.llm.providers.pop("openai", None)
+        else:
+            runtime_config.llm.providers["openai"] = original_provider
 
 
 def test_build_system_config_returns_real_llm_api_keys_by_default(
     monkeypatch: pytest.MonkeyPatch,
 ):
     runtime_config = get_config()
-    original_api_key = runtime_config.llm.providers["openai"].api_key
-    runtime_config.llm.providers["openai"].api_key = "sk-visible-openai"
+    original_provider = runtime_config.llm.providers.get("openai")
+    runtime_config.llm.providers["openai"] = _provider_settings(api_key="sk-visible-openai")
 
     try:
         config = _build_system_config()
-        assert config.llm.providers["openai"].api_key == "sk-visible-openai"
+        assert config.llm.providers["openai"].services.chat.api_key == "sk-visible-openai"
     finally:
-        runtime_config.llm.providers["openai"].api_key = original_api_key
+        if original_provider is None:
+            runtime_config.llm.providers.pop("openai", None)
+        else:
+            runtime_config.llm.providers["openai"] = original_provider
 
 
 def test_build_update_paths_applies_builtin_provider_defaults_before_save():
     config = SystemConfigModel()
     config.llm.providers = {
-        "glm": LLMProviderConfigModel(
-            enabled=True,
-            provider_type="openai",
+        "glm": _provider_config_model(
+            provider_type="glm",
             display_name="",
             api_key="glm-key",
             base_url="",
@@ -422,8 +475,7 @@ def test_build_update_paths_does_not_depend_on_legacy_llm_env_vars(
     monkeypatch: pytest.MonkeyPatch,
 ):
     config = SystemConfigModel()
-    config.llm.providers["glm"] = LLMProviderSettings(
-        enabled=True,
+    config.llm.providers["glm"] = _provider_config_model(
         provider_type="glm",
         display_name="Z.ai",
         api_key="glm-key",
@@ -434,13 +486,15 @@ def test_build_update_paths_does_not_depend_on_legacy_llm_env_vars(
 
     updates = _build_update_paths(config)
 
-    assert updates["llm.providers"]["glm"]["api_key"] == "glm-key"
+    assert updates["llm.providers"]["glm"]["services"]["chat"]["api_key"] == "glm-key"
     assert "LLM_API_KEY" not in __import__("os").environ
 
 
 def test_build_update_paths_rejects_selection_pointing_to_disabled_provider():
     config = SystemConfigModel()
+    config.llm.providers["openai"] = _provider_config_model()
     config.llm.providers["openai"].enabled = False
+    config.llm.selections["core"] = LLMSelectionConfigModel(provider_id="openai", model="gpt-5.2")
 
     with pytest.raises(ValueError):
         _build_update_paths(config)
@@ -489,7 +543,7 @@ def test_default_registry_includes_extended_builtin_providers():
 
 def test_build_update_paths_assigns_embedding_dimension_from_registry_default():
     config = SystemConfigModel()
-    config.llm.providers["openai"].enabled = True
+    config.llm.providers["openai"] = _provider_config_model()
     config.llm.selections["embedding"] = LLMSelectionConfigModel(
         provider_id="openai",
         model="text-embedding-3-small",
@@ -579,7 +633,7 @@ def test_resolve_provider_model_catalog_applies_builtin_and_manual_overrides():
     assert manual_embedding_model.capabilities.embedding is True
 
 
-def test_resolve_provider_model_catalog_includes_manual_image_generation_models():
+def test_resolve_provider_model_catalog_ignores_manual_image_generation_overrides():
     registry = _default_llm_provider_registry()
     provider = LLMProviderSettings(
         provider_type="openai",
@@ -593,17 +647,12 @@ def test_resolve_provider_model_catalog_includes_manual_image_generation_models(
     )
 
     resolved = resolve_provider_model_catalog(registry, "openai", provider)
-    manual_image_model = next(
-        model for model in resolved.image_generation_models if model.id == "acme-image-1"
-    )
 
-    assert manual_image_model.source == "manual"
-    assert manual_image_model.label == "Acme Image 1"
-    assert manual_image_model.capabilities.image_output is True
+    assert all(model.id != "acme-image-1" for model in resolved.image_generation_models)
     assert all(model.id != "acme-image-1" for model in resolved.chat_models)
 
 
-def test_resolve_llm_profile_accepts_manual_image_generation_models():
+def test_resolve_llm_profile_does_not_accept_manual_image_generation_models():
     registry = _default_llm_provider_registry()
     selection = LLMSelectionSettings(
         provider_id="openai",
@@ -622,7 +671,7 @@ def test_resolve_llm_profile_accepts_manual_image_generation_models():
 
     resolved = resolve_llm_profile(selection, registry, provider_settings=provider)
 
-    assert resolved.capabilities.image_output is True
+    assert resolved.capabilities.image_output is False
     assert resolved.capabilities.embedding is False
 
 
@@ -656,9 +705,7 @@ def test_onboarding_template_ignores_llm_environment_variables(
 
     template = _build_onboarding_template()
 
-    assert template.llm.providers
-    assert all(provider.enabled is False for provider in template.llm.providers.values())
-    assert all(provider.api_key in (None, "") for provider in template.llm.providers.values())
+    assert template.llm.providers == {}
     assert template.llm.selections["core"].provider_id == ""
     assert template.llm.selections["core"].model == ""
 
@@ -670,7 +717,7 @@ def test_runtime_llm_defaults_use_scenario_llm_structure():
     assert "selections" in data
     assert "provider" not in data
     assert "model" not in data
-    assert data["providers"]["openai"]["enabled"] is False
+    assert data["providers"] == {}
     assert data["selections"]["context_decider"]["provider_id"] == ""
     assert data["selections"]["context_decider"]["model"] == ""
     assert data["selections"]["core"]["provider_id"] == ""
@@ -755,7 +802,7 @@ def test_llm_provider_test_endpoint_uses_request_provider_payload(
     async def _fake_probe(provider_id: str, provider, model: str):  # type: ignore[no-untyped-def]
         captured["provider_id"] = provider_id
         captured["provider_type"] = provider.provider_type
-        captured["api_key"] = provider.api_key
+        captured["api_key"] = provider.services.chat.api_key
         captured["base_url"] = provider.base_url
         captured["model"] = model
         return {"model": model, "latency_ms": 42, "preview": "hello"}
@@ -775,8 +822,13 @@ def test_llm_provider_test_endpoint_uses_request_provider_payload(
                 "enabled": True,
                 "provider_type": "openai",
                 "display_name": "OpenAI",
-                "api_key": "sk-live",
-                "base_url": "https://api.openai.com/v1",
+                "services": {
+                    "chat": {
+                        "enabled": True,
+                        "api_key": "sk-live",
+                        "base_url": "https://api.openai.com/v1",
+                    }
+                },
             },
         },
     )
@@ -789,6 +841,66 @@ def test_llm_provider_test_endpoint_uses_request_provider_payload(
         "provider_type": "openai",
         "api_key": "sk-live",
         "base_url": "https://api.openai.com/v1",
+        "model": "gpt-5.2",
+    }
+
+
+def test_llm_provider_test_endpoint_inherits_provider_connection_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    app = FastAPI()
+    app.include_router(llm_router, prefix="/llm")
+    client = TestClient(app)
+
+    captured: dict[str, object] = {}
+
+    async def _fake_probe(provider_id: str, provider, model: str):  # type: ignore[no-untyped-def]
+        captured["provider_id"] = provider_id
+        captured["provider_type"] = provider.provider_type
+        captured["provider_api_key"] = provider.api_key
+        captured["provider_base_url"] = provider.base_url
+        captured["chat_api_key"] = provider.services.chat.api_key
+        captured["chat_base_url"] = provider.services.chat.base_url
+        captured["model"] = model
+        return {"model": model, "latency_ms": 42, "preview": "hello"}
+
+    monkeypatch.setattr(
+        "magi.api.routers.llm._test_llm_provider_connection",
+        _fake_probe,
+        raising=False,
+    )
+
+    response = client.post(
+        "/llm/providers/test",
+        json={
+            "provider_id": "openai",
+            "model": "gpt-5.2",
+            "provider": {
+                "enabled": True,
+                "provider_type": "openai",
+                "display_name": "OpenAI",
+                "api_key": "sk-parent",
+                "base_url": "https://api.openai.com/v1",
+                "services": {
+                    "chat": {
+                        "enabled": True,
+                        "api_key": "",
+                        "base_url": "",
+                    }
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert captured == {
+        "provider_id": "openai",
+        "provider_type": "openai",
+        "provider_api_key": "sk-parent",
+        "provider_base_url": "https://api.openai.com/v1",
+        "chat_api_key": "sk-parent",
+        "chat_base_url": "https://api.openai.com/v1",
         "model": "gpt-5.2",
     }
 
@@ -824,8 +936,13 @@ def test_llm_provider_test_endpoint_falls_back_to_registry_default_base_url(
                 "enabled": True,
                 "provider_type": "glm",
                 "display_name": "GLM",
-                "api_key": "glm-key",
-                "base_url": "",
+                "services": {
+                    "chat": {
+                        "enabled": True,
+                        "api_key": "glm-key",
+                        "base_url": "",
+                    }
+                },
             },
         },
     )
@@ -849,8 +966,7 @@ def test_update_config_reloads_config_and_refreshes_runtime_llm_cache(
 
     calls: list[str] = []
     payload = SystemConfigModel()
-    payload.llm.providers["glm"] = LLMProviderConfigModel(
-        enabled=True,
+    payload.llm.providers["glm"] = _provider_config_model(
         provider_type="glm",
         display_name="Z.ai",
         api_key="glm-key",

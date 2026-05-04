@@ -22,8 +22,11 @@ from .config_schemas import (
     FullPersonalityConfigModel,
     GraphSpreadingConfigModel,
     LLMConfigModel,
+    LLMProviderConnectionConfigModel,
     LLMProviderImageGenerationConfigModel,
     LLMProviderConfigModel,
+    LLMProviderServicesConfigModel,
+    LLMProviderTTSConfigModel,
     LLMSelectionConfigModel,
     MemoryConfigModel,
     MemoryL0ConfigModel,
@@ -177,23 +180,68 @@ def build_llm_config_model(
 ) -> LLMConfigModel:
     providers: Dict[str, LLMProviderConfigModel] = {}
     for provider_id, provider in getattr(runtime_config.llm, "providers", {}).items():
-        api_key = provider.api_key
-        image_generation = getattr(provider, "image_generation", None)
+        services = getattr(provider, "services", None)
+        chat = getattr(services, "chat", None)
+        embedding = getattr(services, "embedding", None)
+        image_generation = getattr(services, "image_generation", None)
+        tts = getattr(services, "tts", None)
+        provider_api_key = getattr(provider, "api_key", None)
+        chat_api_key = getattr(chat, "api_key", None)
+        embedding_api_key = getattr(embedding, "api_key", None)
         image_api_key = getattr(image_generation, "api_key", None)
+        tts_api_key = getattr(tts, "api_key", None)
         providers[provider_id] = LLMProviderConfigModel(
             enabled=provider.enabled,
             provider_type=str(getattr(provider.provider_type, "value", provider.provider_type)),
             display_name=provider.display_name,
-            api_key=(mask_api_key_value(api_key) if (mask_api_key and api_key) else api_key),
-            base_url=provider.base_url,
-            image_generation=LLMProviderImageGenerationConfigModel(
-                api_key=(
-                    mask_api_key_value(image_api_key)
-                    if (mask_api_key and image_api_key)
-                    else image_api_key
+            api_key=(
+                mask_api_key_value(provider_api_key)
+                if (mask_api_key and provider_api_key)
+                else provider_api_key
+            ),
+            base_url=getattr(provider, "base_url", None),
+            services=LLMProviderServicesConfigModel(
+                chat=LLMProviderConnectionConfigModel(
+                    enabled=getattr(chat, "enabled", True),
+                    api_key=(
+                        mask_api_key_value(chat_api_key)
+                        if (mask_api_key and chat_api_key)
+                        else chat_api_key
+                    ),
+                    base_url=getattr(chat, "base_url", None),
                 ),
-                base_url=getattr(image_generation, "base_url", None),
-                timeout=getattr(image_generation, "timeout", 180),
+                embedding=LLMProviderConnectionConfigModel(
+                    enabled=getattr(embedding, "enabled", True),
+                    api_key=(
+                        mask_api_key_value(embedding_api_key)
+                        if (mask_api_key and embedding_api_key)
+                        else embedding_api_key
+                    ),
+                    base_url=getattr(embedding, "base_url", None),
+                ),
+                image_generation=LLMProviderImageGenerationConfigModel(
+                    enabled=getattr(image_generation, "enabled", False),
+                    api_key=(
+                        mask_api_key_value(image_api_key)
+                        if (mask_api_key and image_api_key)
+                        else image_api_key
+                    ),
+                    base_url=getattr(image_generation, "base_url", None),
+                    timeout=getattr(image_generation, "timeout", 180),
+                    native_protocol=getattr(image_generation, "native_protocol", None),
+                ),
+                tts=LLMProviderTTSConfigModel(
+                    enabled=getattr(tts, "enabled", False),
+                    api_key=(
+                        mask_api_key_value(tts_api_key)
+                        if (mask_api_key and tts_api_key)
+                        else tts_api_key
+                    ),
+                    base_url=getattr(tts, "base_url", None),
+                    model=getattr(tts, "model", None),
+                    voice=getattr(tts, "voice", None),
+                    response_format=getattr(tts, "response_format", None),
+                ),
             ),
             api_format=provider.api_format,
             custom_models=list(getattr(provider, "custom_models", []) or []),
@@ -203,10 +251,21 @@ def build_llm_config_model(
 
     selections: Dict[str, LLMSelectionConfigModel] = {}
     for selection_id, selection in getattr(runtime_config.llm, "selections", {}).items():
+        provider_settings = runtime_config.llm.providers.get(selection.provider_id)
+        provider_lookup_id = selection.provider_id
+        if provider_settings is not None:
+            provider_lookup_id = str(
+                getattr(
+                    getattr(provider_settings, "provider_type", ""),
+                    "value",
+                    getattr(provider_settings, "provider_type", ""),
+                )
+                or selection.provider_id
+            )
         if selection_id == "embedding":
             embedding_meta = find_embedding_model_meta(
                 registry,
-                selection.provider_id,
+                provider_lookup_id,
                 selection.model,
             )
             resolved_dimension = resolve_embedding_dimension(
@@ -249,7 +308,7 @@ def build_llm_config_model(
         resolved = resolve_llm_profile(
             selection,
             registry,
-            provider_settings=runtime_config.llm.providers.get(selection.provider_id),
+            provider_settings=provider_settings,
         )
         selections[selection_id] = LLMSelectionConfigModel(
             provider_id=selection.provider_id,

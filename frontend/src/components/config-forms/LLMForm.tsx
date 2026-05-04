@@ -101,7 +101,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
   const [customProviderDefaults, setCustomProviderDefaults] = useState<LLMProviderConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeProviderId, setActiveProviderId] = useState<string>('openai');
+  const [activeProviderId, setActiveProviderId] = useState<string>('');
   const [providerDiscoveryState, setProviderDiscoveryState] = useState<Record<string, { loading: boolean; error: string | null }>>({});
   const [providerTestState, setProviderTestState] = useState<
     Record<string, { loading: boolean; error: string | null; result: TestLLMProviderConnectionResponse | null }>
@@ -211,7 +211,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
       updateValue((draft) => Object.assign(draft, normalized));
     }
     if (!normalized.providers[activeProviderId]) {
-      setActiveProviderId(Object.keys(normalized.providers)[0] || 'openai');
+      setActiveProviderId(Object.keys(normalized.providers)[0] || '');
     }
   }, [activeProviderId, controlled, currentValue, onAutoNormalize, registry]);
 
@@ -473,43 +473,30 @@ const LLMForm: React.FC<LLMFormProps> = ({
     });
   };
 
-  const handleAddCustomProvider = () => {
-    const nextProviderId = `custom_${Date.now()}`;
-    const defaultProvider = customProviderDefaults
-      ? cloneProvider(customProviderDefaults)
-      : {
-          enabled: true,
-          provider_type: 'custom' as const,
-          display_name: '',
-          api_key: '',
-          base_url: '',
-          api_format: 'openai' as const,
-          custom_models: [],
-          custom_default_model: '',
-          model_metadata_overrides: {},
-        };
+  const handleSetProvider = (providerId: string, provider: LLMProviderConfig) => {
     updateValue((draft) => {
-      draft.providers[nextProviderId] = {
-        ...defaultProvider,
-        display_name: defaultProvider.display_name || t('llm.customProviderDefaultName'),
-      };
+      draft.providers[providerId] = cloneProvider(provider);
     });
-    setActiveProviderId(nextProviderId);
+    setActiveProviderId(providerId);
   };
 
-  const handleRemoveCustomProvider = (providerId: string) => {
-    const provider = currentValue.providers[providerId];
-    if (!provider || provider.provider_type !== 'custom') {
-      return;
+  const clearSelectionReferences = (draft: LLMConfig, providerId: string) => {
+    for (const scenario of BUILTIN_SCENARIOS) {
+      if (draft.selections[scenario]?.provider_id === providerId) {
+        draft.selections[scenario] = cloneSelection();
+      }
     }
+  };
 
+  const handleRemoveProvider = (providerId: string) => {
     updateValue((draft) => {
       delete draft.providers[providerId];
+      clearSelectionReferences(draft, providerId);
     });
-    setActiveProviderId('openai');
+    setActiveProviderId((current) => (current === providerId ? '' : current));
   };
 
-  const handleAddProviderModel = (providerId: string, model: string, kind: 'chat' | 'embedding' | 'image' = 'chat') => {
+  const handleAddProviderModel = (providerId: string, model: string, kind: 'chat' | 'embedding' = 'chat') => {
     const trimmedModel = model.trim();
     if (!trimmedModel) {
       return;
@@ -531,27 +518,6 @@ const LLMForm: React.FC<LLMFormProps> = ({
         overrides[trimmedModel] = {
           ...(existing || {}),
           capabilities: { ...(existing?.capabilities || {}), embedding: true },
-          limits: { ...(existing?.limits || {}) },
-        };
-        provider.model_metadata_overrides = overrides;
-      } else if (kind === 'image') {
-        const overrides = { ...(provider.model_metadata_overrides || {}) };
-        const existing = overrides[trimmedModel];
-        const nextModels = (provider.custom_models || []).filter((item) => item !== trimmedModel);
-        provider.custom_models = nextModels;
-        if (provider.custom_default_model === trimmedModel) {
-          provider.custom_default_model = nextModels[0] || '';
-        }
-        overrides[trimmedModel] = {
-          ...(existing || {}),
-          capabilities: {
-            ...(existing?.capabilities || {}),
-            vision: false,
-            image_output: true,
-            tool_calling: false,
-            reasoning: false,
-            embedding: false,
-          },
           limits: { ...(existing?.limits || {}) },
         };
         provider.model_metadata_overrides = overrides;
@@ -604,10 +570,10 @@ const LLMForm: React.FC<LLMFormProps> = ({
     });
   };
 
-  const handleDiscoverProviderModels = async (providerId: string) => {
-    const provider = currentValue.providers[providerId];
-    if (!provider || provider.provider_type !== 'custom') {
-      return;
+  const handleDiscoverProviderModels = async (providerId: string, providerOverride?: LLMProviderConfig) => {
+    const provider = providerOverride || currentValue.providers[providerId];
+    if (!provider) {
+      return undefined;
     }
 
     setProviderDiscoveryState((prev) => ({
@@ -618,37 +584,41 @@ const LLMForm: React.FC<LLMFormProps> = ({
     try {
       const payload = await configApi.discoverLLMProviderModels({
         provider_type: provider.provider_type,
-        base_url: provider.base_url || '',
-        api_key: provider.api_key,
+        base_url: provider.services.chat.base_url || provider.base_url || resolveProviderActionBaseUrl(registry, providerId, provider),
+        api_key: provider.services.chat.api_key || provider.api_key,
         api_format: provider.api_format,
       });
       const nextModels = payload?.models || [];
 
-      updateValue((draft) => {
-        const draftProvider = cloneProvider(draft.providers[providerId]);
-        draftProvider.custom_models = nextModels;
-        draftProvider.custom_default_model = payload?.default_model || nextModels[0] || draftProvider.custom_default_model || '';
-        draft.providers[providerId] = draftProvider;
-      });
+      if (!providerOverride) {
+        updateValue((draft) => {
+          const draftProvider = cloneProvider(draft.providers[providerId]);
+          draftProvider.custom_models = nextModels;
+          draftProvider.custom_default_model = payload?.default_model || nextModels[0] || draftProvider.custom_default_model || '';
+          draft.providers[providerId] = draftProvider;
+        });
+      }
 
       setProviderDiscoveryState((prev) => ({
         ...prev,
         [providerId]: { loading: false, error: null },
       }));
+      return nextModels;
     } catch {
       setProviderDiscoveryState((prev) => ({
         ...prev,
         [providerId]: { loading: false, error: t('llm.providerConfiguration.fetchModelsFailed') },
       }));
+      return undefined;
     }
   };
 
-  const handleTestProviderConnection = async (providerId: string, model: string) => {
+  const handleTestProviderConnection = async (providerId: string, model: string, providerOverride?: LLMProviderConfig) => {
     if (!registry) {
       return;
     }
 
-    const provider = currentValue.providers[providerId];
+    const provider = providerOverride || currentValue.providers[providerId];
     if (!provider) {
       return;
     }
@@ -671,10 +641,10 @@ const LLMForm: React.FC<LLMFormProps> = ({
     }));
 
     try {
-      const effectiveProvider = {
-        ...provider,
-        base_url: resolveProviderActionBaseUrl(registry, providerId, provider),
-      };
+      const effectiveProvider = cloneProvider(provider);
+      effectiveProvider.base_url = resolveProviderActionBaseUrl(registry, providerId, provider);
+      effectiveProvider.services.chat.api_key = provider.services.chat.api_key || provider.api_key || '';
+      effectiveProvider.services.chat.base_url = provider.services.chat.base_url || effectiveProvider.base_url || '';
       const result = await configApi.testLLMProviderConnection({
         provider_id: providerId,
         provider: effectiveProvider,
@@ -736,10 +706,11 @@ const LLMForm: React.FC<LLMFormProps> = ({
           surface={surface}
           showSectionIntro={showSectionIntro}
           scenarioReferences={scenarioReferences}
+          customProviderDefaults={customProviderDefaults}
           onActiveProviderChange={setActiveProviderId}
           onProviderChange={handleProviderChange}
-          onAddCustomProvider={handleAddCustomProvider}
-          onRemoveCustomProvider={handleRemoveCustomProvider}
+          onSetProvider={handleSetProvider}
+          onRemoveProvider={handleRemoveProvider}
           onAddProviderModel={handleAddProviderModel}
           onRemoveProviderModel={handleRemoveProviderModel}
           onProviderDefaultModelChange={handleProviderDefaultModelChange}
