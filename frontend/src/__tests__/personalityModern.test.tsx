@@ -234,6 +234,50 @@ describe('PersonalityModern', () => {
     });
   });
 
+  it('shows layer modifier help immediately and constrains modifier keys to supported options', async () => {
+    vi.mocked(usePersonality).mockReturnValue(
+      buildHookState({
+        config: {
+          ...buildConfig(),
+          persona_layers: [
+            { layer_id: 'surface', unlock_condition: null, modifiers: {} },
+            { layer_id: 'crack', unlock_condition: { trust_level_gte: 0.45 }, modifiers: { memory_behavior: 'light' } },
+          ],
+        },
+      }) as any
+    );
+
+    render(<PersonalityModern embedded />);
+
+    fireEvent.pointerDown(screen.getByRole('tab', { name: 'personality.editorModes.expert' }), { button: 0 });
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'personality.editorModes.expert' }), { button: 0 });
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: 'personality.editorModes.expert' })).toHaveAttribute('data-state', 'active');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'personality.sections.personaLayers' }));
+    fireEvent.click(screen.getByRole('button', { name: 'personality.actions.viewLayersReveal' }));
+
+    expect(screen.getByDisplayValue('crack')).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'personality.fields.overrideKeyPlaceholder' })).not.toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'personality.fields.overrideKeyPlaceholder' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'memory_behavior' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'protective_bias' })).toBeInTheDocument();
+
+    const layerModifiersHelp = screen.getByRole('button', {
+      name: 'personality.fields.layerModifiers: personality.help.layerModifiers',
+    });
+
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+    fireEvent.mouseEnter(layerModifiersHelp);
+    expect(screen.getByRole('tooltip')).toHaveTextContent('personality.help.layerModifiers');
+    fireEvent.mouseLeave(layerModifiersHelp);
+    await waitFor(() => {
+      expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+    });
+  });
+
   it('uploads an avatar and patches the personality profile', async () => {
     const patch = vi.fn();
     vi.mocked(usePersonality).mockReturnValue(buildHookState({ patch }) as any);

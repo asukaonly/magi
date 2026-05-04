@@ -550,7 +550,7 @@
       "layerModifiers": "Layer Modifiers",
       "clampKey": "Clamp Key",
       "clampValue": "Clamp Value",
-      "overrideKeyPlaceholder": "Key",
+      "overrideKeyPlaceholder": "Modifier Key",
       "behaviorHints": "Behavior Hints"
     },
     "fieldHelp": {
@@ -584,7 +584,7 @@
       "trustLevelGte": "Trust ranges from 0 to 1, starting at 0.5. Each successful interaction adds +0.02, failure subtracts −0.01.",
       "interactionCountGte": "Total chat turns between the user and AI. Each turn (user message + AI reply) counts as 1.",
       "milestoneRequired": "Milestones are detected by the AI during conversation. Enter a key defined in milestone_conditions of the persona config.",
-      "layerModifiers": "Additional prompt-level modifiers for this relationship layer. Use stable, runtime-meaningful keys like memory_behavior, protective_bias, or voice_unlocks instead of treating this as a full persona replacement.",
+      "layerModifiers": "Additional prompt-level modifiers for this relationship layer. Choose from the supported keys and keep values small and runtime-usable, such as memory_behavior, protective_bias, voice_unlocks, humor_delta, or directness_delta.",
       "behaviorHints": "Specific actions the character will take when this layer is unlocked. One per line, describing concrete behaviors at this depth."
     },
     "placeholders": {
@@ -608,7 +608,7 @@
       "uploadingAvatar": "Uploading...",
       "addLayer": "Add Layer",
       "removeLayer": "Remove Layer",
-      "addOverride": "Add Override",
+      "addOverride": "Add Modifier",
       "addModifier": "Add Modifier",
       "removeModifier": "Remove Modifier",
       "viewLayersTitle": "View Deep Persona Layers",

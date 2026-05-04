@@ -35,6 +35,8 @@ export type {
 
 export { personasApi, DEFAULT_PERSONALITY_CONFIG } from './modules/personas';
 export type {
+  LayerModifierKey,
+  LayerModifiers,
   PersonaSummary,
   PersonaDetail,
   SeedPreview,

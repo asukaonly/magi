@@ -551,7 +551,7 @@
       "layerModifiers": "层级修饰项",
       "clampKey": "约束字段",
       "clampValue": "约束值",
-      "overrideKeyPlaceholder": "键名",
+      "overrideKeyPlaceholder": "修饰键",
       "behaviorHints": "行为提示"
     },
     "fieldHelp": {
@@ -585,7 +585,7 @@
       "trustLevelGte": "信任度范围 0–1，初始值 0.5。每次成功互动 +0.02，失败 −0.01。",
       "interactionCountGte": "用户与 AI 的对话轮次累计。每轮对话（用户发消息 + AI 回复）计为 1 次。",
       "milestoneRequired": "里程碑由 AI 在对话中自动检测。填写人格配置中 milestone_conditions 定义的 key。",
-      "layerModifiers": "这一层额外附加给提示词的修饰项，不是整层人格替换。尽量使用有运行时语义的键，比如 memory_behavior、protective_bias、voice_unlocks。",
+      "layerModifiers": "这一层额外附加给提示词的修饰项，不是整层人格替换。请从支持的键里选择，并把值控制在运行时可直接使用的范围内，比如 memory_behavior、protective_bias、voice_unlocks、humor_delta、directness_delta。",
       "behaviorHints": "解锁后角色会做的具体行为。每行一条，描述角色在这个深度会表现出的动作。"
     },
     "placeholders": {
@@ -609,9 +609,9 @@
       "uploadingAvatar": "上传中...",
       "addLayer": "新增人格层",
       "removeLayer": "移除该层",
-      "addOverride": "新增覆写项",
-      "addModifier": "新增覆写项",
-      "removeModifier": "移除覆写项",
+      "addOverride": "新增修饰项",
+      "addModifier": "新增修饰项",
+      "removeModifier": "移除修饰项",
       "viewLayersTitle": "查看深层人格",
       "viewLayersConfirm": "深层人格包含角色的隐藏设定和渐进解锁机制。查看后可能影响你与角色互动的发现乐趣。确定要查看吗？",
       "viewLayersReveal": "确定查看"

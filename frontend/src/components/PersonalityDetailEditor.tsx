@@ -18,6 +18,9 @@ import {
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type {
+  LayerModifierKey,
+  LayerModifiers,
+  LAYER_MODIFIER_KEYS,
   PersonaLayerItem,
   PersonaRegister,
   PersonalityConfig,
@@ -37,9 +40,22 @@ interface PersonalityDetailEditorProps {
 
 type EditorMode = 'quick' | 'expert';
 type MappingEntry = { key: string; value: string };
+type LayerModifierValue = string | number | string[] | Record<string, number> | undefined;
+type StructuredLayerModifierKey = Exclude<LayerModifierKey, 'behavior_shifts'>;
+type LayerModifierEntry = { key: StructuredLayerModifierKey | ''; value: LayerModifierValue };
 
 const REGISTER_KEYS = ['chat', 'analysis', 'task', 'emotional', 'crisis'] as const;
 const SURFACE_LAYER_ID = 'surface';
+const LAYER_MODIFIER_KEY_OPTIONS: readonly StructuredLayerModifierKey[] = [
+  'memory_behavior',
+  'protective_bias',
+  'voice_unlocks',
+  'humor_delta',
+  'directness_delta',
+  'register_unlocks',
+  'trigger_threshold_shifts',
+  'sarcasm_bounds',
+] as const;
 const CLAMP_KEY_OPTIONS = [
   'persona_intensity_max',
   'answer_utility',
@@ -51,6 +67,16 @@ const CLAMP_KEY_OPTIONS = [
   'warmth',
   'performative_style',
 ] as const;
+const LAYER_MODIFIER_VALUE_PLACEHOLDERS: Record<(typeof LAYER_MODIFIER_KEY_OPTIONS)[number], string> = {
+  memory_behavior: 'May reference prior conversations lightly.',
+  protective_bias: 'stronger',
+  voice_unlocks: 'occasional sincere long sentence',
+  humor_delta: '-0.2 or +0.3',
+  directness_delta: '-0.1 or +0.2',
+  register_unlocks: 'emotional_brief, intimate_chat',
+  trigger_threshold_shifts: 'intimacy:-0.15, hostility:+0.10',
+  sarcasm_bounds: 'Less likely to mock the user directly.',
+};
 
 const toLines = (items: string[] = []): string => items.join('\n');
 
@@ -67,6 +93,15 @@ const parseBlocks = (value: string): string[] =>
     .split(/\n\s*\n/g)
     .map((item) => item.trim())
     .filter(Boolean);
+
+const parseNumeric = (value: unknown): number | undefined => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+};
 
 const mappingToLines = (value: Record<string, unknown> = {}): string =>
   Object.entries(value)
@@ -98,6 +133,98 @@ const linesToMapping = (value: string): Record<string, string> => {
   return result;
 };
 
+const linesToNumericMapping = (value: string): Record<string, number> => {
+  const result: Record<string, number> = {};
+  for (const [key, item] of Object.entries(linesToMapping(value))) {
+    const parsed = parseNumeric(item);
+    if (parsed !== undefined) result[key] = parsed;
+  }
+  return result;
+};
+
+const normalizeModifierLines = (value: unknown): string[] | undefined => {
+  if (Array.isArray(value)) {
+    const items = value.map((item) => String(item).trim()).filter(Boolean);
+    return items.length > 0 ? items : undefined;
+  }
+  if (typeof value === 'string') {
+    const items = parseLines(value);
+    return items.length > 0 ? items : undefined;
+  }
+  return undefined;
+};
+
+const normalizeModifierText = (value: unknown): string | undefined => {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed || undefined;
+};
+
+const normalizeThresholdShifts = (value: unknown): Record<string, number> | undefined => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const result: Record<string, number> = {};
+  for (const [rawKey, rawValue] of Object.entries(value as Record<string, unknown>)) {
+    const key = rawKey.trim();
+    const parsed = parseNumeric(rawValue);
+    if (key && parsed !== undefined) result[key] = parsed;
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+};
+
+const layerModifiersToEntries = (modifiers: LayerModifiers = {}): LayerModifierEntry[] => {
+  const entries: LayerModifierEntry[] = [];
+  for (const key of LAYER_MODIFIER_KEY_OPTIONS) {
+    const value = modifiers[key];
+    if (Array.isArray(value) && value.length === 0) continue;
+    if (typeof value === 'object' && value && !Array.isArray(value) && Object.keys(value).length === 0) continue;
+    if (value === undefined) continue;
+    entries.push({ key, value });
+  }
+  return entries;
+};
+
+const normalizeLayerModifierEntryValue = (
+  key: StructuredLayerModifierKey,
+  value: LayerModifierValue,
+): LayerModifiers[StructuredLayerModifierKey] | undefined => {
+  switch (key) {
+    case 'voice_unlocks':
+    case 'register_unlocks':
+      return normalizeModifierLines(value);
+    case 'humor_delta':
+    case 'directness_delta':
+      return parseNumeric(value);
+    case 'trigger_threshold_shifts':
+      return normalizeThresholdShifts(value);
+    case 'memory_behavior':
+    case 'protective_bias':
+    case 'sarcasm_bounds':
+      return normalizeModifierText(value);
+    default:
+      return undefined;
+  }
+};
+
+const entriesToLayerModifiers = (
+  entries: LayerModifierEntry[],
+  behaviorShifts?: string[],
+): LayerModifiers => {
+  const nextModifiers: LayerModifiers = {};
+  const seenKeys = new Set<StructuredLayerModifierKey>();
+  for (const entry of entries) {
+    if (!entry.key || seenKeys.has(entry.key)) continue;
+    const normalized = normalizeLayerModifierEntryValue(entry.key, entry.value);
+    if (normalized !== undefined) {
+      nextModifiers[entry.key] = normalized;
+      seenKeys.add(entry.key);
+    }
+  }
+  if (behaviorShifts && behaviorShifts.length > 0) {
+    nextModifiers.behavior_shifts = behaviorShifts;
+  }
+  return nextModifiers;
+};
+
 const normalizeTrigger = (item: Partial<SignatureTrigger> = {}): SignatureTrigger => ({
   trigger_id: item.trigger_id || '',
   activates_when: item.activates_when || '',
@@ -123,6 +250,28 @@ const normalizeRegister = (item?: Partial<PersonaRegister>): PersonaRegister => 
   examples: item?.examples || [],
 });
 
+const getLayerModifierValuePlaceholder = (key: string): string => {
+  if (key in LAYER_MODIFIER_VALUE_PLACEHOLDERS) {
+    return LAYER_MODIFIER_VALUE_PLACEHOLDERS[key as keyof typeof LAYER_MODIFIER_VALUE_PLACEHOLDERS];
+  }
+  return 'Value';
+};
+
+const getDefaultModifierValue = (key: StructuredLayerModifierKey): LayerModifierValue => {
+  switch (key) {
+    case 'voice_unlocks':
+    case 'register_unlocks':
+      return [];
+    case 'trigger_threshold_shifts':
+      return {};
+    case 'humor_delta':
+    case 'directness_delta':
+      return undefined;
+    default:
+      return '';
+  }
+};
+
 const Section: React.FC<{
   title: string;
   description?: string;
@@ -136,24 +285,55 @@ const Section: React.FC<{
       {title}
     </CollapsibleTrigger>
     <CollapsibleContent className="pt-2">
-      {description ? <p className="px-2 pb-2 text-xs leading-5 text-muted-foreground">{description}</p> : null}
+      {description ? <p className="pb-2 text-xs leading-5 text-muted-foreground">{description}</p> : null}
       {children}
     </CollapsibleContent>
   </Collapsible>
 );
 
+const HelpTooltip: React.FC<{ label: string; help: string }> = ({ label, help }) => {
+  const tooltipId = React.useId();
+  const [open, setOpen] = React.useState(false);
+
+  return (
+    <span
+      className="relative inline-flex"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+      onFocusCapture={() => setOpen(true)}
+      onBlurCapture={(event) => {
+        const nextFocused = event.relatedTarget;
+        if (nextFocused instanceof Node && event.currentTarget.contains(nextFocused)) {
+          return;
+        }
+        setOpen(false);
+      }}
+    >
+      <button
+        type="button"
+        className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-border/70 text-[10px] text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+        aria-label={`${label}: ${help}`}
+        aria-describedby={open ? tooltipId : undefined}
+      >
+        <CircleHelp className="h-3 w-3" />
+      </button>
+      {open ? (
+        <span
+          id={tooltipId}
+          role="tooltip"
+          className="pointer-events-none absolute left-0 top-full z-20 mt-2 w-72 rounded-md border border-border/70 bg-background px-3 py-2 text-[11px] leading-5 text-foreground shadow-md"
+        >
+          {help}
+        </span>
+      ) : null}
+    </span>
+  );
+};
+
 const FieldLabel: React.FC<{ label: string; help?: string }> = ({ label, help }) => (
   <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
     <span>{label}</span>
-    {help ? (
-      <span
-        className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-border/70 text-[10px] text-muted-foreground"
-        title={help}
-        aria-label={`${label}: ${help}`}
-      >
-        <CircleHelp className="h-3 w-3" />
-      </span>
-    ) : null}
+    {help ? <HelpTooltip label={label} help={help} /> : null}
   </span>
 );
 
@@ -166,6 +346,7 @@ const MappingRowsEditor: React.FC<{
   removeLabel: string;
   keyOptions?: readonly string[];
   allowCustomKey?: boolean;
+  getValuePlaceholder?: (key: string) => string;
 }> = ({
   entries,
   onChange,
@@ -175,6 +356,7 @@ const MappingRowsEditor: React.FC<{
   removeLabel,
   keyOptions,
   allowCustomKey = true,
+  getValuePlaceholder,
 }) => {
   const nextEntries = entries.length > 0 ? entries : [{ key: '', value: '' }];
   return (
@@ -211,7 +393,7 @@ const MappingRowsEditor: React.FC<{
           )}
           <Input
             aria-label={valueLabel}
-            placeholder={valueLabel}
+            placeholder={getValuePlaceholder?.(entry.key) || valueLabel}
             value={entry.value}
             onChange={(event) => {
               const updated = [...nextEntries];
@@ -241,6 +423,149 @@ const MappingRowsEditor: React.FC<{
       </Button>
     </div>
   );
+};
+
+const LayerModifiersEditor: React.FC<{
+  modifiers: LayerModifiers;
+  onChange: (modifiers: LayerModifiers) => void;
+  addLabel: string;
+  removeLabel: string;
+  keyLabel: string;
+}> = ({ modifiers, onChange, addLabel, removeLabel, keyLabel }) => {
+  const behaviorShifts = normalizeModifierLines(modifiers.behavior_shifts);
+  const entries = layerModifiersToEntries(modifiers);
+  const nextEntries = entries.length > 0 ? entries : [];
+  const usedKeys = new Set(nextEntries.map((entry) => entry.key).filter(Boolean));
+  const nextAvailableKey = LAYER_MODIFIER_KEY_OPTIONS.find((key) => !usedKeys.has(key));
+
+  const updateEntries = (updated: LayerModifierEntry[]) => {
+    onChange(entriesToLayerModifiers(updated, behaviorShifts));
+  };
+
+  return (
+    <div className="space-y-3">
+      {nextEntries.map((entry, index) => {
+        const availableOptions = LAYER_MODIFIER_KEY_OPTIONS.filter((option) => option === entry.key || !usedKeys.has(option));
+        return (
+          <div key={`${entry.key || 'empty'}-${index}`} className="rounded-md border border-border/60 p-3">
+            <div className="grid gap-3 md:grid-cols-[minmax(0,220px)_minmax(0,1fr)_auto] md:items-start">
+              <select
+                className="h-10 rounded-md border border-input bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                aria-label={keyLabel}
+                value={entry.key}
+                onChange={(event) => {
+                  const nextKey = event.target.value as StructuredLayerModifierKey;
+                  const updated = [...nextEntries];
+                  updated[index] = { key: nextKey, value: getDefaultModifierValue(nextKey) };
+                  updateEntries(updated);
+                }}
+              >
+                <option value="">{keyLabel}</option>
+                {availableOptions.map((option) => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
+              </select>
+              <LayerModifierValueEditor
+                modifierKey={entry.key}
+                value={entry.value}
+                onChange={(nextValue) => {
+                  const updated = [...nextEntries];
+                  updated[index] = { ...entry, value: nextValue };
+                  updateEntries(updated);
+                }}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const updated = [...nextEntries];
+                  updated.splice(index, 1);
+                  updateEntries(updated);
+                }}
+              >
+                <Trash2 className="h-4 w-4" />
+                {removeLabel}
+              </Button>
+            </div>
+          </div>
+        );
+      })}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={!nextAvailableKey}
+        onClick={() => {
+          if (!nextAvailableKey) return;
+          updateEntries([...nextEntries, { key: nextAvailableKey, value: getDefaultModifierValue(nextAvailableKey) }]);
+        }}
+      >
+        <Plus className="h-4 w-4" />
+        {addLabel}
+      </Button>
+    </div>
+  );
+};
+
+const LayerModifierValueEditor: React.FC<{
+  modifierKey: StructuredLayerModifierKey | '';
+  value: LayerModifierValue;
+  onChange: (value: LayerModifierValue) => void;
+}> = ({ modifierKey, value, onChange }) => {
+  if (!modifierKey) {
+    return <Input aria-label="Modifier Value" placeholder="Select a modifier key first" value="" disabled />;
+  }
+
+  switch (modifierKey) {
+    case 'voice_unlocks':
+    case 'register_unlocks':
+      return (
+        <AutoResizeTextarea
+          aria-label={modifierKey}
+          className="w-full"
+          placeholder={getLayerModifierValuePlaceholder(modifierKey)}
+          value={toLines(normalizeModifierLines(value) || [])}
+          onChange={(event) => onChange(parseLines(event.target.value))}
+        />
+      );
+    case 'trigger_threshold_shifts':
+      return (
+        <AutoResizeTextarea
+          aria-label={modifierKey}
+          className="w-full"
+          placeholder={getLayerModifierValuePlaceholder(modifierKey)}
+          value={mappingToLines((normalizeThresholdShifts(value) || {}) as Record<string, unknown>)}
+          onChange={(event) => onChange(linesToNumericMapping(event.target.value))}
+        />
+      );
+    case 'humor_delta':
+    case 'directness_delta':
+      return (
+        <Input
+          aria-label={modifierKey}
+          type="number"
+          step="0.05"
+          placeholder={getLayerModifierValuePlaceholder(modifierKey)}
+          value={parseNumeric(value)?.toString() ?? ''}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      );
+    case 'memory_behavior':
+    case 'protective_bias':
+    case 'sarcasm_bounds':
+      return (
+        <AutoResizeTextarea
+          aria-label={modifierKey}
+          className="w-full"
+          placeholder={getLayerModifierValuePlaceholder(modifierKey)}
+          value={typeof value === 'string' ? value : ''}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      );
+    default:
+      return <Input aria-label={modifierKey} placeholder={getLayerModifierValuePlaceholder(modifierKey)} value="" disabled />;
+  }
 };
 
 const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
@@ -681,29 +1006,14 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
               </label>
               <div className="space-y-1.5">
                 <FieldLabel label={t('personality.fields.layerModifiers')} help={t('personality.help.layerModifiers')} />
-                <MappingRowsEditor
-                  entries={mappingToEntries(Object.fromEntries(Object.entries(item.modifiers || {}).filter(([key]) => key !== 'behavior_shifts')))}
-                  onChange={(entries) => patch((draft) => {
-                    const modifiers = { ...(item.modifiers || {}) } as Record<string, unknown>;
-                    const behaviorShifts = Array.isArray(modifiers.behavior_shifts) ? modifiers.behavior_shifts : undefined;
-                    const nextModifiers = entriesToMapping(entries);
-                    if (behaviorShifts && behaviorShifts.length > 0) {
-                      draft.persona_layers[index] = normalizeLayer({
-                        ...item,
-                        modifiers: {
-                          ...nextModifiers,
-                          behavior_shifts: behaviorShifts,
-                        },
-                      });
-                      return;
-                    }
-                    draft.persona_layers[index] = normalizeLayer({ ...item, modifiers: nextModifiers });
+                <LayerModifiersEditor
+                  modifiers={item.modifiers || {}}
+                  onChange={(modifiers) => patch((draft) => {
+                    draft.persona_layers[index] = normalizeLayer({ ...item, modifiers });
                   })}
-                  keyLabel={t('personality.fields.overrideKeyPlaceholder')}
-                  valueLabel={t('personality.fields.clampValue')}
                   addLabel={t('personality.actions.addModifier')}
                   removeLabel={t('personality.actions.removeModifier')}
-                  allowCustomKey={true}
+                  keyLabel={t('personality.fields.overrideKeyPlaceholder')}
                 />
               </div>
               <div className="flex justify-end">

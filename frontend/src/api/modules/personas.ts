@@ -45,10 +45,36 @@ export interface QuietHour {
   clamps: Record<string, unknown>;
 }
 
+export const LAYER_MODIFIER_KEYS = [
+  'behavior_shifts',
+  'memory_behavior',
+  'protective_bias',
+  'voice_unlocks',
+  'humor_delta',
+  'directness_delta',
+  'register_unlocks',
+  'trigger_threshold_shifts',
+  'sarcasm_bounds',
+] as const;
+
+export type LayerModifierKey = (typeof LAYER_MODIFIER_KEYS)[number];
+
+export interface LayerModifiers {
+  behavior_shifts?: string[];
+  memory_behavior?: string;
+  protective_bias?: string;
+  voice_unlocks?: string[];
+  humor_delta?: number;
+  directness_delta?: number;
+  register_unlocks?: string[];
+  trigger_threshold_shifts?: Record<string, number>;
+  sarcasm_bounds?: string;
+}
+
 export interface PersonaLayerItem {
   layer_id: string;
   unlock_condition: Record<string, unknown> | null;
-  modifiers: Record<string, unknown>;
+  modifiers: LayerModifiers;
 }
 
 export interface BootstrapConfig {
