@@ -515,8 +515,11 @@ def test_render_temporal_summary_prompt_includes_rule_hints() -> None:
     assert '"open_threads"' in prompt
     assert '"previous_period_summaries"' in prompt
     assert '"child_period_summaries"' in prompt
-    assert "only for comparison and timeline continuity" in prompt
-    assert "over-compressed" in prompt
+    assert "only for comparison and timeline continuity" not in prompt
+    assert "ordered comparison series" in prompt
+    assert "primary skeleton" in prompt
+    assert "Markdown" in prompt
+    assert '"headline"' in prompt
     assert "The previous day was mostly exploratory" in prompt
 
 
