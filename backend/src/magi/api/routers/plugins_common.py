@@ -6,7 +6,6 @@ from importlib import import_module
 from pathlib import Path
 from types import ModuleType
 from typing import Any
-import shutil
 
 from fastapi import HTTPException, status
 
@@ -18,6 +17,7 @@ from ...plugins.contracts import (
     PluginRegistryEntry,
 )
 from ...plugins.i18n import PluginI18n
+from ...plugins.installation import replace_plugin_directory
 from ...plugins.registry_client import PluginRegistryClient
 from .plugins_schemas import (
     PluginContributionResponse,
@@ -135,9 +135,7 @@ def _lightweight_install(source_dir: Path, entry: PluginRegistryEntry) -> Plugin
     user_root = PluginManager._user_plugins_root()
     user_root.mkdir(parents=True, exist_ok=True)
     dest_dir = user_root / entry.plugin_id
-    if dest_dir.exists():
-        shutil.rmtree(dest_dir)
-    shutil.copytree(plugin_source, dest_dir)
+    replace_plugin_directory(plugin_source, dest_dir)
 
     save_config({f"plugins.packages.{entry.plugin_id}": {"enabled": True}})
 

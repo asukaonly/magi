@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import logging
 from pathlib import Path
 import shutil
@@ -9,6 +10,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import uuid
 import zipfile
 
 from ..awareness.scheduler_contrib import request_sensor_schedule_refresh
@@ -16,6 +18,53 @@ from ..config import save_config
 from .contracts import PluginManifest, PluginPackageState
 
 logger = logging.getLogger(__name__)
+
+
+def replace_plugin_directory(
+    source_dir: Path,
+    dest_dir: Path,
+    *,
+    prepare_staging_dir: Callable[[Path], None] | None = None,
+    before_swap: Callable[[], None] | None = None,
+) -> None:
+    """Stage plugin files on disk before swapping them into place.
+
+    The source tree is first copied into a sibling staging directory on the
+    target filesystem so dependency installation and validation happen before
+    the active plugin directory is touched. The final swap uses directory
+    renames with rollback if promotion fails.
+    """
+
+    parent_dir = dest_dir.parent
+    parent_dir.mkdir(parents=True, exist_ok=True)
+
+    staging_dir = Path(tempfile.mkdtemp(prefix=f".{dest_dir.name}-staging-", dir=parent_dir))
+    backup_dir = parent_dir / f".{dest_dir.name}-backup-{uuid.uuid4().hex}"
+
+    try:
+        shutil.rmtree(staging_dir)
+        shutil.copytree(source_dir, staging_dir)
+
+        if prepare_staging_dir is not None:
+            prepare_staging_dir(staging_dir)
+
+        if before_swap is not None:
+            before_swap()
+
+        if dest_dir.exists():
+            dest_dir.replace(backup_dir)
+
+        try:
+            staging_dir.replace(dest_dir)
+        except Exception:
+            if backup_dir.exists() and not dest_dir.exists():
+                backup_dir.replace(dest_dir)
+            raise
+    finally:
+        if staging_dir.exists():
+            shutil.rmtree(staging_dir, ignore_errors=True)
+        if backup_dir.exists():
+            shutil.rmtree(backup_dir, ignore_errors=True)
 
 
 class PluginInstallationMixin:
@@ -64,15 +113,17 @@ class PluginInstallationMixin:
             dest_dir = user_root / plugin_id
             source_dir = manifest_file.parent
 
-            if dest_dir.exists():
-                self.unload_plugin(plugin_id)
-                shutil.rmtree(dest_dir)
+            def prepare_staging_dir(staged_dir: Path) -> None:
+                new_manifest = self._load_manifest(staged_dir / "plugin.toml", source="external")
+                if new_manifest.dependencies:
+                    self._install_dependencies(new_manifest.dependencies, staged_dir)
 
-            shutil.copytree(source_dir, dest_dir)
-
-            new_manifest = self._load_manifest(dest_dir / "plugin.toml", source="external")
-            if new_manifest.dependencies:
-                self._install_dependencies(new_manifest.dependencies, dest_dir)
+            replace_plugin_directory(
+                source_dir,
+                dest_dir,
+                prepare_staging_dir=prepare_staging_dir,
+                before_swap=(lambda: self.unload_plugin(plugin_id)) if dest_dir.exists() else None,
+            )
 
         self.scan(persist_discovery=True)
         state = self._require_package(plugin_id)
@@ -95,15 +146,17 @@ class PluginInstallationMixin:
         dest_dir = user_root / plugin_id
         plugin_source = manifest_file.parent
 
-        if dest_dir.exists():
-            self.unload_plugin(plugin_id)
-            shutil.rmtree(dest_dir)
+        def prepare_staging_dir(staged_dir: Path) -> None:
+            new_manifest = self._load_manifest(staged_dir / "plugin.toml", source="external")
+            if new_manifest.dependencies:
+                self._install_dependencies(new_manifest.dependencies, staged_dir)
 
-        shutil.copytree(plugin_source, dest_dir)
-
-        new_manifest = self._load_manifest(dest_dir / "plugin.toml", source="external")
-        if new_manifest.dependencies:
-            self._install_dependencies(new_manifest.dependencies, dest_dir)
+        replace_plugin_directory(
+            plugin_source,
+            dest_dir,
+            prepare_staging_dir=prepare_staging_dir,
+            before_swap=(lambda: self.unload_plugin(plugin_id)) if dest_dir.exists() else None,
+        )
 
         self.scan(persist_discovery=True)
         return self.enable_plugin(plugin_id)

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import hashlib
-import importlib.util
+import importlib
 import logging
 import sys
 from dataclasses import dataclass
@@ -98,6 +98,21 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
     def search_paths(self) -> list[Path]:
         return list(self._search_paths)
 
+    @staticmethod
+    def _module_name_prefix(plugin_id: str) -> str:
+        return f"magi_plugin_{plugin_id.replace('-', '_')}"
+
+    def _purge_plugin_modules(self, plugin_id: str) -> None:
+        prefix = self._module_name_prefix(plugin_id)
+        stale_module_names = [
+            module_name
+            for module_name in list(sys.modules)
+            if module_name == prefix or module_name.startswith(f"{prefix}.")
+        ]
+        for module_name in stale_module_names:
+            sys.modules.pop(module_name, None)
+        importlib.invalidate_caches()
+
     def scan(self, *, persist_discovery: bool = True) -> list[PluginPackageState]:
         """Discover plugin manifests in configured scan paths."""
 
@@ -171,6 +186,7 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
         if not state.trusted and state.manifest.source != "builtin":
             raise RuntimeError(f"Plugin {plugin_id} must be trusted before loading")
 
+        self._purge_plugin_modules(plugin_id)
         plugin_instance = self._instantiate_plugin(state.manifest, state.current_settings)
         registered_contributions: list[PluginContribution] = []
         try:
@@ -255,6 +271,7 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
         if state is not None:
             state.loaded = False
             state.contributions = self._placeholder_contributions(state.manifest)
+        self._purge_plugin_modules(plugin_id)
         request_sensor_schedule_refresh()
 
     def enable_plugin(self, plugin_id: str) -> PluginPackageState:
