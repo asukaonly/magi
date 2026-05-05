@@ -38,6 +38,7 @@ class RuntimeTraceSubscriber:
         self._store = trace_store
         self._sub_id: Optional[str] = None
         self._inflight: set[asyncio.Task] = set()
+        self._serialize_lock = asyncio.Lock()
         self._dispatch: dict[str, Callable[[SpanCompleted], Awaitable[None]]] = {
             "tool_invocation": self._record_tool_call,
             "llm_call": self._record_llm_call,
@@ -70,9 +71,16 @@ class RuntimeTraceSubscriber:
         except PayloadTypeError:
             logger.exception("malformed SpanCompleted payload")
             return
-        task = asyncio.create_task(self._safe_project(payload))
+        task = asyncio.create_task(self._serialized_project(payload))
         self._inflight.add(task)
         task.add_done_callback(self._inflight.discard)
+
+    async def _serialized_project(self, p: SpanCompleted) -> None:
+        # Serialize per-subscriber so events that share span_id (e.g., the
+        # base span row + a sub-table row published in sequence) project in
+        # the order they were published.
+        async with self._serialize_lock:
+            await self._safe_project(p)
 
     async def _safe_project(self, p: SpanCompleted) -> None:
         try:

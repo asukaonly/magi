@@ -664,6 +664,48 @@ async def runtime_trace_store(tmp_path):
 
 
 @pytest.fixture
+async def trace_event_bus(runtime_trace_store):
+    """In-process message bus with RuntimeTraceSubscriber wired up.
+
+    Tests that exercise the SpanCompleted -> trace_store projection path
+    pass this bus into ChatPostProcessService(event_bus=...).
+
+    The returned object has a ``drain()`` coroutine that flushes pending
+    SpanCompleted events into the trace store before assertions.
+    """
+    from magi.events.in_memory_backend import InMemoryMessageBusBackend
+    from magi.runtime_trace.subscribers.runtime_trace_subscriber import (
+        RuntimeTraceSubscriber,
+    )
+
+    bus = InMemoryMessageBusBackend()
+    await bus.start()
+    subscriber = RuntimeTraceSubscriber(event_bus=bus, trace_store=runtime_trace_store)
+    await subscriber.start()
+
+    async def _drain() -> None:
+        # Wait until the bus's internal queue is empty AND the subscriber's
+        # in-flight projection tasks finish. Because SpanCompleted handling
+        # is two-stage (queue -> handler -> create_task -> store write),
+        # we loop until both stabilize.
+        for _ in range(50):
+            queue = bus._queue
+            if queue is not None:
+                await queue.join()
+            await subscriber.drain()
+            if (queue is None or queue.empty()) and not subscriber._inflight:
+                return
+        raise RuntimeError("trace bus did not drain")
+
+    bus.drain = _drain  # type: ignore[attr-defined]
+    try:
+        yield bus
+    finally:
+        await subscriber.stop()
+        await bus.stop()
+
+
+@pytest.fixture
 async def chat_store(tmp_path):
     store = ChatStore(db_path=str(tmp_path / "chat.db"))
     await store.initialize()
@@ -846,6 +888,7 @@ async def test_record_intent_resolution_stops_emitting_runtime_trace_events(
 @pytest.mark.asyncio
 async def test_record_intent_resolution_persists_turn_and_intent_trace_rows(
     runtime_trace_store: RuntimeTraceStore,
+    trace_event_bus,
 ) -> None:
     event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
@@ -856,6 +899,7 @@ async def test_record_intent_resolution_persists_turn_and_intent_trace_rows(
         get_sensor_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
         max_fact_memory=10,
+        event_bus=trace_event_bus,
     )
     latest_fact = FactRecord(
         agent_id="chat:local_user",
@@ -896,6 +940,7 @@ async def test_record_intent_resolution_persists_turn_and_intent_trace_rows(
     )
 
     await service.record_intent_resolution(context, _FakeIntentDecision())
+    await trace_event_bus.drain()
 
     turn = await runtime_trace_store.get_turn("turn-1")
     intent_span = await runtime_trace_store.get_span("turn-1:intent_resolution")
@@ -927,6 +972,7 @@ async def test_record_intent_resolution_persists_turn_and_intent_trace_rows(
 @pytest.mark.asyncio
 async def test_record_tool_selection_updates_structured_intent_trace_payload(
     runtime_trace_store: RuntimeTraceStore,
+    trace_event_bus,
 ) -> None:
     event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
@@ -937,6 +983,7 @@ async def test_record_tool_selection_updates_structured_intent_trace_payload(
         get_sensor_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
         max_fact_memory=10,
+        event_bus=trace_event_bus,
     )
     latest_fact = FactRecord(
         agent_id="chat:local_user",
@@ -985,6 +1032,7 @@ async def test_record_tool_selection_updates_structured_intent_trace_payload(
     }
 
     await service.record_intent_resolution(context, decision)
+    await trace_event_bus.drain()
     await service.record_tool_selection(
         context,
         decision,
@@ -998,6 +1046,7 @@ async def test_record_tool_selection_updates_structured_intent_trace_payload(
             },
         )(),
     )
+    await trace_event_bus.drain()
 
     intent_resolution = await runtime_trace_store.get_intent_resolution("turn-tools:intent_resolution")
 
@@ -1336,6 +1385,7 @@ async def test_record_tool_loop_fact_projects_replan_tactic_into_l0(tmp_path) ->
 async def test_persist_turn_supersessions_closes_old_trace_and_links_new_trace(
     runtime_trace_store: RuntimeTraceStore,
     chat_store: ChatStore,
+    trace_event_bus,
 ) -> None:
     event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
@@ -1347,6 +1397,7 @@ async def test_persist_turn_supersessions_closes_old_trace_and_links_new_trace(
         runtime_trace_store=runtime_trace_store,
         chat_store=chat_store,
         max_fact_memory=10,
+        event_bus=trace_event_bus,
     )
     await chat_store.create_user_turn(
         session_id="session-1",
@@ -1447,6 +1498,7 @@ async def test_persist_turn_supersessions_closes_old_trace_and_links_new_trace(
         updated_at_ms=1710000001000,
     )
     await service.record_intent_resolution(second_context, decision)
+    await trace_event_bus.drain()
 
     first_trace = await runtime_trace_store.get_turn("turn-1")
     second_trace = await runtime_trace_store.get_turn("turn-2")
@@ -1605,6 +1657,7 @@ async def test_handle_stops_emitting_runtime_trace_events_when_llm_trace_exists(
 @pytest.mark.asyncio
 async def test_handle_persists_turn_response_and_llm_trace_rows(
     runtime_trace_store: RuntimeTraceStore,
+    trace_event_bus,
 ) -> None:
     event_emitter = _FakeEventEmitter()
     completed_runs: list[tuple[str, str, int]] = []
@@ -1619,6 +1672,7 @@ async def test_handle_persists_turn_response_and_llm_trace_rows(
             (session_id, run_id, revision)
         ),
         max_fact_memory=10,
+        event_bus=trace_event_bus,
     )
     latest_fact = FactRecord(
         agent_id="chat:local_user",
@@ -1682,6 +1736,7 @@ async def test_handle_persists_turn_response_and_llm_trace_rows(
     )
 
     await service.handle(context, result)
+    await trace_event_bus.drain()
 
     turn = await runtime_trace_store.get_turn("turn-1")
     llm_span = await runtime_trace_store.get_span("turn-1:llm_call:direct")

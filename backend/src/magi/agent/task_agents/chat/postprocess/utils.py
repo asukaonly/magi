@@ -43,3 +43,23 @@ def resolve_started_at_ms(result: ExecutionResult | None, latest_fact: FactRecor
 
 def normalize_mode(mode: Any) -> str:
     return str(getattr(mode, "value", mode) or "unknown")
+
+
+def resolve_event_bus() -> Any | None:
+    """Best-effort resolution of the global message bus for trace publishing.
+
+    Used by chat post-process trace migrations to publish SpanCompleted events
+    without threading the bus through every constructor. Returns None if the
+    container isn't configured (callers must handle the no-bus case).
+    """
+    try:
+        from .....core.container import Container
+
+        bus = Container.message_bus()
+    except Exception:
+        return None
+    if bus is None or type(bus).__name__ == "object":
+        return None
+    if not hasattr(bus, "publish"):
+        return None
+    return bus
