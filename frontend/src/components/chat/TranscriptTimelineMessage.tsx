@@ -37,7 +37,7 @@ const assistantMarkdownComponents: Components = {
   h3: ({ children }) => <h3 className="mb-2 mt-4 text-base font-semibold leading-snug text-foreground">{children}</h3>,
   p: ({ children }) => <p className="mb-4 whitespace-pre-wrap text-sm leading-7 text-foreground last:mb-0">{children}</p>,
   ul: ({ children }) => <ul className="mb-4 list-disc space-y-2 pl-5 text-sm leading-7 text-foreground marker:text-muted-foreground">{children}</ul>,
-  ol: ({ children }) => <ol className="mb-4 list-decimal space-y-2 pl-5 text-sm leading-7 text-foreground marker:text-muted-foreground">{children}</ol>,
+  ol: ({ children, start }) => <ol start={start} className="mb-4 list-decimal space-y-2 pl-5 text-sm leading-7 text-foreground marker:text-muted-foreground">{children}</ol>,
   li: ({ children }) => <li className="pl-1">{children}</li>,
   blockquote: ({ children }) => (
     <blockquote className="mb-4 rounded-r-2xl border-l-4 border-primary/35 bg-primary/5 px-4 py-3 text-sm leading-7 text-foreground/85 shadow-sm">
