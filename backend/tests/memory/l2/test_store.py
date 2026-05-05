@@ -19,9 +19,8 @@ async def _build_user_message(text: str, *, correlation_id: str, timestamp: floa
             correlation_id=correlation_id,
             metadata={"user_id": "u1"},
             timestamp=timestamp,
-        ),
-        event_id=correlation_id,
-    )
+        event_id=correlation_id),
+        )
 
 
 async def _build_group_timeline_message(text: str, *, correlation_id: str, timestamp: float):
@@ -78,9 +77,8 @@ async def _build_contradiction(text: str, *, correlation_id: str, timestamp: flo
             correlation_id=correlation_id,
             metadata={"user_id": "u1"},
             timestamp=timestamp,
-        ),
-        event_id=correlation_id,
-    )
+        event_id=correlation_id),
+        )
 
 
 async def _apply_rule_candidates(store, event):  # type: ignore[no-untyped-def]

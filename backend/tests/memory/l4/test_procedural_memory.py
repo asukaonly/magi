@@ -23,9 +23,8 @@ def _tool_event(*, event_id: str, success: bool, timestamp: float, error: str | 
             level=EventLevel.INFO if success else EventLevel.ERROR,
             correlation_id=event_id,
             timestamp=timestamp,
-        ),
-        event_id=event_id,
-    )
+        event_id=event_id),
+        )
 
 
 def _task_event(*, event_id: str, task_id: str, success: bool, timestamp: float, content: str):
@@ -42,9 +41,8 @@ def _task_event(*, event_id: str, task_id: str, success: bool, timestamp: float,
             level=EventLevel.INFO if success else EventLevel.ERROR,
             correlation_id=event_id,
             timestamp=timestamp,
-        ),
-        event_id=event_id,
-    )
+        event_id=event_id),
+        )
 
 
 class _BatchTrackingEmbeddingService:

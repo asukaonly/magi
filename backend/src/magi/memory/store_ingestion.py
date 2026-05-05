@@ -179,6 +179,10 @@ class MemoryIngestionMixin:
                 payload.get("type"),
                 payload.get("source"),
             )
+        legacy_event_id = payload.get("id")
+        if not isinstance(legacy_event_id, str):
+            legacy_event_id = None
+        envelope_event_id = payload.get("event_id") or legacy_event_id
         raw_event = Event(
             type=str(payload.get("type", "unknown")),
             data=payload.get("data", {}),
@@ -186,14 +190,11 @@ class MemoryIngestionMixin:
             source=str(payload.get("source", "memory")),
             level=EventLevel(int(payload.get("level", EventLevel.INFO.value))),
             correlation_id=payload.get("correlation_id"),
+            event_id=envelope_event_id,
             metadata=dict(payload.get("metadata", {})),
         )
-        legacy_event_id = payload.get("id")
-        if not isinstance(legacy_event_id, str):
-            legacy_event_id = None
         return normalize_runtime_event(
             raw_event,
-            event_id=payload.get("event_id") or legacy_event_id,
             idempotency_key=payload.get("idempotency_key"),
         )
 

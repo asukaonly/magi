@@ -73,9 +73,8 @@ async def test_l3_summary_excludes_runtime_telemetry_and_keeps_sources(tmp_path)
             level=EventLevel.INFO,
             correlation_id="evt-1",
             timestamp=1710000000.0,
-        ),
-        event_id="evt-1",
-    )
+        event_id="evt-1"),
+        )
     telemetry_event = normalize_runtime_event(
         Event(
             type=EventTypes.TASK_COMPLETED,
@@ -84,9 +83,8 @@ async def test_l3_summary_excludes_runtime_telemetry_and_keeps_sources(tmp_path)
             level=EventLevel.INFO,
             correlation_id="evt-2",
             timestamp=1710000300.0,
-        ),
-        event_id="evt-2",
-    )
+        event_id="evt-2"),
+        )
 
     await l1_store.store(chat_event)
     await l1_store.store(telemetry_event)
@@ -351,9 +349,8 @@ async def test_generate_temporal_summary_uses_llm_candidate_when_available(tmp_p
             level=EventLevel.INFO,
             correlation_id="evt-1",
             timestamp=1710000000.0,
-        ),
-        event_id="evt-1",
-    )
+        event_id="evt-1"),
+        )
     ai_event = normalize_runtime_event(
         Event(
             type=EventTypes.AI_RESPONSE,
@@ -362,9 +359,8 @@ async def test_generate_temporal_summary_uses_llm_candidate_when_available(tmp_p
             level=EventLevel.INFO,
             correlation_id="evt-2",
             timestamp=1710000300.0,
-        ),
-        event_id="evt-2",
-    )
+        event_id="evt-2"),
+        )
     await l1_store.store(chat_event)
     await l1_store.store(ai_event)
 
@@ -448,9 +444,8 @@ async def test_generate_temporal_summary_includes_period_context(tmp_path, monke
                 level=EventLevel.INFO,
                 correlation_id="evt-current-1",
                 timestamp=320.0,
-            ),
-            event_id="evt-current-1",
-        )
+            event_id="evt-current-1"),
+            )
     )
     await l1_store.store(
         normalize_runtime_event(
@@ -461,9 +456,8 @@ async def test_generate_temporal_summary_includes_period_context(tmp_path, monke
                 level=EventLevel.INFO,
                 correlation_id="evt-current-2",
                 timestamp=325.0,
-            ),
-            event_id="evt-current-2",
-        )
+            event_id="evt-current-2"),
+            )
     )
     captured: dict[str, object] = {}
 
@@ -516,9 +510,8 @@ async def test_generate_temporal_summary_falls_back_when_llm_disabled(tmp_path, 
             level=EventLevel.INFO,
             correlation_id="evt-1",
             timestamp=1710000000.0,
-        ),
-        event_id="evt-1",
-    )
+        event_id="evt-1"),
+        )
     ai_event = normalize_runtime_event(
         Event(
             type=EventTypes.AI_RESPONSE,
@@ -527,9 +520,8 @@ async def test_generate_temporal_summary_falls_back_when_llm_disabled(tmp_path, 
             level=EventLevel.INFO,
             correlation_id="evt-2",
             timestamp=1710000300.0,
-        ),
-        event_id="evt-2",
-    )
+        event_id="evt-2"),
+        )
     await l1_store.store(chat_event)
     await l1_store.store(ai_event)
 
@@ -592,9 +584,8 @@ async def test_generate_temporal_summary_includes_plugin_summary_features(
                 level=EventLevel.INFO,
                 correlation_id="evt-1",
                 timestamp=1710000000.0,
-            ),
-            event_id="evt-1",
-        )
+            event_id="evt-1"),
+            )
     )
     await l1_store.store(
         normalize_runtime_event(
@@ -605,9 +596,8 @@ async def test_generate_temporal_summary_includes_plugin_summary_features(
                 level=EventLevel.INFO,
                 correlation_id="evt-2",
                 timestamp=1710000300.0,
-            ),
-            event_id="evt-2",
-        )
+            event_id="evt-2"),
+            )
     )
 
     captured_features: dict[str, object] = {}
@@ -681,9 +671,8 @@ async def test_generate_temporal_summary_uses_plugin_summary_lines_in_fallback(t
                 level=EventLevel.INFO,
                 correlation_id="evt-1",
                 timestamp=1710000000.0,
-            ),
-            event_id="evt-1",
-        )
+            event_id="evt-1"),
+            )
     )
     await l1_store.store(
         normalize_runtime_event(
@@ -694,9 +683,8 @@ async def test_generate_temporal_summary_uses_plugin_summary_lines_in_fallback(t
                 level=EventLevel.INFO,
                 correlation_id="evt-2",
                 timestamp=1710000300.0,
-            ),
-            event_id="evt-2",
-        )
+            event_id="evt-2"),
+            )
     )
 
     summary = await l3_store.generate_temporal_summary(
@@ -730,9 +718,8 @@ async def test_generate_temporal_summary_uses_source_aware_compaction(tmp_path, 
                     level=EventLevel.INFO,
                     correlation_id=f"chrome-{index}",
                     timestamp=1710001000.0 + index,
-                ),
-                event_id=f"chrome-{index}",
-            )
+                event_id=f"chrome-{index}"),
+                )
         )
     for index in range(2):
         await l1_store.store(
@@ -744,9 +731,8 @@ async def test_generate_temporal_summary_uses_source_aware_compaction(tmp_path, 
                     level=EventLevel.INFO,
                     correlation_id=f"music-{index}",
                     timestamp=1710000000.0 + index,
-                ),
-                event_id=f"music-{index}",
-            )
+                event_id=f"music-{index}"),
+                )
         )
 
     captured_pack = None
@@ -802,9 +788,8 @@ async def test_generate_temporal_summary_falls_back_when_llm_candidate_is_reject
             level=EventLevel.INFO,
             correlation_id="evt-1",
             timestamp=1710000000.0,
-        ),
-        event_id="evt-1",
-    )
+        event_id="evt-1"),
+        )
     ai_event = normalize_runtime_event(
         Event(
             type=EventTypes.AI_RESPONSE,
@@ -813,9 +798,8 @@ async def test_generate_temporal_summary_falls_back_when_llm_candidate_is_reject
             level=EventLevel.INFO,
             correlation_id="evt-2",
             timestamp=1710000300.0,
-        ),
-        event_id="evt-2",
-    )
+        event_id="evt-2"),
+        )
     await l1_store.store(chat_event)
     await l1_store.store(ai_event)
 
@@ -866,9 +850,8 @@ async def test_generate_thematic_summary_groups_topic_events_and_links_sources(t
                 level=EventLevel.INFO,
                 correlation_id="evt-1",
                 timestamp=1710000000.0,
-            ),
-            event_id="evt-1",
-        )
+            event_id="evt-1"),
+            )
     )
     await l1_store.store(
         normalize_runtime_event(
@@ -879,9 +862,8 @@ async def test_generate_thematic_summary_groups_topic_events_and_links_sources(t
                 level=EventLevel.INFO,
                 correlation_id="evt-2",
                 timestamp=1710000300.0,
-            ),
-            event_id="evt-2",
-        )
+            event_id="evt-2"),
+            )
     )
     await l1_store.store(
         normalize_runtime_event(
@@ -892,9 +874,8 @@ async def test_generate_thematic_summary_groups_topic_events_and_links_sources(t
                 level=EventLevel.INFO,
                 correlation_id="evt-3",
                 timestamp=1710000600.0,
-            ),
-            event_id="evt-3",
-        )
+            event_id="evt-3"),
+            )
     )
 
     summary = await l3_store.generate_thematic_summary(
@@ -932,9 +913,8 @@ async def test_generate_thematic_summary_uses_llm_candidate_when_available(tmp_p
                 level=EventLevel.INFO,
                 correlation_id="evt-1",
                 timestamp=1710000000.0,
-            ),
-            event_id="evt-1",
-        )
+            event_id="evt-1"),
+            )
     )
     await l1_store.store(
         normalize_runtime_event(
@@ -945,9 +925,8 @@ async def test_generate_thematic_summary_uses_llm_candidate_when_available(tmp_p
                 level=EventLevel.INFO,
                 correlation_id="evt-2",
                 timestamp=1710000300.0,
-            ),
-            event_id="evt-2",
-        )
+            event_id="evt-2"),
+            )
     )
 
     async def _fake_model(_pack):  # type: ignore[no-untyped-def]
