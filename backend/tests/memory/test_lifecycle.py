@@ -162,9 +162,9 @@ async def test_memory_ingestion_subscriber_module_init_and_shutdown() -> None:
 
     await module.init()
     assert context.memory.ingestion_subscriber is not None
-    assert len(bus.subscriptions) == 7
+    assert len(bus.subscriptions) == 8
 
     await module.shutdown()
     assert context.memory.ingestion_subscriber is None
-    assert len(bus.unsubscribed) == 7
+    assert len(bus.unsubscribed) == 8
 

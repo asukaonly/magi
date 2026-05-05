@@ -99,3 +99,47 @@ def test_legacy_event_passthrough():
     assert me is not None
     assert me.event_type == EventTypes.USER_MESSAGE
     assert me.content == "hi"
+
+
+def test_span_completed_tool_invocation_translates_like_legacy():
+    from magi.events.domain_payloads import SpanCompleted
+    sp = SpanCompleted(
+        span_id="s1", trace_id="t1", parent_span_id=None,
+        node_type="tool_invocation", name="shell", status="ok",
+        started_at_ms=1000, ended_at_ms=1150, duration_ms=150,
+        error=None, result_preview="ok", turn_id="turn-1",
+        attributes={
+            "tool_name": "shell",
+            "tool_category": "external_tool",
+            "success": True,
+            "execution_time_ms": 150,
+            "started_at": 1.0,
+            "finished_at": 2.0,
+            "args_summary": "ls -la",
+            "result_summary": "ok",
+            "session_id": "sess-1",
+            "user_id": "user-1",
+        },
+    )
+    ev = Event(type=EventTypes.SPAN_COMPLETED, data=sp, correlation_id="c1")
+    me = translate(ev)
+    assert me is not None
+    assert me.event_type == EventTypes.ACTION_EXECUTED
+    assert me.source_item_id == "shell"
+    assert me.session_id == "sess-1"
+    assert me.user_id == "user-1"
+    assert me.metadata_json["duration_ms"] == 150
+    assert me.metadata_json["input"] == "ls -la"
+
+
+def test_span_completed_other_node_types_skip():
+    from magi.events.domain_payloads import SpanCompleted
+    for node_type in ("span", "llm_call", "intent_resolution", "turn", "task_lifecycle"):
+        sp = SpanCompleted(
+            span_id="s", trace_id="t", parent_span_id=None,
+            node_type=node_type, name="x", status="ok",
+            started_at_ms=0, ended_at_ms=0, duration_ms=0,
+            error=None, result_preview=None, turn_id=None,
+        )
+        ev = Event(type=EventTypes.SPAN_COMPLETED, data=sp)
+        assert translate(ev) is None

@@ -11,8 +11,10 @@ import pytest
 from magi.agent.execution.tool_invocation_service import (
     InvocationContext, ToolCall, ToolInvocationService,
 )
+from magi.core.container import Container
 from magi.events.in_memory_backend import InMemoryMessageBusBackend
 from magi.events.domain_payloads import TaskContext
+from magi.events.tracing import drain_pending
 from magi.memory import UnifiedMemoryStore
 from magi.memory.subscribers.memory_ingestion_subscriber import MemoryIngestionSubscriber
 from magi.tools.schema import ToolResult
@@ -22,6 +24,7 @@ from magi.tools.schema import ToolResult
 async def test_tool_invocation_lands_in_l4():
     bus = InMemoryMessageBusBackend()
     await bus.start()
+    Container.message_bus.override(bus)
 
     tmp = tempfile.TemporaryDirectory()
     base = Path(tmp.name)
@@ -55,6 +58,7 @@ async def test_tool_invocation_lands_in_l4():
 
     # Drain async work: the bus subscriber spawns create_task tasks; give them
     # a moment, then drain explicitly.
+    await drain_pending()
     await asyncio.sleep(0.05)
     await subscriber.drain()
 
@@ -72,6 +76,7 @@ async def test_tool_invocation_lands_in_l4():
     await subscriber.stop()
     await store.shutdown()
     await bus.stop()
+    Container.message_bus.reset_override()
     tmp.cleanup()
 
 
@@ -79,6 +84,7 @@ async def test_tool_invocation_lands_in_l4():
 async def test_failed_tool_invocation_also_lands_with_failure_flag():
     bus = InMemoryMessageBusBackend()
     await bus.start()
+    Container.message_bus.override(bus)
 
     tmp = tempfile.TemporaryDirectory()
     base = Path(tmp.name)
@@ -110,6 +116,7 @@ async def test_failed_tool_invocation_also_lands_with_failure_flag():
         ),
     )
 
+    await drain_pending()
     await asyncio.sleep(0.05)
     await subscriber.drain()
 
@@ -130,6 +137,7 @@ async def test_failed_tool_invocation_also_lands_with_failure_flag():
     await subscriber.stop()
     await store.shutdown()
     await bus.stop()
+    Container.message_bus.reset_override()
     tmp.cleanup()
 
 

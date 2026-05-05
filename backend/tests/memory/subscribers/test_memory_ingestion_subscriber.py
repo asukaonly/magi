@@ -19,7 +19,7 @@ def fake_bus():
 
 
 @pytest.mark.asyncio
-async def test_subscribes_to_all_seven_event_types(fake_bus):
+async def test_subscribes_to_all_eight_event_types(fake_bus):
     unified = MagicMock()
     unified.ingest_event = AsyncMock()
     sub = MemoryIngestionSubscriber(event_bus=fake_bus, unified_memory=unified)
@@ -27,6 +27,7 @@ async def test_subscribes_to_all_seven_event_types(fake_bus):
     types_subscribed = [c.args[0] for c in fake_bus.subscribe.await_args_list]
     expected = {
         EventTypes.TOOL_INVOCATION_COMPLETED,
+        EventTypes.SPAN_COMPLETED,
         EventTypes.USER_MESSAGE_RECEIVED,
         EventTypes.ASSISTANT_RESPONSE_PRODUCED,
         EventTypes.SENSOR_EVENT_EMITTED,
@@ -121,4 +122,4 @@ async def test_stop_unsubscribes_and_drains(fake_bus):
     sub = MemoryIngestionSubscriber(event_bus=fake_bus, unified_memory=unified)
     await sub.start()
     await sub.stop()
-    assert fake_bus.unsubscribe.await_count == 7
+    assert fake_bus.unsubscribe.await_count == 8

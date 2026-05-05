@@ -14,6 +14,7 @@ from magi.events.events import Event, EventLevel, EventTypes
 from magi.events.domain_payloads import (
     AssistantResponseProduced,
     SensorEventEmitted,
+    SpanCompleted,
     TaskCompleted,
     TaskContext,
     TaskFailed,
@@ -21,6 +22,7 @@ from magi.events.domain_payloads import (
     ToolInvocationCompleted,
     UserMessageReceived,
 )
+from magi.events.payload_helpers import PayloadTypeError, expect_payload
 
 from .event_contracts import MemoryEvent, normalize_runtime_event
 
@@ -209,8 +211,68 @@ def _from_task_failed(event: Event) -> MemoryEvent:
     ))
 
 
+def _task_context_from_span(sp: SpanCompleted) -> TaskContext:
+    attrs = sp.attributes or {}
+    return TaskContext(
+        session_id=attrs.get("session_id"),
+        turn_id=sp.turn_id,
+        task_id=attrs.get("task_id"),
+        user_id=attrs.get("user_id"),
+    )
+
+
+def _from_span_completed(event: Event) -> Optional[MemoryEvent]:
+    """Translate SpanCompleted -> MemoryEvent based on node_type.
+
+    Phase 3 routes node_type='tool_invocation' to the existing tool path.
+    Phase 4 will add 'task_lifecycle'. Other node_types are not memory-relevant.
+    """
+    try:
+        sp = expect_payload(event, SpanCompleted)
+    except PayloadTypeError:
+        return None
+    if sp.node_type != "tool_invocation":
+        return None
+    attrs = dict(sp.attributes or {})
+    started_at = attrs.get("started_at")
+    if started_at is None:
+        started_at = sp.started_at_ms / 1000.0
+    finished_at = attrs.get("finished_at")
+    if finished_at is None:
+        finished_at = sp.ended_at_ms / 1000.0
+    duration_ms = attrs.get("execution_time_ms")
+    if duration_ms is None:
+        duration_ms = sp.duration_ms
+    payload = ToolInvocationCompleted(
+        tool_name=str(attrs.get("tool_name") or sp.name),
+        tool_category=str(attrs.get("tool_category") or "external_tool"),
+        success=bool(attrs.get("success", sp.status == "ok")),
+        duration_ms=float(duration_ms),
+        started_at=float(started_at),
+        finished_at=float(finished_at),
+        args_summary=attrs.get("args_summary"),
+        result_summary=attrs.get("result_summary") or sp.result_preview,
+        error=sp.error,
+        context=_task_context_from_span(sp),
+    )
+    synthetic = Event(
+        type=EventTypes.TOOL_INVOCATION_COMPLETED,
+        data=payload,
+        timestamp=event.timestamp,
+        source=str(event.source or "tool_invocation_service"),
+        level=event.level,
+        correlation_id=event.correlation_id,
+        event_id=event.event_id,
+        causation_id=event.causation_id,
+        trace_context=event.trace_context,
+        metadata=dict(event.metadata or {}),
+    )
+    return _from_tool_invocation(synthetic)
+
+
 _DISPATCH: dict[str, EventTranslator] = {
     EventTypes.TOOL_INVOCATION_COMPLETED: _from_tool_invocation,
+    EventTypes.SPAN_COMPLETED: _from_span_completed,
     EventTypes.USER_MESSAGE_RECEIVED: _from_user_message,
     EventTypes.ASSISTANT_RESPONSE_PRODUCED: _from_assistant_response,
     EventTypes.SENSOR_EVENT_EMITTED: _from_sensor,

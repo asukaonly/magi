@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 _SUBSCRIBED_EVENT_TYPES = (
     EventTypes.TOOL_INVOCATION_COMPLETED,
+    EventTypes.SPAN_COMPLETED,
     EventTypes.USER_MESSAGE_RECEIVED,
     EventTypes.ASSISTANT_RESPONSE_PRODUCED,
     EventTypes.SENSOR_EVENT_EMITTED,
