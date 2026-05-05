@@ -164,32 +164,9 @@ class ChatPostprocessIntentMixin:
             turn_id=turn_id,
             attributes=_intent_resolution_attributes(decision=decision, host=host),
         )
-        llm_trace = getattr(decision, "llm_trace", None)
-        if isinstance(llm_trace, dict) and llm_trace:
-            await publish_trace_span(
-                event_bus=bus,
-                node_type="llm_call",
-                name="Intent resolution LLM call",
-                span_id=span_id,
-                trace_id=trace_id,
-                parent_span_id=host._build_root_span_id(turn_id),
-                status="completed",
-                started_at_ms=started_at_ms,
-                ended_at_ms=ended_at_ms,
-                turn_id=turn_id,
-                attributes={
-                    "provider": str(llm_trace.get("provider") or "unknown"),
-                    "model": str(llm_trace.get("model") or "unknown"),
-                    "input_tokens": int(llm_trace.get("input_tokens") or 0),
-                    "output_tokens": int(llm_trace.get("output_tokens") or 0),
-                    "reasoning_tokens": int(llm_trace.get("reasoning_tokens") or 0),
-                    "cache_read_tokens": int(llm_trace.get("cache_read_tokens") or 0),
-                    "cache_write_tokens": int(llm_trace.get("cache_write_tokens") or 0),
-                    "thinking_enabled": bool(llm_trace.get("thinking_enabled")),
-                    "request_preview": (context.latest_user_message or "")[:240] or None,
-                    "response_preview": intent_preview,
-                },
-            )
+        # Note: llm_call SpanCompleted is now published by provider_bridge
+        # (see llm/provider_bridge/responses.py:_emit_usage_event). The intent
+        # resolution parent span above is the only chat-side publish needed.
         ux_plan = host._serialize_ux_plan(decision)
         await host._persist_turn_ux_plan(
             turn_id=turn_id,

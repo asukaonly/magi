@@ -174,11 +174,11 @@ async def test_execute_with_tools_persists_iteration_llm_and_tool_rows(
     assert iteration_one.status == "completed"
     assert iteration_two is not None
     assert iteration_two.status == "completed"
-    assert tool_request_llm is not None
-    assert tool_request_llm.model == "gpt-test"
-    assert tool_request_llm.input_tokens == 120
-    assert final_llm is not None
-    assert final_llm.output_tokens == 18
+    # D phase 4: function-calling no longer persists trace_llm_calls rows
+    # directly; the canonical llm_call SpanCompleted now flows from
+    # provider_bridge on real LLM calls (mocked away here).
+    assert tool_request_llm is None
+    assert final_llm is None
     assert tool_span is not None
     assert tool_span.node_type == "tool_call"
     assert tool_call is not None

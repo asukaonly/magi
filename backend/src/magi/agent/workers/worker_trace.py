@@ -32,48 +32,9 @@ class WorkerTraceMixin(WorkerPublicationMixin):
         if self._runtime_trace_store is None or trace_turn_id is None:
             return
 
-        duration_ms = max(0, int(llm_trace.get("duration_ms") or 0))
-        ended_at_ms = now_wall_ms()
-        started_at_ms = max(0, ended_at_ms - duration_ms)
-        stage = str(payload.get("stage") or "unknown")
-        iteration = max(0, int(payload.get("iteration") or 0))
-        trace_key = self._worker_trace_key(run_state)
-        attempt_index = run_state.retry_count + 1
-        span_id = self._build_worker_llm_span_id(
-            turn_id=trace_turn_id,
-            trace_key=trace_key,
-            attempt_index=attempt_index,
-            stage=stage,
-            iteration=iteration,
-        )
-        await publish_trace_span(
-            event_bus=resolve_event_bus(fallback=self._message_bus),
-            node_type="llm_call",
-            name=f"{run_state.subagent_type} worker LLM call",
-            span_id=span_id,
-            trace_id=self._build_trace_id(trace_turn_id),
-            parent_span_id=self._build_worker_span_id(trace_turn_id, trace_key, attempt_index),
-            status="completed",
-            started_at_ms=started_at_ms,
-            ended_at_ms=ended_at_ms,
-            turn_id=trace_turn_id,
-            result_preview=str(payload.get("response_preview") or "")[:240] or None,
-            attributes={
-                "attempt_index": attempt_index,
-                "retry_count": run_state.retry_count,
-                "iteration": iteration,
-                "execution_agent_id": run_state.worker_id,
-                "provider": str(llm_trace.get("provider") or "unknown"),
-                "model": str(llm_trace.get("model") or "unknown"),
-                "input_tokens": int(llm_trace.get("input_tokens") or 0),
-                "output_tokens": int(llm_trace.get("output_tokens") or 0),
-                "reasoning_tokens": int(llm_trace.get("reasoning_tokens") or 0),
-                "cache_read_tokens": int(llm_trace.get("cache_read_tokens") or 0),
-                "cache_write_tokens": int(llm_trace.get("cache_write_tokens") or 0),
-                "thinking_enabled": bool(llm_trace.get("thinking_enabled")),
-                "response_preview": str(payload.get("response_preview") or "")[:240] or None,
-            },
-        )
+        # llm_call SpanCompleted is now published by provider_bridge
+        # (see llm/provider_bridge/responses.py:_emit_usage_event); the
+        # B-era after-the-fact projection has been removed (D phase 4).
         context_usage = payload.get("context_usage")
         if isinstance(context_usage, dict):
             await self._publish_context_usage_notification(run_state, context_usage)

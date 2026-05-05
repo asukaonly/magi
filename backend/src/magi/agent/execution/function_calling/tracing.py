@@ -9,7 +9,7 @@ import time
 from collections.abc import Callable
 from typing import Any, Dict, Protocol, cast
 
-from ....runtime_trace import RuntimeTraceStore, TraceLlmCallRecord, TraceSpanRecord, TraceToolRecord
+from ....runtime_trace import RuntimeTraceStore, TraceSpanRecord, TraceToolRecord
 from .types import ToolCall, ToolCallResult
 
 logger = logging.getLogger(__name__)
@@ -154,49 +154,18 @@ class FunctionCallingTracingMixin:
         response_preview: str | None = None,
         request_preview: str | None = None,
     ) -> None:
-        host = cast(_TracingHostProtocol, self)
-        normalized_turn_id = str(turn_id or "").strip()
-        if host.runtime_trace_store is None or not normalized_turn_id or not isinstance(llm_trace, dict):
-            return
-        duration_ms = max(0, int(llm_trace.get("duration_ms") or 0))
-        ended_at_ms = int(time.time() * 1000)
-        started_at_ms = max(0, ended_at_ms - duration_ms)
-        span_id = self._build_llm_span_id(normalized_turn_id, stage, iteration)
-        await host.runtime_trace_store.upsert_span(
-            TraceSpanRecord(
-                span_id=span_id,
-                trace_id=self._build_trace_id(normalized_turn_id),
-                turn_id=normalized_turn_id,
-                parent_span_id=self._build_iteration_span_id(normalized_turn_id, iteration),
-                node_type="llm_call",
-                name="Function-calling LLM call",
-                status="completed",
-                iteration=iteration,
-                execution_agent_id=execution_agent_id,
-                result_preview=(response_preview or "")[:240] or None,
-                started_at_ms=started_at_ms,
-                ended_at_ms=ended_at_ms,
-                duration_ms=duration_ms,
-                created_at_ms=started_at_ms,
-                updated_at_ms=ended_at_ms,
-            )
-        )
-        await host.runtime_trace_store.upsert_llm_call(
-            TraceLlmCallRecord(
-                span_id=span_id,
-                trace_id=self._build_trace_id(normalized_turn_id),
-                turn_id=normalized_turn_id,
-                provider=str(llm_trace.get("provider") or "unknown"),
-                model=str(llm_trace.get("model") or "unknown"),
-                input_tokens=int(llm_trace.get("input_tokens") or 0),
-                output_tokens=int(llm_trace.get("output_tokens") or 0),
-                reasoning_tokens=int(llm_trace.get("reasoning_tokens") or 0),
-                cache_read_tokens=int(llm_trace.get("cache_read_tokens") or 0),
-                cache_write_tokens=int(llm_trace.get("cache_write_tokens") or 0),
-                thinking_enabled=bool(llm_trace.get("thinking_enabled")),
-                request_preview=(request_preview or "")[:240] or None,
-                response_preview=(response_preview or "")[:240] or None,
-            )
+        # llm_call span + llm_usage row are now published by provider_bridge
+        # (see llm/provider_bridge/responses.py:_emit_usage_event). The B-era
+        # after-the-fact projection that wrote trace_spans + trace_llm_calls
+        # here was a duplicate and has been removed (D phase 4).
+        _ = (
+            turn_id,
+            iteration,
+            stage,
+            execution_agent_id,
+            llm_trace,
+            response_preview,
+            request_preview,
         )
 
     async def _persist_tool_trace(

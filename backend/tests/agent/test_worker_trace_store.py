@@ -165,11 +165,10 @@ async def test_worker_trace_store_persists_llm_and_tool_rows(
     tool_span = await runtime_trace_store.get_span("turn-1:worker_tool:subtask-1:1:call-1")
     tool_call = await runtime_trace_store.get_tool_call("turn-1:worker_tool:subtask-1:1:call-1")
 
-    assert llm_span is not None
-    assert llm_span.node_type == "llm_call"
-    assert llm_call is not None
-    assert llm_call.model == "gpt-test"
-    assert llm_call.output_tokens == 12
+    assert llm_span is None
+    assert llm_call is None
+    # D phase 4: worker_trace no longer publishes llm_call SpanCompleted; the
+    # canonical publish now comes from provider_bridge on real LLM calls.
     assert tool_span is not None
     assert tool_span.node_type == "tool_invocation"
     assert tool_call is not None

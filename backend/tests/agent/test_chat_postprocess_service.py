@@ -1748,13 +1748,10 @@ async def test_handle_persists_turn_response_and_llm_trace_rows(
     assert turn is not None
     assert turn.status == "completed"
     assert turn.response_preview == "final answer"
-    assert llm_span is not None
-    assert llm_span.node_type == "llm_call"
-    assert llm_call is not None
-    assert llm_call.provider == "openai"
-    assert llm_call.model == "gpt-test"
-    assert llm_call.input_tokens == 64
-    assert llm_call.output_tokens == 18
+    # D phase 4: chat post-process no longer publishes llm_call SpanCompleted;
+    # the canonical publish now comes from provider_bridge on real LLM calls.
+    assert llm_span is None
+    assert llm_call is None
     assert response_span is not None
     assert response_span.node_type == "response_emit"
     assert root_span is not None
