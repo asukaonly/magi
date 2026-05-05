@@ -117,6 +117,19 @@ class SpanCompleted:
 
 `attributes` 字典装下子表特有字段（订阅者 handler 按 node_type 提取）：
 
+**通用字段**（任何 node_type 都可能填，对应 `trace_spans` 表上除 span 标识外的列）：
+
+| key | 类型 | 来源 |
+|-----|------|------|
+| `attempt_index` | int | 重试场景，默认 1 |
+| `retry_count` | int | 默认 0 |
+| `iteration` | int | worker 循环序号，None 表非循环 |
+| `execution_agent_id` | str | 业务代码 set，None 表未知 |
+| `run_id` | str | task orchestration run id |
+| `run_revision` | int | 默认 0 |
+
+**子表特有字段**：
+
 | node_type | attributes keys |
 |-----------|----------------|
 | `tool_invocation` | tool_name, tool_call_id, arguments_json, success, execution_time_ms, error_code, error_message, result_preview, result_json |
@@ -124,7 +137,7 @@ class SpanCompleted:
 | `intent_resolution` | intent, execution_mode, route_reason, selected_tools_json, selected_worker_type |
 | `turn` | user_id, session_id, status, started_at, updated_at, continued_from_turn_id, continued_from_trace_id, superseded_by_turn_id |
 | `task_lifecycle` | task_id, task_type, started_at, finished_at, summary, error_type, error_message |
-| `span` (default) | （无子表，只写 trace_spans 基行）|
+| `span` (default) | （仅写 trace_spans 基行；通用字段视情况）|
 
 `EventTypes` 新增：
 
@@ -222,7 +235,9 @@ def start_span(
     node_type: str = "span",
     name: str = "",
     trace_id: Optional[str] = None,
+    delivery: str = "async",   # "async" (fire-and-forget, default) | "sync" (await before exit)
 ) -> Iterator[Span]:
+    """Sync context manager. For async code paths use start_async_span()."""
     parent_ctx = _current_trace_context.get()
     ctx = TraceContext(
         trace_id=trace_id or (parent_ctx.trace_id if parent_ctx else str(ULID())),
@@ -230,17 +245,19 @@ def start_span(
         parent_span_id=parent_ctx.span_id if parent_ctx else None,
     )
     started_at_ms = int(time.time() * 1000)
-    span = Span(
-        node_type=node_type,
-        name=name,
-        context=ctx,
-        started_at_ms=started_at_ms,
-    )
+    span = Span(node_type=node_type, name=name, context=ctx, started_at_ms=started_at_ms)
+    # 自动从父 span 继承 turn_id（绝大多数嵌套 span 都需要，避免业务遗漏）
+    parent_span = _current_span.get()
+    if parent_span is not None and parent_span._turn_id is not None:
+        span._turn_id = parent_span._turn_id
 
     span_token = _current_span.set(span)
     ctx_token = _current_trace_context.set(ctx)
     try:
         yield span
+    except asyncio.CancelledError:
+        span.set_status("cancelled")
+        raise
     except BaseException as exc:
         span.record_exception(exc)
         raise
@@ -249,39 +266,122 @@ def start_span(
         _current_trace_context.reset(ctx_token)
         ended_at_ms = int(time.time() * 1000)
         try:
-            _publish_span_completed(span, ended_at_ms)
+            _publish_span_completed(span, ended_at_ms, delivery=delivery)
         except Exception:
             logger.exception("publish SpanCompleted failed (span=%s)", span._context.span_id)
 
 
-def _publish_span_completed(span: Span, ended_at_ms: int) -> None:
-    """Fire-and-forget publish via the global container's message bus.
+@asynccontextmanager
+async def start_async_span(
+    *,
+    node_type: str = "span",
+    name: str = "",
+    trace_id: Optional[str] = None,
+    delivery: str = "async",
+) -> AsyncIterator[Span]:
+    """Async-friendly variant. Use for `async with` blocks where the body awaits.
 
-    Errors here MUST NOT propagate up to business code: trace is best-effort.
+    Internally identical to start_span() except wrapped in @asynccontextmanager.
+    Both share the same Span class, contextvars, and publish path.
     """
+    parent_ctx = _current_trace_context.get()
+    ctx = TraceContext(
+        trace_id=trace_id or (parent_ctx.trace_id if parent_ctx else str(ULID())),
+        span_id=str(ULID()),
+        parent_span_id=parent_ctx.span_id if parent_ctx else None,
+    )
+    started_at_ms = int(time.time() * 1000)
+    span = Span(node_type=node_type, name=name, context=ctx, started_at_ms=started_at_ms)
+    parent_span = _current_span.get()
+    if parent_span is not None and parent_span._turn_id is not None:
+        span._turn_id = parent_span._turn_id
+
+    span_token = _current_span.set(span)
+    ctx_token = _current_trace_context.set(ctx)
+    try:
+        yield span
+    except asyncio.CancelledError:
+        span.set_status("cancelled")
+        raise
+    except BaseException as exc:
+        span.record_exception(exc)
+        raise
+    finally:
+        _current_span.reset(span_token)
+        _current_trace_context.reset(ctx_token)
+        ended_at_ms = int(time.time() * 1000)
+        try:
+            await _publish_span_completed_async(span, ended_at_ms, delivery=delivery)
+        except Exception:
+            logger.exception("publish SpanCompleted failed (span=%s)", span._context.span_id)
+
+
+# Module-level pending-task registry, so unawaited create_task results
+# survive GC and can be drained at shutdown.
+_PENDING: set[asyncio.Task] = set()
+
+
+def _track_pending(task: asyncio.Task) -> None:
+    _PENDING.add(task)
+    task.add_done_callback(_PENDING.discard)
+
+
+async def drain_pending() -> None:
+    """Await all in-flight publish tasks. Called by lifecycle on shutdown
+    BEFORE the bus stops, so the events are delivered."""
+    if not _PENDING:
+        return
+    await asyncio.gather(*list(_PENDING), return_exceptions=True)
+
+
+def _publish_span_completed(span: Span, ended_at_ms: int, *, delivery: str) -> None:
     payload = span._to_completed_payload(ended_at_ms)
     bus = _resolve_event_bus()
     if bus is None:
-        return  # bus not wired yet (test fixture, early bootstrap)
+        return
     event = Event(type=EventTypes.SPAN_COMPLETED, data=payload, source="tracing")
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
-        # Sync code outside an event loop. Schedule via asyncio.run no-op:
-        # spec choice: silently drop. Sync paths can call publish_span_sync()
-        # if they need guaranteed delivery (out of scope for B).
-        return
+        return  # 同步路径外不发；正常运行不应触发
+    if delivery == "sync":
+        # 在同步 contextmanager 里要 await 不可行；视为退化为 async
+        logger.debug("delivery=sync requested in sync start_span; degrading to async")
     task = loop.create_task(bus.publish(event))
-    _track_pending(task)  # see §6 below
+    _track_pending(task)
+
+
+async def _publish_span_completed_async(span: Span, ended_at_ms: int, *, delivery: str) -> None:
+    payload = span._to_completed_payload(ended_at_ms)
+    bus = _resolve_event_bus()
+    if bus is None:
+        return
+    event = Event(type=EventTypes.SPAN_COMPLETED, data=payload, source="tracing")
+    if delivery == "sync":
+        # 在 async with 出栈时同步 await，确保关键 span 投递
+        try:
+            await bus.publish(event)
+        except Exception:
+            logger.exception("sync publish failed")
+        return
+    loop = asyncio.get_running_loop()
+    task = loop.create_task(bus.publish(event))
+    _track_pending(task)
 
 
 def _resolve_event_bus():
+    """Return the wired MessageBus or None. None on test fixtures / early bootstrap.
+
+    Detection: Container.message_bus() default is providers.Singleton(object) which
+    yields a bare `object()` lacking `publish`. We test for the publish attribute
+    instead of relying on `type().__name__ == "object"` which is fragile.
+    """
     try:
         from ..core.container import Container
         bus = Container.message_bus()
     except Exception:
         return None
-    if bus is None or type(bus).__name__ == "object":
+    if bus is None or not hasattr(bus, "publish"):
         return None
     return bus
 ```
@@ -354,7 +454,7 @@ class RuntimeTraceSubscriber:
         record = TraceSpanRecord(
             span_id=p.span_id,
             trace_id=p.trace_id,
-            turn_id=p.turn_id or "",  # NOT NULL, must coerce
+            turn_id=p.turn_id,  # may be None for non-turn-scoped spans (see §6.1)
             parent_span_id=p.parent_span_id,
             node_type=p.node_type,
             name=p.name,
@@ -380,6 +480,34 @@ class RuntimeTraceSubscriber:
     async def _record_intent_resolution(self, p: SpanCompleted) -> None: ...
     async def _record_turn(self, p: SpanCompleted) -> None: ...
 ```
+
+### 6.1 turn_id 与 schema 微调
+
+`trace_spans.turn_id` 现 schema 是 `TEXT NOT NULL`（无 FK 约束）。但 trace 树并非每个 span 都属于某个 chat turn——例如 awareness scheduler 触发的 span、worker 内部循环 span 等不绑定 chat turn 上下文。强制 NOT NULL 加上"空字符串兜底"是脏数据反模式（违反 NULL 与空字符串的语义区分）。
+
+**schema 改造**：把 `trace_spans.turn_id` 从 NOT NULL 放松为 nullable。在 `runtime_trace/schema.py` 的 `ensure_runtime_trace_schema` 里加 idempotent migration（SQLite 的 ALTER COLUMN 操作复杂，用"重建表"模式或简单地容忍 NOT NULL 约束依旧存在但订阅者写 NULL → 触发迁移路径）。
+
+最简方案：保留 NOT NULL 约束不动，订阅者侧若 `p.turn_id is None` 则 fallback 到 `p.trace_id`（trace_id 永远非空）。这样既保留现有 schema，又避免空字符串。语义近似"如果不属于具体 turn，就用 trace_id 作占位"，与 trace_turns 的"trace_id PK"一致。
+
+实施 §6.1 决定采用：**fallback 到 trace_id**（不改 schema）。
+
+```python
+turn_id_for_record = p.turn_id or p.trace_id
+record = TraceSpanRecord(..., turn_id=turn_id_for_record, ...)
+```
+
+### 6.2 Lifecycle 顺序
+
+`RuntimeTraceSubscriberModule` 的 shutdown 顺序：
+
+1. 业务路径（chat / task / awareness）已经 stop —— producer 不再发新 SpanCompleted。
+2. `tracing.drain_pending()` —— 等待所有 fire-and-forget publish 任务把事件投到 bus 队列。
+3. `RuntimeTraceSubscriber.stop()` —— unsubscribe + drain inflight projection 任务。
+4. `bus.stop()` —— 关闭总线。
+
+依赖声明：`RuntimeTraceSubscriberModule` 在 `runtime_message_bus` 之后启动、之前关闭。lifecycle 模块内 shutdown 调用 `await tracing.drain_pending()` 然后 `await self._subscriber.stop()`。
+
+如此保证：业务结束 → 投递队列空 → 订阅者投影完成 → 总线关闭。事件不丢。
 
 接入：仿 A 的 `MemoryIngestionSubscriberModule` 模式，新建 `RuntimeTraceSubscriberModule(LifecycleModule)`，依赖 `runtime_message_bus / runtime_trace_store`。
 
@@ -495,6 +623,43 @@ A 阶段订阅 `TOOL_INVOCATION_COMPLETED / TASK_STARTED / TASK_COMPLETED / TASK
 
 `event_translation.py` 增加 `_from_span_completed(event) -> Optional[MemoryEvent]`，按 node_type dispatch 到现有的 `_from_tool_invocation` / `_from_task_completed` / `_from_task_failed`。
 
+### 7.5b 全部 24 处迁移点清单
+
+实施前 grep 已经枚举（24 处而非 §1 的概数 27——实际计数）：
+
+| 文件 | 行 | 调用 | 目标 node_type | 阶段 |
+|------|----|------|----------------|------|
+| `agent/task_agents/chat/postprocess/intent.py` | 113 | upsert_span | `span` | 5 |
+| 同上 | 130 | upsert_intent_resolution | `intent_resolution` | 5 |
+| 同上 | 157 | upsert_llm_call | `llm_call` | 5 |
+| 同上 | 212 | upsert_intent_resolution | `intent_resolution` | 5 |
+| `agent/task_agents/chat/postprocess/trace_llm.py` | 61 | upsert_span | `span` | 5 |
+| 同上 | 80 | upsert_llm_call | `llm_call` | 5 |
+| 同上 | 124 | upsert_span | `span` | 5 |
+| 同上 | 140 | upsert_llm_call | `llm_call` | 5 |
+| `agent/task_agents/chat/postprocess/trace_runtime.py` | 47 | upsert_span | `span` | 5 |
+| 同上 | 64 | upsert_span | `span` | 5 |
+| 同上 | 81 | upsert_turn | `turn` | 5 |
+| 同上 | 116 | upsert_turn | `turn` | 5 |
+| 同上 | 132 | upsert_span | `span` | 5 |
+| 同上 | 177 | upsert_turn | `turn` | 5 |
+| 同上 | 205 | upsert_span | `span` | 5 |
+| `agent/workers/worker_trace.py` | 52 | upsert_span | `span` | 5 |
+| 同上 | 73 | upsert_llm_call | `llm_call` | 5 |
+| 同上 | 159 | upsert_span | `span` | 5 |
+| 同上 | 187 | upsert_span | `span` | 5 |
+| 同上 | 212 | upsert_span | `span` | 5 |
+| 同上 | 262 | upsert_span | `span` | 5 |
+| 同上 | 307 | upsert_span | `span` | 5 |
+| 同上 | 362 | upsert_span | `span` | 5 |
+| 同上 | 383 | upsert_tool_call | `tool_invocation` | 5 |
+
+外加：
+- ToolInvocationService（A 已发 ToolInvocationCompleted）→ 改发 SpanCompleted (`tool_invocation`)
+- TaskOrchestrator 5 处 task lifecycle → `async with start_async_span(node_type="task_lifecycle")` 包裹 task 主体
+
+迁移按阶段：实施 plan 的 chunk 分配按表里 "阶段" 列。
+
 ### 7.6 grep 验收
 
 完成后：
@@ -504,6 +669,14 @@ grep -rn "_runtime_trace_store\.upsert_" backend/src --include="*.py" | grep -v 
 ```
 
 应为 0 命中。`runtime_trace/recorder.py` 的空实现可以删除（A 阶段留的占位）。
+
+### 7.7 trace_turns ON CONFLICT 语义
+
+`trace_turns` 表 PK 是 `trace_id`。chat turn 在 lifecycle 中可能多次更新（创建 / 状态变化 / 完成）。本子项目改造后，每次更新都是 `with start_span(node_type="turn", ...)` 退出时 publish 一次 SpanCompleted。多个 SpanCompleted 共享同一 trace_id → 投影到同一行 → 必须 UPDATE。
+
+策略：**每次 turn span 都携带"截止此刻完整的 turn 状态"**——即 `attributes` 里所有字段都填，订阅者无脑 UPDATE 整行。这避免了 partial update 的 NULL 覆盖问题。原直写代码已经是这种模式（每次 `upsert_turn` 传完整 `TraceTurnRecord`），迁移后保持。
+
+`_record_turn` handler 用 `INSERT INTO trace_turns ... ON CONFLICT(trace_id) DO UPDATE SET <所有列>=excluded.<所有列>`。trace_records.py 现有 SQL 已是此模式（含 COALESCE 处理 continued_from_* 等可选字段），订阅者直接复用 `_runtime_trace_store.upsert_turn`。
 
 ## 8. 测试策略
 
@@ -596,5 +769,31 @@ grep -rn "_runtime_trace_store\.upsert_" backend/src --include="*.py" | grep -v 
 
 ## 12. Open Questions
 
-- Span 在嵌套 with 中传递时，子 span 是否能感知父 span 已经 set 的 attributes？倾向：不能。每个 span 独立。父 attributes 不自动继承。需要继承的字段（如 turn_id）业务方手工 `set_turn_id`。
-- task_lifecycle span 在 task 失败时 status 设为 "error" 还是 "cancelled"？倾向：取决于失败模式——业务异常 = "error"；用户取消 / orchestration cancel = "cancelled"。
+（无遗留 open questions —— 评审过程中所有问题已决定。）
+
+- attribute 继承：原 Q1 已决定 = 不自动继承，但 `turn_id` 例外（`start_span/start_async_span` 内部从父 span 自动继承），见 §5。
+- cancelled vs error：原 Q2 已决定 = `asyncio.CancelledError` 统一映射到 `status="cancelled"` 并 re-raise，见 §5。
+
+## 13. 评审记录
+
+2026-05-05 经 spec-document-reviewer 评审，已修复以下问题：
+
+**Critical**：
+
+- C1: `start_span` 仅有 sync `@contextmanager`，但 §7.2 task_lifecycle 需要 `async with`。新增 `start_async_span()` `@asynccontextmanager` 变体，与 sync 版本共享 Span 类、contextvars、publish 路径（§5）。
+- C2: cancellation 语义未定义。`start_span` / `start_async_span` 显式捕获 `asyncio.CancelledError` → `set_status("cancelled")` + re-raise；其他 `BaseException` → `record_exception`（§5）。
+- C3: `SpanCompleted` ↔ `TraceSpanRecord` 字段覆盖缺口。§4 新增"通用字段"表，列出 `attempt_index/retry_count/iteration/execution_agent_id/run_id/run_revision`。
+
+**Important**：
+
+- I1: 27 处迁移点未列全。§7.5b 新增完整 24 处清单（实际计数）。
+- I2: lifecycle 顺序未明。§6.2 显式定义 shutdown 顺序：业务 stop → tracing.drain_pending → subscriber.stop → bus.stop。
+- I3: `_track_pending` 引用未定义。§5 增加模块级 `_PENDING: set[Task]` + `_track_pending` + `drain_pending()`。
+- I4: trace_turns ON CONFLICT 语义。§7.7 决定"每次 turn span 携带完整 turn 状态"，UPDATE 整行（依赖原直写已有此模式）。
+- I5: 同步 publish 逃生通道。§5 `start_span/start_async_span` 增加 `delivery="async" | "sync"` 参数；async 变体在 sync 模式下 await publish 完成；sync 变体 sync 模式降级为 async（同步 contextmanager 无法 await）。
+
+**Minor**：
+
+- §5 `_resolve_event_bus` 用 `hasattr(bus, "publish")` 替代 `type(bus).__name__ == "object"` 哨兵，更稳健。
+- `turn_id` 自动继承：嵌套 span 自动从父 span 拷贝（§5），减少业务遗忘。
+- §6.1 trace_spans.turn_id NOT NULL 约束保留，订阅者侧 fallback 到 trace_id 而非空字符串。
