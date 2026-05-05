@@ -111,7 +111,7 @@ async def get_duration_baseline(*, db_path: str, skill_id: str) -> Dict[str, flo
     async with sqlite_connection_async(db_path) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            "SELECT avg_execution_time_ms, p95_execution_time_ms FROM procedural_skills WHERE skill_id = ?",
+            "SELECT avg_execution_time_ms, p95_execution_time_ms FROM procedural_skills WHERE skill_id = ? AND deleted_at IS NULL",
             (skill_id,),
         ) as cursor:
             row = await cursor.fetchone()
@@ -143,6 +143,7 @@ async def enrich_with_recovery(
             WHERE t.turn_id IN ({placeholders})
               AND t.skill_id != ?
               AND t.success = 1
+              AND s.deleted_at IS NULL
             ORDER BY t.turn_id, t.created_at ASC
             """,
             (*unique_turn_ids, current_skill_id),

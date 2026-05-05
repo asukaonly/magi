@@ -78,6 +78,7 @@ class L4SkillEmbeddingMixin:
                     """
                     SELECT skill_id, skill_name, skill_category, optimized_prompt
                     FROM procedural_skills
+                    WHERE deleted_at IS NULL
                     ORDER BY updated_at DESC, skill_id ASC
                     LIMIT ? OFFSET ?
                     """,
@@ -193,7 +194,7 @@ class L4SkillEmbeddingMixin:
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                f"SELECT * FROM procedural_skills WHERE skill_id IN ({placeholders})",
+                f"SELECT * FROM procedural_skills WHERE skill_id IN ({placeholders}) AND deleted_at IS NULL",
                 tuple(skill_ids),
             ) as cursor:
                 rows = await cursor.fetchall()

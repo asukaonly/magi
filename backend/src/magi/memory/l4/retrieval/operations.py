@@ -42,7 +42,7 @@ class L4ProceduralRetrievalMixin:
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                "SELECT * FROM procedural_skills WHERE skill_name = ? AND skill_category = ?",
+                "SELECT * FROM procedural_skills WHERE skill_name = ? AND skill_category = ? AND deleted_at IS NULL",
                 (skill_name, skill_category),
             ) as cursor:
                 row = await cursor.fetchone()
@@ -52,7 +52,7 @@ class L4ProceduralRetrievalMixin:
         """Count all procedural skills."""
         await self.initialize()
         async with sqlite_connection_async(self.db_path) as db:
-            async with db.execute("SELECT COUNT(*) FROM procedural_skills") as cursor:
+            async with db.execute("SELECT COUNT(*) FROM procedural_skills WHERE deleted_at IS NULL") as cursor:
                 row = await cursor.fetchone()
         return int(row[0]) if row else 0
 
@@ -62,7 +62,7 @@ class L4ProceduralRetrievalMixin:
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                "SELECT * FROM procedural_skills ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+                "SELECT * FROM procedural_skills WHERE deleted_at IS NULL ORDER BY updated_at DESC LIMIT ? OFFSET ?",
                 (int(limit), int(offset)),
             ) as cursor:
                 rows = await cursor.fetchall()
@@ -86,7 +86,7 @@ class L4ProceduralRetrievalMixin:
                        total_attempts, optimized_prompt, context_affinity,
                        failure_count, last_failure_at
                 FROM procedural_skills
-                WHERE skill_category = 'tool' AND skill_name IN ({placeholders})
+                WHERE skill_category = 'tool' AND skill_name IN ({placeholders}) AND deleted_at IS NULL
                 """,
                 tuple(tool_names),
             ) as cursor:
@@ -121,6 +121,7 @@ class L4ProceduralRetrievalMixin:
                        failure_count, last_failure_at
                 FROM procedural_skills
                 WHERE skill_category = 'tool'
+                  AND deleted_at IS NULL
                   AND (
                       circuit_breaker_state != 'closed'
                       OR (optimized_prompt IS NOT NULL AND optimized_prompt != '' AND optimized_prompt != '{}')
@@ -160,7 +161,8 @@ class L4ProceduralRetrievalMixin:
             async with db.execute(
                 """
                 SELECT * FROM procedural_skills
-                WHERE skill_name LIKE ? OR COALESCE(optimized_prompt, '') LIKE ?
+                WHERE (skill_name LIKE ? OR COALESCE(optimized_prompt, '') LIKE ?)
+                  AND deleted_at IS NULL
                 ORDER BY success_rate DESC, updated_at DESC
                 LIMIT ?
                 """,
@@ -229,7 +231,8 @@ class L4ProceduralRetrievalMixin:
             async with db.execute(
                 """
                 SELECT skill_id FROM procedural_skills
-                WHERE skill_name LIKE ? ESCAPE '\\' OR COALESCE(optimized_prompt, '') LIKE ? ESCAPE '\\'
+                WHERE (skill_name LIKE ? ESCAPE '\\' OR COALESCE(optimized_prompt, '') LIKE ? ESCAPE '\\')
+                  AND deleted_at IS NULL
                 ORDER BY success_rate DESC, updated_at DESC
                 LIMIT ?
                 """,
@@ -246,7 +249,7 @@ class L4ProceduralRetrievalMixin:
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                f"SELECT * FROM procedural_skills WHERE skill_id IN ({placeholders})",
+                f"SELECT * FROM procedural_skills WHERE skill_id IN ({placeholders}) AND deleted_at IS NULL",
                 tuple(skill_ids),
             ) as cursor:
                 rows = await cursor.fetchall()

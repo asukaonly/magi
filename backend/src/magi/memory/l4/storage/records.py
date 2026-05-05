@@ -6,6 +6,7 @@ from typing import Any
 
 import aiosqlite
 
+from ....core.sqlite import sqlite_connection_async
 from ...hybrid_retrieval.fts_utils import tokenize_for_fts
 from ..learning.updates import NewSkillRecordState, UpdatedSkillRecordState
 
@@ -135,3 +136,18 @@ async def sync_skill_fts(
         "INSERT OR REPLACE INTO l4_skills_fts(skill_id, content) VALUES (?, ?)",
         (skill_id, fts_text),
     )
+
+
+async def soft_delete_skill(*, db_path: str, skill_id: str, now: float) -> None:
+    """Mark a procedural skill as deleted by stamping ``deleted_at``.
+
+    Read paths filter on ``deleted_at IS NULL`` so a soft-deleted row is
+    invisible to retrieval/analytics surfaces while remaining available for
+    upsert revival via the unique ``(skill_name, skill_category)`` lookup.
+    """
+    async with sqlite_connection_async(db_path) as db:
+        await db.execute(
+            "UPDATE procedural_skills SET deleted_at = ? WHERE skill_id = ? AND deleted_at IS NULL",
+            (now, skill_id),
+        )
+        await db.commit()
