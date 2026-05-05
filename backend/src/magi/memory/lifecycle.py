@@ -7,7 +7,6 @@ from typing import Any
 from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..core.logger import get_logger
-from ..llm.usage_events import LLMUsageEventPublisher
 from ..llm import get_llm_usage_store
 from ..config import get_config
 from ..config.models import LLMScenario
@@ -57,17 +56,9 @@ class MemoryStoreModule(LifecycleModule):
         scenario_llm_pool = require_initialized(self._context.llm.scenario_llm_pool, "scenario llm pool")
         message_bus = self._context.message_bus.message_bus
         if self.start_memory_integration:
-            runtime_message_bus = require_initialized(message_bus, "message bus")
-            publisher = LLMUsageEventPublisher(runtime_message_bus)
-            self._context.llm.llm_usage_event_publisher = publisher
-            scenario_llm_pool.add_adapter_configurator(
-                lambda adapter: setattr(adapter, "_llm_usage_event_publisher", publisher)
-            )
-            llm_adapter = self._context.llm.llm_adapter
-            if llm_adapter is not None:
-                setattr(llm_adapter, "_llm_usage_event_publisher", publisher)
+            require_initialized(message_bus, "message bus")
             self._context.llm.llm_usage_store = get_llm_usage_store()
-            await self._context.llm.llm_usage_store.start(runtime_message_bus)
+            await self._context.llm.llm_usage_store.start()
             logger.info("LLM usage store started")
         else:
             logger.info("LLM usage store subscription skipped for API role")
@@ -147,9 +138,6 @@ class MemoryStoreModule(LifecycleModule):
         if self._context.llm.llm_usage_store is not None:
             await self._context.llm.llm_usage_store.stop()
             self._context.llm.llm_usage_store = None
-        if self._context.llm.llm_usage_event_publisher is not None:
-            self._context.llm.llm_usage_event_publisher.configure(None)
-            self._context.llm.llm_usage_event_publisher = None
 
         self._context.memory.unified_memory = None
         self._context.memory.hybrid_retrieval_service = None

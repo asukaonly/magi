@@ -9,8 +9,6 @@ import aiosqlite
 
 from ..core.logger import get_logger
 from ..core.sqlite import sqlite_connection_async
-from ..events.backend import MessageBusBackend
-from ..events.events import Event, EventTypes
 from ..utils.runtime import get_runtime_paths
 
 logger = get_logger(__name__)
@@ -24,8 +22,6 @@ class LLMUsageStore:
     def __init__(self, db_path: str | Path | None = None) -> None:
         runtime_paths = get_runtime_paths()
         self._db_path = Path(db_path or runtime_paths.llm_usage_db_path)
-        self._subscription_id: str | None = None
-        self._message_bus: MessageBusBackend | None = None
 
     async def initialize(self) -> None:
         """Ensure the usage table exists."""
@@ -81,37 +77,13 @@ class LLMUsageStore:
                 "ALTER TABLE llm_usage ADD COLUMN cost_usd REAL NOT NULL DEFAULT 0"
             )
 
-    async def start(self, message_bus: MessageBusBackend) -> None:
-        """Initialize storage and subscribe to LLM usage events."""
+    async def start(self) -> None:
+        """Initialize storage. Subscription is wired by LLMUsageSubscriberModule."""
         await self.initialize()
-        if self._subscription_id is not None:
-            return
-
-        self._message_bus = message_bus
-        self._subscription_id = await message_bus.subscribe(
-            event_type=EventTypes.LLM_CALL_COMPLETED,
-            handler=self._handle_llm_call_event,
-            propagation_mode="broadcast",
-        )
 
     async def stop(self) -> None:
-        """Unsubscribe from the message bus."""
-        if self._message_bus is None or self._subscription_id is None:
-            return
-
-        try:
-            await self._message_bus.unsubscribe(self._subscription_id)
-        except Exception as exc:
-            logger.warning("Failed to unsubscribe LLM usage store: %s", exc)
-        finally:
-            self._subscription_id = None
-            self._message_bus = None
-
-    async def _handle_llm_call_event(self, event: Event) -> None:
-        payload = event.data if isinstance(event.data, dict) else {}
-        if not payload:
-            return
-        await self.record_call(payload)
+        """No-op. Subscription lifecycle is owned by LLMUsageSubscriberModule."""
+        return
 
     async def record_call(self, payload: dict[str, Any]) -> None:
         """Persist a single normalized LLM usage event payload."""

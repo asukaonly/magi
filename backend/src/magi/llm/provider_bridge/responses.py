@@ -10,7 +10,6 @@ import uuid
 from typing import Any
 
 from ..parsers import parse_legacy_tool_calls, sanitize_llm_text
-from ..usage_events import LLMCallEventPayload, publish_llm_call_event
 from .models import ProviderResponse, ProviderToolCall, ProviderUsage
 from ...config.models import ThinkingDepth
 
@@ -21,7 +20,6 @@ class ProviderBridgeResponseMixin:
     """Normalize provider responses, content blocks, metadata, and usage events."""
 
     llm: Any
-    _usage_event_publisher: Any
 
     def _provider_name(self) -> str:
         raise NotImplementedError

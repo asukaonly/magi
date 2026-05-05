@@ -51,8 +51,9 @@ class LLMRuntimeModule(LifecycleModule):
 class LLMUsageSubscriberModule(LifecycleModule):
     """Subscribe LLMUsageSubscriber to the runtime event bus.
 
-    Phase 2 of D. Coexists with the old LLM_CALL_COMPLETED self-subscription
-    in LLMUsageStore.start() until phase 3 switches the producer.
+    Wires the SpanCompleted(node_type='llm_call') consumer that projects
+    into the llm_usage table. The legacy LLM_CALL_COMPLETED self-subscription
+    in LLMUsageStore was removed in phase 5.
     """
 
     def __init__(self, context: RuntimeBootstrapContext) -> None:
