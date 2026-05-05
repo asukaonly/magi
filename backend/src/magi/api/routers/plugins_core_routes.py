@@ -161,7 +161,9 @@ async def start_plugin_settings_action(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plugin settings action not found") from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    if run.result.status == "succeeded" and run.result.settings_updates:
+    if run.result.status == "succeeded" and (
+        run.result.settings_updates or bool(run.result.data.get("refresh_channels"))
+    ):
         await _refresh_channels_after_plugin_change(plugin_id, f"settings_action_{action_id}_succeeded")
     return _serialize_action_run(plugin_id, action_id, run)
 
@@ -189,7 +191,9 @@ async def poll_plugin_settings_action(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plugin settings action session not found") from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    if run.result.status == "succeeded" and run.result.settings_updates:
+    if run.result.status == "succeeded" and (
+        run.result.settings_updates or bool(run.result.data.get("refresh_channels"))
+    ):
         await _refresh_channels_after_plugin_change(plugin_id, f"settings_action_{action_id}_succeeded")
     return _serialize_action_run(plugin_id, action_id, run)
 

@@ -44,6 +44,7 @@ class ChannelMessageDispatcher(ChannelMessageDispatcherProtocol):
             user_id=outcome.user_id,
             session_id=outcome.session_id,
             turn_id=outcome.turn_id,
+            message_id=outcome.message_id,
             error_code=outcome.error_code,
             error_message=outcome.error_message,
             queue_size=outcome.queue_size,

@@ -14,17 +14,21 @@ from .contracts import (
     OutboundContent,
 )
 from .dispatcher import ChannelMessageDispatcher
+from .attachments import ChannelAttachmentStore
 from .registry import ChannelRegistry
 from .session_mapper import ChannelSessionMapper
 from magi_plugin_sdk.channels import (
     ChannelMessageDispatcherProtocol,
     ChannelMessageDispatchOutcome,
+    ChannelAttachmentStoreProtocol,
     ChannelSessionMapperProtocol,
 )
 
 __all__ = [
     "Channel",
     "ChannelConfig",
+    "ChannelAttachmentStore",
+    "ChannelAttachmentStoreProtocol",
     "ChannelMessageDispatcher",
     "ChannelMessageDispatcherProtocol",
     "ChannelMessageDispatchOutcome",

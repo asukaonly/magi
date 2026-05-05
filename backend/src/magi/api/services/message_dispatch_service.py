@@ -39,6 +39,7 @@ class MessageDispatchOutcome:
     user_id: str
     session_id: str | None = None
     turn_id: str | None = None
+    message_id: str | None = None
     error_code: str | None = None
     error_message: str | None = None
     queue_size: int | None = None
@@ -214,6 +215,7 @@ async def dispatch_user_message(
         user_id=user_id,
         session_id=resolved_session_id,
         turn_id=turn_id,
+        message_id=created_turn.message_id,
         queue_size=int(queue_size) if isinstance(queue_size, int) else None,
     )
 
