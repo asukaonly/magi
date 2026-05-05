@@ -248,9 +248,8 @@ class SensorIngestionGateway:
     are handled by independent subscribers.
     """
 
-    def __init__(self, *, event_bus, default_user_id: Optional[str] = None) -> None:
+    def __init__(self, *, event_bus) -> None:
         self._event_bus = event_bus
-        self._default_user_id = default_user_id
 
     async def ingest(
         self,
@@ -544,14 +543,27 @@ def _from_sensor_legacy(event: Event) -> Optional[MemoryEvent]:
 
 按依赖顺序，每阶段独立可发布：
 
-1. **基础序列化**：`SensorMemoryPolicy.to_dict / from_dict`、`SensorProjection.to_dict`、`TimelineEvent.from_dict`、`MemoryEvent.from_dict`。无副作用。
-2. **`magi.awareness.sensor_memory_projection` 新模块**：`build_sensor_memory_event` / `build_timeline_event_dict`。逻辑等价于现 `_build_memory_event` + `build_sensor_timeline_event`。单测覆盖与现 gateway 输出等价。
+1. **基础序列化**：
+   - `SensorMemoryPolicy.to_dict / from_dict`：dataclass 字段 + `IngestTarget / MemoryDomain / TomDepth / RetentionClass` 这些 `_LabeledIntEnum` 全部用 **label 字符串**（如 `"l0_and_l1"`）作为 wire 格式（人类可读且 enum 已自带 `from_value` 兼容 label）。round-trip 单测覆盖。
+   - `SensorProjection.to_dict`：当前不存在，新增；返回 `{"summary": ..., "metadata": {...}, ...}`。
+   - `TimelineEvent.from_dict`：**已存在**于 `magi/timeline/contracts.py:43`——只需校验字段覆盖，不重写。
+   - `MemoryEvent.from_dict`：评审反馈 #C3 指出本 spec 不需要——删除此项。
+2. **`magi.awareness.sensor_memory_projection` 新模块**：`build_sensor_memory_event(payload, *, event_id, correlation_id, causation_id, trace_context)` + `build_timeline_event_dict(payload, *, event_id)`。逻辑等价于现 `_build_memory_event` + `build_sensor_timeline_event`。单测覆盖与现 gateway 输出等价（同 sensor / output / metadata 输入产生同 MemoryEvent / TimelineEvent dict）。
 3. **SensorEventEmitted payload 扩字段**：纯加法，dataclass 新字段全 default。
-4. **TimelineSubscriber + 单测 + lifecycle module**。订阅者就位但 gateway 仍直跑 timeline。
-5. **KGSubscriber + `_process_relations` 迁过来 + lifecycle module**。订阅者就位但 gateway 仍直跑 KG。
-6. **SensorStateUpdateSubscriber + lifecycle module**。
-7. **MemoryIngestionSubscriber `_from_sensor` 改主/legacy 双路径**。
-8. **Gateway 改造为薄 publisher**：删除字段方法 + lifecycle 实例化更新 + 集成测试。
+4. **L1Layer idempotency 修订**（§12.1）：当 `find_event_id_by_idempotency` 返回 `existing_event_id != event.event_id` 时记 warning + 用 envelope id 作 stored_event_id。单测覆盖。
+5. **TimelineSubscriber + 单测 + lifecycle module**。订阅者注册到 bus；gateway 仍直跑 timeline；新订阅者收不到事件（gateway 还没 publish）——无双写。
+6. **KGSubscriber + `_process_relations` 迁过来 + lifecycle module**。同上。**实施前 grep `SensorOutput.to_dict` 实现，确认 `occurred_at / source_type` 字段在产出 dict 中**（评审 #C4）；如不齐先补 `to_dict()`。
+7. **SensorStateUpdateSubscriber + lifecycle module**。同上。
+8. **MemoryIngestionSubscriber `_from_sensor` 改主/legacy 双路径**。
+9. **Gateway 改造为薄 publisher**：删除 `_unified_memory / _timeline_adapter / _state_store` 字段 + 删除 `_build_memory_event / _process_relations / 直接持有的 upsert_user_graph_edge 调用` + lifecycle 实例化更新（`SensorIngestionGateway(event_bus=...)`）+ 集成测试。**关键单步切换**：此阶段 publish 上线，所有订阅者立即激活。
+10. **回归 + grep 验证（评审 #C9 扩展）**：
+    - `grep "_unified_memory\." backend/src/magi/awareness/` → 0 命中
+    - `grep "_timeline_adapter" backend/src/magi/awareness/ingestion_gateway.py` → 0 命中
+    - `grep "_state_store" backend/src/magi/awareness/ingestion_gateway.py` → 0 命中
+    - `grep "SensorIngestionGateway(" backend/src --include="*.py"` → 仅 `awareness/lifecycle.py:70` 一处
+    - `grep "from .ingestion_gateway import" backend/src --include="*.py"` 与 lifecycle.py 唯一引用一致
+
+每阶段独立可发布；中间状态下旧 gateway 路径与新订阅者不冲突（订阅者注册但收不到事件，因 gateway 阶段 9 才 publish）。完成后旧直调代码消失。
 9. **回归 + grep**：`grep "_unified_memory" backend/src/magi/awareness/` 应为 0；`grep "_timeline_adapter" backend/src/magi/awareness/ingestion_gateway.py` 应为 0。
 
 每阶段独立可发布；中间状态下旧 gateway 路径与新订阅者并存（无写入冲突，因 producer-assigned event_id idempotent）。完成后旧直调代码消失。
@@ -584,7 +596,69 @@ def _from_sensor_legacy(event: Event) -> Optional[MemoryEvent]:
 | timeline_adapter 内部假设"事件已写入 memory" | 调研：`on_timeline_event` 只是 read model 更新，不依赖 memory 写入。OK |
 | KG `upsert_user_graph_edge` 内部假设"event_id 在 fact_events 已存在"（FK 或 join） | 调研：`upsert_user_graph_edge` 只把 event_id 当字符串存到 evidence_event_ids，不做 join。OK |
 | 4 个订阅者订阅同一事件 → bus 串行触发 → 累计延迟 | handler 内 create_task 卸载；累计 < 1ms；非 hot path |
-| 阶段 4-7 中间状态下 gateway 既调老路径又 publish 新事件 | 阶段 4 起 gateway 还未改 publisher——保持现状；阶段 8 才把 gateway 切到 publish-only。中间状态下订阅者已就位但收不到事件，不会冲突。 |
+| **L1 idempotency dedupe → producer event_id ≠ stored_event_id** | 见 §12.1 单独处理 |
+| **阶段 4-7 中间状态下双写 timeline / KG**（gateway 直跑 + 新订阅者已注册） | 见 §12.2 单独处理 |
+
+### 12.1 L1 idempotency 与 producer event_id 一致性
+
+**问题**：当 `MemoryEvent.idempotency_key` 命中 L1 既有行（`find_event_id_by_idempotency` 返回 `existing_event_id`），L1Layer 把 `markers["stored_event_id"]` 设为旧行的 id，与 envelope 持有的 producer event_id 不同。Timeline / KG / SensorState 订阅者按设计用 envelope id；MemoryIngestionSubscriber 走 ingest 后内部用 stored_event_id（老行）。下游 `evidence_event_ids=[envelope_id]` 会指向一行不存在的 fact_events。
+
+**采用策略 (a)：producer event_id 是权威 id**：
+- MemoryIngestionSubscriber 在调 `unified_memory.ingest_event` 之前，先用 envelope `event_id` 覆盖 `MemoryEvent.event_id`（C-7 阶段 `_from_sensor` 已经这么做）。L1Layer 收到的 `event` 已带正确 id。
+- L1Layer 中的 idempotency fast-path 仍可能命中，**但命中行的 event_id 应当与 envelope id 相同**——因为：
+  - producer-assigned event_id 由 ULID 生成，不会重复
+  - 真正命中的场景是事件**重放**（相同 envelope event_id + 相同 idempotency_key）—— 此时 dedupe 是正确行为
+- 改造 L1Layer：当 `find_event_id_by_idempotency` 返回的 `existing_event_id` ≠ `event.event_id` 时，记 warning + 优先使用 `event.event_id`（拒绝静默换 id）。强约束：每个业务事件 id 唯一权威。
+
+```python
+# l1_layer.py 改造
+if existing_event_id is not None and existing_event_id != event.event_id:
+    logger.warning(
+        "L1 idempotency hit returned a DIFFERENT event_id; honoring envelope id "
+        "to preserve cross-subscriber consistency",
+        envelope_id=event.event_id,
+        existing_id=existing_event_id,
+        idempotency_key=event.idempotency_key,
+    )
+    # 仍然走 dedupe（不重复 INSERT），但 markers 用 envelope id
+    stored_event_id = event.event_id
+elif existing_event_id is not None:
+    stored_event_id = existing_event_id  # == event.event_id, no-op
+else:
+    stored_event_id = await self._store.store(event)
+```
+
+测试：构造同 idempotency_key 不同 envelope id 的两次 ingest，断言 markers["stored_event_id"] == 第二次的 envelope id。
+
+### 12.2 阶段 4-7 中间状态下的双写问题
+
+**问题**：spec §10 阶段 4-7 完成后 TimelineSubscriber / KGSubscriber / SensorStateUpdateSubscriber 已注册，但 gateway 还在 §10 阶段 8 才改成 publisher——中间状态下，每次 sensor.ingest：
+1. gateway 同步直跑 timeline / KG / state（旧路径）
+2. gateway 调 publish（A 阶段已有的 SensorEventEmitted publish——但当前 gateway 没 publish 这条事件！）
+
+确认：A 阶段对 sensor 路径**没有改 publish**——只有 chat projector 改了。所以 gateway 现状只直跑、不 publish；新订阅者注册后也不会被触发。**中间状态实际无双写**。
+
+**重新校正阶段 8**：当 gateway 改成 publisher 时，订阅者已就位、立即开始接收事件、gateway 旧路径删除——单步切换。
+
+**实施前 grep 验证**：
+
+```bash
+grep -rn "SENSOR_EVENT_EMITTED\|publish.*SensorEventEmitted" backend/src/magi/awareness backend/src/magi/chat --include="*.py"
+```
+
+确认现有代码无 sensor publish 路径。
+
+如果 grep 结果发现 awareness 路径已 publish（A 阶段做了但本 spec 没记到），则把 §10 改为：阶段 4-7 增加 feature flag `enable_subscribers=False` 守门，阶段 8 再 flip 为 True。
+
+### 12.3 _process_relations 输入字段映射验证
+
+KGSubscriber 的 `_process_relations` 从 gateway 迁移时签名变化：
+- 旧：读 `output.occurred_at` / `output.source_type` / `metadata.relation_candidates` (list of dict)
+- 新：读 `output_dict["occurred_at"]` / `output_dict["source_type"]` / `relation_candidates: tuple[Mapping]`
+
+实施前 grep `output.to_dict()` 实现，确认 `occurred_at / source_type` 都在产出 dict 中。如不齐，先补 `to_dict()`。
+
+| **`default_user_id` 参数实际未使用** | 删除 §6 gateway 的 `default_user_id` 参数。owner 解析现有 `_resolve_memory_owner_user_id` 已经从 `runtime_defaults.DEFAULT_USER_ID` 兜底，不需 gateway 持有 |
 
 ## 13. 已知技术债（接受）
 
@@ -596,4 +670,22 @@ C 完成后仍存在，留给后续迭代：
 
 ## 14. Open Questions
 
-无。所有关键决策已通过 brainstorming 问答确定：拆 3 订阅者 / 胖 payload / 信封 id 全作业务 id / `_process_relations` 迁进 KGSubscriber / gateway 纯 publisher / 消除 dict 旁路用共享投影模块。
+无。
+
+## 15. 评审记录
+
+2026-05-05 经 spec-document-reviewer 评审，已修复以下问题：
+
+**Critical**：
+- C1: L1 idempotency dedupe 时 producer event_id ≠ stored_event_id 会让 timeline / KG 引用一个 fact_events 中不存在的 id。新增 §12.1 决定"producer event_id 是权威 id"，L1Layer 检测 mismatch 时以 envelope id 作 stored_event_id。
+- C2: §6 gateway 引入了未使用的 `default_user_id` 参数。删除。
+- C3: §10 阶段 1 的序列化清单：`TimelineEvent.from_dict` **已存在**于 `magi/timeline/contracts.py:43`，无需重写；`MemoryEvent.from_dict` 不在本 spec 范围内，删除；`SensorMemoryPolicy` enum 字段用 label 字符串作为 wire format（人类可读且现 enum 已有 `from_value(label)` 兼容）；`SensorProjection.to_dict` 当前不存在，C-1 阶段新增。
+
+**Important**：
+- C4: KGSubscriber `_process_relations` 迁移时输入字段从 object 变 dict——§10.6 增加"实施前 grep `SensorOutput.to_dict` 实现确认 occurred_at / source_type 字段齐全"。
+- C5: §10 阶段 4-7 中间状态双写疑虑澄清——A 阶段 sensor 路径未改 publish，gateway 仍走老同步路径、新订阅者注册但收不到事件——无双写。§12.2 文档化此事实并要求实施前 grep 确认。spec §10 阶段重新编号：4 是 L1 idempotency 修订（新增）、5/6/7 注册三订阅者、8 改 gateway 是关键单步切换。
+- C6: KG 双写 idempotency 在 §12.2 单步切换设计下不再发生。
+
+**Minor**：
+- §12 新增"L1 idempotency"和"中间状态双写"风险条目。
+- §10.10 grep 验证清单扩展：`_state_store / SensorIngestionGateway( / from .ingestion_gateway import` 均加入。
