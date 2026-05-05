@@ -108,6 +108,22 @@ async def test_request_id_falls_back_to_span_id(fake_bus, fake_store):
 
 
 @pytest.mark.asyncio
+async def test_correlation_id_falls_back_to_attributes(fake_bus, fake_store):
+    """When event.correlation_id is None, attrs['correlation_id'] is used."""
+    sub = LLMUsageSubscriber(event_bus=fake_bus, llm_usage_store=fake_store)
+    await sub.start()
+    payload = _payload(attrs={
+        "provider": "x", "model": "m", "request_kind": "chat",
+        "correlation_id": "corr-from-attrs",
+    })
+    # Event has no correlation_id
+    await sub._on_event(Event(type=EventTypes.SPAN_COMPLETED, data=payload, correlation_id=""))
+    await sub.drain()
+    written = fake_store.record_call.await_args.args[0]
+    assert written["correlation_id"] == "corr-from-attrs"
+
+
+@pytest.mark.asyncio
 async def test_error_status_records_failure(fake_bus, fake_store):
     sub = LLMUsageSubscriber(event_bus=fake_bus, llm_usage_store=fake_store)
     await sub.start()

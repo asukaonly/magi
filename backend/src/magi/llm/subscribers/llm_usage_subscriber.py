@@ -68,7 +68,7 @@ class LLMUsageSubscriber:
                 "cost_usd": float(attrs.get("cost_usd", 0.0)),
                 "success": (payload.status == "ok"),
                 "error": payload.error.message if payload.error else None,
-                "correlation_id": event.correlation_id,
+                "correlation_id": event.correlation_id or attrs.get("correlation_id"),
                 "session_id": attrs.get("session_id"),
                 "turn_id": payload.turn_id or attrs.get("turn_id"),
                 "agent_id": attrs.get("agent_id"),

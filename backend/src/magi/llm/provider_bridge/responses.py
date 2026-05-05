@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import sys
+import time
 import uuid
 from typing import Any
 
@@ -11,6 +13,8 @@ from ..parsers import parse_legacy_tool_calls, sanitize_llm_text
 from ..usage_events import LLMCallEventPayload, publish_llm_call_event
 from .models import ProviderResponse, ProviderToolCall, ProviderUsage
 from ...config.models import ThinkingDepth
+
+logger = logging.getLogger(__name__)
 
 
 class ProviderBridgeResponseMixin:
@@ -356,24 +360,59 @@ class ProviderBridgeResponseMixin:
         event_context: dict[str, Any] | None,
         error: str | None = None,
     ) -> None:
+        """Publish a SpanCompleted(node_type='llm_call') event for this LLM call."""
+        from magi.runtime_trace.span_publisher import publish_trace_span, resolve_event_bus
+        from magi.events.tracing import current_trace_context
+        from magi.events.domain_payloads import ToolError
+
         context = dict(event_context or {})
-        payload = LLMCallEventPayload(
-            request_id=str(context.get("request_id") or uuid.uuid4().hex[:8]),
-            provider=self._provider_name() or type(self.llm).__name__,
-            model=str(getattr(self.llm, "model_name", "unknown")),
-            request_kind=str(context.get("request_kind") or "chat"),
-            prompt_tokens=int(usage.prompt_tokens if usage else 0),
-            completion_tokens=int(usage.completion_tokens if usage else 0),
-            total_tokens=int(usage.total_tokens if usage else 0),
-            usage_available=usage is not None,
-            latency_ms=int(latency_ms),
-            success=success,
-            error=error,
-            correlation_id=context.get("correlation_id"),
-            session_id=context.get("session_id"),
-            turn_id=context.get("turn_id"),
-            agent_id=context.get("agent_id"),
-        )
-        bridge_module = sys.modules.get("magi.llm.provider_bridge")
-        publish = getattr(bridge_module, "publish_llm_call_event", publish_llm_call_event)
-        await publish(payload, publisher=self._usage_event_publisher)
+        request_id = str(context.get("request_id") or uuid.uuid4().hex[:8])
+        provider = self._provider_name() or type(self.llm).__name__
+        model = str(getattr(self.llm, "model_name", "unknown"))
+        request_kind = str(context.get("request_kind") or "chat")
+
+        prompt_tokens = int(usage.prompt_tokens if usage else 0)
+        completion_tokens = int(usage.completion_tokens if usage else 0)
+        total_tokens = int(usage.total_tokens if usage else 0)
+
+        ended_at = time.time()
+        started_at = ended_at - (latency_ms / 1000.0)
+        started_at_ms = int(started_at * 1000)
+        ended_at_ms = started_at_ms + int(latency_ms)
+
+        error_obj = None
+        if not success and error:
+            error_obj = ToolError(type="LLMError", message=str(error)[:1000])
+
+        ctx = current_trace_context()
+        trace_id = ctx.trace_id if ctx is not None else ""
+        parent_span_id = ctx.span_id if ctx is not None else None
+
+        try:
+            await publish_trace_span(
+                event_bus=resolve_event_bus(fallback=None),
+                node_type="llm_call",
+                name=model,
+                trace_id=trace_id,
+                parent_span_id=parent_span_id,
+                status="ok" if success else "error",
+                started_at_ms=started_at_ms,
+                ended_at_ms=ended_at_ms,
+                error=error_obj,
+                turn_id=context.get("turn_id"),
+                attributes={
+                    "request_id": request_id,
+                    "provider": provider,
+                    "model": model,
+                    "request_kind": request_kind,
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": total_tokens,
+                    "usage_available": usage is not None,
+                    "correlation_id": context.get("correlation_id"),
+                    "session_id": context.get("session_id"),
+                    "agent_id": context.get("agent_id"),
+                },
+            )
+        except Exception:
+            logger.exception("publish llm_call SpanCompleted failed")
