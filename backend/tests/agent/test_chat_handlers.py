@@ -22,6 +22,9 @@ class _FakeContextService:
 
 
 class _FakePromptService:
+    def __init__(self) -> None:
+        self.call_llm_calls = 0
+
     def augment_system_prompt_with_reply_context(
         self,
         *,
@@ -43,6 +46,7 @@ class _FakePromptService:
         timeout_seconds=None,
         llm_trace_callback=None,
     ):
+        self.call_llm_calls += 1
         _ = (system_prompt, messages, disable_thinking, thinking_depth, json_mode, timeout_seconds)
         if llm_trace_callback is not None:
             callback_result = llm_trace_callback(
@@ -577,6 +581,7 @@ async def test_direct_llm_handler_builds_multimodal_message_for_image_attachment
         recent_tool_errors=[],
         latest_user_message="describe this screenshot",
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        core_model_supports_vision=True,
         latest_payload=UserMessagePayload(
             user_id="local_user",
             session_id="session-1",
@@ -613,6 +618,73 @@ async def test_direct_llm_handler_builds_multimodal_message_for_image_attachment
     assert request.messages[0]["content"][0]["type"] == "text"
     assert request.messages[0]["content"][1]["type"] == "image"
     assert request.messages[0]["content"][1]["mime_type"] == "image/png"
+
+
+@pytest.mark.asyncio
+async def test_direct_llm_handler_returns_clear_message_when_image_model_lacks_vision(tmp_path: Path) -> None:
+    image_path = tmp_path / "diagram.png"
+    image_path.write_bytes(b"fake-image-bytes")
+
+    prompt_service = _FakePromptService()
+    handler = DirectLLMHandler(
+        SimpleNamespace(
+            context_service=_FakeContextService(),
+            prompt_service=prompt_service,
+        )
+    )
+    context = ChatRuntimeContext(
+        latest_fact=None,
+        recent_facts=[],
+        batch_facts=[],
+        agent_id="local_user",
+        agent_type="chat",
+        runtime_key="chat:local_user",
+        user_id="local_user",
+        session_id="session-1",
+        history_key="local_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message="describe this screenshot",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        core_model_supports_vision=False,
+        latest_payload=UserMessagePayload(
+            user_id="local_user",
+            session_id="session-1",
+            content="describe this screenshot",
+            attachments=[
+                {
+                    "attachment_id": "att-image",
+                    "kind": "image",
+                    "original_name": "diagram.png",
+                    "mime_type": "image/png",
+                    "storage_path": str(image_path),
+                }
+            ],
+            turn_id="turn-1",
+        ),
+    )
+
+    request = await handler.build_request(
+        SimpleNamespace(
+            mode=ExecutionMode.DIRECT_LLM,
+            context=context,
+            intent=IntentDecision(
+                intent="chat",
+                difficulty="normal",
+                execution_mode=ExecutionMode.DIRECT_LLM,
+                reasoning="direct",
+                orchestration_plan=OrchestrationPlan(),
+            ),
+            tool_selection=ToolSelection(tools=[], reasoning="direct"),
+        )
+    )
+    result = await handler.execute(request)
+
+    assert "does not support image input" in result.response_text
+    assert prompt_service.call_llm_calls == 0
+    assert request.messages[0]["content"] == "describe this screenshot"
 
 
 class _FakeCoordinator:

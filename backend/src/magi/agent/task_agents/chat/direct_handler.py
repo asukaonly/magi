@@ -17,15 +17,41 @@ from .handler_helpers import (
     serialize_ux_plan as _serialize_ux_plan,
 )
 
+IMAGE_VISION_UNSUPPORTED_RESPONSE = (
+    "I received an image, but the current core model does not support image input. "
+    "Please switch to a vision-capable core model or resend the message with a text description."
+)
+
+
+def _is_image_attachment(attachment: object) -> bool:
+    return isinstance(attachment, dict) and str(attachment.get("kind") or "").strip() == "image"
+
+
+def _has_image_attachment(attachments: list[object]) -> bool:
+    return any(_is_image_attachment(attachment) for attachment in attachments)
+
+
+def _core_model_supports_vision(context: object) -> bool:
+    return bool(getattr(context, "core_model_supports_vision", False))
+
+
+def _image_attachments_supported(context: object, attachments: list[object]) -> bool:
+    return not _has_image_attachment(attachments) or _core_model_supports_vision(context)
+
 
 class DirectLLMHandler(BaseExecutionHandler):
     mode = ExecutionMode.DIRECT_LLM
 
     async def build_request(self, request: ExecutionRequest) -> DirectLLMRequest:
         attachments = list(getattr(request.context.latest_payload, "attachments", []) or [])
+        attachments_for_model = (
+            attachments
+            if _image_attachments_supported(request.context, attachments)
+            else [attachment for attachment in attachments if not _is_image_attachment(attachment)]
+        )
         turn = UserTurnInput(
             text=request.context.latest_user_message,
-            attachments=attachments,
+            attachments=attachments_for_model,
             user_id=request.context.user_id,
             session_id=request.context.session_id,
         )
@@ -69,6 +95,16 @@ class DirectLLMHandler(BaseExecutionHandler):
             llm_trace.update(payload)
 
         turn_id = getattr(request.context.latest_payload, "turn_id", None)
+        attachments = list(getattr(request.context.latest_payload, "attachments", []) or [])
+        if not _image_attachments_supported(request.context, attachments):
+            return ExecutionResult(
+                mode=request.mode,
+                response_text=IMAGE_VISION_UNSUPPORTED_RESPONSE,
+                root_user_message=request.context.latest_user_message,
+                turn_id=turn_id,
+                llm_trace=llm_trace,
+                ux_plan=_serialize_ux_plan(request.intent),
+            )
 
         if streaming_enabled:
             chunks: list[str] = []
