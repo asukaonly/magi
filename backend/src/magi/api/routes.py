@@ -96,6 +96,9 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/{plugin_id}/reload": {"POST"},
         "/{plugin_id}/settings": {"GET", "PUT"},
         "/{plugin_id}/settings/resources/{resource_name}": {"GET"},
+        "/{plugin_id}/settings/actions/{action_id}/start": {"POST"},
+        "/{plugin_id}/settings/actions/{action_id}/sessions/{session_id}/poll": {"POST"},
+        "/{plugin_id}/settings/actions/{action_id}/sessions/{session_id}/cancel": {"POST"},
     },
     "local_embedding": {
         "/models": {"GET"},
