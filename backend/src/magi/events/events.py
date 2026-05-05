@@ -7,6 +7,8 @@ from typing import Any, Dict, Optional
 from time import time
 import uuid
 
+from .tracing import TraceContext
+
 
 REQUIRE_SUBSCRIBER_DELIVERY_METADATA_KEY = "require_subscriber_delivery"
 
@@ -56,16 +58,31 @@ class Event:
     source: str = "unknown"
     level: EventLevel = EventLevel.INFO
     correlation_id: Optional[str] = field(default=None)
+    event_id: Optional[str] = field(default=None)
+    causation_id: Optional[str] = field(default=None)
+    trace_context: Optional["TraceContext"] = field(default=None)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
         """Post-initialization processing"""
+        if self.event_id is None:
+            try:
+                from ulid import ULID
+                self.event_id = str(ULID())
+            except Exception:
+                self.event_id = uuid.uuid4().hex
         if self.correlation_id is None:
-            # Generate unique correlation id
-            self.correlation_id = str(uuid.uuid4())
+            self.correlation_id = self.event_id
+        if self.trace_context is None:
+            try:
+                from .tracing import current_trace_context
+                self.trace_context = current_trace_context()
+            except Exception:
+                self.trace_context = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary"""
+        tc = self.trace_context
         return {
             "type": self.type,
             "data": self.data,
@@ -73,12 +90,32 @@ class Event:
             "source": self.source,
             "level": self.level.value,
             "correlation_id": self.correlation_id,
+            "event_id": self.event_id,
+            "causation_id": self.causation_id,
+            "trace_context": (
+                {
+                    "trace_id": tc.trace_id,
+                    "span_id": tc.span_id,
+                    "parent_span_id": tc.parent_span_id,
+                }
+                if tc is not None else None
+            ),
             "metadata": self.metadata,
         }
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Event":
         """Create event from dictionary"""
+        tc_dict = data.get("trace_context")
+        tc = (
+            TraceContext(
+                trace_id=tc_dict["trace_id"],
+                span_id=tc_dict["span_id"],
+                parent_span_id=tc_dict.get("parent_span_id"),
+            )
+            if isinstance(tc_dict, dict) and tc_dict
+            else None
+        )
         return cls(
             type=data["type"],
             data=data["data"],
@@ -86,6 +123,9 @@ class Event:
             source=data.get("source", "unknown"),
             level=EventLevel(data.get("level", EventLevel.INFO)),
             correlation_id=data.get("correlation_id"),
+            event_id=data.get("event_id"),
+            causation_id=data.get("causation_id"),
+            trace_context=tc,
             metadata=data.get("metadata", {}),
         )
 
