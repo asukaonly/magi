@@ -105,24 +105,9 @@ class L3SummaryScheduleContrib:
     async def register_schedules(self, scheduler: SchedulerService) -> None:
         scheduler.register_handler(ScheduledTargetType.MEMORY_L3_SUMMARY, handle_l3_summary)
 
-        l3_cfg = get_config().agent.memory.l3
-        if not l3_cfg.enabled:
-            for _period_type, sid in _CORE_PERIOD_SCHEDULES:
-                await scheduler.unschedule(
-                    sid,
-                    target_type=ScheduledTargetType.MEMORY_L3_SUMMARY,
-                    target_key=TARGET_KEY_L3_SUMMARY,
-                )
-            for sid in self._activity_schedule_ids:
-                await scheduler.unschedule(
-                    sid,
-                    target_type=ScheduledTargetType.MEMORY_L3_SUMMARY,
-                    target_key=TARGET_KEY_L3_SUMMARY,
-                )
-            self._activity_schedule_ids.clear()
-            logger.info("L3 summary schedules disabled by config")
-            return
-
+        # Schedules are always written so toggling l3.enabled at runtime takes effect
+        # without a restart. The handler short-circuits with l3_disabled_skip when the
+        # layer is off, so disabled runs are cheap no-ops.
         for period_type, schedule_id in _CORE_PERIOD_SCHEDULES:
             await scheduler.schedule_interval(
                 schedule_id=schedule_id,
