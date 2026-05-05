@@ -32,7 +32,7 @@ from ..events.lifecycle import (
     RuntimeCommandProcessorModule,
     RuntimeCommandQueueModule,
 )
-from ..llm.lifecycle import LLMRuntimeModule
+from ..llm.lifecycle import LLMRuntimeModule, LLMUsageSubscriberModule
 from ..mcp.lifecycle import MCPModule
 from ..memory.lifecycle import (
     L2MaintenanceScheduleRegistrationModule,
@@ -123,6 +123,7 @@ def _build_stateful_service_modules(context: RuntimeBootstrapContext) -> list[Li
     return [
         MemoryStoreModule(context, start_memory_integration=True),
         MemoryIngestionSubscriberModule(context),
+        LLMUsageSubscriberModule(context),
         ChatProjectorModule(context),
         _build_runtime_trace_module(context),
         RuntimeTraceSubscriberModule(context),
