@@ -14,6 +14,8 @@ from magi.llm.provider import get_scenario_llm_pool
 from magi.memory.answering import build_answer_prompt_payload
 from magi.memory.eval_support.answer_normalization import normalize_eval_answer
 
+from ..helpers import memory_t
+
 logger = get_logger(__name__)
 
 EVAL_ANSWER_TIMEOUT = 300
@@ -96,7 +98,7 @@ async def synthesize_eval_answer(
     if resolved_llm_pool is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Scenario LLM pool is not initialized",
+            detail=memory_t("memory.errors.scenario_llm_pool_uninitialized", "Scenario LLM pool is not initialized"),
         )
     active_logger = log if log is not None else logger
 

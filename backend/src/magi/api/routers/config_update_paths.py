@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+from ... import i18n as core_i18n
 from ...config.llm_registry import (
     LLMProviderRegistryModel,
     find_embedding_model_meta,
@@ -179,23 +180,51 @@ def build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         provider = config.llm.providers.get(selection.provider_id)
         if provider is None:
             raise ValueError(
-                f"LLM selection '{selection_id}' references unknown provider '{selection.provider_id}'"
+                core_i18n.t(
+                    "config.validation.llm_selection_unknown_provider",
+                    fallback="LLM selection '{selection_id}' references unknown provider '{provider_id}'",
+                    selection_id=selection_id,
+                    provider_id=selection.provider_id,
+                )
             )
         if not provider.enabled:
             raise ValueError(
-                f"LLM selection '{selection_id}' references disabled provider '{selection.provider_id}'"
+                core_i18n.t(
+                    "config.validation.llm_selection_disabled_provider",
+                    fallback="LLM selection '{selection_id}' references disabled provider '{provider_id}'",
+                    selection_id=selection_id,
+                    provider_id=selection.provider_id,
+                )
             )
         if selection_id in CHAT_SCENARIOS and not provider.services.chat.enabled:
             raise ValueError(
-                f"LLM selection '{selection_id}' references provider '{selection.provider_id}' with chat disabled"
+                core_i18n.t(
+                    "config.validation.llm_selection_chat_disabled",
+                    fallback="LLM selection '{selection_id}' references provider '{provider_id}' with chat disabled",
+                    selection_id=selection_id,
+                    provider_id=selection.provider_id,
+                )
             )
         if selection_id == "embedding" and not provider.services.embedding.enabled:
             raise ValueError(
-                f"LLM selection '{selection_id}' references provider '{selection.provider_id}' with embedding disabled"
+                core_i18n.t(
+                    "config.validation.llm_selection_embedding_disabled",
+                    fallback="LLM selection '{selection_id}' references provider '{provider_id}' with embedding disabled",
+                    selection_id=selection_id,
+                    provider_id=selection.provider_id,
+                )
             )
         if selection_id == "image_generation" and not provider.services.image_generation.enabled:
             raise ValueError(
-                f"LLM selection '{selection_id}' references provider '{selection.provider_id}' with image generation disabled"
+                core_i18n.t(
+                    "config.validation.llm_selection_image_generation_disabled",
+                    fallback=(
+                        "LLM selection '{selection_id}' references provider '{provider_id}' "
+                        "with image generation disabled"
+                    ),
+                    selection_id=selection_id,
+                    provider_id=selection.provider_id,
+                )
             )
 
     llm_providers: Dict[str, Any] = {}

@@ -7,6 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from ... import i18n as core_i18n
 from ...config import get_config
 from ...config.llm_registry import (
     LLMCustomProviderMetaModel,
@@ -88,7 +89,7 @@ async def get_llm_provider_catalog():
     )
     return LLMProviderCatalogResponseModel(
         success=True,
-        message="LLM provider catalog loaded",
+        message=core_i18n.t("llm.providers.catalog.loaded", fallback="LLM provider catalog loaded"),
         data=LLMProviderCatalogDataModel(providers=catalog),
     )
 
@@ -106,7 +107,7 @@ async def resolve_llm_provider_catalog(payload: LLMProviderCatalogResolveRequest
     )
     return LLMProviderCatalogResponseModel(
         success=True,
-        message="LLM provider catalog resolved",
+        message=core_i18n.t("llm.providers.catalog.resolved", fallback="LLM provider catalog resolved"),
         data=LLMProviderCatalogDataModel(providers=catalog),
     )
 
@@ -116,7 +117,7 @@ async def get_llm_custom_provider_template():
     registry = _load_llm_provider_registry()
     return LLMCustomProviderTemplateResponseModel(
         success=True,
-        message="LLM custom provider template loaded",
+        message=core_i18n.t("llm.providers.custom_template.loaded", fallback="LLM custom provider template loaded"),
         data=LLMCustomProviderTemplateDataModel(
             template=registry.custom_provider,
             defaults=_build_custom_provider_defaults(registry.custom_provider),
@@ -133,7 +134,7 @@ async def discover_llm_provider_models(payload: DiscoverLLMModelsRequestModel):
     )
     return DiscoverLLMModelsApiResponseModel(
         success=True,
-        message="LLM provider models discovered",
+        message=core_i18n.t("llm.providers.models.discovered", fallback="LLM provider models discovered"),
         data=DiscoverLLMModelsResponseModel(models=models, default_model=models[0] if models else None),
     )
 
@@ -166,6 +167,6 @@ async def test_llm_provider_connection(payload: TestLLMProviderRequestModel):
 
     return TestLLMProviderApiResponseModel(
         success=True,
-        message="LLM provider connection succeeded",
+        message=core_i18n.t("llm.providers.connection.succeeded", fallback="LLM provider connection succeeded"),
         data=TestLLMProviderResponseModel(**result),
     )

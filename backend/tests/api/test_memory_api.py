@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from magi.api.routes import register_api_routes
 from magi.api.routers.memory import memory_router
+from magi.i18n import language_context
 from magi.memory.event_contracts import (
     IngestTarget,
     MemoryDomain,
@@ -362,6 +363,32 @@ def test_memory_statistics_api_reports_new_layers(monkeypatch, tmp_path):
     assert "l4" in body
     assert body["total_memories"] == 16
     assert body["disk_usage_bytes"] == 28
+
+
+def test_memory_search_unavailable_returns_localized_detail(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    monkeypatch.setattr("magi.api.routers.memory._resolve_hybrid_retrieval_service", lambda: None)
+
+    client = TestClient(app)
+    with language_context("zh-CN"):
+        response = client.post("/api/memory/search", json={"query": "hello"})
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "混合检索服务未初始化"
+
+
+def test_l2_episode_empty_annotation_returns_localized_detail(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory())
+
+    client = TestClient(app)
+    with language_context("zh-CN"):
+        response = client.patch("/api/memory/l2/episodes/episode-1", json={})
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "没有可更新的字段"
 
 
 def test_l0_sessions_api_prefers_chat_summary_titles_and_short_ids(monkeypatch):

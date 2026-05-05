@@ -71,11 +71,11 @@ def test_list_personas_can_include_soft_deleted_records(tmp_path, monkeypatch) -
     persona_id = asyncio.run(repo.create(_SAMPLE_CONFIG, locale="en", slug="deleted_persona"))
     asyncio.run(repo.delete(persona_id))
 
-    monkeypatch.setattr(personas_module, "_get_repo", lambda: repo)
+    async def _skip_builtin_sync(_repo):
+        return None
 
-    app = FastAPI()
-    app.include_router(personas_router, prefix="/api/personas")
-    client = TestClient(app)
+    monkeypatch.setattr(personas_module, "_sync_registered_builtin_personas", _skip_builtin_sync)
+    client = _build_client(repo, monkeypatch)
 
     default_response = client.get("/api/personas/")
     include_deleted_response = client.get("/api/personas/?include_deleted=true")
@@ -87,3 +87,49 @@ def test_list_personas_can_include_soft_deleted_records(tmp_path, monkeypatch) -
     assert len(deleted_items) == 1
     assert deleted_items[0]["persona_id"] == persona_id
     assert deleted_items[0]["deleted_at"] is not None
+
+
+def _build_client(repo: PersonaRepository, monkeypatch) -> TestClient:
+    monkeypatch.setattr(personas_module, "_get_repo", lambda: repo)
+    app = FastAPI()
+    app.include_router(personas_router, prefix="/api/personas")
+    return TestClient(app)
+
+
+def test_get_persona_not_found_returns_localized_detail(tmp_path, monkeypatch) -> None:
+    repo = PersonaRepository(str(tmp_path / "persona_registry.db"))
+    asyncio.run(repo.init())
+    client = _build_client(repo, monkeypatch)
+
+    response = client.get("/api/personas/missing", headers={"Accept-Language": "zh-CN"})
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "未找到人格"
+
+
+def test_create_persona_invalid_config_returns_localized_detail(tmp_path, monkeypatch) -> None:
+    repo = PersonaRepository(str(tmp_path / "persona_registry.db"))
+    asyncio.run(repo.init())
+    client = _build_client(repo, monkeypatch)
+
+    response = client.post(
+        "/api/personas/",
+        json={"config_json": "{bad", "locale": "zh"},
+        headers={"Accept-Language": "zh-CN"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "人格配置 JSON 无效"
+
+
+def test_delete_active_persona_returns_localized_conflict(tmp_path, monkeypatch) -> None:
+    repo = PersonaRepository(str(tmp_path / "persona_registry.db"))
+    asyncio.run(repo.init())
+    persona_id = asyncio.run(repo.create(_SAMPLE_CONFIG, locale="en", slug="active_persona"))
+    asyncio.run(repo.set_active(persona_id))
+    client = _build_client(repo, monkeypatch)
+
+    response = client.delete(f"/api/personas/{persona_id}", headers={"Accept-Language": "zh-CN"})
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "不能删除当前启用的人格"

@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from ...config import get_config
 from ...core.runtime_bindings import require_runtime_command_queue
 from ...events.contracts import SensorStateFlushCommand, SensorSyncCommand
+from ... import i18n as core_i18n
 from ...plugins.provider import resolve_plugin_manager, resolve_sensor_registry
 from ...scheduler import ScheduledTargetType
 from ...scheduler.contracts import build_sensor_schedule_id, build_sensor_target_key
@@ -20,7 +21,6 @@ from ...utils.runtime import get_runtime_paths
 sensors_router = APIRouter()
 
 _SENSOR_INTERNAL_ERROR_MARKERS = ("<Queue at ", "MemoryEvent(", " is bound to a different event loop")
-_SENSOR_LOOP_MISMATCH_MESSAGE = "Sensor sync failed due to an internal runtime loop mismatch."
 
 
 class SensorSourceAuthorizationRequest(BaseModel):
@@ -69,9 +69,15 @@ def _sanitize_sensor_error(error: Any) -> str | None:
     if not text:
         return None
     if " is bound to a different event loop" in text:
-        return _SENSOR_LOOP_MISMATCH_MESSAGE
+        return core_i18n.t(
+            "sensors.sync.loop_mismatch",
+            fallback="Sensor sync failed due to an internal runtime loop mismatch.",
+        )
     if any(marker in text for marker in _SENSOR_INTERNAL_ERROR_MARKERS):
-        return "Sensor sync failed due to an internal runtime error."
+        return core_i18n.t(
+            "sensors.sync.internal_runtime_error",
+            fallback="Sensor sync failed due to an internal runtime error.",
+        )
     if len(text) > 280:
         return f"{text[:277]}..."
     return text
@@ -231,17 +237,27 @@ async def trigger_sensor_source_sync(source_name: str):
     sensor_registry = resolve_sensor_registry()
     resolved = sensor_registry.resolve_source_sensor(source_name)
     if resolved is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sensor source not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=core_i18n.t("sensors.errors.source_not_found", fallback="Sensor source not found"),
+        )
     _, _, sensor, _ = resolved
     if not bool(getattr(sensor, "supports_pull_sync", False)):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Sensor source does not support pull sync: {source_name}",
+            detail=core_i18n.t(
+                "sensors.errors.pull_sync_unsupported",
+                fallback="Sensor source does not support pull sync: {source_name}",
+                source_name=source_name,
+            ),
         )
     try:
         runtime_command_queue = require_runtime_command_queue()
     except RuntimeError as exc:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Scheduler unavailable") from exc
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=core_i18n.t("sensors.errors.scheduler_unavailable", fallback="Scheduler unavailable"),
+        ) from exc
     command_id = await runtime_command_queue.enqueue_sensor_sync(
         SensorSyncCommand(
             source="api.sensors",
@@ -257,17 +273,27 @@ async def trigger_sensor_state_flush(source_name: str):
     sensor_registry = resolve_sensor_registry()
     resolved = sensor_registry.resolve_source_sensor(source_name)
     if resolved is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sensor source not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=core_i18n.t("sensors.errors.source_not_found", fallback="Sensor source not found"),
+        )
     _, _, sensor, _ = resolved
     if not bool(getattr(sensor, "supports_state_flush", False)):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Sensor source does not support state flush: {source_name}",
+            detail=core_i18n.t(
+                "sensors.errors.state_flush_unsupported",
+                fallback="Sensor source does not support state flush: {source_name}",
+                source_name=source_name,
+            ),
         )
     try:
         runtime_command_queue = require_runtime_command_queue()
     except RuntimeError as exc:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Scheduler unavailable") from exc
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=core_i18n.t("sensors.errors.scheduler_unavailable", fallback="Scheduler unavailable"),
+        ) from exc
     command_id = await runtime_command_queue.enqueue_sensor_state_flush(
         SensorStateFlushCommand(
             source="api.sensors",
@@ -283,14 +309,20 @@ async def authorize_sensor_source(source_name: str, request: SensorSourceAuthori
     sensor_registry = resolve_sensor_registry()
     resolved = sensor_registry.resolve_source_sensor(source_name)
     if resolved is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sensor source not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=core_i18n.t("sensors.errors.source_not_found", fallback="Sensor source not found"),
+        )
 
     _, _, sensor, _ = resolved
     authorize = getattr(sensor, "request_activation_authorization", None)
     if not callable(authorize):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Sensor source does not support authorization",
+            detail=core_i18n.t(
+                "sensors.errors.authorization_unsupported",
+                fallback="Sensor source does not support authorization",
+            ),
         )
 
     result = authorize(dict(request.field_values))
@@ -299,6 +331,9 @@ async def authorize_sensor_source(source_name: str, request: SensorSourceAuthori
     if not isinstance(result, dict):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Sensor source authorization returned an invalid response",
+            detail=core_i18n.t(
+                "sensors.errors.authorization_invalid_response",
+                fallback="Sensor source authorization returned an invalid response",
+            ),
         )
     return result

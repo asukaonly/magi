@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..i18n import is_zh_language
+from .. import i18n as core_i18n
 
 
 _TONE_TO_VALENCE = {
@@ -68,7 +68,7 @@ class TimelineStateBandBuilder:
         snapshots: list[dict[str, Any]],
         locale: str = "en",
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        zh = is_zh_language(locale, default="en")
+        zh = core_i18n.is_zh_language(locale, default="en")
         relevant_summaries = [
             summary
             for summary in summaries
@@ -120,9 +120,14 @@ class TimelineStateBandBuilder:
                         "marker_id": f"state-marker:{summary_id}",
                         "timestamp": period_start,
                         "kind": "shift",
-                        "label": "状态变化" if zh else "State shift",
+                        "label": core_i18n.t("timeline.state.shift", language=locale, fallback="状态变化" if zh else "State shift"),
                         "summary": changes[0] if changes else (
-                            f"压力变化为 {stress_level:.2f}。" if zh else f"Stress changed to {stress_level:.2f}."
+                            core_i18n.t(
+                                "timeline.state.marker.stress_changed",
+                                language=locale,
+                                fallback="压力变化为 {stress_level}。" if zh else "Stress changed to {stress_level}.",
+                                stress_level=f"{stress_level:.2f}",
+                            )
                         ),
                         "source_band_ids": [str(previous_band["band_id"]), band["band_id"]],
                         "source_summary_ids": [summary_id],

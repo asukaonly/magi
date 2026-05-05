@@ -10,7 +10,7 @@ from fastapi import Request, Response, status
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from ..i18n import DEFAULT_LANGUAGE, normalize_language, set_current_language
+from ..i18n import DEFAULT_LANGUAGE, normalize_language, set_current_language, t
 from ..plugins.i18n import set_current_language as set_plugin_current_language
 
 logger = logging.getLogger(__name__)
@@ -54,7 +54,11 @@ class ErrorHandler(BaseHTTPMiddleware):
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 content={
                     "success": False,
-                    "message": "Internal server error",
+                    "message": t(
+                        "errors.internal_server_error",
+                        language=request.headers.get("Accept-Language"),
+                        fallback="Internal server error",
+                    ),
                     "error_code": "internal_error",
                     "details": str(exc) if logger.isEnabledFor(logging.DEBUG) else None,
                 },

@@ -10,6 +10,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
+from ... import i18n as core_i18n
 from ...core.runtime_bindings import require_scheduler_service
 from ...scheduler.contracts import (
     ScheduleDefinition,
@@ -242,11 +243,17 @@ async def update_schedule(schedule_id: str, body: ScheduleUpdateBody) -> dict[st
     await repository.initialize()
     existing = await repository.get_schedule(schedule_id)
     if existing is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=core_i18n.t("schedules.errors.not_found", fallback="Schedule not found"),
+        )
     if existing.target_type is ScheduledTargetType.SENSOR_SYNC:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Sensor schedules must be updated from sensor settings",
+            detail=core_i18n.t(
+                "schedules.errors.sensor_schedule_settings_only",
+                fallback="Sensor schedules must be updated from sensor settings",
+            ),
         )
 
     next_schedule = ScheduleDefinition(
@@ -284,7 +291,10 @@ async def get_schedule(schedule_id: str) -> dict[str, Any]:
     await repository.initialize()
     schedule = await repository.get_schedule(schedule_id)
     if schedule is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=core_i18n.t("schedules.errors.not_found", fallback="Schedule not found"),
+        )
     state = await repository.get_schedule_runtime_state(schedule)
     return {"schedule": _serialize_schedule(schedule, state)}
 
@@ -295,7 +305,10 @@ async def delete_schedule(schedule_id: str) -> Response:
     await repository.initialize()
     existing = await repository.get_schedule(schedule_id)
     if existing is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=core_i18n.t("schedules.errors.not_found", fallback="Schedule not found"),
+        )
     try:
         scheduler_service = require_scheduler_service()
     except RuntimeError:
@@ -316,21 +329,33 @@ async def run_schedule_now(schedule_id: str) -> dict[str, Any]:
     await repository.initialize()
     existing = await repository.get_schedule(schedule_id)
     if existing is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=core_i18n.t("schedules.errors.not_found", fallback="Schedule not found"),
+        )
     try:
         scheduler_service = require_scheduler_service()
     except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Scheduler service is not available",
+            detail=core_i18n.t(
+                "schedules.errors.service_unavailable",
+                fallback="Scheduler service is not available",
+            ),
         ) from exc
 
     result = await scheduler_service.execute_schedule(schedule_id, manual=True)
     if not result.success:
         if result.message == "schedule_not_found":
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=core_i18n.t("schedules.errors.not_found", fallback="Schedule not found"),
+            )
         if result.message == "target_busy":
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Schedule target is busy")
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=core_i18n.t("schedules.errors.target_busy", fallback="Schedule target is busy"),
+            )
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=result.message)
 
     saved = await repository.get_schedule(schedule_id)
@@ -352,14 +377,14 @@ async def cancel_schedule_activity(
     if not activity_id.startswith("sensor_job:"):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Activity is not cancellable",
+            detail=core_i18n.t("schedules.errors.activity_not_cancellable", fallback="Activity is not cancellable"),
         )
     job_id = activity_id.split(":", 1)[1]
     job = await repository.cancel_queued_sensor_sync_job(job_id, reason=reason)
     if job is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Activity is not cancellable",
+            detail=core_i18n.t("schedules.errors.activity_not_cancellable", fallback="Activity is not cancellable"),
         )
     return {
         "activity": {

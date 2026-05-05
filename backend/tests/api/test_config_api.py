@@ -31,6 +31,7 @@ from magi.config.llm_registry import (
     resolve_provider_model_catalog,
     resolve_llm_profile,
 )
+from magi.i18n import language_context
 
 
 def _provider_settings(
@@ -741,18 +742,20 @@ def test_discover_llm_models_returns_models_from_provider_endpoint(
         _fake_discover,
     )
 
-    response = client.post(
-        "/llm/providers/discover-models",
-        json={
-            "provider_type": "custom",
-            "base_url": "https://proxy.example.com/v1",
-            "api_key": "sk-test",
-            "api_format": "openai",
-        },
-    )
+    with language_context("zh-CN"):
+        response = client.post(
+            "/llm/providers/discover-models",
+            json={
+                "provider_type": "custom",
+                "base_url": "https://proxy.example.com/v1",
+                "api_key": "sk-test",
+                "api_format": "openai",
+            },
+        )
 
     assert response.status_code == 200
     assert response.json()["success"] is True
+    assert response.json()["message"] == "LLM 提供商模型已发现"
     assert response.json()["data"]["models"] == ["foo-1", "foo-2"]
     assert response.json()["data"]["default_model"] == "foo-1"
 
@@ -790,6 +793,58 @@ def test_config_test_endpoint_accepts_new_llm_structure():
     assert response.json()["success"] is True
 
 
+def test_config_test_endpoint_returns_localized_validation_message():
+    app = FastAPI()
+    app.include_router(config_router, prefix="/config")
+    client = TestClient(app)
+    payload = SystemConfigModel().model_dump(mode="json")
+    payload["llm"]["selections"].pop("core")
+
+    response = client.post(
+        "/config/test",
+        json=payload,
+        headers={"Accept-Language": "zh-CN"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["success"] is False
+    assert response.json()["message"] == "必须配置 LLM 场景选择"
+
+
+def test_config_update_validation_error_is_localized():
+    app = FastAPI()
+    app.include_router(config_router, prefix="/config")
+    client = TestClient(app)
+    payload = SystemConfigModel()
+    payload.llm.providers["openai"] = _provider_config_model()
+    payload.llm.providers["openai"].enabled = False
+    payload.llm.selections["core"] = LLMSelectionConfigModel(provider_id="openai", model="gpt-5.2")
+
+    response = client.put(
+        "/config/",
+        json=payload.model_dump(mode="json"),
+        headers={"Accept-Language": "zh-CN"},
+    )
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "LLM 选择“core”引用了已禁用的提供商“openai”"
+
+
+def test_telegram_connection_invalid_token_returns_localized_detail():
+    app = FastAPI()
+    app.include_router(config_router, prefix="/config")
+    client = TestClient(app)
+
+    response = client.post(
+        "/config/channels/telegram/test",
+        json={"bot_token": "", "proxy": ""},
+        headers={"Accept-Language": "zh-CN"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "需要有效的机器人令牌"
+
+
 def test_llm_provider_test_endpoint_uses_request_provider_payload(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -813,28 +868,30 @@ def test_llm_provider_test_endpoint_uses_request_provider_payload(
         raising=False,
     )
 
-    response = client.post(
-        "/llm/providers/test",
-        json={
-            "provider_id": "openai",
-            "model": "gpt-5.2",
-            "provider": {
-                "enabled": True,
-                "provider_type": "openai",
-                "display_name": "OpenAI",
-                "services": {
-                    "chat": {
-                        "enabled": True,
-                        "api_key": "sk-live",
-                        "base_url": "https://api.openai.com/v1",
-                    }
+    with language_context("en"):
+        response = client.post(
+            "/llm/providers/test",
+            json={
+                "provider_id": "openai",
+                "model": "gpt-5.2",
+                "provider": {
+                    "enabled": True,
+                    "provider_type": "openai",
+                    "display_name": "OpenAI",
+                    "services": {
+                        "chat": {
+                            "enabled": True,
+                            "api_key": "sk-live",
+                            "base_url": "https://api.openai.com/v1",
+                        }
+                    },
                 },
             },
-        },
-    )
+        )
 
     assert response.status_code == 200
     assert response.json()["success"] is True
+    assert response.json()["message"] == "LLM provider connection succeeded"
     assert response.json()["data"]["model"] == "gpt-5.2"
     assert captured == {
         "provider_id": "openai",

@@ -9,12 +9,12 @@ import json
 from dataclasses import asdict
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from ...core.logger import get_logger
 from ...personality.persona_repository import PersonaRepository
-from ...i18n import get_preferred_language
+from ... import i18n as core_i18n
 from ...personality.persona_seed import list_seed_previews, resolve_locale, seed_builtin_personas
 from ...utils.runtime import get_runtime_paths
 
@@ -104,6 +104,10 @@ def _get_repo() -> PersonaRepository:
     return PersonaRepository(str(get_runtime_paths().persona_registry_db_path))
 
 
+def _request_language(request: Request) -> str | None:
+    return request.headers.get("Accept-Language") or None
+
+
 async def _sync_registered_builtin_personas(repo: PersonaRepository) -> None:
     summaries = await repo.list_all(include_deleted=True)
     locales = {
@@ -112,7 +116,7 @@ async def _sync_registered_builtin_personas(repo: PersonaRepository) -> None:
         if item.is_builtin and item.seed_slug and item.deleted_at is None
     }
     if not locales:
-        locales = {resolve_locale(get_preferred_language())}
+        locales = {resolve_locale(core_i18n.get_preferred_language())}
     for locale in sorted(locales):
         await seed_builtin_personas(repo, locale)
 
@@ -141,7 +145,7 @@ async def get_active_persona():
 
 
 @personas_router.put("/active", response_model=ActivePersonaResponse)
-async def set_active_persona(payload: ActivePersonaRequest):
+async def set_active_persona(request: Request, payload: ActivePersonaRequest):
     """Switch the active persona and reload agent personality state."""
     repo = _get_repo()
     await repo.init()
@@ -149,7 +153,14 @@ async def set_active_persona(payload: ActivePersonaRequest):
         await repo.set_active(payload.persona_id)
         record = await repo.get(payload.persona_id)
     except KeyError:
-        raise HTTPException(status_code=404, detail="Persona not found")
+        raise HTTPException(
+            status_code=404,
+            detail=core_i18n.t(
+                "personality.personas.errors.not_found",
+                language=_request_language(request),
+                fallback="Persona not found",
+            ),
+        )
 
     # Synchronize in-memory active slug and config so sync callers see the change.
     slug = record.slug
@@ -194,14 +205,21 @@ async def seed_personas(locale: str = "en"):
 
 
 @personas_router.post("/", response_model=PersonaDetailResponse, status_code=201)
-async def create_persona(payload: PersonaCreateRequest):
+async def create_persona(request: Request, payload: PersonaCreateRequest):
     """Create a new custom persona."""
     repo = _get_repo()
     await repo.init()
     try:
         json.loads(payload.config_json)
     except (json.JSONDecodeError, TypeError):
-        raise HTTPException(status_code=400, detail="Invalid config_json")
+        raise HTTPException(
+            status_code=400,
+            detail=core_i18n.t(
+                "personality.personas.errors.invalid_config_json",
+                language=_request_language(request),
+                fallback="Invalid config_json",
+            ),
+        )
     persona_id = await repo.create(
         config_json=payload.config_json,
         locale=payload.locale,
@@ -228,14 +246,21 @@ async def create_persona(payload: PersonaCreateRequest):
 
 
 @personas_router.get("/{persona_id}", response_model=PersonaDetailResponse)
-async def get_persona(persona_id: str, include_deleted: bool = False):
+async def get_persona(request: Request, persona_id: str, include_deleted: bool = False):
     """Get full persona detail by ID."""
     repo = _get_repo()
     await repo.init()
     try:
         record = await repo.get(persona_id, include_deleted=include_deleted)
     except KeyError:
-        raise HTTPException(status_code=404, detail="Persona not found")
+        raise HTTPException(
+            status_code=404,
+            detail=core_i18n.t(
+                "personality.personas.errors.not_found",
+                language=_request_language(request),
+                fallback="Persona not found",
+            ),
+        )
     return PersonaDetailResponse(
         data=PersonaDetailModel(
             persona_id=record.persona_id,
@@ -256,7 +281,7 @@ async def get_persona(persona_id: str, include_deleted: bool = False):
 
 
 @personas_router.put("/{persona_id}", response_model=PersonaDetailResponse)
-async def update_persona(persona_id: str, payload: PersonaUpdateRequest):
+async def update_persona(request: Request, persona_id: str, payload: PersonaUpdateRequest):
     """Update mutable fields of an existing persona."""
     repo = _get_repo()
     await repo.init()
@@ -271,7 +296,14 @@ async def update_persona(persona_id: str, payload: PersonaUpdateRequest):
         )
         record = await repo.get(persona_id)
     except KeyError:
-        raise HTTPException(status_code=404, detail="Persona not found")
+        raise HTTPException(
+            status_code=404,
+            detail=core_i18n.t(
+                "personality.personas.errors.not_found",
+                language=_request_language(request),
+                fallback="Persona not found",
+            ),
+        )
     return PersonaDetailResponse(
         data=PersonaDetailModel(
             persona_id=record.persona_id,
@@ -292,14 +324,28 @@ async def update_persona(persona_id: str, payload: PersonaUpdateRequest):
 
 
 @personas_router.delete("/{persona_id}")
-async def delete_persona(persona_id: str):
+async def delete_persona(request: Request, persona_id: str):
     """Delete a persona (cannot delete the active one)."""
     repo = _get_repo()
     await repo.init()
     try:
         await repo.delete(persona_id)
     except KeyError:
-        raise HTTPException(status_code=404, detail="Persona not found")
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+        raise HTTPException(
+            status_code=404,
+            detail=core_i18n.t(
+                "personality.personas.errors.not_found",
+                language=_request_language(request),
+                fallback="Persona not found",
+            ),
+        )
+    except ValueError:
+        raise HTTPException(
+            status_code=409,
+            detail=core_i18n.t(
+                "personality.personas.errors.cannot_delete_active",
+                language=_request_language(request),
+                fallback="Cannot delete the currently active persona",
+            ),
+        )
     return {"success": True}

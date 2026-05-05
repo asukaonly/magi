@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional
 from fastapi import HTTPException, Query, status
 
 from ..dependencies import _resolve_unified_memory
+from ..helpers import memory_t
 from ..router import memory_router
 from ..schemas import EpisodeAnnotationRequest
 
@@ -59,10 +60,13 @@ async def get_l2_episode(episode_id: str):
     """Get a single episode with its event memberships."""
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="L2 store not initialized")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t("memory.errors.l2_store_uninitialized", "L2 store not initialized"),
+        )
     episode = await unified_memory.l2.get_episode(episode_id=episode_id)
     if episode is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Episode not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=memory_t("memory.errors.episode_not_found", "Episode not found"))
     events = await unified_memory.l2.list_episode_events(episode_id=episode_id)
     return {**episode, "events": events}
 
@@ -72,7 +76,10 @@ async def annotate_l2_episode(episode_id: str, body: EpisodeAnnotationRequest):
     """User annotation on an episode (label, note, pin)."""
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="L2 store not initialized")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t("memory.errors.l2_store_uninitialized", "L2 store not initialized"),
+        )
     updates: Dict[str, Any] = {}
     if body.user_label is not None:
         updates["user_label"] = body.user_label
@@ -83,8 +90,8 @@ async def annotate_l2_episode(episode_id: str, body: EpisodeAnnotationRequest):
         if body.user_pinned:
             updates["status"] = "user_pinned"
     if not updates:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields to update")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=memory_t("memory.errors.no_fields_to_update", "No fields to update"))
     ok = await unified_memory.l2.update_episode(episode_id=episode_id, **updates)
     if not ok:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Episode not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=memory_t("memory.errors.episode_not_found", "Episode not found"))
     return await unified_memory.l2.get_episode(episode_id=episode_id)

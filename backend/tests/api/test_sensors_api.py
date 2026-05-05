@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from magi.api.routers import sensors as sensors_module
 from magi.api.routers.sensors import sensors_router
+from magi.i18n import language_context
 from magi.plugins import ExtensionFieldSpec
 from magi.scheduler import (
     ScheduleDefinition,
@@ -219,8 +220,19 @@ def test_get_sensor_source_status_sanitizes_internal_runtime_error(monkeypatch):
         )
     )
 
-    response = client.get("/api/sensors/status")
+    with language_context("en"):
+        response = client.get("/api/sensors/status")
 
     assert response.status_code == 200
     error_text = response.json()["sources"][0]["last_error"]
     assert error_text == "Sensor sync failed due to an internal runtime loop mismatch."
+
+
+def test_trigger_sensor_source_sync_returns_localized_not_found(monkeypatch):
+    client, _, _ = _build_client(monkeypatch)
+
+    with language_context("zh-CN"):
+        response = client.post("/api/sensors/missing/sync")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "未找到传感器来源"

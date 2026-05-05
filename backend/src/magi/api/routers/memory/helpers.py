@@ -6,7 +6,12 @@ from typing import Any, Dict
 
 from fastapi import HTTPException, status
 
+from magi import i18n as core_i18n
 from magi.memory.event_contracts import MemoryEvent
+
+
+def memory_t(key: str, fallback: str, **kwargs: Any) -> str:
+    return core_i18n.t(key, fallback=fallback, **kwargs)
 
 
 def canonical_self_id(unified_memory: Any) -> str:
@@ -75,7 +80,11 @@ def parse_day_boundary(value: str | None, *, end_of_day: bool) -> float | None:
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Invalid date value: {normalized}",
+            detail=memory_t(
+                "memory.errors.invalid_date",
+                "Invalid date value: {value}",
+                value=normalized,
+            ),
         ) from exc
     boundary = datetime_time.max if end_of_day else datetime_time.min
     return datetime.combine(parsed, boundary).timestamp()

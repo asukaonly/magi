@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 
+from ...i18n import t
 from ...runtime_defaults import DEFAULT_USER_ID
 from .messages_common import legacy_messages_module
 
@@ -27,7 +28,7 @@ async def upload_chat_attachment(
     resolved_turn_id = legacy._require_session_id(turn_id)
     content = await file.read()
     if not content:
-        raise HTTPException(status_code=400, detail="Empty file is not allowed.")
+        raise HTTPException(status_code=400, detail=t("chat.attachments.empty_file", fallback="Empty file is not allowed."))
 
     service = legacy._get_chat_attachment_ingestion_service()
     try:
@@ -43,7 +44,7 @@ async def upload_chat_attachment(
 
     return {
         "success": True,
-        "message": "Attachment uploaded",
+        "message": t("chat.attachments.uploaded", fallback="Attachment uploaded"),
         "data": {
             "user_id": user_id,
             "session_id": resolved_session_id,
@@ -70,11 +71,11 @@ async def get_chat_attachment_content(
         resolved_attachment_id,
     )
     if not isinstance(attachment, dict):
-        raise HTTPException(status_code=404, detail="Attachment not found")
+        raise HTTPException(status_code=404, detail=t("chat.attachments.not_found", fallback="Attachment not found"))
 
     storage_path = Path(str(attachment.get("storage_path") or "").strip())
     if not storage_path.is_file():
-        raise HTTPException(status_code=404, detail="Attachment file not found")
+        raise HTTPException(status_code=404, detail=t("chat.attachments.file_not_found", fallback="Attachment file not found"))
 
     return FileResponse(
         path=storage_path,
@@ -153,14 +154,17 @@ async def clear_conversation_history(
 
         return {
             "success": True,
-            "message": "Conversation history cleared",
+            "message": t("chat.history.cleared", fallback="Conversation history cleared"),
             "user_id": user_id,
             "session_id": resolved_session_id,
         }
     except RuntimeError:
         return {
             "success": True,
-            "message": "Conversation history cleared (agent not initialized)",
+            "message": t(
+                "chat.history.cleared_agent_uninitialized",
+                fallback="Conversation history cleared (agent not initialized)",
+            ),
             "user_id": user_id,
             "session_id": session_id,
         }

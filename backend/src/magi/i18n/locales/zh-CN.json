@@ -1,5 +1,302 @@
 {
+  "errors": {
+    "internal_server_error": "服务器内部错误"
+  },
   "chat": {
-    "image_vision_unsupported": "我收到了图片，但当前核心模型不支持图片输入。请切换到支持视觉能力的核心模型，或补充文字描述后再发送。"
+    "image_vision_unsupported": "我收到了图片，但当前核心模型不支持图片输入。请切换到支持视觉能力的核心模型，或补充文字描述后再发送。",
+    "runtime": {
+      "not_ready": {
+        "llm_selection_pending": "AI 运行时尚未就绪。请先完成核心模型或 context_decider 模型配置。",
+        "configuration_invalid": "AI 运行时配置无效。请检查已启用的提供商和模型选择。",
+        "starting": "AI 运行时仍在启动中。请稍后重试。",
+        "startup_pending": "AI 运行时尚未就绪。请等待启动完成后再试。"
+      }
+    },
+    "dispatch": {
+      "queued": "消息已进入处理队列",
+      "failed_to_queue": "消息入队失败",
+      "errors": {
+        "runtime_command_queue_not_initialized": "运行时命令队列尚未初始化。请完成初始设置或检查已保存的配置。",
+        "chat_store_not_initialized": "聊天存储尚未初始化。",
+        "session_id_required": "需要提供会话 ID。",
+        "empty_turn": "请输入消息或添加附件。",
+        "persist_failed": "聊天轮次保存失败",
+        "enqueue_failed": "运行时命令入队失败",
+        "attachments_must_be_list": "附件必须是列表。",
+        "attachment_must_be_object": "每个附件必须是对象。",
+        "attachment_kind_required": "每个附件都必须包含 kind。"
+      }
+    },
+    "attachments": {
+      "empty_file": "文件不能为空。",
+      "unsupported_type": "不支持的附件类型。",
+      "image_too_large": "图片附件不能超过 20 MB。",
+      "file_too_large": "文件附件不能超过 50 MB。",
+      "uploaded": "附件已上传",
+      "not_found": "未找到附件",
+      "file_not_found": "未找到附件文件"
+    },
+    "history": {
+      "cleared": "对话历史已清空",
+      "cleared_agent_uninitialized": "对话历史已清空（Agent 尚未初始化）"
+    },
+    "run": {
+      "cancel": {
+        "unsupported": "聊天任务 Agent 不支持显式取消会话运行。",
+        "no_active": "当前没有可取消的运行",
+        "requested": "已请求取消当前运行"
+      },
+      "detach": {
+        "unsupported": "聊天任务 Agent 不支持显式转入后台运行。",
+        "no_active": "当前没有可转入后台的运行",
+        "requested": "已请求将当前运行转入后台"
+      }
+    }
+  },
+  "timeline": {
+    "sources": {
+      "chrome_history": "Chrome 历史",
+      "manual_journal": "手动记录",
+      "chat": "对话",
+      "photo_library": "照片库",
+      "screen_time": "应用使用情况",
+      "system_media": "听歌/视频记录",
+      "terminal_history": "终端历史",
+      "git_activity": "Git 活动",
+      "calendar": "日历",
+      "netease_music": "网易云音乐"
+    },
+    "mood": {
+      "positive": "积极",
+      "warm": "温和",
+      "steady": "平稳",
+      "neutral": "中性",
+      "cool": "冷静",
+      "low": "低落",
+      "tense": "紧张",
+      "anxious": "焦虑",
+      "negative": "消极",
+      "focused": "专注"
+    },
+    "overview": {
+      "month": "窗口概览",
+      "week": "本周概览",
+      "day": "当日概览",
+      "hour": "证据概览",
+      "fallback_summary": "这个时间窗口里已有活动记录，但还没有足够的摘要上下文。"
+    },
+    "takeaways": {
+      "main_source": "主要来源：{source}",
+      "state_changed": "状态发生变化",
+      "event_count": "捕获 {count} 条事件"
+    },
+    "state": {
+      "unknown": "未知",
+      "shift": "状态变化",
+      "marker": {
+        "default_summary": "状态发生变化。",
+        "stress_changed": "压力变化为 {stress_level}。"
+      },
+      "transition": {
+        "label": "{trait}变化",
+        "summary": "{trait}从 {old_value} 变化为 {new_value}。"
+      },
+      "stress": {
+        "unknown": "未知",
+        "high": "高压力",
+        "moderate": "中等压力",
+        "low": "低压力"
+      },
+      "engagement": {
+        "unknown": "未知",
+        "high": "高参与度",
+        "steady": "稳定参与",
+        "low": "低参与度"
+      }
+    },
+    "theme": {
+      "reflection_window": "反思窗口",
+      "reflection_title": "{category}反思",
+      "activity": "活动"
+    },
+    "raw_event": {
+      "title": "事件",
+      "memory_title": "记忆事件"
+    }
+  },
+  "sensors": {
+    "sync": {
+      "loop_mismatch": "传感器同步失败：内部运行时事件循环不匹配。",
+      "internal_runtime_error": "传感器同步失败：内部运行时错误。"
+    },
+    "errors": {
+      "source_not_found": "未找到传感器来源",
+      "pull_sync_unsupported": "传感器来源不支持拉取同步：{source_name}",
+      "state_flush_unsupported": "传感器来源不支持状态清理：{source_name}",
+      "scheduler_unavailable": "调度器不可用",
+      "authorization_unsupported": "传感器来源不支持授权",
+      "authorization_invalid_response": "传感器来源授权返回了无效响应"
+    }
+  },
+  "schedules": {
+    "errors": {
+      "not_found": "未找到计划任务",
+      "sensor_schedule_settings_only": "传感器计划任务必须在传感器设置中更新",
+      "service_unavailable": "调度服务不可用",
+      "target_busy": "计划任务目标正忙",
+      "activity_not_cancellable": "该活动不可取消"
+    }
+  },
+  "tools": {
+    "errors": {
+      "not_found": "未找到工具：{tool_name}"
+    },
+    "config": {
+      "no_updates": "没有需要应用的更新",
+      "updated": "工具 {tool_name} 配置已更新",
+      "save_failed": "保存配置失败"
+    }
+  },
+  "config": {
+    "messages": {
+      "loaded": "配置已加载",
+      "updated": "配置已更新",
+      "template": "配置模板",
+      "valid": "配置有效"
+    },
+    "errors": {
+      "save_failed": "保存配置失败"
+    },
+    "validation": {
+      "llm_selections_required": "必须配置 LLM 场景选择",
+      "llm_provider_model_together": "LLM 提供商和模型必须同时设置",
+      "llm_selection_unknown_provider": "LLM 选择“{selection_id}”引用了未知提供商“{provider_id}”",
+      "llm_selection_disabled_provider": "LLM 选择“{selection_id}”引用了已禁用的提供商“{provider_id}”",
+      "llm_selection_chat_disabled": "LLM 选择“{selection_id}”引用的提供商“{provider_id}”未启用聊天服务",
+      "llm_selection_embedding_disabled": "LLM 选择“{selection_id}”引用的提供商“{provider_id}”未启用嵌入服务",
+      "llm_selection_image_generation_disabled": "LLM 选择“{selection_id}”引用的提供商“{provider_id}”未启用图像生成服务"
+    },
+    "onboarding": {
+      "template_loaded": "引导配置模板已加载",
+      "save_failed": "保存引导配置失败",
+      "saved": "引导配置已保存"
+    },
+    "telegram": {
+      "valid_bot_token_required": "需要有效的机器人令牌",
+      "dependency_missing": "未安装 python-telegram-bot",
+      "connected": "已连接到 @{username}"
+    }
+  },
+  "llm": {
+    "providers": {
+      "catalog": {
+        "loaded": "LLM 提供商目录已加载",
+        "resolved": "LLM 提供商目录已解析"
+      },
+      "custom_template": {
+        "loaded": "LLM 自定义提供商模板已加载"
+      },
+      "models": {
+        "discovered": "LLM 提供商模型已发现"
+      },
+      "connection": {
+        "succeeded": "LLM 提供商连接成功"
+      }
+    }
+  },
+  "memory": {
+    "errors": {
+      "invalid_date": "日期值无效：{value}",
+      "system_uninitialized": "记忆系统未初始化",
+      "hybrid_retrieval_uninitialized": "混合检索服务未初始化",
+      "l0_uninitialized": "L0 工作记忆未初始化",
+      "session_not_found": "未找到会话",
+      "scenario_llm_pool_uninitialized": "场景 LLM 池未初始化",
+      "l2_store_uninitialized": "L2 存储未初始化",
+      "edge_not_found": "未找到边",
+      "end_must_be_greater_than_start": "结束时间必须晚于开始时间",
+      "episode_not_found": "未找到片段",
+      "event_not_found_or_pipeline_unavailable": "未找到事件或流水线不可用",
+      "no_valid_entities_to_reconcile": "没有可用于归并的有效实体",
+      "no_valid_entities_to_materialize": "没有可用于物化的有效实体",
+      "no_fields_to_update": "没有可更新的字段",
+      "assertion_not_found": "未找到断言",
+      "predicate_required": "必须提供谓词",
+      "cognition_store_unavailable": "认知存储不可用",
+      "snapshot_not_found": "未找到快照"
+    }
+  },
+  "personality": {
+    "presets": {
+      "ok": "OK",
+      "not_found": "未找到人格预设：{preset_id}",
+      "parse_failed": "解析人格预设失败：{preset_id}"
+    },
+    "avatar": {
+      "unsupported_format": "不支持的图片格式",
+      "unsupported_content_type": "不支持的图片内容类型",
+      "empty_file": "文件不能为空"
+    },
+    "personas": {
+      "errors": {
+        "not_found": "未找到人格",
+        "invalid_config_json": "人格配置 JSON 无效",
+        "cannot_delete_active": "不能删除当前启用的人格"
+      }
+    },
+    "config": {
+      "current": {
+        "retrieved": "当前人格已获取",
+        "missing_name": "缺少人格名称",
+        "not_found": "未找到人格：{name}",
+        "setting_failed": "设置失败",
+        "switched": "已切换到人格：{name}"
+      },
+      "greeting": {
+        "retrieved": "人格问候已获取"
+      },
+      "detail": {
+        "not_found_using_default": "未找到人格配置，已使用默认配置：{name}",
+        "retrieved": "人格配置已获取：{name}",
+        "saved": "人格配置已保存：{name}"
+      },
+      "generation": {
+        "generated": "AI 人格配置已生成",
+        "started": "AI 人格生成已开始",
+        "job_not_found": "未找到人格生成任务",
+        "status_retrieved": "人格生成状态已获取"
+      },
+      "list": {
+        "found": "找到 {count} 个人格配置"
+      },
+      "delete": {
+        "default_forbidden": "不能删除默认人格",
+        "not_found": "未找到人格配置",
+        "deleted": "人格配置已删除：{name}"
+      },
+      "compare": {
+        "not_found": "未找到人格：{name}",
+        "complete": "比较完成：发现 {count} 处差异"
+      },
+      "fields": {
+        "name": "名称",
+        "description": "描述",
+        "avatar": "头像",
+        "identity_core_identity_statement": "身份陈述",
+        "identity_core_values_loved": "喜爱的价值",
+        "identity_core_values_rejected": "排斥的价值",
+        "identity_core_attention_biases": "注意力偏向",
+        "idiolect_sentence_style": "句式风格",
+        "idiolect_vocab_available": "可用词汇",
+        "idiolect_vocab_avoided": "避免词汇",
+        "idiolect_structural_quirks": "结构习惯",
+        "registers": "语域",
+        "quiet_hours": "静默时段",
+        "signature_triggers": "标志性触发器",
+        "persona_layers": "人格层",
+        "dynamic_state_rules": "动态状态规则",
+        "appearance_prompt": "外观提示词"
+      }
+    }
   }
 }

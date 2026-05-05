@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from .. import i18n as core_i18n
 from .contracts import TimelineEvent
 from .insight_pipeline import TimelineInsightPipeline
 from .viewport_builder import TimelineViewportBuilder
@@ -114,7 +115,7 @@ class TimelineService:
             ),
             "occurred_at": occurred_at,
             "captured_at": float(event.get("created_at") or occurred_at),
-            "title": str(timeline.get("title") or event.get("event_type") or "Memory Event"),
+            "title": str(timeline.get("title") or event.get("event_type") or core_i18n.t("timeline.raw_event.memory_title", fallback="Memory Event")),
             "summary": str(timeline.get("summary") or event.get("content") or ""),
             "retention_mode": str(timeline.get("retention_mode") or event.get("retention_class") or "compressible"),
             "raw_payload_ref": timeline.get("raw_payload_ref") or metadata.get("raw_payload_ref"),

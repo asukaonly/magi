@@ -1,5 +1,302 @@
 {
+  "errors": {
+    "internal_server_error": "Internal server error"
+  },
   "chat": {
-    "image_vision_unsupported": "I received an image, but the current core model does not support image input. Please switch to a vision-capable core model or resend the message with a text description."
+    "image_vision_unsupported": "I received an image, but the current core model does not support image input. Please switch to a vision-capable core model or resend the message with a text description.",
+    "runtime": {
+      "not_ready": {
+        "llm_selection_pending": "AI runtime is not ready yet. Please complete the core or context_decider model configuration first.",
+        "configuration_invalid": "AI runtime configuration is invalid. Please check the enabled provider and model selection.",
+        "starting": "AI runtime is still starting. Please retry in a moment.",
+        "startup_pending": "AI runtime is not ready yet. Please wait for startup to finish and try again."
+      }
+    },
+    "dispatch": {
+      "queued": "Message queued for processing",
+      "failed_to_queue": "Failed to queue message",
+      "errors": {
+        "runtime_command_queue_not_initialized": "Runtime command queue is not initialized. Please complete onboarding or check the saved configuration.",
+        "chat_store_not_initialized": "Chat store is not initialized.",
+        "session_id_required": "Session ID is required.",
+        "empty_turn": "Message text or attachments are required.",
+        "persist_failed": "Chat turn persistence failed",
+        "enqueue_failed": "Runtime command enqueue failed",
+        "attachments_must_be_list": "Attachments must be a list.",
+        "attachment_must_be_object": "Each attachment must be an object.",
+        "attachment_kind_required": "Each attachment must include a kind."
+      }
+    },
+    "attachments": {
+      "empty_file": "Empty file is not allowed.",
+      "unsupported_type": "Unsupported attachment type.",
+      "image_too_large": "Image attachment exceeds the 20 MB limit.",
+      "file_too_large": "File attachment exceeds the 50 MB limit.",
+      "uploaded": "Attachment uploaded",
+      "not_found": "Attachment not found",
+      "file_not_found": "Attachment file not found"
+    },
+    "history": {
+      "cleared": "Conversation history cleared",
+      "cleared_agent_uninitialized": "Conversation history cleared (agent not initialized)"
+    },
+    "run": {
+      "cancel": {
+        "unsupported": "Chat task agent does not support explicit session cancellation.",
+        "no_active": "No active run to cancel",
+        "requested": "Run cancellation requested"
+      },
+      "detach": {
+        "unsupported": "Chat task agent does not support explicit session detaching.",
+        "no_active": "No active run to detach",
+        "requested": "Run detach requested"
+      }
+    }
+  },
+  "timeline": {
+    "sources": {
+      "chrome_history": "Chrome history",
+      "manual_journal": "Manual journal",
+      "chat": "Chat",
+      "photo_library": "Photo library",
+      "screen_time": "App usage",
+      "system_media": "Media playback",
+      "terminal_history": "Terminal history",
+      "git_activity": "Git activity",
+      "calendar": "Calendar",
+      "netease_music": "NetEase Cloud Music"
+    },
+    "mood": {
+      "positive": "Positive",
+      "warm": "Warm",
+      "steady": "Steady",
+      "neutral": "Neutral",
+      "cool": "Cool",
+      "low": "Low",
+      "tense": "Tense",
+      "anxious": "Anxious",
+      "negative": "Negative",
+      "focused": "Focused"
+    },
+    "overview": {
+      "month": "Window overview",
+      "week": "Week overview",
+      "day": "Day overview",
+      "hour": "Evidence overview",
+      "fallback_summary": "Magi has activity in this window, but there is not enough summarized context yet."
+    },
+    "takeaways": {
+      "main_source": "Main source: {source}",
+      "state_changed": "State changed",
+      "event_count": "{count} events captured"
+    },
+    "state": {
+      "unknown": "Unknown",
+      "shift": "State shift",
+      "marker": {
+        "default_summary": "State changed.",
+        "stress_changed": "Stress changed to {stress_level}."
+      },
+      "transition": {
+        "label": "{trait} changed",
+        "summary": "{trait} changed from {old_value} to {new_value}."
+      },
+      "stress": {
+        "unknown": "Unknown",
+        "high": "High stress",
+        "moderate": "Moderate stress",
+        "low": "Low stress"
+      },
+      "engagement": {
+        "unknown": "Unknown",
+        "high": "High engagement",
+        "steady": "Steady engagement",
+        "low": "Low engagement"
+      }
+    },
+    "theme": {
+      "reflection_window": "Reflection window",
+      "reflection_title": "{category} Reflection",
+      "activity": "Activity"
+    },
+    "raw_event": {
+      "title": "Event",
+      "memory_title": "Memory Event"
+    }
+  },
+  "sensors": {
+    "sync": {
+      "loop_mismatch": "Sensor sync failed due to an internal runtime loop mismatch.",
+      "internal_runtime_error": "Sensor sync failed due to an internal runtime error."
+    },
+    "errors": {
+      "source_not_found": "Sensor source not found",
+      "pull_sync_unsupported": "Sensor source does not support pull sync: {source_name}",
+      "state_flush_unsupported": "Sensor source does not support state flush: {source_name}",
+      "scheduler_unavailable": "Scheduler unavailable",
+      "authorization_unsupported": "Sensor source does not support authorization",
+      "authorization_invalid_response": "Sensor source authorization returned an invalid response"
+    }
+  },
+  "schedules": {
+    "errors": {
+      "not_found": "Schedule not found",
+      "sensor_schedule_settings_only": "Sensor schedules must be updated from sensor settings",
+      "service_unavailable": "Scheduler service is not available",
+      "target_busy": "Schedule target is busy",
+      "activity_not_cancellable": "Activity is not cancellable"
+    }
+  },
+  "tools": {
+    "errors": {
+      "not_found": "Tool {tool_name} not found"
+    },
+    "config": {
+      "no_updates": "No updates to apply",
+      "updated": "Tool {tool_name} configuration updated",
+      "save_failed": "Failed to save configuration"
+    }
+  },
+  "config": {
+    "messages": {
+      "loaded": "Configuration loaded",
+      "updated": "Configuration updated",
+      "template": "Configuration template",
+      "valid": "Configuration valid"
+    },
+    "errors": {
+      "save_failed": "Failed to save config"
+    },
+    "validation": {
+      "llm_selections_required": "LLM selections are required",
+      "llm_provider_model_together": "LLM provider and model must be set together",
+      "llm_selection_unknown_provider": "LLM selection '{selection_id}' references unknown provider '{provider_id}'",
+      "llm_selection_disabled_provider": "LLM selection '{selection_id}' references disabled provider '{provider_id}'",
+      "llm_selection_chat_disabled": "LLM selection '{selection_id}' references provider '{provider_id}' with chat disabled",
+      "llm_selection_embedding_disabled": "LLM selection '{selection_id}' references provider '{provider_id}' with embedding disabled",
+      "llm_selection_image_generation_disabled": "LLM selection '{selection_id}' references provider '{provider_id}' with image generation disabled"
+    },
+    "onboarding": {
+      "template_loaded": "Onboarding template loaded",
+      "save_failed": "Failed to save onboarding configuration",
+      "saved": "Onboarding configuration saved"
+    },
+    "telegram": {
+      "valid_bot_token_required": "A valid bot token is required",
+      "dependency_missing": "python-telegram-bot is not installed",
+      "connected": "Connected to @{username}"
+    }
+  },
+  "llm": {
+    "providers": {
+      "catalog": {
+        "loaded": "LLM provider catalog loaded",
+        "resolved": "LLM provider catalog resolved"
+      },
+      "custom_template": {
+        "loaded": "LLM custom provider template loaded"
+      },
+      "models": {
+        "discovered": "LLM provider models discovered"
+      },
+      "connection": {
+        "succeeded": "LLM provider connection succeeded"
+      }
+    }
+  },
+  "memory": {
+    "errors": {
+      "invalid_date": "Invalid date value: {value}",
+      "system_uninitialized": "Memory system not initialized",
+      "hybrid_retrieval_uninitialized": "Hybrid retrieval service not initialized",
+      "l0_uninitialized": "L0 working memory not initialized",
+      "session_not_found": "Session not found",
+      "scenario_llm_pool_uninitialized": "Scenario LLM pool is not initialized",
+      "l2_store_uninitialized": "L2 store not initialized",
+      "edge_not_found": "Edge not found",
+      "end_must_be_greater_than_start": "end must be greater than start",
+      "episode_not_found": "Episode not found",
+      "event_not_found_or_pipeline_unavailable": "Event not found or pipeline unavailable",
+      "no_valid_entities_to_reconcile": "No valid entities to reconcile",
+      "no_valid_entities_to_materialize": "No valid entities to materialize",
+      "no_fields_to_update": "No fields to update",
+      "assertion_not_found": "Assertion not found",
+      "predicate_required": "Predicate is required",
+      "cognition_store_unavailable": "Cognition store unavailable",
+      "snapshot_not_found": "Snapshot not found"
+    }
+  },
+  "personality": {
+    "presets": {
+      "ok": "OK",
+      "not_found": "Personality preset '{preset_id}' not found",
+      "parse_failed": "Failed to parse personality preset '{preset_id}'"
+    },
+    "avatar": {
+      "unsupported_format": "Unsupported image format",
+      "unsupported_content_type": "Unsupported image content type",
+      "empty_file": "Empty file is not allowed"
+    },
+    "personas": {
+      "errors": {
+        "not_found": "Persona not found",
+        "invalid_config_json": "Invalid config_json",
+        "cannot_delete_active": "Cannot delete the currently active persona"
+      }
+    },
+    "config": {
+      "current": {
+        "retrieved": "Successfully retrieved current personality",
+        "missing_name": "Missing personality name",
+        "not_found": "Personality '{name}' not found",
+        "setting_failed": "Setting failed",
+        "switched": "Switched to personality: {name}"
+      },
+      "greeting": {
+        "retrieved": "Successfully retrieved greeting"
+      },
+      "detail": {
+        "not_found_using_default": "Personality configuration not found, using default: {name}",
+        "retrieved": "Successfully retrieved personality configuration: {name}",
+        "saved": "Personality configuration saved: {name}"
+      },
+      "generation": {
+        "generated": "AI personality configuration generated successfully",
+        "started": "AI personality generation started",
+        "job_not_found": "Personality generation job not found",
+        "status_retrieved": "AI personality generation status retrieved"
+      },
+      "list": {
+        "found": "Found {count} personality configurations"
+      },
+      "delete": {
+        "default_forbidden": "Cannot delete default personality",
+        "not_found": "Personality configuration not found",
+        "deleted": "Personality configuration deleted: {name}"
+      },
+      "compare": {
+        "not_found": "Personality not found: {name}",
+        "complete": "Comparison complete: {count} differences found"
+      },
+      "fields": {
+        "name": "Name",
+        "description": "Description",
+        "avatar": "Avatar",
+        "identity_core_identity_statement": "Identity Statement",
+        "identity_core_values_loved": "Values Loved",
+        "identity_core_values_rejected": "Values Rejected",
+        "identity_core_attention_biases": "Attention Biases",
+        "idiolect_sentence_style": "Sentence Style",
+        "idiolect_vocab_available": "Available Vocabulary",
+        "idiolect_vocab_avoided": "Avoided Vocabulary",
+        "idiolect_structural_quirks": "Structural Quirks",
+        "registers": "Registers",
+        "quiet_hours": "Quiet Hours",
+        "signature_triggers": "Signature Triggers",
+        "persona_layers": "Persona Layers",
+        "dynamic_state_rules": "Dynamic State Rules",
+        "appearance_prompt": "Appearance Prompt"
+      }
+    }
   }
 }

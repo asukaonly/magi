@@ -12,6 +12,7 @@ from magi.config.models import (
     LLMModelMetadataOverrideSettings,
     LLMProviderSettings,
 )
+from magi.i18n import language_context
 
 
 def _build_client() -> TestClient:
@@ -44,7 +45,8 @@ def test_llm_provider_catalog_returns_builtin_and_saved_custom_providers() -> No
 
     try:
         client = _build_client()
-        response = client.get("/api/llm/providers/catalog")
+        with language_context("en"):
+            response = client.get("/api/llm/providers/catalog")
     finally:
         if original_provider is None:
             runtime_config.llm.providers.pop(provider_id, None)
@@ -53,6 +55,7 @@ def test_llm_provider_catalog_returns_builtin_and_saved_custom_providers() -> No
 
     assert response.status_code == 200
     payload = response.json()
+    assert payload["message"] == "LLM provider catalog loaded"
     providers = payload["data"]["providers"]
 
     openai_provider = next(provider for provider in providers if provider["id"] == "openai")
@@ -73,55 +76,57 @@ def test_llm_provider_catalog_returns_builtin_and_saved_custom_providers() -> No
 def test_llm_provider_catalog_preview_resolves_draft_provider_overrides() -> None:
     client = _build_client()
 
-    response = client.post(
-        "/api/llm/providers/catalog",
-        json={
-            "providers": {
-                "openai": {
-                    "enabled": True,
-                    "provider_type": "openai",
-                    "display_name": "OpenAI",
-                    "services": {
-                        "chat": {
-                            "enabled": True,
-                            "api_key": "sk-openai",
-                            "base_url": "https://api.openai.com/v1",
-                        },
-                        "embedding": {
-                            "enabled": True,
-                            "api_key": "sk-openai",
-                            "base_url": "https://api.openai.com/v1",
-                        },
-                        "image_generation": {
-                            "enabled": False,
-                            "api_key": "",
-                            "base_url": "https://api.openai.com/v1",
-                            "timeout": 180,
-                        },
-                        "tts": {
-                            "enabled": False,
-                            "api_key": "",
-                            "base_url": "https://api.openai.com/v1",
-                        },
-                    },
-                    "custom_models": ["acme-vision-embed"],
-                    "custom_default_model": "acme-vision-embed",
-                    "model_metadata_overrides": {
-                        "acme-vision-embed": {
-                            "label": "Acme Vision Embed",
-                            "capabilities": {
-                                "vision": True,
-                                "embedding": True,
+    with language_context("zh-CN"):
+        response = client.post(
+            "/api/llm/providers/catalog",
+            json={
+                "providers": {
+                    "openai": {
+                        "enabled": True,
+                        "provider_type": "openai",
+                        "display_name": "OpenAI",
+                        "services": {
+                            "chat": {
+                                "enabled": True,
+                                "api_key": "sk-openai",
+                                "base_url": "https://api.openai.com/v1",
                             },
-                        }
-                    },
+                            "embedding": {
+                                "enabled": True,
+                                "api_key": "sk-openai",
+                                "base_url": "https://api.openai.com/v1",
+                            },
+                            "image_generation": {
+                                "enabled": False,
+                                "api_key": "",
+                                "base_url": "https://api.openai.com/v1",
+                                "timeout": 180,
+                            },
+                            "tts": {
+                                "enabled": False,
+                                "api_key": "",
+                                "base_url": "https://api.openai.com/v1",
+                            },
+                        },
+                        "custom_models": ["acme-vision-embed"],
+                        "custom_default_model": "acme-vision-embed",
+                        "model_metadata_overrides": {
+                            "acme-vision-embed": {
+                                "label": "Acme Vision Embed",
+                                "capabilities": {
+                                    "vision": True,
+                                    "embedding": True,
+                                },
+                            }
+                        },
+                    }
                 }
-            }
-        },
-    )
+            },
+        )
 
     assert response.status_code == 200
     payload = response.json()
+    assert payload["message"] == "LLM 提供商目录已解析"
     providers = payload["data"]["providers"]
     openai_provider = next(provider for provider in providers if provider["id"] == "openai")
 
@@ -138,10 +143,12 @@ def test_llm_provider_catalog_preview_resolves_draft_provider_overrides() -> Non
 def test_llm_custom_provider_template_returns_template_defaults() -> None:
     client = _build_client()
 
-    response = client.get("/api/llm/providers/custom-template")
+    with language_context("en"):
+        response = client.get("/api/llm/providers/custom-template")
 
     assert response.status_code == 200
     payload = response.json()
+    assert payload["message"] == "LLM custom provider template loaded"
 
     assert payload["data"]["defaults"]["provider_type"] == "custom"
     assert payload["data"]["defaults"]["api_format"] == "openai"

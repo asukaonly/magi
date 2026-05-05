@@ -8,6 +8,7 @@ from types import ModuleType
 from fastapi import HTTPException
 
 from ...chat import LocalChatAttachmentIngestionService
+from ...i18n import t
 
 
 def legacy_messages_module() -> ModuleType:
@@ -17,7 +18,7 @@ def legacy_messages_module() -> ModuleType:
 def require_session_id(session_id: str | None) -> str:
     normalized = str(session_id or "").strip()
     if not normalized:
-        raise HTTPException(status_code=400, detail="Session ID is required")
+        raise HTTPException(status_code=400, detail=t("chat.dispatch.errors.session_id_required", fallback="Session ID is required."))
     return normalized
 
 

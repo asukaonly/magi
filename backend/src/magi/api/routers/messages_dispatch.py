@@ -7,6 +7,7 @@ import time
 from fastapi import APIRouter, HTTPException
 
 from ...core.logger import get_logger
+from ... import i18n as core_i18n
 from ...mcp.attachment_resolver import resolve_attachment_resources
 from ...runtime_defaults import DEFAULT_RUNTIME_NAMESPACE
 from ...utils.agent_logger import get_agent_logger
@@ -31,15 +32,22 @@ async def _ensure_runtime_ready_for_user_message() -> MessageResponse | None:
     startup_state = str(runtime_status.get("startup_state") or runtime_status.get("runtime_status") or "offline")
     deferred_reason = runtime_status.get("deferred_reason")
     if startup_state == "deferred" and deferred_reason == "llm_selection_pending":
-        message = (
-            "AI runtime is not ready yet. Please complete the core or context_decider model configuration first."
+        message = core_i18n.t(
+            "chat.runtime.not_ready.llm_selection_pending",
+            fallback="AI runtime is not ready yet. Please complete the core or context_decider model configuration first.",
         )
     elif startup_state == "deferred" and deferred_reason == "llm_configuration_invalid":
-        message = "AI runtime configuration is invalid. Please check the enabled provider and model selection."
+        message = core_i18n.t(
+            "chat.runtime.not_ready.configuration_invalid",
+            fallback="AI runtime configuration is invalid. Please check the enabled provider and model selection.",
+        )
     elif startup_state == "starting":
-        message = "AI runtime is still starting. Please retry in a moment."
+        message = core_i18n.t("chat.runtime.not_ready.starting", fallback="AI runtime is still starting. Please retry in a moment.")
     else:
-        message = "AI runtime is not ready yet. Please wait for startup to finish and try again."
+        message = core_i18n.t(
+            "chat.runtime.not_ready.startup_pending",
+            fallback="AI runtime is not ready yet. Please wait for startup to finish and try again.",
+        )
 
     return MessageResponse(
         success=False,
@@ -100,7 +108,7 @@ async def send_user_message(request: UserMessageRequest):
             )
             return MessageResponse(
                 success=False,
-                message=outcome.error_message or "Failed to queue message",
+                message=outcome.error_message or core_i18n.t("chat.dispatch.failed_to_queue", fallback="Failed to queue message"),
                 data={
                     "user_id": request.user_id,
                     "session_id": outcome.session_id,
@@ -125,7 +133,7 @@ async def send_user_message(request: UserMessageRequest):
 
         return MessageResponse(
             success=True,
-            message="Message queued for processing",
+            message=core_i18n.t("chat.dispatch.queued", fallback="Message queued for processing"),
             data={
                 "user_id": request.user_id,
                 "session_id": outcome.session_id,

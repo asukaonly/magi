@@ -124,11 +124,13 @@ async def test_timeline_service_returns_month_viewport() -> None:
     assert viewport["viewport"]["scale"] == "month"
     assert viewport["overview"]["summary"] == "A low evening centered on games."
     assert viewport["overview"]["key_takeaways"]
+    assert viewport["overview"]["key_takeaways"][0] == "Main source: Chrome history"
     assert viewport["state_summary"]["mood_label"] == "Low"
     assert viewport["state_summary"]["stress_label"] == "Moderate stress"
     assert viewport["reflections"][0]["summary"] == "A low evening centered on games."
     assert viewport["state_bands"][0]["source_summary_ids"] == ["summary-1"]
     assert viewport["source_mix"][0]["source_type"] == "chrome_history"
+    assert viewport["source_mix"][0]["label"] == "Chrome history"
     assert viewport["source_mix"][0]["event_count"] == 1
     assert viewport["theme_cards"][0]["title"] == "Game, Recovery"
     assert viewport["theme_cards"][0]["anchor"]["anchor_id"] == "evt-1"
@@ -197,6 +199,29 @@ async def test_timeline_service_localizes_source_generated_cluster_labels() -> N
     )
 
     assert viewport["clusters"][0]["label"] == "Chrome 历史"
+
+
+async def test_timeline_service_localizes_state_marker_fallback() -> None:
+    service = TimelineService(
+        SimpleNamespace(
+            l1=_FakeL1Store(),
+            l2=_FakeL2Store(),
+            l3=_FakeL3Store(),
+            l4=_FakeL4Store(),
+        )
+    )
+
+    viewport = await service.get_viewport(
+        scale="day",
+        start=0.0,
+        end=1_100_000.0,
+        focus="self",
+        locale="zh-CN",
+    )
+
+    assert viewport["state_markers"][0]["label"] == "状态变化"
+    assert viewport["state_markers"][0]["summary"] == "压力变化为 0.55。"
+    assert viewport["state_summary"]["notable_changes"][0]["label"] == "状态变化"
 
 
 async def test_timeline_service_interprets_natural_language_query() -> None:

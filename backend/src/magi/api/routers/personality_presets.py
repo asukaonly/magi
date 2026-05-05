@@ -6,11 +6,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from ..avatar_paths import resolve_avatar_public_url, user_avatar_dir
-from ...i18n import language_family
+from ... import i18n as core_i18n
 from ...utils.packaged_paths import get_backend_root
 
 
@@ -44,7 +44,7 @@ def _resolve_language_dir(lang: Optional[str]) -> Path:
     root = get_backend_root() / "personalities"
     if not root.exists():
         root.mkdir(parents=True, exist_ok=True)
-    normalized = language_family(lang, default="zh")
+    normalized = core_i18n.language_family(lang, default="zh")
     if normalized == "zh":
         candidate = root / "zh"
     elif normalized == "en":
@@ -58,6 +58,10 @@ def _resolve_language_dir(lang: Optional[str]) -> Path:
         return fallback
     fallback.mkdir(parents=True, exist_ok=True)
     return fallback
+
+
+def _request_language(request: Request) -> str | None:
+    return request.headers.get("Accept-Language") or None
 
 
 def _parse_json_preset(file_path: Path) -> PersonalityPresetItem:
@@ -85,22 +89,28 @@ def _parse_json_preset(file_path: Path) -> PersonalityPresetItem:
             name=file_path.stem,
         )
 
+
 @personality_presets_router.get(
     "/",
     response_model=PersonalitiesResponse,
     summary="List personality presets",
     description="Return preset personalities under the selected language directory, sorted by preset order.",
 )
-async def list_personality_presets(lang: Optional[str] = Query(default="zh")):
+async def list_personality_presets(
+    request: Request,
+    lang: Optional[str] = Query(default="zh"),
+):
     lang_dir = _resolve_language_dir(lang)
     presets: List[PersonalityPresetItem] = []
     for file_path in lang_dir.glob("*.json"):
         preset = _parse_json_preset(file_path)
         preset.avatar = resolve_avatar_public_url(preset.avatar)
         presets.append(preset)
-    # Sort by order field
     presets.sort(key=lambda p: p.order)
-    return PersonalitiesResponse(data=presets)
+    return PersonalitiesResponse(
+        message=core_i18n.t("personality.presets.ok", language=_request_language(request), fallback="OK"),
+        data=presets,
+    )
 
 
 @personality_presets_router.get(
@@ -110,6 +120,7 @@ async def list_personality_presets(lang: Optional[str] = Query(default="zh")):
     description="Return full JSON configuration for a specific built-in preset.",
 )
 async def get_personality_preset(
+    request: Request,
     preset_id: str,
     lang: Optional[str] = Query(default="zh"),
 ):
@@ -117,14 +128,33 @@ async def get_personality_preset(
     lang_dir = _resolve_language_dir(lang)
     file_path = lang_dir / f"{preset_id}.json"
     if not file_path.exists():
-        raise HTTPException(status_code=404, detail=f"Personality preset '{preset_id}' not found")
+        raise HTTPException(
+            status_code=404,
+            detail=core_i18n.t(
+                "personality.presets.not_found",
+                language=_request_language(request),
+                fallback="Personality preset '{preset_id}' not found",
+                preset_id=preset_id,
+            ),
+        )
     try:
         content = file_path.read_text(encoding="utf-8")
         data = json.loads(content)
         data["avatar"] = resolve_avatar_public_url(str(data.get("avatar") or ""))
-        return PersonalityPresetDetailResponse(data=data)
+        return PersonalityPresetDetailResponse(
+            message=core_i18n.t("personality.presets.ok", language=_request_language(request), fallback="OK"),
+            data=data,
+        )
     except json.JSONDecodeError:
-        raise HTTPException(status_code=500, detail=f"Failed to parse personality preset '{preset_id}'")
+        raise HTTPException(
+            status_code=500,
+            detail=core_i18n.t(
+                "personality.presets.parse_failed",
+                language=_request_language(request),
+                fallback="Failed to parse personality preset '{preset_id}'",
+                preset_id=preset_id,
+            ),
+        )
 
 
 @personality_presets_router.post(
@@ -132,13 +162,30 @@ async def get_personality_preset(
     summary="Upload custom avatar",
     description="Upload a custom avatar image into the user personality avatar directory.",
 )
-async def upload_personality_avatar(file: UploadFile = File(...)):
+async def upload_personality_avatar(
+    request: Request,
+    file: UploadFile = File(...),
+):
     allowed_suffixes = {".jpg", ".jpeg", ".png", ".webp"}
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in allowed_suffixes:
-        raise HTTPException(status_code=400, detail="Unsupported image format")
+        raise HTTPException(
+            status_code=400,
+            detail=core_i18n.t(
+                "personality.avatar.unsupported_format",
+                language=_request_language(request),
+                fallback="Unsupported image format",
+            ),
+        )
     if file.content_type not in {"image/jpeg", "image/png", "image/webp"}:
-        raise HTTPException(status_code=400, detail="Unsupported image content type")
+        raise HTTPException(
+            status_code=400,
+            detail=core_i18n.t(
+                "personality.avatar.unsupported_content_type",
+                language=_request_language(request),
+                fallback="Unsupported image content type",
+            ),
+        )
 
     avatar_dir = user_avatar_dir()
     avatar_dir.mkdir(parents=True, exist_ok=True)
@@ -151,7 +198,14 @@ async def upload_personality_avatar(file: UploadFile = File(...)):
 
     content = await file.read()
     if not content:
-        raise HTTPException(status_code=400, detail="Empty file is not allowed")
+        raise HTTPException(
+            status_code=400,
+            detail=core_i18n.t(
+                "personality.avatar.empty_file",
+                language=_request_language(request),
+                fallback="Empty file is not allowed",
+            ),
+        )
     target.write_bytes(content)
 
     return {"filename": filename, "url": resolve_avatar_public_url(filename)}
