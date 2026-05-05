@@ -24,6 +24,7 @@ import {
 import { useControlEvents } from '@/realtime/useControlEvents';
 import { useConversationStore } from '@/stores';
 import { OPEN_ASK_REQUEST_EVENT } from './ui-events';
+import { isInteractionExpired, remainingInteractionSeconds } from './interaction-expiry';
 
 export interface AskDialogProps {
   sessionId: string | null | undefined;
@@ -49,6 +50,7 @@ export function AskDialog({
   const [selection, setSelection] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   const pull = useCallback(async () => {
     if (!sessionId) {
@@ -57,7 +59,11 @@ export function AskDialog({
     }
     try {
       const current = await getAskState(sessionId);
-      if (current && current.status === 'pending') {
+      if (
+        current
+        && current.status === 'pending'
+        && !isInteractionExpired(current.expires_at_ms)
+      ) {
         setAsk((prev) =>
           prev && prev.request_id === current.request_id ? prev : current,
         );
@@ -83,6 +89,24 @@ export function AskDialog({
       clearInterval(handle);
     };
   }, [sessionId, intervalMs, pull]);
+
+  useEffect(() => {
+    if (!ask?.expires_at_ms) return () => undefined;
+    setNowMs(Date.now());
+    const tick = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+    const deadlineDelay = Math.max(0, ask.expires_at_ms - Date.now() + 50);
+    const deadline = window.setTimeout(() => {
+      setNowMs(Date.now());
+      setAsk((prev) => (prev?.request_id === ask.request_id ? null : prev));
+      void pull();
+    }, deadlineDelay);
+    return () => {
+      window.clearInterval(tick);
+      window.clearTimeout(deadline);
+    };
+  }, [ask?.request_id, ask?.expires_at_ms, pull]);
 
   useControlEvents({
     sessionId: sessionId ?? null,
@@ -144,20 +168,38 @@ export function AskDialog({
         question: ask.question,
         options: ask.options,
         allow_free_text: ask.allow_free_text,
+        timeout_seconds: ask.timeout_seconds,
+        expires_at_ms: ask.expires_at_ms,
         background,
       },
     });
   }, [ask, background, removeMessage, sessionId, upsertMessage]);
 
+  const expired = useMemo(
+    () => isInteractionExpired(ask?.expires_at_ms, nowMs),
+    [ask?.expires_at_ms, nowMs],
+  );
+
+  const remainingSeconds = useMemo(
+    () => remainingInteractionSeconds(ask?.expires_at_ms, nowMs),
+    [ask?.expires_at_ms, nowMs],
+  );
+
   const canSubmit = useMemo(() => {
     if (!ask) return false;
+    if (expired) return false;
     if (selection) return true;
     if (ask.allow_free_text) return answer.trim().length > 0;
     return false;
-  }, [ask, selection, answer]);
+  }, [ask, selection, answer, expired]);
 
   const submit = async () => {
     if (!ask) return;
+    if (isInteractionExpired(ask.expires_at_ms)) {
+      setAsk(null);
+      setError(t('ask.expired'));
+      return;
+    }
     const payload = selection ?? answer.trim();
     if (!payload) return;
     setSubmitting(true);
@@ -193,6 +235,13 @@ export function AskDialog({
           <DialogDescription>
             {ask?.question}
           </DialogDescription>
+          {remainingSeconds !== null ? (
+            <div className="text-xs text-muted-foreground">
+              {expired
+                ? t('ask.expired')
+                : t('ask.expires_in', { seconds: remainingSeconds })}
+            </div>
+          ) : null}
         </DialogHeader>
         <div className="space-y-3 text-sm">
           {ask?.options?.length ? (

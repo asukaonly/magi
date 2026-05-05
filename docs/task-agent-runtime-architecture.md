@@ -188,6 +188,16 @@ flowchart TD
     C --> A["User-Facing Response"]
 ```
 
+Routing policy keeps worker decomposition for requests whose required
+evidence or implementation surface is genuinely larger than a single
+chat turn. Bounded advice and option-comparison prompts, including
+purchase or preference guidance, stay in the main chat path unless the
+user explicitly asks for fresh/current data, citations, links, many
+external sources, or cross-source verification. This policy prevents
+ordinary advisory follow-ups from becoming parent-task orchestration
+while preserving decomposition for news research, repository-wide
+analysis, migration plans, and other broad verification work.
+
   Reply-target continuity in chat is intentionally compact but now carries more than plain text excerpts.
   When a user replies to an earlier assistant message, the runtime may include a sanitized structured payload summary from that replied-to message, such as managed attachment references, so follow-up turns can reuse concrete artifacts without re-exposing raw local file paths.
   Tool-driven chat turns may persist this reusable state through assistant message payloads. In particular, function-calling tools can return a sanitized `assistant_payload` with generic `asset_refs`, which later reply turns may see through reply context and hand back to source resolver tools before calling `prepare_chat_attachments`.
@@ -592,20 +602,22 @@ stale intermediate copies after reloads or reconnects.
 Event channels (all published via
 [`publish_control_event`](../backend/src/magi/bootstrap/control_plane.py)):
 
-- ``control.permission_requested`` / ``control.permission_resolved`` —
-  emitted around the permission prompter when a gated tool call waits
-  for a user decision. Payload carries ``turn_id`` (canonical) plus a
-  legacy ``task_id`` alias during the migration window.
-- ``control.ask_opened`` / ``control.ask_answered`` — emitted by the
-  ``ask_user_question`` tool when it opens a dialog and when the answer
-  arrives.
-- ``control.background_task_waiting`` / ``control.background_task_resumed``
+- ``control.permission.requested`` — emitted by the permission prompter
+  when a gated tool call waits for a user decision. Payload carries
+  ``turn_id`` (canonical). Pending
+  permission snapshots include ``created_at_ms``, ``timeout_seconds``,
+  and ``expires_at_ms`` so clients can disable stale affordances at the
+  same deadline the backend broker will enforce.
+- ``control.ask.requested`` — emitted by the ``ask_user_question`` tool
+  when it opens a dialog. Ask snapshots expose a frontend-facing ``status`` plus
+  ``created_at_ms``, ``timeout_seconds``, and ``expires_at_ms``; legacy
+  ``asked_at`` / ``resolution`` fields may still appear for diagnostics.
+- ``control.background.suspended`` / ``control.background.resumed``
   — emitted when a background task transitions in and out of
   ``SUSPENDED_WAITING_USER`` (see below).
-- ``control.plan_mode_entered`` / ``control.plan_mode_exited`` — emitted
-  when the plan-mode tool toggles. Carries ``session_id`` plus optional
-  plan text.
-- ``control.todos_updated`` — emitted whenever the session todo list
+- ``control.plan.updated`` — emitted when the plan-mode tool toggles.
+  Carries ``session_id`` plus optional plan text.
+- ``control.todo.updated`` — emitted whenever the session todo list
   is rewritten. The authoritative writer is the planner side of the
   orchestration runtime (``TaskOrchestrator._publish_session_todos``),
   which mirrors the planned subtasks and their live status onto the
@@ -631,7 +643,10 @@ Frontend composition:
 - ``PermissionModalHost`` and ``AskDialog`` are mounted once at the
   ``MainLayout`` root so prompts stay visible while the user navigates
   between Chat, Tasks, and Settings. They are keyed by the currently
-  selected session from ``useConversationStore``.
+  selected session from ``useConversationStore``. These hosts treat
+  ``expires_at_ms`` as the last safe click time: expired prompts are
+  removed from the active UI and action buttons are disabled before any
+  stale response can be posted back to the broker.
 - ``SessionControlRail`` is mounted inside the chat page and hosts
   ``PlanCard`` + ``TodoPanel``. The rail self-hides when there is no
   active plan and no todos so the chat surface stays clean.

@@ -49,6 +49,11 @@ JSON structure:
 - You are not confident one or two direct tool calls can finish it.
 - You need parent-task decomposition into bounded worker subtasks.
 
+**Keep advice in the main chat path when:**
+- The user asks for bounded buying advice, preference advice, option comparison, or "which should I choose" guidance.
+- The user did not request fresh/current data, citations/links, many external sources, or cross-source verification.
+- In these cases use direct chat, or at most a single direct tool-assisted pass; do not launch worker decomposition.
+
 Always check the "Available Skills" section below for skill descriptions and match user requests accordingly.
 
 Questions about the user's stored user preferences, personal facts, prior stated likes/dislikes, or customized settings should prefer `memory_query` when that tool is available.
@@ -100,6 +105,9 @@ JSON: {"intent": "planning", "tools": ["agent"], "thinking_depth": "high", "reas
 
 User: "find the 10 most important Hangzhou news stories from the last 7 days and give me links"
 JSON: {"intent": "planning", "tools": ["web-search", "web-fetch"], "thinking_depth": "medium", "reasoning": "This is a bounded multi-source research request with a time window, result count, and source requirements, so it should be decomposed into generic research workers.", "orchestration_strategy": {"mode": "decompose", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": true}}
+
+User: "我预算 2000 买显示器，帮我对比一下怎么选"
+JSON: {"intent": "chat", "tools": [], "thinking_depth": "low", "reasoning": "This is bounded purchase advice based on stated preferences, with no request for current prices, links, or multi-source verification.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
 
 User: "convert ~/tmp/logo.png to transparent background"
 JSON: {"intent": "file_operation", "tools": ["bash"], "thinking_depth": "low", "reasoning": "Processing a binary image file requires external tools like ImageMagick, which must be executed via bash. Standard file_read/write cannot modify image contents.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}

@@ -185,6 +185,7 @@ class AskUserQuestionTool(Tool):
             question=question,
             options=options,
             allow_free_text=allow_free_text,
+            timeout_seconds=timeout_seconds,
         )
         is_background = intent.startswith("background")
         # Resolve the owning background task id from the execution
@@ -230,6 +231,8 @@ class AskUserQuestionTool(Tool):
                     "options": list(options or []),
                     "allow_free_text": allow_free_text,
                     "timeout_seconds": timeout_seconds,
+                    "created_at_ms": int(ask.asked_at * 1000),
+                    "expires_at_ms": int(ask.expires_at * 1000) if ask.expires_at else None,
                     "background": is_background,
                 },
                 session_id=sid,

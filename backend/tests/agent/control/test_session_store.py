@@ -164,16 +164,23 @@ async def test_ask_open_then_close_user() -> None:
         question="Continue?",
         options=["yes", "no"],
         allow_free_text=False,
+        timeout_seconds=30,
     )
     assert ask.resolution is None
     assert ask.options == ("yes", "no")
     assert store.ask_state("s1") is ask
+    payload = ask.to_dict()
+    assert payload["status"] == "pending"
+    assert payload["created_at_ms"] == int(ask.asked_at * 1000)
+    assert payload["timeout_seconds"] == 30.0
+    assert payload["expires_at_ms"] == int(ask.expires_at * 1000)
 
     closed = await store.close_ask("s1", answer="yes", resolution="user")
     assert closed is not None
     assert closed.answer == "yes"
     assert closed.resolution == "user"
     assert closed.answered_at is not None
+    assert closed.to_dict()["status"] == "answered"
 
 
 @pytest.mark.asyncio

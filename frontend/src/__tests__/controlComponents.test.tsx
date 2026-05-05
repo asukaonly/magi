@@ -107,6 +107,9 @@ const baseRequest: PendingPermissionDTO = {
   preview: null,
   signals: [],
   created_at: 0,
+  created_at_ms: 0,
+  timeout_seconds: 120,
+  expires_at_ms: Date.now() + 120_000,
 };
 
 const baseAsk: AskStateDTO = {
@@ -117,6 +120,8 @@ const baseAsk: AskStateDTO = {
   status: 'pending',
   answer: null,
   created_at_ms: 10,
+  timeout_seconds: 300,
+  expires_at_ms: Date.now() + 300_000,
 };
 
 describe('PermissionModal', () => {

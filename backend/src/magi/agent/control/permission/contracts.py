@@ -123,12 +123,16 @@ class PermissionRequest:
     #: Classifier signals that drove the risk tier (``["fs_write", "outside_workspace"]``).
     signals: list[str] = field(default_factory=list)
     created_at: float = field(default_factory=time)
+    timeout_seconds: float | None = None
+    expires_at: float | None = None
 
     @staticmethod
     def new_id() -> str:
         return uuid.uuid4().hex
 
     def to_dict(self) -> dict[str, Any]:
+        created_at_ms = int(self.created_at * 1000)
+        expires_at_ms = int(self.expires_at * 1000) if self.expires_at else None
         return {
             "request_id": self.request_id,
             "tool_name": self.tool_name,
@@ -142,6 +146,10 @@ class PermissionRequest:
             "preview": self.preview,
             "signals": list(self.signals),
             "created_at": self.created_at,
+            "created_at_ms": created_at_ms,
+            "timeout_seconds": self.timeout_seconds,
+            "expires_at": self.expires_at,
+            "expires_at_ms": expires_at_ms,
         }
 
 

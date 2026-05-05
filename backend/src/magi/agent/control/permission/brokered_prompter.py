@@ -106,6 +106,10 @@ class BrokeredPermissionPrompter:
         *,
         timeout_seconds: float,
     ) -> UserPromptResponse:
+        if request.timeout_seconds is None:
+            request.timeout_seconds = float(timeout_seconds)
+        if request.expires_at is None and timeout_seconds > 0:
+            request.expires_at = request.created_at + float(timeout_seconds)
         await self._registry.add(request)
         if self._notify is not None:
             try:

@@ -299,6 +299,8 @@ class PermissionGateway:
                 reason="permission prompt requested but no prompter is configured",
             )
 
+        created_at = time.time()
+        prompt_timeout_seconds = max(0.0, self._prompt_timeout_seconds)
         request = PermissionRequest(
             request_id=PermissionRequest.new_id(),
             tool_name=tool_name,
@@ -311,12 +313,14 @@ class PermissionGateway:
             workspace=workspace,
             preview=classification.preview,
             signals=[signal.key for signal in classification.signals],
-            created_at=time.time(),
+            created_at=created_at,
+            timeout_seconds=prompt_timeout_seconds,
+            expires_at=created_at + prompt_timeout_seconds if prompt_timeout_seconds > 0 else None,
         )
 
         try:
             response = await self._prompter(
-                request, timeout_seconds=self._prompt_timeout_seconds
+                request, timeout_seconds=prompt_timeout_seconds
             )
         except InteractionTimeoutError:
             logger.info(
@@ -328,7 +332,7 @@ class PermissionGateway:
                 request_id=request.request_id,
                 outcome=PermissionOutcome.TIMED_OUT,
                 source="timeout",
-                reason=f"no response within {self._prompt_timeout_seconds:.0f}s",
+                reason=f"no response within {prompt_timeout_seconds:.0f}s",
             )
 
         return await self._finalise_user_response(request, response, session_id)
