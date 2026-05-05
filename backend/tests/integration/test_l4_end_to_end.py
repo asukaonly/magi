@@ -131,3 +131,57 @@ async def test_failed_tool_invocation_also_lands_with_failure_flag():
     await store.shutdown()
     await bus.stop()
     tmp.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_task_completed_event_lands_in_l4():
+    bus = InMemoryMessageBusBackend()
+    await bus.start()
+
+    tmp = tempfile.TemporaryDirectory()
+    base = Path(tmp.name)
+
+    store = UnifiedMemoryStore(
+        l1_db_path=str(base / "l1_events.db"),
+        memory_db_path=str(base / "memory.db"),
+        persist_dir=str(base / "memories"),
+        l2_batch_flush_interval_seconds=0,
+    )
+    await store.initialize()
+
+    subscriber = MemoryIngestionSubscriber(event_bus=bus, unified_memory=store)
+    await subscriber.start()
+
+    from magi.events.events import Event, EventTypes
+    from magi.events.domain_payloads import TaskCompleted
+
+    await bus.publish(Event(
+        type=EventTypes.TASK_COMPLETED,
+        data=TaskCompleted(
+            task_id="orch-1",
+            task_type="chat",
+            started_at=1.0,
+            finished_at=2.0,
+            summary="ok",
+            context=TaskContext("s", "t", "orch-1", "u"),
+        ),
+        source="task_orchestrator",
+    ))
+    await asyncio.sleep(0.1)
+    await subscriber.drain()
+
+    conn = sqlite3.connect(str(base / "memory.db"))
+    try:
+        rows = conn.execute(
+            "SELECT skill_name, skill_category FROM procedural_skills"
+            " WHERE skill_category='workflow'"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    assert len(rows) >= 1, "expected workflow-class skill row"
+
+    await subscriber.stop()
+    await store.shutdown()
+    await bus.stop()
+    tmp.cleanup()
