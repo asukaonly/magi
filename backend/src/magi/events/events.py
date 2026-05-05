@@ -141,3 +141,9 @@ class EventTypes:
     # Context compaction events
     CONTEXT_COMPACTING = "ContextCompacting"
     CONTEXT_COMPACTED = "ContextCompacted"
+
+    # Domain events introduced in 2026-05 refactor
+    TOOL_INVOCATION_COMPLETED = "ToolInvocationCompleted"
+    USER_MESSAGE_RECEIVED = "UserMessageReceived"
+    ASSISTANT_RESPONSE_PRODUCED = "AssistantResponseProduced"
+    SENSOR_EVENT_EMITTED = "SensorEventEmitted"
