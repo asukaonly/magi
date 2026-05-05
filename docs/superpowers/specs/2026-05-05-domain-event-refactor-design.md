@@ -104,7 +104,7 @@ class ToolInvocationCompleted:
     result_summary: str | None
     error: ToolError | None
     context: TaskContext
-    correlation_id: str       # 用于跨订阅者关联（runtime_trace ↔ memory）
+    # correlation_id 走外层 Event.correlation_id，不在 payload 中重复
 ```
 
 ### 4.2 Task 生命周期
@@ -116,7 +116,6 @@ class TaskStarted:
     task_type: str
     started_at: float
     context: TaskContext
-    correlation_id: str
 
 @dataclass(frozen=True)
 class TaskCompleted:
@@ -126,7 +125,6 @@ class TaskCompleted:
     finished_at: float
     summary: str | None
     context: TaskContext
-    correlation_id: str
 
 @dataclass(frozen=True)
 class TaskFailed:
@@ -136,7 +134,6 @@ class TaskFailed:
     finished_at: float
     error: ToolError
     context: TaskContext
-    correlation_id: str
 ```
 
 ### 4.3 chat / awareness 事件
@@ -165,12 +162,13 @@ class SensorEventEmitted:
 
 - `magi/events/events.py` 的 `EventTypes` 增加常量：
   - `TOOL_INVOCATION_COMPLETED = "ToolInvocationCompleted"`
-  - `TASK_STARTED = "TaskStarted"` （`TASK_COMPLETED` / `TASK_FAILED` 已存在）
-  - `USER_MESSAGE_RECEIVED = "UserMessageReceived"` （`USER_MESSAGE` 仍保留以兼容老消息直到迁移完成）
+  - `USER_MESSAGE_RECEIVED = "UserMessageReceived"`（`USER_MESSAGE` 仍保留以兼容现有订阅者，迁移完成后清理）
   - `ASSISTANT_RESPONSE_PRODUCED = "AssistantResponseProduced"`
   - `SENSOR_EVENT_EMITTED = "SensorEventEmitted"`
+  - `TASK_STARTED / TASK_COMPLETED / TASK_FAILED` **已存在**（`events/events.py:132-134`），无需新增；本次只是把它们提升为系统级领域事件。
 - 发布形态：`Event(type=EventTypes.TOOL_INVOCATION_COMPLETED, payload=<对应 dataclass>)`。`payload` 字段类型在 `Event` 上仍是 `Any`（避免改 `Event` 类影响所有订阅者），但通过约定保证。
 - 提供帮手 `magi/events/payload_helpers.py::expect_payload(event, cls) -> cls`：isinstance 检查 + 错误日志。
+- **`correlation_id` 归属**：`Event` 类已有 `correlation_id` 字段，本次新引入的 dataclass payload 中**不再**重复携带 `correlation_id`。所有跨订阅者关联（runtime_trace ↔ memory）通过 `Event.correlation_id` 完成。`ToolInvocationService` 在 publish 时设置 `Event.correlation_id`，订阅者从外层 `Event` 读。
 
 ## 5. ToolInvocationService（工具执行收口）
 
@@ -202,6 +200,7 @@ class ToolInvocationService:
             try:
                 await self._event_bus.publish(Event(
                     type=EventTypes.TOOL_INVOCATION_COMPLETED,
+                    correlation_id=correlation_id,   # 外层 Event 持有 correlation_id
                     payload=ToolInvocationCompleted(
                         tool_name=call.name,
                         tool_category=ctx.tool_category,
@@ -213,20 +212,26 @@ class ToolInvocationService:
                         result_summary=summarize(result) if result else None,
                         error=error_obj,
                         context=ctx.task_context,
-                        correlation_id=correlation_id,
                     ),
                 ))
             except Exception:
                 logger.exception("publish ToolInvocationCompleted failed")
 ```
 
-改造点：
+改造点（全量 grep 后的 4 处）：
 
 - `agent/execution/function_calling/step_executor.py:141` `_driver._execute_tool_call` → 改为通过 `ToolInvocationService.invoke`
 - `agent/task_orchestration_workers.py:66, 133` → 同上
 - `agent/task_agents/chat/planning_service.py:320` → 同上
+- `agent/execution/function_calling/tool_execution.py:190` `host.tool_registry.execute(tool_name, arguments, context)` → 同上（**这是 function-calling 驱动的主路径，遗漏会让 chat 工具调用继续不发事件**）
 
-`_tool_registry.execute()` 不再被业务层直接调用（标记为内部 API，加 lint 提示）。
+实施前会再做一次 `grep -rn "tool_registry\.execute"`，把所有命中加进改造清单；同时在 `_tool_registry.execute()` 上加 `@deprecated_for_internal_use` 标记并打 warning，预防回归。
+
+`ToolInvocationService.invoke` 的入参契约：
+- `call: ToolCall` - 工具名 + 参数
+- `ctx: InvocationContext` - 包含 `tool_category`、`task_context: TaskContext`，由调用方负责填充
+- `tool_category` 来自调用上下文（function-calling 驱动里是 `"external_tool"` / `"mcp"` 等；orchestrator/planning 路径里是 `"internal"`），调用方决定
+- `task_context` 各字段允许 `None`，但 chat 来源**必须**提供 `session_id`（见 §10）
 
 ## 6. Task 生命周期事件
 
@@ -253,7 +258,15 @@ class ToolInvocationService:
 业务模块改造：
 - `chat/projector.py:95` 删除 `ingest_event` 直调，改为 `event_bus.publish(Event(type=USER_MESSAGE_RECEIVED, payload=...))`。
 - `awareness/ingestion_gateway.py:97` 同上，改 publish `SensorEventEmitted`。
-- 短期内 `EventTypes.USER_MESSAGE` / `AI_RESPONSE` / `SENSOR_EVENT` 保持可用以避免破坏现有订阅者；MemoryIngestionSubscriber 同时订阅老类型与新类型，迁移完成后再清理。
+
+**双订阅过渡期与去重**：
+
+为避免迁移过程中破坏旧订阅者，MemoryIngestionSubscriber 同时订阅新旧事件类型一段时间。但因 L0 `capture_event` 与 L4 `record_memory_event` 没有 idempotency 短路（只有 L1 `find_event_id_by_idempotency` 能去重），双订阅会导致 L0/L4 重复写入。处理策略：
+
+- 生产端**只发新事件**（不再发 USER_MESSAGE / SENSOR_EVENT 老类型）。MemoryIngestionSubscriber 仅订阅新事件，**不再做双订阅**。
+- 老事件类型（USER_MESSAGE / AI_RESPONSE / SENSOR_EVENT 等）若仍被其他订阅者使用（非 memory 路径），由 producer 同时 publish 新旧两类事件来兼容；MemoryIngestionSubscriber 严格只接新类型。
+- 终止条件：迁移阶段全量 grep `EventTypes.USER_MESSAGE` 等，确认无非 memory 订阅者后删除老 publish。
+- 验证：迁移期间监控 `procedural_skills.last_seen` 增长是否符合工具调用频率，发现 2x 增长即视为重复写入。
 
 ### 7.2 RuntimeTraceSubscriber
 
@@ -268,48 +281,91 @@ class ToolInvocationService:
 ### 8.1 接口
 
 ```python
+@dataclass
+class FanOutContext:
+    """fan-out 时在 layer 之间传递的上下文，包含已完成 layer 的标记。"""
+    markers: dict[str, Any] = field(default_factory=dict)  # e.g. {"l1_written": True, "stored_event_id": "..."}
+
 class MemoryLayer(Protocol):
     layer_name: str
-    accepts_event_types: frozenset[str]   # 静态声明（用于快速短路）
-    def accepts(self, event: MemoryEvent) -> bool: ...   # 动态精筛
-    async def ingest(self, event: MemoryEvent) -> LayerIngestResult: ...
+    accepts_event_types: frozenset[str]   # 静态声明，便于快速短路
+    requires_write_lock: bool             # True 表示 ingest 必须在 _write_lock 下执行（L0/L1）
+    def accepts(self, event: MemoryEvent, ctx: FanOutContext) -> bool: ...
+    async def ingest(self, event: MemoryEvent, ctx: FanOutContext) -> LayerIngestResult: ...
 ```
+
+`accepts(event, ctx)` 显式接收 `FanOutContext`，避免循环依赖（评审 issue #2）。
 
 ### 8.2 store_ingestion.py 重写
 
-去掉现 100~140 行的 `if` 链，改为：
+保留现有 `_write_lock` 语义（评审 issue #8）：写锁内执行 L0/L1，写锁外执行 L2/L3/L4。
 
 ```python
 async def ingest_event(self, event_or_dict) -> dict:
     memory_event = normalize(event_or_dict)
-    stored_event_id = await persist_fact_event(memory_event)
-    memory_event.event_id = stored_event_id
+    ctx = FanOutContext()
     results = {}
-    for layer in self._layers_in_order:
-        if memory_event.event_type not in layer.accepts_event_types:
-            continue
-        if not layer.accepts(memory_event):
-            continue
-        try:
-            results[layer.layer_name] = await layer.ingest(memory_event)
-        except Exception:
-            logger.exception("layer %s ingest failed", layer.layer_name)
-            # 失败隔离：不阻塞其它 layer
+
+    locked_layers = [l for l in self._layers_in_order if l.requires_write_lock]
+    deferred_layers = [l for l in self._layers_in_order if not l.requires_write_lock]
+
+    async with self._write_lock:
+        for layer in locked_layers:
+            await self._dispatch(layer, memory_event, ctx, results)
+
+    for layer in deferred_layers:
+        await self._dispatch(layer, memory_event, ctx, results)
+
     return summarize(results)
+
+async def _dispatch(self, layer, event, ctx, results):
+    if event.event_type not in layer.accepts_event_types:
+        return
+    if not layer.accepts(event, ctx):
+        return
+    try:
+        result = await layer.ingest(event, ctx)
+        results[layer.layer_name] = result
+        ctx.markers.update(result.markers)
+    except Exception:
+        logger.exception("layer %s ingest failed", layer.layer_name)
 ```
 
-### 8.3 各 layer 的 accepts
+### 8.3 L2 双路径合并（评审 issue #1）
 
-- L0：`{USER_MESSAGE, USER_MESSAGE_RECEIVED, AI_RESPONSE, ASSISTANT_RESPONSE_PRODUCED, ACTION_EXECUTED, ...}`（按现有逻辑迁移）
-- L1：所有"事实型"事件（保留现有判定）
-- L2：原 `cognition_eligible` 判定下沉到 `L2.accepts(event) = event.cognition_eligible and (l1_written or no L1)`；通过 `LayerIngestResult.markers` 在 fan-out 上下文中传递 `l1_written` 标记给后续 layer
-- L3：现在通过 schedule 触发，accepts 返回 False（保持 schedule 路径不变）
-- L4：`accepts_event_types = {ACTION_EXECUTED, TASK_COMPLETED, TASK_FAILED}`，`accepts()` 进一步要求 L1 已写入或事件类型为 ACTION_EXECUTED
+当前 `store_ingestion.py` 里 L2 有两条路径：
 
-### 8.4 跨层依赖
+1. **L2 projection job 路径**（写锁内）：`self.l2.enqueue_projection_job(event_id, ...)` —— 当 `ingest_target.includes_l1` 且 `cognition_eligible` 时使用，需要先有 L1 event_id。
+2. **L2 pipeline 路径**（写锁外）：`self.l2_pipeline.enqueue_event(memory_event)` —— 当不写 L1 或 L2 store 不存在时使用。
 
-- 通过 `_layers_in_order = [L0, L1, L2, L3, L4]` 显式声明顺序。
-- 上一个 layer 的 `LayerIngestResult` 通过 fan-out context 传给后续 layer 的 accepts。
+合并方案：
+- L2 改造为**单一 layer 对象** `L2MemoryLayer`，持有 store + pipeline 两个组件。
+- `L2MemoryLayer.requires_write_lock = True`（仍需在写锁内拿到 L1 写入产物）。
+- `accepts(event, ctx) = event.cognition_eligible and (ctx.markers.get("l1_written") or not event.ingest_target.includes_l1 or self._l1_disabled)`。
+- `ingest()` 内部根据 ctx 决定走 projection_job（已有 stored_event_id）还是走 pipeline（无 L1 路径）。
+- L2 batch 控制元数据（`l2_batch_owner` 等）从 `event.metadata_json` 读取，行为与现状一致。
+
+如此 if 链消失但语义不变。
+
+### 8.4 各 layer 的声明
+
+| Layer | accepts_event_types | requires_write_lock | accepts() 进一步条件 |
+|-------|---------------------|---------------------|----------------------|
+| L0 | 由 `l0.capture_event` 现有判定迁移而来 | True | True |
+| L1 | 现有 ingest_target.includes_l1 判定的事件 | True | `event.ingest_target.includes_l1` |
+| L2 | 同 L1 | True | 见 §8.3 |
+| L3 | 空集（schedule 触发，不走 fan-out） | n/a | n/a |
+| L4 | `{ACTION_EXECUTED, TASK_COMPLETED, TASK_FAILED}` | False | `ctx.markers.get("l1_written") or event.event_type == ACTION_EXECUTED`（保留现状语义） |
+
+### 8.5 LayerIngestResult.markers 约定
+
+| Layer | markers 写入 |
+|-------|--------------|
+| L1 | `{"l1_written": bool, "stored_event_id": str}` |
+| L2 | `{"l2_relation_count": int, "l2_assertion_count": int, "l2_job_enqueued": bool}` |
+| L4 | `{"l4_skill_id": str | None}` |
+
+后续 layer 通过 `ctx.markers` 读这些标记。
 
 ## 9. L4 maintenance schedule
 
@@ -340,14 +396,56 @@ async def ingest_event(self, event_or_dict) -> dict:
 
 ### 9.4 schema 微调
 
-`procedural_skills` 表新增 `deleted_at REAL` 列（migration via `ALTER TABLE` in lifecycle init，已有同模式可参考 `runtime_trace/schema.py:188`）。`get_all_skills` 等读路径过滤 `deleted_at IS NULL`。
+`procedural_skills` 表新增 `deleted_at REAL` 列。SQLite < 3.35 不支持 `ADD COLUMN IF NOT EXISTS`，故采用 try/catch 模式：
 
-## 10. 错误隔离 / 性能
+```python
+# memory/l4/lifecycle.py initialize() 内
+try:
+    await db.execute("ALTER TABLE procedural_skills ADD COLUMN deleted_at REAL")
+except aiosqlite.OperationalError as e:
+    if "duplicate column name" not in str(e).lower():
+        raise
+```
 
-- **EventBus 失败隔离**：`InMemoryMessageBusBackend` 现有实现已经会在没有订阅者时按 `require_subscriber_delivery_metadata_key` 决定是否丢弃。订阅者抛错的隔离需要在 backend 中确认；如果未实现，在 lifecycle 的订阅注册处包一层 `safe_handler`。
-- **MemoryIngestionSubscriber**：单 layer 失败由 `store_ingestion` 隔离，整体失败仅记日志，不重抛回 EventBus。
-- **ToolInvocationService**：publish 失败被 try/except 吞掉只记日志，业务返回值不受影响（领域行为不能因记忆侧失败而失败）。
-- **性能预算**：现网 826 条 SENSOR_EVENT + 32 条 chat 事件累计；订阅者数量 < 10，in-memory pub/sub 开销可忽略。新增 publish 在 ToolInvocationService.invoke 的 finally 中，用 fire-and-forget 风格（仍 await，但不会阻塞主路径任何昂贵操作）。
+`get_all_skills` / `count_skills` / `query_strategies` 等读路径过滤 `deleted_at IS NULL`。
+
+## 10. 错误隔离 / 性能 / 关键不变量
+
+### 10.1 错误隔离
+
+- **EventBus 失败隔离**：`InMemoryMessageBusBackend` 现有实现的订阅者抛错隔离需要在实施前确认；如未实现，在 lifecycle 的订阅注册处统一 wrap `safe_handler(handler)`，捕获并记录异常。
+- **MemoryIngestionSubscriber**：单 layer 失败由 `store_ingestion._dispatch` 隔离，整体失败仅记日志，不重抛回 EventBus。
+- **ToolInvocationService**：publish 失败被 try/except 吞掉只记日志，业务返回值不受影响。
+
+### 10.2 性能与背压
+
+`InMemoryMessageBusBackend.publish` 当前实现按订阅者**串行 await**。若 MemoryIngestionSubscriber 直接在事件回调中执行 `record_memory_event` →（在阈值触发时）`_maybe_extract_strategy` → 调用 LLM，工具调用的 finally 会被 LLM 调用阻塞数秒。
+
+约束：
+
+- **订阅者必须 cheap**：MemoryIngestionSubscriber 的 handler 内不直接执行重活，将 `unified_memory.ingest_event` 调度为 `asyncio.create_task(...)`，handler 立即返回。
+- 同样 RuntimeTraceSubscriber 的 db 写入使用 `create_task` 卸载。
+- 副作用：失败不再传回到 publish 调用方（本来 publish 也只记录日志，符合预期）。
+- 顺序保证：同一 correlation_id 的 task 通过 `asyncio.Lock` 串行化（落到 unified_memory 内部），确保 L1 早于 L2/L4 完成。
+
+### 10.3 publish 再入
+
+订阅者在 handler 内可能再 publish（例如 L4 未来加 `SkillUpdated`）。约定：
+
+- 订阅者 publish 必须通过 `asyncio.create_task` 异步进行，避免在当前 handler 同步路径上递归 publish 导致顺序不可知。
+- 文档级要求写在 `MemoryIngestionSubscriber` 与 `RuntimeTraceSubscriber` 类 docstring。
+
+### 10.4 TaskContext 字段约束
+
+- `task_id`、`turn_id`：可 `None`（很多链路无 task）。
+- `user_id`：可 `None`（系统事件、awareness 时无 user）。
+- `session_id`：**chat 派生的事件必须非 None**（L1 partitioning / chat session 关联依赖）。其他来源（工具执行、sensor、task 内部）允许 None；MemoryIngestionSubscriber 在翻译时做断言并打 warning。
+
+### 10.5 性能预算
+
+- 现网量：826 SENSOR + 32 chat 事件累计；新增 `ToolInvocationCompleted` 频率上限是工具调用频率，现网每天 < 1000 量级。
+- 订阅者总数：< 5（memory / runtime_trace / 未来 metrics / behavior）。
+- handler 卸载到 task 之后，publish 调用方耗时 < 1ms。
 
 ## 11. 测试策略
 
@@ -394,5 +492,19 @@ async def ingest_event(self, event_or_dict) -> dict:
 
 ## 14. Open Questions
 
-- TaskContext 各字段的来源：当前调用栈里 task_id / turn_id / session_id 不一定都有，是否在 ToolInvocationService 入口要求调用方传完整 ctx，还是允许 None？倾向于"允许 None，记 warning"。
-- 是否需要把 `LLM_CALL_COMPLETED` 也纳入这次重构？倾向于"本次不动"，已有写入路径正常。
+- **`LLM_CALL_COMPLETED` 是否纳入本次重构**：倾向"本次不动"。已有写入路径正常，待后续单独迭代。
+
+（TaskContext 各字段的可空性在 §10.4 显式回答；不再列为 open。）
+
+## 15. 评审记录
+
+2026-05-05 经 spec-document-reviewer 评审，已修复以下问题：
+
+- L2 双路径合并写法（§8.3）
+- `MemoryLayer.accepts` 签名增加 `FanOutContext` 参数（§8.1）
+- 工具执行调用点补全为 4 处（§5）
+- `correlation_id` 归属外层 `Event`，payload 不再重复（§4.4）
+- 双订阅过渡期改为"生产端只发新事件"，避免 L0/L4 重复写入（§7.1）
+- L4 schema migration 改用 try/catch 处理重复列（§9.4）
+- 订阅者 handler 必须卸载重活到 `create_task`，规避 publish 串行 await 阻塞（§10.2、§10.3）
+- TaskContext 字段可空性：chat 来源 `session_id` 必须非 None（§10.4）
