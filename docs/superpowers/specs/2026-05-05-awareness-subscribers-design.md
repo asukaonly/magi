@@ -564,9 +564,6 @@ def _from_sensor_legacy(event: Event) -> Optional[MemoryEvent]:
     - `grep "from .ingestion_gateway import" backend/src --include="*.py"` 与 lifecycle.py 唯一引用一致
 
 每阶段独立可发布；中间状态下旧 gateway 路径与新订阅者不冲突（订阅者注册但收不到事件，因 gateway 阶段 9 才 publish）。完成后旧直调代码消失。
-9. **回归 + grep**：`grep "_unified_memory" backend/src/magi/awareness/` 应为 0；`grep "_timeline_adapter" backend/src/magi/awareness/ingestion_gateway.py` 应为 0。
-
-每阶段独立可发布；中间状态下旧 gateway 路径与新订阅者并存（无写入冲突，因 producer-assigned event_id idempotent）。完成后旧直调代码消失。
 
 ## 11. 错误隔离 / 性能
 
@@ -657,8 +654,6 @@ KGSubscriber 的 `_process_relations` 从 gateway 迁移时签名变化：
 - 新：读 `output_dict["occurred_at"]` / `output_dict["source_type"]` / `relation_candidates: tuple[Mapping]`
 
 实施前 grep `output.to_dict()` 实现，确认 `occurred_at / source_type` 都在产出 dict 中。如不齐，先补 `to_dict()`。
-
-| **`default_user_id` 参数实际未使用** | 删除 §6 gateway 的 `default_user_id` 参数。owner 解析现有 `_resolve_memory_owner_user_id` 已经从 `runtime_defaults.DEFAULT_USER_ID` 兜底，不需 gateway 持有 |
 
 ## 13. 已知技术债（接受）
 
