@@ -10,12 +10,13 @@ A/B/C 已经把工具执行 / 任务生命周期 / chat 消息 / sensor 路径�
 
 现状：
 
-- `LLMCallEventPayload`（`magi/llm/usage_events.py`）持 token/cost/latency 字段。
+- `LLMCallEventPayload`（`magi/llm/usage_events.py`）字段集（实际查证）：`provider / model / request_kind / success / request_id / prompt_tokens / completion_tokens / total_tokens / usage_available / latency_ms / error / correlation_id / session_id / turn_id / agent_id / created_at`。**没有** reasoning_tokens / cache_*_tokens / cost_usd / ttft_ms / thinking_* / previews 字段。
+- `llm_usage` 表 schema（`usage_store.py:38-55`）：上面所有字段 + `ttft_ms` + `cost_usd`（DEFAULT 0，意味着实际从未写入有意义的值）。
 - `provider_bridge/responses.py:378-379` 在 LLM 调用完成时用 `publish_llm_call_event(payload, publisher)` 发 `Event(LLM_CALL_COMPLETED, ...)`。
-- `LLMUsageStore`（`magi/llm/usage_store.py`）订阅 `LLM_CALL_COMPLETED`，写 `llm_usage` 表。
+- `LLMUsageStore.record_call(payload: dict)`（line 116）订阅 `LLM_CALL_COMPLETED` 写 `llm_usage` 表（自订阅在 `start(message_bus)` 中，由 `memory/lifecycle.py:70` 触发）。
 - B 阶段把 chat post-process 的 trace 写入改成 `publish_trace_span(node_type="llm_call")`——**等于在调用方一侧补 trace_llm_calls 投影**。LLM 调用本身（provider_bridge）仍发老的 `LLM_CALL_COMPLETED` 事件。
 
-结果：同一次 LLM 调用产生**两条事件**——一条 `LLM_CALL_COMPLETED`（token/usage 走 llm_usage 表）、一条 chat post-process 事后 publish 的 `SpanCompleted(node_type="llm_call")`（写 trace_llm_calls）。两条事件由两个不同位置发出，**容易不一致**。同时：
+结果：同一次 LLM 调用产生**两条事件**——一条 `LLM_CALL_COMPLETED`（token 走 llm_usage 表）、一条 chat post-process 事后 publish 的 `SpanCompleted(node_type="llm_call")`（写 trace_llm_calls）。两条事件由两个不同位置发出，**容易不一致**。同时：
 
 - 非 chat 路径的 LLM 调用（L3 summary / L2 entity / L4 strategy extraction）从未走 publish_trace_span，**没有 trace 数据**。
 - chat 路径下 LLM trace 拓扑由调用方决定，不由 LLM 调用自身决定——架构上不一致。
@@ -83,45 +84,45 @@ D 把 LLM_CALL_COMPLETED 与 SpanCompleted 合并为单一事件，发布点收�
 
 ## 4. SpanCompleted attributes 标准字段（node_type="llm_call"）
 
+字段集与现 `LLMCallEventPayload` 1:1（不引入新字段；现 store schema 多出来的 ttft_ms/cost_usd 列继续 DEFAULT 0）：
+
 ```python
 attributes = {
     # provider/model identity
     "provider": str,                # "anthropic" / "openai" / ...
-    "model": str,                   # "claude-opus-4-7" / "gpt-4o" / ...
+    "model": str,                   # 模型名
     "request_kind": str,            # "generate" / "chat" / "chat_stream" / "embedding" / "image"
-    
-    # token usage
-    "input_tokens": int,
-    "output_tokens": int,
-    "reasoning_tokens": int,
-    "cache_read_tokens": int,
-    "cache_write_tokens": int,
-    
-    # cost / latency
-    "cost_usd": float,
-    "ttft_ms": int,                 # time to first token (streaming only; 0 otherwise)
-    
-    # thinking (Anthropic)
-    "thinking_enabled": bool,
-    "thinking_depth": str,          # "low" / "medium" / "high" / "none"
-    "thinking_content": str | None, # may be truncated
-    
-    # previews
-    "request_preview": str | None,
-    "response_preview": str | None,
-    
+
+    # token usage (from LLMCallEventPayload)
+    "prompt_tokens": int,
+    "completion_tokens": int,
+    "total_tokens": int,
+    "usage_available": bool,
+
     # business context (for llm_usage indexing)
+    "request_id": str,              # 现有 8-char hex，作为 llm_usage 主键
     "session_id": str | None,
-    "turn_id": str | None,          # also mirrored on SpanCompleted.turn_id
     "agent_id": str | None,
 }
 ```
 
-`SpanCompleted.duration_ms` 已在 dataclass 上（B 阶段）；不重复成 attributes 字段。
-`SpanCompleted.error` 已在 dataclass 上；失败信息在那。
-`SpanCompleted.name` = `attributes["model"]`，便于 trace 树可读。
+`SpanCompleted.duration_ms` 已在 dataclass（B 阶段）→ 取代独立 latency 字段；LLMUsageSubscriber 写 `llm_usage.latency_ms = payload.duration_ms`。
+`SpanCompleted.error` 已在 dataclass → 失败信息走那；LLMUsageSubscriber 从 `payload.error.message` 写 `llm_usage.error`。
+`SpanCompleted.turn_id` 已在 dataclass → llm_usage.turn_id 取这里。
+`SpanCompleted.name` = `attributes["model"]`。
+`Event.correlation_id` → llm_usage.correlation_id。
 
-RuntimeTraceSubscriber `_record_llm_call` 已就位（B 阶段），从 attributes 读相同字段写 trace_llm_calls。新 LLMUsageSubscriber 也从同一 attributes 集合读字段写 llm_usage。两个订阅者读同一 attributes 模式，schema 演进时同步更新。
+`ttft_ms / cost_usd` 字段 store schema 保留但 attributes 不写（保持 DEFAULT 0，与现状一致）。如果未来 LLMCallEventPayload 增加这些指标，attributes 同步加，subscriber 同步更新——**不在 D 范围内**。
+
+`reasoning_tokens / cache_read_tokens / cache_write_tokens / thinking_* / request_preview / response_preview` 这些"理想态"字段在现 LLMCallEventPayload 中**不存在**——D 不引入。trace_llm_calls 表的对应列继续接收 None / 默认值（与 B 阶段已就位的 RuntimeTraceSubscriber._record_llm_call 行为一致）。
+
+RuntimeTraceSubscriber `_record_llm_call` 已就位（B 阶段），按以下提取（验证一致性）：
+
+```bash
+grep -A 20 "def _record_llm_call" backend/src/magi/runtime_trace/subscribers/runtime_trace_subscriber.py
+```
+
+应能从这套 attributes 写出有效的 trace_llm_calls 行；缺字段（reasoning/cache）继续走默认值。
 
 ## 5. LLMUsageSubscriber
 
@@ -185,31 +186,33 @@ class LLMUsageSubscriber:
     async def _safe_record(self, event: Event, payload: SpanCompleted) -> None:
         try:
             attrs = payload.attributes or {}
-            await self._store.record_usage(
-                provider=str(attrs.get("provider") or ""),
-                model=str(attrs.get("model") or payload.name),
-                request_kind=str(attrs.get("request_kind") or "unknown"),
-                success=(payload.status == "ok"),
-                input_tokens=int(attrs.get("input_tokens", 0)),
-                output_tokens=int(attrs.get("output_tokens", 0)),
-                reasoning_tokens=int(attrs.get("reasoning_tokens", 0)),
-                cache_read_tokens=int(attrs.get("cache_read_tokens", 0)),
-                cache_write_tokens=int(attrs.get("cache_write_tokens", 0)),
-                cost_usd=float(attrs.get("cost_usd", 0.0)),
-                ttft_ms=int(attrs.get("ttft_ms", 0)),
-                latency_ms=int(payload.duration_ms),
-                error=(payload.error.message if payload.error else None),
-                correlation_id=event.correlation_id,
-                session_id=attrs.get("session_id"),
-                turn_id=payload.turn_id or attrs.get("turn_id"),
-                agent_id=attrs.get("agent_id"),
-                created_at=float(payload.started_at_ms) / 1000.0,
-            )
+            usage_payload = {
+                # llm_usage table columns
+                "request_id": str(attrs.get("request_id") or payload.span_id),
+                "provider": str(attrs.get("provider") or ""),
+                "model": str(attrs.get("model") or payload.name),
+                "request_kind": str(attrs.get("request_kind") or "unknown"),
+                "prompt_tokens": int(attrs.get("prompt_tokens", 0)),
+                "completion_tokens": int(attrs.get("completion_tokens", 0)),
+                "total_tokens": int(attrs.get("total_tokens", 0)),
+                "usage_available": bool(attrs.get("usage_available", False)),
+                "latency_ms": int(payload.duration_ms),
+                "ttft_ms": 0,                       # not tracked by LLMCallEventPayload today
+                "cost_usd": 0.0,                    # ditto
+                "success": (payload.status == "ok"),
+                "error": payload.error.message if payload.error else None,
+                "correlation_id": event.correlation_id,
+                "session_id": attrs.get("session_id"),
+                "turn_id": payload.turn_id or attrs.get("turn_id"),
+                "agent_id": attrs.get("agent_id"),
+                "created_at": float(payload.started_at_ms) / 1000.0,
+            }
+            await self._store.record_call(usage_payload)
         except Exception:
             logger.exception("llm_usage projection failed: span=%s", payload.span_id)
 ```
 
-注：`LLMUsageStore.record_usage(...)` 的精确签名实施前需确认（§9 风险）。当前 `LLMUsageStore` 自订阅 `LLM_CALL_COMPLETED` 事件并把 payload 写入数据库；D 阶段 store 取消自订阅，改由 LLMUsageSubscriber 推动。如果 store 现有写入 API 不够直接，新增一个公共方法 `record_usage(...)` 或 `write_row(payload_dict)`，具体看现状。
+直接调用现有 `LLMUsageStore.record_call(payload: dict)` API（line 116），不新增方法。所有字段名与现表 schema 1:1 对齐（line 38-55）。
 
 ## 6. provider_bridge publish 切换
 
@@ -226,23 +229,22 @@ await publish(payload, publisher=self._usage_event_publisher)
 from magi.runtime_trace.span_publisher import publish_trace_span, resolve_event_bus
 from magi.events.tracing import current_trace_context
 from magi.events.domain_payloads import ToolError
-import uuid
 
 ctx = current_trace_context()
-trace_id = ctx.trace_id if ctx is not None else str(uuid.uuid4())
+trace_id = ctx.trace_id if ctx is not None else None  # publish_trace_span 缺省自动 ULID
 parent_span_id = ctx.span_id if ctx is not None else None
 
 started_at_ms = int(payload.created_at * 1000)
-ended_at_ms = started_at_ms + int(payload.latency_seconds * 1000)
+ended_at_ms = started_at_ms + int(payload.latency_ms)
 error = None
 if not payload.success and payload.error:
     error = ToolError(type="LLMError", message=str(payload.error)[:1000])
 
 await publish_trace_span(
-    event_bus=resolve_event_bus(fallback=self._host._message_bus),
+    event_bus=resolve_event_bus(fallback=None),  # 走 Container.message_bus
     node_type="llm_call",
     name=payload.model,
-    trace_id=trace_id,
+    trace_id=trace_id or "",  # publish_trace_span 内部当 falsy 时会重新生成
     parent_span_id=parent_span_id,
     status="ok" if payload.success else "error",
     started_at_ms=started_at_ms,
@@ -250,30 +252,32 @@ await publish_trace_span(
     error=error,
     turn_id=payload.turn_id,
     attributes={
+        "request_id": payload.request_id,
         "provider": payload.provider,
         "model": payload.model,
         "request_kind": payload.request_kind,
-        "input_tokens": payload.input_tokens,
-        "output_tokens": payload.output_tokens,
-        "reasoning_tokens": payload.reasoning_tokens,
-        "cache_read_tokens": payload.cache_read_tokens,
-        "cache_write_tokens": payload.cache_write_tokens,
-        "cost_usd": payload.cost_usd,
-        "ttft_ms": payload.ttft_ms,
-        "thinking_enabled": payload.thinking_enabled,
-        "thinking_depth": payload.thinking_depth,
-        "thinking_content": payload.thinking_content,
-        "request_preview": payload.request_preview,
-        "response_preview": payload.response_preview,
+        "prompt_tokens": payload.prompt_tokens,
+        "completion_tokens": payload.completion_tokens,
+        "total_tokens": payload.total_tokens,
+        "usage_available": payload.usage_available,
         "session_id": payload.session_id,
         "agent_id": payload.agent_id,
     },
 )
 ```
 
-复用 B 阶段 `publish_trace_span` helper，复用 A 阶段 `current_trace_context()`。
+复用 B 阶段 `publish_trace_span` helper 与 A 阶段 `current_trace_context()`。
 
-`payload.created_at` / `payload.latency_seconds` 现 `LLMCallEventPayload` 字段——实施前确认；如未存在用 monotonic 时间替代。
+**Bus 解析**：评审指出 `self._host._message_bus` 在现 host 上**不存在**——host 暴露的是 `_usage_event_publisher`。两条思路：
+
+a) **走 Container.message_bus()**（推荐）：`resolve_event_bus(fallback=None)` 会从 `Container.message_bus()` 取（B 已实现兜底），无需 host 持有 bus。这是当前 ToolInvocationService / TaskOrchestrator / publish_trace_span 都用的模式。
+b) 在 host 构造时注入 message_bus → 配 publish。signature 改动面积大。
+
+选 (a)。lifecycle 注入 message_bus 到 Container 已是 A 阶段就有的事实，无需新增配线。
+
+**latency 计算**：`payload.latency_ms`（int）直接用，不要再 `* 1000`。原 spec 写错。
+
+`payload.created_at` 是 `time.time()`（float epoch seconds）；`* 1000` 转 ms 正确。
 
 ## 7. 删除清单
 
@@ -287,21 +291,29 @@ D 完成后删除（实施步骤里逐个去）：
 | `RuntimeBootstrapContext.llm_usage_event_publisher` 字段 | 删除 |
 | `provider_bridge/__init__.py` 中 `usage_event_publisher` 参数 + `_usage_event_publisher` 属性 | 删除 |
 | `provider_bridge/responses.py` 中 `from ..usage_events import ... publish_llm_call_event` | 删除 |
-| LLMUsageStore 内自订阅 LLM_CALL_COMPLETED 的逻辑（如有） | 删除 |
+| `LLMUsageStore.start(message_bus)` 中订阅 `LLM_CALL_COMPLETED` 的逻辑 | 删除（`start` 方法本身可保留若仅初始化 schema；具体看 line 84-95） |
+| `memory/lifecycle.py:70` 处 `await self._llm_usage_store.start(runtime_message_bus)` 调用 | 修改为 `await self._llm_usage_store.start()`（无 bus）或彻底删除（视 LLMUsageSubscriberModule 是否取代 store init） |
 
-## 8. chat post-process / worker_trace 去重
+## 8. chat post-process / worker_trace / function_calling 去重
 
-B 阶段在以下位置 publish `node_type="llm_call"` SpanCompleted：
+B 阶段在以下 **5 个位置**（评审完整 grep 结果）publish `node_type="llm_call"` SpanCompleted：
 
-```bash
-grep -rn 'node_type="llm_call"\|node_type=.llm_call.' backend/src --include="*.py"
+```
+agent/task_agents/chat/postprocess/intent.py:171
+agent/task_agents/chat/postprocess/trace_llm.py:92
+agent/task_agents/chat/postprocess/trace_llm.py:143
+agent/execution/function_calling/tracing.py:171
+agent/workers/worker_trace.py:51
 ```
 
-这些位置是 chat post-process 和 worker_trace 的"事后投影"。D 阶段 LLM 自身已发 SpanCompleted——这些投影代码会与 LLM 自发产生**重复事件**和**重复 trace_llm_calls 行**。
+这些位置是"事后投影"——在 LLM 调用完成 + 业务代码下文得到 token usage 等信息后，调用方手工 publish trace。D 阶段 LLM 自身已发 SpanCompleted——这些投影代码会与 LLM 自发产生**重复事件**和**重复 trace_llm_calls 行**。
 
-**全部删除**这些 `node_type="llm_call"` publish 调用。同时检查这些代码块原本写的 trace_spans 父 span（若 chat post-process 同时写 LLM 父 span 以建立拓扑）：父 span 的 trace_id / span_id 现在通过 contextvars 自动传给 LLM publish，无需父 span 显式 publish——chat post-process 只需保证调用 LLM 时处于 `with start_async_span(node_type="span/...")` 上下文中。
+**全部删除**这 5 个 publish 调用。同时检查：
 
-实施前完整 grep + 阶段 5 单步删除，依赖详细位置确认。
+- 这些代码块原本写的父 span（trace 树拓扑）—— 现在 LLM publish 的 parent_span_id 通过 contextvars 自动取，无需调用方显式 publish 父 span。但调用方仍可保留 `with start_async_span(node_type="span", ...)` 之类的包裹（如它们已经用了的）以保留中间层 span。
+- 调用方现在 publish 的其他 node_type（"intent_resolution" / "span" / "tool_invocation"）保留。**只删 `node_type="llm_call"` 这一种**。
+
+实施前完整 grep 确认范围（§9 阶段 4）。
 
 ## 9. 实施分阶段
 
@@ -385,4 +397,26 @@ grep -rn 'node_type="llm_call"\|node_type=.llm_call.' backend/src --include="*.p
 
 ## 14. Open Questions
 
-无。所有关键决策已通过 brainstorming 问答确定：合并为 SpanCompleted / 新增 LLMUsageSubscriber / 顶层入口埋点（在 provider_bridge.responses publish 点）/ trace 上下文从 contextvars 自动取。
+无。所有先前 open 项已在 §4 / §5 / §6 / §7 落实：
+
+- LLMCallEventPayload 字段范围 = 现状字段集 1:1（不引入 reasoning_tokens / cost_usd / ttft_ms / thinking_* / previews 等"理想态"字段）
+- LLMUsageStore API 调用 `record_call(payload: dict)` 现有公共方法
+- bus 解析走 Container.message_bus，host 不持有 bus
+- function_calling/tracing.py:171 的 llm_call publish 在 §8 删除清单中
+
+## 15. 评审记录
+
+2026-05-05 经 spec-document-reviewer 评审，已修复以下问题：
+
+**Critical**：
+- C1: `LLMUsageStore` 没有 `record_usage` 方法。改为调现有 `record_call(payload: dict)`（§5）。
+- C2: `LLMCallEventPayload` 字段范围远窄于初稿 §4 列表。重写 §4 attributes 与现 payload 字段集 1:1 对齐（§4）。`latency_seconds` 字段不存在，应该是 `latency_ms`（§6）。
+- C3: §8 漏掉 `agent/execution/function_calling/tracing.py:171`。补全 5 个删除点（§8）。
+
+**Important**：
+- C4: `self._host._message_bus` 不存在。改为 `resolve_event_bus(fallback=None)` 走 Container（§6）。
+- C5: `memory/lifecycle.py:70` 处 `LLMUsageStore.start(message_bus)` 调用。明确删除策略（§7）。
+- C6: `request_id` schema 字段。SpanCompleted 通过 `attributes["request_id"] = payload.request_id` 携带，subscriber 写入（§4 / §5）。
+
+**背景澄清**：
+- §1 现状描述加入实地查证的字段列表，避免误导（§1）。
