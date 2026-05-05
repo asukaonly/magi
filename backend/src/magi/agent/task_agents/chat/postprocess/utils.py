@@ -46,20 +46,13 @@ def normalize_mode(mode: Any) -> str:
 
 
 def resolve_event_bus() -> Any | None:
-    """Best-effort resolution of the global message bus for trace publishing.
+    """Backward-compatible thin wrapper.
 
-    Used by chat post-process trace migrations to publish SpanCompleted events
-    without threading the bus through every constructor. Returns None if the
-    container isn't configured (callers must handle the no-bus case).
+    Phase 6 moved the canonical implementation to
+    :mod:`magi.runtime_trace.span_publisher`; this wrapper is kept so existing
+    chat post-process callers continue to work without churn. New callers
+    (worker-trace, etc.) should import from ``span_publisher`` directly.
     """
-    try:
-        from .....core.container import Container
+    from .....runtime_trace.span_publisher import resolve_event_bus as _resolve
 
-        bus = Container.message_bus()
-    except Exception:
-        return None
-    if bus is None or type(bus).__name__ == "object":
-        return None
-    if not hasattr(bus, "publish"):
-        return None
-    return bus
+    return _resolve()

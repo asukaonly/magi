@@ -126,6 +126,11 @@ class RuntimeTraceSubscriber:
 
     async def _record_tool_call(self, p: SpanCompleted) -> None:
         attrs = p.attributes or {}
+        if not attrs.get("tool_name"):
+            # Span carries semantic node_type='tool_invocation' but lacks the
+            # actual tool details (e.g., a parent tool span); skip the
+            # trace_tools projection to avoid persisting an empty row.
+            return
         record = TraceToolRecord(
             span_id=p.span_id,
             trace_id=p.trace_id,
@@ -145,6 +150,9 @@ class RuntimeTraceSubscriber:
 
     async def _record_llm_call(self, p: SpanCompleted) -> None:
         attrs = p.attributes or {}
+        if not attrs.get("model") and not attrs.get("provider"):
+            # Defensive: skip when there are no LLM details to persist.
+            return
         record = TraceLlmCallRecord(
             span_id=p.span_id,
             trace_id=p.trace_id,
@@ -166,6 +174,9 @@ class RuntimeTraceSubscriber:
 
     async def _record_intent_resolution(self, p: SpanCompleted) -> None:
         attrs = p.attributes or {}
+        if not attrs.get("intent") and not attrs.get("execution_mode"):
+            # Defensive: skip when intent/mode aren't on the payload.
+            return
         record = TraceIntentResolutionRecord(
             span_id=p.span_id,
             trace_id=p.trace_id,

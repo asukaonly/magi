@@ -9,8 +9,12 @@ from unittest.mock import AsyncMock
 import pytest
 
 from magi.agent.execution.function_calling import ExecutionOutcome
+from magi.events.in_memory_backend import InMemoryMessageBusBackend
 from magi.llm.streaming_events import LLMStreamEvent, emit_stream_event, stream_scope
 from magi.runtime_trace.store import RuntimeTraceStore
+from magi.runtime_trace.subscribers.runtime_trace_subscriber import (
+    RuntimeTraceSubscriber,
+)
 from magi.tools.builtin.agent_tool import AgentTool, WorkerRunState
 
 
@@ -22,6 +26,32 @@ async def runtime_trace_store(tmp_path: Path):
         yield store
     finally:
         await store.shutdown()
+
+
+@pytest.fixture
+async def trace_bus_and_subscriber(runtime_trace_store: RuntimeTraceStore):
+    bus = InMemoryMessageBusBackend()
+    await bus.start()
+    subscriber = RuntimeTraceSubscriber(event_bus=bus, trace_store=runtime_trace_store)
+    await subscriber.start()
+
+    async def _flush() -> None:
+        # Wait for the bus queue to drain into the subscriber, then drain the
+        # subscriber's in-flight projection tasks.
+        import asyncio as _asyncio
+
+        while True:
+            stats = await bus.get_stats()
+            if stats["queue_length"] == 0 and stats["active_dispatches"] == 0:
+                break
+            await _asyncio.sleep(0.01)
+        await subscriber.drain()
+
+    try:
+        yield bus, subscriber, _flush
+    finally:
+        await subscriber.stop()
+        await bus.stop()
 
 
 def _run_state() -> WorkerRunState:
@@ -50,14 +80,21 @@ def _run_state() -> WorkerRunState:
 @pytest.mark.asyncio
 async def test_worker_trace_store_persists_dispatch_and_worker_spans(
     runtime_trace_store: RuntimeTraceStore,
+    trace_bus_and_subscriber,
 ) -> None:
+    bus, subscriber, flush = trace_bus_and_subscriber
     manager = AgentTool()._manager
-    manager.configure(llm_adapter=object(), runtime_trace_store=runtime_trace_store)
+    manager.configure(
+        llm_adapter=object(),
+        runtime_trace_store=runtime_trace_store,
+        message_bus=bus,
+    )
     run_state = _run_state()
 
     await manager._emit_worker_dispatch_trace(run_state)
     await manager._emit_worker_attempt_started_trace(run_state)
     await manager._emit_worker_started_trace(run_state)
+    await flush()
 
     dispatch_span = await runtime_trace_store.get_span("turn-1:worker_dispatch:subtask-1")
     attempt_span = await runtime_trace_store.get_span("turn-1:worker_attempt:subtask-1:1")
@@ -77,9 +114,15 @@ async def test_worker_trace_store_persists_dispatch_and_worker_spans(
 @pytest.mark.asyncio
 async def test_worker_trace_store_persists_llm_and_tool_rows(
     runtime_trace_store: RuntimeTraceStore,
+    trace_bus_and_subscriber,
 ) -> None:
+    bus, subscriber, flush = trace_bus_and_subscriber
     manager = AgentTool()._manager
-    manager.configure(llm_adapter=object(), runtime_trace_store=runtime_trace_store)
+    manager.configure(
+        llm_adapter=object(),
+        runtime_trace_store=runtime_trace_store,
+        message_bus=bus,
+    )
     run_state = _run_state()
 
     await manager._handle_worker_loop_event(
@@ -115,6 +158,7 @@ async def test_worker_trace_store_persists_llm_and_tool_rows(
             "data": {"matches": 3},
         },
     )
+    await flush()
 
     llm_span = await runtime_trace_store.get_span("turn-1:worker_llm:subtask-1:1:final_response:1")
     llm_call = await runtime_trace_store.get_llm_call("turn-1:worker_llm:subtask-1:1:final_response:1")
@@ -127,7 +171,7 @@ async def test_worker_trace_store_persists_llm_and_tool_rows(
     assert llm_call.model == "gpt-test"
     assert llm_call.output_tokens == 12
     assert tool_span is not None
-    assert tool_span.node_type == "tool_call"
+    assert tool_span.node_type == "tool_invocation"
     assert tool_call is not None
     assert tool_call.tool_name == "glob"
     assert tool_call.success is True

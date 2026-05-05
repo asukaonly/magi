@@ -17,6 +17,28 @@ from magi.events.domain_payloads import SpanCompleted, ToolError
 logger = logging.getLogger(__name__)
 
 
+def resolve_event_bus(*, fallback: Any = None) -> Any | None:
+    """Resolve a message bus for trace publishing.
+
+    Prefer the explicit fallback (e.g. ``self._message_bus``); otherwise pull
+    from the global ``Container``; otherwise return None. The returned value is
+    guaranteed to expose a ``publish`` attribute when non-None.
+    """
+    if fallback is not None and hasattr(fallback, "publish"):
+        return fallback
+    try:
+        from magi.core.container import Container
+
+        bus = Container.message_bus()
+    except Exception:
+        return None
+    if bus is None or type(bus).__name__ == "object":
+        return None
+    if not hasattr(bus, "publish"):
+        return None
+    return bus
+
+
 async def publish_trace_span(
     *,
     event_bus,
