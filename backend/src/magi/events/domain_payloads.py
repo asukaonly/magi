@@ -85,6 +85,21 @@ class SensorEventEmitted:
     payload: Mapping[str, Any]
     context: TaskContext
 
+    # New (C): extended fields for cross-subscriber projection.
+    sensor_id: str = ""
+    output_dict: Mapping[str, Any] = field(default_factory=dict)
+    metadata_dict: Optional[Mapping[str, Any]] = None
+    policy_dict: Mapping[str, Any] = field(default_factory=dict)
+    projection_dict: Mapping[str, Any] = field(default_factory=dict)
+    occurred_at: float = 0.0
+    owner_user_id: Optional[str] = None
+    relation_candidates: tuple[Mapping[str, Any], ...] = ()
+    allowed_edge_whitelist: tuple[str, ...] = ()
+    sensor_fingerprint: Optional[str] = None
+    idempotency_key: Optional[str] = None
+    memory_event_type: str = "SENSOR_EVENT"
+    l2_batch_policy_dict: Optional[Mapping[str, Any]] = None
+
 
 @dataclass(frozen=True)
 class SpanCompleted:
