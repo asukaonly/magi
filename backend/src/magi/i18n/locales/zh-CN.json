@@ -36,6 +36,10 @@
       "not_found": "未找到附件",
       "file_not_found": "未找到附件文件"
     },
+    "messages": {
+      "not_found": "未找到消息",
+      "label_updated": "消息标签已更新"
+    },
     "history": {
       "cleared": "对话历史已清空",
       "cleared_agent_uninitialized": "对话历史已清空（Agent 尚未初始化）"
@@ -122,6 +126,10 @@
     "raw_event": {
       "title": "事件",
       "memory_title": "记忆事件"
+    },
+    "errors": {
+      "service_unavailable": "时间线服务不可用",
+      "context_not_found": "未找到时间线上下文"
     }
   },
   "sensors": {
@@ -197,11 +205,21 @@
         "loaded": "LLM 自定义提供商模板已加载"
       },
       "models": {
-        "discovered": "LLM 提供商模型已发现"
+        "discovered": "LLM 提供商模型已发现",
+        "unsupported_discovery_format": "不支持的模型发现格式",
+        "discovery_request_failed_status": "模型发现请求失败，状态码：{status}",
+        "discovery_failed": "发现模型失败：{error}",
+        "discovery_invalid_payload": "模型发现响应载荷无效"
       },
       "connection": {
         "succeeded": "LLM 提供商连接成功"
       }
+    }
+  },
+  "local_models": {
+    "errors": {
+      "unknown_model": "未知模型：{model_id}",
+      "not_found_on_disk": "磁盘上未找到模型"
     }
   },
   "memory": {
@@ -243,6 +261,15 @@
         "invalid_config_json": "人格配置 JSON 无效",
         "cannot_delete_active": "不能删除当前启用的人格"
       }
+    },
+    "bootstrap": {
+      "opening_already_initialized": "启动开场白已初始化",
+      "no_opening_available": "没有可用的开场白",
+      "opening_injected": "启动开场白已注入"
+    },
+    "journal": {
+      "reflection_generation_failed": "反思生成失败",
+      "reflection_generated": "日记反思已生成"
     },
     "config": {
       "current": {
@@ -297,6 +324,61 @@
         "dynamic_state_rules": "动态状态规则",
         "appearance_prompt": "外观提示词"
       }
+    }
+  },
+  "commands": {
+    "skills": {
+      "not_found": "未找到技能：{skill_name!r}",
+      "not_user_invocable": "技能 {skill_name!r} 不能由用户直接调用",
+      "not_fork_context": "技能 {skill_name!r} 未声明 context: fork。请使用 /expand-skill 执行内联技能。"
+    }
+  },
+  "skills": {
+    "errors": {
+      "module_uninitialized": "技能模块尚未初始化"
+    }
+  },
+  "plugins": {
+    "errors": {
+      "not_found": "未找到插件",
+      "filename_required": "需要文件名",
+      "archive_extension_invalid": "归档文件必须是 .tar.gz、.tgz 或 .zip",
+      "not_found_in_registry": "注册表中未找到插件",
+      "registry_unreachable": "无法连接插件注册表",
+      "cannot_update_builtin": "内置插件不能更新",
+      "settings_resource_not_found": "未找到插件设置资源",
+      "settings_action_not_found": "未找到插件设置动作",
+      "settings_action_session_not_found": "未找到插件设置动作会话"
+    }
+  },
+  "mcp": {
+    "errors": {
+      "manager_not_initialized": "MCP 管理器尚未初始化",
+      "server_id_exists": "服务器 ID 已存在",
+      "server_not_found": "未找到服务器",
+      "server_not_running": "服务器 {server_id!r} 未运行"
+    }
+  },
+  "background_tasks": {
+    "errors": {
+      "manager_unavailable": "后台任务管理器不可用",
+      "invalid_status_filter": "状态筛选无效：{error}",
+      "not_found": "未找到后台任务：{task_id}",
+      "not_cancellable_status": "当前状态不可取消后台任务：{status}",
+      "not_retriable_status": "当前状态不可重试后台任务：{status}",
+      "not_dismissable_status": "当前状态不可移除后台任务：{status}"
+    }
+  },
+  "control": {
+    "errors": {
+      "settings_manager_unavailable": "控制设置管理器不可用",
+      "permission_rule_store_unavailable": "权限规则存储不可用",
+      "interaction_broker_unavailable": "交互代理不可用",
+      "session_store_unavailable": "控制会话存储不可用",
+      "rule_not_found": "未找到规则：{rule_id!r}",
+      "invalid_scope": "范围无效：{scope}",
+      "permission_request_not_pending": "权限请求 {request_id!r} 不在待处理状态",
+      "ask_request_not_pending": "提问请求 {request_id!r} 不在待处理状态"
     }
   }
 }

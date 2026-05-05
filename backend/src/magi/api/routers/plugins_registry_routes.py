@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, status
 
+from ... import i18n as core_i18n
 from .plugins_common import legacy_plugins_module
 from .plugins_schemas import (
     PluginPackageResponse,
@@ -27,7 +28,9 @@ async def list_registry_plugins():
         legacy.logger.exception("Failed to fetch plugin registry")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Unable to reach plugin registry",
+            detail=core_i18n.t(
+                "plugins.errors.registry_unreachable", fallback="Unable to reach plugin registry"
+            ),
         ) from exc
 
     result: list[PluginRegistryEntryResponse] = []
@@ -82,7 +85,9 @@ async def check_plugin_updates():
         legacy.logger.warning("Failed to check plugin updates", extra={"error": str(exc)})
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Unable to reach plugin registry",
+            detail=core_i18n.t(
+                "plugins.errors.registry_unreachable", fallback="Unable to reach plugin registry"
+            ),
         ) from exc
 
     return [
@@ -102,12 +107,22 @@ async def update_plugin(plugin_id: str):
     legacy = legacy_plugins_module()
     manager, state = legacy._require_package(plugin_id)
     if state.manifest.source == "builtin":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot update builtin plugins")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=core_i18n.t(
+                "plugins.errors.cannot_update_builtin", fallback="Cannot update builtin plugins"
+            ),
+        )
 
     registry = legacy._get_registry_client()
     entry = await registry.fetch_entry(plugin_id)
     if entry is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plugin not found in registry")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=core_i18n.t(
+                "plugins.errors.not_found_in_registry", fallback="Plugin not found in registry"
+            ),
+        )
 
     try:
         plugin_dir = await registry.clone_plugin(entry)
@@ -115,8 +130,15 @@ async def update_plugin(plugin_id: str):
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
+        ) from exc
     return legacy._serialize_package(new_state)
 
 
-__all__ = ["check_plugin_updates", "list_registry_plugins", "plugins_registry_router", "update_plugin"]
+__all__ = [
+    "check_plugin_updates",
+    "list_registry_plugins",
+    "plugins_registry_router",
+    "update_plugin",
+]

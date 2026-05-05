@@ -7,6 +7,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, UploadFile, status
 
+from ... import i18n as core_i18n
 from .plugins_common import legacy_plugins_module
 from .plugins_schemas import PluginInstallRequest, PluginPackageResponse
 
@@ -18,10 +19,19 @@ async def install_plugin_from_upload(file: UploadFile):
     """Install a plugin from an uploaded .tar.gz or .zip archive."""
     legacy = legacy_plugins_module()
     if not file.filename:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Filename required")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=core_i18n.t("plugins.errors.filename_required", fallback="Filename required"),
+        )
     name = file.filename.lower()
     if not (name.endswith(".tar.gz") or name.endswith(".tgz") or name.endswith(".zip")):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Archive must be .tar.gz, .tgz, or .zip")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=core_i18n.t(
+                "plugins.errors.archive_extension_invalid",
+                fallback="Archive must be .tar.gz, .tgz, or .zip",
+            ),
+        )
 
     manager = legacy.resolve_plugin_manager()
     with tempfile.TemporaryDirectory(prefix="magi-upload-") as tmp:
@@ -33,7 +43,9 @@ async def install_plugin_from_upload(file: UploadFile):
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         except RuntimeError as exc:
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
+            ) from exc
     return legacy._serialize_package(state)
 
 
@@ -46,7 +58,12 @@ async def install_plugin_from_registry(request: PluginInstallRequest):
 
     entry = await registry.fetch_entry(request.plugin_id)
     if entry is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plugin not found in registry")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=core_i18n.t(
+                "plugins.errors.not_found_in_registry", fallback="Plugin not found in registry"
+            ),
+        )
 
     try:
         plugin_dir = await registry.clone_plugin(entry)
@@ -59,7 +76,9 @@ async def install_plugin_from_registry(request: PluginInstallRequest):
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
+        ) from exc
 
 
 @plugins_install_router.delete("/{plugin_id}", status_code=status.HTTP_200_OK)

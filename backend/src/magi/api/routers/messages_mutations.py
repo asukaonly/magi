@@ -7,6 +7,7 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException
 
+from ... import i18n as core_i18n
 from ...runtime_defaults import DEFAULT_USER_ID
 from .messages_common import legacy_messages_module
 from .messages_models import MessageLabelRequest
@@ -14,7 +15,9 @@ from .messages_models import MessageLabelRequest
 message_mutations_router = APIRouter()
 
 
-@message_mutations_router.post("/session/{session_id}/message/{message_id}/label", response_model=Dict[str, Any])
+@message_mutations_router.post(
+    "/session/{session_id}/message/{message_id}/label", response_model=Dict[str, Any]
+)
 async def set_message_label(
     session_id: str,
     message_id: str,
@@ -41,7 +44,10 @@ async def set_message_label(
         raise HTTPException(status_code=503, detail=str(exc))
 
     if message is None:
-        raise HTTPException(status_code=404, detail="Message not found")
+        raise HTTPException(
+            status_code=404,
+            detail=core_i18n.t("chat.messages.not_found", fallback="Message not found"),
+        )
 
     from ...transport.chat_events import broadcast_chat_message_upsert
 
@@ -53,7 +59,7 @@ async def set_message_label(
 
     return {
         "success": True,
-        "message": "Message label updated",
+        "message": core_i18n.t("chat.messages.label_updated", fallback="Message label updated"),
         "data": {
             "user_id": request.user_id,
             "session_id": session_id,
@@ -63,7 +69,9 @@ async def set_message_label(
     }
 
 
-@message_mutations_router.delete("/session/{session_id}/message/{message_id}", response_model=Dict[str, Any])
+@message_mutations_router.delete(
+    "/session/{session_id}/message/{message_id}", response_model=Dict[str, Any]
+)
 async def delete_message(session_id: str, message_id: str, user_id: str = DEFAULT_USER_ID):
     """Soft-delete one chat message from the visible transcript."""
     legacy = legacy_messages_module()
@@ -77,7 +85,10 @@ async def delete_message(session_id: str, message_id: str, user_id: str = DEFAUL
         raise HTTPException(status_code=503, detail=str(exc))
 
     if message is None:
-        raise HTTPException(status_code=404, detail="Message not found")
+        raise HTTPException(
+            status_code=404,
+            detail=core_i18n.t("chat.messages.not_found", fallback="Message not found"),
+        )
 
     from ...transport.chat_events import broadcast_chat_message_hidden
 

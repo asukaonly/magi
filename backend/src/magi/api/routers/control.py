@@ -35,6 +35,7 @@ from typing import Any, Literal, Optional
 from fastapi import APIRouter, HTTPException, Path, status
 from pydantic import BaseModel, Field
 
+from ... import i18n as core_i18n
 from ...agent.control.permission.contracts import (
     PermissionOutcome,
     PermissionScope,
@@ -68,7 +69,10 @@ def _settings_manager():
     except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Control settings manager unavailable",
+            detail=core_i18n.t(
+                "control.errors.settings_manager_unavailable",
+                fallback="Control settings manager unavailable",
+            ),
         ) from exc
 
 
@@ -78,7 +82,10 @@ def _rule_store():
     except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Permission rule store unavailable",
+            detail=core_i18n.t(
+                "control.errors.permission_rule_store_unavailable",
+                fallback="Permission rule store unavailable",
+            ),
         ) from exc
 
 
@@ -88,7 +95,10 @@ def _broker():
     except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Interaction broker unavailable",
+            detail=core_i18n.t(
+                "control.errors.interaction_broker_unavailable",
+                fallback="Interaction broker unavailable",
+            ),
         ) from exc
 
 
@@ -98,7 +108,10 @@ def _session_store():
     except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Control session store unavailable",
+            detail=core_i18n.t(
+                "control.errors.session_store_unavailable",
+                fallback="Control session store unavailable",
+            ),
         ) from exc
 
 
@@ -180,9 +193,7 @@ async def get_session_settings(session_id: str) -> dict[str, Any]:
 
 
 @control_router.put("/sessions/{session_id}/settings")
-async def put_session_settings(
-    session_id: str, payload: _SessionSettingsUpdate
-) -> dict[str, Any]:
+async def put_session_settings(session_id: str, payload: _SessionSettingsUpdate) -> dict[str, Any]:
     manager = _settings_manager()
     if payload.clear:
         manager.set_session_override(session_id, None)
@@ -213,9 +224,7 @@ async def list_rules(
     include_persistent: bool = True,
 ) -> dict[str, Any]:
     store = _rule_store()
-    rules = store.list_rules(
-        session_id=session_id, include_persistent=include_persistent
-    )
+    rules = store.list_rules(session_id=session_id, include_persistent=include_persistent)
     return {"rules": [r.to_dict() for r in rules]}
 
 
@@ -229,7 +238,11 @@ async def delete_rule(
     if not removed:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Rule {rule_id!r} not found",
+            detail=core_i18n.t(
+                "control.errors.rule_not_found",
+                fallback="Rule {rule_id!r} not found",
+                rule_id=rule_id,
+            ),
         )
     return {"deleted": rule_id}
 
@@ -255,24 +268,24 @@ class _PermissionRespondRequest(BaseModel):
     outcome: Literal["allow", "deny"] = Field(
         ..., description="User decision for the pending prompt"
     )
-    scope: Literal["one_shot", "session", "persistent_exact", "persistent_pattern"] = (
-        "one_shot"
-    )
+    scope: Literal["one_shot", "session", "persistent_exact", "persistent_pattern"] = "one_shot"
     pattern: Optional[str] = None
     reason: Optional[str] = None
 
 
 @control_router.post("/permission/{request_id}/respond")
-async def respond_permission(
-    request_id: str, payload: _PermissionRespondRequest
-) -> dict[str, Any]:
+async def respond_permission(request_id: str, payload: _PermissionRespondRequest) -> dict[str, Any]:
     broker = _broker()
     try:
         scope = PermissionScope(payload.scope)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid scope: {payload.scope}",
+            detail=core_i18n.t(
+                "control.errors.invalid_scope",
+                fallback="Invalid scope: {scope}",
+                scope=payload.scope,
+            ),
         ) from exc
     response = {
         "outcome": (
@@ -292,7 +305,11 @@ async def respond_permission(
     if not resolved:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Permission request {request_id!r} is not pending",
+            detail=core_i18n.t(
+                "control.errors.permission_request_not_pending",
+                fallback="Permission request {request_id!r} is not pending",
+                request_id=request_id,
+            ),
         )
     return {"resolved": True, "request_id": request_id}
 
@@ -302,9 +319,7 @@ class _AskRespondRequest(BaseModel):
 
 
 @control_router.post("/ask/{request_id}/respond")
-async def respond_ask(
-    request_id: str, payload: _AskRespondRequest
-) -> dict[str, Any]:
+async def respond_ask(request_id: str, payload: _AskRespondRequest) -> dict[str, Any]:
     broker = _broker()
     resolved = await broker.resolve(
         interaction_id=request_id,
@@ -314,7 +329,11 @@ async def respond_ask(
     if not resolved:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Ask request {request_id!r} is not pending",
+            detail=core_i18n.t(
+                "control.errors.ask_request_not_pending",
+                fallback="Ask request {request_id!r} is not pending",
+                request_id=request_id,
+            ),
         )
     return {"resolved": True, "request_id": request_id}
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, status
 
+from ... import i18n as core_i18n
 from ...core.logger import get_logger
 from ...core.runtime_bindings import require_runtime_command_queue
 from ...events.contracts import RefreshChannelsCommand
@@ -27,7 +28,10 @@ async def _enqueue_runtime_channels_refresh_command(*, reason: str) -> None:
     try:
         queue = require_runtime_command_queue()
     except RuntimeError:
-        logger.info("Runtime command queue unavailable during plugin channels refresh notification", reason=reason)
+        logger.info(
+            "Runtime command queue unavailable during plugin channels refresh notification",
+            reason=reason,
+        )
         return
 
     await queue.enqueue_refresh_channels(
@@ -111,14 +115,22 @@ async def update_plugin_settings(plugin_id: str, request: PluginSettingsUpdateRe
     return legacy._serialize_package(state)
 
 
-@plugins_core_router.get("/{plugin_id}/settings/resources/{resource_name}", response_model=PluginSettingsResourceResponse)
+@plugins_core_router.get(
+    "/{plugin_id}/settings/resources/{resource_name}", response_model=PluginSettingsResourceResponse
+)
 async def read_plugin_settings_resource(plugin_id: str, resource_name: str):
     legacy = legacy_plugins_module()
     manager, _ = legacy._require_package(plugin_id)
     try:
         payload = manager.read_plugin_settings_resource(plugin_id, resource_name)
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plugin settings resource not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=core_i18n.t(
+                "plugins.errors.settings_resource_not_found",
+                fallback="Plugin settings resource not found",
+            ),
+        ) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
@@ -158,13 +170,21 @@ async def start_plugin_settings_action(
             field_values=request.field_values,
         )
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plugin settings action not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=core_i18n.t(
+                "plugins.errors.settings_action_not_found",
+                fallback="Plugin settings action not found",
+            ),
+        ) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     if run.result.status == "succeeded" and (
         run.result.settings_updates or bool(run.result.data.get("refresh_channels"))
     ):
-        await _refresh_channels_after_plugin_change(plugin_id, f"settings_action_{action_id}_succeeded")
+        await _refresh_channels_after_plugin_change(
+            plugin_id, f"settings_action_{action_id}_succeeded"
+        )
     return _serialize_action_run(plugin_id, action_id, run)
 
 
@@ -188,13 +208,21 @@ async def poll_plugin_settings_action(
             field_values=request.field_values,
         )
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plugin settings action session not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=core_i18n.t(
+                "plugins.errors.settings_action_session_not_found",
+                fallback="Plugin settings action session not found",
+            ),
+        ) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     if run.result.status == "succeeded" and (
         run.result.settings_updates or bool(run.result.data.get("refresh_channels"))
     ):
-        await _refresh_channels_after_plugin_change(plugin_id, f"settings_action_{action_id}_succeeded")
+        await _refresh_channels_after_plugin_change(
+            plugin_id, f"settings_action_{action_id}_succeeded"
+        )
     return _serialize_action_run(plugin_id, action_id, run)
 
 
@@ -216,7 +244,13 @@ async def cancel_plugin_settings_action(
             session_id=session_id,
         )
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plugin settings action session not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=core_i18n.t(
+                "plugins.errors.settings_action_session_not_found",
+                fallback="Plugin settings action session not found",
+            ),
+        ) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return _serialize_action_run(plugin_id, action_id, run)

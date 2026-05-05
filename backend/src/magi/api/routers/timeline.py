@@ -1,10 +1,12 @@
 """Timeline query API router."""
+
 from __future__ import annotations
 
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, status
 
+from ... import i18n as core_i18n
 from ...memory.provider import get_unified_memory
 from ...timeline.service import TimelineService
 
@@ -17,7 +19,9 @@ def get_timeline_service() -> TimelineService:
     except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Timeline service unavailable",
+            detail=core_i18n.t(
+                "timeline.errors.service_unavailable", fallback="Timeline service unavailable"
+            ),
         ) from exc
     return TimelineService(unified_memory)
 
@@ -49,6 +53,10 @@ async def get_timeline_context_bundle(anchor_id: str):
     service = get_timeline_service()
     bundle = await service.get_context_bundle(anchor_id)
     if bundle is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Timeline context not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=core_i18n.t(
+                "timeline.errors.context_not_found", fallback="Timeline context not found"
+            ),
+        )
     return bundle
-

@@ -36,6 +36,10 @@
       "not_found": "Attachment not found",
       "file_not_found": "Attachment file not found"
     },
+    "messages": {
+      "not_found": "Message not found",
+      "label_updated": "Message label updated"
+    },
     "history": {
       "cleared": "Conversation history cleared",
       "cleared_agent_uninitialized": "Conversation history cleared (agent not initialized)"
@@ -122,6 +126,10 @@
     "raw_event": {
       "title": "Event",
       "memory_title": "Memory Event"
+    },
+    "errors": {
+      "service_unavailable": "Timeline service unavailable",
+      "context_not_found": "Timeline context not found"
     }
   },
   "sensors": {
@@ -197,11 +205,21 @@
         "loaded": "LLM custom provider template loaded"
       },
       "models": {
-        "discovered": "LLM provider models discovered"
+        "discovered": "LLM provider models discovered",
+        "unsupported_discovery_format": "Unsupported model discovery format",
+        "discovery_request_failed_status": "Model discovery request failed with status {status}",
+        "discovery_failed": "Failed to discover models: {error}",
+        "discovery_invalid_payload": "Model discovery response payload is invalid"
       },
       "connection": {
         "succeeded": "LLM provider connection succeeded"
       }
+    }
+  },
+  "local_models": {
+    "errors": {
+      "unknown_model": "Unknown model: {model_id}",
+      "not_found_on_disk": "Model not found on disk"
     }
   },
   "memory": {
@@ -243,6 +261,15 @@
         "invalid_config_json": "Invalid config_json",
         "cannot_delete_active": "Cannot delete the currently active persona"
       }
+    },
+    "bootstrap": {
+      "opening_already_initialized": "Bootstrap opening already initialized",
+      "no_opening_available": "No opening available",
+      "opening_injected": "Bootstrap opening injected"
+    },
+    "journal": {
+      "reflection_generation_failed": "Reflection generation failed",
+      "reflection_generated": "Journal reflection generated"
     },
     "config": {
       "current": {
@@ -297,6 +324,61 @@
         "dynamic_state_rules": "Dynamic State Rules",
         "appearance_prompt": "Appearance Prompt"
       }
+    }
+  },
+  "commands": {
+    "skills": {
+      "not_found": "Skill {skill_name!r} not found",
+      "not_user_invocable": "Skill {skill_name!r} is not user-invocable",
+      "not_fork_context": "Skill {skill_name!r} is not declared context: fork. Use /expand-skill for inline skills."
+    }
+  },
+  "skills": {
+    "errors": {
+      "module_uninitialized": "Skills module not initialized"
+    }
+  },
+  "plugins": {
+    "errors": {
+      "not_found": "Plugin not found",
+      "filename_required": "Filename required",
+      "archive_extension_invalid": "Archive must be .tar.gz, .tgz, or .zip",
+      "not_found_in_registry": "Plugin not found in registry",
+      "registry_unreachable": "Unable to reach plugin registry",
+      "cannot_update_builtin": "Cannot update builtin plugins",
+      "settings_resource_not_found": "Plugin settings resource not found",
+      "settings_action_not_found": "Plugin settings action not found",
+      "settings_action_session_not_found": "Plugin settings action session not found"
+    }
+  },
+  "mcp": {
+    "errors": {
+      "manager_not_initialized": "MCP manager not initialized",
+      "server_id_exists": "server id already exists",
+      "server_not_found": "server not found",
+      "server_not_running": "server {server_id!r} is not running"
+    }
+  },
+  "background_tasks": {
+    "errors": {
+      "manager_unavailable": "Background task manager unavailable",
+      "invalid_status_filter": "Invalid status filter: {error}",
+      "not_found": "Background task not found: {task_id}",
+      "not_cancellable_status": "Background task not cancellable in status: {status}",
+      "not_retriable_status": "Background task not retriable in status: {status}",
+      "not_dismissable_status": "Background task not dismissable in status: {status}"
+    }
+  },
+  "control": {
+    "errors": {
+      "settings_manager_unavailable": "Control settings manager unavailable",
+      "permission_rule_store_unavailable": "Permission rule store unavailable",
+      "interaction_broker_unavailable": "Interaction broker unavailable",
+      "session_store_unavailable": "Control session store unavailable",
+      "rule_not_found": "Rule {rule_id!r} not found",
+      "invalid_scope": "Invalid scope: {scope}",
+      "permission_request_not_pending": "Permission request {request_id!r} is not pending",
+      "ask_request_not_pending": "Ask request {request_id!r} is not pending"
     }
   }
 }

@@ -29,6 +29,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from ... import i18n as core_i18n
 from ...agent.background.contracts import (
     BackgroundTaskSpec,
     BackgroundTaskTriggerSource,
@@ -71,13 +72,15 @@ async def list_user_invocable_commands() -> ListCommandsResponse:
     out: list[dict[str, Any]] = []
     for name in resolver.list_user_invocable(tool_registry):
         info = tool_registry.get_tool_info(name) or {}
-        out.append({
-            "name": name,
-            "description": info.get("description", ""),
-            "category": info.get("category", ""),
-            "dangerous": bool(info.get("dangerous", False)),
-            "parameters": info.get("parameters", []),
-        })
+        out.append(
+            {
+                "name": name,
+                "description": info.get("description", ""),
+                "category": info.get("category", ""),
+                "dangerous": bool(info.get("dangerous", False)),
+                "parameters": info.get("parameters", []),
+            }
+        )
     return ListCommandsResponse(data=out)
 
 
@@ -238,12 +241,21 @@ async def expand_skill_endpoint(request: ExpandSkillRequest) -> ExpandSkillRespo
         raise HTTPException(status_code=503, detail=str(exc))
     if expansion is None:
         raise HTTPException(
-            status_code=404, detail=f"Skill {request.skill_name!r} not found"
+            status_code=404,
+            detail=core_i18n.t(
+                "commands.skills.not_found",
+                fallback="Skill {skill_name!r} not found",
+                skill_name=request.skill_name,
+            ),
         )
     if not expansion.user_invocable:
         raise HTTPException(
             status_code=403,
-            detail=f"Skill {request.skill_name!r} is not user-invocable",
+            detail=core_i18n.t(
+                "commands.skills.not_user_invocable",
+                fallback="Skill {skill_name!r} is not user-invocable",
+                skill_name=request.skill_name,
+            ),
         )
     return ExpandSkillResponse(
         name=expansion.name,
@@ -306,19 +318,32 @@ async def run_skill_as_background(
         raise HTTPException(status_code=503, detail=str(exc))
     if expansion is None:
         raise HTTPException(
-            status_code=404, detail=f"Skill {request.skill_name!r} not found"
+            status_code=404,
+            detail=core_i18n.t(
+                "commands.skills.not_found",
+                fallback="Skill {skill_name!r} not found",
+                skill_name=request.skill_name,
+            ),
         )
     if not expansion.user_invocable:
         raise HTTPException(
             status_code=403,
-            detail=f"Skill {request.skill_name!r} is not user-invocable",
+            detail=core_i18n.t(
+                "commands.skills.not_user_invocable",
+                fallback="Skill {skill_name!r} is not user-invocable",
+                skill_name=request.skill_name,
+            ),
         )
     if expansion.context_mode != "fork":
         raise HTTPException(
             status_code=400,
-            detail=(
-                f"Skill {request.skill_name!r} is not declared context: fork."
-                " Use /expand-skill for inline skills."
+            detail=core_i18n.t(
+                "commands.skills.not_fork_context",
+                fallback=(
+                    "Skill {skill_name!r} is not declared context: fork."
+                    " Use /expand-skill for inline skills."
+                ),
+                skill_name=request.skill_name,
             ),
         )
 

@@ -11,6 +11,7 @@ import yaml
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
+from ... import i18n as core_i18n
 from ...config.llm_registry import (
     LLMAudioGenerationModelMetaModel,
     LLMChatCapabilitiesModel,
@@ -62,9 +63,7 @@ def _sanitize_log_value(value: Any) -> Any:
     if isinstance(value, dict):
         return {
             key: (
-                "***MASKED***"
-                if _is_sensitive_log_field(str(key))
-                else _sanitize_log_value(item)
+                "***MASKED***" if _is_sensitive_log_field(str(key)) else _sanitize_log_value(item)
             )
             for key, item in value.items()
         }
@@ -229,7 +228,11 @@ async def discover_openai_compatible_models(
     """Discover models from an OpenAI-compatible /models endpoint."""
     if api_format not in (None, "", "openai"):
         raise HTTPException(
-            status_code=400, detail="Unsupported model discovery format"
+            status_code=400,
+            detail=core_i18n.t(
+                "llm.providers.models.unsupported_discovery_format",
+                fallback="Unsupported model discovery format",
+            ),
         )
 
     endpoint = base_url.rstrip("/") + "/models"
@@ -244,26 +247,37 @@ async def discover_openai_compatible_models(
     timeout = aiohttp.ClientTimeout(total=15)
     try:
         async with aiohttp.ClientSession(timeout=timeout, trust_env=False) as session:
-            async with session.get(
-                endpoint, headers=headers, proxy=proxy_url
-            ) as response:
+            async with session.get(endpoint, headers=headers, proxy=proxy_url) as response:
                 if response.status >= 400:
                     raise HTTPException(
                         status_code=502,
-                        detail=f"Model discovery request failed with status {response.status}",
+                        detail=core_i18n.t(
+                            "llm.providers.models.discovery_request_failed_status",
+                            fallback="Model discovery request failed with status {status}",
+                            status=response.status,
+                        ),
                     )
                 payload = await response.json()
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(
-            status_code=502, detail=f"Failed to discover models: {exc}"
+            status_code=502,
+            detail=core_i18n.t(
+                "llm.providers.models.discovery_failed",
+                fallback="Failed to discover models: {error}",
+                error=str(exc),
+            ),
         ) from exc
 
     data = payload.get("data", [])
     if not isinstance(data, list):
         raise HTTPException(
-            status_code=502, detail="Model discovery response payload is invalid"
+            status_code=502,
+            detail=core_i18n.t(
+                "llm.providers.models.discovery_invalid_payload",
+                fallback="Model discovery response payload is invalid",
+            ),
         )
 
     models: List[str] = []
@@ -292,7 +306,9 @@ async def test_llm_provider_connection(
     )
     runtime_provider = LLMProviderSettings.model_validate(provider.model_dump())
     provider_type = str(
-        getattr(getattr(runtime_provider, "provider_type", ""), "value", runtime_provider.provider_type)
+        getattr(
+            getattr(runtime_provider, "provider_type", ""), "value", runtime_provider.provider_type
+        )
         or provider_id
     )
     registry_meta = find_provider_meta(get_llm_provider_registry(), provider_type)
