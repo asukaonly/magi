@@ -261,7 +261,7 @@ class ToolInvocationService:
 
 **双订阅过渡期与去重**：
 
-为避免迁移过程中破坏旧订阅者，MemoryIngestionSubscriber 同时订阅新旧事件类型一段时间。但因 L0 `capture_event` 与 L4 `record_memory_event` 没有 idempotency 短路（只有 L1 `find_event_id_by_idempotency` 能去重），双订阅会导致 L0/L4 重复写入。处理策略：
+理论上"MemoryIngestionSubscriber 同时订阅新旧事件类型"可以兼容老 producer，但因 L0 `capture_event` 与 L4 `record_memory_event` 没有 idempotency 短路（只有 L1 `find_event_id_by_idempotency` 能去重），双订阅会导致 L0/L4 重复写入。**因此本次改造不采用双订阅**：
 
 - 生产端**只发新事件**（不再发 USER_MESSAGE / SENSOR_EVENT 老类型）。MemoryIngestionSubscriber 仅订阅新事件，**不再做双订阅**。
 - 老事件类型（USER_MESSAGE / AI_RESPONSE / SENSOR_EVENT 等）若仍被其他订阅者使用（非 memory 路径），由 producer 同时 publish 新旧两类事件来兼容；MemoryIngestionSubscriber 严格只接新类型。
@@ -351,7 +351,7 @@ async def _dispatch(self, layer, event, ctx, results):
 
 | Layer | accepts_event_types | requires_write_lock | accepts() 进一步条件 |
 |-------|---------------------|---------------------|----------------------|
-| L0 | 由 `l0.capture_event` 现有判定迁移而来 | True | True |
+| L0 | `frozenset({USER_MESSAGE, USER_MESSAGE_RECEIVED, AI_RESPONSE, ASSISTANT_RESPONSE_PRODUCED, ACTION_EXECUTED, TASK_STARTED, TASK_COMPLETED, TASK_FAILED, SENSOR_EVENT, SENSOR_EVENT_EMITTED})` —— 实施时按 `l0.capture_event` 现有过滤精确化 | True | True |
 | L1 | 现有 ingest_target.includes_l1 判定的事件 | True | `event.ingest_target.includes_l1` |
 | L2 | 同 L1 | True | 见 §8.3 |
 | L3 | 空集（schedule 触发，不走 fan-out） | n/a | n/a |
@@ -426,7 +426,8 @@ except aiosqlite.OperationalError as e:
 - **订阅者必须 cheap**：MemoryIngestionSubscriber 的 handler 内不直接执行重活，将 `unified_memory.ingest_event` 调度为 `asyncio.create_task(...)`，handler 立即返回。
 - 同样 RuntimeTraceSubscriber 的 db 写入使用 `create_task` 卸载。
 - 副作用：失败不再传回到 publish 调用方（本来 publish 也只记录日志，符合预期）。
-- 顺序保证：同一 correlation_id 的 task 通过 `asyncio.Lock` 串行化（落到 unified_memory 内部），确保 L1 早于 L2/L4 完成。
+- **layer 内部顺序保证**：`ingest_event` 内部仍按 §8.2 的"locked → deferred"顺序串行执行；`create_task` 只是把整次 ingest 调用从 publish handler 卸载，**不破坏 layer 间顺序**。
+- **测试可见性**：handler 改 `create_task` 之后，集成测试无法直接 `await` 业务返回；订阅者必须暴露 `drain()` / `wait_idle()` 钩子，在测试 setUp/tearDown 中等待 inflight task 全部完成，再做断言。
 
 ### 10.3 publish 再入
 
@@ -485,7 +486,7 @@ except aiosqlite.OperationalError as e:
 |------|------|
 | InMemoryMessageBusBackend 订阅者抛错没隔离 | 阅读现有实现确认；缺失则在 lifecycle 注册处 wrap |
 | 现网代码里有未覆盖到的 `_tool_registry.execute()` 调用点 | 实施前用 grep 全量扫描 + 加 deprecation warning 在 execute 上 |
-| chat projector 改 publish 后下游某个旧订阅者 break | MemoryIngestionSubscriber 同时订阅新旧事件类型一段时间，确认无回归后清理 |
+| chat projector 改 publish 后下游某个旧订阅者 break | 实施前 grep 全量 USER_MESSAGE / AI_RESPONSE / SENSOR_EVENT 订阅者；非 memory 订阅者继续接收老事件（producer 同时 publish 新旧），memory 侧只接新事件 |
 | L4 schedule 与 strategy_extraction 抢占 LLM 资源 | maintenance 任务里强制触发 strategy_extraction 时使用与日常路径一致的速率限制 |
 | schema migration 失败 | `ALTER TABLE ... ADD COLUMN deleted_at` 是 sqlite 安全操作；包一层 try 兼容已存在的列 |
 | 性能：每次工具调用多一次 publish | in-memory，开销 < 1ms；事件总线已经在跑，多一个订阅者数量级不变 |
