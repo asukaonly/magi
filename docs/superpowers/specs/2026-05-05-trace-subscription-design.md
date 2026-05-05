@@ -8,7 +8,7 @@
 
 子项目 A 已经把 producer-assigned `event_id` / `causation_id` / `trace_context` 加到 Event 信封，并提供 `magi.events.tracing.start_span()` API（仅返回 frozen TraceContext，A 阶段 business 路径未埋点）。本子项目继续推进"理想态"架构：把 `runtime_trace` 从一组分散的"业务直写"改为单一订阅者投影。
 
-现状：grep 显示 27 处业务代码直接调用 `_runtime_trace_store.upsert_span / upsert_tool_call / upsert_intent_resolution / upsert_llm_call / upsert_turn`，分布于：
+现状：grep 显示 24 处业务代码直接调用 `_runtime_trace_store.upsert_span / upsert_tool_call / upsert_intent_resolution / upsert_llm_call / upsert_turn`，分布于：
 
 - `agent/task_agents/chat/postprocess/intent.py` 多处
 - `agent/task_agents/chat/postprocess/components.py` 多处
@@ -485,16 +485,31 @@ class RuntimeTraceSubscriber:
 
 `trace_spans.turn_id` 现 schema 是 `TEXT NOT NULL`（无 FK 约束）。但 trace 树并非每个 span 都属于某个 chat turn——例如 awareness scheduler 触发的 span、worker 内部循环 span 等不绑定 chat turn 上下文。强制 NOT NULL 加上"空字符串兜底"是脏数据反模式（违反 NULL 与空字符串的语义区分）。
 
-**schema 改造**：把 `trace_spans.turn_id` 从 NOT NULL 放松为 nullable。在 `runtime_trace/schema.py` 的 `ensure_runtime_trace_schema` 里加 idempotent migration（SQLite 的 ALTER COLUMN 操作复杂，用"重建表"模式或简单地容忍 NOT NULL 约束依旧存在但订阅者写 NULL → 触发迁移路径）。
-
-最简方案：保留 NOT NULL 约束不动，订阅者侧若 `p.turn_id is None` 则 fallback 到 `p.trace_id`（trace_id 永远非空）。这样既保留现有 schema，又避免空字符串。语义近似"如果不属于具体 turn，就用 trace_id 作占位"，与 trace_turns 的"trace_id PK"一致。
-
-实施 §6.1 决定采用：**fallback 到 trace_id**（不改 schema）。
+**schema 改造**：把 `trace_spans.turn_id` 从 NOT NULL 放松为 nullable。在 `runtime_trace/schema.py` 的 `ensure_runtime_trace_schema` 里加 idempotent migration，使用 SQLite 的"重建表 + 迁移数据"模式（已有 `ensure_trace_turn_columns / ensure_trace_detail_columns` 等同模式可参考）。
 
 ```python
-turn_id_for_record = p.turn_id or p.trace_id
-record = TraceSpanRecord(..., turn_id=turn_id_for_record, ...)
+# pseudocode
+async def _ensure_trace_spans_turn_id_nullable(db):
+    cursor = await db.execute("PRAGMA table_info(trace_spans)")
+    rows = await cursor.fetchall()
+    for row in rows:
+        if row[1] == "turn_id" and row[3] == 1:  # column 3 is "notnull"
+            # rebuild with nullable column
+            await db.executescript("""
+                CREATE TABLE trace_spans_new ( ... turn_id TEXT, ... );
+                INSERT INTO trace_spans_new SELECT * FROM trace_spans;
+                DROP TABLE trace_spans;
+                ALTER TABLE trace_spans_new RENAME TO trace_spans;
+                CREATE INDEX ...;
+            """)
+            return
 ```
+
+迁移幂等：检查 `notnull` 列只有第一次跑会触发重建。
+
+**订阅者侧 turn_id 写入**：`_record_span` 写 `record.turn_id = p.turn_id`（可能为 None），不做 fallback。下游查询若需要"按 turn 过滤"，用 `WHERE turn_id IS NOT NULL AND turn_id = ?`，不会与 trace_id 误匹配。
+
+放弃了之前 §6.1 提议的"fallback 到 trace_id"——评审 N4 指出它会让"按 turn_id 查询"得到非 turn-scoped 的 span，是错误结果。Nullable + 显式过滤是干净的方案，schema 重建一次性成本可接受（已有同类 migration 模式）。
 
 ### 6.2 Lifecycle 顺序
 
@@ -796,4 +811,4 @@ grep -rn "_runtime_trace_store\.upsert_" backend/src --include="*.py" | grep -v 
 
 - §5 `_resolve_event_bus` 用 `hasattr(bus, "publish")` 替代 `type(bus).__name__ == "object"` 哨兵，更稳健。
 - `turn_id` 自动继承：嵌套 span 自动从父 span 拷贝（§5），减少业务遗忘。
-- §6.1 trace_spans.turn_id NOT NULL 约束保留，订阅者侧 fallback 到 trace_id 而非空字符串。
+- §6.1 trace_spans.turn_id NOT NULL 改 nullable + 一次性 migration（评审第二轮 N4 修订）；订阅者写真实 None，下游查询用 `WHERE turn_id IS NOT NULL`。
