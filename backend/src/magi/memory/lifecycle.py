@@ -247,3 +247,34 @@ class L3SummaryScheduleRegistrationModule(LifecycleModule):
         await self._contrib.unregister_schedules(self._context.scheduler.scheduler_service)
         self._contrib = None
 
+
+class L4MaintenanceScheduleRegistrationModule(LifecycleModule):
+    """Register L4 procedural-memory maintenance with the unified scheduler (runtime worker)."""
+
+    def __init__(self, context: RuntimeBootstrapContext):
+        super().__init__(
+            name="runtime_l4_maintenance_scheduler",
+            dependencies=(
+                "runtime_scheduler",
+                "runtime_configuration",
+                "runtime_memory",
+                "runtime_exports",
+            ),
+        )
+        self._context = context
+        self._contrib: Any = None
+
+    async def init(self) -> None:
+        from .l4.maintenance_schedule import L4MaintenanceScheduleContrib
+
+        scheduler_service = require_initialized(self._context.scheduler.scheduler_service, "scheduler service")
+        self._contrib = L4MaintenanceScheduleContrib()
+        await self._contrib.register_schedules(scheduler_service)
+
+    async def shutdown(self) -> None:
+        if self._contrib is None or self._context.scheduler.scheduler_service is None:
+            self._contrib = None
+            return
+        await self._contrib.unregister_schedules(self._context.scheduler.scheduler_service)
+        self._contrib = None
+

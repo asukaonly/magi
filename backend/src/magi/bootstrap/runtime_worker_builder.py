@@ -34,6 +34,7 @@ from ..mcp.lifecycle import MCPModule
 from ..memory.lifecycle import (
     L2MaintenanceScheduleRegistrationModule,
     L3SummaryScheduleRegistrationModule,
+    L4MaintenanceScheduleRegistrationModule,
     MemoryIngestionSubscriberModule,
     MemoryStoreModule,
 )
@@ -150,6 +151,7 @@ def _build_exports_and_maintenance_modules(context: RuntimeBootstrapContext) -> 
         ControlPlaneModule(context),
         L2MaintenanceScheduleRegistrationModule(context),
         L3SummaryScheduleRegistrationModule(context),
+        L4MaintenanceScheduleRegistrationModule(context),
         OtherDependenciesModule(context),
         ChannelsModule(context),
     ]
