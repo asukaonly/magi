@@ -11,6 +11,16 @@ from .models import (
 )
 
 
+_CHANGE_AND_PATTERN_LIST_FIELDS = (
+    "timeline",
+    "source_signals",
+    "decisions_and_actions",
+    "changes",
+    "patterns",
+    "open_threads",
+)
+
+
 class TemporalOutputParsingMixin:
     """Parse and validate structured temporal summary LLM output."""
 
@@ -49,9 +59,10 @@ class TemporalOutputParsingMixin:
             "key_topics": list(output.key_topics),
             "key_entities": list(output.key_entities),
             "sentiment_summary": output.sentiment_summary,
-            "importance_aggregate": output.importance_aggregate,
             "change_and_pattern": output.change_and_pattern,
         }
+        if output.importance_aggregate is not None:
+            summary_overrides["importance_aggregate"] = output.importance_aggregate
         return candidate, summary_overrides
 
     def _normalize_importance_aggregate(self, value: Any) -> float | None:
@@ -88,7 +99,7 @@ class TemporalOutputParsingMixin:
         if not isinstance(value, dict):
             raise ValueError("change_and_pattern must be an object")
         normalized: dict[str, object] = {}
-        for key in ("changes", "patterns"):
+        for key in _CHANGE_AND_PATTERN_LIST_FIELDS:
             raw = value.get(key)
             if raw is None:
                 continue
@@ -96,10 +107,18 @@ class TemporalOutputParsingMixin:
                 raise ValueError(f"change_and_pattern.{key} must be a list of non-empty strings")
             normalized[key] = [str(item).strip() for item in raw]
         for key, item in value.items():
-            if key in normalized or key in {"changes", "patterns"}:
+            if key in normalized or key in _CHANGE_AND_PATTERN_LIST_FIELDS:
+                continue
+            key_str = str(key).strip()
+            if not key_str:
+                continue
+            if isinstance(item, list):
+                if any(not str(entry).strip() for entry in item):
+                    raise ValueError(f"change_and_pattern.{key_str} must be a list of non-empty strings")
+                normalized[key_str] = [str(entry).strip() for entry in item]
                 continue
             if isinstance(item, (str, int, float, bool)) or item is None:
-                normalized[str(key)] = item
+                normalized[key_str] = item
         return normalized or None
 
 

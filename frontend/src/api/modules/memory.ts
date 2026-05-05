@@ -258,6 +258,16 @@ export interface MemoryIdentityLinksResponse {
 }
 
 // L3 Summary Types
+export interface L3ChangeAndPattern {
+  timeline?: string[];
+  source_signals?: string[];
+  decisions_and_actions?: string[];
+  changes?: string[];
+  patterns?: string[];
+  open_threads?: string[];
+  [key: string]: string[] | string | number | boolean | null | undefined;
+}
+
 export interface L3Summary {
   summary_id: string;
   summary_type: string;
@@ -268,7 +278,7 @@ export interface L3Summary {
   key_topics: string[];
   key_entities?: Array<{ entity_id?: string; entity_type?: string }>;
   sentiment_summary?: Record<string, unknown> | null;
-  change_and_pattern?: { changes?: string[]; patterns?: string[] } | null;
+  change_and_pattern?: L3ChangeAndPattern | null;
   source_event_ids?: string[];
   source_event_count: number;
   importance_aggregate?: number;

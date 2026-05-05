@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
+from ...embedding.embedding_text_builders import build_l3_embedding_text
 from ...hybrid_retrieval.fts_utils import tokenize_for_fts
 from ...hybrid_retrieval.handlers import rrf_fuse
 from ..storage.serialization import row_to_summary_dict
@@ -25,8 +26,17 @@ def build_keyword_search_query(
     limit: int,
 ) -> tuple[str, tuple[Any, ...]]:
     escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    sql = "SELECT summary_id FROM summaries WHERE content LIKE ? ESCAPE '\\'"
-    args: list[Any] = [f"%{escaped}%"]
+    like_value = f"%{escaped}%"
+    searchable_columns = (
+        "content",
+        "key_topics",
+        "key_entities",
+        "sentiment_summary",
+        "change_and_pattern",
+    )
+    predicates = " OR ".join(f"{column} LIKE ? ESCAPE '\\'" for column in searchable_columns)
+    sql = f"SELECT summary_id FROM summaries WHERE ({predicates})"
+    args: list[Any] = [like_value for _column in searchable_columns]
     if summary_type:
         sql += " AND summary_type = ?"
         args.append(summary_type)
@@ -65,10 +75,9 @@ def ordered_summary_dicts_from_rows(
     return [summaries_by_id[summary_id] for summary_id in summary_ids if summary_id in summaries_by_id]
 
 
-def fts_backfill_row(row: Sequence[Any]) -> tuple[str, str]:
-    summary_id = str(row[0])
-    raw = str(row[1])
-    return summary_id, tokenize_for_fts(raw)
+def fts_backfill_row(row: Any) -> tuple[str, str]:
+    summary = row_to_summary_dict(row)
+    return str(summary["summary_id"]), tokenize_for_fts(build_l3_embedding_text(summary))
 
 
 def ranked_vector_summaries(

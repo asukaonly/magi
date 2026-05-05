@@ -53,7 +53,41 @@ def _get_l1_projection(event: MemoryEvent) -> dict[str, Any]:
 
 def build_l3_embedding_text(summary: dict[str, Any]) -> str:
     """Return the canonical L3 text used for embedding."""
-    return str(summary.get("content") or "").strip()
+    parts: list[str] = []
+    seen: set[str] = set()
+    _append_l3_text(parts, seen, summary.get("content"))
+    _append_l3_text(parts, seen, summary.get("key_topics"))
+    _append_l3_text(parts, seen, summary.get("key_entities"))
+    _append_l3_text(parts, seen, summary.get("sentiment_summary"))
+    _append_l3_text(parts, seen, summary.get("change_and_pattern"))
+    return "\n".join(parts)
+
+
+def _append_l3_text(parts: list[str], seen: set[str], value: Any, label: str | None = None) -> None:
+    if value is None:
+        return
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return
+        if label:
+            text = f"{label}: {text}"
+        key = text.lower()
+        if key not in seen:
+            seen.add(key)
+            parts.append(text)
+        return
+    if isinstance(value, dict):
+        for item_key, item_value in value.items():
+            clean_key = str(item_key).strip()
+            _append_l3_text(parts, seen, item_value, clean_key or label)
+        return
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            _append_l3_text(parts, seen, item, label)
+        return
+    if isinstance(value, (int, float, bool)):
+        _append_l3_text(parts, seen, str(value), label)
 
 
 def build_l2_entity_embedding_text(

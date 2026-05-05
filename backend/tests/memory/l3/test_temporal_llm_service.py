@@ -106,7 +106,14 @@ def test_parse_temporal_llm_output_into_candidate() -> None:
             "key_topics": ["job_search"],
             "key_entities": [{"entity_id": "user:self", "entity_type": "user"}],
             "sentiment_summary": {"tone": "serious_but_constructive"},
-            "change_and_pattern": {"changes": ["moved from exploration to planning"], "patterns": []},
+            "change_and_pattern": {
+                "timeline": ["morning exploration moved into afternoon planning"],
+                "source_signals": ["chat centered on job-switch priorities"],
+                "decisions_and_actions": ["finish the portfolio before applying"],
+                "changes": ["moved from exploration to planning"],
+                "patterns": [],
+                "open_threads": ["compare growth and salary tradeoffs"],
+            },
             "importance_aggregate": 0.8,
         },
         pack=pack,
@@ -117,6 +124,9 @@ def test_parse_temporal_llm_output_into_candidate() -> None:
     assert candidate.content == "The day centered on clarifying job-switch priorities."
     assert candidate.source_event_ids == ["evt-1", "evt-2"]
     assert summary_overrides["key_topics"] == ["job_search"]
+    assert summary_overrides["change_and_pattern"]["timeline"] == ["morning exploration moved into afternoon planning"]
+    assert summary_overrides["change_and_pattern"]["decisions_and_actions"] == ["finish the portfolio before applying"]
+    assert summary_overrides["change_and_pattern"]["open_threads"] == ["compare growth and salary tradeoffs"]
     assert summary_overrides["importance_aggregate"] == 0.8
 
 
@@ -491,6 +501,7 @@ def test_render_temporal_summary_prompt_includes_rule_hints() -> None:
     assert "Task:" in prompt
     assert "Output JSON Schema:" in prompt
     assert "Evidence Pack:" in prompt
+    assert "Structure Contract:" in prompt
     assert '"rule_hints"' in prompt
     assert '"top_terms"' in prompt
     assert '"growth"' in prompt
@@ -498,9 +509,14 @@ def test_render_temporal_summary_prompt_includes_rule_hints() -> None:
     assert '"recurring_constraints"' in prompt
     assert '"content"' in prompt
     assert '"change_and_pattern"' in prompt
+    assert '"timeline"' in prompt
+    assert '"source_signals"' in prompt
+    assert '"decisions_and_actions"' in prompt
+    assert '"open_threads"' in prompt
     assert '"previous_period_summaries"' in prompt
     assert '"child_period_summaries"' in prompt
     assert "only for comparison and timeline continuity" in prompt
+    assert "over-compressed" in prompt
     assert "The previous day was mostly exploratory" in prompt
 
 
@@ -544,6 +560,7 @@ def test_render_temporal_summary_prompt_includes_period_focus() -> None:
     assert "Week focus" in service._render_temporal_summary_prompt(week_pack)
     assert "Month focus" in service._render_temporal_summary_prompt(month_pack)
     assert "timeline-oriented month recap" in service._render_temporal_summary_prompt(month_pack)
+    assert "do not compress the week into a single generic theme" in service._render_temporal_summary_prompt(week_pack)
     assert "Do not lead with raw event counts" in service._render_temporal_summary_prompt(week_pack)
 
 

@@ -2343,8 +2343,12 @@
           "sentiment": "情绪基调",
           "importance": "重要度",
           "generatedBy": "生成方式",
+          "timeline": "时间脉络",
+          "sourceSignals": "来源信号",
+          "decisionsAndActions": "决策与行动",
           "changes": "变化",
-          "patterns": "模式"
+          "patterns": "模式",
+          "openThreads": "未完线索"
         }
       },
       "skills": {

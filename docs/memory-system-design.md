@@ -561,6 +561,8 @@ The legacy flat `temporal_llm_timeout_seconds` setting remains an explicit overr
 
 Rule fallback is a user-facing lower bound, not a debug dump. It should describe the dominant sources or themes first, then add compact source-specific signals such as focus domains or repeated sites when available. Raw event counts, internal event type names, and compression counters belong in summary metadata rather than in the summary body unless they materially change interpretation.
 
+Temporal summaries should remain compact, but they must not be over-compressed into a single generic paragraph for `day`, `week`, or `month` windows. The generated `content` field should preserve period-appropriate concrete anchors such as projects, tools, services, domains, media titles, decisions, and unresolved follow-up threads. The structured `change_and_pattern` payload may include `timeline`, `source_signals`, `decisions_and_actions`, `changes`, `patterns`, and `open_threads` arrays. These structured fields are part of the retrieval surface: L3 FTS and vector text include both the readable content and the structured summary fields so later recall can recover details even when the visible recap stays concise.
+
 #### Plugin Temporal Features
 
 Plugins may provide compact source-local features for temporal summaries through `build_temporal_summary_features`. The host passes the plugin a bounded event pool and a `TemporalSummaryFeatureBudget` that reports total, available, selected, and omitted counts for that source.

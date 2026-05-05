@@ -300,30 +300,66 @@ const MetaBlock: React.FC<{ label: string; value: string }> = ({ label, value })
 
 const PatternDetails: React.FC<{ summary: L3Summary }> = ({ summary }) => {
   const { t } = useTranslation('app');
-  const changes = summary.change_and_pattern?.changes || [];
-  const patterns = summary.change_and_pattern?.patterns || [];
+  const detailSections = [
+    {
+      key: 'timeline',
+      label: t('memory.pages.reflection.cards.timeline'),
+      items: toStringList(summary.change_and_pattern?.timeline),
+    },
+    {
+      key: 'source_signals',
+      label: t('memory.pages.reflection.cards.sourceSignals'),
+      items: toStringList(summary.change_and_pattern?.source_signals),
+    },
+    {
+      key: 'decisions_and_actions',
+      label: t('memory.pages.reflection.cards.decisionsAndActions'),
+      items: toStringList(summary.change_and_pattern?.decisions_and_actions),
+    },
+    {
+      key: 'changes',
+      label: t('memory.pages.reflection.cards.changes'),
+      items: toStringList(summary.change_and_pattern?.changes),
+    },
+    {
+      key: 'patterns',
+      label: t('memory.pages.reflection.cards.patterns'),
+      items: toStringList(summary.change_and_pattern?.patterns),
+    },
+    {
+      key: 'open_threads',
+      label: t('memory.pages.reflection.cards.openThreads'),
+      items: toStringList(summary.change_and_pattern?.open_threads),
+    },
+  ].filter((section) => section.items.length > 0);
 
-  if (changes.length === 0 && patterns.length === 0) {
+  if (detailSections.length === 0) {
     return null;
   }
 
   return (
     <div className="mt-3 grid gap-3 md:grid-cols-2">
-      {changes.length > 0 ? (
-        <DetailList label={t('memory.pages.reflection.cards.changes')} items={changes} />
-      ) : null}
-      {patterns.length > 0 ? (
-        <DetailList label={t('memory.pages.reflection.cards.patterns')} items={patterns} />
-      ) : null}
+      {detailSections.map((section) => (
+        <DetailList key={section.key} label={section.label} items={section.items} />
+      ))}
     </div>
   );
+};
+
+const toStringList = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item) => (typeof item === 'string' ? item.trim() : ''))
+    .filter((item) => item.length > 0);
 };
 
 const DetailList: React.FC<{ label: string; items: string[] }> = ({ label, items }) => (
   <div className="rounded-sm border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-subtle)/0.58)] px-3 py-3">
     <div className="text-[11px] uppercase tracking-[0.14em] text-[hsl(var(--memory-muted))]">{label}</div>
     <ul className="mt-2 space-y-1 text-sm leading-6 text-[hsl(var(--memory-title))]">
-      {items.slice(0, 3).map((item) => (
+      {items.slice(0, 4).map((item) => (
         <li key={item}>{item}</li>
       ))}
     </ul>

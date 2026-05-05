@@ -162,9 +162,10 @@ class L3SummarySearchMixin:
         await host.initialize()
         indexed = 0
         async with sqlite_connection_async(host.db_path) as db:
+            db.row_factory = aiosqlite.Row
             async with db.execute(
                 """
-                SELECT summary_id, content FROM summaries
+                SELECT * FROM summaries
                 WHERE summary_id NOT IN (SELECT summary_id FROM l3_summaries_fts)
                 """
             ) as cursor:

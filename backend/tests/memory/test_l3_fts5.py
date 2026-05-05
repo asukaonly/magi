@@ -74,6 +74,24 @@ class TestL3FTS5WriteSync:
         assert rows[0][0] == summary["summary_id"]
 
     @pytest.mark.asyncio
+    async def test_store_summary_indexes_structured_fields(self, store):
+        summary = _make_summary(
+            "General weekly recap",
+            key_topics=["planning"],
+            change_and_pattern={
+                "source_signals": ["Chrome searches focused on PoE switch procurement"],
+                "open_threads": ["Gemini remained an active planning assistant"],
+            },
+        )
+        await store._store_summary(summary)
+
+        bm25_results = await store.bm25_search("Gemini")
+        keyword_results = await store.keyword_search(query="PoE switch", limit=10)
+
+        assert [result[0] for result in bm25_results] == [summary["summary_id"]]
+        assert keyword_results == [summary["summary_id"]]
+
+    @pytest.mark.asyncio
     async def test_upsert_updates_fts(self, store):
         import aiosqlite
 

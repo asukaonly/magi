@@ -44,23 +44,60 @@ _PERIOD_FOCUS_INSTRUCTIONS = {
     ),
     "day": (
         "- Day focus: identify the main blocks of the day, attention shifts, explicit decisions, and repeated constraints.\n"
+        "- Preserve concrete anchors such as projects, tools, services, sites, people, media titles, and action items when evidence supports them.\n"
         "- Separate meaningful patterns from ordinary single-event noise."
     ),
     "week": (
         "- Week focus: synthesize durable themes, recurring interests, cross-source patterns, and notable changes across the week.\n"
-        "- Prefer pattern-level interpretation over listing events one by one."
+        "- Keep representative anchors such as projects, tools, sites, media titles, source clusters, and decisions so future recall can recover specifics.\n"
+        "- Avoid listing every event, but do not compress the week into a single generic theme."
     ),
     "month": (
         "- Month focus: synthesize cross-week themes, stage changes, sustained interests, project progress, and unusually frequent activities across the month.\n"
-        "- Prefer a timeline-oriented month recap over listing weekly summaries one by one."
+        "- Prefer a timeline-oriented month recap over listing weekly summaries one by one.\n"
+        "- Keep representative anchors for ongoing projects, source-specific habits, decisions, purchases, and open threads."
     ),
     "quarter": (
         "- Long-window focus: synthesize durable themes, recurring interests, cross-source patterns, and notable changes across the window.\n"
-        "- Prefer pattern-level interpretation over listing events one by one."
+        "- Keep representative anchors for durable projects, decisions, constraints, and source-specific habits without listing every event."
     ),
     "year": (
         "- Long-window focus: synthesize durable themes, recurring interests, cross-source patterns, and notable changes across the window.\n"
-        "- Prefer pattern-level interpretation over listing events one by one."
+        "- Keep representative anchors for durable projects, decisions, constraints, and source-specific habits without listing every event."
+    ),
+}
+_PERIOD_STRUCTURE_INSTRUCTIONS = {
+    "hour": (
+        "- Content target: 1-3 information-dense sentences.\n"
+        "- change_and_pattern.timeline: 1-3 ordered activity blocks when supported.\n"
+        "- change_and_pattern.source_signals: 0-3 source-specific signals.\n"
+        "- Leave unsupported arrays empty rather than filling them with guesses."
+    ),
+    "day": (
+        "- Content target: 3-5 information-dense sentences that separate activity blocks, decisions, and follow-up threads.\n"
+        "- change_and_pattern.timeline: 2-5 ordered blocks or phase shifts.\n"
+        "- change_and_pattern.source_signals: 2-5 source-specific signals when multiple sources or repeated source behavior appear.\n"
+        "- change_and_pattern.decisions_and_actions and open_threads should preserve concrete tasks, purchases, choices, or unresolved follow-ups when supported."
+    ),
+    "week": (
+        "- Content target: 4-7 information-dense sentences that preserve a week-level narrative, not only a theme list.\n"
+        "- change_and_pattern.timeline: 3-6 ordered phases, day clusters, or stage shifts.\n"
+        "- change_and_pattern.source_signals: 3-6 source-specific signals covering dominant sources and unusual repeated behavior.\n"
+        "- change_and_pattern.decisions_and_actions and open_threads should keep representative concrete anchors that future recall may query."
+    ),
+    "month": (
+        "- Content target: 5-8 information-dense sentences that describe cross-week progression and sustained threads.\n"
+        "- change_and_pattern.timeline: 3-7 ordered phases or week-to-week stage shifts.\n"
+        "- change_and_pattern.source_signals: 3-7 source-specific signals covering dominant sources and unusual repeated behavior.\n"
+        "- change_and_pattern.decisions_and_actions and open_threads should retain representative project, purchase, planning, and interest anchors."
+    ),
+    "quarter": (
+        "- Content target: 5-8 information-dense sentences focused on durable progression and stage changes.\n"
+        "- Use structured arrays to retain representative anchors rather than exhaustive event lists."
+    ),
+    "year": (
+        "- Content target: 5-8 information-dense sentences focused on durable progression and stage changes.\n"
+        "- Use structured arrays to retain representative anchors rather than exhaustive event lists."
     ),
 }
 _PERIOD_LABELS_ZH = {
@@ -417,6 +454,7 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
         schema = json.dumps(TEMPORAL_SUMMARY_OUTPUT_SCHEMA, ensure_ascii=False, indent=2)
         evidence = json.dumps(payload, ensure_ascii=False, indent=2)
         period_focus = self._period_focus_instruction(pack)
+        period_structure = self._period_structure_instruction(pack)
         return (
             "Task:\n"
             "Write a temporal summary for the provided memory window.\n"
@@ -429,9 +467,13 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
             "Do not lead with raw event counts or internal event type names; mention counts only when they change the interpretation.\n\n"
             "Period Focus:\n"
             f"{period_focus}\n\n"
+            "Structure Contract:\n"
+            f"{period_structure}\n\n"
             "Output Requirements:\n"
             "- Return one JSON object only.\n"
-            "- Keep content concise and evidence-grounded.\n"
+            "- Keep content compact but information-dense and evidence-grounded.\n"
+            "- Preserve concrete names and short phrases that improve future retrieval.\n"
+            "- For day, week, and month windows, use multiple focused sentences and structured arrays instead of a single over-compressed sentence.\n"
             f"{_target_language_instruction()}\n"
             "- Use empty lists or nulls when a field has no support.\n\n"
             "Output JSON Schema:\n"
@@ -444,6 +486,12 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
         return _PERIOD_FOCUS_INSTRUCTIONS.get(
             str(pack.summary_category),
             _PERIOD_FOCUS_INSTRUCTIONS["week"],
+        )
+
+    def _period_structure_instruction(self, pack: TemporalEvidencePack) -> str:
+        return _PERIOD_STRUCTURE_INSTRUCTIONS.get(
+            str(pack.summary_category),
+            _PERIOD_STRUCTURE_INSTRUCTIONS["week"],
         )
 
     def _get_adapter(self) -> Any | None:

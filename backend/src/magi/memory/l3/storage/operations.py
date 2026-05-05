@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Protocol, cast
 import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
+from ...embedding.embedding_text_builders import build_l3_embedding_text
 from ...embedding.sqlite_vec_index import SqliteVecIndex
 from ...hybrid_retrieval.fts_utils import tokenize_for_fts
 from ..evidence.links import (
@@ -241,7 +242,7 @@ class L3SummaryPersistenceMixin:
                     float(summary["updated_at"]),
                 ),
             )
-            tokenized = tokenize_for_fts(summary["content"])
+            tokenized = tokenize_for_fts(build_l3_embedding_text(summary))
             await db.execute(
                 "DELETE FROM l3_summaries_fts WHERE summary_id = ?",
                 (summary["summary_id"],),

@@ -1069,7 +1069,9 @@ async def test_l3_async_embeddings_flush_partial_batches_after_timeout(tmp_path)
 
     assert time.monotonic() - started_at >= 0.04
     assert embedding_service.single_calls == []
-    assert embedding_service.batch_calls == [["stress summary 0", "stress summary 1"]]
+    assert [[text.split("\n")[0] for text in batch] for batch in embedding_service.batch_calls] == [
+        ["stress summary 0", "stress summary 1"]
+    ]
 
 
 @pytest.mark.asyncio
