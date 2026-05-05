@@ -92,6 +92,9 @@ def _from_user_message(event: Event) -> MemoryEvent:
         level=event.level,
         correlation_id=event.correlation_id,
         metadata=dict(event.metadata or {}),
+        event_id=event.event_id,
+        causation_id=event.causation_id,
+        trace_context=event.trace_context,
     ))
 
 
@@ -108,6 +111,9 @@ def _from_assistant_response(event: Event) -> MemoryEvent:
         level=event.level,
         correlation_id=event.correlation_id,
         metadata=dict(event.metadata or {}),
+        event_id=event.event_id,
+        causation_id=event.causation_id,
+        trace_context=event.trace_context,
     ))
 
 
@@ -126,6 +132,9 @@ def _from_sensor(event: Event) -> MemoryEvent:
         level=event.level,
         correlation_id=event.correlation_id,
         metadata=dict(event.metadata or {}),
+        event_id=event.event_id,
+        causation_id=event.causation_id,
+        trace_context=event.trace_context,
     ))
 
 
@@ -145,6 +154,9 @@ def _from_task_started(event: Event) -> MemoryEvent:
         level=event.level,
         correlation_id=event.correlation_id,
         metadata=dict(event.metadata or {}),
+        event_id=event.event_id,
+        causation_id=event.causation_id,
+        trace_context=event.trace_context,
     ))
 
 
@@ -166,6 +178,9 @@ def _from_task_completed(event: Event) -> MemoryEvent:
         level=event.level,
         correlation_id=event.correlation_id,
         metadata=dict(event.metadata or {}),
+        event_id=event.event_id,
+        causation_id=event.causation_id,
+        trace_context=event.trace_context,
     ))
 
 
@@ -188,6 +203,9 @@ def _from_task_failed(event: Event) -> MemoryEvent:
         level=raised_level,
         correlation_id=event.correlation_id,
         metadata=dict(event.metadata or {}),
+        event_id=event.event_id,
+        causation_id=event.causation_id,
+        trace_context=event.trace_context,
     ))
 
 
