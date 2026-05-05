@@ -264,6 +264,8 @@ L1 store 的 INSERT 语句扩列；read 路径默认 SELECT * 自动带上。
 
 业务级 `idx_fact_events_business_idempotency` 索引（idempotency_key + source + event_type）保留，与 event_id UNIQUE 互不干扰。idempotency_key fast-path（`find_event_id_by_idempotency`）在 ON CONFLICT 之前仍先检查，避免无谓 INSERT 尝试。
 
+**business idempotency 命中时的语义**：若 fast-path 找到一条 event_id 不同的旧行（业务键相同但 envelope 是新构造的 Event），跳过 INSERT，**返回旧行的 event_id 给调用方**；信封带的 event_id 在该消费者侧被丢弃。这是有意行为——业务键去重优先于 envelope id；下游 store 和订阅者拿到的是"权威"的旧 id，causation 链路读旧行即可。
+
 **测试覆盖**：`test_event_envelope_end_to_end.py` 增加一个用例，构造同一 Event 两次入库 → 行数应为 1。
 
 ## 7. 测试策略
@@ -317,7 +319,7 @@ L1 store 的 INSERT 语句扩列；read 路径默认 SELECT * 自动带上。
 ## 9. 错误隔离
 
 - `__post_init__` 中 `current_trace_context()` 不应抛错；如果 contextvars 模块异常，trace_context 默认 None，不阻塞 Event 构造。
-- ULID 生成失败（极端情况，时间倒退？）也用 try/except 包裹，fallback 到 `uuid4().hex`。
+- ULID 生成失败（极端情况，时间倒退？）也用 try/except 包裹，fallback 到 `uuid4().hex`。**注意 fallback 产出 32 字符 hex，格式与 26 字符 ULID 不同**——下游若严格断言 ULID 格式会失败。`test_event_envelope.py` 中只断言"非空字符串"而非长度 26，避免误报。这是只在 ULID 失败时触发的 emergency 兜底，正常路径不会产生混合格式。
 - normalize_runtime_event 容忍 `event.event_id` / `event.trace_context` 为 None（旧代码路径仍可工作）。
 
 ## 10. 性能
@@ -325,6 +327,7 @@ L1 store 的 INSERT 语句扩列；read 路径默认 SELECT * 自动带上。
 - `__post_init__` 增加 1 次 ULID 生成 + 1 次 contextvars get：单次 < 5μs。Event 构造频率本来就以 publish 为单位（< 1k QPS），影响可忽略。
 - `start_span()` push/pop 是 contextvars `set` + `reset`：< 1μs 量级。
 - schema 加列：SQLite ALTER 是元数据操作，无数据迁移。新列 nullable 不影响现有行。
+- 新增 2 个二级索引（trace_id / causation_id）会让 fact_events 写入路径多两次 B-tree 维护：每次 INSERT 增加约 1-2μs，可忽略。读侧（按 trace 聚合 / 因果链回溯）受益显著。
 
 ## 11. 风险
 
