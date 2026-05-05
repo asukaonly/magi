@@ -187,3 +187,57 @@ def test_span_completed_task_lifecycle_error_translates_to_task_failed():
     me = translate(ev)
     assert me is not None
     assert me.event_type == EventTypes.TASK_FAILED
+
+
+def test_sensor_main_path_uses_build_sensor_memory_event():
+    """C producer (with policy_dict) goes through build_sensor_memory_event."""
+    from magi_plugin_sdk.sensors import SensorMemoryPolicy
+
+    payload = SensorEventEmitted(
+        sensor_name="screen_time",
+        payload={},
+        context=TaskContext(None, None, None, "user-1"),
+        sensor_id="screen_time",
+        output_dict={
+            "source_type": "external_activity",
+            "source_item_id": "win-app-foo",
+            "occurred_at": 1700.0,
+            "captured_at": 1700.5,
+            "domain_payload": {},
+            "raw_payload_ref": None,
+            "provenance": {},
+            "tags": [],
+            "entities": [],
+            "content_blocks": [],
+        },
+        metadata_dict={},
+        policy_dict=SensorMemoryPolicy().to_dict(),
+        projection_dict={"title": "T", "summary": "S", "content": "C", "embedding_head": "H", "metadata": {}},
+        occurred_at=1700.0,
+        owner_user_id="user-1",
+        idempotency_key="ik-1",
+    )
+    ev = Event(type=EventTypes.SENSOR_EVENT_EMITTED, data=payload, event_id="evt-X", correlation_id="corr-X")
+    me = translate(ev)
+    assert me is not None
+    assert me.event_id == "evt-X"
+    assert me.correlation_id == "corr-X"
+    assert me.event_type == "SENSOR_EVENT"
+    assert me.source == "external_activity"
+    assert me.idempotency_key == "ik-1"
+    assert me.user_id == "user-1"
+
+
+def test_sensor_legacy_path_when_no_policy_dict():
+    """A-era producer (no policy_dict) hits legacy normalize path."""
+    payload = SensorEventEmitted(
+        sensor_name="legacy_sensor",
+        payload={"content": "legacy content"},
+        context=TaskContext("s", "t", None, "u"),
+        # No policy_dict (defaults to {})
+    )
+    ev = Event(type=EventTypes.SENSOR_EVENT_EMITTED, data=payload, event_id="evt-L")
+    me = translate(ev)
+    assert me is not None
+    # legacy normalize ends up with event_type "SENSOR_EVENT" via legacy logic
+    assert me.event_type == "SENSOR_EVENT"
