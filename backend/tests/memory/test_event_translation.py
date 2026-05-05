@@ -134,7 +134,7 @@ def test_span_completed_tool_invocation_translates_like_legacy():
 
 def test_span_completed_other_node_types_skip():
     from magi.events.domain_payloads import SpanCompleted
-    for node_type in ("span", "llm_call", "intent_resolution", "turn", "task_lifecycle"):
+    for node_type in ("span", "llm_call", "intent_resolution", "turn"):
         sp = SpanCompleted(
             span_id="s", trace_id="t", parent_span_id=None,
             node_type=node_type, name="x", status="ok",
@@ -143,3 +143,47 @@ def test_span_completed_other_node_types_skip():
         )
         ev = Event(type=EventTypes.SPAN_COMPLETED, data=sp)
         assert translate(ev) is None
+
+
+def test_span_completed_task_lifecycle_ok_translates_to_task_completed():
+    from magi.events.domain_payloads import SpanCompleted
+    sp = SpanCompleted(
+        span_id="s1", trace_id="t1", parent_span_id=None,
+        node_type="task_lifecycle", name="chat", status="ok",
+        started_at_ms=1000, ended_at_ms=2000, duration_ms=1000,
+        error=None, result_preview="done", turn_id="turn-1",
+        attributes={
+            "task_id": "orch-1",
+            "task_type": "chat",
+            "summary": "done",
+            "user_id": "u",
+            "session_id": "s",
+            "started_at": 1.0,
+            "finished_at": 2.0,
+        },
+    )
+    ev = Event(type=EventTypes.SPAN_COMPLETED, data=sp, correlation_id="c1")
+    me = translate(ev)
+    assert me is not None
+    assert me.event_type == EventTypes.TASK_COMPLETED
+
+
+def test_span_completed_task_lifecycle_error_translates_to_task_failed():
+    from magi.events.domain_payloads import SpanCompleted, ToolError
+    sp = SpanCompleted(
+        span_id="s1", trace_id="t1", parent_span_id=None,
+        node_type="task_lifecycle", name="chat", status="error",
+        started_at_ms=1000, ended_at_ms=2000, duration_ms=1000,
+        error=ToolError(type="LaunchError", message="boom"),
+        result_preview=None, turn_id="turn-1",
+        attributes={
+            "task_id": "orch-2",
+            "task_type": "chat",
+            "user_id": "u",
+            "session_id": "s",
+        },
+    )
+    ev = Event(type=EventTypes.SPAN_COMPLETED, data=sp)
+    me = translate(ev)
+    assert me is not None
+    assert me.event_type == EventTypes.TASK_FAILED

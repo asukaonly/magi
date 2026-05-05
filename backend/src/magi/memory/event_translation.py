@@ -19,6 +19,7 @@ from magi.events.domain_payloads import (
     TaskContext,
     TaskFailed,
     TaskStarted,
+    ToolError,
     ToolInvocationCompleted,
     UserMessageReceived,
 )
@@ -225,14 +226,20 @@ def _from_span_completed(event: Event) -> Optional[MemoryEvent]:
     """Translate SpanCompleted -> MemoryEvent based on node_type.
 
     Phase 3 routes node_type='tool_invocation' to the existing tool path.
-    Phase 4 will add 'task_lifecycle'. Other node_types are not memory-relevant.
+    Phase 4 adds 'task_lifecycle'. Other node_types are not memory-relevant.
     """
     try:
         sp = expect_payload(event, SpanCompleted)
     except PayloadTypeError:
         return None
-    if sp.node_type != "tool_invocation":
-        return None
+    if sp.node_type == "tool_invocation":
+        return _span_to_tool_invocation_memory(event, sp)
+    if sp.node_type == "task_lifecycle":
+        return _span_to_task_lifecycle_memory(event, sp)
+    return None
+
+
+def _span_to_tool_invocation_memory(event: Event, sp: SpanCompleted) -> Optional[MemoryEvent]:
     attrs = dict(sp.attributes or {})
     started_at = attrs.get("started_at")
     if started_at is None:
@@ -268,6 +275,64 @@ def _from_span_completed(event: Event) -> Optional[MemoryEvent]:
         metadata=dict(event.metadata or {}),
     )
     return _from_tool_invocation(synthetic)
+
+
+def _span_to_task_lifecycle_memory(event: Event, sp: SpanCompleted) -> Optional[MemoryEvent]:
+    """Translate task_lifecycle SpanCompleted into TaskCompleted/TaskFailed memory.
+
+    status=='ok'   -> TaskCompleted MemoryEvent path
+    status=='error' or 'cancelled' -> TaskFailed MemoryEvent path
+    """
+    attrs = dict(sp.attributes or {})
+    ctx = _task_context_from_span(sp)
+    started_at = float(attrs.get("started_at", sp.started_at_ms / 1000.0))
+    finished_at = float(attrs.get("finished_at", sp.ended_at_ms / 1000.0))
+    task_id = str(attrs.get("task_id") or "")
+    task_type = str(attrs.get("task_type") or sp.name)
+    if sp.status == "ok":
+        payload = TaskCompleted(
+            task_id=task_id,
+            task_type=task_type,
+            started_at=started_at,
+            finished_at=finished_at,
+            summary=attrs.get("summary"),
+            context=ctx,
+        )
+        synthetic = Event(
+            type=EventTypes.TASK_COMPLETED,
+            data=payload,
+            timestamp=event.timestamp,
+            source=str(event.source or "task_orchestrator"),
+            level=event.level,
+            correlation_id=event.correlation_id,
+            event_id=event.event_id,
+            causation_id=event.causation_id,
+            trace_context=event.trace_context,
+            metadata=dict(event.metadata or {}),
+        )
+        return _from_task_completed(synthetic)
+    err = sp.error or ToolError(type="Error", message="task failed")
+    payload = TaskFailed(
+        task_id=task_id,
+        task_type=task_type,
+        started_at=started_at,
+        finished_at=finished_at,
+        error=err,
+        context=ctx,
+    )
+    synthetic = Event(
+        type=EventTypes.TASK_FAILED,
+        data=payload,
+        timestamp=event.timestamp,
+        source=str(event.source or "task_orchestrator"),
+        level=event.level,
+        correlation_id=event.correlation_id,
+        event_id=event.event_id,
+        causation_id=event.causation_id,
+        trace_context=event.trace_context,
+        metadata=dict(event.metadata or {}),
+    )
+    return _from_task_failed(synthetic)
 
 
 _DISPATCH: dict[str, EventTranslator] = {
