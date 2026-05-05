@@ -7,6 +7,7 @@ import pytest
 
 from magi.agent.cancel import NullCancelToken
 from magi.agent.task_agents.chat.contracts import ChatRuntimeContext, IntentDecision
+from magi.agent.task_agents.chat import direct_handler as direct_handler_module
 from magi.agent.task_agents.chat.direct_handler import DirectLLMHandler
 from magi.agent.task_agents.chat.handlers import FunctionCallingHandler
 from magi.agent.task_agents.common import DirectLLMRequest, ExecutionMode, IncomingFactKind, OrchestrationPlan, ToolSelection, UserMessagePayload
@@ -621,7 +622,11 @@ async def test_direct_llm_handler_builds_multimodal_message_for_image_attachment
 
 
 @pytest.mark.asyncio
-async def test_direct_llm_handler_returns_clear_message_when_image_model_lacks_vision(tmp_path: Path) -> None:
+async def test_direct_llm_handler_returns_clear_message_when_image_model_lacks_vision(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(direct_handler_module, "get_user_preference", lambda key, default=None: "en")
     image_path = tmp_path / "diagram.png"
     image_path.write_bytes(b"fake-image-bytes")
 
@@ -685,6 +690,74 @@ async def test_direct_llm_handler_returns_clear_message_when_image_model_lacks_v
     assert "does not support image input" in result.response_text
     assert prompt_service.call_llm_calls == 0
     assert request.messages[0]["content"] == "describe this screenshot"
+
+
+@pytest.mark.asyncio
+async def test_direct_llm_handler_localizes_image_model_lacks_vision_message(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(direct_handler_module, "get_user_preference", lambda key, default=None: "zh")
+    image_path = tmp_path / "diagram.png"
+    image_path.write_bytes(b"fake-image-bytes")
+
+    handler = DirectLLMHandler(
+        SimpleNamespace(
+            context_service=_FakeContextService(),
+            prompt_service=_FakePromptService(),
+        )
+    )
+    context = ChatRuntimeContext(
+        latest_fact=None,
+        recent_facts=[],
+        batch_facts=[],
+        agent_id="local_user",
+        agent_type="chat",
+        runtime_key="chat:local_user",
+        user_id="local_user",
+        session_id="session-1",
+        history_key="local_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message="描述这张图",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        core_model_supports_vision=False,
+        latest_payload=UserMessagePayload(
+            user_id="local_user",
+            session_id="session-1",
+            content="描述这张图",
+            attachments=[
+                {
+                    "attachment_id": "att-image",
+                    "kind": "image",
+                    "original_name": "diagram.png",
+                    "mime_type": "image/png",
+                    "storage_path": str(image_path),
+                }
+            ],
+            turn_id="turn-1",
+        ),
+    )
+
+    request = await handler.build_request(
+        SimpleNamespace(
+            mode=ExecutionMode.DIRECT_LLM,
+            context=context,
+            intent=IntentDecision(
+                intent="chat",
+                difficulty="normal",
+                execution_mode=ExecutionMode.DIRECT_LLM,
+                reasoning="direct",
+                orchestration_plan=OrchestrationPlan(),
+            ),
+            tool_selection=ToolSelection(tools=[], reasoning="direct"),
+        )
+    )
+    result = await handler.execute(request)
+
+    assert "当前核心模型不支持图片输入" in result.response_text
 
 
 class _FakeCoordinator:
