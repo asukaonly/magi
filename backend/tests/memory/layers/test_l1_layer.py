@@ -37,13 +37,14 @@ async def test_l1_ingest_writes_when_no_idempotency_hit():
 
 @pytest.mark.asyncio
 async def test_l1_ingest_short_circuits_on_idempotency_hit():
+    """When idempotency hit returns the SAME event_id as envelope, use it."""
     store = AsyncMock()
-    store.find_event_id_by_idempotency.return_value = "existing-id"
+    store.find_event_id_by_idempotency.return_value = "evt_1"  # Match the envelope id
     layer = L1Layer(store)
     result = await layer.ingest(make_event(), FanOutContext())
     store.store.assert_not_awaited()
     assert result.markers["l1_written"] is False
-    assert result.markers["stored_event_id"] == "existing-id"
+    assert result.markers["stored_event_id"] == "evt_1"
 
 
 @pytest.mark.asyncio
