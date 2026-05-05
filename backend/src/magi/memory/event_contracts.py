@@ -155,6 +155,10 @@ class MemoryEvent:
     metadata_json: Optional[Dict[str, Any]] = None
     embedding_status: Optional[str] = None
     embedding_profile_id: Optional[str] = None
+    causation_id: Optional[str] = None
+    trace_id: Optional[str] = None
+    span_id: Optional[str] = None
+    parent_span_id: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -185,6 +189,10 @@ class MemoryEvent:
             "metadata_json": dict(self.metadata_json) if self.metadata_json is not None else None,
             "embedding_status": self.embedding_status,
             "embedding_profile_id": self.embedding_profile_id,
+            "causation_id": self.causation_id,
+            "trace_id": self.trace_id,
+            "span_id": self.span_id,
+            "parent_span_id": self.parent_span_id,
         }
 
 
@@ -196,8 +204,6 @@ def normalize_runtime_event(
     parent_event_id: Optional[str] = None,
 ) -> MemoryEvent:
     """Normalize runtime events into the canonical memory contract."""
-
-    del parent_event_id
 
     now = time.time()
     payload = event.data if isinstance(event.data, dict) else {"value": event.data}
@@ -217,8 +223,11 @@ def normalize_runtime_event(
         metadata.get("idempotency_key"),
     )
 
+    resolved_event_id = event.event_id or event_id or generate_event_id()
+    tc = event.trace_context
+
     return MemoryEvent(
-        event_id=str(event_id or generate_event_id()),
+        event_id=str(resolved_event_id),
         correlation_id=str(event.correlation_id or ""),
         timestamp=float(event.timestamp),
         created_at=now,
@@ -241,6 +250,10 @@ def normalize_runtime_event(
         level=int(level_value),
         idempotency_key=normalized_idempotency_key,
         media_path=_first_non_empty(payload.get("media_path"), metadata.get("media_path")),
+        causation_id=event.causation_id or parent_event_id,
+        trace_id=tc.trace_id if tc else None,
+        span_id=tc.span_id if tc else None,
+        parent_span_id=tc.parent_span_id if tc else None,
     )
 
 
