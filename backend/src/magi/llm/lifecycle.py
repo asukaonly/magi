@@ -46,3 +46,37 @@ class LLMRuntimeModule(LifecycleModule):
     async def shutdown(self) -> None:
         self._context.llm.scenario_llm_pool = None
         self._context.llm.llm_adapter = None
+
+
+class LLMUsageSubscriberModule(LifecycleModule):
+    """Subscribe LLMUsageSubscriber to the runtime event bus.
+
+    Wires the SpanCompleted(node_type='llm_call') consumer that projects
+    into the llm_usage table. The legacy LLM_CALL_COMPLETED self-subscription
+    in LLMUsageStore was removed in phase 5.
+    """
+
+    def __init__(self, context: RuntimeBootstrapContext) -> None:
+        super().__init__(
+            name="runtime_llm_usage_subscriber",
+            dependencies=("runtime_message_bus", "runtime_memory"),
+        )
+        self._context = context
+        self._subscriber = None
+
+    async def init(self) -> None:
+        from .subscribers.llm_usage_subscriber import LLMUsageSubscriber
+
+        bus = require_initialized(self._context.message_bus.message_bus, "message bus")
+        store = self._context.llm.llm_usage_store
+        if store is None:
+            logger.warning("LLMUsageStore not initialized; LLMUsageSubscriber idle")
+            return
+        self._subscriber = LLMUsageSubscriber(event_bus=bus, llm_usage_store=store)
+        await self._subscriber.start()
+        logger.info("LLMUsageSubscriber started")
+
+    async def shutdown(self) -> None:
+        if self._subscriber is not None:
+            await self._subscriber.stop()
+            self._subscriber = None

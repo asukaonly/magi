@@ -25,9 +25,8 @@ def _make_memory_event(*, event_id: str, content: str = "visited page"):
             level=EventLevel.INFO,
             correlation_id=f"corr-{event_id}",
             timestamp=timestamp,
-        ),
-        event_id=event_id,
-    )
+        event_id=event_id),
+        )
 
 
 @pytest.mark.asyncio

@@ -12,7 +12,6 @@ if TYPE_CHECKING:
     from ..core.database_initializer import DatabaseInitializer
     from ..core.maintenance import MaintenanceDaemon
     from ..llm import ScenarioLLMPool
-    from ..llm.usage_events import LLMUsageEventPublisher
     from ..events.backend import MessageBusBackend
     from ..events.runtime_queue import SQLiteRuntimeCommandQueue
     from ..events.lifecycle import RuntimeCommandProcessorModule
@@ -65,7 +64,6 @@ class LLMBootstrapState:
     scenario_llm_pool: ScenarioLLMPool | None = None
     llm_adapter: Any = None
     llm_usage_store: Any = None
-    llm_usage_event_publisher: LLMUsageEventPublisher | None = None
 
 
 @dataclass
@@ -106,6 +104,7 @@ class MemoryBootstrapState:
     unified_memory: UnifiedMemoryStore | None = None
     memory_integration: MemoryIntegrationModule | None = None
     hybrid_retrieval_service: HybridRetrievalService | None = None
+    ingestion_subscriber: Any = None
 
 
 @dataclass

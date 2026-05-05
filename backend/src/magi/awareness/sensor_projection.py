@@ -24,6 +24,25 @@ class SensorProjection:
     embedding_head: str
     metadata: dict[str, Any]
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "title": self.title,
+            "summary": self.summary,
+            "content": self.content,
+            "embedding_head": self.embedding_head,
+            "metadata": dict(self.metadata),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "SensorProjection":
+        return cls(
+            title=str(data["title"]),
+            summary=str(data["summary"]),
+            content=str(data["content"]),
+            embedding_head=str(data["embedding_head"]),
+            metadata=dict(data.get("metadata", {})),
+        )
+
 
 def build_sensor_projection(
     sensor: SensorBase,

@@ -108,8 +108,8 @@ def _make_memory_event(
             level=EventLevel.INFO,
             correlation_id=f"corr-{event_id}",
             timestamp=resolved_timestamp,
+            event_id=event_id,
         ),
-        event_id=event_id,
     )
 
 
@@ -1613,9 +1613,8 @@ async def test_extract_worker_applies_contradiction_hints_to_existing_assertions
                             level=EventLevel.INFO,
                             correlation_id=event_id,
                             timestamp=ts,
-                        ),
-                        event_id=event_id,
-                    )
+                        event_id=event_id),
+                        )
                 )
             await store.l2.upsert_assertion_candidate(
                 {
@@ -3141,9 +3140,8 @@ async def test_reconcile_worker_promotes_assertions_and_refreshes_snapshots(capl
                             correlation_id=f"evt-reconcile-{index}",
                             timestamp=ts,
                             metadata={"user_id": "u1"},
-                        ),
-                        event_id=f"evt-reconcile-{index}",
-                    )
+                        event_id=f"evt-reconcile-{index}"),
+                        )
                     await store.l1.store(memory_event)
 
                 await store.l2.upsert_assertion_candidate(

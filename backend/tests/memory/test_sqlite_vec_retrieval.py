@@ -44,9 +44,8 @@ async def test_l1_store_uses_sqlite_vec_for_semantic_search(tmp_path):
                     source="chat",
                     level=EventLevel.INFO,
                     correlation_id="corr-1",
-                ),
-                event_id="evt-stress",
-            )
+                event_id="evt-stress"),
+                )
         )
         await store.store(
             normalize_runtime_event(
@@ -62,9 +61,8 @@ async def test_l1_store_uses_sqlite_vec_for_semantic_search(tmp_path):
                     source="chat",
                     level=EventLevel.INFO,
                     correlation_id="corr-2",
-                ),
-                event_id="evt-calm",
-            )
+                event_id="evt-calm"),
+                )
         )
 
         results = await store.search_events(query="stress", user_id="u1", limit=2)
@@ -154,9 +152,8 @@ async def test_l4_store_uses_sqlite_vec_for_semantic_search(tmp_path):
                     source="runtime",
                     level=EventLevel.INFO,
                     correlation_id="corr-1",
-                ),
-                event_id="evt-1",
-            )
+                event_id="evt-1"),
+                )
         )
         await store.record_memory_event(
             normalize_runtime_event(
@@ -166,9 +163,8 @@ async def test_l4_store_uses_sqlite_vec_for_semantic_search(tmp_path):
                     source="runtime",
                     level=EventLevel.INFO,
                     correlation_id="corr-2",
-                ),
-                event_id="evt-2",
-            )
+                event_id="evt-2"),
+                )
         )
 
         results = await store.query_strategies(query="browser stress", limit=2)

@@ -1,12 +1,16 @@
-"""LLM trace persistence helpers for chat post-processing."""
+"""LLM trace persistence helpers for chat post-processing.
+
+Phase 4 cleanup: provider_bridge now publishes SpanCompleted(node_type="llm_call")
+on every LLM call (see llm/provider_bridge/responses.py:_emit_usage_event), so
+the chat post-process llm_call publishes here are redundant. The mixin methods
+remain as no-op stubs to keep the call sites compiling; they are scheduled for
+removal in phase 5.
+"""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Any
-
-from .....agent.trace import now_wall_ms
-from .....runtime_trace import TraceLlmCallRecord, TraceSpanRecord
 
 
 class ChatPostprocessLlmTraceMixin:
@@ -44,55 +48,19 @@ class ChatPostprocessLlmTraceMixin:
         tool_count: Any,
         tool_names: Any,
     ) -> None:
-        normalized_turn_id = str(turn_id or "").strip()
-        if not normalized_turn_id or not isinstance(llm_trace, dict):
-            return
-        duration_ms = max(0, int(llm_trace.get("duration_ms") or 0))
-        ended_at_ms = now_wall_ms()
-        started_at_ms = max(0, ended_at_ms - duration_ms)
-        _ = (event_emitter, user_id, session_id, tool_count, tool_names, response_preview, execution_agent_id)
-        if self._runtime_trace_store is None:
-            return
-        span_id = self._build_span_id(
-            normalized_turn_id,
-            f"llm_call:{stage}:{int(iteration or 0)}",
-        )
-        trace_id = self._build_trace_id(normalized_turn_id)
-        await self._runtime_trace_store.upsert_span(
-            TraceSpanRecord(
-                span_id=span_id,
-                trace_id=trace_id,
-                turn_id=normalized_turn_id,
-                parent_span_id=self._build_span_id(normalized_turn_id, f"iteration:{int(iteration or 0)}"),
-                node_type="llm_call",
-                name="Function-calling LLM call",
-                status="completed",
-                iteration=int(iteration or 0),
-                execution_agent_id=str(execution_agent_id or "") or None,
-                result_preview=str(response_preview or "")[:240] or None,
-                started_at_ms=started_at_ms,
-                ended_at_ms=ended_at_ms,
-                duration_ms=duration_ms,
-                created_at_ms=started_at_ms,
-                updated_at_ms=ended_at_ms,
-            )
-        )
-        await self._runtime_trace_store.upsert_llm_call(
-            TraceLlmCallRecord(
-                span_id=span_id,
-                trace_id=trace_id,
-                turn_id=normalized_turn_id,
-                provider=str(llm_trace.get("provider") or "unknown"),
-                model=str(llm_trace.get("model") or "unknown"),
-                input_tokens=int(llm_trace.get("input_tokens") or 0),
-                output_tokens=int(llm_trace.get("output_tokens") or 0),
-                reasoning_tokens=int(llm_trace.get("reasoning_tokens") or 0),
-                cache_read_tokens=int(llm_trace.get("cache_read_tokens") or 0),
-                cache_write_tokens=int(llm_trace.get("cache_write_tokens") or 0),
-                thinking_enabled=bool(llm_trace.get("thinking_enabled")),
-                request_preview=str(llm_trace.get("request_preview") or "")[:240] or None,
-                response_preview=str(response_preview or "")[:240] or None,
-            )
+        # llm_call SpanCompleted is now published by provider_bridge.
+        _ = (
+            event_emitter,
+            user_id,
+            session_id,
+            turn_id,
+            stage,
+            iteration,
+            execution_agent_id,
+            llm_trace,
+            response_preview,
+            tool_count,
+            tool_names,
         )
 
     async def _emit_result_llm_trace(
@@ -105,8 +73,15 @@ class ChatPostprocessLlmTraceMixin:
         started_at_ms: int,
         user_message: str,
     ) -> None:
+        # llm_call SpanCompleted is now published by provider_bridge. We still
+        # ensure the turn trace exists so subsequent spans have a parent.
         normalized_turn_id = str(turn_id or "").strip()
-        if self._runtime_trace_store is None or not normalized_turn_id or not isinstance(llm_trace, dict) or not llm_trace:
+        if (
+            self._runtime_trace_store is None
+            or not normalized_turn_id
+            or not isinstance(llm_trace, dict)
+            or not llm_trace
+        ):
             return
         trace_id = self._build_trace_id(normalized_turn_id)
         await self._ensure_turn_trace_started(
@@ -117,41 +92,6 @@ class ChatPostprocessLlmTraceMixin:
             started_at_ms=started_at_ms,
             user_message=user_message,
             mode="direct_llm",
-        )
-        duration_ms = max(0, int(llm_trace.get("duration_ms") or 0))
-        ended_at_ms = max(started_at_ms, started_at_ms + duration_ms)
-        span_id = self._build_span_id(normalized_turn_id, "llm_call:direct")
-        await self._runtime_trace_store.upsert_span(
-            TraceSpanRecord(
-                span_id=span_id,
-                trace_id=trace_id,
-                turn_id=normalized_turn_id,
-                parent_span_id=self._build_root_span_id(normalized_turn_id),
-                node_type="llm_call",
-                name="Main LLM call",
-                status="completed",
-                started_at_ms=started_at_ms,
-                ended_at_ms=ended_at_ms,
-                duration_ms=duration_ms,
-                created_at_ms=started_at_ms,
-                updated_at_ms=ended_at_ms,
-            )
-        )
-        await self._runtime_trace_store.upsert_llm_call(
-            TraceLlmCallRecord(
-                span_id=span_id,
-                trace_id=trace_id,
-                turn_id=normalized_turn_id,
-                provider=str(llm_trace.get("provider") or "unknown"),
-                model=str(llm_trace.get("model") or "unknown"),
-                input_tokens=int(llm_trace.get("input_tokens") or 0),
-                output_tokens=int(llm_trace.get("output_tokens") or 0),
-                reasoning_tokens=int(llm_trace.get("reasoning_tokens") or 0),
-                cache_read_tokens=int(llm_trace.get("cache_read_tokens") or 0),
-                cache_write_tokens=int(llm_trace.get("cache_write_tokens") or 0),
-                thinking_enabled=bool(llm_trace.get("thinking_enabled")),
-                request_preview=(user_message or "")[:240] or None,
-            )
         )
 
 

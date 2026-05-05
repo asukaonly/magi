@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -153,6 +154,7 @@ async def test_sensor_schedule_registration_module_registers_handler_and_syncs_s
     context.timeline.timeline_service = _FakeTimelineService()
     context.scheduler.scheduler_service = _FakeSchedulerService()
     context.memory.unified_memory = _FakeUnifiedMemory()
+    context.message_bus.message_bus = MagicMock(publish=AsyncMock())
 
     module = SensorScheduleRegistrationModule(context)
     await module.init()
@@ -181,6 +183,7 @@ async def test_sensor_schedule_registration_module_supports_manual_sync(tmp_path
     context.timeline.timeline_service = _FakeTimelineService()
     context.scheduler.scheduler_service = _FakeSchedulerService()
     context.memory.unified_memory = _FakeUnifiedMemory()
+    context.message_bus.message_bus = MagicMock(publish=AsyncMock())
 
     module = SensorScheduleRegistrationModule(context)
     await module.init()

@@ -541,47 +541,6 @@ async def test_openai_content_parses_legacy_tool_call_blocks() -> None:
 
 
 @pytest.mark.asyncio
-async def test_bridge_publishes_usage_event_with_prompt_and_completion_tokens(monkeypatch) -> None:
-    published_payloads = []
-
-    async def fake_publish(payload, publisher=None):
-        _ = publisher
-        published_payloads.append(payload)
-
-    monkeypatch.setattr("magi.llm.provider_bridge.publish_llm_call_event", fake_publish)
-
-    message = SimpleNamespace(content="hello", tool_calls=[], role="assistant")
-    response = SimpleNamespace(
-        choices=[SimpleNamespace(message=message, finish_reason="stop")],
-        usage=SimpleNamespace(prompt_tokens=20, completion_tokens=8, total_tokens=28),
-    )
-    client = DummyOpenAIClient(response=response)
-    llm = DummyLLMAdapter(provider="openai", client=client)
-    bridge = LLMProviderBridge(llm)
-
-    await bridge.chat_response(
-        system_prompt="sys",
-        messages=[{"role": "user", "content": "hi"}],
-        event_context={
-            "request_id": "req123",
-            "request_kind": "context_decider",
-            "session_id": "session-1",
-            "turn_id": "turn-1",
-            "agent_id": "agent-1",
-        },
-    )
-
-    assert len(published_payloads) == 1
-    payload = published_payloads[0]
-    assert payload.request_id == "req123"
-    assert payload.request_kind == "context_decider"
-    assert payload.prompt_tokens == 20
-    assert payload.completion_tokens == 8
-    assert payload.total_tokens == 28
-    assert payload.session_id == "session-1"
-
-
-@pytest.mark.asyncio
 async def test_dashscope_chat_disables_thinking_when_requested():
     llm = DummyLLMAdapter(provider="dashscope")
     bridge = LLMProviderBridge(llm)

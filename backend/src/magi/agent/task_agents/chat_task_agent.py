@@ -205,6 +205,7 @@ class ChatTaskAgent(
             drain_deferred_turns=self._drain_deferred_turns,
             response_rhythm_planner=ResponseRhythmPlanner(prompt_service=self._prompt_service),
             transcript_summarizer=self._transcript_summarizer,
+            event_bus=self._resolve_message_bus(),
         )
         self.function_calling_orchestrator = FunctionCallingOrchestrator(
             llm_adapter=llm_adapter,
@@ -285,6 +286,18 @@ class ChatTaskAgent(
     async def _resolve_session_workspace_path(self, *, user_id: str, session_id: str) -> str | None:
         summary = await self._chat_read_service.aget_session_summary(user_id, session_id)
         return summary.workspace_path if summary is not None else None
+
+    @staticmethod
+    def _resolve_message_bus() -> Any | None:
+        try:
+            from ...core.container import Container
+
+            bus = Container.message_bus()
+        except Exception:
+            return None
+        if bus is None or type(bus).__name__ == "object":
+            return None
+        return bus if hasattr(bus, "publish") else None
 
     async def _get_tool_advisory(self, task_context: str | None = None) -> list[dict]:
         """Fetch notable L4 advisories for the coordinator."""

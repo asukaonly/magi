@@ -7,9 +7,14 @@ from typing import Any, Optional
 from ....core.logger import get_logger
 from ....context.service import ContextAssemblyService
 from ....context.scenarios import Scenario
+from ....events.domain_payloads import TaskContext
 from ....llm.streaming_events import get_stream_sink, stream_source
 from ....tools.registry import ToolRegistry
 from ....tools.tool_hint_resolver import ToolHintResolver
+from ...execution.tool_invocation_service import (
+    InvocationContext,
+    ToolCall as _ServiceToolCall,
+)
 from ...orchestration import PlannedSubtask, SubtaskPlan, TaskOrchestrationState
 from ..common import OrchestrationPlan
 from .history_service import ChatHistoryService
@@ -47,6 +52,13 @@ class ChatPlanningService(ChatPlanningPromptMixin):
         self._tool_registry = tool_registry
         self._parent_task_agent_type = parent_task_agent_type
         self._tool_hint_resolver = tool_hint_resolver or ToolHintResolver(tool_registry)
+
+    @property
+    def _tool_invocation_service(self):
+        from ...execution.tool_invocation_service import get_tool_invocation_service
+        if not hasattr(self, "_tool_invocation_service_cached"):
+            self._tool_invocation_service_cached = get_tool_invocation_service(self._tool_registry)
+        return self._tool_invocation_service_cached
 
     async def generate_subtask_plan(
         self,
@@ -317,9 +329,8 @@ class ChatPlanningService(ChatPlanningPromptMixin):
                 default_leaf_type="Explore",
             )
         )
-        result = await self._tool_registry.execute(
-            "agent",
-            {
+        result = await self._tool_invocation_service.invoke(
+            _ServiceToolCall(name="agent", args={
                 "action": "launch",
                 "subagent_type": "Plan",
                 "description": "plan leaf subtasks",
@@ -342,8 +353,17 @@ class ChatPlanningService(ChatPlanningPromptMixin):
                 "parent_task_agent_id": parent_task_agent_id,
                 "run_id": run_id,
                 "run_revision": run_revision,
-            },
-            context,
+            }),
+            InvocationContext(
+                tool_category="planning",
+                task_context=TaskContext(
+                    session_id=session_id,
+                    turn_id=None,
+                    task_id=None,
+                    user_id=user_id,
+                ),
+                execution_context=context,
+            ),
         )
         if not result.success or not isinstance(result.data, dict):
             return None

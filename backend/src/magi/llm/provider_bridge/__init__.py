@@ -11,7 +11,6 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 from ..base import LLMAdapter
 from ..concurrency_limiter import LLMConcurrencyLimiter, get_llm_concurrency_limiter
 from ..streaming_events import LLMStreamEvent
-from ..usage_events import LLMUsageEventPublisher, publish_llm_call_event
 from .models import (
     ProviderResponse,
     ProviderToolCall,
@@ -52,15 +51,9 @@ class LLMProviderBridge:
     def __init__(
         self,
         llm_adapter: LLMAdapter,
-        usage_event_publisher: LLMUsageEventPublisher | None = None,
         concurrency_limiter: LLMConcurrencyLimiter | None = None,
     ):
         self.llm = llm_adapter
-        self._usage_event_publisher = usage_event_publisher or getattr(
-            llm_adapter,
-            "_llm_usage_event_publisher",
-            None,
-        )
         self._concurrency_limiter = concurrency_limiter or get_llm_concurrency_limiter()
         self._operations = _ProviderBridgeOperations(self)
 
@@ -321,10 +314,6 @@ class _ProviderBridgeOperations(
     @property
     def llm(self) -> LLMAdapter:
         return self._host.llm
-
-    @property
-    def _usage_event_publisher(self) -> LLMUsageEventPublisher | None:
-        return self._host._usage_event_publisher
 
     @property
     def _concurrency_limiter(self) -> LLMConcurrencyLimiter:

@@ -18,9 +18,8 @@ def _build_user_message(text: str):
             source="chat",
             level=EventLevel.INFO,
             correlation_id="corr-context",
-        ),
-        event_id="evt-context",
-    )
+        event_id="evt-context"),
+        )
 
 
 def test_context_bundle_and_refs_serialize_deterministically():

@@ -7,7 +7,6 @@ from typing import Any
 from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..core.logger import get_logger
-from ..llm.usage_events import LLMUsageEventPublisher
 from ..llm import get_llm_usage_store
 from ..config import get_config
 from ..config.models import LLMScenario
@@ -57,17 +56,9 @@ class MemoryStoreModule(LifecycleModule):
         scenario_llm_pool = require_initialized(self._context.llm.scenario_llm_pool, "scenario llm pool")
         message_bus = self._context.message_bus.message_bus
         if self.start_memory_integration:
-            runtime_message_bus = require_initialized(message_bus, "message bus")
-            publisher = LLMUsageEventPublisher(runtime_message_bus)
-            self._context.llm.llm_usage_event_publisher = publisher
-            scenario_llm_pool.add_adapter_configurator(
-                lambda adapter: setattr(adapter, "_llm_usage_event_publisher", publisher)
-            )
-            llm_adapter = self._context.llm.llm_adapter
-            if llm_adapter is not None:
-                setattr(llm_adapter, "_llm_usage_event_publisher", publisher)
+            require_initialized(message_bus, "message bus")
             self._context.llm.llm_usage_store = get_llm_usage_store()
-            await self._context.llm.llm_usage_store.start(runtime_message_bus)
+            await self._context.llm.llm_usage_store.start()
             logger.info("LLM usage store started")
         else:
             logger.info("LLM usage store subscription skipped for API role")
@@ -147,12 +138,40 @@ class MemoryStoreModule(LifecycleModule):
         if self._context.llm.llm_usage_store is not None:
             await self._context.llm.llm_usage_store.stop()
             self._context.llm.llm_usage_store = None
-        if self._context.llm.llm_usage_event_publisher is not None:
-            self._context.llm.llm_usage_event_publisher.configure(None)
-            self._context.llm.llm_usage_event_publisher = None
 
         self._context.memory.unified_memory = None
         self._context.memory.hybrid_retrieval_service = None
+
+
+class MemoryIngestionSubscriberModule(LifecycleModule):
+    """Subscribe MemoryIngestionSubscriber to the runtime event bus."""
+
+    def __init__(self, context: RuntimeBootstrapContext):
+        super().__init__(
+            name="runtime_memory_ingestion_subscriber",
+            dependencies=("runtime_memory", "runtime_message_bus"),
+        )
+        self._context = context
+        self._subscriber: Any = None
+
+    async def init(self) -> None:
+        from .subscribers.memory_ingestion_subscriber import MemoryIngestionSubscriber
+
+        unified_memory = require_initialized(self._context.memory.unified_memory, "unified memory")
+        message_bus = require_initialized(self._context.message_bus.message_bus, "message bus")
+        self._subscriber = MemoryIngestionSubscriber(
+            event_bus=message_bus,
+            unified_memory=unified_memory,
+        )
+        await self._subscriber.start()
+        self._context.memory.ingestion_subscriber = self._subscriber
+        logger.info("MemoryIngestionSubscriber started")
+
+    async def shutdown(self) -> None:
+        if self._subscriber is not None:
+            await self._subscriber.stop()
+            self._subscriber = None
+        self._context.memory.ingestion_subscriber = None
 
 
 class L2MaintenanceScheduleRegistrationModule(LifecycleModule):
@@ -207,6 +226,37 @@ class L3SummaryScheduleRegistrationModule(LifecycleModule):
 
         scheduler_service = require_initialized(self._context.scheduler.scheduler_service, "scheduler service")
         self._contrib = L3SummaryScheduleContrib()
+        await self._contrib.register_schedules(scheduler_service)
+
+    async def shutdown(self) -> None:
+        if self._contrib is None or self._context.scheduler.scheduler_service is None:
+            self._contrib = None
+            return
+        await self._contrib.unregister_schedules(self._context.scheduler.scheduler_service)
+        self._contrib = None
+
+
+class L4MaintenanceScheduleRegistrationModule(LifecycleModule):
+    """Register L4 procedural-memory maintenance with the unified scheduler (runtime worker)."""
+
+    def __init__(self, context: RuntimeBootstrapContext):
+        super().__init__(
+            name="runtime_l4_maintenance_scheduler",
+            dependencies=(
+                "runtime_scheduler",
+                "runtime_configuration",
+                "runtime_memory",
+                "runtime_exports",
+            ),
+        )
+        self._context = context
+        self._contrib: Any = None
+
+    async def init(self) -> None:
+        from .l4.maintenance_schedule import L4MaintenanceScheduleContrib
+
+        scheduler_service = require_initialized(self._context.scheduler.scheduler_service, "scheduler service")
+        self._contrib = L4MaintenanceScheduleContrib()
         await self._contrib.register_schedules(scheduler_service)
 
     async def shutdown(self) -> None:
