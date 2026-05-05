@@ -117,10 +117,14 @@ class Event:
 } | None
 ```
 
+`from_dict` 反序列化规则：dict 中 `trace_context` 为非空 dict → 构造 `TraceContext(**d)`；为 None 或缺失 → `trace_context = None`。新字段（event_id / causation_id / trace_context）在 dict 中缺失时全部默认 None，确保旧持久化快照可被新代码读取。
+
 ### `correlation_id` 语义微调
 
-旧：`__post_init__` 中独立生成 UUID。
-新：未显式传入时，`correlation_id = event_id`，等价于"事件自串联自己一条 chain"。已在用 correlation_id 串联多事件的代码（chat projector 用 turn_id，task_orchestrator 用 state.correlation_id）显式传入参数，不受影响。
+旧：`__post_init__` 中独立生成 UUID（每个 Event 都拿到一个独立、与 event_id 不同的 UUID）。
+新：未显式传入时，`correlation_id = event_id`。
+
+**这不是 observable 变化**：旧实现下每个 Event 也已经拿到一个**独立**的 correlation_id（不是跨事件共享），所以现有日志 / 监控按 correlation_id 分组本来也是 per-event 的；新语义只是把"独立 UUID"换成"等于 event_id"，分组行为不变。已经显式串联多事件的代码（chat projector 传 turn_id，task_orchestrator 传 state.correlation_id 等）行为完全不变。
 
 ## 5. tracing 模块
 
@@ -208,15 +212,15 @@ class MemoryEvent:
 
 ```python
 def normalize_runtime_event(event, *, event_id=None, idempotency_key=None, parent_event_id=None):
-    # 优先级:
-    # 1. 显式参数 event_id（产线兼容性，给老调用方）
-    # 2. event.event_id (信封)
+    # 优先级 (本子项目 A):
+    # 1. event.event_id (信封) - 信封 id 是 single source of truth
+    # 2. 显式参数 event_id - 仅作为 legacy 兼容兜底（标记为废弃，B 子项目移除）
     # 3. generate_event_id() (fallback，新代码不应触发)
-    resolved_event_id = event_id or event.event_id or generate_event_id()
-    
+    resolved_event_id = event.event_id or event_id or generate_event_id()
+
     # causation_id 优先用信封，再用 parent_event_id 参数兜底
     causation = event.causation_id or parent_event_id
-    
+
     # trace_context → 三列
     tc = event.trace_context
     return MemoryEvent(
@@ -228,6 +232,10 @@ def normalize_runtime_event(event, *, event_id=None, idempotency_key=None, paren
         # ... 其余字段不变 ...
     )
 ```
+
+**优先级反转的原因**（评审反馈 #2）：旧实现里 `event_id` kwarg 优先级最高（显式 override），是为给老调用方留兜底；改造后必须**信封优先**，否则同一 Event 在不同消费路径上仍可能拿到不同 id（e.g. 调用方误传 kwarg），从而再次破坏 idempotency。把 kwarg 降为兜底，并文档标注为"legacy compatibility shim, planned for removal in B"。
+
+调用方梳理（实施时执行）：grep `normalize_runtime_event(.*event_id=`，逐个评估是否还需要传 kwarg；多数应直接删除，依赖信封即可。
 
 ### 6.3 Schema 迁移
 
@@ -244,9 +252,19 @@ CREATE INDEX IF NOT EXISTS idx_fact_events_causation ON fact_events(causation_id
 
 每条 ALTER 包 try/except 处理重复列（与 `pending_trace_count` / `deleted_at` 的现有迁移模式一致）。
 
-L4 `l4_execution_traces` 同步加 `trace_id / span_id` 两列（不加 causation：trace 内已隐式表达）。
+**L4 表不加 trace 列**：`l4_execution_traces` 已有 PK `trace_id` 列，含义是 execution-trace 行 id，与本子项目的"分布式 trace 树 id"语义无关、列名相同，会冲突。trace 投影是 B 子项目 RuntimeTraceSubscriber 的工作，写到独立的 trace_spans 表，不污染 L4。
 
 L1 store 的 INSERT 语句扩列；read 路径默认 SELECT * 自动带上。
+
+### 6.4 fact_events.event_id UNIQUE 冲突处理
+
+`backend/src/magi/memory/l1/storage/schema.py:78` 中 `fact_events.event_id` 是 `TEXT NOT NULL UNIQUE`。今天每次 `normalize_runtime_event` 都会 mint 新 id，所以即使同一 Event 进入多写入路径也不冲突。改造后所有消费者从信封读同一个 `event_id`，第二次 INSERT 会触发 UNIQUE violation。
+
+**处理**：L1 写入语句改为 `INSERT INTO fact_events ... ON CONFLICT(event_id) DO NOTHING`，调用方读取受影响行数（`cursor.rowcount` / `changes()`）判断"插入了"还是"已存在"。这正是 idempotent 入库的语义——同一 event_id 多次入库等价于一次。
+
+业务级 `idx_fact_events_business_idempotency` 索引（idempotency_key + source + event_type）保留，与 event_id UNIQUE 互不干扰。idempotency_key fast-path（`find_event_id_by_idempotency`）在 ON CONFLICT 之前仍先检查，避免无谓 INSERT 尝试。
+
+**测试覆盖**：`test_event_envelope_end_to_end.py` 增加一个用例，构造同一 Event 两次入库 → 行数应为 1。
 
 ## 7. 测试策略
 
@@ -266,14 +284,17 @@ L1 store 的 INSERT 语句扩列；read 路径默认 SELECT * 自动带上。
   - 嵌套 span：子继承父 trace_id；parent_span_id == 父 span_id
   - context manager 退出后自动恢复
   - `asyncio.create_task` 内能看到父 ctx
+  - **`asyncio.gather(...)` 同时跑多个 sibling task，全部继承同一 trace_id 但 span_id 各异**（L4 fan-out 实际场景）
   - 并发 task 之间 ctx 隔离
   - Event 在 span 内构造时自动取到 trace_context
+  - **同步函数在 async span 内调用 → 同样能看到 ctx**（验证 contextvars 不要求 async）
 
 - `tests/memory/test_event_contracts.py`
-  - normalize 优先用信封 event_id
-  - 显式参数 event_id 覆盖信封
+  - normalize 优先用**信封** event_id（不是 kwarg）
+  - 信封 event_id 缺失时才用 kwarg 兜底
   - 信封带 trace_context → MemoryEvent 三列填充
   - causation_id 镜像
+  - `from_dict` 还原 TraceContext 嵌套 dict；缺失键时返回 None
 
 ### 7.2 集成
 
@@ -281,6 +302,7 @@ L1 store 的 INSERT 语句扩列；read 路径默认 SELECT * 自动带上。
 - 新增 `tests/integration/test_event_envelope_end_to_end.py`：
   - 在 `start_span()` 内连续构造两个 Event，B 的 `causation_id` 设为 A 的 `event_id`，publish 二者
   - 查 fact_events 表 → 两行 trace_id 一致、span_id 不同、第二行 causation_id == 第一行 event_id
+  - **fan-out idempotency**：同一 Event 触发多个写入路径（如 L0+L1+L4 都接收），fact_events.event_id 仅一行（ON CONFLICT DO NOTHING 生效）
 
 ### 7.3 schema migration
 
@@ -308,10 +330,13 @@ L1 store 的 INSERT 语句扩列；read 路径默认 SELECT * 自动带上。
 
 | 风险 | 缓解 |
 |------|------|
-| `correlation_id` 默认值变化（旧 = 独立 UUID，新 = event_id）影响日志 / 监控 | 现有显式传 correlation_id 的代码不受影响。隐式生成路径只用于"未串联事件"，监控价值低。文档化变更。 |
+| `correlation_id` 默认值语义变化（旧 = 独立 UUID，新 = event_id） | 旧实现下也是 per-event 独立，分组行为不变。已显式传 correlation_id 的代码完全不受影响。详见 §4 末尾。 |
 | `from_dict` 反序列化老快照（无新字段） | 字段全 Optional + default=None，from_dict 缺 key 自动填 None |
 | ULID 时钟单调依赖 | python-ulid 处理时钟回退；fallback 到 uuid4 兜底 |
-| trace_context 进 contextvars 但用户在线程池里 publish | 线程池不自动 fork contextvars。用 `loop.run_in_executor` 时需 `contextvars.copy_context()` 包装。文档化此 caveat。生产代码主要是 asyncio，不受影响 |
+| trace_context + 线程池 publish | `loop.run_in_executor` 不自动 fork contextvars。需 `contextvars.copy_context()` 包装。生产代码主要 asyncio，影响极小。文档化此 caveat。 |
+| **fact_events.event_id UNIQUE fan-out 冲突** | §6.4 改用 INSERT ... ON CONFLICT(event_id) DO NOTHING，多写入路径下天然 idempotent。 |
+| **L4 既有 trace_id PK 列与新 trace 概念同名** | §6.3 决定 L4 不加 trace 列，trace 投影由 B 子项目独立 schema 承载。 |
+| 同步代码路径构造 Event | contextvars 在同步代码中也工作（无关 async）。但若同步代码经由 `run_in_executor` 进入 → 见上一条 caveat。 |
 
 ## 12. 实施分阶段
 
@@ -327,4 +352,17 @@ L1 store 的 INSERT 语句扩列；read 路径默认 SELECT * 自动带上。
 
 ## 13. Open Questions
 
-- ULID 与 UUID4 共存：现有 `magi/memory/event_contracts.py::generate_event_id()` 用 `uuid4().hex` + 前缀（如 `evt_xxx`）。新代码 ULID 没有前缀。两种 id 字符串混存于 fact_events 是否影响某些字符串前缀检查？需要 grep `event_id.startswith("evt_")` 类用法。倾向：保留 generate_event_id 作 fallback，新代码不依赖前缀。
+（无遗留 open questions —— 评审过程中 ULID/`evt_*` 前缀共存问题已确认：grep `event_id.startswith` 在 src 下零命中，新 ULID id 与旧 `evt_*` id 在 fact_events 中可安全共存。`generate_event_id()` 仅作 fallback 保留。）
+
+## 14. 评审记录
+
+2026-05-05 经 spec-document-reviewer 评审，已修复以下问题：
+
+- **Critical #1**：fact_events.event_id UNIQUE 在 fan-out 下会冲突。改为 ON CONFLICT(event_id) DO NOTHING（§6.4 新增）。
+- **Critical #2**：信封 event_id 应优先于 normalize kwarg，否则 idempotency 仍可能被绕过。优先级反转 + kwarg 标注 legacy（§6.2）。
+- **Important #5**：L4 `l4_execution_traces` 已有 PK `trace_id` 列，与新 trace 概念语义不同、列名相同，会冲突。本子项目 L4 不加 trace 列（§6.3）。
+- correlation_id 语义变化的 observable 影响澄清：旧实现已 per-event 独立，分组行为不变（§4 末尾）。
+- `from_dict` 反序列化 TraceContext 的规则补全（§4）。
+- 同步代码路径构造 Event 的 contextvars 行为补充（§7、§11）。
+- 测试补 `asyncio.gather` sibling 同 trace、fan-out idempotency（§7）。
+- ULID/`evt_*` 共存的 open question 关闭（§13）。
