@@ -187,7 +187,29 @@ class FunctionCallingToolExecutionMixin:
                 )
             else:
                 logger.info("[FunctionCalling] Executing: %s with args: %s", tool_name, arguments)
-            result = await host.tool_registry.execute(tool_name, arguments, context)
+            from ...execution.tool_invocation_service import (
+                InvocationContext,
+                ToolCall as _ServiceToolCall,
+                get_tool_invocation_service,
+            )
+            from ....events.domain_payloads import TaskContext
+
+            if not hasattr(host, "_tool_invocation_service"):
+                host._tool_invocation_service = get_tool_invocation_service(host.tool_registry)
+
+            result = await host._tool_invocation_service.invoke(
+                _ServiceToolCall(name=tool_name, args=arguments),
+                InvocationContext(
+                    tool_category="external_tool",
+                    task_context=TaskContext(
+                        session_id=session_id,
+                        turn_id=turn_id,
+                        task_id=getattr(context, "task_id", None),
+                        user_id=user_id,
+                    ),
+                    execution_context=context,
+                ),
+            )
             execution_time = time.time() - start_time
             if not result.success:
                 logger.warning(

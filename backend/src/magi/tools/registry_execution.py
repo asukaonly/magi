@@ -37,6 +37,11 @@ class ToolRegistryExecutionMixin:
 
         Returns:
             Execution result.
+
+        .. deprecated::
+            Direct callers in business code MUST go through ToolInvocationService.invoke().
+            Calling tool_registry.execute() directly bypasses ToolInvocationCompleted
+            publication and breaks L4 / runtime_trace pipelines.
         """
         tool = self.get_tool(tool_name)
         if not tool:

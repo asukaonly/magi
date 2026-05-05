@@ -7,6 +7,11 @@ import time
 from typing import Any, Optional
 
 from ..core.logger import get_logger
+from ..events.domain_payloads import TaskContext
+from .execution.tool_invocation_service import (
+    InvocationContext,
+    ToolCall as _ServiceToolCall,
+)
 from .orchestration import (
     RETRIABLE_WORKER_FAILURES,
     SubtaskDefinition,
@@ -22,6 +27,13 @@ LLM_RATE_LIMIT_BACKOFF_MAX_SECONDS = 60.0
 
 class TaskOrchestrationWorkerMixin:
     """Launch worker agents and retry transient worker failures."""
+
+    @property
+    def _tool_invocation_service(self):
+        from .execution.tool_invocation_service import get_tool_invocation_service
+        if not hasattr(self, "_tool_invocation_service_cached"):
+            self._tool_invocation_service_cached = get_tool_invocation_service(self._tool_registry)
+        return self._tool_invocation_service_cached
 
     async def _launch_workers(
         self: Any,
@@ -63,9 +75,8 @@ class TaskOrchestrationWorkerMixin:
             }
             for item in state.subtasks
         ]
-        result = await self._tool_registry.execute(
-            "agent",
-            {
+        result = await self._tool_invocation_service.invoke(
+            _ServiceToolCall(name="agent", args={
                 "action": "launch",
                 "workers": worker_payloads,
                 "parallel": state.allow_parallel,
@@ -74,8 +85,17 @@ class TaskOrchestrationWorkerMixin:
                 "target_task_agent_id": parent_task_agent_id,
                 "run_id": run_id,
                 "run_revision": run_revision,
-            },
-            context,
+            }),
+            InvocationContext(
+                tool_category="orchestrator_internal",
+                task_context=TaskContext(
+                    session_id=state.session_id,
+                    turn_id=state.turn_id,
+                    task_id=state.orchestration_id,
+                    user_id=state.user_id,
+                ),
+                execution_context=context,
+            ),
         )
         if not result.success or not isinstance(result.data, dict):
             return str(result.error or "Unknown worker launch error")
@@ -130,9 +150,8 @@ class TaskOrchestrationWorkerMixin:
                 delay_seconds,
             )
             await asyncio.sleep(delay_seconds)
-        result = await self._tool_registry.execute(
-            "agent",
-            {
+        result = await self._tool_invocation_service.invoke(
+            _ServiceToolCall(name="agent", args={
                 "action": "launch",
                 "subagent_type": subtask.subagent_type,
                 "description": subtask.description,
@@ -148,8 +167,17 @@ class TaskOrchestrationWorkerMixin:
                 "run_id": run_id,
                 "run_revision": run_revision,
                 "turn_id": state.turn_id,
-            },
-            context,
+            }),
+            InvocationContext(
+                tool_category="orchestrator_internal",
+                task_context=TaskContext(
+                    session_id=state.session_id,
+                    turn_id=state.turn_id,
+                    task_id=state.orchestration_id,
+                    user_id=state.user_id,
+                ),
+                execution_context=context,
+            ),
         )
         if not result.success or not isinstance(result.data, dict):
             logger.warning(

@@ -90,3 +90,29 @@ class ToolInvocationService:
                 ))
             except Exception:
                 logger.exception("publish ToolInvocationCompleted failed")
+
+
+def get_tool_invocation_service(tool_registry) -> ToolInvocationService:
+    """Build a ToolInvocationService using the global container's message bus.
+
+    Falls back to a no-op bus if the container hasn't been wired yet (e.g. unit tests
+    that only construct a host and don't expect events to flow). The no-op bus has
+    an async publish() that returns False — ToolInvocationService swallows publish
+    errors anyway, so this is safe.
+    """
+    from magi.core.container import Container
+
+    bus = None
+    try:
+        bus = Container.message_bus()
+    except Exception:
+        bus = None
+
+    if bus is None or type(bus).__name__ == "object":
+        class _NoopBus:
+            async def publish(self, event):
+                return False
+
+        bus = _NoopBus()
+
+    return ToolInvocationService(tool_registry, bus)
