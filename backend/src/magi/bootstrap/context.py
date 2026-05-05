@@ -106,6 +106,7 @@ class MemoryBootstrapState:
     unified_memory: UnifiedMemoryStore | None = None
     memory_integration: MemoryIntegrationModule | None = None
     hybrid_retrieval_service: HybridRetrievalService | None = None
+    ingestion_subscriber: Any = None
 
 
 @dataclass

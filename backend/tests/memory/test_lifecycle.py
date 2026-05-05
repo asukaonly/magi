@@ -128,3 +128,43 @@ async def test_memory_store_module_passes_l2_batch_flush_interval(monkeypatch: p
     assert captured["l2_conflict_arbitration_min_confidence"] == 0.85
     assert usage_store.started is False
     assert usage_store.message_bus is None
+
+
+class _FakeMessageBus:
+    def __init__(self) -> None:
+        self.subscriptions: list[tuple[str, object]] = []
+        self.unsubscribed: list[str] = []
+        self._next = 0
+
+    async def subscribe(self, event_type, handler):  # type: ignore[no-untyped-def]
+        self._next += 1
+        sid = f"sub-{self._next}"
+        self.subscriptions.append((event_type, handler))
+        return sid
+
+    async def unsubscribe(self, sid):  # type: ignore[no-untyped-def]
+        self.unsubscribed.append(sid)
+
+
+@pytest.mark.asyncio
+async def test_memory_ingestion_subscriber_module_init_and_shutdown() -> None:
+    from magi.bootstrap.context import RuntimeBootstrapContext
+    from magi.memory.lifecycle import MemoryIngestionSubscriberModule
+
+    context = RuntimeBootstrapContext()
+    context.memory.unified_memory = SimpleNamespace(
+        ingest_event=lambda evt: None,
+    )
+    bus = _FakeMessageBus()
+    context.message_bus.message_bus = bus
+
+    module = MemoryIngestionSubscriberModule(context)
+
+    await module.init()
+    assert context.memory.ingestion_subscriber is not None
+    assert len(bus.subscriptions) == 7
+
+    await module.shutdown()
+    assert context.memory.ingestion_subscriber is None
+    assert len(bus.unsubscribed) == 7
+

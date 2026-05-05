@@ -3,29 +3,22 @@ from __future__ import annotations
 import pytest
 
 from magi.chat.projector import ChatProjector
-from magi.memory.event_contracts import MemoryEvent
+from magi.events.domain_payloads import AssistantResponseProduced, UserMessageReceived
+from magi.events.events import Event, EventTypes
 
 
-class _FakeUnifiedMemory:
+class _FakeEventBus:
     def __init__(self) -> None:
-        self.events: list[MemoryEvent] = []
+        self.events: list[Event] = []
 
-    async def ingest_event(self, event):  # type: ignore[no-untyped-def]
+    async def publish(self, event: Event) -> None:
         self.events.append(event)
-        return {
-            "event_id": getattr(event, "event_id", "evt-1"),
-            "ingest_target": getattr(getattr(event, "ingest_target", None), "label", "l1_only"),
-            "l1_written": True,
-            "l2_relation_count": 0,
-            "l2_assertion_count": 0,
-            "l4_skill_id": None,
-        }
 
 
 @pytest.mark.asyncio
-async def test_chat_projector_emits_canonical_user_and_assistant_memory_events() -> None:
-    memory = _FakeUnifiedMemory()
-    projector = ChatProjector(unified_memory=memory)
+async def test_chat_projector_publishes_canonical_user_and_assistant_events() -> None:
+    bus = _FakeEventBus()
+    projector = ChatProjector(event_bus=bus)
 
     await projector.project_user_message(
         message_id="msg-user-1",
@@ -44,13 +37,59 @@ async def test_chat_projector_emits_canonical_user_and_assistant_memory_events()
         created_at_ms=1200,
     )
 
-    assert [event.event_type for event in memory.events] == ["UserMessage", "AIResponse"]
-    assert memory.events[0].event_id.startswith("evt_")
-    assert memory.events[1].event_id.startswith("evt_")
-    assert memory.events[0].event_id != memory.events[1].event_id
-    assert memory.events[0].source_item_id == "msg-user-1"
-    assert memory.events[1].source_item_id == "msg-assistant-1"
-    assert memory.events[0].idempotency_key == "msg-user-1"
-    assert memory.events[1].idempotency_key == "msg-assistant-1"
-    assert memory.events[0].content == "hello"
-    assert memory.events[1].content == "world"
+    assert [event.type for event in bus.events] == [
+        EventTypes.USER_MESSAGE_RECEIVED,
+        EventTypes.ASSISTANT_RESPONSE_PRODUCED,
+    ]
+
+    user_event = bus.events[0]
+    assistant_event = bus.events[1]
+
+    assert isinstance(user_event.data, UserMessageReceived)
+    assert isinstance(assistant_event.data, AssistantResponseProduced)
+
+    assert user_event.data.content == "hello"
+    assert assistant_event.data.content == "world"
+
+    assert user_event.data.context.session_id == "s1"
+    assert user_event.data.context.turn_id == "turn-1"
+    assert user_event.data.context.user_id == "u1"
+    assert user_event.data.context.task_id is None
+
+    assert user_event.data.metadata["idempotency_key"] == "msg-user-1"
+    assert user_event.data.metadata["author_type"] == "user"
+    assert user_event.data.metadata["chat_message_id"] == "msg-user-1"
+    assert user_event.data.metadata["chat_projection"] is True
+
+    assert assistant_event.data.metadata["idempotency_key"] == "msg-assistant-1"
+    assert assistant_event.data.metadata["author_type"] == "assistant"
+
+    assert user_event.timestamp == 1.0
+    assert assistant_event.timestamp == 1.2
+    assert user_event.correlation_id == "turn-1"
+    assert user_event.source == "chat_projector"
+
+
+@pytest.mark.asyncio
+async def test_chat_projector_skips_empty_content() -> None:
+    bus = _FakeEventBus()
+    projector = ChatProjector(event_bus=bus)
+
+    await projector.project_user_message(
+        message_id="msg-empty",
+        user_id="u1",
+        session_id="s1",
+        turn_id="turn-1",
+        content="   ",
+        created_at_ms=1000,
+    )
+    await projector.project_assistant_message(
+        message_id="msg-empty-2",
+        user_id="u1",
+        session_id="s1",
+        turn_id="turn-1",
+        content="",
+        created_at_ms=1000,
+    )
+
+    assert bus.events == []

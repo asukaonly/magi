@@ -155,6 +155,37 @@ class MemoryStoreModule(LifecycleModule):
         self._context.memory.hybrid_retrieval_service = None
 
 
+class MemoryIngestionSubscriberModule(LifecycleModule):
+    """Subscribe MemoryIngestionSubscriber to the runtime event bus."""
+
+    def __init__(self, context: RuntimeBootstrapContext):
+        super().__init__(
+            name="runtime_memory_ingestion_subscriber",
+            dependencies=("runtime_memory", "runtime_message_bus"),
+        )
+        self._context = context
+        self._subscriber: Any = None
+
+    async def init(self) -> None:
+        from .subscribers.memory_ingestion_subscriber import MemoryIngestionSubscriber
+
+        unified_memory = require_initialized(self._context.memory.unified_memory, "unified memory")
+        message_bus = require_initialized(self._context.message_bus.message_bus, "message bus")
+        self._subscriber = MemoryIngestionSubscriber(
+            event_bus=message_bus,
+            unified_memory=unified_memory,
+        )
+        await self._subscriber.start()
+        self._context.memory.ingestion_subscriber = self._subscriber
+        logger.info("MemoryIngestionSubscriber started")
+
+    async def shutdown(self) -> None:
+        if self._subscriber is not None:
+            await self._subscriber.stop()
+            self._subscriber = None
+        self._context.memory.ingestion_subscriber = None
+
+
 class L2MaintenanceScheduleRegistrationModule(LifecycleModule):
     """Register L2 entity maintenance with the unified scheduler (runtime worker)."""
 
