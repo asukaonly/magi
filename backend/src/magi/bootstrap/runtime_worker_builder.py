@@ -41,6 +41,7 @@ from ..memory.lifecycle import (
 from ..personality.lifecycle import PersonalityModule
 from ..plugins.lifecycle import PluginSystemModule
 from ..runtime_trace import RuntimeTraceStore
+from ..runtime_trace.lifecycle import RuntimeTraceSubscriberModule
 from ..scheduler.lifecycle import SchedulerModule
 from ..skills.lifecycle import SkillsModule
 from ..timeline.lifecycle import TimelineModule
@@ -121,6 +122,7 @@ def _build_stateful_service_modules(context: RuntimeBootstrapContext) -> list[Li
         MemoryIngestionSubscriberModule(context),
         ChatProjectorModule(context),
         _build_runtime_trace_module(context),
+        RuntimeTraceSubscriberModule(context),
         ToolsModule(context),
         SkillsModule(context),
         MCPModule(context),
