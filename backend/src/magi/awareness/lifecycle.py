@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..config import get_config
@@ -131,3 +133,83 @@ class SensorSyncExecutorModule(LifecycleModule):
             await self._executor.stop()
         self._context.agent_runtime.sensor_sync_executor = None
         self._executor = None
+
+
+class TimelineSubscriberModule(LifecycleModule):
+    """Wire TimelineSubscriber to the runtime event bus."""
+
+    def __init__(self, context: RuntimeBootstrapContext) -> None:
+        super().__init__(
+            name="runtime_timeline_subscriber",
+            dependencies=("runtime_message_bus", "runtime_timeline"),
+        )
+        self._context = context
+        self._subscriber: Any = None
+
+    async def init(self) -> None:
+        from .subscribers.timeline_subscriber import TimelineSubscriber
+        bus = require_initialized(self._context.message_bus.message_bus, "message bus")
+        timeline = self._context.timeline.timeline_service
+        if timeline is None:
+            logger.info("Timeline service not available; TimelineSubscriber idle")
+            return
+        adapter = TimelineAdapter(timeline)
+        self._subscriber = TimelineSubscriber(event_bus=bus, timeline_adapter=adapter)
+        await self._subscriber.start()
+        logger.info("TimelineSubscriber started")
+
+    async def shutdown(self) -> None:
+        if self._subscriber is not None:
+            await self._subscriber.stop()
+            self._subscriber = None
+
+
+class KGSubscriberModule(LifecycleModule):
+    """Wire KGSubscriber to the runtime event bus."""
+
+    def __init__(self, context: RuntimeBootstrapContext) -> None:
+        super().__init__(
+            name="runtime_kg_subscriber",
+            dependencies=("runtime_message_bus", "runtime_memory"),
+        )
+        self._context = context
+        self._subscriber: Any = None
+
+    async def init(self) -> None:
+        from .subscribers.kg_subscriber import KGSubscriber
+        bus = require_initialized(self._context.message_bus.message_bus, "message bus")
+        unified_memory = require_initialized(self._context.memory.unified_memory, "unified memory")
+        self._subscriber = KGSubscriber(event_bus=bus, unified_memory=unified_memory)
+        await self._subscriber.start()
+        logger.info("KGSubscriber started")
+
+    async def shutdown(self) -> None:
+        if self._subscriber is not None:
+            await self._subscriber.stop()
+            self._subscriber = None
+
+
+class SensorStateUpdateSubscriberModule(LifecycleModule):
+    """Wire SensorStateUpdateSubscriber to the runtime event bus."""
+
+    def __init__(self, context: RuntimeBootstrapContext) -> None:
+        super().__init__(
+            name="runtime_sensor_state_subscriber",
+            dependencies=("runtime_message_bus", "runtime_core_dependencies"),
+        )
+        self._context = context
+        self._subscriber: Any = None
+
+    async def init(self) -> None:
+        from .subscribers.sensor_state_update_subscriber import SensorStateUpdateSubscriber
+        bus = require_initialized(self._context.message_bus.message_bus, "message bus")
+        runtime_paths = require_initialized(self._context.core.runtime_paths, "runtime paths")
+        store = SqliteSensorStateStore(runtime_paths.sensor_state_db_path)
+        self._subscriber = SensorStateUpdateSubscriber(event_bus=bus, sensor_state_store=store)
+        await self._subscriber.start()
+        logger.info("SensorStateUpdateSubscriber started")
+
+    async def shutdown(self) -> None:
+        if self._subscriber is not None:
+            await self._subscriber.stop()
+            self._subscriber = None

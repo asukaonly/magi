@@ -14,9 +14,12 @@ from .maintenance import OtherDependenciesModule
 
 from ..agent.lifecycle import AgentRuntimeModule, AgentScheduleRegistrationModule
 from ..awareness.lifecycle import (
+    KGSubscriberModule,
     SensorModule,
     SensorScheduleRegistrationModule,
+    SensorStateUpdateSubscriberModule,
     SensorSyncExecutorModule,
+    TimelineSubscriberModule,
 )
 from ..channels.lifecycle import ChannelsModule
 from ..chat.lifecycle import ChatProjectorModule, ChatStoreModule
@@ -139,6 +142,9 @@ def _build_processing_modules(context: RuntimeBootstrapContext) -> list[Lifecycl
         RuntimeCommandProcessorModule(context),
         PluginIngressProcessorModule(context),
         TimelineModule(context),
+        TimelineSubscriberModule(context),
+        KGSubscriberModule(context),
+        SensorStateUpdateSubscriberModule(context),
         SchedulerModule(context),
         AgentScheduleRegistrationModule(context),
         SensorScheduleRegistrationModule(context),
