@@ -3,7 +3,9 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from magi.api.routers.plugins_common import _serialize_contribution
 from magi.api.routers.plugins import plugins_router
+from magi.plugins import ContributionType, PluginContribution
 
 
 class _FakeManager:
@@ -253,3 +255,40 @@ def test_plugins_api_runs_plugin_settings_actions(monkeypatch):
         "get:core-tools",
         "cancel_action:core-tools:qr_login:session-1",
     ]
+
+
+def test_plugins_api_translates_settings_action_metadata():
+    contribution = PluginContribution(
+        plugin_id="weixin",
+        contribution_id="weixin:channel",
+        contribution_type=ContributionType.CHANNEL,
+        display_name="Weixin",
+        description="Channel",
+        surface="extensions",
+        metadata={
+            "settings_actions": [
+                {
+                    "action_id": "qr_login",
+                    "label": "Weixin QR Login",
+                    "description": "Scan with Weixin.",
+                    "button_label": "Start QR Login",
+                }
+            ]
+        },
+    )
+
+    class FakeI18n:
+        def t(self, key, fallback="", **kwargs):
+            translations = {
+                "actions.qr_login.label": "微信扫码登录",
+                "actions.qr_login.description": "用微信扫描二维码完成授权。",
+                "actions.qr_login.button_label": "开始扫码登录",
+            }
+            return translations.get(key, fallback)
+
+    serialized = _serialize_contribution(contribution, FakeI18n())
+
+    action = serialized.metadata["settings_actions"][0]
+    assert action["label"] == "微信扫码登录"
+    assert action["description"] == "用微信扫描二维码完成授权。"
+    assert action["button_label"] == "开始扫码登录"

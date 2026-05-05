@@ -104,6 +104,14 @@ def _serialize_contribution(contribution: PluginContribution, i18n: PluginI18n) 
     display_name_key = f"contributions.{contribution_id}.display_name"
     description_key = f"contributions.{contribution_id}.description"
     serialized_fields = [_serialize_field(field, i18n, contribution_id) for field in contribution.fields]
+    metadata = dict(contribution.metadata)
+    settings_actions = metadata.get("settings_actions")
+    if isinstance(settings_actions, list):
+        metadata["settings_actions"] = [
+            _serialize_settings_action(item, i18n)
+            for item in settings_actions
+            if isinstance(item, dict)
+        ]
 
     return PluginContributionResponse(
         plugin_id=contribution.plugin_id,
@@ -117,8 +125,21 @@ def _serialize_contribution(contribution: PluginContribution, i18n: PluginI18n) 
         description=i18n.t(description_key, fallback=contribution.description),
         surface=contribution.surface,
         fields=serialized_fields,
-        metadata=dict(contribution.metadata),
+        metadata=metadata,
     )
+
+
+def _serialize_settings_action(action: dict[str, Any], i18n: PluginI18n) -> dict[str, Any]:
+    action_id = str(action.get("action_id") or "")
+    if not action_id:
+        return dict(action)
+    translated = dict(action)
+    for key in ("label", "description", "button_label"):
+        translated[key] = i18n.t(
+            f"actions.{action_id}.{key}",
+            fallback=str(action.get(key) or ""),
+        )
+    return translated
 
 
 def _lightweight_install(source_dir: Path, entry: PluginRegistryEntry) -> PluginPackageState:
@@ -236,6 +257,7 @@ __all__ = [
     "_require_package",
     "_serialize_contribution",
     "_serialize_field",
+    "_serialize_settings_action",
     "_serialize_manifest",
     "_serialize_package",
     "_serialize_package_lightweight",

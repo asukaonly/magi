@@ -3,7 +3,13 @@ from __future__ import annotations
 import pytest
 
 from magi.plugins import Plugin
-from magi_plugin_sdk import PluginSettingsActionResult, TemporalSummaryFeatureBudget, TemporalSummarySourceFeatures
+from magi_plugin_sdk import (
+    PluginI18n,
+    PluginSettingsActionResult,
+    TemporalSummaryFeatureBudget,
+    TemporalSummarySourceFeatures,
+    set_current_language,
+)
 
 
 class ExamplePlugin(Plugin):
@@ -78,6 +84,19 @@ def test_plugin_settings_action_result_contract_is_public() -> None:
 
     assert result.status == "pending"
     assert result.model_dump()["settings_updates"]["account_id"] == "example"
+
+
+def test_plugin_i18n_defaults_to_current_language(tmp_path) -> None:
+    i18n_dir = tmp_path / "i18n"
+    i18n_dir.mkdir()
+    (i18n_dir / "en.json").write_text('{"weixin": {"name": "Weixin"}}', encoding="utf-8")
+    (i18n_dir / "zh-CN.json").write_text('{"weixin": {"name": "微信"}}', encoding="utf-8")
+
+    try:
+        set_current_language("zh-CN")
+        assert PluginI18n("weixin", tmp_path).t("weixin.name") == "微信"
+    finally:
+        set_current_language(None)
 
 
 def test_temporal_summary_feature_contracts_are_public() -> None:
