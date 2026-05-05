@@ -317,7 +317,7 @@ agent/workers/worker_trace.py:51
 
 ## 9. 实施分阶段
 
-1. **`LLMUsageSubscriber` 实现 + 单测**：纯加法。subscribe SpanCompleted 但无新 producer。需要 `LLMUsageStore.record_usage(...)` 公共方法（实施前 grep 确认 / 必要时新增）。
+1. **`LLMUsageSubscriber` 实现 + 单测**：纯加法。subscribe SpanCompleted 但无新 producer。直接调现有 `LLMUsageStore.record_call(payload: dict)`（line 116），不新增 store API。
 2. **lifecycle 接入新订阅者**：注册到 bus，subscriber 已激活。LLM 调用仍发 LLM_CALL_COMPLETED 事件（旧路径），所以 LLMUsageSubscriber 暂不会被触发。
 3. **provider_bridge publish 切换**（`responses.py:378`）：从 `publish_llm_call_event` 改 `publish_trace_span(node_type="llm_call")`。**关键单步切换**：发布点切换后 SpanCompleted 流向 RuntimeTraceSubscriber + LLMUsageSubscriber 两个订阅者；老 LLMUsageStore 自订阅老事件失效（无 producer）。集成测试更新。
 4. **chat post-process / worker_trace 去重**：删除所有事后 `node_type="llm_call"` publish 调用。
@@ -338,9 +338,9 @@ agent/workers/worker_trace.py:51
 ### 10.1 单元
 
 - `tests/llm/subscribers/test_llm_usage_subscriber.py`
-  - 发 SpanCompleted(node_type="llm_call") with full attributes → store.record_usage 调用一次，参数齐全
+  - 发 SpanCompleted(node_type="llm_call") with full attributes → store.record_call 调用一次，payload dict 字段齐全
   - node_type ∈ {"span", "tool_invocation", "intent_resolution"} → 不调 store
-  - status="error" → record_usage 收到 success=False
+  - status="error" → record_call payload 收到 success=False
   - store 抛错 → handler swallow，subscriber survive
 
 - `tests/llm/test_provider_bridge_responses_publish.py`
@@ -380,7 +380,7 @@ agent/workers/worker_trace.py:51
 
 | 风险 | 缓解 |
 |------|------|
-| LLMUsageStore 现 `record_usage` API 不存在 / 签名不同 | 实施前 grep `class LLMUsageStore`；如有 `record_event(LLMCallEventPayload)` 直接调用，subscriber 内构造 LLMCallEventPayload 适配；如无任何公共写 API 则新增 `record_usage(**kwargs)` |
+| ~~LLMUsageStore 现 `record_usage` API 不存在~~ | 已解决：§5 直接调现有 `record_call(payload: dict)` API，无需新增方法 |
 | `LLMCallEventPayload` 缺 latency_seconds / cost_usd 等字段 | 实施前 grep dataclass 定义；如缺则用 monotonic 时间或 0.0 替代；不阻塞迁移 |
 | 删除 LLMUsageEventPublisher 后 `LLMUsageStore.start(message_bus)` 启动逻辑失效 | 实施前 grep `LLMUsageStore.start` 调用方；若 start 仅做自订阅，删除调用；否则保留 init 逻辑、删自订阅部分 |
 | chat post-process / worker_trace 删 `node_type="llm_call"` publish 后部分测试失败 | §10.3 改测试期望次数；保留 LLM 自发 publish 的断言 |
