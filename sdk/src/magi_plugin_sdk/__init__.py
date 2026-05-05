@@ -43,6 +43,8 @@ from .contracts import (
     PluginPackageState,
     PluginRegistryEntry,
     PluginRegistryIndex,
+    PluginSettingsActionResult,
+    PluginSettingsActionSpec,
     PluginSettingsResourcePayload,
     PluginSettingsResourceSpec,
     SettingsUIBlockSpec,
@@ -125,6 +127,8 @@ __all__ = [
     "ExtensionFieldSpec",
     "ActivationFlowSpec",
     "SettingsUIBlockSpec",
+    "PluginSettingsActionSpec",
+    "PluginSettingsActionResult",
     "PluginSettingsResourceSpec",
     "PluginSettingsResourcePayload",
     # Manifest and registry

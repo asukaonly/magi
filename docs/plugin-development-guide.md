@@ -148,6 +148,8 @@ The `Plugin` base class also exposes safe no-op defaults for host-consumed optio
 - `get_channel_fields()`
 - `get_settings_resources()`
 - `read_settings_resource()`
+- `get_settings_actions()`
+- `start_settings_action()` / `poll_settings_action()` / `cancel_settings_action()`
 - `build_temporal_summary_features()`
 - `get_plugin_ingress_registrations()`
 
@@ -289,6 +291,58 @@ Guidelines:
 - keep transport-specific SDKs inside the plugin package so the core SDK stays lightweight
 - route inbound messages through the injected dispatcher instead of importing `magi.api.services.message_dispatch_service` directly
 - legacy imports from `magi.channels.base` and `magi.channels.contracts` still work during the migration window
+
+## Plugin Settings Actions
+
+Use settings actions when setup requires an imperative provider interaction that
+plain fields cannot model, such as QR-code login, device-code authorization, or
+connection testing.
+
+Example:
+
+```python
+from magi_plugin_sdk import Plugin, PluginSettingsActionResult, PluginSettingsActionSpec
+
+
+class ExamplePlugin(Plugin):
+    def get_settings_actions(self) -> list[PluginSettingsActionSpec]:
+        return [
+            PluginSettingsActionSpec(
+                action_id="qr_login",
+                label="Scan Login",
+                button_label="Start Login",
+                presentation="qr_code",
+                contribution_type="channel",
+                persist_settings_on_success=True,
+            )
+        ]
+
+    async def start_settings_action(self, action_id, *, session_id, field_values=None):
+        if action_id != "qr_login":
+            raise KeyError(action_id)
+        return PluginSettingsActionResult(
+            status="pending",
+            message="Scan the QR code.",
+            data={"qr_code_url": "data:image/png;base64,..."},
+        )
+
+    async def poll_settings_action(self, action_id, *, session_id, field_values=None):
+        if action_id != "qr_login":
+            raise KeyError(action_id)
+        return PluginSettingsActionResult(
+            status="succeeded",
+            message="Connected.",
+            settings_updates={"account_id": "example"},
+        )
+```
+
+Guidelines:
+
+- keep provider-specific protocol details inside the plugin package
+- use `presentation="qr_code"` only when the returned `data` contains a QR image or URL
+- return `status="pending"` for sessions that need frontend polling
+- return only safe settings in `settings_updates`; do not echo secrets to the frontend
+- set `persist_settings_on_success=True` when the host should save returned settings automatically
 
 ## Ingress Plugins
 

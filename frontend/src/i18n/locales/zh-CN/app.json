@@ -1624,6 +1624,18 @@
         "settingsSaveFailed": "插件设置保存失败：{{message}}"
       }
     },
+    "pluginActions": {
+      "actions": {
+        "cancel": "取消"
+      },
+      "feedback": {
+        "succeeded": "插件操作已完成",
+        "failed": "插件操作失败",
+        "failedWithMessage": "插件操作失败：{{message}}",
+        "cancelled": "插件操作已取消",
+        "timedOut": "插件操作超时"
+      }
+    },
     "marketplace": {
       "searchPlaceholder": "搜索插件…",
       "loading": "正在加载插件市场…",

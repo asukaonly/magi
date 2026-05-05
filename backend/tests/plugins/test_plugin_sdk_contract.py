@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from magi.plugins import Plugin
-from magi_plugin_sdk import TemporalSummaryFeatureBudget, TemporalSummarySourceFeatures
+from magi_plugin_sdk import PluginSettingsActionResult, TemporalSummaryFeatureBudget, TemporalSummarySourceFeatures
 
 
 class ExamplePlugin(Plugin):
@@ -18,6 +18,10 @@ def test_plugin_base_exposes_host_runtime_hooks() -> None:
         "get_channel_fields",
         "get_settings_resources",
         "read_settings_resource",
+        "get_settings_actions",
+        "start_settings_action",
+        "poll_settings_action",
+        "cancel_settings_action",
         "build_temporal_summary_features",
         "get_plugin_ingress_registrations",
     ]
@@ -34,6 +38,7 @@ def test_plugin_base_host_hooks_have_safe_defaults() -> None:
     assert plugin.get_channel() is None
     assert plugin.get_channel_fields() == []
     assert plugin.get_settings_resources() == []
+    assert plugin.get_settings_actions() == []
     assert plugin.build_temporal_summary_features(
         source_type="example",
         events=[],
@@ -46,6 +51,33 @@ def test_plugin_base_host_hooks_have_safe_defaults() -> None:
 
     with pytest.raises(KeyError):
         plugin.read_settings_resource("missing")
+
+    with pytest.raises(KeyError):
+        import asyncio
+
+        asyncio.run(plugin.start_settings_action("missing", session_id="session-1"))
+
+    with pytest.raises(KeyError):
+        import asyncio
+
+        asyncio.run(plugin.poll_settings_action("missing", session_id="session-1"))
+
+    with pytest.raises(KeyError):
+        import asyncio
+
+        asyncio.run(plugin.cancel_settings_action("missing", session_id="session-1"))
+
+
+def test_plugin_settings_action_result_contract_is_public() -> None:
+    result = PluginSettingsActionResult(
+        status="pending",
+        message="Scan the QR code.",
+        data={"qr_code_url": "data:image/png;base64,abc"},
+        settings_updates={"account_id": "example"},
+    )
+
+    assert result.status == "pending"
+    assert result.model_dump()["settings_updates"]["account_id"] == "example"
 
 
 def test_temporal_summary_feature_contracts_are_public() -> None:

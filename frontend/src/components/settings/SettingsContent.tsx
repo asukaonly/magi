@@ -87,6 +87,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     draftPluginDrafts,
     handlePluginDraftChange,
     handlePluginDraftChanges,
+    applyPersistedPluginSettings,
     handlePluginAction,
     handleReloadActionPlugin,
     loadPlugins,
@@ -301,6 +302,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             channelsSelection={channelsSelection}
             setChannelsSelection={setChannelsSelection}
             handlePluginDraftChange={handlePluginDraftChange}
+            applyPersistedPluginSettings={applyPersistedPluginSettings}
             handlePluginAction={handlePluginAction}
             handleReloadActionPlugin={handleReloadActionPlugin}
             loadPlugins={loadPlugins}

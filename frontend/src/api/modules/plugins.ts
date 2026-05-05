@@ -3,6 +3,7 @@ import type { ApiResponse } from '../client';
 
 export type ExtensionSurface = 'extensions' | 'tools' | 'timeline';
 export type ExtensionFieldType = 'switch' | 'select' | 'input' | 'number' | 'secret' | 'path' | 'tags';
+export type PluginSettingsActionStatus = 'pending' | 'succeeded' | 'failed' | 'cancelled';
 
 export interface ExtensionFieldOption {
   label: string;
@@ -46,6 +47,35 @@ export interface PluginSettingsUiBlockSpec {
   presentation: 'calendar_list' | 'list';
   depends_on_key?: string | null;
   depends_on_values?: string[];
+}
+
+export interface PluginSettingsActionSpec {
+  action_id: string;
+  label: string;
+  description: string;
+  button_label: string;
+  presentation: 'inline' | 'qr_code';
+  surface: ExtensionSurface;
+  contribution_id: string;
+  contribution_type?: string | null;
+  order: number;
+  destructive: boolean;
+  requires_enabled: boolean;
+  poll_interval_ms: number;
+  timeout_ms: number;
+  persist_settings_on_success: boolean;
+  depends_on_key?: string | null;
+  depends_on_values?: string[];
+}
+
+export interface PluginSettingsActionRunResponse {
+  plugin_id: string;
+  action_id: string;
+  session_id: string;
+  status: PluginSettingsActionStatus;
+  message: string;
+  data: Record<string, any>;
+  settings_updates: Record<string, any>;
 }
 
 export interface PluginSettingsResourceItem {
@@ -221,6 +251,49 @@ export const pluginsApi = {
       updates,
     } satisfies PluginSettingsUpdateRequest);
     return unwrapPayload(response as PluginPackageState | ApiResponse<PluginPackageState>);
+  },
+
+  startSettingsAction: async (
+    pluginId: string,
+    actionId: string,
+    fieldValues: Record<string, any>
+  ): Promise<PluginSettingsActionRunResponse> => {
+    const response = await api.post<PluginSettingsActionRunResponse>(
+      `/plugins/${pluginId}/settings/actions/${actionId}/start`,
+      { field_values: fieldValues }
+    );
+    return unwrapPayload(
+      response as PluginSettingsActionRunResponse | ApiResponse<PluginSettingsActionRunResponse>
+    );
+  },
+
+  pollSettingsAction: async (
+    pluginId: string,
+    actionId: string,
+    sessionId: string,
+    fieldValues: Record<string, any>
+  ): Promise<PluginSettingsActionRunResponse> => {
+    const response = await api.post<PluginSettingsActionRunResponse>(
+      `/plugins/${pluginId}/settings/actions/${actionId}/sessions/${sessionId}/poll`,
+      { field_values: fieldValues }
+    );
+    return unwrapPayload(
+      response as PluginSettingsActionRunResponse | ApiResponse<PluginSettingsActionRunResponse>
+    );
+  },
+
+  cancelSettingsAction: async (
+    pluginId: string,
+    actionId: string,
+    sessionId: string
+  ): Promise<PluginSettingsActionRunResponse> => {
+    const response = await api.post<PluginSettingsActionRunResponse>(
+      `/plugins/${pluginId}/settings/actions/${actionId}/sessions/${sessionId}/cancel`,
+      {}
+    );
+    return unwrapPayload(
+      response as PluginSettingsActionRunResponse | ApiResponse<PluginSettingsActionRunResponse>
+    );
   },
 
   getSettingsResource: async (

@@ -1626,6 +1626,18 @@
         "settingsSaveFailed": "Failed to save plugin settings: {{message}}"
       }
     },
+    "pluginActions": {
+      "actions": {
+        "cancel": "Cancel"
+      },
+      "feedback": {
+        "succeeded": "Plugin action completed",
+        "failed": "Plugin action failed",
+        "failedWithMessage": "Plugin action failed: {{message}}",
+        "cancelled": "Plugin action cancelled",
+        "timedOut": "Plugin action timed out"
+      }
+    },
     "marketplace": {
       "searchPlaceholder": "Search plugins…",
       "loading": "Loading plugin marketplace…",

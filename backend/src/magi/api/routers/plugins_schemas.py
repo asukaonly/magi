@@ -2,13 +2,27 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 
 class PluginSettingsUpdateRequest(BaseModel):
     updates: dict[str, Any] = Field(default_factory=dict)
+
+
+class PluginSettingsActionRequest(BaseModel):
+    field_values: dict[str, Any] = Field(default_factory=dict)
+
+
+class PluginSettingsActionRunResponse(BaseModel):
+    plugin_id: str
+    action_id: str
+    session_id: str
+    status: Literal["pending", "succeeded", "failed", "cancelled"]
+    message: str = ""
+    data: dict[str, Any] = Field(default_factory=dict)
+    settings_updates: dict[str, Any] = Field(default_factory=dict)
 
 
 class PluginManifestResponse(BaseModel):
@@ -101,6 +115,8 @@ __all__ = [
     "PluginPackageResponse",
     "PluginRegistryEntryResponse",
     "PluginRegistryResponse",
+    "PluginSettingsActionRequest",
+    "PluginSettingsActionRunResponse",
     "PluginSettingsResourceResponse",
     "PluginSettingsUpdateRequest",
     "PluginUpdateCheckResponse",

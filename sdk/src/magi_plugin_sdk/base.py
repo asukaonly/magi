@@ -9,6 +9,8 @@ from .channels import Channel
 from .contracts import (
     ExtensionFieldSpec,
     PluginManifest,
+    PluginSettingsActionResult,
+    PluginSettingsActionSpec,
     PluginSettingsResourceSpec,
     SummaryProfileSpec,
     TemporalSummaryFeatureBudget,
@@ -117,6 +119,46 @@ class Plugin(ABC):
         implementation, which raises ``KeyError``.
         """
         raise KeyError(resource_name)
+
+    def get_settings_actions(self) -> list[PluginSettingsActionSpec]:
+        """Return host-rendered actions available from plugin settings surfaces."""
+        return []
+
+    async def start_settings_action(
+        self,
+        action_id: str,
+        *,
+        session_id: str,
+        field_values: dict[str, Any] | None = None,
+    ) -> PluginSettingsActionResult | dict[str, Any]:
+        """Start a plugin-owned settings action session.
+
+        Long-running actions may return ``status='pending'`` and keep
+        provider-specific session state internally for later polling.
+        """
+        _ = session_id, field_values
+        raise KeyError(action_id)
+
+    async def poll_settings_action(
+        self,
+        action_id: str,
+        *,
+        session_id: str,
+        field_values: dict[str, Any] | None = None,
+    ) -> PluginSettingsActionResult | dict[str, Any]:
+        """Poll a previously started plugin-owned settings action session."""
+        _ = session_id, field_values
+        raise KeyError(action_id)
+
+    async def cancel_settings_action(
+        self,
+        action_id: str,
+        *,
+        session_id: str,
+    ) -> PluginSettingsActionResult | dict[str, Any]:
+        """Cancel a previously started plugin-owned settings action session."""
+        _ = session_id
+        raise KeyError(action_id)
 
     def build_temporal_summary_features(
         self,

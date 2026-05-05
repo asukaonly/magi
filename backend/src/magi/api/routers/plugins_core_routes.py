@@ -8,6 +8,8 @@ from ...plugins.contracts import PluginSettingsResourcePayload
 from .plugins_common import legacy_plugins_module
 from .plugins_schemas import (
     PluginPackageResponse,
+    PluginSettingsActionRequest,
+    PluginSettingsActionRunResponse,
     PluginSettingsResourceResponse,
     PluginSettingsUpdateRequest,
     PluginsListResponse,
@@ -96,14 +98,104 @@ async def read_plugin_settings_resource(plugin_id: str, resource_name: str):
     return PluginSettingsResourceResponse(**payload)
 
 
+def _serialize_action_run(plugin_id: str, action_id: str, run) -> PluginSettingsActionRunResponse:
+    result = run.result
+    return PluginSettingsActionRunResponse(
+        plugin_id=plugin_id,
+        action_id=action_id,
+        session_id=run.session_id,
+        status=result.status,
+        message=result.message,
+        data=dict(result.data),
+        settings_updates=dict(result.settings_updates),
+    )
+
+
+@plugins_core_router.post(
+    "/{plugin_id}/settings/actions/{action_id}/start",
+    response_model=PluginSettingsActionRunResponse,
+)
+async def start_plugin_settings_action(
+    plugin_id: str,
+    action_id: str,
+    request: PluginSettingsActionRequest,
+):
+    legacy = legacy_plugins_module()
+    manager, _ = legacy._require_package(plugin_id)
+    try:
+        run = await manager.start_plugin_settings_action(
+            plugin_id,
+            action_id,
+            field_values=request.field_values,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plugin settings action not found") from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return _serialize_action_run(plugin_id, action_id, run)
+
+
+@plugins_core_router.post(
+    "/{plugin_id}/settings/actions/{action_id}/sessions/{session_id}/poll",
+    response_model=PluginSettingsActionRunResponse,
+)
+async def poll_plugin_settings_action(
+    plugin_id: str,
+    action_id: str,
+    session_id: str,
+    request: PluginSettingsActionRequest,
+):
+    legacy = legacy_plugins_module()
+    manager, _ = legacy._require_package(plugin_id)
+    try:
+        run = await manager.poll_plugin_settings_action(
+            plugin_id,
+            action_id,
+            session_id=session_id,
+            field_values=request.field_values,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plugin settings action session not found") from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return _serialize_action_run(plugin_id, action_id, run)
+
+
+@plugins_core_router.post(
+    "/{plugin_id}/settings/actions/{action_id}/sessions/{session_id}/cancel",
+    response_model=PluginSettingsActionRunResponse,
+)
+async def cancel_plugin_settings_action(
+    plugin_id: str,
+    action_id: str,
+    session_id: str,
+):
+    legacy = legacy_plugins_module()
+    manager, _ = legacy._require_package(plugin_id)
+    try:
+        run = await manager.cancel_plugin_settings_action(
+            plugin_id,
+            action_id,
+            session_id=session_id,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plugin settings action session not found") from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return _serialize_action_run(plugin_id, action_id, run)
+
+
 __all__ = [
     "disable_plugin",
     "enable_plugin",
     "get_plugin_settings",
     "list_plugins",
     "plugins_core_router",
+    "cancel_plugin_settings_action",
     "read_plugin_settings_resource",
     "reload_plugin",
     "rescan_plugins",
+    "poll_plugin_settings_action",
+    "start_plugin_settings_action",
     "update_plugin_settings",
 ]

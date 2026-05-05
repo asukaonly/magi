@@ -519,6 +519,33 @@ The first intended use case is calendar source selection:
 - host frontend renders a calendar-list picker
 - selected ids are persisted into normal plugin settings
 
+## Plugin Settings Actions
+
+Some plugin-backed setup flows require an imperative step rather than a static
+field or read-only resource. Examples include QR-code login, OAuth device-code
+authorization, or a provider-specific connection test.
+
+These flows use plugin settings actions. The host API and UI remain generic:
+
+- plugin hook:
+  - `get_settings_actions()` declares host-rendered actions
+  - `start_settings_action(action_id, session_id, field_values)` starts a session
+  - `poll_settings_action(action_id, session_id, field_values)` polls a session
+  - `cancel_settings_action(action_id, session_id)` cancels a session
+- host API:
+  - `POST /api/plugins/{plugin_id}/settings/actions/{action_id}/start`
+  - `POST /api/plugins/{plugin_id}/settings/actions/{action_id}/sessions/{session_id}/poll`
+  - `POST /api/plugins/{plugin_id}/settings/actions/{action_id}/sessions/{session_id}/cancel`
+
+The plugin owns protocol details and temporary provider state. The host owns
+session ids, routing, status polling, generic QR-code rendering, and optional
+persistence of plugin-returned `settings_updates` when the action spec sets
+`persist_settings_on_success=True`.
+
+Core Magi code must not add provider-specific routes such as a Weixin login
+endpoint. A Weixin plugin declares a QR-code settings action; another provider
+can reuse the same host surface with its own plugin implementation.
+
 ## Plugin Temporal Summary Features
 
 Plugins may also contribute structured temporal-summary features to the host memory system.
