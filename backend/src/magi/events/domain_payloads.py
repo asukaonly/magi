@@ -84,3 +84,20 @@ class SensorEventEmitted:
     sensor_name: str
     payload: Mapping[str, Any]
     context: TaskContext
+
+
+@dataclass(frozen=True)
+class SpanCompleted:
+    span_id: str
+    trace_id: str
+    parent_span_id: Optional[str]
+    node_type: str
+    name: str
+    status: str
+    started_at_ms: int
+    ended_at_ms: int
+    duration_ms: int
+    error: Optional[ToolError]
+    result_preview: Optional[str]
+    turn_id: Optional[str]
+    attributes: Mapping[str, Any] = field(default_factory=dict)

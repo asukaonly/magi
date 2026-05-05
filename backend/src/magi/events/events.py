@@ -187,3 +187,4 @@ class EventTypes:
     USER_MESSAGE_RECEIVED = "UserMessageReceived"
     ASSISTANT_RESPONSE_PRODUCED = "AssistantResponseProduced"
     SENSOR_EVENT_EMITTED = "SensorEventEmitted"
+    SPAN_COMPLETED = "SpanCompleted"

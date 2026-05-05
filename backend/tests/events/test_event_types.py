@@ -12,3 +12,7 @@ def test_legacy_constants_still_present():
     assert EventTypes.ACTION_EXECUTED == "ActionExecuted"
     assert EventTypes.TASK_STARTED == "TaskStarted"
     assert EventTypes.USER_MESSAGE == "UserMessage"
+
+
+def test_span_completed_constant():
+    assert EventTypes.SPAN_COMPLETED == "SpanCompleted"
