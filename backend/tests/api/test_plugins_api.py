@@ -143,11 +143,22 @@ class _FakeManager:
         return type("PluginSettingsActionRun", (), {"session_id": session_id, "result": result})()
 
 
+class _FakeRuntimeQueue:
+    def __init__(self) -> None:
+        self.refresh_channel_reasons: list[str | None] = []
+
+    async def enqueue_refresh_channels(self, command) -> int:
+        self.refresh_channel_reasons.append(command.reason)
+        return len(self.refresh_channel_reasons)
+
+
 def test_plugins_api_lists_and_updates_plugin_settings(monkeypatch):
     app = FastAPI()
     app.include_router(plugins_router, prefix="/api/plugins")
     manager = _FakeManager()
+    queue = _FakeRuntimeQueue()
     monkeypatch.setattr("magi.api.routers.plugins.resolve_plugin_manager", lambda: manager)
+    monkeypatch.setattr("magi.api.routers.plugins_core_routes.require_runtime_command_queue", lambda: queue)
     client = TestClient(app)
 
     response = client.get("/api/plugins")
@@ -157,13 +168,16 @@ def test_plugins_api_lists_and_updates_plugin_settings(monkeypatch):
     update_response = client.put("/api/plugins/core-tools/settings", json={"updates": {"display.label": "Core"}})
     assert update_response.status_code == 200
     assert update_response.json()["current_settings"]["display.label"] == "Core"
+    assert queue.refresh_channel_reasons == ["plugin_core-tools_settings_updated"]
 
 
 def test_plugins_api_supports_enable_disable_reload_rescan_and_settings(monkeypatch):
     app = FastAPI()
     app.include_router(plugins_router, prefix="/api/plugins")
     manager = _FakeManager()
+    queue = _FakeRuntimeQueue()
     monkeypatch.setattr("magi.api.routers.plugins.resolve_plugin_manager", lambda: manager)
+    monkeypatch.setattr("magi.api.routers.plugins_core_routes.require_runtime_command_queue", lambda: queue)
     client = TestClient(app)
 
     disable_response = client.post("/api/plugins/core-tools/disable")
@@ -197,6 +211,11 @@ def test_plugins_api_supports_enable_disable_reload_rescan_and_settings(monkeypa
         "reload:core-tools",
         "rescan",
     ]
+    assert queue.refresh_channel_reasons == [
+        "plugin_core-tools_disabled",
+        "plugin_core-tools_enabled",
+        "plugin_core-tools_reloaded",
+    ]
 
 
 def test_plugins_api_reads_plugin_settings_resources(monkeypatch):
@@ -221,7 +240,9 @@ def test_plugins_api_runs_plugin_settings_actions(monkeypatch):
     app = FastAPI()
     app.include_router(plugins_router, prefix="/api/plugins")
     manager = _FakeManager()
+    queue = _FakeRuntimeQueue()
     monkeypatch.setattr("magi.api.routers.plugins.resolve_plugin_manager", lambda: manager)
+    monkeypatch.setattr("magi.api.routers.plugins_core_routes.require_runtime_command_queue", lambda: queue)
     client = TestClient(app)
 
     start_response = client.post(
@@ -255,6 +276,7 @@ def test_plugins_api_runs_plugin_settings_actions(monkeypatch):
         "get:core-tools",
         "cancel_action:core-tools:qr_login:session-1",
     ]
+    assert queue.refresh_channel_reasons == ["plugin_core-tools_settings_action_qr_login_succeeded"]
 
 
 def test_plugins_api_translates_settings_action_metadata():

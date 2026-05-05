@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, status
 
+from ...core.logger import get_logger
+from ...core.runtime_bindings import require_runtime_command_queue
+from ...events.contracts import RefreshChannelsCommand
 from ...plugins.contracts import PluginSettingsResourcePayload
 from .plugins_common import legacy_plugins_module
 from .plugins_schemas import (
@@ -16,6 +19,27 @@ from .plugins_schemas import (
 )
 
 plugins_core_router = APIRouter()
+logger = get_logger(__name__)
+
+
+async def _enqueue_runtime_channels_refresh_command(*, reason: str) -> None:
+    """Notify the runtime worker process to restart channel adapters."""
+    try:
+        queue = require_runtime_command_queue()
+    except RuntimeError:
+        logger.info("Runtime command queue unavailable during plugin channels refresh notification", reason=reason)
+        return
+
+    await queue.enqueue_refresh_channels(
+        RefreshChannelsCommand(
+            source="plugins_api",
+            reason=reason,
+        )
+    )
+
+
+async def _refresh_channels_after_plugin_change(plugin_id: str, reason: str) -> None:
+    await _enqueue_runtime_channels_refresh_command(reason=f"plugin_{plugin_id}_{reason}")
 
 
 @plugins_core_router.get("", response_model=PluginsListResponse)
@@ -48,6 +72,7 @@ async def enable_plugin(plugin_id: str):
     legacy = legacy_plugins_module()
     manager, _ = legacy._require_package(plugin_id)
     state = manager.enable_plugin(plugin_id)
+    await _refresh_channels_after_plugin_change(plugin_id, "enabled")
     return legacy._serialize_package(state)
 
 
@@ -56,6 +81,7 @@ async def disable_plugin(plugin_id: str):
     legacy = legacy_plugins_module()
     manager, _ = legacy._require_package(plugin_id)
     state = manager.disable_plugin(plugin_id)
+    await _refresh_channels_after_plugin_change(plugin_id, "disabled")
     return legacy._serialize_package(state)
 
 
@@ -64,6 +90,7 @@ async def reload_plugin(plugin_id: str):
     legacy = legacy_plugins_module()
     manager, _ = legacy._require_package(plugin_id)
     state = manager.reload_plugin(plugin_id)
+    await _refresh_channels_after_plugin_change(plugin_id, "reloaded")
     return legacy._serialize_package(state)
 
 
@@ -79,6 +106,8 @@ async def update_plugin_settings(plugin_id: str, request: PluginSettingsUpdateRe
     legacy = legacy_plugins_module()
     manager, _ = legacy._require_package(plugin_id)
     state = manager.update_plugin_settings(plugin_id, request.updates)
+    if request.updates:
+        await _refresh_channels_after_plugin_change(plugin_id, "settings_updated")
     return legacy._serialize_package(state)
 
 
@@ -132,6 +161,8 @@ async def start_plugin_settings_action(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plugin settings action not found") from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    if run.result.status == "succeeded" and run.result.settings_updates:
+        await _refresh_channels_after_plugin_change(plugin_id, f"settings_action_{action_id}_succeeded")
     return _serialize_action_run(plugin_id, action_id, run)
 
 
@@ -158,6 +189,8 @@ async def poll_plugin_settings_action(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plugin settings action session not found") from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    if run.result.status == "succeeded" and run.result.settings_updates:
+        await _refresh_channels_after_plugin_change(plugin_id, f"settings_action_{action_id}_succeeded")
     return _serialize_action_run(plugin_id, action_id, run)
 
 
