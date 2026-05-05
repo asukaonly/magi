@@ -51,6 +51,7 @@ Responsibilities:
 - logging
 - dependency injection container
 - runtime paths
+- workspace path overlays and private workspace buckets
 - database initialization
 - maintenance dependencies
 - shared infrastructure exports
@@ -69,6 +70,7 @@ Notes:
 - the scheduler engine is infrastructure, even if bootstrap starts it later in dependency order
 - bootstrap order and ownership layer are not the same thing
 - `runtime_trace/` stores execution observability data; it is not durable memory and does not participate in L6 recall
+- workspace storage is an infrastructure facade: `core` owns workspace identity, path safety, generated directory creation, and state manifests; upper layers receive scoped paths instead of constructing `<workspace>/.magi` paths directly
 
 ### L2. Configuration
 

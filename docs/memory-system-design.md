@@ -119,14 +119,19 @@ Read here when you need historical recall, structured cognition, summaries, long
 ### Rebuildable Cache
 
 - `~/.magi/cache/plugins/<plugin_id>/`
+- `~/.magi/workspaces/<workspace_id>/cache/`
+- `<workspace>/.magi/cache/`
 
 Holds plugin-owned rebuildable intermediate state:
 
 - In-progress sensor aggregation state
 - Flush checkpoints
 - Plugin-local computation caches
+- Workspace-scoped code indexes and retrieval caches
 
 **Cache is not memory truth.**
+
+Workspace overlays may also hold project instructions, rules, skills, and gitignored runtime checkpoints under `<workspace>/.magi/`. These files are project context or recoverable execution state. They must not be treated as durable memory unless a memory projection pipeline explicitly promotes selected facts into `L1`.
 
 ---
 

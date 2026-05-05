@@ -11,6 +11,7 @@ def test_runtime_paths_uses_split_storage_layout(tmp_path: Path) -> None:
     assert runtime_paths.data_dir == tmp_path / ".magi" / "data"
     assert runtime_paths.runtime_dir == tmp_path / ".magi" / "runtime"
     assert runtime_paths.cache_dir == tmp_path / ".magi" / "cache"
+    assert runtime_paths.workspaces_dir == tmp_path / ".magi" / "workspaces"
     assert runtime_paths.memory_dir == tmp_path / ".magi" / "data" / "memory"
     assert runtime_paths.chat_dir == tmp_path / ".magi" / "data" / "chat"
     assert runtime_paths.resources_dir == tmp_path / ".magi" / "data" / "resources"
@@ -25,4 +26,9 @@ def test_runtime_paths_uses_split_storage_layout(tmp_path: Path) -> None:
     assert runtime_paths.llm_usage_db_path == runtime_paths.runtime_dir / "llm_usage.db"
     assert runtime_paths.sensor_state_db_path == runtime_paths.runtime_dir / "sensor_state.db"
     assert runtime_paths.task_orchestrations_path == runtime_paths.runtime_dir / "task_orchestrations.json"
-    assert runtime_paths.plugin_cache_dir("screen_time") == tmp_path / ".magi" / "cache" / "plugins" / "screen_time"
+    assert runtime_paths.plugin_cache_dir("screen_time") == (
+        tmp_path / ".magi" / "cache" / "plugins" / "screen_time"
+    )
+    assert runtime_paths.workspace_bucket_dir("repo:demo") == (
+        tmp_path / ".magi" / "workspaces" / "repo_demo"
+    )
