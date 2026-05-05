@@ -97,7 +97,22 @@ export interface PluginSettingsResourcePayload {
   resource_type: string;
   data: {
     groups?: PluginSettingsResourceGroup[];
+    [key: string]: any;
   };
+}
+
+export interface PluginChannelStatusData {
+  state?: string;
+  running?: boolean;
+  configured?: boolean;
+  account_id?: string;
+  last_start_at_ms?: number;
+  last_stop_at_ms?: number;
+  last_poll_at_ms?: number;
+  last_inbound_at_ms?: number;
+  last_outbound_at_ms?: number;
+  last_error?: string;
+  last_error_at_ms?: number;
 }
 
 export interface PluginManifest {

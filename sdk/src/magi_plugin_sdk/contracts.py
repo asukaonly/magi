@@ -106,7 +106,7 @@ class PluginSettingsResourceSpec(BaseModel):
     """Read-only settings resource exposed by a plugin."""
 
     resource_name: str
-    resource_type: Literal["collection"] = "collection"
+    resource_type: Literal["collection", "channel_status"] = "collection"
     description: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
 

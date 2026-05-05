@@ -1638,6 +1638,20 @@
         "timedOut": "Plugin action timed out"
       }
     },
+    "channelStatus": {
+      "title": "Channel status",
+      "account": "Account",
+      "lastPoll": "Last poll",
+      "lastInbound": "Last inbound",
+      "lastOutbound": "Last outbound",
+      "states": {
+        "running": "Running",
+        "stopped": "Stopped",
+        "failed": "Failed",
+        "unconfigured": "Not configured",
+        "degraded": "Degraded"
+      }
+    },
     "marketplace": {
       "searchPlaceholder": "Search plugins…",
       "loading": "Loading plugin marketplace…",

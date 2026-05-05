@@ -235,6 +235,9 @@ class TestNotificationRelay:
                 magi_user_id="user1",
             )
         )
+        mapper.get_notification_cursor = AsyncMock(return_value=0)
+        mapper.update_notification_cursor = AsyncMock()
+        mapper.update_relay_cursor = AsyncMock()
 
         notif = MagicMock()
         notif.notification_id = 1
@@ -263,6 +266,8 @@ class TestNotificationRelay:
         assert target.channel_type == "telegram"
         assert target.external_chat_id == "12345"
         assert content.text == "Hello from Magi!"
+        mapper.update_notification_cursor.assert_awaited_once_with("telegram", "12345", 1)
+        mapper.update_relay_cursor.assert_awaited_once_with("notification_relay", 1)
 
     async def test_ignores_non_channel_sessions(self) -> None:
         channel = FakeChannel("telegram")
@@ -271,6 +276,7 @@ class TestNotificationRelay:
 
         mapper = MagicMock(spec=ChannelSessionMapper)
         mapper.lookup_by_session = AsyncMock(return_value=None)  # Not a channel session
+        mapper.update_relay_cursor = AsyncMock()
 
         notif = MagicMock()
         notif.notification_id = 1
@@ -324,6 +330,7 @@ class TestNotificationRelay:
         # Mapper should not even be called for non-response channels
         mapper.lookup_by_session.assert_not_called()
         assert len(channel.sent) == 0
+        mapper.update_relay_cursor.assert_awaited_once_with("notification_relay", 1)
 
     async def test_assembles_streamed_chunks(self) -> None:
         """Relay accumulates content_delta from streaming chunks and sends on is_final."""
@@ -340,6 +347,9 @@ class TestNotificationRelay:
                 magi_user_id="user1",
             )
         )
+        mapper.get_notification_cursor = AsyncMock(return_value=0)
+        mapper.update_notification_cursor = AsyncMock()
+        mapper.update_relay_cursor = AsyncMock()
 
         def _make_chunk(nid: int, delta: str, is_final: bool) -> MagicMock:
             n = MagicMock()
@@ -380,3 +390,5 @@ class TestNotificationRelay:
         _, content = channel.sent[0]
         assert content.text == "Hello world!"
         assert content.is_final is True
+        mapper.update_notification_cursor.assert_awaited_once_with("telegram", "12345", 4)
+        assert mapper.update_relay_cursor.await_count == 4
