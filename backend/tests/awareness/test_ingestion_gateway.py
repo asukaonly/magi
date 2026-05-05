@@ -1,14 +1,18 @@
-"""Tests for SensorIngestionGateway."""
+"""Tests for SensorIngestionGateway as a thin publisher.
+
+Phase 9: Gateway no longer writes to memory/timeline/state directly.
+It builds a SensorEventEmitted payload and publishes to the event bus.
+Side effects are tested through their respective subscribers.
+"""
 
 from __future__ import annotations
 
-import inspect
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from magi.awareness.ingestion_gateway import SensorIngestionGateway
+from magi.awareness.ingestion_gateway import SensorIngestionGateway, SensorIngestionResult
 from magi.awareness.sensor_base import L2BatchPolicy, SensorBase
 from magi.awareness.sensor_output import (
     ActivityFacet,
@@ -19,9 +23,8 @@ from magi.awareness.sensor_output import (
     SensorOutput,
     SensorOutputMetadata,
 )
-from magi.awareness.sensor_state import SqliteSensorStateStore
-from magi.memory.event_contracts import MemoryEvent
-from magi.memory.event_contracts import MemoryDomain, IngestTarget, RetentionClass, TomDepth
+from magi.events.domain_payloads import SensorEventEmitted
+from magi.events.events import EventTypes
 
 
 class _FakeSensor(SensorBase):
@@ -94,300 +97,192 @@ def _make_output(**overrides: Any) -> SensorOutput:
     return SensorOutput(**defaults)
 
 
-class TestSensorIngestionGateway:
+def _make_bus() -> MagicMock:
+    bus = MagicMock()
+    bus.publish = AsyncMock()
+    return bus
+
+
+class TestSensorIngestionGatewayPublishes:
     @pytest.mark.asyncio
-    async def test_ingest_calls_unified_memory(self):
-        memory = MagicMock()
-        memory.ingest_event = AsyncMock(return_value={"event_id": "evt-stored-1", "l1_written": True})
-        memory.upsert_user_graph_edge = AsyncMock()
-        gateway = SensorIngestionGateway(unified_memory=memory)
+    async def test_ingest_publishes_sensor_event_emitted(self):
+        bus = _make_bus()
+        gateway = SensorIngestionGateway(event_bus=bus)
         sensor = _FakeSensor()
         output = _make_output()
 
         result = await gateway.ingest(sensor, output)
 
-        assert result.event_id == "evt-stored-1"
+        assert isinstance(result, SensorIngestionResult)
         assert result.ingested is True
-        memory.ingest_event.assert_awaited_once()
+        assert result.event_id  # ULID assigned
+        assert result.stats == {}
+        bus.publish.assert_awaited_once()
 
-        # Verify the canonical MemoryEvent object was passed through unchanged
-        call_args = memory.ingest_event.call_args[0][0]
-        assert isinstance(call_args, MemoryEvent)
-        assert call_args.event_id != "fake_source:item-1"
-        assert call_args.event_type == "FAKE_EVENT"
-        assert call_args.source == "fake_source"
-        assert call_args.idempotency_key == "item-1"
-        assert call_args.content == "Fake Source Observed Something happened"
+        event = bus.publish.await_args.args[0]
+        assert event.type == EventTypes.SENSOR_EVENT_EMITTED
+        assert event.event_id == result.event_id
+        assert event.source == "sensor_ingestion_gateway"
+        payload = event.data
+        assert isinstance(payload, SensorEventEmitted)
+        assert payload.sensor_id == "test.fake"
+        assert payload.sensor_name == "test.fake"
+        assert payload.memory_event_type == "FAKE_EVENT"
+        assert payload.idempotency_key == "item-1"
+        assert payload.occurred_at == 1700000000.0
+        assert payload.owner_user_id == "local_user"
 
     @pytest.mark.asyncio
-    async def test_ingest_applies_memory_policy(self):
-        memory = MagicMock()
-        memory.ingest_event = AsyncMock()
-        memory.upsert_user_graph_edge = AsyncMock()
-        gateway = SensorIngestionGateway(unified_memory=memory)
+    async def test_payload_carries_policy_dict(self):
+        bus = _make_bus()
+        gateway = SensorIngestionGateway(event_bus=bus)
         sensor = _FakeSensor()
-        output = _make_output()
 
-        await gateway.ingest(sensor, output)
+        await gateway.ingest(sensor, _make_output())
 
-        call_args = memory.ingest_event.call_args[0][0]
-        assert isinstance(call_args, MemoryEvent)
-        assert call_args.memory_domain == MemoryDomain.EXTERNAL_ACTIVITY
-        assert call_args.ingest_target == IngestTarget.L1_ONLY
-        assert call_args.retention_class == RetentionClass.PERMANENT
-        assert call_args.importance_score == 0.7
-        assert call_args.user_id == "local_user"
+        payload = bus.publish.await_args.args[0].data
+        assert payload.policy_dict["memory_domain"] == "external_activity"
+        assert payload.policy_dict["ingest_target"] == "l1_only"
+        assert payload.policy_dict["retention_class"] == "permanent"
+        assert payload.policy_dict["importance_bias"] == 0.7
 
     @pytest.mark.asyncio
-    async def test_ingest_uses_owner_from_output_provenance(self):
-        memory = MagicMock()
-        memory.ingest_event = AsyncMock()
-        gateway = SensorIngestionGateway(unified_memory=memory)
+    async def test_payload_carries_projection_dict(self):
+        bus = _make_bus()
+        gateway = SensorIngestionGateway(event_bus=bus)
+        sensor = _FakeSensor()
+
+        await gateway.ingest(sensor, _make_output())
+
+        payload = bus.publish.await_args.args[0].data
+        assert payload.projection_dict.get("embedding_head") == "Fake Source Observed"
+        assert payload.projection_dict.get("metadata", {}).get("projection", {}).get("renderer_version") == "sensor_activity_v1"
+
+    @pytest.mark.asyncio
+    async def test_payload_carries_owner_from_provenance(self):
+        bus = _make_bus()
+        gateway = SensorIngestionGateway(event_bus=bus)
         sensor = _FakeSensor()
         output = _make_output(provenance={"user_id": "owner-42"})
 
         await gateway.ingest(sensor, output)
 
-        call_args = memory.ingest_event.call_args[0][0]
-        assert isinstance(call_args, MemoryEvent)
-        assert call_args.user_id == "owner-42"
-        assert call_args.metadata_json is not None
-        assert call_args.metadata_json["memory_owner_user_id"] == "owner-42"
+        payload = bus.publish.await_args.args[0].data
+        assert payload.owner_user_id == "owner-42"
+        assert payload.context.user_id == "owner-42"
 
     @pytest.mark.asyncio
-    async def test_ingest_with_timeline_adapter(self):
-        memory = MagicMock()
-        memory.ingest_event = AsyncMock(return_value={"event_id": "evt-stored-2", "l1_written": True})
-        memory.upsert_user_graph_edge = AsyncMock()
-        adapter = MagicMock()
-        adapter.on_timeline_event = AsyncMock()
-        gateway = SensorIngestionGateway(
-            unified_memory=memory,
-            timeline_adapter=adapter,
+    async def test_payload_carries_metadata_dict(self):
+        bus = _make_bus()
+        gateway = SensorIngestionGateway(event_bus=bus)
+        sensor = _FakeSensor()
+        metadata = SensorOutputMetadata(
+            tags=["j-pop", "electropop"],
+            entities=[{"id": "entity-1"}],
+            fact_hints=[{"subject_ref": "user:self"}],
         )
-        sensor = _FakeSensor()
-        output = _make_output()
-        metadata = SensorOutputMetadata(tags=["extra"])
 
-        await gateway.ingest(sensor, output, metadata)
+        await gateway.ingest(sensor, _make_output(), metadata)
 
-        adapter.on_timeline_event.assert_awaited_once()
-        timeline_event = adapter.on_timeline_event.await_args.args[0]
-        assert timeline_event.event_id == "evt-stored-2"
-        assert timeline_event.title == "Fake Source Observed · Test Event"
-        assert timeline_event.summary == "Fake Source Observed Something happened"
+        payload = bus.publish.await_args.args[0].data
+        assert payload.metadata_dict is not None
+        assert payload.metadata_dict["tags"] == ["j-pop", "electropop"]
+        assert payload.metadata_dict["entities"] == [{"id": "entity-1"}]
+        assert payload.metadata_dict["fact_hints"] == [{"subject_ref": "user:self"}]
 
     @pytest.mark.asyncio
-    async def test_ingest_stores_metadata_tags_as_projection_retrieval_terms(self):
-        memory = MagicMock()
-        memory.ingest_event = AsyncMock(return_value={"event_id": "evt-stored-3", "l1_written": True})
-        gateway = SensorIngestionGateway(unified_memory=memory)
+    async def test_payload_metadata_dict_none_when_no_metadata(self):
+        bus = _make_bus()
+        gateway = SensorIngestionGateway(event_bus=bus)
         sensor = _FakeSensor()
-        output = _make_output()
-        metadata = SensorOutputMetadata(tags=["j-pop", "electropop", "J-POP", ""])
 
-        await gateway.ingest(sensor, output, metadata)
+        await gateway.ingest(sensor, _make_output())
 
-        call_args = memory.ingest_event.call_args[0][0]
-        assert isinstance(call_args, MemoryEvent)
-        assert call_args.content == "Fake Source Observed Something happened"
-        assert call_args.metadata_json is not None
-        assert call_args.metadata_json["projection"]["retrieval_terms"] == ["j-pop", "electropop"]
+        payload = bus.publish.await_args.args[0].data
+        assert payload.metadata_dict is None
 
     @pytest.mark.asyncio
-    async def test_ingest_no_adapter_is_ok(self):
-        """Gateway works fine without a timeline adapter."""
-        memory = MagicMock()
-        memory.ingest_event = AsyncMock()
-        gateway = SensorIngestionGateway(unified_memory=memory)
+    async def test_payload_carries_relation_candidates_and_whitelist(self):
+        bus = _make_bus()
+        gateway = SensorIngestionGateway(event_bus=bus)
         sensor = _FakeSensor()
-        output = _make_output()
-
-        result = await gateway.ingest(sensor, output)
-        assert result.ingested is True
-
-    @pytest.mark.asyncio
-    async def test_ingest_updates_state_store(self, tmp_path):
-        memory = MagicMock()
-        memory.ingest_event = AsyncMock()
-        state_store = SqliteSensorStateStore(tmp_path / "state.db")
-        gateway = SensorIngestionGateway(
-            unified_memory=memory,
-            sensor_state_store=state_store,
-        )
-        sensor = _FakeSensor()
-        output = _make_output()
-
-        await gateway.ingest(sensor, output)
-
-        fps = await state_store.get_known_fingerprints("test.fake")
-        assert len(fps) == 1
-
-    @pytest.mark.asyncio
-    async def test_ingest_processes_relations(self):
-        memory = MagicMock()
-        memory.ingest_event = AsyncMock()
-        memory.upsert_user_graph_edge = AsyncMock()
-        gateway = SensorIngestionGateway(unified_memory=memory)
-        sensor = _FakeSensor()
-        output = _make_output()
         metadata = SensorOutputMetadata(
             relation_candidates=[
-                {
-                    "predicate": "LIKES",
-                    "object_id": "topic:test",
-                    "confidence": 0.9,
-                    "fact_kind": "interaction_evidence",
-                },
+                {"predicate": "LIKES", "object_id": "topic:test", "confidence": 0.9},
             ],
         )
 
-        result = await gateway.ingest(
-            sensor, output, metadata,
+        await gateway.ingest(
+            sensor,
+            _make_output(),
+            metadata,
             allowed_edge_whitelist=["LIKES"],
         )
-        assert result.stats["relation_count"] == 1
-        memory.upsert_user_graph_edge.assert_awaited_once()
-        assert memory.upsert_user_graph_edge.await_args.kwargs["fact_kind"] == "interaction_evidence"
 
-    @pytest.mark.asyncio
-    async def test_ingest_skips_disallowed_relations(self):
-        memory = MagicMock()
-        memory.ingest_event = AsyncMock()
-        memory.upsert_user_graph_edge = AsyncMock()
-        gateway = SensorIngestionGateway(unified_memory=memory)
-        sensor = _FakeSensor()
-        output = _make_output()
-        metadata = SensorOutputMetadata(
-            relation_candidates=[
-                {
-                    "predicate": "LIKES",
-                    "object_id": "topic:test",
-                },
-            ],
+        payload = bus.publish.await_args.args[0].data
+        assert payload.relation_candidates == (
+            {"predicate": "LIKES", "object_id": "topic:test", "confidence": 0.9},
         )
-
-        # No allowed edge whitelist → relations skipped
-        result = await gateway.ingest(sensor, output, metadata)
-        assert result.stats["relation_count"] == 0
-        memory.upsert_user_graph_edge.assert_not_awaited()
+        assert payload.allowed_edge_whitelist == ("LIKES",)
 
     @pytest.mark.asyncio
-    async def test_content_fallback_to_content_blocks(self):
-        memory = MagicMock()
-        memory.ingest_event = AsyncMock()
-        gateway = SensorIngestionGateway(unified_memory=memory)
+    async def test_payload_relation_candidates_default_empty(self):
+        bus = _make_bus()
+        gateway = SensorIngestionGateway(event_bus=bus)
         sensor = _FakeSensor()
-        output = _make_output(
-            narration=SensorNarration(body="", title=None),
-            content_blocks=[ContentBlock(kind="text", value="block text")],
-        )
 
-        await gateway.ingest(sensor, output)
+        await gateway.ingest(sensor, _make_output())
 
-        call_args = memory.ingest_event.call_args[0][0]
-        assert isinstance(call_args, MemoryEvent)
-        assert call_args.content == "Fake Source Observed block text"
+        payload = bus.publish.await_args.args[0].data
+        assert payload.relation_candidates == ()
+        assert payload.allowed_edge_whitelist == ()
 
     @pytest.mark.asyncio
-    async def test_ingest_copies_domain_payload_to_memory_metadata(self):
-        memory = MagicMock()
-        memory.ingest_event = AsyncMock()
-        gateway = SensorIngestionGateway(unified_memory=memory)
-        sensor = _FakeSensor()
-        output = _make_output(
-            domain_payload={
-                "bucket_start": "2026-03-27T10:00:00+08:00",
-                "bundle_id": "com.apple.Safari",
-                "duration_seconds": 2280,
-            }
-        )
-
-        await gateway.ingest(sensor, output)
-
-        call_args = memory.ingest_event.call_args[0][0]
-        assert isinstance(call_args, MemoryEvent)
-        assert call_args.metadata_json is not None
-        assert call_args.metadata_json["bucket_start"] == "2026-03-27T10:00:00+08:00"
-        assert call_args.metadata_json["bundle_id"] == "com.apple.Safari"
-        assert call_args.metadata_json["duration_seconds"] == 2280
-        assert call_args.metadata_json["plugin_id"] == sensor.plugin_id
-        assert call_args.metadata_json["sensor_id"] == "test.fake"
-        assert call_args.metadata_json["activity"] == {
-            "source_code": "fake_source",
-            "action_code": "observe",
-        }
-        assert call_args.metadata_json["projection"]["renderer_version"] == "sensor_activity_v1"
-        assert call_args.metadata_json["projection"]["embedding_head"] == "Fake Source Observed"
-        assert call_args.metadata_json["timeline"] == {
-            "event_id": call_args.event_id,
-            "source_type": "fake_source",
-            "source_item_id": "item-1",
-            "occurred_at": 1700000000.0,
-            "captured_at": 1700000001.0,
-            "title": "Fake Source Observed · Test Event",
-            "summary": "Fake Source Observed Something happened",
-            "retention_mode": "analyze_only",
-            "raw_payload_ref": None,
-            "content_blocks": [
-                {
-                    "kind": "text",
-                    "value": "hello",
-                    "mime_type": None,
-                }
-            ],
-            "entities": [],
-            "tags": ["tag1"],
-            "privacy_labels": [],
-            "processing_status": {"stored": True, "analyzed": False},
-            "provenance": {},
-        }
-        assert call_args.metadata_json["processing_status"] == {"stored": True, "analyzed": False}
-
-    @pytest.mark.asyncio
-    async def test_ingest_copies_structured_graph_hints_to_memory_metadata(self):
-        memory = MagicMock()
-        memory.ingest_event = AsyncMock()
-        gateway = SensorIngestionGateway(unified_memory=memory)
-        sensor = _FakeSensor()
-        output = _make_output()
-        metadata = SensorOutputMetadata(
-            fact_hints=[
-                {
-                    "subject_ref": "user:self",
-                    "subject_type": "user",
-                    "predicate": "USES",
-                    "object_ref": "software:github",
-                    "object_type": "software",
-                    "fact_kind": "interaction_evidence",
-                    "confidence": 0.88,
-                    "evidence_text": "opened GitHub repeatedly",
-                }
-            ]
-        )
-
-        await gateway.ingest(sensor, output, metadata)
-
-        call_args = memory.ingest_event.call_args[0][0]
-        assert isinstance(call_args, MemoryEvent)
-        assert call_args.metadata_json is not None
-        assert call_args.metadata_json["structured_graph_hints"] == metadata.fact_hints
-        assert call_args.metadata_json["processing_status"] == {"stored": True, "analyzed": True}
-
-    @pytest.mark.asyncio
-    async def test_ingest_adds_sensor_l2_batch_owner_to_memory_metadata(self):
-        memory = MagicMock()
-        memory.ingest_event = AsyncMock()
-        gateway = SensorIngestionGateway(unified_memory=memory)
+    async def test_payload_carries_l2_batch_policy_dict(self):
+        bus = _make_bus()
+        gateway = SensorIngestionGateway(event_bus=bus)
         sensor = _FakeBatchingSensor()
-        output = _make_output()
 
-        await gateway.ingest(sensor, output)
+        await gateway.ingest(sensor, _make_output())
 
-        call_args = memory.ingest_event.call_args[0][0]
-        assert isinstance(call_args, MemoryEvent)
-        assert call_args.metadata_json is not None
-        assert call_args.metadata_json["l2_batch_owner"] == "fake_source:default"
-        assert call_args.metadata_json["l2_batch_max_events"] == 20
-        assert call_args.metadata_json["l2_batch_max_estimated_tokens"] == 3200
-        assert call_args.metadata_json["l2_batch_max_wait_seconds"] == 180
+        payload = bus.publish.await_args.args[0].data
+        assert payload.l2_batch_policy_dict is not None
+        assert payload.l2_batch_policy_dict["owner"] == "fake_source:default"
+        assert payload.l2_batch_policy_dict["max_events"] == 20
+        assert payload.l2_batch_policy_dict["max_estimated_tokens"] == 3200
+        assert payload.l2_batch_policy_dict["max_wait_seconds"] == 180
+
+    @pytest.mark.asyncio
+    async def test_payload_l2_batch_policy_dict_none_when_no_policy(self):
+        bus = _make_bus()
+        gateway = SensorIngestionGateway(event_bus=bus)
+        sensor = _FakeSensor()
+
+        await gateway.ingest(sensor, _make_output())
+
+        payload = bus.publish.await_args.args[0].data
+        assert payload.l2_batch_policy_dict is None
+
+    @pytest.mark.asyncio
+    async def test_payload_carries_fingerprint_and_idempotency_key(self):
+        bus = _make_bus()
+        gateway = SensorIngestionGateway(event_bus=bus)
+        sensor = _FakeSensor()
+
+        await gateway.ingest(sensor, _make_output())
+
+        payload = bus.publish.await_args.args[0].data
+        assert payload.idempotency_key == "item-1"
+        assert payload.sensor_fingerprint  # non-empty string
+
+    @pytest.mark.asyncio
+    async def test_publish_failure_does_not_raise(self):
+        """Gateway logs but swallows publish exceptions."""
+        bus = _make_bus()
+        bus.publish = AsyncMock(side_effect=RuntimeError("boom"))
+        gateway = SensorIngestionGateway(event_bus=bus)
+        sensor = _FakeSensor()
+
+        # Should not raise
+        result = await gateway.ingest(sensor, _make_output())
+        assert result.ingested is True

@@ -53,6 +53,7 @@ class SensorScheduleRegistrationModule(LifecycleModule):
                 "runtime_memory",
                 "runtime_core_dependencies",
                 "runtime_timeline",
+                "runtime_message_bus",
             ),
         )
         self._context = context
@@ -63,17 +64,9 @@ class SensorScheduleRegistrationModule(LifecycleModule):
         runtime_paths = require_initialized(self._context.core.runtime_paths, "runtime paths")
         sensor_registry = require_initialized(self._context.plugins.sensor_registry, "sensor registry")
         plugin_manager = require_initialized(self._context.plugins.plugin_manager, "plugin manager")
-        unified_memory = require_initialized(self._context.memory.unified_memory, "unified memory")
+        message_bus = require_initialized(self._context.message_bus.message_bus, "message bus")
 
-        sensor_state_store = SqliteSensorStateStore(runtime_paths.sensor_state_db_path)
-        timeline_adapter = None
-        if self._context.timeline.timeline_service is not None:
-            timeline_adapter = TimelineAdapter(self._context.timeline.timeline_service)
-        ingestion_gateway = SensorIngestionGateway(
-            unified_memory=unified_memory,
-            timeline_adapter=timeline_adapter,
-            sensor_state_store=sensor_state_store,
-        )
+        ingestion_gateway = SensorIngestionGateway(event_bus=message_bus)
 
         self._contrib = SensorSchedulerContrib(
             scheduler_service=scheduler_service,
