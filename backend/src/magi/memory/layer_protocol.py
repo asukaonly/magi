@@ -5,6 +5,9 @@ from typing import Any, Protocol, runtime_checkable
 from .event_contracts import MemoryEvent
 
 
+WILDCARD_EVENT_TYPES: frozenset[str] = frozenset({"*"})
+
+
 @dataclass
 class FanOutContext:
     markers: dict[str, Any] = field(default_factory=dict)
