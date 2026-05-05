@@ -42,7 +42,7 @@ class RuntimeTraceSubscriber:
             "tool_invocation": self._record_tool_call,
             "llm_call": self._record_llm_call,
             "intent_resolution": self._record_intent_resolution,
-            "turn": self._record_turn,
+            "turn_record": self._record_turn,
         }
 
     async def start(self) -> None:

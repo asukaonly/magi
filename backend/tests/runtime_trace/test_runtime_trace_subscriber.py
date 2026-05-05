@@ -135,8 +135,7 @@ async def test_turn_dispatches(fake_bus, fake_store):
     sub = RuntimeTraceSubscriber(event_bus=fake_bus, trace_store=fake_store)
     await sub.start()
     p = _make_payload(
-        node_type="turn",
-        name="turn-1",
+        node_type="turn_record",
         turn_id="turn-1",
         attributes={"session_id": "s", "user_id": "u", "status": "completed"},
     )
