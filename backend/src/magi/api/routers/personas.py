@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from ...core.logger import get_logger
 from ...personality.persona_repository import PersonaRepository
-from ...config.loader import get_user_preference
+from ...i18n import get_preferred_language
 from ...personality.persona_seed import list_seed_previews, resolve_locale, seed_builtin_personas
 from ...utils.runtime import get_runtime_paths
 
@@ -112,7 +112,7 @@ async def _sync_registered_builtin_personas(repo: PersonaRepository) -> None:
         if item.is_builtin and item.seed_slug and item.deleted_at is None
     }
     if not locales:
-        locales = {resolve_locale(get_user_preference("language", "zh"))}
+        locales = {resolve_locale(get_preferred_language())}
     for locale in sorted(locales):
         await seed_builtin_personas(repo, locale)
 

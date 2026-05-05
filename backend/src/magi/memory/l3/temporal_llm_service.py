@@ -9,9 +9,8 @@ import re
 import time
 from typing import Any
 
-from ...config.loader import get_user_preference
+from ... import i18n as core_i18n
 from ...llm import LLMProviderBridge, LLMScenario, ScenarioLLMPool
-from magi_plugin_sdk.i18n import get_current_language
 from .models import L3Candidate, TemporalEvidencePack, TemporalGenerationResult, TemporalSummaryLLMOutput
 from .temporal_evidence import TemporalEvidencePackMixin
 from .temporal_output import TemporalOutputParsingMixin
@@ -174,13 +173,11 @@ _SOURCE_LABELS_ZH = {
 
 
 def _target_language_code() -> str:
-    preferred = get_user_preference("language", None)
-    language = str(preferred or get_current_language() or "en").lower()
-    return "zh" if language.startswith("zh") else "en"
+    return core_i18n.effective_app_language_code(default="en")
 
 
 def _target_language_label() -> str:
-    return "Simplified Chinese (zh-CN)" if _target_language_code() == "zh" else "English"
+    return core_i18n.llm_language_label(default="en")
 
 
 def _target_language_instruction() -> str:

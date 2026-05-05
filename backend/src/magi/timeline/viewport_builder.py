@@ -6,6 +6,7 @@ import json
 from collections import Counter, defaultdict
 from typing import Any
 
+from ..i18n import is_zh_language
 from .cluster_builder import TimelineClusterBuilder
 from .context_bundle_builder import TimelineContextBundleBuilder
 from .query_interpreter import TimelineQueryInterpretation, TimelineQueryInterpreter
@@ -442,11 +443,11 @@ class TimelineViewportBuilder:
 
     @staticmethod
     def _normalize_locale(locale: str | None) -> str:
-        return "zh-CN" if str(locale or "").lower().startswith("zh") else "en"
+        return "zh-CN" if is_zh_language(locale, default="en") else "en"
 
     @staticmethod
     def _is_zh_locale(locale: str | None) -> bool:
-        return str(locale or "").lower().startswith("zh")
+        return is_zh_language(locale, default="en")
 
     @staticmethod
     def _source_label(source_type: Any, locale: str) -> str:

@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 
 from ..core.logger import get_logger
+from ..i18n import is_zh_language
 from ..utils.packaged_paths import get_backend_root
 from .persona_repository import PersonaRepository
 
@@ -20,10 +21,7 @@ SEED_LOCALES = ("zh", "en")
 
 def resolve_locale(language: str) -> str:
     """Map a user-facing language code to a seed locale folder name."""
-    lang = language.lower().replace("-", "_")
-    if lang.startswith("zh"):
-        return "zh"
-    return "en"
+    return "zh" if is_zh_language(language, default="en") else "en"
 
 
 def _seed_dir(locale: str) -> Path:

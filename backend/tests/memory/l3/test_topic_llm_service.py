@@ -9,7 +9,7 @@ import pytest
 
 from magi.memory.l3.models import ThematicEvidenceItem, ThematicEvidencePack
 from magi.memory.l3.topic_llm_service import TopicSummaryLLMService
-from magi_plugin_sdk.i18n import set_current_language
+from magi.i18n import set_current_language
 
 
 def test_build_topic_evidence_pack_preserves_topic_and_ids() -> None:

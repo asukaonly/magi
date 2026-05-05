@@ -97,6 +97,9 @@ Repository = "https://github.com/asukaonly/magi"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"magi.i18n" = ["locales/*.json"]
+
 [tool.black]
 line-length = 100
 target-version = ["py310", "py311", "py312"]

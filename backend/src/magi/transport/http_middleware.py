@@ -10,7 +10,8 @@ from fastapi import Request, Response, status
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from ..plugins.i18n import DEFAULT_LANGUAGE, LANGUAGE_ALIASES, set_current_language
+from ..i18n import DEFAULT_LANGUAGE, normalize_language, set_current_language
+from ..plugins.i18n import set_current_language as set_plugin_current_language
 
 logger = logging.getLogger(__name__)
 
@@ -81,22 +82,19 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
 
 class LanguageContextMiddleware(BaseHTTPMiddleware):
-    """Set the language context for plugin i18n."""
+    """Set request language contexts for backend and plugin i18n."""
 
     def _normalize_language(self, lang: str | None) -> str:
-        if not lang:
-            return DEFAULT_LANGUAGE
-
-        primary_lang = lang.split(",")[0].strip().split(";")[0].strip()
-        lang_lower = primary_lang.lower()
-        return LANGUAGE_ALIASES.get(lang_lower, LANGUAGE_ALIASES.get(primary_lang, primary_lang))
+        return normalize_language(lang, default=DEFAULT_LANGUAGE)
 
     async def dispatch(self, request: Request, call_next: Callable):
         accept_language = request.headers.get("Accept-Language")
         normalized_lang = self._normalize_language(accept_language)
         set_current_language(normalized_lang)
+        set_plugin_current_language(normalized_lang)
 
         try:
             return await _call_next_or_handle_client_disconnect(request, call_next)
         finally:
             set_current_language(None)
+            set_plugin_current_language(None)

@@ -10,6 +10,7 @@ from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
 from ..avatar_paths import resolve_avatar_public_url, user_avatar_dir
+from ...i18n import language_family
 from ...utils.packaged_paths import get_backend_root
 
 
@@ -43,10 +44,10 @@ def _resolve_language_dir(lang: Optional[str]) -> Path:
     root = get_backend_root() / "personalities"
     if not root.exists():
         root.mkdir(parents=True, exist_ok=True)
-    normalized = (lang or "zh").lower()
-    if normalized.startswith("zh"):
+    normalized = language_family(lang, default="zh")
+    if normalized == "zh":
         candidate = root / "zh"
-    elif normalized.startswith("en"):
+    elif normalized == "en":
         candidate = root / "en"
     else:
         candidate = root / normalized

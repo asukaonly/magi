@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
-from ..config.loader import get_user_preference
 from ..core.logger import get_logger
+from ..i18n import get_preferred_language
 from .active_persona import set_current_personality
 from .persona_repository import PersonaRepository
 from .persona_seed import seed_builtin_personas, resolve_locale
@@ -67,8 +67,7 @@ class PersonalityModule(LifecycleModule):
         # Keep builtin personas aligned with bundled presets. Custom personas
         # remain registry-owned; builtin records follow their seed files.
         existing = await repo.list_all()
-        user_lang = get_user_preference("language", "zh")
-        locale = resolve_locale(user_lang)
+        locale = resolve_locale(get_preferred_language())
         if not existing:
             logger.info(
                 "Persona registry empty, auto-seeding builtin personas for locale '%s'",

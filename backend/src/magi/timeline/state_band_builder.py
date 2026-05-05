@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..i18n import is_zh_language
+
 
 _TONE_TO_VALENCE = {
     "positive": 0.75,
@@ -66,7 +68,7 @@ class TimelineStateBandBuilder:
         snapshots: list[dict[str, Any]],
         locale: str = "en",
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        zh = locale.lower().startswith("zh")
+        zh = is_zh_language(locale, default="en")
         relevant_summaries = [
             summary
             for summary in summaries

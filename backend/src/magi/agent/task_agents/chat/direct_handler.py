@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from ....agent.message_utils import append_latest_user_message
 from ....agent.turn_input import UserTurnInput
-from ....config.loader import get_user_preference
 from ....context.scenarios import Scenario
+from .... import i18n as core_i18n
 from ..common import (
     BaseExecutionHandler,
     DirectLLMRequest,
@@ -18,14 +18,7 @@ from .handler_helpers import (
     serialize_ux_plan as _serialize_ux_plan,
 )
 
-IMAGE_VISION_UNSUPPORTED_RESPONSE_EN = (
-    "I received an image, but the current core model does not support image input. "
-    "Please switch to a vision-capable core model or resend the message with a text description."
-)
-IMAGE_VISION_UNSUPPORTED_RESPONSE_ZH = (
-    "我收到了图片，但当前核心模型不支持图片输入。"
-    "请切换到支持视觉能力的核心模型，或补充文字描述后再发送。"
-)
+IMAGE_VISION_UNSUPPORTED_RESPONSE_KEY = "chat.image_vision_unsupported"
 
 
 def _is_image_attachment(attachment: object) -> bool:
@@ -45,10 +38,7 @@ def _image_attachments_supported(context: object, attachments: list[object]) -> 
 
 
 def _image_vision_unsupported_response() -> str:
-    language = str(get_user_preference("language", "zh") or "zh").strip().lower()
-    if language.startswith("zh"):
-        return IMAGE_VISION_UNSUPPORTED_RESPONSE_ZH
-    return IMAGE_VISION_UNSUPPORTED_RESPONSE_EN
+    return core_i18n.t(IMAGE_VISION_UNSUPPORTED_RESPONSE_KEY)
 
 
 class DirectLLMHandler(BaseExecutionHandler):

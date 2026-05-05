@@ -7,10 +7,10 @@ import pytest
 
 from magi.agent.cancel import NullCancelToken
 from magi.agent.task_agents.chat.contracts import ChatRuntimeContext, IntentDecision
-from magi.agent.task_agents.chat import direct_handler as direct_handler_module
 from magi.agent.task_agents.chat.direct_handler import DirectLLMHandler
 from magi.agent.task_agents.chat.handlers import FunctionCallingHandler
 from magi.agent.task_agents.common import DirectLLMRequest, ExecutionMode, IncomingFactKind, OrchestrationPlan, ToolSelection, UserMessagePayload
+from magi.i18n import language_context
 
 
 class _FakeContextService:
@@ -624,9 +624,7 @@ async def test_direct_llm_handler_builds_multimodal_message_for_image_attachment
 @pytest.mark.asyncio
 async def test_direct_llm_handler_returns_clear_message_when_image_model_lacks_vision(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(direct_handler_module, "get_user_preference", lambda key, default=None: "en")
     image_path = tmp_path / "diagram.png"
     image_path.write_bytes(b"fake-image-bytes")
 
@@ -685,7 +683,8 @@ async def test_direct_llm_handler_returns_clear_message_when_image_model_lacks_v
             tool_selection=ToolSelection(tools=[], reasoning="direct"),
         )
     )
-    result = await handler.execute(request)
+    with language_context("en"):
+        result = await handler.execute(request)
 
     assert "does not support image input" in result.response_text
     assert prompt_service.call_llm_calls == 0
@@ -695,9 +694,7 @@ async def test_direct_llm_handler_returns_clear_message_when_image_model_lacks_v
 @pytest.mark.asyncio
 async def test_direct_llm_handler_localizes_image_model_lacks_vision_message(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(direct_handler_module, "get_user_preference", lambda key, default=None: "zh")
     image_path = tmp_path / "diagram.png"
     image_path.write_bytes(b"fake-image-bytes")
 
@@ -755,7 +752,8 @@ async def test_direct_llm_handler_localizes_image_model_lacks_vision_message(
             tool_selection=ToolSelection(tools=[], reasoning="direct"),
         )
     )
-    result = await handler.execute(request)
+    with language_context("zh"):
+        result = await handler.execute(request)
 
     assert "当前核心模型不支持图片输入" in result.response_text
 

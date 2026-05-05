@@ -9,7 +9,7 @@ import pytest
 
 from magi.memory.l3.models import TemporalEvidenceItem, TemporalEvidencePack
 from magi.memory.l3.temporal_llm_service import TemporalSummaryLLMService
-from magi_plugin_sdk.i18n import set_current_language
+from magi.i18n import set_current_language
 
 
 def test_temporal_evidence_pack_keeps_window_and_event_ids() -> None:
@@ -144,8 +144,8 @@ def test_parse_temporal_llm_output_rejects_english_when_target_is_zh(monkeypatch
         ],
     )
     monkeypatch.setattr(
-        "magi.memory.l3.temporal_llm_service.get_user_preference",
-        lambda key, default=None: "zh" if key == "language" else default,
+        "magi.i18n.get_preferred_language",
+        lambda default="en": "zh-CN",
     )
 
     with pytest.raises(ValueError, match="target language"):
@@ -284,8 +284,8 @@ async def test_generate_temporal_candidate_falls_back_on_language_mismatch(monke
         source_distribution={"chrome_history": 1, "git_activity": 1},
     )
     monkeypatch.setattr(
-        "magi.memory.l3.temporal_llm_service.get_user_preference",
-        lambda key, default=None: "zh" if key == "language" else default,
+        "magi.i18n.get_preferred_language",
+        lambda default="en": "zh-CN",
     )
 
     async def _english_call(_pack, **_kwargs):  # type: ignore[no-untyped-def]
@@ -594,8 +594,8 @@ def test_zh_week_fallback_is_theme_first_and_hides_debug_stats(monkeypatch: pyte
         },
     )
     monkeypatch.setattr(
-        "magi.memory.l3.temporal_llm_service.get_user_preference",
-        lambda key, default=None: "zh" if key == "language" else default,
+        "magi.i18n.get_preferred_language",
+        lambda default="en": "zh-CN",
     )
 
     content = service._build_fallback_result(pack, "raw fallback").candidate.content
@@ -641,8 +641,8 @@ def test_render_temporal_summary_prompt_prefers_user_language(monkeypatch: pytes
         events=[TemporalEvidenceItem(event_id="evt-1", event_type="TimelineEvent", content="Visited Gmail")],
     )
     monkeypatch.setattr(
-        "magi.memory.l3.temporal_llm_service.get_user_preference",
-        lambda key, default=None: "zh" if key == "language" else default,
+        "magi.i18n.get_preferred_language",
+        lambda default="en": "zh-CN",
     )
 
     try:
@@ -659,8 +659,8 @@ def test_temporal_summary_system_prompt_includes_target_language(monkeypatch: py
     from magi.memory.l3.temporal_llm_service import _render_temporal_summary_system_prompt
 
     monkeypatch.setattr(
-        "magi.memory.l3.temporal_llm_service.get_user_preference",
-        lambda key, default=None: "zh" if key == "language" else default,
+        "magi.i18n.get_preferred_language",
+        lambda default="en": "zh-CN",
     )
 
     system_prompt = _render_temporal_summary_system_prompt()
