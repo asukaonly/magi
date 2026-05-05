@@ -30,6 +30,8 @@ async def handle_l2_entity_maintenance(
     memory_cfg = get_config().agent.memory
     if not memory_cfg.l2.enabled:
         return ScheduledExecutionResult(success=True, message="l2_disabled_skip", stats={})
+    if not memory_cfg.l2.maintenance_enabled:
+        return ScheduledExecutionResult(success=True, message="l2_maintenance_disabled_skip", stats={})
 
     try:
         unified = get_unified_memory()
@@ -74,25 +76,20 @@ class L2MaintenanceScheduleContrib:
     async def register_schedules(self, scheduler: SchedulerService) -> None:
         scheduler.register_handler(ScheduledTargetType.MEMORY_L2_MAINTENANCE, handle_l2_entity_maintenance)
         l2_cfg = get_config().agent.memory.l2
-        if l2_cfg.maintenance_enabled:
-            await scheduler.schedule_interval(
-                schedule_id=SCHEDULE_ID_L2_MAINTENANCE,
-                target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
-                target_key=TARGET_KEY_L2_MAINTENANCE,
-                seconds=float(l2_cfg.maintenance_interval_seconds),
-                target_payload={},
-            )
-            logger.info(
-                "L2 maintenance schedule registered",
-                interval_seconds=l2_cfg.maintenance_interval_seconds,
-            )
-        else:
-            await scheduler.unschedule(
-                SCHEDULE_ID_L2_MAINTENANCE,
-                target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
-                target_key=TARGET_KEY_L2_MAINTENANCE,
-            )
-            logger.info("L2 maintenance schedule disabled by config")
+        # The schedule is always written so runtime toggling of l2.enabled /
+        # maintenance_enabled takes effect without a restart. The handler is
+        # responsible for skipping work when the layer is off.
+        await scheduler.schedule_interval(
+            schedule_id=SCHEDULE_ID_L2_MAINTENANCE,
+            target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
+            target_key=TARGET_KEY_L2_MAINTENANCE,
+            seconds=float(l2_cfg.maintenance_interval_seconds),
+            target_payload={},
+        )
+        logger.info(
+            "L2 maintenance schedule registered",
+            interval_seconds=l2_cfg.maintenance_interval_seconds,
+        )
 
     async def unregister_schedules(self, scheduler: SchedulerService) -> None:
         await scheduler.unschedule(

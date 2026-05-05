@@ -34,6 +34,9 @@ def test_register_api_routes_keeps_only_supported_public_surfaces() -> None:
     assert "/api/plugins" in paths
     assert "/api/plugins/{plugin_id}/update" in paths
     assert "/api/plugins/{plugin_id}/settings/resources/{resource_name}" in paths
+    assert "/api/plugins/{plugin_id}/settings/actions/{action_id}/start" in paths
+    assert "/api/plugins/{plugin_id}/settings/actions/{action_id}/sessions/{session_id}/poll" in paths
+    assert "/api/plugins/{plugin_id}/settings/actions/{action_id}/sessions/{session_id}/cancel" in paths
     assert "/api/sensors/status" in paths
     assert "/api/sensors/{source_name}/flush-state" in paths
     assert "/api/sensors/{source_name}/authorize" in paths

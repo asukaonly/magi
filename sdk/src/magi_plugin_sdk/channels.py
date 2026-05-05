@@ -77,9 +77,27 @@ class ChannelMessageDispatchOutcome:
     user_id: str
     session_id: str | None = None
     turn_id: str | None = None
+    message_id: str | None = None
     error_code: str | None = None
     error_message: str | None = None
     queue_size: int | None = None
+
+
+@runtime_checkable
+class ChannelAttachmentStoreProtocol(Protocol):
+    """Host-provided storage facade for channel-owned inbound attachments."""
+
+    async def store_attachment(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        kind: str,
+        original_name: str,
+        content: bytes,
+        mime_type: str,
+    ) -> dict[str, Any]:
+        """Persist one attachment and return a chat attachment payload."""
 
 
 @runtime_checkable
@@ -186,10 +204,15 @@ class Channel(ABC):
         """Inject the host-provided inbound message dispatcher after construction."""
         _ = dispatcher
 
+    def bind_attachment_store(self, attachment_store: ChannelAttachmentStoreProtocol) -> None:
+        """Inject the host-provided attachment store after construction."""
+        _ = attachment_store
+
 
 __all__ = [
     "Channel",
     "ChannelConfig",
+    "ChannelAttachmentStoreProtocol",
     "ChannelMessageDispatcherProtocol",
     "ChannelMessageDispatchOutcome",
     "ChannelSessionMapperProtocol",

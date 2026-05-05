@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any, Literal
 import logging
 
+from ... import i18n as core_i18n
 from ...plugins.provider import resolve_plugin_manager
 
 logger = logging.getLogger(__name__)
@@ -292,7 +293,11 @@ async def get_tool_config(tool_name: str):
     if not tool:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Tool {tool_name} not found",
+            detail=core_i18n.t(
+                "tools.errors.not_found",
+                fallback="Tool {tool_name} not found",
+                tool_name=tool_name,
+            ),
         )
 
     return _build_tool_config_response(tool_name, tool)
@@ -317,7 +322,11 @@ async def update_tool_config(tool_name: str, request: ToolConfigUpdateRequest):
     if not tool:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Tool {tool_name} not found",
+            detail=core_i18n.t(
+                "tools.errors.not_found",
+                fallback="Tool {tool_name} not found",
+                tool_name=tool_name,
+            ),
         )
 
     # Build config updates with full path
@@ -332,7 +341,10 @@ async def update_tool_config(tool_name: str, request: ToolConfigUpdateRequest):
         config_updates[full_path] = request.enabled
 
     if not config_updates:
-        return {"success": True, "message": "No updates to apply"}
+        return {
+            "success": True,
+            "message": core_i18n.t("tools.config.no_updates", fallback="No updates to apply"),
+        }
 
     # Save configuration
     if save_config(config_updates):
@@ -347,12 +359,16 @@ async def update_tool_config(tool_name: str, request: ToolConfigUpdateRequest):
 
         return {
             "success": True,
-            "message": f"Tool {tool_name} configuration updated",
+            "message": core_i18n.t(
+                "tools.config.updated",
+                fallback="Tool {tool_name} configuration updated",
+                tool_name=tool_name,
+            ),
             "updated_keys": list(request.updates.keys()),
         }
 
     return {
         "success": False,
-        "message": "Failed to save configuration",
+        "message": core_i18n.t("tools.config.save_failed", fallback="Failed to save configuration"),
     }
 

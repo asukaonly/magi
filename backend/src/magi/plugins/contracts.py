@@ -14,6 +14,8 @@ from magi_plugin_sdk.contracts import (  # noqa: F401
     PluginPackageState,
     PluginRegistryEntry,
     PluginRegistryIndex,
+    PluginSettingsActionResult,
+    PluginSettingsActionSpec,
     PluginSettingsResourcePayload,
     PluginSettingsResourceSpec,
     SettingsUIBlockSpec,

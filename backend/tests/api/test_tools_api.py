@@ -1,6 +1,7 @@
 """Tests for tool router route matching."""
 
 import pytest
+from fastapi import HTTPException
 from starlette.routing import Match
 
 import magi.config as config_module
@@ -12,6 +13,7 @@ from magi.api.routers.tools import (
     update_tool_config,
 )
 from magi.config.models import AppConfig
+from magi.i18n import language_context
 from magi.tools.builtin.weather_tool import WeatherTool
 from magi.tools.builtin.web_search_tool import WebSearchTool
 from magi.tools.builtin.web_fetch_tool import WebFetchTool
@@ -97,10 +99,36 @@ async def test_update_tool_config_returns_success_without_logger_crash(monkeypat
     monkeypatch.setattr(config_module, "save_config", lambda updates: True)
     monkeypatch.setattr(config_module, "reload_config", lambda: None)
 
-    response = await update_tool_config(
-        "web-search",
-        ToolConfigUpdateRequest(updates={"default_provider": "duckduckgo"}),
-    )
+    with language_context("en"):
+        response = await update_tool_config(
+            "web-search",
+            ToolConfigUpdateRequest(updates={"default_provider": "duckduckgo"}),
+        )
 
     assert response["success"] is True
+    assert response["message"] == "Tool web-search configuration updated"
     assert response["updated_keys"] == ["default_provider"]
+
+
+@pytest.mark.asyncio
+async def test_update_tool_config_returns_localized_no_updates() -> None:
+    with language_context("zh-CN"):
+        response = await update_tool_config(
+            "web-search",
+            ToolConfigUpdateRequest(updates={}),
+        )
+
+    assert response == {"success": True, "message": "没有需要应用的更新"}
+
+
+@pytest.mark.asyncio
+async def test_update_tool_config_returns_localized_not_found() -> None:
+    with language_context("zh-CN"):
+        with pytest.raises(HTTPException) as exc_info:
+            await update_tool_config(
+                "missing-tool",
+                ToolConfigUpdateRequest(updates={"enabled": True}),
+            )
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "未找到工具：missing-tool"

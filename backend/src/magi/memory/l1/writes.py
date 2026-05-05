@@ -85,8 +85,9 @@ class L1EventWriteMixin:
                     cognition_eligible, tom_depth, retention_class, session_id, turn_id, user_id,
                     task_id, content, author_type, content_type, importance_score,
                     level, media_path, metadata_json, embedding_status, embedding_profile_id,
-                    embedding_chunk_count, last_embedded_at, deleted_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    embedding_chunk_count, last_embedded_at, deleted_at,
+                    causation_id, trace_id, span_id, parent_span_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     event.event_id,
@@ -118,6 +119,10 @@ class L1EventWriteMixin:
                     0,
                     None,
                     None,
+                    event.causation_id,
+                    event.trace_id,
+                    event.span_id,
+                    event.parent_span_id,
                 ),
             )
             inserted = cursor.rowcount > 0

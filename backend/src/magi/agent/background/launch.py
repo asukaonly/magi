@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any, Callable
 import structlog
 
 from ..cancel import CancelToken
+from ..turn_input import UserTurnInput
 from .contracts import (
     BackgroundTask,
     BackgroundTaskSpec,
@@ -251,7 +252,12 @@ def build_background_run_fn(
             user_message = spec.goal
             conversation_history = []
         outcome = await function_calling_orchestrator.execute_with_tools(
-            user_message=user_message,
+            turn=UserTurnInput(
+                text=user_message,
+                attachments=[],
+                user_id=spec.user_id,
+                session_id=spec.session_id or None,
+            ),
             system_prompt="",
             selected_tools=list(spec.selected_tools),
             user_id=spec.user_id,

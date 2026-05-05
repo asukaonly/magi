@@ -5,9 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from magi_plugin_sdk.i18n import get_current_language
-
-from ...config.loader import get_user_preference
+from ...i18n import is_effective_zh_language
 
 
 _TRAIT_LABELS_ZH = {
@@ -44,9 +42,7 @@ _TRAIT_GROUP_LABELS_EN = {
 
 def wants_zh() -> bool:
     """Return whether generated user-facing insight text should use zh-CN."""
-    preferred = get_user_preference("language", None)
-    language = str(preferred or get_current_language() or "en").lower()
-    return language.startswith("zh")
+    return is_effective_zh_language(default="en")
 
 
 def trait_label(trait_name: str, *, zh: bool) -> str:

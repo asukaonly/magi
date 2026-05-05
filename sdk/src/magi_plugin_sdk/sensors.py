@@ -83,6 +83,13 @@ class SensorMemoryPolicy:
     author_type: str = "external"
     content_type: str = "observation"
 
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "SensorMemoryPolicy":
+        return cls(**data)
+
 
 @dataclass(slots=True)
 class SensorOutput:

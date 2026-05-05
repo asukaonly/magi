@@ -10,7 +10,7 @@ class _FakeTimelineService:
         self.viewport_calls = []
         self.context_calls = []
 
-    async def get_viewport(self, *, scale, start, end, query=None, timezone=None, focus="self"):
+    async def get_viewport(self, *, scale, start, end, query=None, timezone=None, focus="self", locale="en"):
         self.viewport_calls.append(
             {
                 "scale": scale,
@@ -19,6 +19,7 @@ class _FakeTimelineService:
                 "query": query,
                 "timezone": timezone,
                 "focus": focus,
+                "locale": locale,
             }
         )
         payload = {
@@ -29,6 +30,7 @@ class _FakeTimelineService:
                 "focus": focus,
                 "query": query,
                 "timezone": timezone,
+                "locale": locale,
             },
             "summary": {
                 "cluster_count": 1 if scale in {"week", "day"} else 0,
@@ -176,7 +178,7 @@ def test_get_timeline_viewport_returns_month_reflections(monkeypatch):
 
     response = client.get(
         "/api/timeline/viewport",
-        params={"scale": "month", "start": 1710000000, "end": 1712592000, "timezone": "Asia/Shanghai"},
+        params={"scale": "month", "start": 1710000000, "end": 1712592000, "timezone": "Asia/Shanghai", "locale": "zh-CN"},
     )
 
     assert response.status_code == 200
@@ -186,6 +188,7 @@ def test_get_timeline_viewport_returns_month_reflections(monkeypatch):
     assert body["state_bands"][0]["band_id"] == "band-1"
     assert service.viewport_calls[0]["scale"] == "month"
     assert service.viewport_calls[0]["timezone"] == "Asia/Shanghai"
+    assert service.viewport_calls[0]["locale"] == "zh-CN"
 
 
 def test_get_timeline_viewport_returns_day_clusters(monkeypatch):

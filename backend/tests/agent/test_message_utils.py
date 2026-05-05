@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 from magi.agent.message_utils import append_latest_user_message
+from magi.agent.turn_input import UserTurnInput
+
+
+def _turn(text: str) -> UserTurnInput:
+    return UserTurnInput(text=text, attachments=[], user_id=None, session_id=None)
 
 
 def test_append_latest_user_message_without_limit_keeps_full_short_history() -> None:
@@ -13,7 +18,7 @@ def test_append_latest_user_message_without_limit_keeps_full_short_history() -> 
 
     messages = append_latest_user_message(
         history,
-        "message 3",
+        _turn("message 3"),
         history_token_budget=10_000,
     )
 
@@ -36,7 +41,7 @@ def test_append_latest_user_message_adds_origin_anchor_when_head_is_trimmed() ->
 
     messages = append_latest_user_message(
         history,
-        "current question",
+        _turn("current question"),
         history_token_budget=120,
     )
 
@@ -56,7 +61,7 @@ def test_append_latest_user_message_keeps_legacy_limit_when_explicit() -> None:
 
     messages = append_latest_user_message(
         history,
-        "message 3",
+        _turn("message 3"),
         history_limit=1,
     )
 

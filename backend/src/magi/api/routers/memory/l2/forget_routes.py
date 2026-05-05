@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import HTTPException, status
 
 from ..dependencies import _resolve_unified_memory
+from ..helpers import memory_t
 from ..router import memory_router
 from ..schemas import ForgetEntityRequest, ForgetEpisodeRequest, ForgetTimeRangeRequest
 
@@ -14,10 +15,13 @@ async def reject_l2_edge(triple_id: str):
     """User-initiated rejection of a KG edge."""
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="L2 store not initialized")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t("memory.errors.l2_store_uninitialized", "L2 store not initialized"),
+        )
     result = await unified_memory.l2.reject_edge(triple_id=triple_id)
     if result is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Edge not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=memory_t("memory.errors.edge_not_found", "Edge not found"))
     return result
 
 
@@ -26,7 +30,10 @@ async def forget_entity(body: ForgetEntityRequest):
     """Cascade forget: invalidate all L2 records derived from an entity."""
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="L2 store not initialized")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t("memory.errors.l2_store_uninitialized", "L2 store not initialized"),
+        )
 
     l2_counts = await unified_memory.l2.forget_entity(entity_id=body.entity_id)
 
@@ -45,11 +52,17 @@ async def forget_entity(body: ForgetEntityRequest):
 async def forget_time_range(body: ForgetTimeRangeRequest):
     """Cascade forget: invalidate L2 records inferred during a time range."""
     if body.end <= body.start:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="end must be greater than start")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=memory_t("memory.errors.end_must_be_greater_than_start", "end must be greater than start"),
+        )
 
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="L2 store not initialized")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t("memory.errors.l2_store_uninitialized", "L2 store not initialized"),
+        )
 
     l2_counts = await unified_memory.l2.forget_time_range(start=body.start, end=body.end)
 
@@ -69,14 +82,17 @@ async def forget_episode(body: ForgetEpisodeRequest):
     """Invalidate a specific episode and optionally its member events."""
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="L2 store not initialized")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t("memory.errors.l2_store_uninitialized", "L2 store not initialized"),
+        )
 
     result = await unified_memory.l2.forget_episode(
         episode_id=body.episode_id,
         delete_events=body.delete_events,
     )
     if result is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Episode not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=memory_t("memory.errors.episode_not_found", "Episode not found"))
 
     l1_deleted = 0
     if body.delete_events and unified_memory.l1 is not None:

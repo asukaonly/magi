@@ -22,6 +22,7 @@ interface UseSettingsPluginsTimelineReturn {
   setDraftPluginDrafts: Dispatch<SetStateAction<PluginDraftMap>>;
   handlePluginDraftChange: (pluginId: string, key: string, value: unknown) => void;
   handlePluginDraftChanges: (pluginId: string, updates: Record<string, unknown>) => void;
+  applyPersistedPluginSettings: (pluginId: string, updates: Record<string, unknown>) => void;
   handlePluginAction: (pluginId: string, action: 'enable' | 'disable' | 'reload') => Promise<void>;
   handleReloadActionPlugin: (pluginId: string) => Promise<void>;
   loadPlugins: (options?: { silent?: boolean }) => Promise<void>;
@@ -106,6 +107,37 @@ export function useSettingsPluginsTimeline(): UseSettingsPluginsTimelineReturn {
     }));
   }, []);
 
+  const applyPersistedPluginSettings = useCallback((pluginId: string, updates: Record<string, unknown>) => {
+    setSavedPluginDrafts((prev) => ({
+      ...prev,
+      [pluginId]: {
+        ...(prev[pluginId] || {}),
+        ...updates,
+      },
+    }));
+    setDraftPluginDrafts((prev) => ({
+      ...prev,
+      [pluginId]: {
+        ...(prev[pluginId] || {}),
+        ...updates,
+      },
+    }));
+    setPlugins((prev) =>
+      prev.map((plugin) => {
+        if (plugin.manifest.plugin_id !== pluginId) {
+          return plugin;
+        }
+        return {
+          ...plugin,
+          current_settings: {
+            ...plugin.current_settings,
+            ...updates,
+          },
+        };
+      })
+    );
+  }, []);
+
   const handlePluginAction = useCallback(async (pluginId: string, action: 'enable' | 'disable' | 'reload') => {
     setPluginProcessingIds((prev) => ({ ...prev, [pluginId]: action }));
     try {
@@ -162,6 +194,7 @@ export function useSettingsPluginsTimeline(): UseSettingsPluginsTimelineReturn {
     setDraftPluginDrafts,
     handlePluginDraftChange,
     handlePluginDraftChanges,
+    applyPersistedPluginSettings,
     handlePluginAction,
     handleReloadActionPlugin,
     loadPlugins,

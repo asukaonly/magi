@@ -17,6 +17,7 @@ logger = get_logger(__name__)
 
 # Notification channels that carry response content for external delivery.
 _RESPONSE_CHANNELS = frozenset({"agent_response", "agent_response_chunk"})
+_RELAY_CURSOR_KEY = "notification_relay"
 
 
 class NotificationRelay:
@@ -41,7 +42,10 @@ class NotificationRelay:
 
     async def run(self) -> None:
         self._running = True
-        self._cursor = await self._trace_store.get_latest_notification_id()
+        self._cursor = await self._session_mapper.get_relay_cursor(_RELAY_CURSOR_KEY)
+        if self._cursor <= 0:
+            self._cursor = await self._trace_store.get_latest_notification_id()
+            await self._session_mapper.update_relay_cursor(_RELAY_CURSOR_KEY, self._cursor)
         logger.info("Notification relay started", cursor=self._cursor)
         while self._running:
             try:
@@ -61,19 +65,33 @@ class NotificationRelay:
             after_id=self._cursor, limit=100
         )
         for notif in notifications:
-            self._cursor = max(self._cursor, notif.notification_id)
             if notif.channel not in _RESPONSE_CHANNELS:
+                await self._advance_cursor(notif.notification_id)
                 continue
-            await self._dispatch_notification(notif)
+            delivered = await self._dispatch_notification(notif)
+            if not delivered:
+                return
+            await self._advance_cursor(notif.notification_id)
 
-    async def _dispatch_notification(self, notif: RuntimeNotificationRecord) -> None:
+    async def _advance_cursor(self, notification_id: int) -> None:
+        self._cursor = max(self._cursor, notification_id)
+        await self._session_mapper.update_relay_cursor(_RELAY_CURSOR_KEY, self._cursor)
+
+    async def _dispatch_notification(self, notif: RuntimeNotificationRecord) -> bool:
         mapping = await self._session_mapper.lookup_by_session(notif.session_id)
         if mapping is None:
-            return  # Not a channel-owned session
+            return True
 
         channel = self._registry.get(mapping.channel_type)
         if channel is None:
-            return
+            return True
+
+        delivered_cursor = await self._session_mapper.get_notification_cursor(
+            mapping.channel_type,
+            mapping.external_chat_id,
+        )
+        if notif.notification_id <= delivered_cursor:
+            return True
 
         target = ChannelTarget(
             channel_type=mapping.channel_type,
@@ -83,15 +101,22 @@ class NotificationRelay:
         try:
             payload: dict[str, Any] = json.loads(notif.payload_json)
         except (json.JSONDecodeError, TypeError):
-            return
+            return True
 
         if notif.channel == "agent_response":
             content_text = str(payload.get("content") or "")
             if not content_text.strip():
-                return
-            await self._send_with_retry(
+                return True
+            delivered = await self._send_with_retry(
                 channel, target, OutboundContent(text=content_text, is_final=True)
             )
+            if delivered:
+                await self._session_mapper.update_notification_cursor(
+                    mapping.channel_type,
+                    mapping.external_chat_id,
+                    notif.notification_id,
+                )
+            return delivered
         elif notif.channel == "agent_response_chunk":
             turn_id = payload.get("turn_id") or ""
             buf_key = (notif.session_id, turn_id)
@@ -101,7 +126,7 @@ class NotificationRelay:
                 # Accumulate streaming delta
                 if delta:
                     self._chunk_buffers.setdefault(buf_key, []).append(delta)
-                return
+                return True
 
             # is_final — assemble full response from accumulated deltas
             parts = self._chunk_buffers.pop(buf_key, [])
@@ -109,16 +134,24 @@ class NotificationRelay:
                 parts.append(delta)
             content_text = "".join(parts)
             if not content_text.strip():
-                return
+                return True
             logger.debug(
                 "Delivering assembled streamed response",
                 session_id=notif.session_id,
                 turn_id=turn_id,
                 chars=len(content_text),
             )
-            await self._send_with_retry(
+            delivered = await self._send_with_retry(
                 channel, target, OutboundContent(text=content_text, is_final=True)
             )
+            if delivered:
+                await self._session_mapper.update_notification_cursor(
+                    mapping.channel_type,
+                    mapping.external_chat_id,
+                    notif.notification_id,
+                )
+            return delivered
+        return True
 
     async def _send_with_retry(
         self,
@@ -126,11 +159,17 @@ class NotificationRelay:
         target: ChannelTarget,
         content: OutboundContent,
         max_retries: int = 2,
-    ) -> None:
+    ) -> bool:
         for attempt in range(max_retries + 1):
             try:
                 await channel.send_message(target, content)
-                return
+                logger.info(
+                    "Delivered message to channel",
+                    channel_type=target.channel_type,
+                    external_chat_id=target.external_chat_id,
+                    chars=len(content.text),
+                )
+                return True
             except Exception:
                 if attempt == max_retries:
                     logger.exception(
@@ -138,5 +177,7 @@ class NotificationRelay:
                         channel_type=target.channel_type,
                         external_chat_id=target.external_chat_id,
                     )
+                    return False
                 else:
                     await asyncio.sleep(0.5 * (attempt + 1))
+        return False

@@ -21,6 +21,7 @@ interface SettingsIntegrationsSectionProps {
   channelsSelection: string | null;
   setChannelsSelection: Dispatch<SetStateAction<string | null>>;
   handlePluginDraftChange: (pluginId: string, key: string, value: unknown) => void;
+  applyPersistedPluginSettings: (pluginId: string, updates: Record<string, unknown>) => void;
   handlePluginAction: (pluginId: string, action: 'enable' | 'disable' | 'reload') => Promise<void>;
   handleReloadActionPlugin: (pluginId: string) => Promise<void>;
   loadPlugins: (options?: { silent?: boolean }) => Promise<void>;
@@ -38,6 +39,7 @@ export function SettingsIntegrationsSection({
   channelsSelection,
   setChannelsSelection,
   handlePluginDraftChange,
+  applyPersistedPluginSettings,
   handlePluginAction,
   handleReloadActionPlugin,
   loadPlugins,
@@ -80,6 +82,8 @@ export function SettingsIntegrationsSection({
           selectedContributionId={channelsSelection}
           onSelectContribution={setChannelsSelection}
           onFieldChange={handlePluginDraftChange}
+          onSettingsActionUpdates={applyPersistedPluginSettings}
+          onRefreshPlugins={() => loadPlugins({ silent: true })}
           onReloadPlugin={handleReloadActionPlugin}
           onPluginAction={handlePluginAction}
           reloading={reloadingActionPlugins}

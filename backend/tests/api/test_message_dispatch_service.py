@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import pytest
 
 from magi.api.services import message_dispatch_service as service
+from magi.i18n import language_context
 
 
 class _FakeBus:
@@ -279,16 +280,40 @@ async def test_dispatch_user_message_rejects_empty_turn_without_text_or_attachme
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
     monkeypatch.setattr(service, "get_chat_store", lambda: chat_store)
 
-    outcome = await service.dispatch_user_message(
-        source="api",
-        user_id="u1",
-        message="   ",
-        session_id="session-for-u1",
-        attachments=[],
-    )
+    with language_context("en"):
+        outcome = await service.dispatch_user_message(
+            source="api",
+            user_id="u1",
+            message="   ",
+            session_id="session-for-u1",
+            attachments=[],
+        )
 
     assert outcome.success is False
     assert outcome.error_message == "Message text or attachments are required."
+    assert queue.commands == []
+
+
+@pytest.mark.asyncio
+async def test_dispatch_user_message_rejects_empty_turn_in_zh_cn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queue = _FakeRuntimeCommandQueue()
+    chat_store = _FakeChatStore()
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "get_chat_store", lambda: chat_store)
+
+    with language_context("zh-CN"):
+        outcome = await service.dispatch_user_message(
+            source="api",
+            user_id="u1",
+            message="   ",
+            session_id="session-for-u1",
+            attachments=[],
+        )
+
+    assert outcome.success is False
+    assert outcome.error_message == "请输入消息或添加附件。"
     assert queue.commands == []
 
 

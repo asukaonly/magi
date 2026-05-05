@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from magi.channels import Channel as BackendChannel
 from magi.channels import ChannelConfig as BackendChannelConfig
+from magi.channels import ChannelAttachmentStoreProtocol as BackendChannelAttachmentStoreProtocol
 from magi.channels import ChannelMessageDispatcherProtocol as BackendChannelMessageDispatcherProtocol
 from magi.channels import ChannelMessageDispatchOutcome as BackendChannelMessageDispatchOutcome
 from magi.channels import ChannelSessionMapperProtocol as BackendChannelSessionMapperProtocol
@@ -13,6 +14,7 @@ from magi.channels.contracts import ChannelMessageDispatcherProtocol as BackendC
 from magi.channels.contracts import ChannelMessageDispatchOutcome as BackendChannelContractsMessageDispatchOutcome
 from magi_plugin_sdk.channels import Channel as SdkChannel
 from magi_plugin_sdk.channels import ChannelConfig as SdkChannelConfig
+from magi_plugin_sdk.channels import ChannelAttachmentStoreProtocol as SdkChannelAttachmentStoreProtocol
 from magi_plugin_sdk.channels import ChannelMessageDispatcherProtocol as SdkChannelMessageDispatcherProtocol
 from magi_plugin_sdk.channels import ChannelMessageDispatchOutcome as SdkChannelMessageDispatchOutcome
 from magi_plugin_sdk.channels import ChannelSessionMapperProtocol as SdkChannelSessionMapperProtocol
@@ -98,9 +100,25 @@ class StubChannelMessageDispatcher:
         return SdkChannelMessageDispatchOutcome(success=True, user_id=user_id)
 
 
+class StubChannelAttachmentStore:
+    async def store_attachment(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        kind: str,
+        original_name: str,
+        content: bytes,
+        mime_type: str,
+    ) -> dict[str, object]:
+        _ = session_id, turn_id, kind, original_name, content, mime_type
+        return {"attachment_id": "att_test", "kind": "file"}
+
+
 def test_backend_channel_contracts_reexport_sdk_symbols() -> None:
     assert BackendChannel is SdkChannel
     assert BackendChannelConfig is SdkChannelConfig
+    assert BackendChannelAttachmentStoreProtocol is SdkChannelAttachmentStoreProtocol
     assert BackendChannelMessageDispatcherProtocol is SdkChannelMessageDispatcherProtocol
     assert BackendChannelMessageDispatchOutcome is SdkChannelMessageDispatchOutcome
     assert BackendChannelContractsMessageDispatcherProtocol is SdkChannelMessageDispatcherProtocol
@@ -118,3 +136,7 @@ def test_channel_session_mapper_protocol_supports_structural_typing() -> None:
 
 def test_channel_message_dispatcher_protocol_supports_structural_typing() -> None:
     assert isinstance(StubChannelMessageDispatcher(), SdkChannelMessageDispatcherProtocol)
+
+
+def test_channel_attachment_store_protocol_supports_structural_typing() -> None:
+    assert isinstance(StubChannelAttachmentStore(), SdkChannelAttachmentStoreProtocol)

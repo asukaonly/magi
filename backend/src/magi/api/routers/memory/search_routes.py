@@ -10,6 +10,7 @@ from magi.memory.hybrid_retrieval import build_query
 from magi.runtime_defaults import DEFAULT_USER_ID
 
 from .dependencies import _resolve_hybrid_retrieval_service
+from .helpers import memory_t
 from .router import memory_router
 from .schemas import RetrievalRequest
 
@@ -20,7 +21,10 @@ async def search_memory(request: RetrievalRequest):
     if retrieval_service is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Hybrid retrieval service not initialized",
+            detail=memory_t(
+                "memory.errors.hybrid_retrieval_uninitialized",
+                "Hybrid retrieval service not initialized",
+            ),
         )
 
     payload = await retrieval_service.query(

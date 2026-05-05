@@ -20,6 +20,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
+from ... import i18n as core_i18n
 from ...agent.background import BackgroundTaskStatus
 from ...agent.background.provider import resolve_background_task_manager
 
@@ -32,7 +33,10 @@ def _get_manager():
     except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Background task manager unavailable",
+            detail=core_i18n.t(
+                "background_tasks.errors.manager_unavailable",
+                fallback="Background task manager unavailable",
+            ),
         ) from exc
 
 
@@ -57,7 +61,11 @@ async def list_background_tasks(
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid status filter: {exc}",
+                detail=core_i18n.t(
+                    "background_tasks.errors.invalid_status_filter",
+                    fallback="Invalid status filter: {error}",
+                    error=str(exc),
+                ),
             ) from exc
     tasks = await manager.store.list_tasks(
         user_id=user_id,
@@ -80,7 +88,11 @@ async def get_background_task(task_id: str) -> dict[str, Any]:
     if task is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Background task not found: {task_id}",
+            detail=core_i18n.t(
+                "background_tasks.errors.not_found",
+                fallback="Background task not found: {task_id}",
+                task_id=task_id,
+            ),
         )
     events = await manager.store.list_events(task_id)
     return {
@@ -108,11 +120,19 @@ async def cancel_background_task(
         if task is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Background task not found: {task_id}",
+                detail=core_i18n.t(
+                    "background_tasks.errors.not_found",
+                    fallback="Background task not found: {task_id}",
+                    task_id=task_id,
+                ),
             )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Background task not cancellable in status: {task.status.value}",
+            detail=core_i18n.t(
+                "background_tasks.errors.not_cancellable_status",
+                fallback="Background task not cancellable in status: {status}",
+                status=task.status.value,
+            ),
         )
     task = await manager.store.get_task(task_id)
     return {"task": _serialize_task(task) if task is not None else None}
@@ -128,11 +148,19 @@ async def retry_background_task(task_id: str) -> dict[str, Any]:
         if existing is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Background task not found: {task_id}",
+                detail=core_i18n.t(
+                    "background_tasks.errors.not_found",
+                    fallback="Background task not found: {task_id}",
+                    task_id=task_id,
+                ),
             )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Background task not retriable in status: {existing.status.value}",
+            detail=core_i18n.t(
+                "background_tasks.errors.not_retriable_status",
+                fallback="Background task not retriable in status: {status}",
+                status=existing.status.value,
+            ),
         )
     return {"task": _serialize_task(task)}
 
@@ -149,7 +177,11 @@ async def dismiss_background_task(task_id: str) -> dict[str, Any]:
     if existing is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Background task not found: {task_id}",
+            detail=core_i18n.t(
+                "background_tasks.errors.not_found",
+                fallback="Background task not found: {task_id}",
+                task_id=task_id,
+            ),
         )
     terminal = {
         BackgroundTaskStatus.SUCCEEDED,
@@ -159,7 +191,11 @@ async def dismiss_background_task(task_id: str) -> dict[str, Any]:
     if existing.status not in terminal:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Background task not dismissable in status: {existing.status.value}",
+            detail=core_i18n.t(
+                "background_tasks.errors.not_dismissable_status",
+                fallback="Background task not dismissable in status: {status}",
+                status=existing.status.value,
+            ),
         )
     deleted = await manager.store.delete_task(task_id)
     return {"deleted": bool(deleted), "task_id": task_id}

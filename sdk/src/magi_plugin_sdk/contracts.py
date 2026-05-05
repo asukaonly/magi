@@ -68,11 +68,45 @@ class SettingsUIBlockSpec(BaseModel):
     depends_on_values: list[str] = Field(default_factory=list)
 
 
+class PluginSettingsActionSpec(BaseModel):
+    """Host-rendered settings action declared by a plugin.
+
+    The host owns routing and UI chrome, while the plugin owns the action
+    implementation and any provider-specific protocol details.
+    """
+
+    action_id: str
+    label: str
+    description: str = ""
+    button_label: str = "Run"
+    presentation: Literal["inline", "qr_code"] = "inline"
+    surface: Literal["extensions", "tools", "timeline"] = "extensions"
+    contribution_id: str = ""
+    contribution_type: ContributionType | None = None
+    order: int = 0
+    destructive: bool = False
+    requires_enabled: bool = True
+    poll_interval_ms: int = 2_000
+    timeout_ms: int = 480_000
+    persist_settings_on_success: bool = False
+    depends_on_key: Optional[str] = None
+    depends_on_values: list[str] = Field(default_factory=list)
+
+
+class PluginSettingsActionResult(BaseModel):
+    """Result returned by a plugin settings action invocation."""
+
+    status: Literal["pending", "succeeded", "failed", "cancelled"] = "succeeded"
+    message: str = ""
+    data: dict[str, Any] = Field(default_factory=dict)
+    settings_updates: dict[str, Any] = Field(default_factory=dict)
+
+
 class PluginSettingsResourceSpec(BaseModel):
     """Read-only settings resource exposed by a plugin."""
 
     resource_name: str
-    resource_type: Literal["collection"] = "collection"
+    resource_type: Literal["collection", "channel_status"] = "collection"
     description: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
 

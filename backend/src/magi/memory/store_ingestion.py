@@ -9,6 +9,8 @@ from typing import Any, Dict, Optional
 from ..events.events import Event, EventLevel, EventTypes
 from .event_contracts import MemoryEvent, normalize_runtime_event
 from .l2.models import ManualL2EventRequest
+from .layer_protocol import FanOutContext, MemoryLayer, WILDCARD_EVENT_TYPES
+from .layers import L0Layer, L1Layer, L2PipelineLayer, L2ProjectionLayer, L4Layer
 
 logger = logging.getLogger(__name__)
 
@@ -43,97 +45,74 @@ class MemoryIngestionMixin:
                 memory_event.user_id,
                 memory_event.correlation_id,
             )
-        l2_result = {"relation_count": 0, "assertion_count": 0}
-        l4_skill_id: Optional[str] = None
-        l1_written = False
-        stored_event_id = memory_event.event_id
-        l2_job_enqueued = False
+
+        ctx = FanOutContext()
+        layers = self._build_layers_in_order()
+        locked_layers = [layer for layer in layers if layer.requires_write_lock]
+        deferred_layers = [layer for layer in layers if not layer.requires_write_lock]
 
         async with self._write_lock:
-            if self.l0 is not None:
-                await self.l0.capture_event(memory_event)
-
-            if self.l1 is not None and memory_event.ingest_target.includes_l1:
-                finder = getattr(self.l1, "find_event_id_by_idempotency", None)
-                existing_event_id = None
-                if callable(finder):
-                    existing_event_id = await finder(
-                        source=memory_event.source,
-                        event_type=memory_event.event_type,
-                        idempotency_key=memory_event.idempotency_key,
-                    )
-                if existing_event_id is not None:
-                    stored_event_id = existing_event_id
-                else:
-                    stored_event_id = await self.l1.store(memory_event)
-                    l1_written = True
-                if memory_event.event_type in MEMORY_INGEST_DIAGNOSTIC_EVENT_TYPES:
+            for layer in locked_layers:
+                await self._dispatch_layer(layer, memory_event, ctx)
+                if (
+                    layer.layer_name == "l1"
+                    and ctx.markers.get("stored_event_id") is not None
+                    and memory_event.event_type in MEMORY_INGEST_DIAGNOSTIC_EVENT_TYPES
+                ):
                     logger.info(
                         "UnifiedMemory stored event in L1 | event_id=%s type=%s session_id=%s user_id=%s",
-                        stored_event_id,
+                        ctx.markers.get("stored_event_id"),
                         memory_event.event_type,
                         memory_event.session_id,
                         memory_event.user_id,
                     )
-                if self.l2 is not None and memory_event.cognition_eligible:
-                    l2_job_enqueued = await self.l2.enqueue_projection_job(
-                        event_id=stored_event_id,
-                        source=memory_event.source,
-                        event_type=memory_event.event_type,
-                        batch_owner=(
-                            str(memory_event.metadata_json.get("l2_batch_owner"))
-                            if isinstance(memory_event.metadata_json, dict)
-                            and memory_event.metadata_json.get("l2_batch_owner") is not None
-                            else None
-                        ),
-                        catch_up_owner=(
-                            str(memory_event.metadata_json.get("l2_batch_catch_up_owner"))
-                            if isinstance(memory_event.metadata_json, dict)
-                            and memory_event.metadata_json.get("l2_batch_catch_up_owner") is not None
-                            else None
-                        ),
-                        max_events=(
-                            int(memory_event.metadata_json.get("l2_batch_max_events"))
-                            if isinstance(memory_event.metadata_json, dict)
-                            and memory_event.metadata_json.get("l2_batch_max_events") is not None
-                            else None
-                        ),
-                        min_ready_events=(
-                            int(memory_event.metadata_json.get("l2_batch_min_ready_events"))
-                            if isinstance(memory_event.metadata_json, dict)
-                            and memory_event.metadata_json.get("l2_batch_min_ready_events") is not None
-                            else None
-                        ),
-                        max_wait_seconds=(
-                            float(memory_event.metadata_json.get("l2_batch_max_wait_seconds"))
-                            if isinstance(memory_event.metadata_json, dict)
-                            and memory_event.metadata_json.get("l2_batch_max_wait_seconds") is not None
-                            else None
-                        ),
-                    )
 
-        if (
-            self.l2_pipeline is not None
-            and memory_event.cognition_eligible
-            and (not memory_event.ingest_target.includes_l1 or self.l2 is None)
-        ):
-            if stored_event_id != memory_event.event_id:
-                memory_event.event_id = stored_event_id
-            await self.l2_pipeline.enqueue_event(memory_event)
-        if self.l4 is not None and (l1_written or memory_event.event_type == EventTypes.ACTION_EXECUTED):
-            if stored_event_id != memory_event.event_id:
-                memory_event.event_id = stored_event_id
-            l4_skill_id = await self.l4.record_memory_event(memory_event)
+        for layer in deferred_layers:
+            await self._dispatch_layer(layer, memory_event, ctx)
 
+        stored_event_id = ctx.markers.get("stored_event_id") or memory_event.event_id
         return {
             "event_id": stored_event_id,
             "ingest_target": memory_event.ingest_target.label,
-            "l1_written": l1_written,
-            "l2_job_enqueued": l2_job_enqueued,
-            "l2_relation_count": int(l2_result["relation_count"]),
-            "l2_assertion_count": int(l2_result["assertion_count"]),
-            "l4_skill_id": l4_skill_id,
+            "l1_written": bool(ctx.markers.get("l1_written")),
+            "l2_job_enqueued": bool(ctx.markers.get("l2_job_enqueued")),
+            "l2_relation_count": 0,
+            "l2_assertion_count": 0,
+            "l4_skill_id": ctx.markers.get("l4_skill_id"),
         }
+
+    async def _dispatch_layer(
+        self,
+        layer: MemoryLayer,
+        event: MemoryEvent,
+        ctx: FanOutContext,
+    ) -> None:
+        accepted_types = layer.accepts_event_types
+        if accepted_types != WILDCARD_EVENT_TYPES and event.event_type not in accepted_types:
+            return
+        if not layer.accepts(event, ctx):
+            return
+        try:
+            result = await layer.ingest(event, ctx)
+        except Exception:
+            logger.exception(
+                "UnifiedMemory layer ingest failed | layer=%s event_id=%s event_type=%s",
+                layer.layer_name,
+                event.event_id,
+                event.event_type,
+            )
+            return
+        if result.markers:
+            ctx.markers.update(result.markers)
+
+    def _build_layers_in_order(self) -> list[MemoryLayer]:
+        return [
+            L0Layer(self.l0),
+            L1Layer(self.l1),
+            L2ProjectionLayer(self.l2),
+            L2PipelineLayer(self.l2, self.l2_pipeline),
+            L4Layer(self.l4),
+        ]
 
     async def store_event(self, event: Dict[str, Any] | Event | MemoryEvent) -> str:
         """Compatibility helper for callers that only need the event id."""
@@ -200,6 +179,10 @@ class MemoryIngestionMixin:
                 payload.get("type"),
                 payload.get("source"),
             )
+        legacy_event_id = payload.get("id")
+        if not isinstance(legacy_event_id, str):
+            legacy_event_id = None
+        envelope_event_id = payload.get("event_id") or legacy_event_id
         raw_event = Event(
             type=str(payload.get("type", "unknown")),
             data=payload.get("data", {}),
@@ -207,14 +190,11 @@ class MemoryIngestionMixin:
             source=str(payload.get("source", "memory")),
             level=EventLevel(int(payload.get("level", EventLevel.INFO.value))),
             correlation_id=payload.get("correlation_id"),
+            event_id=envelope_event_id,
             metadata=dict(payload.get("metadata", {})),
         )
-        legacy_event_id = payload.get("id")
-        if not isinstance(legacy_event_id, str):
-            legacy_event_id = None
         return normalize_runtime_event(
             raw_event,
-            event_id=payload.get("event_id") or legacy_event_id,
             idempotency_key=payload.get("idempotency_key"),
         )
 

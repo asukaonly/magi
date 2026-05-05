@@ -20,8 +20,17 @@ afterthought when the answer naturally supports that shape.
 - Every visible segment must carry real information or conversational value.
   Empty filler, fake hesitation, and forced follow-up questions are product bugs.
 - Simple factual requests should stay single-message by default.
+- Structured technical answers should stay single-message by default when they
+  contain numbered lists, command or config details, tables, stack traces, or
+  dense implementation mechanics. In these cases the internal structure already
+  provides reading rhythm, and splitting into separate chat bubbles can hurt
+  scanning, copying, and later reference.
 - Short or compact answers should not be split into three bubbles. Three segments
   are reserved for longer answers with three distinct conversational moves.
+- Technical answers that are not structurally protected are governed by the
+  rhythm planner prompt, not by an expanding backend keyword taxonomy. The
+  planner should keep them single-message unless a split preserves the technical
+  body and clearly improves conversational flow.
 - Non-initial rhythm segments should wait at least one second before appearing;
   sub-second delays read as UI animation rather than conversational cadence.
 - The feature must degrade to the existing single-message flow whenever planning,
@@ -73,6 +82,13 @@ Preferred contract:
 The backend reconstructs visible content from the original answer units. If the
 planner output is invalid, references unknown units, drops too much content, or
 exceeds limits, the system falls back to one assistant message.
+
+Before calling the planner, the backend performs deterministic content-feature
+detection. Code blocks, tables, command/config blocks, stack traces, and dense
+numbered or bulleted lists bypass rhythm planning entirely. The backend does not
+try to classify arbitrary prose as "technical" through keyword lists; semantic
+technicality stays inside the planner prompt, where the model can judge the whole
+user request and canonical answer together.
 
 When multiple units are grouped into one visible bubble, they are joined with a
 single line break so the bubble keeps a readable cadence without introducing a

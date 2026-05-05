@@ -140,8 +140,9 @@ async def test_l1_event_store_persists_and_filters_memory_events(tmp_path):
             source="chat",
             level=EventLevel.INFO,
             correlation_id="corr-1",
+            event_id="evt-1",
         )
-        memory_event = normalize_runtime_event(event, event_id="evt-1")
+        memory_event = normalize_runtime_event(event)
 
         stored_event_id = await store.store(memory_event)
         fetched = await store.get_event("evt-1")
@@ -185,8 +186,9 @@ async def test_l1_event_store_query_events_resolves_active_profile_once(tmp_path
                 source="chat",
                 level=EventLevel.INFO,
                 correlation_id=f"corr-{index}",
+                event_id=f"evt-{index}",
             )
-            await store.store(normalize_runtime_event(event, event_id=f"evt-{index}"))
+            await store.store(normalize_runtime_event(event))
 
         call_count = 0
         original_resolver = store._resolve_active_embedding_profile_id
@@ -227,8 +229,9 @@ async def test_l1_event_store_restores_final_memory_event_shape(tmp_path):
             source="chat",
             level=EventLevel.INFO,
             correlation_id="corr-identity-1",
+            event_id="evt-identity-1",
         )
-        memory_event = normalize_runtime_event(event, event_id="evt-identity-1")
+        memory_event = normalize_runtime_event(event)
 
         await store.store(memory_event)
         fetched = await store.get_event("evt-identity-1")
@@ -568,6 +571,7 @@ async def test_l1_event_store_queries_by_content_source_and_time_range(tmp_path)
                 level=EventLevel.INFO,
                 correlation_id="corr-query-1",
                 timestamp=base_time,
+                event_id="evt-query-1",
             ),
             Event(
                 type=EventTypes.USER_MESSAGE,
@@ -582,6 +586,7 @@ async def test_l1_event_store_queries_by_content_source_and_time_range(tmp_path)
                 level=EventLevel.INFO,
                 correlation_id="corr-query-2",
                 timestamp=base_time + 60,
+                event_id="evt-query-2",
             ),
             Event(
                 type=EventTypes.USER_MESSAGE,
@@ -596,11 +601,12 @@ async def test_l1_event_store_queries_by_content_source_and_time_range(tmp_path)
                 level=EventLevel.INFO,
                 correlation_id="corr-query-3",
                 timestamp=base_time + 3600,
+                event_id="evt-query-3",
             ),
         ]
 
         for index, event in enumerate(events, start=1):
-            await store.store(normalize_runtime_event(event, event_id=f"evt-query-{index}"))
+            await store.store(normalize_runtime_event(event))
 
         queried = await store.query_events(
             query="west lake",
@@ -735,8 +741,9 @@ async def test_l1_event_store_persists_action_events_in_fact_events(tmp_path):
             source="runtime",
             level=EventLevel.INFO,
             correlation_id="corr-2",
+            event_id="evt-runtime-1",
         )
-        memory_event = normalize_runtime_event(event, event_id="evt-runtime-1")
+        memory_event = normalize_runtime_event(event)
         await store.store(memory_event)
 
         fetched_fact = await store.get_event("evt-runtime-1")
@@ -769,9 +776,10 @@ async def test_l1_event_store_projects_user_message_into_chat_session_row(tmp_pa
             source="chat",
             level=EventLevel.INFO,
             correlation_id="corr-chat-session-user",
+            event_id="evt-chat-session-user",
         )
 
-        await store.store(normalize_runtime_event(event, event_id="evt-chat-session-user"))
+        await store.store(normalize_runtime_event(event))
 
         conn = sqlite3.connect(str(db_path))
         row = conn.execute(
@@ -819,8 +827,8 @@ async def test_l1_event_store_projects_ai_response_into_existing_chat_session_ro
                     source="chat",
                     level=EventLevel.INFO,
                     correlation_id="corr-chat-session-seed",
+                    event_id="evt-chat-session-seed",
                 ),
-                event_id="evt-chat-session-seed",
             )
         )
         await store.store(
@@ -837,8 +845,8 @@ async def test_l1_event_store_projects_ai_response_into_existing_chat_session_ro
                     source="chat",
                     level=EventLevel.INFO,
                     correlation_id="corr-chat-session-ai",
+                    event_id="evt-chat-session-ai",
                 ),
-                event_id="evt-chat-session-ai",
             )
         )
 
@@ -882,8 +890,8 @@ async def test_l1_event_store_store_is_idempotent_for_existing_event_ids(tmp_pat
                 source="chat",
                 level=EventLevel.INFO,
                 correlation_id="corr-idempotent",
+                event_id="evt-idempotent",
             ),
-            event_id="evt-idempotent",
         )
 
         await store.store(memory_event)
@@ -931,8 +939,8 @@ async def test_l1_search_events_falls_back_when_semantic_hits_filter_to_empty(tm
                     source="chat",
                     level=EventLevel.INFO,
                     correlation_id="corr-search-fallback",
+                    event_id="evt-search-fallback",
                 ),
-                event_id="evt-search-fallback",
             )
         )
 
@@ -1050,8 +1058,8 @@ async def test_l1_async_embeddings_flush_full_batches_via_batch_api(tmp_path):
                         source="chat",
                         level=EventLevel.INFO,
                         correlation_id=f"corr-batch-{idx}",
+                        event_id=f"evt-batch-{idx}",
                     ),
-                    event_id=f"evt-batch-{idx}",
                 )
             )
 
@@ -1096,8 +1104,8 @@ async def test_l1_async_embeddings_flush_partial_batches_after_timeout(tmp_path)
                         source="chat",
                         level=EventLevel.INFO,
                         correlation_id=f"corr-timeout-{idx}",
+                        event_id=f"evt-timeout-{idx}",
                     ),
-                    event_id=f"evt-timeout-{idx}",
                 )
             )
 
@@ -1147,8 +1155,8 @@ async def test_l1_embedding_queue_waits_when_full(tmp_path):
                     source="chat",
                     level=EventLevel.INFO,
                     correlation_id="corr-queue-1",
+                    event_id="evt-queue-1",
                 ),
-                event_id="evt-queue-1",
             )
         )
 
@@ -1169,8 +1177,8 @@ async def test_l1_embedding_queue_waits_when_full(tmp_path):
                         source="chat",
                         level=EventLevel.INFO,
                         correlation_id="corr-queue-2",
+                        event_id="evt-queue-2",
                     ),
-                    event_id="evt-queue-2",
                 )
             )
         )
@@ -1191,8 +1199,8 @@ async def test_l1_embedding_queue_waits_when_full(tmp_path):
                         source="chat",
                         level=EventLevel.INFO,
                         correlation_id="corr-queue-3",
+                        event_id="evt-queue-3",
                     ),
-                    event_id="evt-queue-3",
                 )
             )
         )
@@ -1237,8 +1245,8 @@ async def test_l1_async_embeddings_can_use_multiple_workers(tmp_path):
                     source="chat",
                     level=EventLevel.INFO,
                     correlation_id="corr-worker-a",
+                    event_id="evt-worker-a",
                 ),
-                event_id="evt-worker-a",
             )
         )
         await store.store(
@@ -1255,8 +1263,8 @@ async def test_l1_async_embeddings_can_use_multiple_workers(tmp_path):
                     source="chat",
                     level=EventLevel.INFO,
                     correlation_id="corr-worker-b",
+                    event_id="evt-worker-b",
                 ),
-                event_id="evt-worker-b",
             )
         )
 
@@ -1302,8 +1310,8 @@ async def test_l1_batch_embedding_flush_uses_vector_index_upsert_many(tmp_path):
                 source="chat",
                 level=EventLevel.INFO,
                 correlation_id=f"corr-many-{idx}",
+                event_id=f"evt-many-{idx}",
             ),
-            event_id=f"evt-many-{idx}",
         )
         for idx in range(3)
     ]
@@ -1353,8 +1361,8 @@ async def test_l1_batch_embedding_flush_indexes_chunks_and_updates_chunk_count(t
                 source="chat",
                 level=EventLevel.INFO,
                 correlation_id="corr-chunked",
+                event_id="evt-chunked",
             ),
-            event_id="evt-chunked",
         )
         await store.store(event)
 
@@ -1399,8 +1407,8 @@ async def test_l1_fetch_ranked_events_folds_chunk_hits_to_parent_event(tmp_path)
                 source="chat",
                 level=EventLevel.INFO,
                 correlation_id="corr-ranked",
+                event_id="evt-ranked",
             ),
-            event_id="evt-ranked",
         )
         await store.store(event)
         await store._maybe_upsert_event_embeddings([event])
@@ -1455,8 +1463,8 @@ async def test_l1_event_store_marks_embedding_ready_with_profile_row(tmp_path):
                     source="chat",
                     level=EventLevel.INFO,
                     correlation_id="corr-ready",
+                    event_id="evt-ready",
                 ),
-                event_id="evt-ready",
             )
         )
 
@@ -1503,8 +1511,8 @@ async def test_l1_event_store_marks_ready_embeddings_stale_after_profile_switch(
                     source="chat",
                     level=EventLevel.INFO,
                     correlation_id="corr-stale",
+                    event_id="evt-stale",
                 ),
-                event_id="evt-stale",
             )
         )
 
@@ -1540,8 +1548,8 @@ async def test_l1_event_store_marks_skipped_and_disabled_embedding_states(tmp_pa
                     source="chat",
                     level=EventLevel.INFO,
                     correlation_id="corr-disabled",
+                    event_id="evt-disabled",
                 ),
-                event_id="evt-disabled",
             )
         )
         disabled = await disabled_store.get_event("evt-disabled")
@@ -1572,8 +1580,8 @@ async def test_l1_event_store_marks_skipped_and_disabled_embedding_states(tmp_pa
                     source="runtime",
                     level=EventLevel.INFO,
                     correlation_id="corr-skipped",
+                    event_id="evt-skipped",
                 ),
-                event_id="evt-skipped",
             )
         )
         skipped = await skipped_store.get_event("evt-skipped")
@@ -1713,8 +1721,8 @@ async def test_l1_event_store_marks_unreturned_batch_embeddings_failed(tmp_path)
                     source="chat",
                     level=EventLevel.INFO,
                     correlation_id=f"corr-short-{idx}",
+                    event_id=f"evt-short-{idx}",
                 ),
-                event_id=f"evt-short-{idx}",
             )
             for idx in range(2)
         ]
@@ -1759,8 +1767,8 @@ async def test_l1_rebuild_embeddings_reindexes_disabled_events(tmp_path):
                     level=EventLevel.INFO,
                     correlation_id="evt-rebuild",
                     timestamp=1710000000.0,
+                    event_id="evt-rebuild",
                 ),
-                event_id="evt-rebuild",
             )
         )
     finally:

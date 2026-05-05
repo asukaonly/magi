@@ -66,18 +66,42 @@ async def test_l3_summary_schedule_registers_month_period(monkeypatch: pytest.Mo
 
 
 @pytest.mark.asyncio
-async def test_l3_summary_schedule_disables_month_period(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_l3_summary_schedule_writes_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Schedules are always written so runtime toggling of l3.enabled takes effect.
+
+    Disabled-state skipping is the handler's responsibility, verified separately.
+    """
     scheduler = _FakeScheduler()
     contrib = summary_schedule.L3SummaryScheduleContrib()
-    contrib._activity_schedule_ids = ["memory-l3-activity:chrome_history:week"]
     monkeypatch.setattr(summary_schedule, "get_config", lambda: _config_with_l3_enabled(False))
+
+    async def _skip_activity_schedules(_scheduler: _FakeScheduler) -> None:
+        return None
+
+    monkeypatch.setattr(contrib, "_register_activity_schedules", _skip_activity_schedules)
 
     await contrib.register_schedules(scheduler)  # type: ignore[arg-type]
 
-    unscheduled_ids = [item["schedule_id"] for item in scheduler.unscheduled]
-    assert "memory-l3-summary:month" in unscheduled_ids
-    assert "memory-l3-activity:chrome_history:week" in unscheduled_ids
-    assert contrib._activity_schedule_ids == []
+    schedule_ids = {item["schedule_id"] for item in scheduler.intervals}
+    assert schedule_ids == {
+        "memory-l3-summary:hour",
+        "memory-l3-summary:day",
+        "memory-l3-summary:week",
+        "memory-l3-summary:month",
+    }
+    assert scheduler.unscheduled == []
+
+
+@pytest.mark.asyncio
+async def test_handle_l3_summary_skips_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(summary_schedule, "get_config", lambda: _config_with_l3_enabled(False))
+
+    schedule = SimpleNamespace(target_payload={"period_type": "hour"})
+    context = SimpleNamespace(schedule=schedule)
+    result = await summary_schedule.handle_l3_summary(context)  # type: ignore[arg-type]
+
+    assert result.success is True
+    assert result.message == "l3_disabled_skip"
 
 
 @pytest.mark.asyncio

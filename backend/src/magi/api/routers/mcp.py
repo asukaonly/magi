@@ -23,6 +23,7 @@ from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
+from ... import i18n as core_i18n
 from ...core.logger import get_logger
 from ...mcp import _toml_writer
 from ...mcp.config import MCPServerConfig
@@ -42,7 +43,9 @@ def _manager() -> MCPManager:
     if mgr is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="MCP manager not initialized",
+            detail=core_i18n.t(
+                "mcp.errors.manager_not_initialized", fallback="MCP manager not initialized"
+            ),
         )
     return mgr
 
@@ -153,25 +156,31 @@ async def create_server(payload: CreateOrUpdatePayload) -> dict[str, Any]:
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     if cfg.server.id in {c.server.id for c in mgr.list_configs()}:
-        raise HTTPException(status_code=409, detail="server id already exists")
+        raise HTTPException(
+            status_code=409,
+            detail=core_i18n.t("mcp.errors.server_id_exists", fallback="server id already exists"),
+        )
     _persist(cfg)
     mgr.add_config(cfg)
     if cfg.server.enabled and cfg.server.autostart:
         try:
             await mgr.start_server(cfg.server.id)
         except Exception as exc:
-            logger.warning("MCP autostart on create failed", server_id=cfg.server.id, error=str(exc))
+            logger.warning(
+                "MCP autostart on create failed", server_id=cfg.server.id, error=str(exc)
+            )
     return _serialize_status(mgr, cfg)
 
 
 @mcp_router.patch("/servers/{server_id}")
 async def update_server(server_id: str, payload: CreateOrUpdatePayload) -> dict[str, Any]:
     mgr = _manager()
-    existing = next(
-        (c for c in mgr.list_configs() if c.server.id == server_id), None
-    )
+    existing = next((c for c in mgr.list_configs() if c.server.id == server_id), None)
     if existing is None:
-        raise HTTPException(status_code=404, detail="server not found")
+        raise HTTPException(
+            status_code=404,
+            detail=core_i18n.t("mcp.errors.server_not_found", fallback="server not found"),
+        )
 
     raw = payload.model_dump(exclude_none=True)
     raw.setdefault("server", {})["id"] = server_id  # id is path-locked
@@ -197,7 +206,10 @@ async def update_server(server_id: str, payload: CreateOrUpdatePayload) -> dict[
 async def delete_server(server_id: str) -> Response:
     mgr = _manager()
     if not any(c.server.id == server_id for c in mgr.list_configs()):
-        raise HTTPException(status_code=404, detail="server not found")
+        raise HTTPException(
+            status_code=404,
+            detail=core_i18n.t("mcp.errors.server_not_found", fallback="server not found"),
+        )
     if mgr.is_running(server_id):
         await mgr.stop_server(server_id)
     mgr._configs.pop(server_id, None)  # type: ignore[attr-defined]
@@ -212,7 +224,10 @@ async def start_server(server_id: str) -> dict[str, Any]:
     mgr = _manager()
     cfg = next((c for c in mgr.list_configs() if c.server.id == server_id), None)
     if cfg is None:
-        raise HTTPException(status_code=404, detail="server not found")
+        raise HTTPException(
+            status_code=404,
+            detail=core_i18n.t("mcp.errors.server_not_found", fallback="server not found"),
+        )
     try:
         await mgr.start_server(server_id)
     except Exception as exc:
@@ -225,7 +240,10 @@ async def stop_server(server_id: str) -> dict[str, Any]:
     mgr = _manager()
     cfg = next((c for c in mgr.list_configs() if c.server.id == server_id), None)
     if cfg is None:
-        raise HTTPException(status_code=404, detail="server not found")
+        raise HTTPException(
+            status_code=404,
+            detail=core_i18n.t("mcp.errors.server_not_found", fallback="server not found"),
+        )
     await mgr.stop_server(server_id)
     return _serialize_status(mgr, cfg)
 
@@ -262,7 +280,12 @@ async def read_resource(payload: ResourceReadPayload) -> dict[str, Any]:
     mgr = _manager()
     if not mgr.is_running(payload.server_id):
         raise HTTPException(
-            status_code=400, detail=f"server {payload.server_id!r} is not running"
+            status_code=400,
+            detail=core_i18n.t(
+                "mcp.errors.server_not_running",
+                fallback="server {server_id!r} is not running",
+                server_id=payload.server_id,
+            ),
         )
     try:
         return await mgr.read_resource(payload.server_id, payload.uri)
@@ -293,11 +316,14 @@ async def get_prompt(payload: PromptGetPayload) -> dict[str, Any]:
     mgr = _manager()
     if not mgr.is_running(payload.server_id):
         raise HTTPException(
-            status_code=400, detail=f"server {payload.server_id!r} is not running"
+            status_code=400,
+            detail=core_i18n.t(
+                "mcp.errors.server_not_running",
+                fallback="server {server_id!r} is not running",
+                server_id=payload.server_id,
+            ),
         )
     try:
-        return await mgr.get_prompt(
-            payload.server_id, payload.name, payload.arguments
-        )
+        return await mgr.get_prompt(payload.server_id, payload.name, payload.arguments)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc))

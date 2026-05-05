@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from magi.api.routers import schedules as schedules_module
 from magi.api.routers.schedules import schedules_router
+from magi.i18n import language_context
 from magi.scheduler import (
     ScheduleDefinition,
     ScheduledExecutionResult,
@@ -138,7 +139,8 @@ def test_run_schedule_now_triggers_scheduler_service(monkeypatch):
     )
     monkeypatch.setattr(schedules_module, "require_scheduler_service", lambda: scheduler)
 
-    response = client.post(f"/api/schedules/{schedule.schedule_id}/run")
+    with language_context("en"):
+        response = client.post(f"/api/schedules/{schedule.schedule_id}/run")
 
     assert response.status_code == 200
     assert scheduler.calls == [(schedule.schedule_id, True)]
@@ -157,10 +159,26 @@ def test_run_schedule_now_rejects_busy_target(monkeypatch):
     )
     monkeypatch.setattr(schedules_module, "require_scheduler_service", lambda: scheduler)
 
-    response = client.post(f"/api/schedules/{schedule.schedule_id}/run")
+    with language_context("en"):
+        response = client.post(f"/api/schedules/{schedule.schedule_id}/run")
 
     assert response.status_code == 409
     assert response.json()["detail"] == "Schedule target is busy"
+
+
+def test_run_schedule_now_returns_localized_busy_target(monkeypatch):
+    client, repository = _build_client(monkeypatch)
+    schedule = asyncio.run(_seed_agent_schedule(repository))
+    scheduler = _FakeSchedulerService(
+        ScheduledExecutionResult(success=False, message="target_busy")
+    )
+    monkeypatch.setattr(schedules_module, "require_scheduler_service", lambda: scheduler)
+
+    with language_context("zh-CN"):
+        response = client.post(f"/api/schedules/{schedule.schedule_id}/run")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "计划任务目标正忙"
 
 
 def test_list_schedules_uses_schedule_specific_execution_state(monkeypatch):

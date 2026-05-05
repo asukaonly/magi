@@ -1,4 +1,5 @@
 import React from 'react';
+import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 
 import type { TimelineSourceMixItem, TimelineThemeCard } from '@/api/modules/timeline';
@@ -35,10 +36,20 @@ const buildModeDistribution = (sourceMix: TimelineSourceMixItem[]) =>
   sourceMix
     .map((item) => ({
       mode: item.source_type,
+      label: item.label,
       seconds: Math.max(0, item.duration_seconds || 0),
       count: Math.max(0, item.event_count || 0),
     }))
     .sort((a, b) => b.count - a.count || b.seconds - a.seconds || a.mode.localeCompare(b.mode));
+
+const resolveSourceLabel = (
+  mode: string,
+  label: string | undefined,
+  t: TFunction<'app'>,
+): string => {
+  const normalized = String(label || '').trim();
+  return normalized || t(`timeline.sources.${mode}`, mode);
+};
 
 const ThemeCardContent: React.FC<{ card: TimelineThemeCard }> = ({ card }) => {
   const { t } = useTranslation('app');
@@ -114,7 +125,7 @@ export const MonthOverviewLane: React.FC<MonthOverviewLaneProps> = ({
             {t('timeline.activity.distribution')}
           </h3>
           <div className="flex h-2.5 overflow-hidden rounded-sm">
-            {distribution.map(({ mode, seconds, count }) => (
+            {distribution.map(({ mode, label, seconds, count }) => (
               <div
                 key={mode}
                 className="transition-all duration-500 first:rounded-l-sm last:rounded-r-sm"
@@ -123,18 +134,18 @@ export const MonthOverviewLane: React.FC<MonthOverviewLaneProps> = ({
                   backgroundColor: modeColor(mode),
                   opacity: 0.75,
                 }}
-                title={`${t(`timeline.sources.${mode}`, mode)} · ${seconds > 0 ? formatDuration(seconds) : `${count} ${t('timeline.summary.totalEvents')}`}`}
+                title={`${resolveSourceLabel(mode, label, t)} · ${seconds > 0 ? formatDuration(seconds) : `${count} ${t('timeline.summary.totalEvents')}`}`}
               />
             ))}
           </div>
           <div className="flex flex-wrap gap-x-4 gap-y-1">
-            {distribution.map(({ mode, seconds, count }) => (
+            {distribution.map(({ mode, label, seconds, count }) => (
               <div key={mode} className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <span
                   className="inline-block h-2 w-2 rounded-[2px]"
                   style={{ backgroundColor: modeColor(mode) }}
                 />
-                <span>{t(`timeline.sources.${mode}`, mode)}</span>
+                <span>{resolveSourceLabel(mode, label, t)}</span>
                 <span className="tabular-nums text-muted-foreground/60">
                   {seconds > 0 ? formatDuration(seconds) : `${count} ${t('timeline.summary.totalEvents')}`}
                 </span>

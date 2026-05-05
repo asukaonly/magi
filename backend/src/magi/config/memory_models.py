@@ -116,6 +116,11 @@ class MemoryL4Settings(BaseModel):
         default=5,
         description="Number of new traces before triggering LLM strategy extraction.",
     )
+    maintenance_enabled: bool = Field(default=True, description="Run periodic L4 maintenance loops.")
+    breaker_open_timeout_seconds: int = Field(default=600, description="Seconds an open breaker must be held before transitioning to half-open.")
+    breaker_halfopen_idle_seconds: int = Field(default=1800, description="Idle window in half-open before closing the breaker.")
+    inactive_skill_retention_days: int = Field(default=30, description="Soft-delete skills with last_seen older than this and below the activity threshold.")
+    inactive_skill_min_attempts: int = Field(default=5, description="Minimum total_attempts to keep a skill regardless of last_seen.")
 
 
 class CrossEncoderSettings(BaseModel):

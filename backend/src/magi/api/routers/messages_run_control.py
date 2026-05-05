@@ -6,6 +6,7 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException
 
+from ...i18n import t
 from .messages_common import legacy_messages_module
 from .messages_models import CancelSessionRunRequest, DetachSessionRunRequest
 
@@ -22,7 +23,7 @@ async def cancel_session_run(session_id: str, request: CancelSessionRunRequest):
         agent = await manager.ensure_agent(legacy.TaskAgentType.CHAT, session_id)
         cancel_handler = getattr(agent, "request_session_cancel", None)
         if cancel_handler is None:
-            raise RuntimeError("Chat task agent does not support explicit session cancellation.")
+            raise RuntimeError(t("chat.run.cancel.unsupported", fallback="Chat task agent does not support explicit session cancellation."))
         outcome = await cancel_handler(
             session_id=session_id,
             requested_by=request.requested_by,
@@ -35,7 +36,7 @@ async def cancel_session_run(session_id: str, request: CancelSessionRunRequest):
     if outcome is None:
         return {
             "success": False,
-            "message": "No active run to cancel",
+            "message": t("chat.run.cancel.no_active", fallback="No active run to cancel"),
             "data": {
                 "user_id": request.user_id,
                 "session_id": session_id,
@@ -44,7 +45,7 @@ async def cancel_session_run(session_id: str, request: CancelSessionRunRequest):
 
     return {
         "success": True,
-        "message": "Run cancellation requested",
+        "message": t("chat.run.cancel.requested", fallback="Run cancellation requested"),
         "data": {
             "user_id": request.user_id,
             "session_id": session_id,
@@ -63,7 +64,7 @@ async def detach_session_run(session_id: str, request: DetachSessionRunRequest):
         agent = await manager.ensure_agent(legacy.TaskAgentType.CHAT, session_id)
         detach_handler = getattr(agent, "request_session_detach", None)
         if detach_handler is None:
-            raise RuntimeError("Chat task agent does not support explicit session detaching.")
+            raise RuntimeError(t("chat.run.detach.unsupported", fallback="Chat task agent does not support explicit session detaching."))
         outcome = await detach_handler(
             session_id=session_id,
             requested_by=request.requested_by,
@@ -76,7 +77,7 @@ async def detach_session_run(session_id: str, request: DetachSessionRunRequest):
     if outcome is None:
         return {
             "success": False,
-            "message": "No active run to detach",
+            "message": t("chat.run.detach.no_active", fallback="No active run to detach"),
             "data": {
                 "user_id": request.user_id,
                 "session_id": session_id,
@@ -85,7 +86,7 @@ async def detach_session_run(session_id: str, request: DetachSessionRunRequest):
 
     return {
         "success": True,
-        "message": "Run detach requested",
+        "message": t("chat.run.detach.requested", fallback="Run detach requested"),
         "data": {
             "user_id": request.user_id,
             "session_id": session_id,

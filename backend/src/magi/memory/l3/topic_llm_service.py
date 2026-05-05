@@ -8,8 +8,8 @@ import logging
 import time
 from typing import Any
 
+from ...i18n import llm_language_label
 from ...llm import LLMProviderBridge, LLMScenario, ScenarioLLMPool
-from magi_plugin_sdk.i18n import get_current_language
 from .models import L3Candidate, ThematicEvidencePack, ThematicGenerationResult
 from .topic_evidence import TopicEvidencePackMixin
 from .topic_output import TopicOutputParsingMixin
@@ -19,8 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 def _target_language_instruction() -> str:
-    language = str(get_current_language() or "en").lower()
-    target = "Simplified Chinese (zh-CN)" if language.startswith("zh") else "English"
+    target = llm_language_label(default="en")
     return (
         f"- Write user-facing generated fields in {target}: content and key_topics.\n"
         "- Preserve event ids, entity ids, URLs, file paths, source names, product names, song titles, and quoted user text as evidence presents them."

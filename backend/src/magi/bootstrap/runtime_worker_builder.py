@@ -14,9 +14,12 @@ from .maintenance import OtherDependenciesModule
 
 from ..agent.lifecycle import AgentRuntimeModule, AgentScheduleRegistrationModule
 from ..awareness.lifecycle import (
+    KGSubscriberModule,
     SensorModule,
     SensorScheduleRegistrationModule,
+    SensorStateUpdateSubscriberModule,
     SensorSyncExecutorModule,
+    TimelineSubscriberModule,
 )
 from ..channels.lifecycle import ChannelsModule
 from ..chat.lifecycle import ChatProjectorModule, ChatStoreModule
@@ -29,16 +32,19 @@ from ..events.lifecycle import (
     RuntimeCommandProcessorModule,
     RuntimeCommandQueueModule,
 )
-from ..llm.lifecycle import LLMRuntimeModule
+from ..llm.lifecycle import LLMRuntimeModule, LLMUsageSubscriberModule
 from ..mcp.lifecycle import MCPModule
 from ..memory.lifecycle import (
     L2MaintenanceScheduleRegistrationModule,
     L3SummaryScheduleRegistrationModule,
+    L4MaintenanceScheduleRegistrationModule,
+    MemoryIngestionSubscriberModule,
     MemoryStoreModule,
 )
 from ..personality.lifecycle import PersonalityModule
 from ..plugins.lifecycle import PluginSystemModule
 from ..runtime_trace import RuntimeTraceStore
+from ..runtime_trace.lifecycle import RuntimeTraceSubscriberModule
 from ..scheduler.lifecycle import SchedulerModule
 from ..skills.lifecycle import SkillsModule
 from ..timeline.lifecycle import TimelineModule
@@ -116,8 +122,11 @@ def _build_stateful_service_modules(context: RuntimeBootstrapContext) -> list[Li
     """Build the stateful services and shared runtime stores phase."""
     return [
         MemoryStoreModule(context, start_memory_integration=True),
+        MemoryIngestionSubscriberModule(context),
+        LLMUsageSubscriberModule(context),
         ChatProjectorModule(context),
         _build_runtime_trace_module(context),
+        RuntimeTraceSubscriberModule(context),
         ToolsModule(context),
         SkillsModule(context),
         MCPModule(context),
@@ -134,6 +143,9 @@ def _build_processing_modules(context: RuntimeBootstrapContext) -> list[Lifecycl
         RuntimeCommandProcessorModule(context),
         PluginIngressProcessorModule(context),
         TimelineModule(context),
+        TimelineSubscriberModule(context),
+        KGSubscriberModule(context),
+        SensorStateUpdateSubscriberModule(context),
         SchedulerModule(context),
         AgentScheduleRegistrationModule(context),
         SensorScheduleRegistrationModule(context),
@@ -148,6 +160,7 @@ def _build_exports_and_maintenance_modules(context: RuntimeBootstrapContext) -> 
         ControlPlaneModule(context),
         L2MaintenanceScheduleRegistrationModule(context),
         L3SummaryScheduleRegistrationModule(context),
+        L4MaintenanceScheduleRegistrationModule(context),
         OtherDependenciesModule(context),
         ChannelsModule(context),
     ]

@@ -61,7 +61,7 @@ class _FakeFunctionCallingOrchestrator:
 
     async def execute_with_tools(
         self,
-        user_message,
+        turn,
         system_prompt,
         selected_tools,
         user_id,
@@ -78,6 +78,7 @@ class _FakeFunctionCallingOrchestrator:
         final_response_json_mode=False,
         thinking_depth=None,
     ):
+        user_message = turn.text
         _ = (
             system_prompt,
             selected_tools,

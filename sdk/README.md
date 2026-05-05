@@ -84,6 +84,8 @@ For existing plugins migrating off backend internals, use these replacements:
 | `SettingsUIBlockSpec` | Custom settings block spec |
 | `PluginSettingsResourceSpec` | Read-only settings resource |
 | `PluginSettingsResourcePayload` | Resolved resource payload |
+| `PluginSettingsActionSpec` | Host-rendered settings action spec |
+| `PluginSettingsActionResult` | Settings action session result |
 | `ContributionType` | Enum: `tool`, `sensor`, `channel` |
 | `PluginManifest` | Parsed `plugin.toml` manifest model |
 | `PluginContribution` | Runtime contribution descriptor |

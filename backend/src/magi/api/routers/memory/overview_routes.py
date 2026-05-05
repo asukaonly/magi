@@ -8,6 +8,7 @@ from fastapi import HTTPException, status
 
 from .clear import build_clear_memory_response
 from .dependencies import _resolve_memory_integration, _resolve_unified_memory, get_chat_read_service, logger
+from .helpers import memory_t
 from .router import memory_router
 from .statistics import build_layer_statistics
 
@@ -21,7 +22,7 @@ async def get_memory_statistics():
     if not unified_memory:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Memory system not initialized",
+            detail=memory_t("memory.errors.system_uninitialized", "Memory system not initialized"),
         )
 
     async def _zero() -> int:
@@ -60,7 +61,7 @@ async def clear_memory_layers():
         logger.warning("clear_memory: memory system not initialized")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Memory system not initialized",
+            detail=memory_t("memory.errors.system_uninitialized", "Memory system not initialized"),
         )
 
     logger.info("clear_memory: clearing l0")

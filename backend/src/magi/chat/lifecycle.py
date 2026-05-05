@@ -46,13 +46,13 @@ class ChatProjectorModule(LifecycleModule):
     def __init__(self, context: RuntimeBootstrapContext) -> None:
         super().__init__(
             name="runtime_chat_projector",
-            dependencies=("runtime_chat_store", "runtime_memory"),
+            dependencies=("runtime_chat_store", "runtime_message_bus"),
         )
         self._context = context
 
     async def init(self) -> None:
-        unified_memory = require_initialized(self._context.memory.unified_memory, "unified memory")
-        self._context.chat.projector = ChatProjector(unified_memory=unified_memory)
+        message_bus = require_initialized(self._context.message_bus.message_bus, "message bus")
+        self._context.chat.projector = ChatProjector(event_bus=message_bus)
         logger.info("Chat projector started")
 
     async def shutdown(self) -> None:

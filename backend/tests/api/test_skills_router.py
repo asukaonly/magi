@@ -52,7 +52,9 @@ def isolated_skills_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.setattr(
         skills_runtime_service,
         "get_config",
-        lambda: type("Config", (), {"tools": type("Tools", (), {"skills": list(enabled_skills)})()})(),
+        lambda: type(
+            "Config", (), {"tools": type("Tools", (), {"skills": list(enabled_skills)})()}
+        )(),
     )
 
     tool_registry._skills = {}
@@ -85,15 +87,17 @@ def test_build_skills_runtime_registers_only_enabled_skills(isolated_skills_stat
     assert set(tool_registry.get_skill_names()) == {"enabled-skill"}
 
     decider = ContextDecider(tool_registry=tool_registry, llm_adapter=None)
-    prompt = decider._build_prompt(  # noqa: SLF001 - direct contract verification for routing prompt
-        user_message="Use a skill",
-        available_tools=decider._get_available_tools(),  # noqa: SLF001
-        context=ContextDeciderContext(
-            os_name="Darwin",
-            os_version="25.0.0",
-            current_datetime="2026-03-25T12:00:00+08:00",
-            timezone="Asia/Shanghai",
-        ),
+    prompt = (
+        decider._build_prompt(  # noqa: SLF001 - direct contract verification for routing prompt
+            user_message="Use a skill",
+            available_tools=decider._get_available_tools(),  # noqa: SLF001
+            context=ContextDeciderContext(
+                os_name="Darwin",
+                os_version="25.0.0",
+                current_datetime="2026-03-25T12:00:00+08:00",
+                timezone="Asia/Shanghai",
+            ),
+        )
     )
 
     assert "## Available Skills" in prompt
@@ -102,7 +106,9 @@ def test_build_skills_runtime_registers_only_enabled_skills(isolated_skills_stat
 
 
 @pytest.mark.asyncio
-async def test_list_skills_returns_503_when_module_uninitialized(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_list_skills_returns_503_when_module_uninitialized(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     container = get_container()
     container.skill_indexer.reset_override()
 
@@ -110,4 +116,4 @@ async def test_list_skills_returns_503_when_module_uninitialized(monkeypatch: py
         await skills_router_module.list_skills()
 
     assert exc_info.value.status_code == 503
-    assert exc_info.value.detail == "Skills module not initialized"
+    assert exc_info.value.detail == "技能模块尚未初始化"

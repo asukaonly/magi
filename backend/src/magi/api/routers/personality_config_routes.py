@@ -7,6 +7,7 @@ from typing import Dict, List
 from fastapi import APIRouter, HTTPException
 
 from ...agent.runtime import TaskAgentType
+from ... import i18n as core_i18n
 from .personality_config_common import legacy_personality_config_module
 from .personality_config_schemas import (
     AIGenerateRequest,
@@ -16,6 +17,34 @@ from .personality_config_schemas import (
 )
 
 personality_config_core_router = APIRouter()
+
+FIELD_LABEL_I18N_KEYS: Dict[str, str] = {
+    "name": "personality.config.fields.name",
+    "description": "personality.config.fields.description",
+    "avatar": "personality.config.fields.avatar",
+    "identity_core.identity_statement": "personality.config.fields.identity_core_identity_statement",
+    "identity_core.values_loved": "personality.config.fields.identity_core_values_loved",
+    "identity_core.values_rejected": "personality.config.fields.identity_core_values_rejected",
+    "identity_core.attention_biases": "personality.config.fields.identity_core_attention_biases",
+    "idiolect.sentence_style": "personality.config.fields.idiolect_sentence_style",
+    "idiolect.vocab_available": "personality.config.fields.idiolect_vocab_available",
+    "idiolect.vocab_avoided": "personality.config.fields.idiolect_vocab_avoided",
+    "idiolect.structural_quirks": "personality.config.fields.idiolect_structural_quirks",
+    "registers": "personality.config.fields.registers",
+    "quiet_hours": "personality.config.fields.quiet_hours",
+    "signature_triggers": "personality.config.fields.signature_triggers",
+    "persona_layers": "personality.config.fields.persona_layers",
+    "dynamic_state_rules": "personality.config.fields.dynamic_state_rules",
+    "appearance_prompt": "personality.config.fields.appearance_prompt",
+}
+
+
+def _field_labels() -> Dict[str, str]:
+    legacy = legacy_personality_config_module()
+    return {
+        field: core_i18n.t(key, fallback=legacy.FIELD_LABELS.get(field, field))
+        for field, key in FIELD_LABEL_I18N_KEYS.items()
+    }
 
 
 @personality_config_core_router.get(
@@ -29,7 +58,10 @@ async def api_get_current_personality():
     try:
         return PersonalityResponse(
             success=True,
-            message="Successfully retrieved current personality",
+            message=core_i18n.t(
+                "personality.config.current.retrieved",
+                fallback="Successfully retrieved current personality",
+            ),
             data={"current": legacy.get_current_personality_name()},
         )
     except Exception as exc:
@@ -47,7 +79,13 @@ async def api_set_current_personality(request: Dict[str, str]):
     try:
         name = request.get("name")
         if not name:
-            raise HTTPException(status_code=400, detail="Missing personality name")
+            raise HTTPException(
+                status_code=400,
+                detail=core_i18n.t(
+                    "personality.config.current.missing_name",
+                    fallback="Missing personality name",
+                ),
+            )
 
         config = None
         try:
@@ -56,10 +94,23 @@ async def api_set_current_personality(request: Dict[str, str]):
             record = await repo.get_by_slug(name)
             config = record.config
         except (KeyError, Exception) as exc:
-            raise HTTPException(status_code=404, detail=f"Personality '{name}' not found") from exc
+            raise HTTPException(
+                status_code=404,
+                detail=core_i18n.t(
+                    "personality.config.current.not_found",
+                    fallback="Personality '{name}' not found",
+                    name=name,
+                ),
+            ) from exc
 
         if not legacy.set_current_personality_name(name, config=config):
-            raise HTTPException(status_code=500, detail="Setting failed")
+            raise HTTPException(
+                status_code=500,
+                detail=core_i18n.t(
+                    "personality.config.current.setting_failed",
+                    fallback="Setting failed",
+                ),
+            )
 
         try:
             runtime = legacy.require_agent_runtime()
@@ -73,7 +124,11 @@ async def api_set_current_personality(request: Dict[str, str]):
 
         return PersonalityResponse(
             success=True,
-            message=f"Switched to personality: {name}",
+            message=core_i18n.t(
+                "personality.config.current.switched",
+                fallback="Switched to personality: {name}",
+                name=name,
+            ),
             data={"current": name},
         )
     except HTTPException:
@@ -106,7 +161,10 @@ async def api_get_greeting():
 
         return PersonalityResponse(
             success=True,
-            message="Successfully retrieved greeting",
+            message=core_i18n.t(
+                "personality.config.greeting.retrieved",
+                fallback="Successfully retrieved greeting",
+            ),
             data={
                 "name": config.name,
                 "avatar": legacy.resolve_avatar_public_url(config.avatar or ""),
@@ -141,20 +199,32 @@ async def get_personality(name: str = "default"):
                 default_config = PersonalityConfigModel()
                 return PersonalityResponse(
                     success=True,
-                    message=f"Personality configuration not found, using default: {name}",
+                    message=core_i18n.t(
+                        "personality.config.detail.not_found_using_default",
+                        fallback="Personality configuration not found, using default: {name}",
+                        name=name,
+                    ),
                     data=legacy._normalize_avatar_in_payload(default_config.model_dump()),
                 )
 
         return PersonalityResponse(
             success=True,
-            message=f"Successfully retrieved personality configuration: {name}",
+            message=core_i18n.t(
+                "personality.config.detail.retrieved",
+                fallback="Successfully retrieved personality configuration: {name}",
+                name=name,
+            ),
             data=legacy._normalize_avatar_in_payload(config.model_dump()),
         )
     except FileNotFoundError:
         default_config = PersonalityConfigModel()
         return PersonalityResponse(
             success=True,
-            message=f"Personality configuration not found, using default: {name}",
+            message=core_i18n.t(
+                "personality.config.detail.not_found_using_default",
+                fallback="Personality configuration not found, using default: {name}",
+                name=name,
+            ),
             data=legacy._normalize_avatar_in_payload(default_config.model_dump()),
         )
     except Exception as exc:
@@ -190,7 +260,11 @@ async def update_personality(name: str, config: PersonalityConfigModel, use_ai_n
 
         return PersonalityResponse(
             success=True,
-            message=f"Personality configuration saved: {actual_name}",
+            message=core_i18n.t(
+                "personality.config.detail.saved",
+                fallback="Personality configuration saved: {name}",
+                name=actual_name,
+            ),
             data={
                 "actual_name": actual_name,
                 "config": legacy._normalize_avatar_in_payload(config.model_dump()),
@@ -221,7 +295,10 @@ async def generate_personality(request: AIGenerateRequest):
         legacy.logger.info("AI generation successful: name=%s", config.name)
         return PersonalityResponse(
             success=True,
-            message="AI personality configuration generated successfully",
+            message=core_i18n.t(
+                "personality.config.generation.generated",
+                fallback="AI personality configuration generated successfully",
+            ),
             data=legacy._normalize_avatar_in_payload(config.model_dump()),
             stages=result.stages,
         )
@@ -249,7 +326,10 @@ async def start_personality_generation(request: AIGenerateRequest):
         )
         return PersonalityResponse(
             success=True,
-            message="AI personality generation started",
+            message=core_i18n.t(
+                "personality.config.generation.started",
+                fallback="AI personality generation started",
+            ),
             data=snapshot,
             stages=snapshot.get("stages"),
         )
@@ -271,10 +351,19 @@ async def get_personality_generation_status(job_id: str):
     try:
         snapshot = await legacy.ai_get_personality_generation_job(job_id)
         if snapshot is None:
-            raise HTTPException(status_code=404, detail="Personality generation job not found")
+            raise HTTPException(
+                status_code=404,
+                detail=core_i18n.t(
+                    "personality.config.generation.job_not_found",
+                    fallback="Personality generation job not found",
+                ),
+            )
         return PersonalityResponse(
             success=True,
-            message="AI personality generation status retrieved",
+            message=core_i18n.t(
+                "personality.config.generation.status_retrieved",
+                fallback="AI personality generation status retrieved",
+            ),
             data=snapshot,
             stages=snapshot.get("stages"),
         )
@@ -301,7 +390,11 @@ async def list_personalities():
 
         return PersonalityResponse(
             success=True,
-            message=f"Found {len(personalities)} personality configurations",
+            message=core_i18n.t(
+                "personality.config.list.found",
+                fallback="Found {count} personality configurations",
+                count=len(personalities),
+            ),
             data={"personalities": personalities},
         )
     except Exception as exc:
@@ -318,7 +411,13 @@ async def delete_personality(name: str):
     legacy = legacy_personality_config_module()
     try:
         if name == legacy.DEFAULT_PERSONALITY:
-            raise HTTPException(status_code=400, detail="Cannot delete default personality")
+            raise HTTPException(
+                status_code=400,
+                detail=core_i18n.t(
+                    "personality.config.delete.default_forbidden",
+                    fallback="Cannot delete default personality",
+                ),
+            )
 
         repo = legacy.PersonaRepository(str(legacy.get_runtime_paths().persona_registry_db_path))
         await repo.init()
@@ -326,11 +425,21 @@ async def delete_personality(name: str):
             record = await repo.get_by_slug(name)
             await repo.delete(record.persona_id)
         except (KeyError, Exception) as exc:
-            raise HTTPException(status_code=404, detail="Personality configuration not found") from exc
+            raise HTTPException(
+                status_code=404,
+                detail=core_i18n.t(
+                    "personality.config.delete.not_found",
+                    fallback="Personality configuration not found",
+                ),
+            ) from exc
 
         return PersonalityResponse(
             success=True,
-            message=f"Personality configuration deleted: {name}",
+            message=core_i18n.t(
+                "personality.config.delete.deleted",
+                fallback="Personality configuration deleted: {name}",
+                name=name,
+            ),
             data=None,
         )
     except HTTPException:
@@ -351,16 +460,34 @@ async def compare_personalities(from_name: str, to_name: str):
         from_config = await legacy.resolve_persona_config(from_name)
         to_config = await legacy.resolve_persona_config(to_name)
         if from_config is None:
-            raise HTTPException(status_code=404, detail=f"Personality not found: {from_name}")
+            raise HTTPException(
+                status_code=404,
+                detail=core_i18n.t(
+                    "personality.config.compare.not_found",
+                    fallback="Personality not found: {name}",
+                    name=from_name,
+                ),
+            )
         if to_config is None:
-            raise HTTPException(status_code=404, detail=f"Personality not found: {to_name}")
+            raise HTTPException(
+                status_code=404,
+                detail=core_i18n.t(
+                    "personality.config.compare.not_found",
+                    fallback="Personality not found: {name}",
+                    name=to_name,
+                ),
+            )
         from_model = PersonalityConfigModel.model_validate(from_config.to_dict())
         to_model = PersonalityConfigModel.model_validate(to_config.to_dict())
-        diffs = legacy._build_diffs(from_model.model_dump(), to_model.model_dump())
+        diffs = legacy.build_personality_diffs(from_model.model_dump(), to_model.model_dump(), _field_labels())
 
         return PersonalityCompareResponse(
             success=True,
-            message=f"Comparison complete: {len(diffs)} differences found",
+            message=core_i18n.t(
+                "personality.config.compare.complete",
+                fallback="Comparison complete: {count} differences found",
+                count=len(diffs),
+            ),
             from_personality=from_name,
             to_personality=to_name,
             diffs=diffs,

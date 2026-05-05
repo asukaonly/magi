@@ -302,8 +302,11 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(row, ("pending", "chat", EventTypes.USER_MESSAGE))
 
     async def test_duplicate_l1_ingest_does_not_duplicate_l2_projection_job(self):
+        """Test that re-ingesting the same event (same envelope_id + same idempotency_key)
+        does not create duplicate L2 projection jobs. Per spec §12.1, legitimate dedupes
+        are when the same envelope id is replayed."""
         now = time.time()
-        first = MemoryEvent(
+        event = MemoryEvent(
             event_id="evt-dup-1",
             correlation_id="corr-dup",
             timestamp=now,
@@ -328,40 +331,19 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
             metadata_json={},
             idempotency_key="chat:dup",
         )
-        second = MemoryEvent(
-            event_id="evt-dup-2",
-            correlation_id="corr-dup",
-            timestamp=now + 1,
-            created_at=now + 1,
-            event_type=EventTypes.USER_MESSAGE,
-            source="chat",
-            source_item_id="chat:dup",
-            memory_domain=MemoryDomain.USER_AUTHORED,
-            ingest_target=IngestTarget.L1_ONLY,
-            cognition_eligible=True,
-            tom_depth=TomDepth.DEFENSIVE_PSYCHOLOGY,
-            retention_class=RetentionClass.COMPRESSIBLE,
-            session_id="s1",
-            turn_id="t1",
-            user_id="u1",
-            task_id=None,
-            content="I have been really stressed about work lately.",
-            author_type="user",
-            content_type="text",
-            importance_score=0.8,
-            level=EventLevel.INFO.value,
-            metadata_json={},
-            idempotency_key="chat:dup",
-        )
 
-        first_result = await self.store.ingest_event(first)
-        second_result = await self.store.ingest_event(second)
+        # Ingest the same event twice (same envelope_id + same idempotency_key)
+        first_result = await self.store.ingest_event(event)
+        second_result = await self.store.ingest_event(event)
 
         async with aiosqlite.connect(str(self.base / "memory.db")) as db:
             cursor = await db.execute("SELECT COUNT(*) FROM l2_projection_jobs")
             count_row = await cursor.fetchone()
 
+        # Same envelope id on both results (dedupe succeeded)
         self.assertEqual(first_result["event_id"], second_result["event_id"])
+        self.assertEqual(first_result["event_id"], "evt-dup-1")
+        # Only one L2 projection job created
         self.assertEqual(count_row, (1,))
 
     async def test_l2_pipeline_claims_and_completes_durable_projection_jobs(self):

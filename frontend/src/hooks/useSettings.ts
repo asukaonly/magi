@@ -69,6 +69,7 @@ export interface UseSettingsReturn {
   draftPluginDrafts: PluginDraftMap;
   handlePluginDraftChange: (pluginId: string, key: string, value: unknown) => void;
   handlePluginDraftChanges: (pluginId: string, updates: Record<string, unknown>) => void;
+  applyPersistedPluginSettings: (pluginId: string, updates: Record<string, unknown>) => void;
   handlePluginAction: (pluginId: string, action: 'enable' | 'disable' | 'reload') => Promise<void>;
   handleReloadActionPlugin: (pluginId: string) => Promise<void>;
   loadPlugins: (options?: { silent?: boolean }) => Promise<void>;
@@ -167,6 +168,7 @@ export function useSettings(): UseSettingsReturn {
     setDraftPluginDrafts,
     handlePluginDraftChange,
     handlePluginDraftChanges,
+    applyPersistedPluginSettings,
     handlePluginAction,
     handleReloadActionPlugin,
     loadPlugins,
@@ -339,6 +341,7 @@ export function useSettings(): UseSettingsReturn {
     draftPluginDrafts,
     handlePluginDraftChange,
     handlePluginDraftChanges,
+    applyPersistedPluginSettings,
     handlePluginAction,
     handleReloadActionPlugin,
     loadPlugins,

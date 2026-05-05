@@ -38,6 +38,12 @@ CREATE TABLE IF NOT EXISTS channel_notification_cursors (
     updated_at_ms     INTEGER NOT NULL,
     PRIMARY KEY (channel_type, external_chat_id)
 );
+
+CREATE TABLE IF NOT EXISTS channel_relay_state (
+    state_key       TEXT    PRIMARY KEY,
+    value_integer   INTEGER NOT NULL DEFAULT 0,
+    updated_at_ms   INTEGER NOT NULL
+);
 """
 
 
@@ -204,6 +210,28 @@ class ChannelSessionMapper:
                    DO UPDATE SET last_notification_id = excluded.last_notification_id,
                                  updated_at_ms = excluded.updated_at_ms""",
                 (channel_type, external_chat_id, notification_id, now_ms),
+            )
+            await db.commit()
+
+    async def get_relay_cursor(self, state_key: str) -> int:
+        async with aiosqlite.connect(self._db_path) as db:
+            cursor = await db.execute(
+                "SELECT value_integer FROM channel_relay_state WHERE state_key = ?",
+                (state_key,),
+            )
+            row = await cursor.fetchone()
+            return int(row[0]) if row else 0
+
+    async def update_relay_cursor(self, state_key: str, notification_id: int) -> None:
+        now_ms = int(time.time() * 1000)
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                """INSERT INTO channel_relay_state (state_key, value_integer, updated_at_ms)
+                   VALUES (?, ?, ?)
+                   ON CONFLICT(state_key)
+                   DO UPDATE SET value_integer = excluded.value_integer,
+                                 updated_at_ms = excluded.updated_at_ms""",
+                (state_key, int(notification_id), now_ms),
             )
             await db.commit()
 

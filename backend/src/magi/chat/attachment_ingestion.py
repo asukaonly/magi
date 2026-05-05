@@ -5,6 +5,7 @@ from __future__ import annotations
 import mimetypes
 from pathlib import Path
 
+from ..i18n import t
 from ..utils.runtime import RuntimePaths, get_runtime_paths
 from .attachment_storage import LocalChatAttachmentStorage
 from .pdf_attachment_parser import LocalPdfAttachmentParser
@@ -120,13 +121,13 @@ class LocalChatAttachmentIngestionService:
             mime_type=normalized_mime_type,
         )
         if attachment_kind is None:
-            raise ValueError("Unsupported attachment type.")
+            raise ValueError(t("chat.attachments.unsupported_type", fallback="Unsupported attachment type."))
         if not content:
-            raise ValueError("Empty file is not allowed.")
+            raise ValueError(t("chat.attachments.empty_file", fallback="Empty file is not allowed."))
         if attachment_kind == "image" and len(content) > MAX_IMAGE_ATTACHMENT_BYTES:
-            raise ValueError("Image attachment exceeds the 20 MB limit.")
+            raise ValueError(t("chat.attachments.image_too_large", fallback="Image attachment exceeds the 20 MB limit."))
         if attachment_kind != "image" and len(content) > MAX_FILE_ATTACHMENT_BYTES:
-            raise ValueError("File attachment exceeds the 50 MB limit.")
+            raise ValueError(t("chat.attachments.file_too_large", fallback="File attachment exceeds the 50 MB limit."))
 
         if attachment_kind == "image":
             stored = self._storage.store_image_attachment(

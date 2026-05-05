@@ -11,6 +11,7 @@ from ...chat.provider import get_chat_projector, get_chat_store
 from ...core.logger import get_logger
 from ...core.runtime_bindings import require_runtime_command_queue
 from ...events.contracts import UserMessageCommand
+from ...i18n import t
 from ...runtime_defaults import DEFAULT_RUNTIME_NAMESPACE
 
 logger = get_logger(__name__)
@@ -39,6 +40,7 @@ class MessageDispatchOutcome:
     user_id: str
     session_id: str | None = None
     turn_id: str | None = None
+    message_id: str | None = None
     error_code: str | None = None
     error_message: str | None = None
     queue_size: int | None = None
@@ -82,7 +84,10 @@ async def dispatch_user_message(
             success=False,
             user_id=user_id,
             error_code=RUNTIME_COMMAND_QUEUE_NOT_INITIALIZED,
-            error_message="Runtime command queue is not initialized. Please complete onboarding or check the saved configuration.",
+            error_message=t(
+                "chat.dispatch.errors.runtime_command_queue_not_initialized",
+                fallback="Runtime command queue is not initialized. Please complete onboarding or check the saved configuration.",
+            ),
         )
     try:
         chat_store = get_chat_store()
@@ -91,7 +96,7 @@ async def dispatch_user_message(
             success=False,
             user_id=user_id,
             error_code=CHAT_STORE_NOT_INITIALIZED,
-            error_message="Chat store is not initialized.",
+            error_message=t("chat.dispatch.errors.chat_store_not_initialized", fallback="Chat store is not initialized."),
         )
 
     resolved_session_id = str(session_id or "").strip()
@@ -100,7 +105,7 @@ async def dispatch_user_message(
             success=False,
             user_id=user_id,
             error_code=SESSION_ID_REQUIRED,
-            error_message="Session ID is required.",
+            error_message=t("chat.dispatch.errors.session_id_required", fallback="Session ID is required."),
         )
     try:
         normalized_attachments = _normalize_attachments(attachments)
@@ -119,7 +124,7 @@ async def dispatch_user_message(
             user_id=user_id,
             session_id=resolved_session_id,
             error_code=EMPTY_TURN,
-            error_message="Message text or attachments are required.",
+            error_message=t("chat.dispatch.errors.empty_turn", fallback="Message text or attachments are required."),
         )
     normalized_workspace_path = str(workspace_path or "").strip() or None
     if normalized_workspace_path is None:
@@ -156,7 +161,7 @@ async def dispatch_user_message(
             session_id=resolved_session_id,
             turn_id=turn_id,
             error_code=CHAT_STORE_PERSIST_FAILED,
-            error_message="Chat turn persistence failed",
+            error_message=t("chat.dispatch.errors.persist_failed", fallback="Chat turn persistence failed"),
         )
     try:
         chat_projector = get_chat_projector()
@@ -197,7 +202,7 @@ async def dispatch_user_message(
             session_id=resolved_session_id,
             turn_id=turn_id,
             error_code=RUNTIME_COMMAND_QUEUE_ENQUEUE_FAILED,
-            error_message="Runtime command enqueue failed",
+            error_message=t("chat.dispatch.errors.enqueue_failed", fallback="Runtime command enqueue failed"),
         )
 
     stats = await runtime_command_queue.get_stats()
@@ -214,6 +219,7 @@ async def dispatch_user_message(
         user_id=user_id,
         session_id=resolved_session_id,
         turn_id=turn_id,
+        message_id=created_turn.message_id,
         queue_size=int(queue_size) if isinstance(queue_size, int) else None,
     )
 
@@ -235,15 +241,15 @@ def _normalize_attachments(attachments: list[dict[str, Any]] | None) -> list[dic
     if attachments is None:
         return []
     if not isinstance(attachments, list):
-        raise ValueError("Attachments must be a list.")
+        raise ValueError(t("chat.dispatch.errors.attachments_must_be_list", fallback="Attachments must be a list."))
     normalized: list[dict[str, Any]] = []
     for item in attachments:
         if not isinstance(item, dict):
-            raise ValueError("Each attachment must be an object.")
+            raise ValueError(t("chat.dispatch.errors.attachment_must_be_object", fallback="Each attachment must be an object."))
         normalized_item = dict(item)
         attachment_kind = str(normalized_item.get("kind") or "").strip()
         if not attachment_kind:
-            raise ValueError("Each attachment must include a kind.")
+            raise ValueError(t("chat.dispatch.errors.attachment_kind_required", fallback="Each attachment must include a kind."))
         normalized_item["kind"] = attachment_kind
         normalized.append(normalized_item)
     return normalized

@@ -103,9 +103,8 @@ async def test_memory_layers_create_sqlite_vec_virtual_tables_on_insert(tmp_path
                 source="chat",
                 level=EventLevel.INFO,
                 correlation_id="corr-1",
-            ),
-            event_id="evt-1",
-        )
+            event_id="evt-1"),
+            )
         await l1_store.store(event)
         await l3_store._store_summary(
             {
@@ -137,9 +136,8 @@ async def test_memory_layers_create_sqlite_vec_virtual_tables_on_insert(tmp_path
                     source="runtime",
                     level=EventLevel.INFO,
                     correlation_id="corr-2",
-                ),
-                event_id="evt-2",
-            )
+                event_id="evt-2"),
+                )
         )
 
         assert _has_virtual_table_with_prefix(str(l1_db), "l1_event_vec_")

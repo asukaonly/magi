@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ...core.logger import get_logger
+from ...i18n import language_family
 from ...utils.packaged_paths import get_backend_root
 from ..routers.config_schemas import (
     FullPersonalityConfigModel,
@@ -31,12 +32,7 @@ def build_onboarding_template() -> SystemConfigModel:
 
 
 def resolve_personality_language_code(language: str) -> str:
-    normalized = (language or "zh").lower()
-    if normalized.startswith("zh"):
-        return "zh"
-    if normalized.startswith("en"):
-        return "en"
-    return normalized
+    return language_family(language, default="zh")
 
 
 def quick_mode_personality_locale_candidates(language: str) -> List[str]:

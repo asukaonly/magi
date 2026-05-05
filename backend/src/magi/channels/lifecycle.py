@@ -47,6 +47,7 @@ class ChannelsModule(LifecycleModule):
 
     async def _start_channels(self) -> None:
         from .dispatcher import ChannelMessageDispatcher
+        from .attachments import ChannelAttachmentStore
         from .notification_relay import NotificationRelay
         from .registry import ChannelRegistry
         from .session_mapper import ChannelSessionMapper
@@ -74,11 +75,13 @@ class ChannelsModule(LifecycleModule):
         session_mapper = ChannelSessionMapper(db_path=channels_db_path, chat_store=chat_store)
         await session_mapper.initialize()
         message_dispatcher = ChannelMessageDispatcher()
+        attachment_store = ChannelAttachmentStore(runtime_paths=runtime_paths)
 
         registry = ChannelRegistry()
         for channel in channel_instances:
             channel.bind_session_mapper(session_mapper)
             channel.bind_message_dispatcher(message_dispatcher)
+            channel.bind_attachment_store(attachment_store)
             try:
                 registry.register(channel)
             except ValueError:

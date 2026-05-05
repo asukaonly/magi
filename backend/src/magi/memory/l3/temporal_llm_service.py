@@ -9,9 +9,8 @@ import re
 import time
 from typing import Any
 
-from ...config.loader import get_user_preference
+from ... import i18n as core_i18n
 from ...llm import LLMProviderBridge, LLMScenario, ScenarioLLMPool
-from magi_plugin_sdk.i18n import get_current_language
 from .models import L3Candidate, TemporalEvidencePack, TemporalGenerationResult, TemporalSummaryLLMOutput
 from .temporal_evidence import TemporalEvidencePackMixin
 from .temporal_output import TemporalOutputParsingMixin
@@ -66,40 +65,94 @@ _PERIOD_FOCUS_INSTRUCTIONS = {
         "- Keep representative anchors for durable projects, decisions, constraints, and source-specific habits without listing every event."
     ),
 }
-_PERIOD_STRUCTURE_INSTRUCTIONS = {
-    "hour": (
-        "- Content target: 1-3 information-dense sentences.\n"
-        "- change_and_pattern.timeline: 1-3 ordered activity blocks when supported.\n"
-        "- change_and_pattern.source_signals: 0-3 source-specific signals.\n"
-        "- Leave unsupported arrays empty rather than filling them with guesses."
-    ),
-    "day": (
-        "- Content target: 3-5 information-dense sentences that separate activity blocks, decisions, and follow-up threads.\n"
-        "- change_and_pattern.timeline: 2-5 ordered blocks or phase shifts.\n"
-        "- change_and_pattern.source_signals: 2-5 source-specific signals when multiple sources or repeated source behavior appear.\n"
-        "- change_and_pattern.decisions_and_actions and open_threads should preserve concrete tasks, purchases, choices, or unresolved follow-ups when supported."
-    ),
-    "week": (
-        "- Content target: 4-7 information-dense sentences that preserve a week-level narrative, not only a theme list.\n"
-        "- change_and_pattern.timeline: 3-6 ordered phases, day clusters, or stage shifts.\n"
-        "- change_and_pattern.source_signals: 3-6 source-specific signals covering dominant sources and unusual repeated behavior.\n"
-        "- change_and_pattern.decisions_and_actions and open_threads should keep representative concrete anchors that future recall may query."
-    ),
-    "month": (
-        "- Content target: 5-8 information-dense sentences that describe cross-week progression and sustained threads.\n"
-        "- change_and_pattern.timeline: 3-7 ordered phases or week-to-week stage shifts.\n"
-        "- change_and_pattern.source_signals: 3-7 source-specific signals covering dominant sources and unusual repeated behavior.\n"
-        "- change_and_pattern.decisions_and_actions and open_threads should retain representative project, purchase, planning, and interest anchors."
-    ),
-    "quarter": (
-        "- Content target: 5-8 information-dense sentences focused on durable progression and stage changes.\n"
-        "- Use structured arrays to retain representative anchors rather than exhaustive event lists."
-    ),
-    "year": (
-        "- Content target: 5-8 information-dense sentences focused on durable progression and stage changes.\n"
-        "- Use structured arrays to retain representative anchors rather than exhaustive event lists."
-    ),
+_SECTION_LABELS = {
+    "zh": {
+        "headline": "## 要点",
+        "subperiod": "## 子周期脉络",
+        "timeline": "## 时间线",
+        "decisions": "## 决策与行动",
+        "open_threads": "## 未闭合",
+        "vs_yesterday": "## 与昨日对比",
+        "vs_last_week": "## 与上周对比",
+        "vs_last_month": "## 与上月对比",
+        "vs_last_quarter": "## 与上季度对比",
+        "vs_last_year": "## 与去年对比",
+    },
+    "en": {
+        "headline": "## Highlights",
+        "subperiod": "## Subperiod arc",
+        "timeline": "## Timeline",
+        "decisions": "## Decisions and actions",
+        "open_threads": "## Open threads",
+        "vs_yesterday": "## vs yesterday",
+        "vs_last_week": "## vs last week",
+        "vs_last_month": "## vs last month",
+        "vs_last_quarter": "## vs last quarter",
+        "vs_last_year": "## vs last year",
+    },
 }
+
+
+def _section_labels() -> dict[str, str]:
+    return _SECTION_LABELS["zh" if _target_language_code() == "zh" else "en"]
+
+
+def _period_structure_instruction_text(category: str) -> str:
+    s = _section_labels()
+    templates = {
+        "hour": (
+            "- content (markdown): a single short paragraph (1-3 sentences). Section headings are optional for hour summaries; if used, only `{headline}` and `{timeline}`.\n"
+            "- change_and_pattern.headline: one short sentence mirroring the content paragraph.\n"
+            "- change_and_pattern.timeline: 1-3 ordered activity blocks when supported.\n"
+            "- change_and_pattern.source_signals: 0-3 source-specific signals.\n"
+            "- daily_breakdown / weekly_breakdown / trend_shifts / metrics: leave empty for hour windows.\n"
+            "- Leave unsupported arrays empty rather than filling them with guesses."
+        ),
+        "day": (
+            "- content (markdown): use sections `{headline}`, `{timeline}`, `{decisions}`, `{open_threads}`, and `{vs_yesterday}` when previous_period_summaries supports it. Each section body is a tight bullet list; total length 4-8 lines of bullets plus a one-line headline.\n"
+            "- change_and_pattern.headline: one short sentence; same as the `{headline}` line.\n"
+            "- change_and_pattern.timeline: 2-5 ordered blocks or phase shifts.\n"
+            "- change_and_pattern.source_signals: 2-5 source-specific signals when multiple sources or repeated source behavior appear.\n"
+            "- change_and_pattern.decisions_and_actions and open_threads: preserve concrete tasks, purchases, choices, or unresolved follow-ups.\n"
+            "- change_and_pattern.trend_shifts: populate rising/falling/new/persisting only when previous_period_summaries supports the comparison; otherwise leave the arrays empty.\n"
+            "- change_and_pattern.metrics: fill event_count, dominant_sources, and any other numeric signals you can ground in source_distribution and event_type_distribution; leave unknown numeric fields out.\n"
+            "- daily_breakdown and weekly_breakdown: leave empty for day windows."
+        ),
+        "week": (
+            "- content (markdown): use sections `{headline}`, `{subperiod}` (per-day bullets covering each day in the window, sourced from child_period_summaries headlines), `{timeline}` (3-6 phase-level bullets), `{decisions}`, `{open_threads}`, `{vs_last_week}`. Total length should remain compact - aim for 12-20 bullet lines.\n"
+            "- change_and_pattern.headline: one short sentence capturing the week-level arc.\n"
+            "- change_and_pattern.daily_breakdown: 5-8 entries, one per day in the window, each a `MM-DD: one-line` string sourced from child day headlines or your synthesis when child summaries are missing for some days.\n"
+            "- change_and_pattern.timeline: 3-6 ordered phases, day clusters, or stage shifts.\n"
+            "- change_and_pattern.source_signals: 3-6 source-specific signals covering dominant sources and unusual repeated behavior.\n"
+            "- change_and_pattern.decisions_and_actions and open_threads: keep representative concrete anchors that future recall may query; for open_threads, include since-date when known.\n"
+            "- change_and_pattern.trend_shifts: rising/falling reserved for sustained multi-week trajectories visible across previous_period_summaries; use `new` for themes appearing only this week and `persisting` for themes stable across the comparison series.\n"
+            "- change_and_pattern.metrics: fill event_count, covered_children (number of distinct child days), deep_work_blocks, fragmentation_score, dominant_sources where evidence supports.\n"
+            "- weekly_breakdown: leave empty for week windows."
+        ),
+        "month": (
+            "- content (markdown): use sections `{headline}`, `{subperiod}` (per-week bullets sourced from child_period_summaries), `{timeline}`, `{decisions}`, `{open_threads}`, `{vs_last_month}`. Total length should remain compact - aim for 14-22 bullet lines.\n"
+            "- change_and_pattern.headline: one short sentence capturing the month-level arc.\n"
+            "- change_and_pattern.weekly_breakdown: 4-5 entries, one per ISO-week in the window, each `Week N (MM-DD~MM-DD): one-line`, sourced from child week headlines.\n"
+            "- change_and_pattern.timeline: 3-7 ordered phases or week-to-week stage shifts.\n"
+            "- change_and_pattern.source_signals: 3-7 source-specific signals covering dominant sources and unusual repeated behavior.\n"
+            "- change_and_pattern.decisions_and_actions and open_threads: retain representative project, purchase, planning, and interest anchors; carry open_threads forward from child summaries when still unresolved.\n"
+            "- change_and_pattern.trend_shifts: rising/falling reserved for sustained multi-month trajectories visible across previous_period_summaries.\n"
+            "- change_and_pattern.metrics: fill event_count, covered_children (number of distinct child weeks), deep_work_blocks, fragmentation_score, dominant_sources where evidence supports.\n"
+            "- daily_breakdown: leave empty for month windows."
+        ),
+        "quarter": (
+            "- content (markdown): use sections `{headline}`, `{timeline}`, `{decisions}`, `{open_threads}`, `{vs_last_quarter}`. Aim for 12-20 bullet lines.\n"
+            "- change_and_pattern.headline, timeline, source_signals, decisions_and_actions, open_threads, trend_shifts, metrics: populate as for month windows, scaled to quarter granularity.\n"
+            "- Use structured arrays to retain representative anchors rather than exhaustive event lists."
+        ),
+        "year": (
+            "- content (markdown): use sections `{headline}`, `{timeline}`, `{decisions}`, `{open_threads}`, `{vs_last_year}`. Aim for 14-22 bullet lines.\n"
+            "- change_and_pattern.headline, timeline, source_signals, decisions_and_actions, open_threads, trend_shifts, metrics: populate at year granularity.\n"
+            "- Use structured arrays to retain representative anchors rather than exhaustive event lists."
+        ),
+    }
+    template = templates.get(category, templates["week"])
+    return template.format(**s)
 _PERIOD_LABELS_ZH = {
     "hour": "这一小时",
     "day": "这一天",
@@ -120,13 +173,11 @@ _SOURCE_LABELS_ZH = {
 
 
 def _target_language_code() -> str:
-    preferred = get_user_preference("language", None)
-    language = str(preferred or get_current_language() or "en").lower()
-    return "zh" if language.startswith("zh") else "en"
+    return core_i18n.effective_app_language_code(default="en")
 
 
 def _target_language_label() -> str:
-    return "Simplified Chinese (zh-CN)" if _target_language_code() == "zh" else "English"
+    return core_i18n.llm_language_label(default="en")
 
 
 def _target_language_instruction() -> str:
@@ -462,7 +513,8 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
             "When plugin_summary_features are present, use them to surface source-specific behavior patterns such as concentration, revisits, and session structure.\n"
             "Use source_distribution, window_event_count, and omitted_event_count to understand coverage and avoid treating representative events as exhaustive.\n"
             "Prioritize explicit changes, recurring constraints, and high-importance events.\n\n"
-            "Use previous_period_summaries and child_period_summaries only for comparison and timeline continuity; the current evidence pack remains the source of truth.\n"
+            "Use previous_period_summaries as an ordered comparison series for trend_shifts and vs-previous-period sections; the current evidence pack remains the source of truth.\n"
+            "When child_period_summaries are present (week/month/quarter/year), treat them as the primary skeleton: synthesize from child headlines, decisions, and open threads, and fall back to raw events only to fill gaps.\n"
             "Do not promote old summary content into a current-window fact unless current evidence also supports it.\n"
             "Do not lead with raw event counts or internal event type names; mention counts only when they change the interpretation.\n\n"
             "Period Focus:\n"
@@ -471,11 +523,12 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
             f"{period_structure}\n\n"
             "Output Requirements:\n"
             "- Return one JSON object only.\n"
-            "- Keep content compact but information-dense and evidence-grounded.\n"
+            "- The `content` field MUST be Markdown using `##` section headings (no top-level `#`). Section bodies should be tight bullet lists or short paragraphs; omit a section entirely when no evidence supports it.\n"
+            "- `change_and_pattern.headline` is REQUIRED and must mirror the headline section's one-line summary in `content`.\n"
+            "- Keep `content` and `change_and_pattern` consistent: every concrete anchor in content should also appear in the appropriate structured array.\n"
             "- Preserve concrete names and short phrases that improve future retrieval.\n"
-            "- For day, week, and month windows, use multiple focused sentences and structured arrays instead of a single over-compressed sentence.\n"
             f"{_target_language_instruction()}\n"
-            "- Use empty lists or nulls when a field has no support.\n\n"
+            "- Use empty lists or nulls when a field has no support; never fabricate metrics.\n\n"
             "Output JSON Schema:\n"
             f"{schema}\n\n"
             "Evidence Pack:\n"
@@ -489,10 +542,7 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
         )
 
     def _period_structure_instruction(self, pack: TemporalEvidencePack) -> str:
-        return _PERIOD_STRUCTURE_INSTRUCTIONS.get(
-            str(pack.summary_category),
-            _PERIOD_STRUCTURE_INSTRUCTIONS["week"],
-        )
+        return _period_structure_instruction_text(str(pack.summary_category))
 
     def _get_adapter(self) -> Any | None:
         if self._scenario_llm_pool is None:

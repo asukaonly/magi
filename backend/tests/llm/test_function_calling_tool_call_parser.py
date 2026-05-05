@@ -13,6 +13,7 @@ from magi.agent.execution.function_calling import llm as function_calling_llm_mo
 from magi.agent.execution.function_calling import FunctionCallingOrchestrator, ToolCall, ToolCallResult
 from magi.config.models import ThinkingDepth
 from magi.tools.schema import ToolResult
+from magi.agent.turn_input import UserTurnInput
 
 
 class _DummyLLMAdapter(LLMAdapter):
@@ -157,7 +158,7 @@ async def test_execute_with_tools_runs_legacy_tool_call_blocks() -> None:
     )
 
     result = await executor.execute_with_tools(
-        user_message="run legacy tool calls",
+        turn=UserTurnInput(text="run legacy tool calls", attachments=[], user_id=None, session_id=None),
         system_prompt="sys",
         selected_tools=["bash", "agent"],
         user_id="u1",
@@ -283,7 +284,7 @@ async def test_max_iterations_fallback_executes_legacy_tool_call_once() -> None:
     executor._call_llm_without_tools = _fake_call_llm_without_tools  # type: ignore[method-assign]
 
     result = await executor.execute_with_tools(
-        user_message="run tools",
+        turn=UserTurnInput(text="run tools", attachments=[], user_id=None, session_id=None),
         system_prompt="sys",
         selected_tools=["bash", "agent"],
         user_id="u1",
@@ -336,7 +337,7 @@ async def test_max_iterations_fallback_forces_plain_text_after_repeated_legacy_t
     executor._call_llm_without_tools = _fake_call_llm_without_tools  # type: ignore[method-assign]
 
     result = await executor.execute_with_tools(
-        user_message="run tools",
+        turn=UserTurnInput(text="run tools", attachments=[], user_id=None, session_id=None),
         system_prompt="sys\n# Tool Information\nuse tools",
         selected_tools=["bash", "agent", "grep"],
         user_id="u1",
@@ -801,7 +802,7 @@ async def test_execute_with_tools_replans_after_recoverable_tool_failure() -> No
     executor._call_llm_with_tools = _fake_call_llm_with_tools  # type: ignore[method-assign]
 
     result = await executor.execute_with_tools(
-        user_message="inspect backend",
+        turn=UserTurnInput(text="inspect backend", attachments=[], user_id=None, session_id=None),
         system_prompt="sys",
         selected_tools=["grep", "glob"],
         user_id="u1",
@@ -884,7 +885,7 @@ async def test_execute_with_tools_stops_replanning_for_non_recoverable_tool_fail
     executor._call_llm_without_tools = _fake_call_llm_without_tools  # type: ignore[method-assign]
 
     result = await executor.execute_with_tools(
-        user_message="search docs",
+        turn=UserTurnInput(text="search docs", attachments=[], user_id=None, session_id=None),
         system_prompt="sys",
         selected_tools=["web_search"],
         user_id="u1",

@@ -69,6 +69,7 @@ class ChatPostProcessService:
         drain_deferred_turns: Callable[[str], Any] | None = None,
         response_rhythm_planner: Any | None = None,
         transcript_summarizer: Any | None = None,
+        event_bus: Any | None = None,
     ) -> None:
         self._agent_id = agent_id
         self._history_service = history_service
@@ -85,6 +86,7 @@ class ChatPostProcessService:
             chat_read_service_factory or _default_chat_read_service_factory
         )
         self._runtime_trace_store = runtime_trace_store
+        self._event_bus = event_bus
         self._operations = _ChatPostProcessOperations(self)
         self._chat_outcome_writer = ChatOutcomeWriter(
             chat_store=chat_store,

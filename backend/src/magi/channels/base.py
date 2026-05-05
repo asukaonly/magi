@@ -2,6 +2,7 @@
 
 from magi_plugin_sdk.channels import (  # noqa: F401
     Channel,
+    ChannelAttachmentStoreProtocol,
     ChannelMessageDispatcherProtocol,
     ChannelMessageDispatchOutcome,
     ChannelSessionMapperProtocol,
@@ -9,6 +10,7 @@ from magi_plugin_sdk.channels import (  # noqa: F401
 
 __all__ = [
     "Channel",
+    "ChannelAttachmentStoreProtocol",
     "ChannelMessageDispatcherProtocol",
     "ChannelMessageDispatchOutcome",
     "ChannelSessionMapperProtocol",

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .. import i18n as core_i18n
+
 
 class TimelineContextBundleBuilder:
     """Build the right-drawer context payload for one timeline anchor."""
@@ -126,7 +128,7 @@ class TimelineContextBundleBuilder:
         return {
             "event_id": str(event.get("event_id")),
             "timestamp": float(event.get("timestamp") or 0.0),
-            "title": str(timeline.get("title") or event.get("event_type") or event.get("event_id") or "Event"),
+            "title": str(timeline.get("title") or event.get("event_type") or event.get("event_id") or core_i18n.t("timeline.raw_event.title", fallback="Event")),
             "summary": str(timeline.get("summary") or event.get("content") or ""),
             "source_type": str(timeline.get("source_type") or event.get("source") or "memory"),
             "source_item_id": str(

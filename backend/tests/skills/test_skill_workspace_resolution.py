@@ -9,6 +9,7 @@ import pytest
 from magi.skills.runner import SkillRunner
 from magi.skills.schema import SkillContent, SkillFrontmatter
 from magi.skills.subagent import SkillSubagent
+from magi.agent.turn_input import UserTurnInput
 
 
 def test_skill_runner_substitutes_pwd_from_workspace_context(tmp_path: Path) -> None:

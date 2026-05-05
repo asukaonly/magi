@@ -3,7 +3,9 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from magi.api.routers.plugins_common import _serialize_contribution
 from magi.api.routers.plugins import plugins_router
+from magi.plugins import ContributionType, PluginContribution
 
 
 class _FakeManager:
@@ -98,12 +100,65 @@ class _FakeManager:
             },
         }
 
+    async def start_plugin_settings_action(self, plugin_id: str, action_id: str, *, field_values=None):
+        self.calls.append(f"start_action:{plugin_id}:{action_id}:{field_values or {}}")
+        result = type(
+            "PluginSettingsActionResult",
+            (),
+            {
+                "status": "pending",
+                "message": "Scan the code",
+                "data": {"qr_code_url": "data:image/png;base64,abc"},
+                "settings_updates": {},
+            },
+        )()
+        return type("PluginSettingsActionRun", (), {"session_id": "session-1", "result": result})()
+
+    async def poll_plugin_settings_action(self, plugin_id: str, action_id: str, *, session_id: str, field_values=None):
+        self.calls.append(f"poll_action:{plugin_id}:{action_id}:{session_id}:{field_values or {}}")
+        result = type(
+            "PluginSettingsActionResult",
+            (),
+            {
+                "status": "succeeded",
+                "message": "Connected",
+                "data": {},
+                "settings_updates": {"account_id": "account-1"},
+            },
+        )()
+        return type("PluginSettingsActionRun", (), {"session_id": session_id, "result": result})()
+
+    async def cancel_plugin_settings_action(self, plugin_id: str, action_id: str, *, session_id: str):
+        self.calls.append(f"cancel_action:{plugin_id}:{action_id}:{session_id}")
+        result = type(
+            "PluginSettingsActionResult",
+            (),
+            {
+                "status": "cancelled",
+                "message": "Cancelled",
+                "data": {},
+                "settings_updates": {},
+            },
+        )()
+        return type("PluginSettingsActionRun", (), {"session_id": session_id, "result": result})()
+
+
+class _FakeRuntimeQueue:
+    def __init__(self) -> None:
+        self.refresh_channel_reasons: list[str | None] = []
+
+    async def enqueue_refresh_channels(self, command) -> int:
+        self.refresh_channel_reasons.append(command.reason)
+        return len(self.refresh_channel_reasons)
+
 
 def test_plugins_api_lists_and_updates_plugin_settings(monkeypatch):
     app = FastAPI()
     app.include_router(plugins_router, prefix="/api/plugins")
     manager = _FakeManager()
+    queue = _FakeRuntimeQueue()
     monkeypatch.setattr("magi.api.routers.plugins.resolve_plugin_manager", lambda: manager)
+    monkeypatch.setattr("magi.api.routers.plugins_core_routes.require_runtime_command_queue", lambda: queue)
     client = TestClient(app)
 
     response = client.get("/api/plugins")
@@ -113,13 +168,16 @@ def test_plugins_api_lists_and_updates_plugin_settings(monkeypatch):
     update_response = client.put("/api/plugins/core-tools/settings", json={"updates": {"display.label": "Core"}})
     assert update_response.status_code == 200
     assert update_response.json()["current_settings"]["display.label"] == "Core"
+    assert queue.refresh_channel_reasons == ["plugin_core-tools_settings_updated"]
 
 
 def test_plugins_api_supports_enable_disable_reload_rescan_and_settings(monkeypatch):
     app = FastAPI()
     app.include_router(plugins_router, prefix="/api/plugins")
     manager = _FakeManager()
+    queue = _FakeRuntimeQueue()
     monkeypatch.setattr("magi.api.routers.plugins.resolve_plugin_manager", lambda: manager)
+    monkeypatch.setattr("magi.api.routers.plugins_core_routes.require_runtime_command_queue", lambda: queue)
     client = TestClient(app)
 
     disable_response = client.post("/api/plugins/core-tools/disable")
@@ -153,6 +211,11 @@ def test_plugins_api_supports_enable_disable_reload_rescan_and_settings(monkeypa
         "reload:core-tools",
         "rescan",
     ]
+    assert queue.refresh_channel_reasons == [
+        "plugin_core-tools_disabled",
+        "plugin_core-tools_enabled",
+        "plugin_core-tools_reloaded",
+    ]
 
 
 def test_plugins_api_reads_plugin_settings_resources(monkeypatch):
@@ -171,3 +234,83 @@ def test_plugins_api_reads_plugin_settings_resources(monkeypatch):
     assert payload["resource_type"] == "collection"
     assert payload["data"]["groups"][0]["items"][0]["item_id"] == "calendar-personal"
     assert manager.calls == ["get:core-tools", "resource:core-tools:calendar_lists"]
+
+
+def test_plugins_api_runs_plugin_settings_actions(monkeypatch):
+    app = FastAPI()
+    app.include_router(plugins_router, prefix="/api/plugins")
+    manager = _FakeManager()
+    queue = _FakeRuntimeQueue()
+    monkeypatch.setattr("magi.api.routers.plugins.resolve_plugin_manager", lambda: manager)
+    monkeypatch.setattr("magi.api.routers.plugins_core_routes.require_runtime_command_queue", lambda: queue)
+    client = TestClient(app)
+
+    start_response = client.post(
+        "/api/plugins/core-tools/settings/actions/qr_login/start",
+        json={"field_values": {"state_dir": "/tmp/magi"}},
+    )
+    assert start_response.status_code == 200
+    assert start_response.json()["session_id"] == "session-1"
+    assert start_response.json()["status"] == "pending"
+    assert start_response.json()["data"]["qr_code_url"].startswith("data:image/png")
+
+    poll_response = client.post(
+        "/api/plugins/core-tools/settings/actions/qr_login/sessions/session-1/poll",
+        json={"field_values": {"state_dir": "/tmp/magi"}},
+    )
+    assert poll_response.status_code == 200
+    assert poll_response.json()["status"] == "succeeded"
+    assert poll_response.json()["settings_updates"] == {"account_id": "account-1"}
+
+    cancel_response = client.post(
+        "/api/plugins/core-tools/settings/actions/qr_login/sessions/session-1/cancel",
+    )
+    assert cancel_response.status_code == 200
+    assert cancel_response.json()["status"] == "cancelled"
+
+    assert manager.calls == [
+        "get:core-tools",
+        "start_action:core-tools:qr_login:{'state_dir': '/tmp/magi'}",
+        "get:core-tools",
+        "poll_action:core-tools:qr_login:session-1:{'state_dir': '/tmp/magi'}",
+        "get:core-tools",
+        "cancel_action:core-tools:qr_login:session-1",
+    ]
+    assert queue.refresh_channel_reasons == ["plugin_core-tools_settings_action_qr_login_succeeded"]
+
+
+def test_plugins_api_translates_settings_action_metadata():
+    contribution = PluginContribution(
+        plugin_id="weixin",
+        contribution_id="weixin:channel",
+        contribution_type=ContributionType.CHANNEL,
+        display_name="Weixin",
+        description="Channel",
+        surface="extensions",
+        metadata={
+            "settings_actions": [
+                {
+                    "action_id": "qr_login",
+                    "label": "Weixin QR Login",
+                    "description": "Scan with Weixin.",
+                    "button_label": "Start QR Login",
+                }
+            ]
+        },
+    )
+
+    class FakeI18n:
+        def t(self, key, fallback="", **kwargs):
+            translations = {
+                "actions.qr_login.label": "微信扫码登录",
+                "actions.qr_login.description": "用微信扫描二维码完成授权。",
+                "actions.qr_login.button_label": "开始扫码登录",
+            }
+            return translations.get(key, fallback)
+
+    serialized = _serialize_contribution(contribution, FakeI18n())
+
+    action = serialized.metadata["settings_actions"][0]
+    assert action["label"] == "微信扫码登录"
+    assert action["description"] == "用微信扫描二维码完成授权。"
+    assert action["button_label"] == "开始扫码登录"

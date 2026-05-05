@@ -7,6 +7,12 @@ from typing import Any, Awaitable, Callable, Optional
 
 from ..core.logger import get_logger
 from ..agent.runtime.contracts import FactRecord
+from ..events.events import Event, EventTypes
+from ..events.domain_payloads import (
+    SpanCompleted,
+    TaskContext,
+    ToolError,
+)
 from ..tools.registry import ToolRegistry
 from .orchestration import (
     OrchestrationExecutionResult,
@@ -63,6 +69,89 @@ class TaskOrchestrator(
         self._session_workspace_provider = session_workspace_provider
         self._control_session_store_provider = control_session_store_provider
         self._orchestration_store = get_orchestration_store()
+
+    @property
+    def _event_bus(self):
+        if not hasattr(self, "_event_bus_cached"):
+            try:
+                from ..core.container import Container
+                bus = Container.message_bus()
+            except Exception:
+                bus = None
+            if bus is None or type(bus).__name__ == "object":
+                class _NoopBus:
+                    async def publish(self, event):
+                        return False
+                bus = _NoopBus()
+            self._event_bus_cached = bus
+        return self._event_bus_cached
+
+    async def _publish_task_lifecycle(
+        self,
+        *,
+        state,
+        status: str,
+        summary: Optional[str] = None,
+        error_type: Optional[str] = None,
+        error_message: Optional[str] = None,
+        error: Optional[ToolError] = None,
+    ) -> None:
+        """Publish SpanCompleted(node_type='task_lifecycle') for terminal state.
+
+        state must expose: orchestration_id, planner, created_at, updated_at,
+        user_id, session_id, turn_id.
+        """
+        err_obj = error
+        if err_obj is None and (error_type is not None or error_message is not None):
+            err_obj = ToolError(
+                type=error_type or "Error",
+                message=(error_message or "")[:1000],
+            )
+
+        started_at_ms = int(state.created_at * 1000)
+        ended_at_ms = int(state.updated_at * 1000)
+
+        payload = SpanCompleted(
+            span_id=str(uuid.uuid4()),
+            trace_id=str(uuid.uuid4()),
+            parent_span_id=None,
+            node_type="task_lifecycle",
+            name=state.planner,
+            status=status,
+            started_at_ms=started_at_ms,
+            ended_at_ms=ended_at_ms,
+            duration_ms=ended_at_ms - started_at_ms,
+            error=err_obj,
+            result_preview=summary,
+            turn_id=state.turn_id,
+            attributes={
+                "task_id": state.orchestration_id,
+                "task_type": state.planner,
+                "status": status,
+                "summary": summary,
+                "user_id": state.user_id,
+                "session_id": state.session_id,
+                "started_at": state.created_at,
+                "finished_at": state.updated_at,
+            },
+        )
+        try:
+            await self._event_bus.publish(Event(
+                type=EventTypes.SPAN_COMPLETED,
+                data=payload,
+                source="task_orchestrator",
+                correlation_id=state.turn_id,
+            ))
+        except Exception:
+            logger.exception("publish task_lifecycle SpanCompleted failed")
+
+    def _build_task_context(self, state: TaskOrchestrationState) -> TaskContext:
+        return TaskContext(
+            session_id=state.session_id,
+            turn_id=state.turn_id,
+            task_id=state.orchestration_id,
+            user_id=state.user_id,
+        )
 
     async def start_orchestration(
         self,
@@ -164,6 +253,12 @@ class TaskOrchestrator(
             state.status = "failed"
             state.updated_at = time.time()
             await self._orchestration_store.save_orchestration(state)
+            await self._publish_task_lifecycle(
+                state=state,
+                status="error",
+                error_type="LaunchError",
+                error_message=str(launch_error)[:1000],
+            )
             return OrchestrationExecutionResult(
                 response=f"Failed to launch worker subtasks: {launch_error}",
                 skip_emit=False,
@@ -268,6 +363,12 @@ class TaskOrchestrator(
                 state.status = "cancelled"
                 state.updated_at = time.time()
                 await self._orchestration_store.save_orchestration(state)
+                await self._publish_task_lifecycle(
+                    state=state,
+                    status="cancelled",
+                    error_type="Cancelled",
+                    error_message="Orchestration cancelled",
+                )
                 continue
             if state.status == "completed":
                 continue
@@ -280,6 +381,21 @@ class TaskOrchestrator(
             state.status = "completed" if final_response.strip() else "failed"
             state.updated_at = time.time()
             await self._orchestration_store.save_orchestration(state)
+
+            if state.status == "completed":
+                summary_text = (state.final_response or "")[:500] or None
+                await self._publish_task_lifecycle(
+                    state=state,
+                    status="ok",
+                    summary=summary_text,
+                )
+            else:
+                await self._publish_task_lifecycle(
+                    state=state,
+                    status="error",
+                    error_type="AggregationFailed",
+                    error_message="Aggregator returned empty response",
+                )
 
             if final_response.strip():
                 completed_payloads.append(
@@ -341,6 +457,12 @@ class TaskOrchestrator(
             state.final_response = None
             state.updated_at = time.time()
             await self._orchestration_store.save_orchestration(state)
+            await self._publish_task_lifecycle(
+                state=state,
+                status="cancelled",
+                error_type="Cancelled",
+                error_message="Orchestration cancelled",
+            )
             cancelled_ids.append(state.orchestration_id)
         return cancelled_ids
 

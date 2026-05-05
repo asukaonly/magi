@@ -1,12 +1,15 @@
-import React, { useCallback, useMemo, useState } from 'react';
-import { CheckCircle2, Loader2, RefreshCw, XCircle } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Activity, AlertCircle, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-import { configApi } from '@/api/modules/config';
 import {
+  pluginsApi,
+  type PluginChannelStatusData,
   type PluginContribution,
   type PluginPackageState,
+  type PluginSettingsActionSpec,
 } from '@/api/modules/plugins';
+import PluginSettingsActions from '@/components/settings/PluginSettingsActions';
 import PluginSettingsFields from '@/components/settings/PluginSettingsFields';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -24,6 +27,93 @@ const listChannelEntries = (plugins: PluginPackageState[]): ChannelContributionE
       .map((contribution) => ({ plugin, contribution }))
   );
 
+const getContributionSettingsActions = (contribution: PluginContribution): PluginSettingsActionSpec[] => {
+  const actions = contribution.metadata?.settings_actions;
+  return Array.isArray(actions) ? (actions as PluginSettingsActionSpec[]) : [];
+};
+
+const formatStatusTime = (value: unknown): string => {
+  const millis = Number(value || 0);
+  if (!Number.isFinite(millis) || millis <= 0) {
+    return '';
+  }
+  return new Date(millis).toLocaleString();
+};
+
+const ChannelStatusPanel: React.FC<{ pluginId: string; enabled: boolean }> = ({ pluginId, enabled }) => {
+  const { t } = useTranslation('app');
+  const [status, setStatus] = useState<PluginChannelStatusData | null>(null);
+  const [available, setAvailable] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadStatus = async () => {
+      if (!enabled) {
+        setStatus(null);
+        setAvailable(false);
+        return;
+      }
+      try {
+        const payload = await pluginsApi.getSettingsResource(pluginId, 'channel_status');
+        if (cancelled) {
+          return;
+        }
+        setStatus((payload.data || {}) as PluginChannelStatusData);
+        setAvailable(true);
+      } catch {
+        if (!cancelled) {
+          setStatus(null);
+          setAvailable(false);
+        }
+      }
+    };
+
+    void loadStatus();
+    const timer = window.setInterval(() => void loadStatus(), 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [enabled, pluginId]);
+
+  if (!available || !status) {
+    return null;
+  }
+
+  const state = String(status.state || (status.running ? 'running' : 'stopped'));
+  const healthy = state === 'running' && !status.last_error;
+  const items = [
+    [t('settings.channelStatus.account'), status.account_id || ''],
+    [t('settings.channelStatus.lastPoll'), formatStatusTime(status.last_poll_at_ms)],
+    [t('settings.channelStatus.lastInbound'), formatStatusTime(status.last_inbound_at_ms)],
+    [t('settings.channelStatus.lastOutbound'), formatStatusTime(status.last_outbound_at_ms)],
+  ].filter(([, value]) => Boolean(value));
+
+  return (
+    <div className="space-y-3 border-y border-[hsl(var(--settings-subnav-border)/0.6)] py-4">
+      <div className="flex flex-wrap items-center gap-2">
+        {healthy ? <Activity className="h-4 w-4 text-emerald-600" /> : <AlertCircle className="h-4 w-4 text-amber-600" />}
+        <span className="text-sm font-medium text-foreground">{t('settings.channelStatus.title')}</span>
+        <Badge variant={healthy ? 'default' : 'secondary'} className="rounded-md">
+          {t(`settings.channelStatus.states.${state}`, { defaultValue: state })}
+        </Badge>
+      </div>
+      {items.length > 0 ? (
+        <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+          {items.map(([label, value]) => (
+            <div key={label} className="min-w-0">
+              <span className="font-medium text-foreground/80">{label}: </span>
+              <span className="break-words">{value}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {status.last_error ? <p className="text-xs text-destructive">{status.last_error}</p> : null}
+    </div>
+  );
+};
+
 interface ChannelsSectionProps {
   plugins: PluginPackageState[];
   drafts: Record<string, Record<string, any>>;
@@ -31,6 +121,8 @@ interface ChannelsSectionProps {
   selectedContributionId: string | null;
   onSelectContribution: (id: string | null) => void;
   onFieldChange: (pluginId: string, key: string, value: any) => void;
+  onSettingsActionUpdates: (pluginId: string, updates: Record<string, unknown>) => void;
+  onRefreshPlugins: () => Promise<void>;
   onReloadPlugin: (pluginId: string) => Promise<void>;
   onPluginAction: (pluginId: string, action: 'enable' | 'disable' | 'reload') => Promise<void>;
   reloading: Record<string, boolean>;
@@ -43,6 +135,8 @@ export const ChannelsSection: React.FC<ChannelsSectionProps> = ({
   selectedContributionId,
   onSelectContribution,
   onFieldChange,
+  onSettingsActionUpdates,
+  onRefreshPlugins,
   onReloadPlugin,
   onPluginAction,
   reloading,
@@ -54,29 +148,6 @@ export const ChannelsSection: React.FC<ChannelsSectionProps> = ({
     () => channelEntries.find((e) => e.contribution.contribution_id === selectedContributionId) ?? null,
     [channelEntries, selectedContributionId]
   );
-
-  // Telegram test connection state
-  const [testState, setTestState] = useState<{
-    loading: boolean;
-    result?: { success: boolean; message: string };
-  }>({ loading: false });
-
-  const isTelegram = selectedEntry?.contribution.contribution_id?.toLowerCase().includes('telegram') ?? false;
-
-  const handleTestConnection = useCallback(async () => {
-    if (!selectedEntry) return;
-    const pluginDrafts = drafts[selectedEntry.plugin.manifest.plugin_id] || {};
-    const botToken = pluginDrafts.bot_token ?? '';
-    const proxy = pluginDrafts.proxy ?? '';
-    setTestState({ loading: true });
-    try {
-      const res = await configApi.testTelegramConnection({ bot_token: botToken, proxy });
-      setTestState({ loading: false, result: { success: res.success, message: res.message } });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setTestState({ loading: false, result: { success: false, message: msg } });
-    }
-  }, [selectedEntry, drafts]);
 
   // Overview mode
   if (!selectedEntry) {
@@ -125,6 +196,8 @@ export const ChannelsSection: React.FC<ChannelsSectionProps> = ({
 
   // Detail mode
   const { plugin, contribution } = selectedEntry;
+  const settingsActions = getContributionSettingsActions(contribution);
+  const pluginValues = drafts[plugin.manifest.plugin_id] || {};
 
   return (
     <div className="space-y-8">
@@ -148,10 +221,12 @@ export const ChannelsSection: React.FC<ChannelsSectionProps> = ({
         </p>
       </header>
 
+      <ChannelStatusPanel pluginId={plugin.manifest.plugin_id} enabled={plugin.enabled} />
+
       {contribution.fields.length > 0 ? (
         <PluginSettingsFields
           fields={contribution.fields}
-          values={drafts[plugin.manifest.plugin_id] || {}}
+          values={pluginValues}
           onChange={(key, value) => onFieldChange(plugin.manifest.plugin_id, key, value)}
           disabled={!plugin.enabled}
           pluginId={plugin.manifest.plugin_id}
@@ -162,29 +237,14 @@ export const ChannelsSection: React.FC<ChannelsSectionProps> = ({
         </div>
       )}
 
-      {isTelegram ? (
-        <div className="flex items-center gap-3">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={!(drafts[plugin.manifest.plugin_id]?.bot_token) || testState.loading}
-            onClick={() => void handleTestConnection()}
-            className="text-xs"
-          >
-            {testState.loading && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-            {t('settings.channels.testConnection')}
-          </Button>
-          {testState.result ? (
-            <span className={`flex items-center gap-1 text-xs ${testState.result.success ? 'text-green-600' : 'text-destructive'}`}>
-              {testState.result.success
-                ? <CheckCircle2 className="h-3.5 w-3.5" />
-                : <XCircle className="h-3.5 w-3.5" />}
-              {testState.result.message}
-            </span>
-          ) : null}
-        </div>
-      ) : null}
+      <PluginSettingsActions
+        pluginId={plugin.manifest.plugin_id}
+        actions={settingsActions}
+        values={pluginValues}
+        disabled={!plugin.enabled}
+        onSettingsUpdates={onSettingsActionUpdates}
+        onActionSettled={onRefreshPlugins}
+      />
 
       <div className="flex justify-end">
         <Button

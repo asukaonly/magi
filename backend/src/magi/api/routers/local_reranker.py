@@ -11,6 +11,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from ... import i18n as core_i18n
 from ...config.cross_encoder_registry import (
     CrossEncoderModelMeta,
     get_cross_encoder_registry,
@@ -91,7 +92,14 @@ async def download_model(model_id: str) -> DownloadStatusResponse:
     registry = get_cross_encoder_registry()
     meta = registry.get(model_id)
     if meta is None:
-        raise HTTPException(status_code=404, detail=f"Unknown model: {model_id}")
+        raise HTTPException(
+            status_code=404,
+            detail=core_i18n.t(
+                "local_models.errors.unknown_model",
+                fallback="Unknown model: {model_id}",
+                model_id=model_id,
+            ),
+        )
 
     # Check if already downloading
     existing_task = _download_tasks.get(model_id)
@@ -132,7 +140,14 @@ async def get_download_status(model_id: str) -> DownloadStatusResponse:
         registry = get_cross_encoder_registry()
         meta = registry.get(model_id)
         if meta is None:
-            raise HTTPException(status_code=404, detail=f"Unknown model: {model_id}")
+            raise HTTPException(
+                status_code=404,
+                detail=core_i18n.t(
+                    "local_models.errors.unknown_model",
+                    fallback="Unknown model: {model_id}",
+                    model_id=model_id,
+                ),
+            )
         model_dir = Path(paths.managed_reranker_model_dir(model_id))
         if _is_model_downloaded(model_dir):
             return DownloadStatusResponse(model_id=model_id, status="completed")
@@ -180,7 +195,12 @@ async def delete_model(model_id: str) -> dict[str, str]:
         _download_tasks.pop(model_id, None)
         return {"status": "deleted"}
 
-    raise HTTPException(status_code=404, detail="Model not found on disk")
+    raise HTTPException(
+        status_code=404,
+        detail=core_i18n.t(
+            "local_models.errors.not_found_on_disk", fallback="Model not found on disk"
+        ),
+    )
 
 
 # ── Internal helpers ────────────────────────────────────────────────────
@@ -232,7 +252,10 @@ async def _download_model_task(meta: CrossEncoderModelMeta, model_dir: Path) -> 
 
             logger.info(
                 "Downloading reranker model %s from %s (attempt %d/%d)",
-                model_id, repo_id, attempt, _DOWNLOAD_MAX_RETRIES,
+                model_id,
+                repo_id,
+                attempt,
+                _DOWNLOAD_MAX_RETRIES,
             )
             _download_progress[model_id] = {"pct": 10.0, "error": None}
 
@@ -265,10 +288,14 @@ async def _download_model_task(meta: CrossEncoderModelMeta, model_dir: Path) -> 
         except Exception as exc:
             last_exc = exc
             if attempt < _DOWNLOAD_MAX_RETRIES:
-                wait = 2 ** attempt
+                wait = 2**attempt
                 logger.warning(
                     "Download attempt %d/%d for %s failed: %s — retrying in %ds",
-                    attempt, _DOWNLOAD_MAX_RETRIES, model_id, exc, wait,
+                    attempt,
+                    _DOWNLOAD_MAX_RETRIES,
+                    model_id,
+                    exc,
+                    wait,
                 )
                 _download_progress[model_id] = {
                     "pct": None,
@@ -278,6 +305,8 @@ async def _download_model_task(meta: CrossEncoderModelMeta, model_dir: Path) -> 
 
     logger.error(
         "Failed to download reranker model %s after %d attempts: %s",
-        model_id, _DOWNLOAD_MAX_RETRIES, last_exc,
+        model_id,
+        _DOWNLOAD_MAX_RETRIES,
+        last_exc,
     )
     _download_progress[model_id] = {"pct": None, "error": str(last_exc)}

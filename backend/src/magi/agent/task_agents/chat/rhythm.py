@@ -23,6 +23,15 @@ _DEFAULT_DELAY_MS = 1200
 _MAX_DELAY_MS = 2400
 _CJK_RE = re.compile(r"[\u3400-\u9fff\uf900-\ufaff]")
 _MARKDOWN_LIST_LINE_RE = re.compile(r"(?m)^\s{0,3}(?:[-*+]\s+|\d+[.)]\s+)")
+_LIST_ITEM_RE = re.compile(r"(?m)^\s*(?:[-*+]\s+|\d+[.)、]\s+|[一二三四五六七八九十]+[、.]\s*)")
+_TABLE_ROW_RE = re.compile(r"(?m)^\s*\|[^\n|]+(?:\|[^\n|]+)+\|\s*$")
+_CONFIG_LINE_RE = re.compile(r"(?m)^\s{0,4}[A-Za-z_][\w.-]*:\s+\S+")
+_COMMAND_LINE_RE = re.compile(
+    r"(?m)^\s*(?:\$\s+|(?:npm|pnpm|yarn|pip|pytest|python|uvicorn|cargo|git|docker|tauri)\b\s+)"
+)
+_STACK_TRACE_RE = re.compile(
+    r"(?m)^\s*(?:Traceback \(most recent call last\)|File \".+\", line \d+|[A-Za-z0-9_.]+(?:Error|Exception):)"
+)
 
 
 def is_conversation_rhythm_enabled() -> bool:
@@ -47,6 +56,24 @@ class _RhythmUnit:
     text: str
 
 
+@dataclass(slots=True)
+class _ContentFeatures:
+    has_code_block: bool
+    has_table: bool
+    has_command_block: bool
+    has_config_block: bool
+    has_stack_trace: bool
+    list_item_count: int
+
+    @property
+    def has_protected_structure(self) -> bool:
+        if self.has_code_block or self.has_table or self.has_command_block or self.has_config_block:
+            return True
+        if self.has_stack_trace:
+            return True
+        return self.list_item_count >= 3
+
+
 class ResponseRhythmPlanner:
     """Build an internal multi-message presentation plan from final text."""
 
@@ -69,6 +96,11 @@ class ResponseRhythmPlanner:
         normalized_response = str(response_text or "").strip()
         if len(normalized_response) < self._min_content_chars(normalized_response):
             return None
+        content_features = self._detect_content_features(
+            response_text=normalized_response,
+        )
+        if content_features.has_protected_structure:
+            return None
         units = self._split_units(normalized_response)
         if len(units) < _MIN_UNITS_FOR_RHYTHM or len(units) > _MAX_UNITS:
             return None
@@ -83,6 +115,7 @@ class ResponseRhythmPlanner:
                             response_text=normalized_response,
                             execution_mode=execution_mode,
                             units=units,
+                            content_features=content_features,
                         ),
                     }
                 ],
@@ -93,7 +126,11 @@ class ResponseRhythmPlanner:
         except Exception as exc:
             logger.debug("Conversation rhythm planner call failed", error=str(exc))
             return None
-        return self._parse_plan(raw_plan, units=units, aggregate_text=normalized_response)
+        return self._parse_plan(
+            raw_plan,
+            units=units,
+            aggregate_text=normalized_response,
+        )
 
     @staticmethod
     def _is_enabled() -> bool:
@@ -126,6 +163,19 @@ class ResponseRhythmPlanner:
         return units
 
     @staticmethod
+    def _detect_content_features(*, response_text: str) -> _ContentFeatures:
+        config_line_count = len(_CONFIG_LINE_RE.findall(response_text))
+        table_row_count = len(_TABLE_ROW_RE.findall(response_text))
+        return _ContentFeatures(
+            has_code_block="```" in response_text,
+            has_table=table_row_count >= 2,
+            has_command_block=bool(_COMMAND_LINE_RE.search(response_text)),
+            has_config_block=config_line_count >= 2,
+            has_stack_trace=bool(_STACK_TRACE_RE.search(response_text)),
+            list_item_count=len(_LIST_ITEM_RE.findall(response_text)),
+        )
+
+    @staticmethod
     def _build_system_prompt() -> str:
         return """You are an internal chat presentation planner.
 
@@ -141,6 +191,7 @@ Rules:
 - Prefer two groups for most splittable answers.
 - Use three groups only for long answers with three distinct moves; never split into three just because three sentence units exist.
 - Use one group when the answer is short, terse, transactional, or splitting would hurt meaning.
+- Technical explanations, architecture notes, implementation plans, API/protocol/configuration details, debugging analysis, and source-code-related answers should usually be one group. If a technical answer is conversational enough to split, use at most two groups and keep the technical body intact.
 - Never add fake hesitation, filler, or dramatic pauses; every group must carry useful content.
 - Delays must be integers between 1000 and 2400 milliseconds except the first group.
 - The first group delay should be 0.
@@ -160,11 +211,20 @@ Schema:
         response_text: str,
         execution_mode: str | None,
         units: list[_RhythmUnit],
+        content_features: _ContentFeatures,
     ) -> str:
         payload = {
             "user_message": str(user_message or ""),
             "execution_mode": execution_mode,
             "canonical_answer": response_text,
+            "content_features": {
+                "protected_structure": content_features.has_protected_structure,
+                "has_table": content_features.has_table,
+                "has_command_block": content_features.has_command_block,
+                "has_config_block": content_features.has_config_block,
+                "has_stack_trace": content_features.has_stack_trace,
+                "list_item_count": content_features.list_item_count,
+            },
             "units": [{"id": unit.unit_id, "text": unit.text} for unit in units],
         }
         return json.dumps(payload, ensure_ascii=False)

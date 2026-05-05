@@ -9,6 +9,7 @@ from typing import Any
 
 from fastapi import HTTPException, status
 
+from ... import i18n as core_i18n
 from ...plugins.contracts import (
     ExtensionFieldSpec,
     PluginContribution,
@@ -80,7 +81,9 @@ def _serialize_manifest(manifest: PluginManifest) -> PluginManifestResponse:
     )
 
 
-def _serialize_field(field: ExtensionFieldSpec, i18n: PluginI18n, contribution_id: str) -> dict[str, Any]:
+def _serialize_field(
+    field: ExtensionFieldSpec, i18n: PluginI18n, contribution_id: str
+) -> dict[str, Any]:
     """Serialize a field with translation."""
     label_key = f"fields.{contribution_id}.{field.key}.label"
     desc_key = f"fields.{contribution_id}.{field.key}.description"
@@ -93,17 +96,31 @@ def _serialize_field(field: ExtensionFieldSpec, i18n: PluginI18n, contribution_i
         translated_options = []
         for opt in field_dict["options"]:
             opt_label_key = f"fields.{contribution_id}.{field.key}.options.{opt['value']}"
-            translated_options.append({"label": i18n.t(opt_label_key, fallback=opt["label"]), "value": opt["value"]})
+            translated_options.append(
+                {"label": i18n.t(opt_label_key, fallback=opt["label"]), "value": opt["value"]}
+            )
         field_dict["options"] = translated_options
 
     return field_dict
 
 
-def _serialize_contribution(contribution: PluginContribution, i18n: PluginI18n) -> PluginContributionResponse:
+def _serialize_contribution(
+    contribution: PluginContribution, i18n: PluginI18n
+) -> PluginContributionResponse:
     contribution_id = contribution.contribution_id
     display_name_key = f"contributions.{contribution_id}.display_name"
     description_key = f"contributions.{contribution_id}.description"
-    serialized_fields = [_serialize_field(field, i18n, contribution_id) for field in contribution.fields]
+    serialized_fields = [
+        _serialize_field(field, i18n, contribution_id) for field in contribution.fields
+    ]
+    metadata = dict(contribution.metadata)
+    settings_actions = metadata.get("settings_actions")
+    if isinstance(settings_actions, list):
+        metadata["settings_actions"] = [
+            _serialize_settings_action(item, i18n)
+            for item in settings_actions
+            if isinstance(item, dict)
+        ]
 
     return PluginContributionResponse(
         plugin_id=contribution.plugin_id,
@@ -117,8 +134,21 @@ def _serialize_contribution(contribution: PluginContribution, i18n: PluginI18n) 
         description=i18n.t(description_key, fallback=contribution.description),
         surface=contribution.surface,
         fields=serialized_fields,
-        metadata=dict(contribution.metadata),
+        metadata=metadata,
     )
+
+
+def _serialize_settings_action(action: dict[str, Any], i18n: PluginI18n) -> dict[str, Any]:
+    action_id = str(action.get("action_id") or "")
+    if not action_id:
+        return dict(action)
+    translated = dict(action)
+    for key in ("label", "description", "button_label"):
+        translated[key] = i18n.t(
+            f"actions.{action_id}.{key}",
+            fallback=str(action.get(key) or ""),
+        )
+    return translated
 
 
 def _lightweight_install(source_dir: Path, entry: PluginRegistryEntry) -> PluginPackageState:
@@ -213,7 +243,10 @@ def _require_package(plugin_id: str):
     manager = legacy.resolve_plugin_manager()
     package = manager.get_package(plugin_id)
     if package is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plugin not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=core_i18n.t("plugins.errors.not_found", fallback="Plugin not found"),
+        )
     return manager, package
 
 
@@ -234,6 +267,7 @@ __all__ = [
     "_require_package",
     "_serialize_contribution",
     "_serialize_field",
+    "_serialize_settings_action",
     "_serialize_manifest",
     "_serialize_package",
     "_serialize_package_lightweight",

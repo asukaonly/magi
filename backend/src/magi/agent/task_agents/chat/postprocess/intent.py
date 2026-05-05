@@ -1,4 +1,7 @@
-"""Intent-routing trace helpers for chat post-processing."""
+"""Intent-routing trace helpers for chat post-processing.
+
+Phase 5 migration: SpanCompleted events instead of direct upserts.
+"""
 
 from __future__ import annotations
 
@@ -6,12 +9,9 @@ from typing import Any, Protocol, cast
 
 from .....agent.runtime.contracts import FactRecord
 from .....agent.trace import now_wall_ms
-from .....runtime_trace import (
-    TraceIntentResolutionRecord,
-    TraceLlmCallRecord,
-    TraceSpanRecord,
-)
+from .....runtime_trace.span_publisher import publish_trace_span
 from ..contracts import ChatRuntimeContext
+from .utils import resolve_event_bus
 
 
 class _IntentPostprocessHostProtocol(Protocol):
@@ -84,6 +84,43 @@ class _IntentPostprocessHostProtocol(Protocol):
     ) -> None: ...
 
 
+def _intent_resolution_attributes(
+    *,
+    decision: Any,
+    host: _IntentPostprocessHostProtocol,
+    selected_tools: list[str] | None = None,
+    task_hint: Any = None,
+    recommended_tools: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    router_tools = list(getattr(decision, "tools", []) or [])
+    selected = list(selected_tools if selected_tools is not None else router_tools)
+    selected_worker_type = (
+        str(
+            getattr(
+                getattr(decision, "orchestration_plan", None), "default_leaf_type", ""
+            )
+            or ""
+        )
+        or None
+    )
+    return {
+        "intent": str(getattr(decision, "intent", "") or ""),
+        "execution_mode": host._normalize_mode(getattr(decision, "execution_mode", None)),
+        "route_reason": str(getattr(decision, "reasoning", "") or "") or None,
+        "selected_tools_json": host._serialize_selected_tools_payload(
+            router_tools=router_tools,
+            selected_tools=selected,
+            task_hint=task_hint if task_hint is not None else getattr(decision, "task_hint", None),
+            recommended_tools=list(
+                recommended_tools
+                if recommended_tools is not None
+                else (getattr(decision, "recommended_tools", []) or [])
+            ),
+        ),
+        "selected_worker_type": selected_worker_type,
+    }
+
+
 class ChatPostprocessIntentMixin:
     """Persist intent-routing and selected-tool trace details."""
 
@@ -108,69 +145,28 @@ class ChatPostprocessIntentMixin:
             user_message=context.latest_user_message,
             mode=host._normalize_mode(getattr(decision, "execution_mode", None)),
         )
+        bus = getattr(host, "_event_bus", None) or resolve_event_bus()
         ended_at_ms = now_wall_ms()
         span_id = host._build_span_id(turn_id, "intent_resolution")
-        await host._runtime_trace_store.upsert_span(
-            TraceSpanRecord(
-                span_id=span_id,
-                trace_id=trace_id,
-                turn_id=turn_id,
-                parent_span_id=host._build_root_span_id(turn_id),
-                node_type="intent_resolution",
-                name="Intent resolution",
-                status="completed",
-                result_preview=str(getattr(decision, "intent", "") or "")[:240] or None,
-                started_at_ms=started_at_ms,
-                ended_at_ms=ended_at_ms,
-                duration_ms=max(0, ended_at_ms - started_at_ms),
-                created_at_ms=started_at_ms,
-                updated_at_ms=ended_at_ms,
-            )
+        intent_preview = str(getattr(decision, "intent", "") or "")[:240] or None
+        # intent_resolution sub-table row (subscriber writes trace_spans + trace_intent_resolutions)
+        await publish_trace_span(
+            event_bus=bus,
+            node_type="intent_resolution",
+            name="Intent resolution",
+            span_id=span_id,
+            trace_id=trace_id,
+            parent_span_id=host._build_root_span_id(turn_id),
+            status="completed",
+            started_at_ms=started_at_ms,
+            ended_at_ms=ended_at_ms,
+            result_preview=intent_preview,
+            turn_id=turn_id,
+            attributes=_intent_resolution_attributes(decision=decision, host=host),
         )
-        await host._runtime_trace_store.upsert_intent_resolution(
-            TraceIntentResolutionRecord(
-                span_id=span_id,
-                trace_id=trace_id,
-                turn_id=turn_id,
-                intent=str(getattr(decision, "intent", "") or ""),
-                execution_mode=host._normalize_mode(getattr(decision, "execution_mode", None)),
-                route_reason=str(getattr(decision, "reasoning", "") or "") or None,
-                selected_tools_json=host._serialize_selected_tools_payload(
-                    router_tools=list(getattr(decision, "tools", []) or []),
-                    selected_tools=list(getattr(decision, "tools", []) or []),
-                    task_hint=getattr(decision, "task_hint", None),
-                    recommended_tools=list(getattr(decision, "recommended_tools", []) or []),
-                ),
-                selected_worker_type=(
-                    str(
-                        getattr(
-                            getattr(decision, "orchestration_plan", None), "default_leaf_type", ""
-                        )
-                        or ""
-                    )
-                    or None
-                ),
-            )
-        )
-        llm_trace = getattr(decision, "llm_trace", None)
-        if isinstance(llm_trace, dict) and llm_trace:
-            await host._runtime_trace_store.upsert_llm_call(
-                TraceLlmCallRecord(
-                    span_id=span_id,
-                    trace_id=trace_id,
-                    turn_id=turn_id,
-                    provider=str(llm_trace.get("provider") or "unknown"),
-                    model=str(llm_trace.get("model") or "unknown"),
-                    input_tokens=int(llm_trace.get("input_tokens") or 0),
-                    output_tokens=int(llm_trace.get("output_tokens") or 0),
-                    reasoning_tokens=int(llm_trace.get("reasoning_tokens") or 0),
-                    cache_read_tokens=int(llm_trace.get("cache_read_tokens") or 0),
-                    cache_write_tokens=int(llm_trace.get("cache_write_tokens") or 0),
-                    thinking_enabled=bool(llm_trace.get("thinking_enabled")),
-                    request_preview=(context.latest_user_message or "")[:240] or None,
-                    response_preview=str(getattr(decision, "intent", "") or "")[:240] or None,
-                )
-            )
+        # Note: llm_call SpanCompleted is now published by provider_bridge
+        # (see llm/provider_bridge/responses.py:_emit_usage_event). The intent
+        # resolution parent span above is the only chat-side publish needed.
         ux_plan = host._serialize_ux_plan(decision)
         await host._persist_turn_ux_plan(
             turn_id=turn_id,
@@ -207,33 +203,29 @@ class ChatPostprocessIntentMixin:
         )
         if not turn_id:
             return
+        bus = getattr(host, "_event_bus", None) or resolve_event_bus()
         span_id = host._build_span_id(turn_id, "intent_resolution")
         trace_id = host._build_trace_id(turn_id)
-        await host._runtime_trace_store.upsert_intent_resolution(
-            TraceIntentResolutionRecord(
-                span_id=span_id,
-                trace_id=trace_id,
-                turn_id=turn_id,
-                intent=str(getattr(decision, "intent", "") or ""),
-                execution_mode=host._normalize_mode(getattr(decision, "execution_mode", None)),
-                route_reason=str(getattr(decision, "reasoning", "") or "") or None,
-                selected_tools_json=host._serialize_selected_tools_payload(
-                    router_tools=list(getattr(decision, "tools", []) or []),
-                    selected_tools=list(getattr(tool_selection, "tools", []) or []),
-                    task_hint=getattr(tool_selection, "task_hint", None)
-                    or getattr(decision, "task_hint", None),
-                    recommended_tools=list(getattr(tool_selection, "recommended_tools", []) or []),
-                ),
-                selected_worker_type=(
-                    str(
-                        getattr(
-                            getattr(decision, "orchestration_plan", None), "default_leaf_type", ""
-                        )
-                        or ""
-                    )
-                    or None
-                ),
-            )
+        now_ms = now_wall_ms()
+        await publish_trace_span(
+            event_bus=bus,
+            node_type="intent_resolution",
+            name="Intent resolution",
+            span_id=span_id,
+            trace_id=trace_id,
+            parent_span_id=host._build_root_span_id(turn_id),
+            status="completed",
+            started_at_ms=now_ms,
+            ended_at_ms=now_ms,
+            turn_id=turn_id,
+            attributes=_intent_resolution_attributes(
+                decision=decision,
+                host=host,
+                selected_tools=list(getattr(tool_selection, "tools", []) or []),
+                task_hint=getattr(tool_selection, "task_hint", None)
+                or getattr(decision, "task_hint", None),
+                recommended_tools=list(getattr(tool_selection, "recommended_tools", []) or []),
+            ),
         )
 
 

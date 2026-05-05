@@ -29,6 +29,9 @@ dependencies = [
     "pydantic-settings>=2.1.0",
     "python-multipart>=0.0.6",
 
+    # Identifiers
+    "python-ulid>=2.2.0",
+
     # Dependency injection
     "dependency-injector>=4.41.0",
 
@@ -96,6 +99,9 @@ Repository = "https://github.com/asukaonly/magi"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"magi.i18n" = ["locales/*.json"]
 
 [tool.black]
 line-length = 100

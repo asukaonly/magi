@@ -18,6 +18,7 @@ from ..dependencies import (
     _synthesize_eval_answer,
     logger,
 )
+from ..helpers import memory_t
 from ..router import memory_router
 from ..schemas import EvalFinalizeReplayRequest, EvalQueryRequest, EvalReplayRequest
 
@@ -29,7 +30,7 @@ async def replay_eval_records(body: EvalReplayRequest):
     if not unified_memory:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Memory system not initialized",
+            detail=memory_t("memory.errors.system_uninitialized", "Memory system not initialized"),
         )
 
     writer = EvalMemoryWriter(unified_memory)
@@ -61,7 +62,10 @@ async def query_eval_memory(body: EvalQueryRequest):
     if retrieval_service is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Hybrid retrieval service not initialized",
+            detail=memory_t(
+                "memory.errors.hybrid_retrieval_uninitialized",
+                "Hybrid retrieval service not initialized",
+            ),
         )
 
     unified_memory = _resolve_unified_memory()
@@ -123,7 +127,7 @@ async def finalize_eval_replay(body: EvalFinalizeReplayRequest):
     if not unified_memory:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Memory system not initialized",
+            detail=memory_t("memory.errors.system_uninitialized", "Memory system not initialized"),
         )
 
     summaries: Dict[str, Any] = {}

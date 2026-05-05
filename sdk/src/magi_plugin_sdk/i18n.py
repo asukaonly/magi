@@ -137,7 +137,8 @@ class PluginI18n:
         Returns:
             Translated and interpolated string
         """
-        translations = self._load_translations(language)
+        effective_language = language or get_current_language()
+        translations = self._load_translations(effective_language)
         value = self._get_nested(translations, key)
 
         if value is None:

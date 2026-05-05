@@ -18,6 +18,12 @@ _CHANGE_AND_PATTERN_LIST_FIELDS = (
     "changes",
     "patterns",
     "open_threads",
+    "daily_breakdown",
+    "weekly_breakdown",
+)
+_CHANGE_AND_PATTERN_NESTED_DICT_FIELDS = (
+    "trend_shifts",
+    "metrics",
 )
 
 
@@ -106,8 +112,34 @@ class TemporalOutputParsingMixin:
             if not isinstance(raw, list) or any(not str(item).strip() for item in raw):
                 raise ValueError(f"change_and_pattern.{key} must be a list of non-empty strings")
             normalized[key] = [str(item).strip() for item in raw]
+        for key in _CHANGE_AND_PATTERN_NESTED_DICT_FIELDS:
+            raw = value.get(key)
+            if raw is None:
+                continue
+            if not isinstance(raw, dict):
+                raise ValueError(f"change_and_pattern.{key} must be an object")
+            nested: dict[str, object] = {}
+            for inner_key, inner_value in raw.items():
+                inner_key_str = str(inner_key).strip()
+                if not inner_key_str:
+                    continue
+                if isinstance(inner_value, list):
+                    if any(not str(entry).strip() for entry in inner_value):
+                        raise ValueError(
+                            f"change_and_pattern.{key}.{inner_key_str} must be a list of non-empty strings"
+                        )
+                    nested[inner_key_str] = [str(entry).strip() for entry in inner_value]
+                    continue
+                if isinstance(inner_value, (str, int, float, bool)) or inner_value is None:
+                    nested[inner_key_str] = inner_value
+            if nested:
+                normalized[key] = nested
         for key, item in value.items():
-            if key in normalized or key in _CHANGE_AND_PATTERN_LIST_FIELDS:
+            if (
+                key in normalized
+                or key in _CHANGE_AND_PATTERN_LIST_FIELDS
+                or key in _CHANGE_AND_PATTERN_NESTED_DICT_FIELDS
+            ):
                 continue
             key_str = str(key).strip()
             if not key_str:

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import asyncio
 
+from fastapi import HTTPException
 import pytest
 from pydantic import ValidationError
 
 from magi.config.models import LLMProviderSettings, LLMScenario, LLMSelectionSettings, LLMSettings
+from magi.i18n import language_context
 
 
 class _FakeLLMAdapter:
@@ -162,6 +164,36 @@ async def test_personality_generation_job_routes_return_progress_snapshots(monke
     assert start_response.stages == [{"stage_id": "base", "status": "running"}]
     assert status_response.data["status"] == "completed"
     assert status_response.data["data"]["name"] == "Generated"
+
+
+@pytest.mark.asyncio
+async def test_set_current_personality_missing_name_returns_localized_detail() -> None:
+    from magi.api.routers import personality_config
+
+    with language_context("zh-CN"):
+        with pytest.raises(HTTPException) as exc_info:
+            await personality_config.api_set_current_personality({})
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == "缺少人格名称"
+
+
+@pytest.mark.asyncio
+async def test_personality_generation_missing_job_returns_localized_detail(monkeypatch) -> None:
+    from magi.api.routers import personality_config
+
+    async def _missing_job(job_id: str):
+        assert job_id == "missing-job"
+        return None
+
+    monkeypatch.setattr(personality_config, "ai_get_personality_generation_job", _missing_job)
+
+    with language_context("zh-CN"):
+        with pytest.raises(HTTPException) as exc_info:
+            await personality_config.get_personality_generation_status("missing-job")
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "未找到人格生成任务"
 
 
 @pytest.mark.asyncio

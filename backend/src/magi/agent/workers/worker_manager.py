@@ -12,6 +12,7 @@ from ...agent.orchestration import WorkerResult, get_orchestration_store
 from ...config.models import ThinkingDepth
 from ...core.logger import get_logger
 from ...agent.execution.function_calling import FunctionCallingOrchestrator
+from ...agent.turn_input import UserTurnInput
 from ...runtime_trace import RuntimeTraceStore
 from ...llm.streaming_events import stream_source
 from ...tools.registry import ToolRegistry, tool_registry
@@ -154,7 +155,12 @@ class WorkerAgentManager(
             )
             async with stream_source("worker"):
                 outcome = await executor.execute_with_tools(
-                    user_message=run_state.prompt,
+                    turn=UserTurnInput(
+                        text=run_state.prompt,
+                        attachments=[],
+                        user_id=run_state.user_id,
+                        session_id=run_state.session_id or run_state.worker_id,
+                    ),
                     system_prompt=effective_system_prompt,
                     selected_tools=selected_tools,
                     user_id=run_state.user_id,

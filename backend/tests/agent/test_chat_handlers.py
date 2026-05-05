@@ -10,6 +10,7 @@ from magi.agent.task_agents.chat.contracts import ChatRuntimeContext, IntentDeci
 from magi.agent.task_agents.chat.direct_handler import DirectLLMHandler
 from magi.agent.task_agents.chat.handlers import FunctionCallingHandler
 from magi.agent.task_agents.common import DirectLLMRequest, ExecutionMode, IncomingFactKind, OrchestrationPlan, ToolSelection, UserMessagePayload
+from magi.i18n import language_context
 
 
 class _FakeContextService:
@@ -22,6 +23,9 @@ class _FakeContextService:
 
 
 class _FakePromptService:
+    def __init__(self) -> None:
+        self.call_llm_calls = 0
+
     def augment_system_prompt_with_reply_context(
         self,
         *,
@@ -43,6 +47,7 @@ class _FakePromptService:
         timeout_seconds=None,
         llm_trace_callback=None,
     ):
+        self.call_llm_calls += 1
         _ = (system_prompt, messages, disable_thinking, thinking_depth, json_mode, timeout_seconds)
         if llm_trace_callback is not None:
             callback_result = llm_trace_callback(
@@ -577,6 +582,7 @@ async def test_direct_llm_handler_builds_multimodal_message_for_image_attachment
         recent_tool_errors=[],
         latest_user_message="describe this screenshot",
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        core_model_supports_vision=True,
         latest_payload=UserMessagePayload(
             user_id="local_user",
             session_id="session-1",
@@ -613,6 +619,143 @@ async def test_direct_llm_handler_builds_multimodal_message_for_image_attachment
     assert request.messages[0]["content"][0]["type"] == "text"
     assert request.messages[0]["content"][1]["type"] == "image"
     assert request.messages[0]["content"][1]["mime_type"] == "image/png"
+
+
+@pytest.mark.asyncio
+async def test_direct_llm_handler_returns_clear_message_when_image_model_lacks_vision(
+    tmp_path: Path,
+) -> None:
+    image_path = tmp_path / "diagram.png"
+    image_path.write_bytes(b"fake-image-bytes")
+
+    prompt_service = _FakePromptService()
+    handler = DirectLLMHandler(
+        SimpleNamespace(
+            context_service=_FakeContextService(),
+            prompt_service=prompt_service,
+        )
+    )
+    context = ChatRuntimeContext(
+        latest_fact=None,
+        recent_facts=[],
+        batch_facts=[],
+        agent_id="local_user",
+        agent_type="chat",
+        runtime_key="chat:local_user",
+        user_id="local_user",
+        session_id="session-1",
+        history_key="local_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message="describe this screenshot",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        core_model_supports_vision=False,
+        latest_payload=UserMessagePayload(
+            user_id="local_user",
+            session_id="session-1",
+            content="describe this screenshot",
+            attachments=[
+                {
+                    "attachment_id": "att-image",
+                    "kind": "image",
+                    "original_name": "diagram.png",
+                    "mime_type": "image/png",
+                    "storage_path": str(image_path),
+                }
+            ],
+            turn_id="turn-1",
+        ),
+    )
+
+    request = await handler.build_request(
+        SimpleNamespace(
+            mode=ExecutionMode.DIRECT_LLM,
+            context=context,
+            intent=IntentDecision(
+                intent="chat",
+                difficulty="normal",
+                execution_mode=ExecutionMode.DIRECT_LLM,
+                reasoning="direct",
+                orchestration_plan=OrchestrationPlan(),
+            ),
+            tool_selection=ToolSelection(tools=[], reasoning="direct"),
+        )
+    )
+    with language_context("en"):
+        result = await handler.execute(request)
+
+    assert "does not support image input" in result.response_text
+    assert prompt_service.call_llm_calls == 0
+    assert request.messages[0]["content"] == "describe this screenshot"
+
+
+@pytest.mark.asyncio
+async def test_direct_llm_handler_localizes_image_model_lacks_vision_message(
+    tmp_path: Path,
+) -> None:
+    image_path = tmp_path / "diagram.png"
+    image_path.write_bytes(b"fake-image-bytes")
+
+    handler = DirectLLMHandler(
+        SimpleNamespace(
+            context_service=_FakeContextService(),
+            prompt_service=_FakePromptService(),
+        )
+    )
+    context = ChatRuntimeContext(
+        latest_fact=None,
+        recent_facts=[],
+        batch_facts=[],
+        agent_id="local_user",
+        agent_type="chat",
+        runtime_key="chat:local_user",
+        user_id="local_user",
+        session_id="session-1",
+        history_key="local_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message="描述这张图",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        core_model_supports_vision=False,
+        latest_payload=UserMessagePayload(
+            user_id="local_user",
+            session_id="session-1",
+            content="描述这张图",
+            attachments=[
+                {
+                    "attachment_id": "att-image",
+                    "kind": "image",
+                    "original_name": "diagram.png",
+                    "mime_type": "image/png",
+                    "storage_path": str(image_path),
+                }
+            ],
+            turn_id="turn-1",
+        ),
+    )
+
+    request = await handler.build_request(
+        SimpleNamespace(
+            mode=ExecutionMode.DIRECT_LLM,
+            context=context,
+            intent=IntentDecision(
+                intent="chat",
+                difficulty="normal",
+                execution_mode=ExecutionMode.DIRECT_LLM,
+                reasoning="direct",
+                orchestration_plan=OrchestrationPlan(),
+            ),
+            tool_selection=ToolSelection(tools=[], reasoning="direct"),
+        )
+    )
+    with language_context("zh"):
+        result = await handler.execute(request)
+
+    assert "当前核心模型不支持图片输入" in result.response_text
 
 
 class _FakeCoordinator:

@@ -24,6 +24,7 @@ def test_personality_list_returns_static_avatar_paths() -> None:
 
     assert response.status_code == 200
     payload = response.json()
+    assert payload["message"] == "OK"
     seven = next(item for item in payload["data"] if item["id"] == "seven_hacker")
     assert seven["avatar"] == "/static/avatars/seven.png"
 
@@ -42,3 +43,29 @@ def test_personality_list_uses_clean_builtin_seed_ids() -> None:
     assert "sumen_listener" in ids
     assert "echo_ai_ssistant" not in ids
     assert "sumen.jpeg" not in ids
+
+
+def test_personality_preset_detail_returns_localized_not_found() -> None:
+    client = TestClient(create_transport_app())
+
+    response = client.get(
+        "/api/personalities/missing_preset",
+        params={"lang": "zh"},
+        headers={"Accept-Language": "zh-CN"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "未找到人格预设：missing_preset"
+
+
+def test_personality_avatar_upload_returns_localized_format_error() -> None:
+    client = TestClient(create_transport_app())
+
+    response = client.post(
+        "/api/personalities/avatar/upload",
+        files={"file": ("avatar.gif", b"not-an-image", "image/gif")},
+        headers={"Accept-Language": "zh-CN"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "不支持的图片格式"

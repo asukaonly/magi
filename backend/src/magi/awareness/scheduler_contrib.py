@@ -7,10 +7,11 @@ import time
 import uuid
 from typing import TYPE_CHECKING, Any, Callable
 
-from ..config import get_user_preference
 from ..core.container import get_container
+from ..i18n import get_preferred_language
 from ..core.logger import get_logger
-from ..plugins.i18n import get_current_language, set_current_language
+from ..plugins.i18n import get_current_language as get_plugin_current_language
+from ..plugins.i18n import set_current_language as set_plugin_current_language
 from ..plugins.sensors import SensorRegistry
 from ..runtime_trace import RuntimeNotificationRecord
 from ..scheduler.contracts import (
@@ -222,12 +223,12 @@ class SensorSchedulerContrib:
             raise RuntimeError(f"Sensor source does not support pull sync: {source_type}")
         package_state = self._plugin_manager.get_package(plugin_id)
         package_settings = dict(package_state.current_settings) if package_state is not None else {}
-        preferred_language = str(get_user_preference("language", "zh") or "zh").strip()
+        preferred_language = get_preferred_language()
         if preferred_language:
             package_settings.setdefault("locale", preferred_language)
         source_settings = dict(package_settings.get("sensors", {}).get(source_type, {}))
-        previous_language = get_current_language()
-        set_current_language(preferred_language or None)
+        previous_language = get_plugin_current_language()
+        set_plugin_current_language(preferred_language or None)
         try:
             pull_context = SensorSyncContext(
                 source_type=source_type,
@@ -324,7 +325,7 @@ class SensorSchedulerContrib:
                 stats=result.stats,
             )
         finally:
-            set_current_language(previous_language or None)
+            set_plugin_current_language(previous_language or None)
 
     async def _emit_sync_progress(
         self,

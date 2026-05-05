@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse
 from magi.api.routers import messages as messages_router
 from magi.chat.read_service import ChatDisplayMessage
 from magi.api.services.message_dispatch_service import MessageDispatchOutcome
+from magi.i18n import language_context
 
 
 async def _runtime_ready(_app):  # type: ignore[no-untyped-def]
@@ -563,15 +564,16 @@ async def test_detach_session_run_route_delegates_to_chat_agent(monkeypatch: pyt
 
     monkeypatch.setattr(messages_router, "require_agent_runtime", lambda: _FakeRuntime())
 
-    response = await messages_router.detach_session_run(
-        session_id="session-1",
-        request=messages_router.DetachSessionRunRequest(
-            user_id="u1",
-            reason="user_detach",
-            turn_id="turn-detach",
-            requested_by="user",
-        ),
-    )
+    with language_context("en"):
+        response = await messages_router.detach_session_run(
+            session_id="session-1",
+            request=messages_router.DetachSessionRunRequest(
+                user_id="u1",
+                reason="user_detach",
+                turn_id="turn-detach",
+                requested_by="user",
+            ),
+        )
 
     assert captured == {
         "agent_type": messages_router.TaskAgentType.CHAT,

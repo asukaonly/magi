@@ -1,12 +1,14 @@
 """System configuration API router."""
 from __future__ import annotations
 
+from importlib import import_module
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import yaml
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
+from ... import i18n as core_i18n
 from ...config.loader import get_config, get_config_file_path, reload_config, save_config
 from ...core.runtime_bindings import require_runtime_command_queue
 from ...events.contracts import RefreshLLMConfigCommand
@@ -87,6 +89,14 @@ def _read_raw_yaml() -> Dict[str, Any]:
     except Exception:
         logger.exception("Failed to read raw config file")
         return {}
+
+
+def _request_language(request: Request) -> str | None:
+    return request.headers.get("Accept-Language") or None
+
+
+def _t(request: Request, key: str, fallback: str, **kwargs: Any) -> str:
+    return core_i18n.t(key, language=_request_language(request), fallback=fallback, **kwargs)
 
 
 def _build_system_config(mask_api_key: bool = False) -> SystemConfigModel:
@@ -203,21 +213,33 @@ def _load_quick_mode_default_personality(language: str) -> Optional[FullPersonal
 
 
 @config_router.get("/", response_model=ConfigResponse)
-async def get_config_endpoint():
-    return ConfigResponse(success=True, message="Configuration loaded", data=_build_system_config())
+async def get_config_endpoint(request: Request):
+    return ConfigResponse(
+        success=True,
+        message=_t(request, "config.messages.loaded", "Configuration loaded"),
+        data=_build_system_config(),
+    )
 
 
 @config_router.put("/", response_model=ConfigResponse)
-async def update_config(config: SystemConfigModel):
+async def update_config(request: Request, config: SystemConfigModel):
     try:
-        updates = _build_update_paths(config)
+        with core_i18n.language_context(_request_language(request)):
+            updates = _build_update_paths(config)
         if not save_config(updates):
-            raise HTTPException(status_code=500, detail="Failed to save config")
+            raise HTTPException(
+                status_code=500,
+                detail=_t(request, "config.errors.save_failed", "Failed to save config"),
+            )
         refreshed_config = reload_config()
         refresh_runtime_llm_config(refreshed_config)
         await _enqueue_runtime_llm_refresh_command(reason="config_updated")
         await _enqueue_runtime_channels_refresh_command(reason="config_updated")
-        return ConfigResponse(success=True, message="Configuration updated", data=_build_system_config())
+        return ConfigResponse(
+            success=True,
+            message=_t(request, "config.messages.updated", "Configuration updated"),
+            data=_build_system_config(),
+        )
     except HTTPException:
         raise
     except Exception as exc:
@@ -226,27 +248,47 @@ async def update_config(config: SystemConfigModel):
 
 
 @config_router.get("/template", response_model=ConfigResponse)
-async def get_config_template():
-    return ConfigResponse(success=True, message="Configuration template", data=SystemConfigModel())
+async def get_config_template(request: Request):
+    return ConfigResponse(
+        success=True,
+        message=_t(request, "config.messages.template", "Configuration template"),
+        data=SystemConfigModel(),
+    )
 
 
 @config_router.post("/test", response_model=ConfigResponse)
-async def test_config(config: SystemConfigModel):
+async def test_config(request: Request, config: SystemConfigModel):
     core_selection = config.llm.selections.get("core")
     context_selection = config.llm.selections.get("context_decider")
     if not core_selection or not context_selection:
-        return ConfigResponse(success=False, message="LLM selections are required", data=None)
+        return ConfigResponse(
+            success=False,
+            message=_t(request, "config.validation.llm_selections_required", "LLM selections are required"),
+            data=None,
+        )
     for selection in (core_selection, context_selection):
         if bool(selection.provider_id) != bool(selection.model):
-            return ConfigResponse(success=False, message="LLM provider and model must be set together", data=None)
-    return ConfigResponse(success=True, message="Configuration valid", data=config)
+            return ConfigResponse(
+                success=False,
+                message=_t(
+                    request,
+                    "config.validation.llm_provider_model_together",
+                    "LLM provider and model must be set together",
+                ),
+                data=None,
+            )
+    return ConfigResponse(
+        success=True,
+        message=_t(request, "config.messages.valid", "Configuration valid"),
+        data=config,
+    )
 
 
 @config_router.get("/onboarding-template", response_model=OnboardingTemplateResponse)
-async def get_onboarding_template():
+async def get_onboarding_template(request: Request):
     return OnboardingTemplateResponse(
         success=True,
-        message="Onboarding template loaded",
+        message=_t(request, "config.onboarding.template_loaded", "Onboarding template loaded"),
         data=OnboardingTemplateDataModel(
             config=_build_onboarding_template(),
         ),
@@ -254,19 +296,28 @@ async def get_onboarding_template():
 
 
 @config_router.post("/channels/telegram/test", response_model=TestTelegramConnectionResponse)
-async def test_telegram_connection(payload: TestTelegramConnectionRequest):
+async def test_telegram_connection(request: Request, payload: TestTelegramConnectionRequest):
     """Test Telegram bot token + proxy by calling getMe."""
     if not payload.bot_token or payload.bot_token.endswith("****"):
-        raise HTTPException(status_code=400, detail="A valid bot token is required")
+        raise HTTPException(
+            status_code=400,
+            detail=_t(request, "config.telegram.valid_bot_token_required", "A valid bot token is required"),
+        )
 
     try:
         import httpx  # noqa: F401
-        from telegram import Bot
-        from telegram.request import HTTPXRequest
+        telegram_module = import_module("telegram")
+        telegram_request_module = import_module("telegram.request")
+        Bot = telegram_module.Bot
+        HTTPXRequest = telegram_request_module.HTTPXRequest
     except ImportError:
         raise HTTPException(
             status_code=500,
-            detail="python-telegram-bot is not installed",
+            detail=_t(
+                request,
+                "config.telegram.dependency_missing",
+                "python-telegram-bot is not installed",
+            ),
         )
 
     proxy_url = payload.proxy.strip() or None
@@ -284,7 +335,7 @@ async def test_telegram_connection(payload: TestTelegramConnectionRequest):
             me = await bot.get_me()
         return TestTelegramConnectionResponse(
             success=True,
-            message=f"Connected to @{me.username}",
+            message=_t(request, "config.telegram.connected", "Connected to @{username}", username=me.username),
             bot_username=me.username or "",
             bot_id=me.id,
         )
@@ -296,7 +347,7 @@ async def test_telegram_connection(payload: TestTelegramConnectionRequest):
 
 
 @config_router.post("/onboarding-complete", response_model=ConfigResponse)
-async def complete_onboarding(config: SystemConfigModel):
+async def complete_onboarding(request: Request, config: SystemConfigModel):
     try:
         if config.preferences.user_mode == "quick":
             quick_mode_personality = _load_quick_mode_default_personality(config.preferences.language)
@@ -309,9 +360,17 @@ async def complete_onboarding(config: SystemConfigModel):
                 )
 
         config.preferences.onboarding_completed = True
-        updates = _build_update_paths(config)
+        with core_i18n.language_context(_request_language(request)):
+            updates = _build_update_paths(config)
         if not save_config(updates):
-            raise HTTPException(status_code=500, detail="Failed to save onboarding configuration")
+            raise HTTPException(
+                status_code=500,
+                detail=_t(
+                    request,
+                    "config.onboarding.save_failed",
+                    "Failed to save onboarding configuration",
+                ),
+            )
         refreshed_config = reload_config()
 
         # Try to initialize agent runtime if not already initialized
@@ -331,7 +390,11 @@ async def complete_onboarding(config: SystemConfigModel):
         # ``POST /api/personas/seed`` after this call returns to avoid duplicate
         # non-builtin entries that conflict with the seeded builtins.
 
-        return ConfigResponse(success=True, message="Onboarding configuration saved", data=_build_system_config())
+        return ConfigResponse(
+            success=True,
+            message=_t(request, "config.onboarding.saved", "Onboarding configuration saved"),
+            data=_build_system_config(),
+        )
     except HTTPException:
         raise
     except Exception as exc:

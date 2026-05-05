@@ -31,18 +31,26 @@ logger = logging.getLogger(__name__)
 _PREVIOUS_PERIOD_CONTEXT_LIMITS = {
     "hour": 1,
     "day": 1,
-    "week": 2,
-    "month": 2,
+    "week": 3,
+    "month": 3,
     "quarter": 2,
     "year": 2,
 }
 _CHILD_PERIOD_CONTEXT_CATEGORIES = {
+    "day": ["hour"],
     "week": ["day"],
     "month": ["week"],
     "quarter": ["month"],
     "year": ["quarter"],
 }
-_CHILD_PERIOD_CONTEXT_LIMIT = 6
+_CHILD_PERIOD_CONTEXT_LIMIT_BY_PARENT = {
+    "day": 24,
+    "week": 8,
+    "month": 6,
+    "quarter": 4,
+    "year": 5,
+}
+_CHILD_PERIOD_CONTEXT_LIMIT_DEFAULT = 6
 
 class L3SummaryStore(L3SummaryEmbeddingMixin, L3SummarySearchMixin, L3SummaryPersistenceMixin):
     """Stores reflection-oriented summaries that remain traceable to L1 evidence."""
@@ -254,11 +262,14 @@ class L3SummaryStore(L3SummaryEmbeddingMixin, L3SummarySearchMixin, L3SummaryPer
             )
         child_categories = _CHILD_PERIOD_CONTEXT_CATEGORIES.get(category, [])
         if child_categories:
+            child_limit = _CHILD_PERIOD_CONTEXT_LIMIT_BY_PARENT.get(
+                category, _CHILD_PERIOD_CONTEXT_LIMIT_DEFAULT
+            )
             pack.child_period_summaries = await self._list_child_temporal_context(
                 summary_categories=child_categories,
                 period_start=float(pack.period_start),
                 period_end=float(pack.period_end),
-                limit=_CHILD_PERIOD_CONTEXT_LIMIT,
+                limit=child_limit,
             )
 
     async def _list_previous_temporal_context(

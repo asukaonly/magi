@@ -4,8 +4,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
+from ... import i18n as core_i18n
 from .personality_config_common import legacy_personality_config_module
-from .personality_config_schemas import BootstrapInitRequest, JournalReflectRequest, PersonalityResponse
+from .personality_config_schemas import (
+    BootstrapInitRequest,
+    JournalReflectRequest,
+    PersonalityResponse,
+)
 
 personality_bootstrap_router = APIRouter()
 
@@ -25,12 +30,17 @@ async def api_bootstrap_init(request: BootstrapInitRequest):
         persona_id = await legacy._resolve_persona_id(current_name)
         bootstrap_svc = await legacy._get_bootstrap_service()
 
-        needs_bootstrap_init = await bootstrap_svc.needs_bootstrap_init(current_name, persona_id=persona_id)
+        needs_bootstrap_init = await bootstrap_svc.needs_bootstrap_init(
+            current_name, persona_id=persona_id
+        )
 
         if not needs_bootstrap_init:
             return PersonalityResponse(
                 success=True,
-                message="Bootstrap opening already initialized",
+                message=core_i18n.t(
+                    "personality.bootstrap.opening_already_initialized",
+                    fallback="Bootstrap opening already initialized",
+                ),
                 data={
                     "bootstrap_active": False,
                     "opening": None,
@@ -52,7 +62,9 @@ async def api_bootstrap_init(request: BootstrapInitRequest):
         if not opening:
             return PersonalityResponse(
                 success=True,
-                message="No opening available",
+                message=core_i18n.t(
+                    "personality.bootstrap.no_opening_available", fallback="No opening available"
+                ),
                 data={
                     "bootstrap_active": False,
                     "opening": None,
@@ -81,13 +93,20 @@ async def api_bootstrap_init(request: BootstrapInitRequest):
         except RuntimeError as exc:
             message = str(exc)
             if "binding is not initialized" in message:
-                legacy.logger.info("Bootstrap opening not persisted yet because runtime bindings are still starting: %s", exc)
+                legacy.logger.info(
+                    "Bootstrap opening not persisted yet because runtime bindings are still starting: %s",
+                    exc,
+                )
             else:
-                legacy.logger.warning("Bootstrap opening not persisted (runtime not ready): %s", exc)
+                legacy.logger.warning(
+                    "Bootstrap opening not persisted (runtime not ready): %s", exc
+                )
 
         return PersonalityResponse(
             success=True,
-            message="Bootstrap opening injected",
+            message=core_i18n.t(
+                "personality.bootstrap.opening_injected", fallback="Bootstrap opening injected"
+            ),
             data={
                 "bootstrap_active": False,
                 "opening": opening,
@@ -124,13 +143,19 @@ async def api_journal_reflect(request: JournalReflectRequest):
         if entry is None:
             return PersonalityResponse(
                 success=False,
-                message="Reflection generation failed",
+                message=core_i18n.t(
+                    "personality.journal.reflection_generation_failed",
+                    fallback="Reflection generation failed",
+                ),
                 data=None,
             )
 
         return PersonalityResponse(
             success=True,
-            message="Journal reflection generated",
+            message=core_i18n.t(
+                "personality.journal.reflection_generated",
+                fallback="Journal reflection generated",
+            ),
             data={
                 "milestone_id": entry.milestone_id,
                 "content": entry.content,

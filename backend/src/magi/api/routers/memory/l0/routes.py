@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import HTTPException, Query, status
 
 from ..dependencies import _resolve_unified_memory, get_chat_read_service
+from ..helpers import memory_t
 from ..router import memory_router
 from .sessions import (
     build_l0_session_list_items,
@@ -73,13 +74,13 @@ async def get_l0_workbench(session_id: str):
     if not unified_memory or not unified_memory.l0:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="L0 working memory not initialized",
+            detail=memory_t("memory.errors.l0_uninitialized", "L0 working memory not initialized"),
         )
 
     workbench = await unified_memory.l0.get_workbench(session_id)
     if not workbench.get("session"):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Session not found",
+            detail=memory_t("memory.errors.session_not_found", "Session not found"),
         )
     return workbench

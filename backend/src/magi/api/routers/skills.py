@@ -4,11 +4,13 @@ Skills API Router
 Provides endpoints for managing and executing skills:
 - List all skills (metadata only)
 """
+
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 from typing import List, Optional
 import logging
 
+from ... import i18n as core_i18n
 from ...skills.provider import resolve_skill_indexer as _resolve_skill_indexer_service
 from ...skills.service_access import (
     get_enabled_skill_names as _get_enabled_skill_names_service,
@@ -21,8 +23,10 @@ skills_router = APIRouter(prefix="/api/skills", tags=["skills"])
 
 # ============ data Models ============
 
+
 class SkillMetadataResponse(BaseModel):
     """Skill metadata response."""
+
     name: str
     description: str
     category: Optional[str] = None
@@ -37,6 +41,7 @@ class SkillMetadataResponse(BaseModel):
 
 # ============ API endpoints ============
 
+
 @skills_router.get("/", response_model=List[SkillMetadataResponse])
 async def list_skills():
     """
@@ -50,7 +55,9 @@ async def list_skills():
     except RuntimeError:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Skills module not initialized",
+            detail=core_i18n.t(
+                "skills.errors.module_uninitialized", fallback="Skills module not initialized"
+            ),
         )
 
     skills = skill_indexer.scan_all()
@@ -71,4 +78,3 @@ async def list_skills():
         )
         for name, skill in skills.items()
     ]
-

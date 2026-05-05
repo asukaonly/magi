@@ -12,6 +12,7 @@ from magi.agent.execution.function_calling import (
 )
 from magi.llm.base import LLMAdapter
 from magi.runtime_trace.store import RuntimeTraceStore
+from magi.agent.turn_input import UserTurnInput
 
 
 class _DummyLLMAdapter(LLMAdapter):
@@ -149,7 +150,7 @@ async def test_execute_with_tools_persists_iteration_llm_and_tool_rows(
     monkeypatch.setattr(orchestrator, "_execute_tool_call", _fake_execute_tool_call)
 
     outcome = await orchestrator.execute_with_tools(
-        user_message="search Hangzhou news",
+        turn=UserTurnInput(text="search Hangzhou news", attachments=[], user_id=None, session_id=None),
         system_prompt="You are helpful.",
         selected_tools=["web-search"],
         user_id="local_user",
@@ -174,11 +175,11 @@ async def test_execute_with_tools_persists_iteration_llm_and_tool_rows(
     assert iteration_one.status == "completed"
     assert iteration_two is not None
     assert iteration_two.status == "completed"
-    assert tool_request_llm is not None
-    assert tool_request_llm.model == "gpt-test"
-    assert tool_request_llm.input_tokens == 120
-    assert final_llm is not None
-    assert final_llm.output_tokens == 18
+    # D phase 4: function-calling no longer persists trace_llm_calls rows
+    # directly; the canonical llm_call SpanCompleted now flows from
+    # provider_bridge on real LLM calls (mocked away here).
+    assert tool_request_llm is None
+    assert final_llm is None
     assert tool_span is not None
     assert tool_span.node_type == "tool_call"
     assert tool_call is not None
