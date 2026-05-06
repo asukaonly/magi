@@ -5,6 +5,7 @@ import os
 from typing import Dict, Any
 from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType, ToolErrorCode
 from ..utils.path_utils import resolve_path_from_workspace
+from ._read_constraint import record_read_in_session
 
 
 class FileReadTool(Tool):
@@ -140,6 +141,8 @@ class FileReadTool(Tool):
                 "total_size": file_size,
                 "is_complete": (limit is None) or (len(content) < limit),
             }
+
+            record_read_in_session(context, file_path)
 
             return ToolResult(
                 success=True,
