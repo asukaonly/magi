@@ -35,20 +35,19 @@ class PromptSelfMemoryMixin:
         persona_turn_plan: "Optional[PersonaTurnPlan]" = None,
         persona_name: str = "default",
     ) -> SelfMemoryContext:
-        user_pref_memory: Dict[str, Any] = {}
-        if self.user_profile_service is not None and user_id:
-            user_pref_memory = await self.user_profile_service.get_preference_summary(user_id)
-
         payload = retrieved_memory_payload or {}
+        preference_memory = payload.get("preference_memory", {})
+        if not isinstance(preference_memory, dict):
+            preference_memory = {}
+        preference_memory = dict(preference_memory)
+        preference_memory.pop("user_preferences", None)
+
         retrieval_memory = RetrievalMemoryContext(
             l0_workbench=list(payload.get("l0_workbench", [])),
             l2_entity_cards=list(payload.get("l2_entity_cards", [])),
             l3_reflection_memory=list(payload.get("l3_reflection_memory", [])),
             l4_procedural_memory=list(payload.get("l4_procedural_memory", [])),
-            preference_memory={
-                "user_preferences": user_pref_memory,
-                **dict(payload.get("preference_memory", {})),
-            },
+            preference_memory=preference_memory,
         )
 
         journal_entries: List[Dict[str, Any]] = []

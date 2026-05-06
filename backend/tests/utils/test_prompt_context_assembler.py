@@ -104,6 +104,10 @@ class TestPromptContextAssembler(unittest.IsolatedAsyncioTestCase):
         self.assertIn("* User Name: 哈基米", prompt)
         self.assertIn("* Preferred Address: 哈基米", prompt)
         self.assertIn("* Avoid Addressing As: 老师", prompt)
+        self.assertNotIn("### User Preferences", prompt)
+        self.assertEqual(prompt.count("language: zh-CN"), 1)
+        self.assertEqual(prompt.count("style: concise"), 1)
+        self.assertNotIn("user_preferences", assembled.self_memory.retrieval_memory.preference_memory)
 
     async def test_profile_emotion_mapping_uses_relationship_scores(self):
         assembler = PromptContextAssembler(
