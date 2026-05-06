@@ -44,6 +44,18 @@ def test_user_only_overrides_defaults(isolated_magi_home: Path, tmp_path: Path) 
     assert s.constraints.default_timeout_s == 120
 
 
+def test_auto_default_adapter_is_allowed(
+    isolated_magi_home: Path, tmp_path: Path,
+) -> None:
+    (isolated_magi_home / "code_agent.toml").write_text(
+        "default_adapter = \"auto\"\n"
+    )
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    s = load_settings(workspace_root=workspace)
+    assert s.default_adapter == "auto"
+
+
 def test_project_overrides_user(isolated_magi_home: Path, tmp_path: Path) -> None:
     (isolated_magi_home / "code_agent.toml").write_text(
         "default_adapter = \"claude_code\"\n"

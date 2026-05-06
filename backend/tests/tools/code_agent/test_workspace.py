@@ -75,3 +75,13 @@ def test_create_worktree_rejects_non_repo(tmp_path: Path) -> None:
         create_worktree(
             workspace_root=plain, session_id="s1", delegation_id="d" * 32,
         )
+
+
+def test_create_worktree_rejects_dirty_workspace(tmp_path: Path) -> None:
+    repo = _make_git_repo(tmp_path / "repo")
+    # Make uncommitted changes
+    (repo / "dirty.txt").write_text("uncommitted")
+    with pytest.raises(NotAGitRepoError) as exc_info:
+        create_worktree(workspace_root=repo, session_id="s1", delegation_id="e" * 32)
+    assert "uncommitted changes" in str(exc_info.value).lower()
+    assert "dirty.txt" in str(exc_info.value)

@@ -8,6 +8,7 @@ import { api } from '../client';
 import type { ApiResponse } from '../client';
 
 export type AdapterName = 'claude_code' | 'codex';
+export type DefaultAdapterName = 'auto' | AdapterName;
 
 export interface ProbeResult {
   name: AdapterName;
@@ -45,7 +46,7 @@ export interface CodexSettings {
 
 export interface CodeAgentSettings {
   enabled: boolean;
-  default_adapter: AdapterName;
+  default_adapter: DefaultAdapterName;
   claude_code: ClaudeCodeSettings;
   codex: CodexSettings;
   constraints: ConstraintsSettings;

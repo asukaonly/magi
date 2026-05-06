@@ -3,15 +3,16 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, cast
 
 from ..code_agent.contracts import (
     AdapterName,
     DelegateConstraints,
     DelegateRequest,
 )
+from ..code_agent.probe import probe_all
 from ..code_agent.service import CodeAgentService
-from ..code_agent.settings import load_settings
+from ..code_agent.settings import CodeAgentSettings, load_settings
 from ..schema import (
     ParameterType,
     Tool,
@@ -23,7 +24,35 @@ from ..schema import (
 )
 
 
-_VALID_ADAPTERS: tuple[str, ...] = ("auto", "claude_code", "codex")
+_ADAPTER_ORDER: tuple[AdapterName, ...] = ("claude_code", "codex")
+_VALID_ADAPTERS: tuple[str, ...] = ("auto", *_ADAPTER_ORDER)
+
+
+def _binary_paths_from_settings(
+    settings: CodeAgentSettings,
+) -> dict[AdapterName, str | None]:
+    probes = probe_all(force=False)
+    return {
+        "claude_code": settings.claude_code.binary_path.strip()
+        or probes["claude_code"].binary_path,
+        "codex": settings.codex.binary_path.strip()
+        or probes["codex"].binary_path,
+    }
+
+
+def _resolve_adapter(
+    adapter_param: str,
+    settings: CodeAgentSettings,
+    binary_paths: dict[AdapterName, str | None],
+) -> AdapterName:
+    if adapter_param != "auto":
+        return cast(AdapterName, adapter_param)
+    if settings.default_adapter != "auto":
+        return settings.default_adapter
+    for candidate in _ADAPTER_ORDER:
+        if binary_paths.get(candidate):
+            return candidate
+    return "claude_code"
 
 
 class DelegateToExternalCoderTool(Tool):
@@ -156,10 +185,15 @@ class DelegateToExternalCoderTool(Tool):
             )
 
         settings = load_settings(workspace_root=workspace)
-        if adapter_param == "auto":
-            resolved_adapter: AdapterName = settings.default_adapter
-        else:
-            resolved_adapter = adapter_param  # type: ignore[assignment]
+        if not settings.enabled:
+            return ToolResult(
+                success=False,
+                error="External code tools are disabled in settings",
+                error_code=ToolErrorCode.INVALID_PARAMETERS.value,
+            )
+
+        binary_paths = _binary_paths_from_settings(settings)
+        resolved_adapter = _resolve_adapter(adapter_param, settings, binary_paths)
 
         timeout_s = int(parameters.get("timeout_s") or settings.constraints.default_timeout_s)
         timeout_s = max(60, min(3600, timeout_s))
@@ -195,7 +229,7 @@ class DelegateToExternalCoderTool(Tool):
             model=(str(parameters.get("model")) if parameters.get("model") else None),
         )
 
-        service = CodeAgentService(cleanup_worktree=False)
+        service = CodeAgentService(binary_paths=binary_paths, cleanup_worktree=False)
         user_id = str((context.env_vars or {}).get("user_id") or "").strip() or None
         result = await service.delegate(
             req, dry_run=bool(parameters.get("dry_run")), user_id=user_id,

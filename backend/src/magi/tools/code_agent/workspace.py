@@ -44,17 +44,22 @@ def create_worktree(
 ) -> Path:
     workspace_root = Path(workspace_root).resolve()
     assert_git_repo(workspace_root)
-    # Check for uncommitted changes that would cause apply failures
+    # Check for uncommitted changes - delegation requires clean working directory
     status = _run_git(["status", "--porcelain"], cwd=workspace_root)
     if status.returncode == 0 and status.stdout.strip():
-        # Has uncommitted changes - warn via logging but continue
-        # The worktree will still be created from HEAD, so apply may fail
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.warning(
-            f"Workspace {workspace_root} has uncommitted changes. "
-            f"Delegation worktree will be created from HEAD, so git apply may fail."
-        )
+        changed_files = [
+            line.split()[1] if len(line.split()) > 1 else line
+            for line in status.stdout.strip().splitlines()
+            if line.strip() and not line.split()[1].startswith(".magi/")
+        ]
+        if changed_files:
+            files_list = ", ".join(changed_files[:5])
+            if len(changed_files) > 5:
+                files_list += ", ..."
+            raise NotAGitRepoError(
+                f"Workspace has uncommitted changes ({files_list}). "
+                f"Commit or stash them before delegating, or the worktree diff won't apply cleanly."
+            )
     target = _worktree_path(workspace_root, session_id, delegation_id)
     if target.is_dir() and (target / ".git").exists():
         return target

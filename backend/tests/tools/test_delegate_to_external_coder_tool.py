@@ -6,9 +6,14 @@ from pathlib import Path
 
 import pytest
 
+from magi.tools.builtin import delegate_to_external_coder_tool as module
 from magi.tools.builtin.delegate_to_external_coder_tool import (
     DelegateToExternalCoderTool,
+    _binary_paths_from_settings,
+    _resolve_adapter,
 )
+from magi.tools.code_agent.contracts import ProbeResult
+from magi.tools.code_agent.settings import CodeAgentSettings
 from magi.tools.schema import ToolExecutionContext
 
 
@@ -120,3 +125,69 @@ def test_tool_schema_advertises_modes() -> None:
     assert "claude_code" in (enum_param.enum or [])
     assert "codex" in (enum_param.enum or [])
     assert "auto" in (enum_param.enum or [])
+
+
+def test_auto_default_adapter_picks_first_available_binary() -> None:
+    settings = CodeAgentSettings(default_adapter="auto")
+    resolved = _resolve_adapter(
+        "auto",
+        settings,
+        {"claude_code": None, "codex": "/usr/local/bin/codex"},
+    )
+    assert resolved == "codex"
+
+
+def test_configured_binary_path_overrides_detected_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        module,
+        "probe_all",
+        lambda force=False: {
+            "claude_code": ProbeResult(
+                name="claude_code",
+                installed=True,
+                binary_path="/detected/claude",
+                version="1.0.0",
+                detected_at=1,
+                error=None,
+                extras={},
+            ),
+            "codex": ProbeResult(
+                name="codex",
+                installed=True,
+                binary_path="/detected/codex",
+                version="1.0.0",
+                detected_at=1,
+                error=None,
+                extras={},
+            ),
+        },
+    )
+
+    paths = _binary_paths_from_settings(
+        CodeAgentSettings(claude_code={"binary_path": "/custom/claude"})
+    )
+
+    assert paths["claude_code"] == "/custom/claude"
+    assert paths["codex"] == "/detected/codex"
+
+
+@pytest.mark.asyncio
+async def test_disabled_code_agent_setting_rejects_delegation(
+    isolated_magi_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = _make_repo(tmp_path / "repo")
+    monkeypatch.setattr(
+        module,
+        "load_settings",
+        lambda workspace_root: CodeAgentSettings(enabled=False),
+    )
+
+    res = await DelegateToExternalCoderTool().execute(
+        {"prompt": "x", "dry_run": True},
+        _ctx(repo),
+    )
+
+    assert not res.success
+    assert "disabled" in (res.error or "").lower()

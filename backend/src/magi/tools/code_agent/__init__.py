@@ -34,6 +34,7 @@ from .settings import (
     CodeAgentSettings,
     CodexSettings,
     ConstraintsSettings,
+    DefaultAdapterName,
     load_settings,
 )
 from .workspace import assert_git_repo, create_worktree, remove_worktree
@@ -79,6 +80,7 @@ __all__ = [
     "CodeAgentSettings",
     "CodexSettings",
     "ConstraintsSettings",
+    "DefaultAdapterName",
     "load_settings",
     "assert_git_repo",
     "create_worktree",
