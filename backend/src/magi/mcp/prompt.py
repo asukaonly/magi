@@ -6,7 +6,7 @@ via the `@`-picker (or any caller that holds the result of
 same output — so callers can dedupe or cache without inspecting MCP
 internals.
 
-The output shape mirrors the spec in `docs/superpowers/specs/`:
+The output shape:
 
     <mcp_resource uri="..." mimeType="..." server_id="...">
     <text content here, possibly multi-line>

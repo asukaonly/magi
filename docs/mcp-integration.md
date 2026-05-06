@@ -2,7 +2,7 @@
 
 Magi can connect to external [Model Context Protocol](https://modelcontextprotocol.io) servers as a client. Their tools are wrapped as Magi `Tool`s and registered into the runtime tool registry; their resources are exposed for chat attachment via the `@`-picker (when wired). Permission gating reuses the existing brokered prompter / risk classifier — no MCP-specific gateway logic.
 
-This document is the maintainer-facing reference. For background, see the design spec at `docs/superpowers/specs/2026-05-03-mcp-client-design.md`.
+This document is the maintainer-facing reference.
 
 ## What lives where
 

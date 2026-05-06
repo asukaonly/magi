@@ -237,15 +237,14 @@ needing column-level migrations):
 - **Never write data migrations from old tables that no longer exist
   in the baseline.** Pre-release on-disk databases are not supported;
   when a column is removed, delete it cleanly instead of leaving
-  backfill code behind (see `docs/cleanup-audit/` for the rationale).
+  backfill code behind.
 
 ## Background
 
 The Alembic introduction landed in the run-up to the first public
 release after a sweep that removed the previous generation of
 hand-rolled `ensure_*_columns` helpers and `try/except ALTER TABLE`
-idioms. The audit reports under `docs/cleanup-audit/` document what
-was removed and why. The short version:
+idioms. The short version:
 
 - Pre-release on-disk databases from earlier development builds are
   not supported. A clean release requires a fresh runtime directory.
