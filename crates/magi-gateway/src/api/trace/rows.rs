@@ -41,7 +41,7 @@ pub(super) fn load_trace_spans(conn: &Connection, trace_id: &str) -> Vec<HashMap
         conn,
         "SELECT span_id, trace_id, turn_id, parent_span_id, node_type, name, \
          status, attempt_index, retry_count, iteration, execution_agent_id, \
-         result_preview, error_text, started_at_ms, ended_at_ms, duration_ms \
+         result_preview, error_text, input_preview, output_preview, started_at_ms, ended_at_ms, duration_ms \
          FROM trace_spans WHERE trace_id = ?1 AND node_type <> 'turn_record' \
          ORDER BY started_at_ms ASC, span_id ASC",
         rusqlite::params![trace_id],

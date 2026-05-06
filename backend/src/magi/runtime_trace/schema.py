@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import aiosqlite
 
-
 RUNTIME_TRACE_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS trace_turns (
     trace_id TEXT PRIMARY KEY,
@@ -48,6 +47,8 @@ CREATE TABLE IF NOT EXISTS trace_spans (
     execution_agent_id TEXT,
     result_preview TEXT,
     error_text TEXT,
+    input_preview TEXT,
+    output_preview TEXT,
     run_id TEXT,
     run_revision INTEGER NOT NULL DEFAULT 0,
     started_at_ms INTEGER NOT NULL,

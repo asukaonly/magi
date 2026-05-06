@@ -225,3 +225,21 @@ async def test_error_payload_propagates_to_span_record(fake_bus, fake_store):
     rec = fake_store.upsert_span.await_args.args[0]
     assert rec.status == "error"
     assert rec.error_text == "boom"
+
+
+@pytest.mark.asyncio
+async def test_span_preview_attributes_propagate_to_span_record(fake_bus, fake_store):
+    sub = RuntimeTraceSubscriber(event_bus=fake_bus, trace_store=fake_store)
+    await sub.start()
+    p = _make_payload(
+        attributes={
+            "input_preview": "User input preview",
+            "output_preview": "Model output preview",
+        },
+    )
+    await sub._on_span_completed(Event(type=EventTypes.SPAN_COMPLETED, data=p))
+    await sub.drain()
+
+    rec = fake_store.upsert_span.await_args.args[0]
+    assert rec.input_preview == "User input preview"
+    assert rec.output_preview == "Model output preview"

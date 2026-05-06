@@ -111,6 +111,8 @@ class RuntimeTraceWriter:
             execution_agent_id=attrs.get("execution_agent_id"),
             result_preview=payload.result_preview,
             error_text=(payload.error.message if payload.error else None),
+            input_preview=attrs.get("input_preview") or attrs.get("request_preview"),
+            output_preview=attrs.get("output_preview") or attrs.get("response_preview"),
             run_id=attrs.get("run_id"),
             run_revision=self._int_attr(attrs, "run_revision"),
             started_at_ms=payload.started_at_ms,

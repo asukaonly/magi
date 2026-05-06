@@ -839,7 +839,7 @@ The current runtime trace path is:
 
 1. chat postprocess, direct LLM calls, function-calling orchestration, and worker execution publish `SpanCompleted` events that `RuntimeTraceSubscriber` projects through the runtime trace writer into canonical trace rows
 2. every executable chat turn creates a `trace_turns` root row at intent/runtime start, before final response emission
-3. `runtime_trace.db` stores turn summaries, spans, LLM call details, tool call details, and intent-resolution records
+3. `runtime_trace.db` stores turn summaries, spans, LLM call details, tool call details, intent-resolution records, and preview-only span input/output fields for UI inspection
 4. `ChatTraceReadService` reconstructs the UI trace tree from those canonical rows
 5. chat display history projects a lightweight `run_state` from `chat_turns` so reload/session-switch UI uses backend state rather than local button state
 6. the Rust gateway and IPC-dispatched message APIs expose trace summaries and snapshots without routing trace nodes through `L1`
@@ -852,6 +852,8 @@ Two rules matter here:
 - `trace_turns` is the turn-level trace ledger used for availability, status, and duration; visible execution tree nodes live in `trace_spans`
 - `turn_record` is an internal projection event for `trace_turns` and must not be stored or displayed as a visible span
 - `DIRECT_LLM` turns carry explicit trace context into provider calls so the main model call is attached under the turn root and contributes token metrics
+- response rhythm planning emits a `rhythm_processing` span when the final answer is split into multiple natural-language segments
+- user-facing input/output details in trace UI must remain bounded previews, not raw full prompts, transcripts, or tool payloads
 - business runtime code should call the runtime trace writer facade for live span/detail updates instead of calling store `upsert_*` methods directly
 - derived tool execution statistics must read from `runtime_trace.trace_tools`, not from procedural memory counters
 - cross-turn chat continuity should prefer compact recent-tool state over replaying old raw tool transcripts; exact execution inspection should prefer `trace_query`

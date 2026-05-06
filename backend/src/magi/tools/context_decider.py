@@ -8,6 +8,7 @@ Decides:
 
 This replaces the old ToolSelector for better tool selection.
 """
+
 import logging
 from typing import Any, Optional
 
@@ -27,7 +28,7 @@ from .context_routing import MEMORY_RETRIEVAL_TRIGGERS, ContextDecision, MemoryG
 from .registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
-llm_logger = get_llm_logger('context_decider')
+llm_logger = get_llm_logger("context_decider")
 
 
 class ContextDecider(
@@ -134,12 +135,16 @@ class ContextDecider(
             response = provider_response.content
 
             if not response or not response.strip():
-                logger.warning("[ContextDecider] LLM returned empty response, using rule-based fallback")
+                logger.warning(
+                    "[ContextDecider] LLM returned empty response, using rule-based fallback"
+                )
                 return self._rule_based_fallback(user_message, context)  # type: ignore[arg-type]
 
             stripped = response.strip()
             if stripped in ("{", "}", "{}"):
-                logger.warning(f"[ContextDecider] LLM returned incomplete response: {stripped}, using rule-based fallback")
+                logger.warning(
+                    f"[ContextDecider] LLM returned incomplete response: {stripped}, using rule-based fallback"
+                )
                 return self._rule_based_fallback(user_message, context)  # type: ignore[arg-type]
 
             duration_ms = int((time.time() - start_time) * 1000)
@@ -168,6 +173,8 @@ class ContextDecider(
                 disable_thinking=True,
                 duration_ms=duration_ms,
             )
+            decision.llm_trace.setdefault("request_preview", user_message[:240])
+            decision.llm_trace.setdefault("response_preview", response[:240])
 
             logger.info(
                 f"[ContextDecider] Decision made | Intent: {decision.intent} | "

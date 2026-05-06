@@ -99,7 +99,9 @@ async def test_runtime_trace_store_creates_turn_and_span_tables(tmp_path: Path) 
         assert "trace_intent_resolutions" in tables
         assert "runtime_notifications" in tables
         assert {"run_id", "run_revision"}.issubset(_list_columns(db_path, "trace_turns"))
-        assert {"run_id", "run_revision"}.issubset(_list_columns(db_path, "trace_spans"))
+        assert {"run_id", "run_revision", "input_preview", "output_preview"}.issubset(
+            _list_columns(db_path, "trace_spans")
+        )
         assert "thinking_depth" in _list_columns(db_path, "trace_llm_calls")
         assert {"run_id", "run_revision"}.issubset(_list_columns(db_path, "runtime_notifications"))
         journal_mode = _read_journal_mode(db_path)
@@ -269,6 +271,8 @@ async def test_runtime_trace_store_preserves_latest_run_revision(tmp_path: Path)
                 node_type="llm_call",
                 name="LLM call",
                 status="running",
+                input_preview="User asks for a recommendation",
+                output_preview="Draft recommendation",
                 run_id="run-1",
                 run_revision=3,
                 started_at_ms=120,
@@ -305,6 +309,8 @@ async def test_runtime_trace_store_preserves_latest_run_revision(tmp_path: Path)
         assert span.run_id == "run-1"
         assert span.run_revision == 3
         assert span.status == "ok"
+        assert span.input_preview == "User asks for a recommendation"
+        assert span.output_preview == "Draft recommendation"
     finally:
         await store.shutdown()
 

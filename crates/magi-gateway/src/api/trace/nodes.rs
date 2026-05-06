@@ -37,6 +37,7 @@ fn map_trace_kind(node_type: &str) -> &str {
         "llm_call" | "llm" => "llm",
         "iteration" => "iteration",
         "response_emit" => "response",
+        "rhythm_processing" => "rhythm",
         _ => "step",
     }
 }
@@ -52,6 +53,7 @@ fn default_trace_label(node_type: &str) -> &str {
         "llm_call" | "llm" => "LLM call",
         "iteration" => "Iteration",
         "response_emit" => "Response",
+        "rhythm_processing" => "Response rhythm processing",
         "worker" | "subtask" => "Worker",
         _ => "Step",
     }
@@ -116,6 +118,20 @@ pub(super) fn build_trace_node(
         "duration_ms": safe_int(span.get("duration_ms").unwrap_or(&Value::Null), 0),
         "execution_agent_id": span.get("execution_agent_id"),
     });
+    if let Some(input_preview) = span
+        .get("input_preview")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
+    {
+        metadata["input"] = json!({ "preview": input_preview.trim() });
+    }
+    if let Some(output_preview) = span
+        .get("output_preview")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
+    {
+        metadata["output"] = json!({ "preview": output_preview.trim() });
+    }
 
     if let Some(lc) = llm_call {
         metadata["provider"] = lc.get("provider").cloned().unwrap_or(Value::Null);
@@ -142,6 +158,22 @@ pub(super) fn build_trace_node(
                 .unwrap_or(0)
                 != 0
         );
+        if let Some(request_preview) = lc
+            .get("request_preview")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.trim().is_empty())
+        {
+            metadata["request_preview"] = json!(request_preview.trim());
+            metadata["input"] = json!({ "preview": request_preview.trim() });
+        }
+        if let Some(response_preview) = lc
+            .get("response_preview")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.trim().is_empty())
+        {
+            metadata["response_preview"] = json!(response_preview.trim());
+            metadata["output"] = json!({ "preview": response_preview.trim() });
+        }
     }
 
     if let Some(tc) = tool_call {
@@ -213,6 +245,22 @@ pub(super) fn build_trace_node(
                     .get("thinking_enabled")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false));
+                if let Some(request_preview) = llm_trace
+                    .get("request_preview")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.trim().is_empty())
+                {
+                    metadata["request_preview"] = json!(request_preview.trim());
+                    metadata["input"] = json!({ "preview": request_preview.trim() });
+                }
+                if let Some(response_preview) = llm_trace
+                    .get("response_preview")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.trim().is_empty())
+                {
+                    metadata["response_preview"] = json!(response_preview.trim());
+                    metadata["output"] = json!({ "preview": response_preview.trim() });
+                }
             }
         }
     }

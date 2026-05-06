@@ -49,7 +49,9 @@ class ProviderBridgeResponseMixin:
 
     def _extract_anthropic_stream_usage(self, stream: Any, usage_data: Any) -> ProviderUsage | None:
         """Extract usage from Anthropic streaming events."""
-        final_message = getattr(stream, "final_message", None) if hasattr(stream, "final_message") else None
+        final_message = (
+            getattr(stream, "final_message", None) if hasattr(stream, "final_message") else None
+        )
         if final_message is not None:
             return self._extract_anthropic_usage(final_message)
         if usage_data is None:
@@ -75,40 +77,52 @@ class ProviderBridgeResponseMixin:
             cache_write_tokens=int(getattr(usage_data, "cache_write_tokens", 0) or 0),
         )
 
-    def _convert_messages_to_anthropic(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _convert_messages_to_anthropic(
+        self, messages: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         converted: list[dict[str, Any]] = []
         for message in messages:
             if message.get("role") == "tool":
-                converted.append({
-                    "role": "user",
-                    "content": [{
-                        "type": "tool_result",
-                        "tool_use_id": message.get("tool_call_id"),
-                        "content": message.get("content", ""),
-                    }],
-                })
+                converted.append(
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": message.get("tool_call_id"),
+                                "content": message.get("content", ""),
+                            }
+                        ],
+                    }
+                )
             elif message.get("role") == "user" and isinstance(message.get("content"), list):
-                converted.append({
-                    "role": "user",
-                    "content": self._convert_content_blocks_to_anthropic(message["content"]),
-                })
+                converted.append(
+                    {
+                        "role": "user",
+                        "content": self._convert_content_blocks_to_anthropic(message["content"]),
+                    }
+                )
             elif message.get("role") == "assistant" and isinstance(message.get("content"), list):
                 converted.append({"role": "assistant", "content": message["content"]})
             else:
-                converted.append({
-                    "role": message.get("role"),
-                    "content": message.get("content", ""),
-                })
+                converted.append(
+                    {
+                        "role": message.get("role"),
+                        "content": message.get("content", ""),
+                    }
+                )
         return converted
 
     def _convert_messages_to_openai(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         converted: list[dict[str, Any]] = []
         for message in messages:
             if message.get("role") == "user" and isinstance(message.get("content"), list):
-                converted.append({
-                    "role": "user",
-                    "content": self._convert_content_blocks_to_openai(message["content"]),
-                })
+                converted.append(
+                    {
+                        "role": "user",
+                        "content": self._convert_content_blocks_to_openai(message["content"]),
+                    }
+                )
                 continue
             converted.append(dict(message))
         return converted
@@ -172,17 +186,21 @@ class ProviderBridgeResponseMixin:
                 content_text_parts.append(text_value)
                 assistant_blocks.append({"type": "text", "text": text_value})
             elif block.type == "tool_use":
-                tool_calls.append(ProviderToolCall(
-                    id=block.id,
-                    name=block.name,
-                    arguments=block.input,
-                ))
-                assistant_blocks.append({
-                    "type": "tool_use",
-                    "id": block.id,
-                    "name": block.name,
-                    "input": block.input,
-                })
+                tool_calls.append(
+                    ProviderToolCall(
+                        id=block.id,
+                        name=block.name,
+                        arguments=block.input,
+                    )
+                )
+                assistant_blocks.append(
+                    {
+                        "type": "tool_use",
+                        "id": block.id,
+                        "name": block.name,
+                        "input": block.input,
+                    }
+                )
 
         if tool_calls:
             return ProviderResponse(
@@ -209,19 +227,23 @@ class ProviderBridgeResponseMixin:
                     except json.JSONDecodeError:
                         arguments = {"raw": tool_call.function.arguments}
 
-                tool_calls.append(ProviderToolCall(
-                    id=tool_call.id,
-                    name=tool_call.function.name,
-                    arguments=arguments,
-                ))
-                raw_tool_calls.append({
-                    "id": tool_call.id,
-                    "type": "function",
-                    "function": {
-                        "name": tool_call.function.name,
-                        "arguments": tool_call.function.arguments or "{}",
-                    },
-                })
+                tool_calls.append(
+                    ProviderToolCall(
+                        id=tool_call.id,
+                        name=tool_call.function.name,
+                        arguments=arguments,
+                    )
+                )
+                raw_tool_calls.append(
+                    {
+                        "id": tool_call.id,
+                        "type": "function",
+                        "function": {
+                            "name": tool_call.function.name,
+                            "arguments": tool_call.function.arguments or "{}",
+                        },
+                    }
+                )
 
         if tool_calls:
             return ProviderResponse(
@@ -392,6 +414,14 @@ class ProviderBridgeResponseMixin:
         reasoning_tokens = self._usage_int(usage, "reasoning_tokens")
         cache_read_tokens = self._usage_int(usage, "cache_read_tokens")
         cache_write_tokens = self._usage_int(usage, "cache_write_tokens")
+        request_preview = (
+            str(context.get("request_preview") or context.get("input_preview") or "").strip()
+            or None
+        )
+        response_preview = (
+            str(context.get("response_preview") or context.get("output_preview") or "").strip()
+            or None
+        )
 
         ended_at = time.time()
         started_at = ended_at - (latency_ms / 1000.0)
@@ -436,6 +466,10 @@ class ProviderBridgeResponseMixin:
                     "cache_read_tokens": cache_read_tokens,
                     "cache_write_tokens": cache_write_tokens,
                     "usage_available": usage is not None,
+                    "request_preview": request_preview,
+                    "response_preview": response_preview,
+                    "input_preview": request_preview,
+                    "output_preview": response_preview,
                     "correlation_id": context.get("correlation_id"),
                     "session_id": context.get("session_id"),
                     "turn_id": context.get("turn_id"),

@@ -73,9 +73,7 @@ def _root_turn_attributes(
         attrs["superseded_by_turn_id"] = superseded_by_turn_id
     if supersession_reason is not None:
         attrs["supersession_reason"] = supersession_reason
-    attrs["created_at_ms"] = int(
-        created_at_ms if created_at_ms is not None else started_at_ms
-    )
+    attrs["created_at_ms"] = int(created_at_ms if created_at_ms is not None else started_at_ms)
     attrs["updated_at_ms"] = int(
         updated_at_ms
         if updated_at_ms is not None
@@ -184,6 +182,60 @@ class ChatPostprocessRuntimeTraceMixin:
             ),
         )
 
+    async def _emit_response_rhythm_trace(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        turn_id: str | None,
+        response_text: str,
+        response_plan: Any,
+        started_at_ms: int,
+        ended_at_ms: int,
+        mode: str,
+        user_message: str,
+    ) -> None:
+        normalized_turn_id = str(turn_id or "").strip()
+        segments = list(getattr(response_plan, "segments", []) or [])
+        if self._runtime_trace_store is None or not normalized_turn_id or not segments:
+            return
+        bus = self._resolve_trace_event_bus()
+        trace_id = self._build_trace_id(normalized_turn_id)
+        await self._ensure_turn_trace_started(
+            trace_id=trace_id,
+            turn_id=normalized_turn_id,
+            user_id=user_id,
+            session_id=session_id,
+            started_at_ms=started_at_ms,
+            user_message=user_message,
+            mode=mode,
+        )
+        segment_previews = [
+            " ".join(str(getattr(segment, "content", "") or "").split())[:72]
+            for segment in segments
+        ]
+        segment_previews = [preview for preview in segment_previews if preview]
+        output_preview = f"{len(segments)} message segments"
+        if segment_previews:
+            output_preview = f"{output_preview}: {' | '.join(segment_previews)[:180]}"
+        await publish_trace_span(
+            event_bus=bus,
+            node_type="rhythm_processing",
+            name="Response rhythm processing",
+            span_id=self._build_span_id(normalized_turn_id, "rhythm_processing"),
+            trace_id=trace_id,
+            parent_span_id=self._build_root_span_id(normalized_turn_id),
+            status="completed",
+            started_at_ms=started_at_ms,
+            ended_at_ms=ended_at_ms,
+            result_preview=output_preview,
+            turn_id=normalized_turn_id,
+            attributes={
+                "input_preview": " ".join(str(response_text or "").split())[:240] or None,
+                "output_preview": output_preview,
+            },
+        )
+
     async def _ensure_turn_trace_started(
         self,
         *,
@@ -200,8 +252,8 @@ class ChatPostprocessRuntimeTraceMixin:
         if self._runtime_trace_store is None or turn_id in self._started_turn_traces:
             return
         bus = self._resolve_trace_event_bus()
-        continued_from_turn_id, continued_from_trace_id = (
-            await self._resolve_trace_continuation(anchor_turn_id=turn_id)
+        continued_from_turn_id, continued_from_trace_id = await self._resolve_trace_continuation(
+            anchor_turn_id=turn_id
         )
         await publish_trace_span(
             event_bus=bus,
@@ -327,9 +379,7 @@ class ChatPostprocessRuntimeTraceMixin:
         if previous_turn is None:
             return (None, None)
         trace_id = (
-            str(
-                previous_turn.trace_id or self._build_trace_id(previous_turn.turn_id)
-            ).strip()
+            str(previous_turn.trace_id or self._build_trace_id(previous_turn.turn_id)).strip()
             or None
         )
         return (previous_turn.turn_id, trace_id)
@@ -384,9 +434,7 @@ class ChatPostprocessRuntimeTraceMixin:
                 updated_at_ms=ended_at_ms,
             ),
         )
-        root_span = await self._runtime_trace_store.get_span(
-            self._build_root_span_id(turn_id)
-        )
+        root_span = await self._runtime_trace_store.get_span(self._build_root_span_id(turn_id))
         if root_span is None:
             return
         span_started = int(root_span.started_at_ms or started_at_ms)

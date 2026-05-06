@@ -130,6 +130,8 @@ class TraceRecordPersistenceMixin:
                     execution_agent_id,
                     result_preview,
                     error_text,
+                    input_preview,
+                    output_preview,
                     run_id,
                     run_revision,
                     started_at_ms,
@@ -138,7 +140,7 @@ class TraceRecordPersistenceMixin:
                     created_at_ms,
                     updated_at_ms
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(span_id) DO UPDATE SET
                     parent_span_id = COALESCE(excluded.parent_span_id, trace_spans.parent_span_id),
                     status = excluded.status,
@@ -148,6 +150,8 @@ class TraceRecordPersistenceMixin:
                     execution_agent_id = COALESCE(excluded.execution_agent_id, trace_spans.execution_agent_id),
                     result_preview = COALESCE(excluded.result_preview, trace_spans.result_preview),
                     error_text = COALESCE(excluded.error_text, trace_spans.error_text),
+                    input_preview = COALESCE(excluded.input_preview, trace_spans.input_preview),
+                    output_preview = COALESCE(excluded.output_preview, trace_spans.output_preview),
                     run_id = COALESCE(excluded.run_id, trace_spans.run_id),
                     run_revision = MAX(trace_spans.run_revision, excluded.run_revision),
                     started_at_ms = MIN(trace_spans.started_at_ms, excluded.started_at_ms),
@@ -169,6 +173,8 @@ class TraceRecordPersistenceMixin:
                     record.execution_agent_id,
                     record.result_preview,
                     record.error_text,
+                    record.input_preview,
+                    record.output_preview,
                     record.run_id,
                     record.run_revision,
                     record.started_at_ms,
