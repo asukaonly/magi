@@ -21,36 +21,42 @@ import { UserTurnTraceStatus } from './UserTurnTraceStatus';
 
 const resolveTranscriptContent = (
   message: ProjectedChatTimelineMessage['message'],
-  t: (key: string, values?: Record<string, unknown>) => string,
   delegationCard: DelegationCardState | null,
-): string => {
+): { content: string; hideBubble: boolean } => {
   const payload = message.payload && typeof message.payload === 'object'
     ? message.payload as Record<string, unknown>
     : null;
   const backgroundTaskId = String(payload?.background_task_id || '').trim();
-  const backgroundTaskTitle = String(payload?.background_task_title || '').trim();
-  const backgroundTaskStatus = String(payload?.background_task_status || '').trim().toLowerCase();
 
-  // Check if delegation has finished by looking at the card state
+  // Check if this message has an associated delegation
+  const hasDelegation = backgroundTaskId && delegationCard;
+
+  // Check if delegation is running (not terminal)
+  const isDelegationRunning = delegationCard?.lifecycle === 'started'
+    || delegationCard?.lifecycle === 'running';
+
+  // Check if delegation has finished
   const isDelegationTerminal = delegationCard?.lifecycle === 'finished'
     || delegationCard?.lifecycle === 'failed'
     || delegationCard?.lifecycle === 'cancelled'
     || delegationCard?.lifecycle === 'applied'
     || delegationCard?.lifecycle === 'discarded';
 
-  if (
-    message.role === 'assistant'
-    && message.messageKind === 'assistant_final'
-    && Boolean(String(message.turnId || '').trim())
-    && backgroundTaskId
-    && backgroundTaskTitle
-    && !backgroundTaskStatus
-    && !isDelegationTerminal
-  ) {
-    return t('chat.backgroundTask.startedMessage', { title: backgroundTaskTitle });
+  // When delegation is running, hide the message bubble and show only the card
+  if (hasDelegation && isDelegationRunning) {
+    return { content: '', hideBubble: true };
   }
 
-  return message.content;
+  // When delegation is finished, show the summary as the message content
+  if (hasDelegation && isDelegationTerminal) {
+    const summary = delegationCard?.result?.summary;
+    if (summary) {
+      return { content: summary, hideBubble: false };
+    }
+  }
+
+  // Default: show original content
+  return { content: message.content, hideBubble: false };
 };
 
 const resolveAssistantIdentity = (
@@ -101,11 +107,14 @@ export const TranscriptTimelineRow = ({
     ? delegationCards[backgroundTaskId]
     : null;
 
-  const content = resolveTranscriptContent(message, t, matchingDelegation);
+  const resolved = resolveTranscriptContent(message, matchingDelegation);
   const messageAssistant = message.role === 'assistant'
     ? resolveAssistantIdentity(assistant, message.personaId)
     : assistant;
 
+  // When delegation is running, hide the message bubble and show card separately
+  // When delegation is finished, show the message with summary content
+  const shouldHideBubble = resolved.hideBubble;
   const showDelegationCards = isLastAssistant && message.role === 'assistant' && Boolean(sessionId);
   const workspacePath = useConversationStore((state) =>
     sessionId ? state.sessionsById[sessionId]?.workspace_path ?? null : null,
@@ -140,104 +149,129 @@ export const TranscriptTimelineRow = ({
     return [...runningIds, ...finishedIds, ...visibleDiscarded];
   }, [showDelegationCards, delegationCards]);
 
+  // Check if we have running delegations (should show cards before message)
+  const hasRunningDelegations = delegationIds.some((did) => {
+    const card = delegationCards?.[did];
+    return card?.lifecycle === 'started' || card?.lifecycle === 'running';
+  });
+
+  // Render delegation cards
+  const renderDelegationCards = (aboveMessage = false) => {
+    if (!sessionId) return null;
+    return (
+      <div className={`${aboveMessage ? 'mb-2' : 'mt-2'} space-y-2`}>
+        {delegationIds.map((did) => (
+          <DelegationCard
+            key={did}
+            sessionId={sessionId}
+            delegationId={did}
+            workspace={workspacePath}
+          />
+        ))}
+      </div>
+    );
+  };
+
   return (
-    <TranscriptTimelineMessage
-      message={message}
-      content={content}
-      assistantName={messageAssistant.name}
-      userNameLabel={t('chat.you')}
-      timestampLabel={formatChatClockTime(message.timestamp, i18n.language)}
-      shouldReduceMotion={shouldReduceMotion}
-      avatar={<ChatRoleAvatar role={message.role} assistantName={messageAssistant.name} assistantAvatar={messageAssistant.avatar} />}
-      headerExtras={(
-        <TranscriptHeaderActions
+    <>
+      {/* Show delegation cards above message when running, or when message bubble is hidden */}
+      {(shouldHideBubble || hasRunningDelegations) && sessionId && delegationIds.length > 0
+        ? renderDelegationCards(true)
+        : null}
+
+      {/* Only show message bubble if not hiding it */}
+      {!shouldHideBubble && (
+        <TranscriptTimelineMessage
           message={message}
-          replyPreview={transcript.actions.replyPreview}
-          canQuickLabel={transcript.actions.canQuickLabel}
-          showHeaderTraceEntry={transcript.showHeaderTraceEntry}
-          traceEntry={transcript.traceEntry}
-          traceEntryLabel={traceEntryLabel}
-          labelPopoverState={interactions.labelPopoverState}
-          labelPopoverDraft={interactions.labelPopoverDraft}
-          labelPopoverRef={interactions.labelPopoverRef}
-          onSetReplyTarget={interactions.onSetReplyTarget}
-          onOpenTraceDrawer={execution.onOpenTraceDrawer}
-          onCloseLabelPopover={interactions.onCloseLabelPopover}
-          onCloseMessageContextMenu={interactions.onCloseMessageContextMenu}
-          onOpenLabelPopover={interactions.onOpenLabelPopover}
-          onApplyLabelToMessage={interactions.onApplyLabelToMessage}
-          onLabelDraftChange={interactions.onLabelDraftChange}
-          onLabelDraftCompositionStart={interactions.onLabelDraftCompositionStart}
-          onLabelDraftCompositionEnd={interactions.onLabelDraftCompositionEnd}
-        />
-      )}
-      bubbleTop={(
-        <TranscriptBubbleTop
-          align={message.role}
-          replyTo={transcript.bubbleTop.replyTo}
-          attachments={transcript.bubbleTop.attachments}
-          currentSessionId={interactions.currentSessionId}
-          showReplyStrip={transcript.bubbleTop.showReplyStrip}
-          showAttachments={transcript.bubbleTop.showAttachments}
-          onOpenImagePreview={interactions.onOpenImagePreview}
-        />
-      )}
-      belowBubble={(
-        <>
-          {transcript.showExecutionBubbleFooter && (
-            <TimelineExecutionPanel
-              executionProgress={transcript.executionProgress}
-              variant="bubble"
-              execution={execution}
+          content={resolved.content}
+          assistantName={messageAssistant.name}
+          userNameLabel={t('chat.you')}
+          timestampLabel={formatChatClockTime(message.timestamp, i18n.language)}
+          shouldReduceMotion={shouldReduceMotion}
+          avatar={<ChatRoleAvatar role={message.role} assistantName={messageAssistant.name} assistantAvatar={messageAssistant.avatar} />}
+          headerExtras={(
+            <TranscriptHeaderActions
+              message={message}
+              replyPreview={transcript.actions.replyPreview}
+              canQuickLabel={transcript.actions.canQuickLabel}
+              showHeaderTraceEntry={transcript.showHeaderTraceEntry}
+              traceEntry={transcript.traceEntry}
+              traceEntryLabel={traceEntryLabel}
+              labelPopoverState={interactions.labelPopoverState}
+              labelPopoverDraft={interactions.labelPopoverDraft}
+              labelPopoverRef={interactions.labelPopoverRef}
+              onSetReplyTarget={interactions.onSetReplyTarget}
+              onOpenTraceDrawer={execution.onOpenTraceDrawer}
+              onCloseLabelPopover={interactions.onCloseLabelPopover}
+              onCloseMessageContextMenu={interactions.onCloseMessageContextMenu}
+              onOpenLabelPopover={interactions.onOpenLabelPopover}
+              onApplyLabelToMessage={interactions.onApplyLabelToMessage}
+              onLabelDraftChange={interactions.onLabelDraftChange}
+              onLabelDraftCompositionStart={interactions.onLabelDraftCompositionStart}
+              onLabelDraftCompositionEnd={interactions.onLabelDraftCompositionEnd}
             />
           )}
-          {transcript.belowBubble.showReactionBadge && (
-            <div className="mt-2 flex justify-end">
-              <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-full border border-border/60 bg-background px-2 text-sm shadow-sm">
-                {transcript.belowBubble.reactionText}
-              </span>
-            </div>
+          bubbleTop={(
+            <TranscriptBubbleTop
+              align={message.role}
+              replyTo={transcript.bubbleTop.replyTo}
+              attachments={transcript.bubbleTop.attachments}
+              currentSessionId={interactions.currentSessionId}
+              showReplyStrip={transcript.bubbleTop.showReplyStrip}
+              showAttachments={transcript.bubbleTop.showAttachments}
+              onOpenImagePreview={interactions.onOpenImagePreview}
+            />
           )}
-          <MessageLabelBadge
-            align={message.role}
-            label={transcript.belowBubble.label}
-            showLabel={transcript.belowBubble.showMessageLabel}
-          />
-          {transcript.belowBubble.showUserTraceStatus ? (
-            <UserTurnTraceStatus
-              message={message}
-              traceEntry={(
-                <TraceEntryButton
-                  traceEntry={transcript.traceEntry}
-                  label={traceEntryLabel}
-                  onOpenTraceDrawer={execution.onOpenTraceDrawer}
+          belowBubble={(
+            <>
+              {transcript.showExecutionBubbleFooter && (
+                <TimelineExecutionPanel
+                  executionProgress={transcript.executionProgress}
+                  variant="bubble"
+                  execution={execution}
                 />
               )}
-            />
-          ) : null}
-          {showDelegationCards && sessionId && delegationIds.length > 0 ? (
-            <div className="mt-2 space-y-2">
-              {delegationIds.map((did) => (
-                <DelegationCard
-                  key={did}
-                  sessionId={sessionId}
-                  delegationId={did}
-                  workspace={workspacePath}
+              {transcript.belowBubble.showReactionBadge && (
+                <div className="mt-2 flex justify-end">
+                  <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-full border border-border/60 bg-background px-2 text-sm shadow-sm">
+                    {transcript.belowBubble.reactionText}
+                  </span>
+                </div>
+              )}
+              <MessageLabelBadge
+                align={message.role}
+                label={transcript.belowBubble.label}
+                showLabel={transcript.belowBubble.showMessageLabel}
+              />
+              {transcript.belowBubble.showUserTraceStatus ? (
+                <UserTurnTraceStatus
+                  message={message}
+                  traceEntry={(
+                    <TraceEntryButton
+                      traceEntry={transcript.traceEntry}
+                      label={traceEntryLabel}
+                      onOpenTraceDrawer={execution.onOpenTraceDrawer}
+                    />
+                  )}
                 />
-              ))}
-            </div>
-          ) : null}
-        </>
+              ) : null}
+              {/* Show delegation cards below message when finished (no running cards) */}
+              {!hasRunningDelegations && !shouldHideBubble && sessionId && delegationIds.length > 0
+                ? renderDelegationCards(false)
+                : null}
+            </>
+          )}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            interactions.onCloseLabelPopover();
+            interactions.onOpenMessageContextMenu(message, {
+              x: Math.max(16, event.clientX),
+              y: Math.max(16, event.clientY),
+            });
+          }}
+        />
       )}
-      onContextMenu={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        interactions.onCloseLabelPopover();
-        interactions.onOpenMessageContextMenu(message, {
-          x: Math.max(16, event.clientX),
-          y: Math.max(16, event.clientY),
-        });
-      }}
-    />
+    </>
   );
 };
