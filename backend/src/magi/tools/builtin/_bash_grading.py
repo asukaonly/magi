@@ -78,6 +78,15 @@ _DESTRUCTIVE_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bdrop\s+(?:database|table)\b", re.IGNORECASE), "drop database/table"),
     (re.compile(r"\bdocker\s+system\s+prune\b"), "docker system prune"),
     (re.compile(r"\bkubectl\s+delete\b[^|;&]*\s--all\b"), "kubectl delete --all"),
+    (re.compile(r"\bRemove-Item\b[^|;&]*-Recurse\b[^|;&]*-Force\b", re.IGNORECASE),
+     "Remove-Item -Recurse -Force"),
+    (re.compile(r"\bRemove-Item\b[^|;&]*-Force\b[^|;&]*-Recurse\b", re.IGNORECASE),
+     "Remove-Item -Force -Recurse"),
+    (re.compile(r"\bFormat-Volume\b", re.IGNORECASE), "Format-Volume"),
+    (re.compile(r"\bClear-RecycleBin\b[^|;&]*-Force\b", re.IGNORECASE),
+     "Clear-RecycleBin -Force"),
+    (re.compile(r"\bStop-Computer\b", re.IGNORECASE), "Stop-Computer"),
+    (re.compile(r"\bRestart-Computer\b", re.IGNORECASE), "Restart-Computer"),
 ]
 
 _SUBSHELL_SIGNALS = re.compile(r"\$\(|<\(|>\(|`|\beval\b|\bsource\b")

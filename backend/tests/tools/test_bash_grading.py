@@ -151,3 +151,15 @@ def test_sed_n_is_read_only_but_sed_i_is_mutating() -> None:
 def test_grade_carries_reason() -> None:
     grade = classify_command("git push --force origin main")
     assert grade.reason
+
+
+@pytest.mark.parametrize("cmd", [
+    "Remove-Item -Recurse -Force C:\\Temp",
+    "Remove-Item -Force -Recurse foo",
+    "Format-Volume -DriveLetter D",
+    "Stop-Computer",
+    "Restart-Computer -Force",
+])
+def test_powershell_destructive(cmd: str) -> None:
+    grade = classify_command(cmd)
+    assert grade.level == "destructive", f"{cmd!r} graded {grade.level}"

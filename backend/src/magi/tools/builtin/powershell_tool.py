@@ -24,6 +24,7 @@ from ..schema import (
     ToolSchema,
 )
 from .bash_tool import _build_subprocess_env, _decode_process_output_with_encoding
+from ._bash_grading import classify_command
 
 
 _UTF8_PRELUDE = (
@@ -94,6 +95,17 @@ class PowerShellTool(Tool):
                     required=False,
                     default=True,
                 ),
+                ToolParameter(
+                    name="confirm_destructive",
+                    type=ParameterType.BOOLEAN,
+                    description=(
+                        "Required to execute commands classified as destructive "
+                        "(e.g. Remove-Item -Recurse -Force, Format-Volume, "
+                        "Stop-Computer). Default false."
+                    ),
+                    required=False,
+                    default=False,
+                ),
             ],
             examples=[
                 {
@@ -120,6 +132,21 @@ class PowerShellTool(Tool):
         cwd = parameters.get("cwd", context.workspace)
         timeout = parameters.get("timeout", 60)
         prefer_pwsh = bool(parameters.get("prefer_pwsh", True))
+        confirm_destructive = bool(parameters.get("confirm_destructive", False))
+
+        grade = classify_command(command)
+        risk_data = {"risk_level": grade.level, "risk_reason": grade.reason}
+        if grade.level == "destructive" and not confirm_destructive:
+            return ToolResult(
+                success=False,
+                error=(
+                    f"Command refused: classified as destructive ({grade.reason}). "
+                    "Pass confirm_destructive=true to execute, or rewrite to a "
+                    "narrower form."
+                ),
+                error_code=ToolErrorCode.POLICY_BLOCKED.value,
+                data=risk_data,
+            )
 
         executable = self._select_executable(prefer_pwsh)
         if executable is None:
@@ -127,6 +154,7 @@ class PowerShellTool(Tool):
                 success=False,
                 error="PowerShell not found (neither 'pwsh' nor 'powershell' on PATH)",
                 error_code=ToolErrorCode.UNSUPPORTED.value,
+                data=risk_data,
             )
 
         wrapped_command = _UTF8_PRELUDE + command
@@ -162,6 +190,7 @@ class PowerShellTool(Tool):
                     success=False,
                     error=f"PowerShell command timed out after {timeout}s",
                     error_code=ToolErrorCode.TIMEOUT.value,
+                    data=risk_data,
                 )
 
             return_code = process.returncode
@@ -180,6 +209,7 @@ class PowerShellTool(Tool):
                 "stderr": stderr_text,
                 "stdout_encoding": stdout_encoding,
                 "stderr_encoding": stderr_encoding,
+                **risk_data,
             }
 
             return ToolResult(
@@ -194,12 +224,14 @@ class PowerShellTool(Tool):
                 success=False,
                 error=f"Working directory not found: {cwd}",
                 error_code=ToolErrorCode.DIRECTORY_NOT_FOUND.value,
+                data=risk_data,
             )
         except Exception as exc:  # noqa: BLE001 - surface as tool error
             return ToolResult(
                 success=False,
                 error=str(exc),
                 error_code=ToolErrorCode.EXECUTION_ERROR.value,
+                data=risk_data,
             )
 
     @staticmethod
