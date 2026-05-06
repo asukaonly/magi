@@ -106,3 +106,39 @@ def test_coding_system_prompt_lists_only_whitelisted_tools() -> None:
     )
     for t in tools:
         assert t in rules_line
+
+
+def test_coding_validator_accepts_plaintext() -> None:
+    """The result validator must NOT reject a plaintext final reply for Coding."""
+    mgr = WorkerAgentManager()
+    plaintext = (
+        "Changed: src/config.py - added max_retries argument to connect().\n"
+        "verify: pass.\n"
+        "Did not touch tests."
+    )
+    result = mgr._validate_worker_result(
+        subagent_type=WorkerAgentManager.TYPE_CODING,
+        content=plaintext,
+    )
+    assert result.summary
+    assert plaintext.strip() in result.summary or result.summary.startswith("Changed:")
+    assert result.result_status in {"success", "partial", "failed"}
+
+
+def test_coding_validator_rejects_empty() -> None:
+    mgr = WorkerAgentManager()
+    with pytest.raises(ValueError):
+        mgr._validate_worker_result(
+            subagent_type=WorkerAgentManager.TYPE_CODING,
+            content="   ",
+        )
+
+
+def test_non_coding_validators_unchanged() -> None:
+    """Plaintext to a non-Coding subagent must still be rejected as non-JSON."""
+    mgr = WorkerAgentManager()
+    with pytest.raises(ValueError):
+        mgr._validate_worker_result(
+            subagent_type=WorkerAgentManager.TYPE_GENERAL,
+            content="not json",
+        )
