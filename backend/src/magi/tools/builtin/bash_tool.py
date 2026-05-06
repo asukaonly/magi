@@ -7,6 +7,7 @@ import locale
 import os
 from typing import Dict, Any
 from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType, ToolErrorCode
+from ._bash_grading import classify_command
 
 
 def _windows_code_page_encoding(function_name: str) -> str | None:
@@ -107,7 +108,9 @@ class BashTool(Tool):
                 "(git, build tools, scripts, package managers). Do NOT use this to list "
                 "directories or read file metadata — prefer the structured `file_list`, "
                 "`file_info`, `file_read`, `glob`, and `grep` tools, which return JSON "
-                "and avoid Windows console-encoding issues."
+                "and avoid Windows console-encoding issues. "
+                "Destructive commands (rm -rf, git push --force, git reset --hard, etc.) "
+                "are refused unless confirm_destructive=true is passed explicitly."
             ),
             category="system",
             version="1.0.0",
@@ -134,6 +137,17 @@ class BashTool(Tool):
                     default=30,
                     min_value=1,
                     max_value=300,
+                ),
+                ToolParameter(
+                    name="confirm_destructive",
+                    type=ParameterType.BOOLEAN,
+                    description=(
+                        "Required to execute commands classified as destructive "
+                        "(e.g. rm -rf, git push --force, git reset --hard). "
+                        "Default false."
+                    ),
+                    required=False,
+                    default=False,
                 ),
             ],
             examples=[
@@ -171,6 +185,21 @@ class BashTool(Tool):
         command = parameters["command"]
         cwd = parameters.get("cwd", context.workspace)
         timeout = parameters.get("timeout", 30)
+        confirm_destructive = bool(parameters.get("confirm_destructive", False))
+
+        grade = classify_command(command)
+        risk_data = {"risk_level": grade.level, "risk_reason": grade.reason}
+        if grade.level == "destructive" and not confirm_destructive:
+            return ToolResult(
+                success=False,
+                error=(
+                    f"Command refused: classified as destructive ({grade.reason}). "
+                    "Pass confirm_destructive=true to execute, or rewrite to a "
+                    "narrower form."
+                ),
+                error_code=ToolErrorCode.POLICY_BLOCKED.value,
+                data=risk_data,
+            )
 
         try:
             # Execute command
@@ -206,6 +235,7 @@ class BashTool(Tool):
                     "stderr": stderr_text,
                     "stdout_encoding": stdout_encoding,
                     "stderr_encoding": stderr_encoding,
+                    **risk_data,
                 }
 
                 # Determine success based on return code
@@ -224,18 +254,21 @@ class BashTool(Tool):
                 return ToolResult(
                     success=False,
                     error=f"Command execution timeout after {timeout}s",
-                    error_code=ToolErrorCode.TIMEOUT.value
+                    error_code=ToolErrorCode.TIMEOUT.value,
+                    data=risk_data,
                 )
 
         except FileNotFoundError:
             return ToolResult(
                 success=False,
                 error=f"Working directory not found: {cwd}",
-                error_code=ToolErrorCode.DIRECTORY_NOT_FOUND.value
+                error_code=ToolErrorCode.DIRECTORY_NOT_FOUND.value,
+                data=risk_data,
             )
         except Exception as e:
             return ToolResult(
                 success=False,
                 error=str(e),
-                error_code=ToolErrorCode.EXECUTION_ERROR.value
+                error_code=ToolErrorCode.EXECUTION_ERROR.value,
+                data=risk_data,
             )
