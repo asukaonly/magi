@@ -25,6 +25,7 @@ else
 fi
 
 # Install the plugin SDK first (local editable, before the backend that depends on it)
+"${PIP}" install --upgrade setuptools wheel
 "${PIP}" install --no-build-isolation -e "${ROOT_DIR}/sdk"
 "${PIP}" install -e ".[dev]" 2>/dev/null || "${PIP}" install -e .
 

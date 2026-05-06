@@ -35,6 +35,7 @@ else {
 
 Push-Location $BackendDir
 try {
+  & $PythonExe -m pip install --upgrade setuptools wheel
   & $PythonExe -m pip install --no-build-isolation -e $SdkDir
   & $PythonExe -m pip install -e ".[dev]"
 }
