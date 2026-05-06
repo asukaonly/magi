@@ -142,3 +142,25 @@ def test_non_coding_validators_unchanged() -> None:
             subagent_type=WorkerAgentManager.TYPE_GENERAL,
             content="not json",
         )
+
+
+@pytest.mark.asyncio
+async def test_agent_tool_validation_accepts_coding_launch_args() -> None:
+    """Public validate_parameters must accept subagent_type=Coding."""
+    tool = AgentTool()
+    ok, err = await tool.validate_parameters({
+        "action": "launch",
+        "subagent_type": "Coding",
+        "description": "Add max_retries arg",
+        "prompt": "Edit src/config.py to add a max_retries parameter, default 3.",
+    })
+    assert ok, f"validation rejected Coding launch: {err}"
+
+
+def test_agent_tool_resolve_tools_for_coding() -> None:
+    tool = AgentTool()
+    tool._manager._tool_registry = _FakeRegistry(_CODING_REGISTRY_TOOLS)  # type: ignore[assignment]
+    tools = tool._resolve_tools_for_type(tool.TYPE_CODING)
+    assert "file_edit" in tools
+    assert "verify" in tools
+    assert "agent" not in tools
