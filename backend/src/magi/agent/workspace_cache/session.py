@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Iterator
 
 from .atomic_io import append_jsonl
-from .contracts import ReadRecord
+from .contracts import EditOp, EditRecord, ReadRecord
 from .errors import SessionCacheCorruptError
 from .root import WorkspaceCacheRoot
 
@@ -109,3 +109,46 @@ class SessionCache:
                         f"reads.jsonl line {line_no} is not valid JSON"
                     ) from exc
                 yield ReadRecord.model_validate(payload)
+
+    @property
+    def edits_log(self) -> Path:
+        return self.session_dir / "edits.jsonl"
+
+    def record_edit(
+        self,
+        *,
+        path: str | Path,
+        op: EditOp,
+        sha256_before: str,
+        sha256_after: str,
+        snapshot_ref: str,
+    ) -> EditRecord:
+        target = Path(path)
+        rel = _relative_posix(self.root.workspace_root, target)
+        rec = EditRecord(
+            path=rel,
+            op=op,
+            sha256_before=sha256_before,
+            sha256_after=sha256_after,
+            snapshot_ref=snapshot_ref,
+            ts_ms=_now_ms(),
+        )
+        append_jsonl(self.edits_log, rec.model_dump())
+        return rec
+
+    def iter_edits(self) -> Iterator[EditRecord]:
+        log = self.edits_log
+        if not log.exists():
+            return
+        with open(log, "r", encoding="utf-8") as f:
+            for line_no, line in enumerate(f, 1):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    payload = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    raise SessionCacheCorruptError(
+                        f"edits.jsonl line {line_no} is not valid JSON"
+                    ) from exc
+                yield EditRecord.model_validate(payload)
