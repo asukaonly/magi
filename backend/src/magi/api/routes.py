@@ -180,6 +180,10 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/rescan": {"POST"},
         "/settings": {"GET", "PATCH"},
         "/settings/reset": {"POST"},
+        "/delegations/{session_id}/{delegation_id}": {"GET"},
+        "/delegations/{session_id}/{delegation_id}/cancel": {"POST"},
+        "/delegations/{session_id}/{delegation_id}/apply": {"POST"},
+        "/delegations/{session_id}/{delegation_id}/discard": {"POST"},
     },
 
 }

@@ -135,3 +135,90 @@ def test_patch_invalid_payload_rejected(client: TestClient) -> None:
         json={"level": "user", "patch": "not-a-dict", "workspace": None},
     )
     assert res.status_code in {400, 422}
+
+
+# ---------------------------------------------------------------------------
+# Delegation control endpoints
+# ---------------------------------------------------------------------------
+
+def _stage_delegation(workspace: Path, sid: str, did: str) -> Path:
+    delegation_dir = workspace / ".magi" / "sessions" / sid / "delegations" / did
+    delegation_dir.mkdir(parents=True, exist_ok=True)
+    (delegation_dir / "result.json").write_text(
+        '{"delegation_id": "%s", "success": true}' % did
+    )
+    (delegation_dir / "events.jsonl").write_text(
+        '{"kind": "status", "ts_ms": 1, "payload": {}}\n'
+        '{"kind": "assistant_text", "ts_ms": 2, "payload": {"text": "hi"}}\n'
+    )
+    return delegation_dir
+
+
+def test_get_delegation_returns_result_and_events_tail(
+    client: TestClient, tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    _stage_delegation(workspace, "s1", "x" * 32)
+    res = client.get(
+        f"/api/code_agent/delegations/s1/{'x' * 32}",
+        params={"workspace": str(workspace)},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["result"]["delegation_id"] == "x" * 32
+    assert len(body["events_tail"]) == 2
+
+
+def test_get_delegation_404_when_missing(client: TestClient, tmp_path: Path) -> None:
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    res = client.get(
+        f"/api/code_agent/delegations/s1/{'y' * 32}",
+        params={"workspace": str(workspace)},
+    )
+    assert res.status_code == 404
+
+
+def test_get_delegation_400_without_workspace(client: TestClient) -> None:
+    res = client.get(f"/api/code_agent/delegations/s1/{'z' * 32}")
+    assert res.status_code == 400
+
+
+def test_post_cancel_unknown_delegation_returns_ok_false(
+    client: TestClient, tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    res = client.post(
+        f"/api/code_agent/delegations/s1/{'a' * 32}/cancel",
+        json={"workspace": str(workspace)},
+    )
+    assert res.status_code == 200
+    assert res.json() == {"ok": False}
+
+
+def test_post_apply_missing_delegation_returns_outcome_with_error(
+    client: TestClient, tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    res = client.post(
+        f"/api/code_agent/delegations/s1/{'b' * 32}/apply",
+        json={"workspace": str(workspace)},
+    )
+    assert res.status_code == 200
+    outcome = res.json()["outcome"]
+    assert outcome["applied"] is False
+    assert "not found" in (outcome["error"] or "").lower()
+
+
+def test_post_discard_when_missing_is_ok(client: TestClient, tmp_path: Path) -> None:
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    res = client.post(
+        f"/api/code_agent/delegations/s1/{'c' * 32}/discard",
+        json={"workspace": str(workspace)},
+    )
+    assert res.status_code == 200
+    assert res.json() == {"ok": True}
