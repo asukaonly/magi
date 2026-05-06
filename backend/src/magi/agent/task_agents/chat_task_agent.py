@@ -321,9 +321,9 @@ class ChatTaskAgent(
     @staticmethod
     def _resolve_message_bus() -> Any | None:
         try:
-            from ...core.container import Container
+            from ...core.container import get_container
 
-            bus = Container.message_bus()
+            bus = get_container().message_bus()
         except Exception:
             return None
         if bus is None or type(bus).__name__ == "object":

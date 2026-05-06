@@ -79,9 +79,9 @@ class TaskOrchestrator(
     def _event_bus(self):
         if not hasattr(self, "_event_bus_cached"):
             try:
-                from ..core.container import Container
+                from ..core.container import get_container
 
-                bus = Container.message_bus()
+                bus = get_container().message_bus()
             except Exception:
                 bus = None
             if bus is None or type(bus).__name__ == "object":

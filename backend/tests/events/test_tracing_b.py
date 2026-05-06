@@ -1,8 +1,10 @@
 from __future__ import annotations
 import asyncio
 import pytest
+from dependency_injector import providers
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from magi.core.container import Container, init_container
 from magi.events.events import Event, EventTypes
 from magi.events.domain_payloads import SpanCompleted
 from magi.events.tracing import (
@@ -11,9 +13,23 @@ from magi.events.tracing import (
     current_span,
     current_trace_context,
     drain_pending,
+    _resolve_event_bus,
     start_async_span,
     start_span,
 )
+
+
+def test_resolve_event_bus_uses_global_container_instance():
+    container = init_container()
+    bus = MagicMock()
+    bus.publish = AsyncMock(return_value=True)
+    container.message_bus.override(providers.Object(bus))
+
+    try:
+        assert Container.message_bus() is not bus
+        assert _resolve_event_bus() is bus
+    finally:
+        container.message_bus.reset_override()
 
 
 def test_span_set_attribute_accumulates():
