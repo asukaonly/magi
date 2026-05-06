@@ -133,3 +133,65 @@ async def test_claude_adapter_persists_stdout_log(tmp_path: Path) -> None:
     )
     assert stdout_path.is_file()
     assert "result" in stdout_path.read_text()
+
+
+def test_format_uuid_canonicalises_hex_id() -> None:
+    from magi.tools.code_agent.adapters.claude_code import _format_uuid
+    raw = "971d75ebd3f54acdb4191a7528ff222d"
+    assert _format_uuid(raw) == "971d75eb-d3f5-4acd-b419-1a7528ff222d"
+
+
+def test_format_uuid_passes_through_invalid_input() -> None:
+    from magi.tools.code_agent.adapters.claude_code import _format_uuid
+    assert _format_uuid("not-a-uuid") == "not-a-uuid"
+
+
+def test_build_argv_passes_uuid_session_id(tmp_path: Path) -> None:
+    adapter = ClaudeCodeAdapter()
+    argv = adapter._build_argv(
+        _request(tmp_path),
+        bundle_dir=tmp_path,
+        binary_path="/usr/bin/claude",
+    )
+    idx = argv.index("--session-id")
+    session_id = argv[idx + 1]
+    # 8-4-4-4-12 hex grouping
+    assert len(session_id) == 36
+    assert session_id.count("-") == 4
+
+
+@pytest.mark.asyncio
+async def test_claude_adapter_surfaces_stderr_in_error(tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    target = bin_dir / "claude"
+    target.write_text(
+        "#!/bin/sh\n"
+        "cat > /dev/null\n"
+        ">&2 echo 'Error: Invalid session ID. Must be a valid UUID.'\n"
+        "exit 1\n"
+    )
+    target.chmod(0o755)
+
+    events: list[RunEvent] = []
+
+    async def on_event(ev: RunEvent) -> None:
+        events.append(ev)
+
+    adapter = ClaudeCodeAdapter()
+    outcome = await adapter.run(
+        _request(tmp_path),
+        cwd=tmp_path,
+        bundle_dir=tmp_path,
+        stdout_path=tmp_path / "stdout.log",
+        stderr_path=tmp_path / "stderr.log",
+        on_event=on_event,
+        cancel_token=CancelToken(),
+        binary_path=str(target),
+    )
+    assert outcome.exit_code == 1
+    assert outcome.error is not None
+    assert "Invalid session ID" in outcome.error
+    error_events = [e for e in events if e.kind == "error"]
+    assert error_events, "expected an error RunEvent"
+    assert "Invalid session ID" in error_events[-1].payload.get("message", "")

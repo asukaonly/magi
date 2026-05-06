@@ -453,6 +453,7 @@
       "applyFailed": "应用产生冲突。残留的 .rej 文件：",
       "appliedNote": "已将 {{count}} 个文件应用到工作目录。",
       "openSettings": "打开代码代理设置",
+      "notAGitRepoHint": "当前聊天工作区不是 git 仓库，请先切换到一个受 git 管理的目录再派发。",
       "cost": "费用：${{usd}}",
       "diffAriaLabel": "{{filename}} 的统一 diff",
       "diffEmpty": "（空 diff）"

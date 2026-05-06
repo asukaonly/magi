@@ -213,7 +213,19 @@ export function DelegationCard({
           )}
           {errorMessage && (
             <div className="rounded border border-rose-300/40 bg-rose-50/40 px-2 py-1.5 text-rose-800">
-              {errorMessage}
+              <div>{errorMessage}</div>
+              {errorMessage.toLowerCase().includes('not a git repository') && (
+                <div className="mt-1 text-rose-700/90">
+                  {t('chat.delegation.notAGitRepoHint')}
+                  <a
+                    className="ml-1 inline-flex items-center gap-1 underline"
+                    href="?section=codeAgent"
+                  >
+                    {t('chat.delegation.openSettings')}
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                </div>
+              )}
               {errorMessage.toLowerCase().includes('binary not found') && (
                 <a
                   className="ml-2 inline-flex items-center gap-1 underline"

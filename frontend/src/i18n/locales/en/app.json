@@ -453,6 +453,7 @@
       "applyFailed": "Apply hit conflicts. .rej files left behind:",
       "appliedNote": "Applied {{count}} file(s) to the workspace.",
       "openSettings": "Open Code Agent settings",
+      "notAGitRepoHint": "The chat workspace is not a git repository. Switch to a git-tracked workspace before delegating.",
       "cost": "Cost: ${{usd}}",
       "diffAriaLabel": "Unified diff for {{filename}}",
       "diffEmpty": "(empty diff)"

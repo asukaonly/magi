@@ -133,3 +133,40 @@ async def test_codex_adapter_persists_logs(tmp_path: Path) -> None:
     )
     assert stdout_path.is_file()
     assert "task_finished" in stdout_path.read_text()
+
+
+@pytest.mark.asyncio
+async def test_codex_adapter_surfaces_stderr_in_error(tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    target = bin_dir / "codex"
+    target.write_text(
+        "#!/bin/sh\n"
+        "cat > /dev/null\n"
+        ">&2 echo 'fatal: workspace not allowed'\n"
+        "exit 1\n"
+    )
+    target.chmod(0o755)
+
+    events: list[RunEvent] = []
+
+    async def on_event(ev: RunEvent) -> None:
+        events.append(ev)
+
+    adapter = CodexAdapter()
+    outcome = await adapter.run(
+        _request(tmp_path),
+        cwd=tmp_path,
+        bundle_dir=tmp_path,
+        stdout_path=tmp_path / "stdout.log",
+        stderr_path=tmp_path / "stderr.log",
+        on_event=on_event,
+        cancel_token=CancelToken(),
+        binary_path=str(target),
+    )
+    assert outcome.exit_code == 1
+    assert outcome.error is not None
+    assert "workspace not allowed" in outcome.error
+    error_events = [e for e in events if e.kind == "error"]
+    assert error_events
+    assert "workspace not allowed" in error_events[-1].payload.get("message", "")

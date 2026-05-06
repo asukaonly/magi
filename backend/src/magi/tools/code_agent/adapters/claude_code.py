@@ -10,6 +10,7 @@ import asyncio
 import json
 import os
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Optional
 
@@ -150,11 +151,22 @@ class ClaudeCodeAdapter:
 
         cost = self._cost_or_none(cost_usd, cost_in, cost_out)
         if exit_code != 0:
+            stderr_tail = _stderr_tail(stderr_buf)
+            error_message = (
+                f"adapter exited with code {exit_code}: {stderr_tail}"
+                if stderr_tail
+                else f"adapter exited with code {exit_code}"
+            )
+            await on_event(RunEvent(
+                kind="error",
+                ts_ms=int(time.time() * 1000),
+                payload={"message": error_message, "stderr_tail": stderr_tail},
+            ))
             return AdapterRunOutcome(
                 exit_code=exit_code,
                 summary=last_assistant_text,
                 cost=cost,
-                error=f"adapter exited with code {exit_code}",
+                error=error_message,
             )
         return AdapterRunOutcome(
             exit_code=exit_code,
@@ -171,7 +183,7 @@ class ClaudeCodeAdapter:
             "--verbose",
             "--permission-mode", "acceptEdits",
             "--bare",
-            "--session-id", req.delegation_id,
+            "--session-id", _format_uuid(req.delegation_id),
             "--add-dir", str(bundle_dir),
             "--input-format", "text",
         ]
@@ -263,3 +275,23 @@ class ClaudeCodeAdapter:
 
 
 __all__ = ["ClaudeCodeAdapter"]
+
+
+def _format_uuid(delegation_id: str) -> str:
+    """Render a 32-char hex delegation id as canonical 8-4-4-4-12 UUID."""
+    try:
+        return str(uuid.UUID(delegation_id))
+    except (ValueError, AttributeError):
+        return delegation_id
+
+
+def _stderr_tail(chunks: list[bytes], max_chars: int = 200) -> str:
+    if not chunks:
+        return ""
+    text = b"".join(chunks).decode("utf-8", errors="replace").strip()
+    if not text:
+        return ""
+    last = text.splitlines()[-1].strip()
+    if len(last) > max_chars:
+        last = last[:max_chars] + "…"
+    return last
