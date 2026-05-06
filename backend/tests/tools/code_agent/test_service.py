@@ -1,0 +1,197 @@
+"""Tests for CodeAgentService."""
+from __future__ import annotations
+
+import asyncio
+import subprocess
+from pathlib import Path
+from typing import Any, Optional
+
+import pytest
+
+from magi.tools.code_agent.adapters.base import (
+    AdapterRunOutcome,
+    CancelToken,
+    OnEvent,
+)
+from magi.tools.code_agent.contracts import (
+    AdapterName,
+    DelegateConstraints,
+    DelegateRequest,
+    ProbeResult,
+    RunEvent,
+)
+from magi.tools.code_agent.service import CodeAgentService
+
+
+def _make_repo(path: Path) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=path, check=True)
+    subprocess.run(["git", "config", "user.email", "ci@example.com"], cwd=path, check=True)
+    subprocess.run(["git", "config", "user.name", "CI"], cwd=path, check=True)
+    (path / "src").mkdir()
+    (path / "src" / "net.py").write_text("def connect():\n    return 1\n")
+    subprocess.run(["git", "add", "."], cwd=path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=path, check=True)
+    return path
+
+
+class _FakeAdapter:
+    """A configurable fake that mutates the worktree and reports a fixed outcome."""
+
+    def __init__(self, *, name: AdapterName, edit: Optional[tuple[str, str]] = None,
+                 outcome_kwargs: Optional[dict[str, Any]] = None):
+        self.name = name
+        self.display_name = f"Fake {name}"
+        self._edit = edit
+        self._outcome_kwargs = outcome_kwargs or {}
+
+    @classmethod
+    async def detect(cls) -> ProbeResult:
+        raise NotImplementedError
+
+    async def run(
+        self,
+        req: DelegateRequest,
+        *,
+        cwd: Path,
+        bundle_dir: Path,
+        stdout_path: Path,
+        stderr_path: Path,
+        on_event: OnEvent,
+        cancel_token: CancelToken,
+        binary_path: str,
+    ) -> AdapterRunOutcome:
+        if self._edit is not None:
+            rel, contents = self._edit
+            target = cwd / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(contents)
+        stdout_path.parent.mkdir(parents=True, exist_ok=True)
+        stdout_path.write_text("fake adapter ran\n")
+        stderr_path.write_text("")
+        await on_event(RunEvent(kind="status", ts_ms=1, payload={"event": "fake"}))
+        kwargs: dict[str, Any] = dict(
+            exit_code=0, summary="fake summary", cost=None, error=None,
+        )
+        kwargs.update(self._outcome_kwargs)
+        return AdapterRunOutcome(**kwargs)
+
+
+@pytest.fixture
+def isolated_magi_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    home = tmp_path / "magi_home"
+    home.mkdir()
+    monkeypatch.setenv("MAGI_HOME", str(home))
+    return home
+
+
+def _request(repo: Path, *, adapter: AdapterName = "claude_code") -> DelegateRequest:
+    return DelegateRequest(
+        delegation_id="c" * 32,
+        session_id="s1",
+        adapter=adapter,
+        prompt="add max_retries to connect()",
+        files_hint=["src/net.py"],
+        workspace_root=str(repo),
+        constraints=DelegateConstraints(),
+        timeout_s=30,
+        model=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_service_dry_run_succeeds_without_running_adapter(
+    isolated_magi_home: Path, tmp_path: Path,
+) -> None:
+    repo = _make_repo(tmp_path / "repo")
+    service = CodeAgentService(
+        adapters_factory=lambda: {"claude_code": _FakeAdapter(name="claude_code")},
+        binary_paths={"claude_code": "/unused", "codex": "/unused"},
+    )
+    req = _request(repo)
+    result = await service.delegate(req, dry_run=True)
+    assert result.success is True
+    assert result.summary == "dry run"
+    assert result.diff_stats.files_changed == 0
+    delegation_dir = repo / ".magi" / "sessions" / "s1" / "delegations" / req.delegation_id
+    assert (delegation_dir / "_bundle" / "TASK.md").is_file()
+
+
+@pytest.mark.asyncio
+async def test_service_full_path_records_diff(
+    isolated_magi_home: Path, tmp_path: Path,
+) -> None:
+    repo = _make_repo(tmp_path / "repo")
+    fake = _FakeAdapter(
+        name="claude_code",
+        edit=("src/net.py", "def connect(max_retries=3):\n    return 1\n"),
+    )
+    service = CodeAgentService(
+        adapters_factory=lambda: {"claude_code": fake},
+        binary_paths={"claude_code": "/unused", "codex": "/unused"},
+    )
+    result = await service.delegate(_request(repo))
+    assert result.success is True, result.error
+    assert result.diff_stats.files_changed == 1
+    assert result.files_changed == ["src/net.py"]
+    assert result.summary == "fake summary"
+    delegation_dir = repo / ".magi" / "sessions" / "s1" / "delegations" / ("c" * 32)
+    assert (delegation_dir / "changes.patch").is_file()
+    diff_text = (delegation_dir / "changes.patch").read_text()
+    assert "max_retries" in diff_text
+    assert (delegation_dir / "result.json").is_file()
+
+
+@pytest.mark.asyncio
+async def test_service_unknown_adapter_returns_error(
+    isolated_magi_home: Path, tmp_path: Path,
+) -> None:
+    repo = _make_repo(tmp_path / "repo")
+    service = CodeAgentService(
+        adapters_factory=lambda: {"claude_code": _FakeAdapter(name="claude_code")},
+        binary_paths={"claude_code": "/unused", "codex": "/unused"},
+    )
+    req = DelegateRequest(
+        delegation_id="d" * 32, session_id="s1", adapter="codex",
+        prompt="x", files_hint=[], workspace_root=str(repo),
+        constraints=DelegateConstraints(), timeout_s=30, model=None,
+    )
+    result = await service.delegate(req)
+    assert result.success is False
+    assert result.error and "not configured" in result.error.lower()
+
+
+@pytest.mark.asyncio
+async def test_service_non_repo_workspace_returns_error(
+    isolated_magi_home: Path, tmp_path: Path,
+) -> None:
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    service = CodeAgentService(
+        adapters_factory=lambda: {"claude_code": _FakeAdapter(name="claude_code")},
+        binary_paths={"claude_code": "/unused", "codex": "/unused"},
+    )
+    req = DelegateRequest(
+        delegation_id="e" * 32, session_id="s1", adapter="claude_code",
+        prompt="x", files_hint=[], workspace_root=str(plain),
+        constraints=DelegateConstraints(), timeout_s=30, model=None,
+    )
+    result = await service.delegate(req)
+    assert result.success is False
+    assert "git repository" in (result.error or "").lower()
+
+
+@pytest.mark.asyncio
+async def test_service_cleans_worktree_after_run(
+    isolated_magi_home: Path, tmp_path: Path,
+) -> None:
+    repo = _make_repo(tmp_path / "repo")
+    service = CodeAgentService(
+        adapters_factory=lambda: {"claude_code": _FakeAdapter(name="claude_code")},
+        binary_paths={"claude_code": "/unused", "codex": "/unused"},
+        cleanup_worktree=True,
+    )
+    req = _request(repo)
+    await service.delegate(req)
+    wt = repo / ".magi" / "sessions" / "s1" / "worktrees" / req.delegation_id
+    assert not wt.exists()
