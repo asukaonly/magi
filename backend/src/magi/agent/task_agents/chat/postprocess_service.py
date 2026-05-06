@@ -196,12 +196,19 @@ class ChatPostProcessService:
             await self._finalize_session_run(context)
             return ChatParseOutcome(False, False, False, False)
 
+        correlation_id = result.correlation_id or latest_fact.correlation_id
+        turn_id = result.turn_id or self._resolve_turn_id(
+            context, latest_fact.payload if isinstance(latest_fact.payload, dict) else {}
+        )
+        started_at_ms = self._resolve_started_at_ms(result, latest_fact)
+        rhythm_started_at_ms = now_wall_ms()
         response_plan = await self._build_response_rhythm_plan(
             context=context,
             result=result,
             response_text=response_text,
             ux_plan=ux_plan,
         )
+        rhythm_ended_at_ms = now_wall_ms()
         if response_plan is not None:
             result.response_plan = response_plan
 
@@ -228,12 +235,7 @@ class ChatPostProcessService:
             )
             memory_updated = True
 
-        correlation_id = result.correlation_id or latest_fact.correlation_id
-        turn_id = result.turn_id or self._resolve_turn_id(
-            context, latest_fact.payload if isinstance(latest_fact.payload, dict) else {}
-        )
         now_ms = now_wall_ms()
-        started_at_ms = self._resolve_started_at_ms(result, latest_fact)
 
         await self._emit_result_llm_trace(
             user_id=context.user_id,
@@ -243,6 +245,18 @@ class ChatPostProcessService:
             started_at_ms=started_at_ms,
             user_message=context.latest_user_message,
         )
+        if response_plan is not None:
+            await self._emit_response_rhythm_trace(
+                user_id=context.user_id,
+                session_id=context.session_id,
+                turn_id=turn_id,
+                response_text=response_text,
+                response_plan=response_plan,
+                started_at_ms=rhythm_started_at_ms,
+                ended_at_ms=rhythm_ended_at_ms,
+                mode=self._normalize_mode(result.mode),
+                user_message=context.latest_user_message,
+            )
         await self._emit_response_trace(
             user_id=context.user_id,
             session_id=context.session_id,
@@ -357,7 +371,9 @@ class ChatPostProcessService:
             notification_message.message_kind if notification_message is not None else None
         )
         notification_persona_id = (
-            notification_message.persona_id if notification_message is not None else context.active_persona_id
+            notification_message.persona_id
+            if notification_message is not None
+            else context.active_persona_id
         )
         notification_response_text = response_text
         if str((ux_plan or {}).get("assistant_surface_mode") or "").strip() == "reaction_only":

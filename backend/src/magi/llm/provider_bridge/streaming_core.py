@@ -100,5 +100,16 @@ class ProviderBridgeStreamingHostProtocol(Protocol):
     def _openai_usage_to_wire(self, usage_data: Any) -> dict[str, int] | None:
         ...
 
+    async def _emit_usage_event(
+        self,
+        *,
+        success: bool,
+        latency_ms: int,
+        usage: Any,
+        event_context: dict[str, Any] | None,
+        error: str | None = None,
+    ) -> None:
+        ...
+
 
 __all__ = ["ProviderBridgeStreamingHostProtocol", "ThinkTagScrubber"]

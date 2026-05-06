@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import aiosqlite
 
-
 RUNTIME_TRACE_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS trace_turns (
     trace_id TEXT PRIMARY KEY,
@@ -20,6 +19,8 @@ CREATE TABLE IF NOT EXISTS trace_turns (
     user_message_preview TEXT,
     response_preview TEXT,
     error_summary TEXT,
+    run_id TEXT,
+    run_revision INTEGER NOT NULL DEFAULT 0,
     continued_from_turn_id TEXT,
     continued_from_trace_id TEXT,
     superseded_by_turn_id TEXT,
@@ -46,6 +47,10 @@ CREATE TABLE IF NOT EXISTS trace_spans (
     execution_agent_id TEXT,
     result_preview TEXT,
     error_text TEXT,
+    input_preview TEXT,
+    output_preview TEXT,
+    run_id TEXT,
+    run_revision INTEGER NOT NULL DEFAULT 0,
     started_at_ms INTEGER NOT NULL,
     ended_at_ms INTEGER,
     duration_ms INTEGER,
@@ -84,6 +89,7 @@ CREATE TABLE IF NOT EXISTS trace_llm_calls (
     cache_read_tokens INTEGER NOT NULL DEFAULT 0,
     cache_write_tokens INTEGER NOT NULL DEFAULT 0,
     thinking_enabled INTEGER NOT NULL DEFAULT 0,
+    thinking_depth TEXT NOT NULL DEFAULT 'none',
     thinking_content TEXT,
     request_preview TEXT,
     response_preview TEXT
@@ -114,6 +120,8 @@ CREATE TABLE IF NOT EXISTS runtime_notifications (
     user_id TEXT NOT NULL,
     session_id TEXT NOT NULL,
     turn_id TEXT,
+    run_id TEXT,
+    run_revision INTEGER NOT NULL DEFAULT 0,
     payload_json TEXT NOT NULL,
     created_at_ms INTEGER NOT NULL
 );

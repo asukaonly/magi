@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import AsyncIterator, Awaitable, Callable
+from typing import Any, AsyncIterator, Awaitable, Callable
 
 from ....config import get_config
 from ....config.models import LLMScenario, ThinkingDepth
@@ -37,6 +37,18 @@ class TaskAgentLLMService:
                 self._provider_bridge = LLMProviderBridge(llm)
         return self._llm
 
+    def _build_event_context(
+        self,
+        *,
+        request_id: str,
+        event_context: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        context = dict(event_context or {})
+        context.setdefault("request_id", request_id)
+        context.setdefault("request_kind", f"task_agent:{self._logger_name}")
+        context.setdefault("agent_id", self._logger_name)
+        return context
+
     async def call(
         self,
         *,
@@ -48,6 +60,7 @@ class TaskAgentLLMService:
         json_mode: bool = False,
         timeout_seconds: float | None = None,
         llm_trace_callback: LLMTraceCallback | None = None,
+        event_context: dict[str, Any] | None = None,
     ) -> str:
         request_id = str(uuid.uuid4())[:8]
         start_time = time.time()
@@ -70,11 +83,10 @@ class TaskAgentLLMService:
                 thinking_depth=depth,
                 json_mode=json_mode,
                 timeout_seconds=timeout_seconds,
-                event_context={
-                    "request_id": request_id,
-                    "request_kind": f"task_agent:{self._logger_name}",
-                    "agent_id": self._logger_name,
-                },
+                event_context=self._build_event_context(
+                    request_id=request_id,
+                    event_context=event_context,
+                ),
             )
             response = provider_response.content
             duration_ms = int((time.time() - start_time) * 1000)
@@ -122,6 +134,7 @@ class TaskAgentLLMService:
         temperature: float = 0.7,
         json_mode: bool = False,
         timeout_seconds: float | None = None,
+        event_context: dict[str, Any] | None = None,
     ) -> AsyncIterator[LLMStreamEvent]:
         """Streaming variant of call().
 
@@ -153,6 +166,10 @@ class TaskAgentLLMService:
                 thinking_depth=depth,
                 json_mode=json_mode,
                 timeout_seconds=timeout_seconds,
+                event_context=self._build_event_context(
+                    request_id=request_id,
+                    event_context=event_context,
+                ),
             ):
                 if event.kind == "text_delta" and event.text:
                     collected += event.text

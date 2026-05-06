@@ -1,4 +1,5 @@
 """Runtime trace tree helpers for chat trace read models."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -22,6 +23,7 @@ def build_runtime_trace_root(
     intent_by_span = {str(item.get("span_id") or ""): item for item in intent_resolutions}
     node_by_span_id: dict[str, ExecutionTraceNode] = {}
     children_by_parent: dict[str | None, list[str]] = {}
+    turn_span_id = f"{turn_id}:turn"
     for span in spans:
         span_id = str(span.get("span_id") or "").strip()
         if not span_id:
@@ -47,7 +49,6 @@ def build_runtime_trace_root(
         )
         parent.children.extend(ordered_children)
 
-    turn_span_id = f"{turn_id}:turn"
     turn_node = node_by_span_id.get(turn_span_id)
     top_level_span_ids = set(children_by_parent.get(None, []))
     if turn_node is None:
@@ -118,7 +119,11 @@ def reshape_orchestration_trace_root(root: ExecutionTraceNode) -> ExecutionTrace
         label="Task orchestration",
         status=planning_status,
         started_at=started_at,
-        ended_at=max(ended_candidates) if ended_candidates and is_terminal_status(planning_status) else None,
+        ended_at=(
+            max(ended_candidates)
+            if ended_candidates and is_terminal_status(planning_status)
+            else None
+        ),
         metadata={
             "synthetic": True,
             "hidden_iteration_count": hidden_iteration_count,
@@ -126,7 +131,9 @@ def reshape_orchestration_trace_root(root: ExecutionTraceNode) -> ExecutionTrace
         children=planning_children,
     )
 
-    insert_at = planning_insert_index if planning_insert_index is not None else len(preserved_children)
+    insert_at = (
+        planning_insert_index if planning_insert_index is not None else len(preserved_children)
+    )
     preserved_children.insert(insert_at, planning_node)
     root.children = preserved_children
     return root

@@ -95,6 +95,25 @@ async def test_tool_invocation_writes_span_and_tool_call(fake_bus, fake_store):
 
 
 @pytest.mark.asyncio
+async def test_tool_invocation_parses_string_false_success(fake_bus, fake_store):
+    sub = RuntimeTraceSubscriber(event_bus=fake_bus, trace_store=fake_store)
+    await sub.start()
+    p = _make_payload(
+        node_type="tool_invocation",
+        name="shell",
+        attributes={
+            "tool_name": "shell",
+            "arguments_json": '{"cmd":"false"}',
+            "success": "false",
+        },
+    )
+    await sub._on_span_completed(Event(type=EventTypes.SPAN_COMPLETED, data=p))
+    await sub.drain()
+    rec = fake_store.upsert_tool_call.await_args.args[0]
+    assert rec.success is False
+
+
+@pytest.mark.asyncio
 async def test_llm_call_writes_span_and_llm_call(fake_bus, fake_store):
     sub = RuntimeTraceSubscriber(event_bus=fake_bus, trace_store=fake_store)
     await sub.start()
@@ -114,6 +133,27 @@ async def test_llm_call_writes_span_and_llm_call(fake_bus, fake_store):
     rec = fake_store.upsert_llm_call.await_args.args[0]
     assert rec.provider == "anthropic"
     assert rec.input_tokens == 100
+
+
+@pytest.mark.asyncio
+async def test_llm_call_accepts_prompt_completion_token_aliases(fake_bus, fake_store):
+    sub = RuntimeTraceSubscriber(event_bus=fake_bus, trace_store=fake_store)
+    await sub.start()
+    p = _make_payload(
+        node_type="llm_call",
+        name="gpt-4.1",
+        attributes={
+            "provider": "openai",
+            "model": "gpt-4.1",
+            "prompt_tokens": 120,
+            "completion_tokens": 45,
+        },
+    )
+    await sub._on_span_completed(Event(type=EventTypes.SPAN_COMPLETED, data=p))
+    await sub.drain()
+    rec = fake_store.upsert_llm_call.await_args.args[0]
+    assert rec.input_tokens == 120
+    assert rec.output_tokens == 45
 
 
 @pytest.mark.asyncio
@@ -141,7 +181,7 @@ async def test_turn_dispatches(fake_bus, fake_store):
     )
     await sub._on_span_completed(Event(type=EventTypes.SPAN_COMPLETED, data=p))
     await sub.drain()
-    fake_store.upsert_span.assert_awaited_once()
+    fake_store.upsert_span.assert_not_awaited()
     fake_store.upsert_turn.assert_awaited_once()
 
 
@@ -185,3 +225,21 @@ async def test_error_payload_propagates_to_span_record(fake_bus, fake_store):
     rec = fake_store.upsert_span.await_args.args[0]
     assert rec.status == "error"
     assert rec.error_text == "boom"
+
+
+@pytest.mark.asyncio
+async def test_span_preview_attributes_propagate_to_span_record(fake_bus, fake_store):
+    sub = RuntimeTraceSubscriber(event_bus=fake_bus, trace_store=fake_store)
+    await sub.start()
+    p = _make_payload(
+        attributes={
+            "input_preview": "User input preview",
+            "output_preview": "Model output preview",
+        },
+    )
+    await sub._on_span_completed(Event(type=EventTypes.SPAN_COMPLETED, data=p))
+    await sub.drain()
+
+    rec = fake_store.upsert_span.await_args.args[0]
+    assert rec.input_preview == "User input preview"
+    assert rec.output_preview == "Model output preview"

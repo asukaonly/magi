@@ -1,6 +1,6 @@
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::db;
 
@@ -42,8 +42,17 @@ pub(in crate::api) fn build_trace_snapshot(
     let spans = load_trace_spans(&conn, &trace_id);
     let llm_calls = load_detail_rows(&conn, "trace_llm_calls", &trace_id);
     let tool_calls = load_detail_rows(&conn, "trace_tools", &trace_id);
+    let intent_resolutions = load_detail_rows(&conn, "trace_intent_resolutions", &trace_id);
 
-    let snapshot = assemble_snapshot(user_id, session_id, &turn, &spans, &llm_calls, &tool_calls);
+    let snapshot = assemble_snapshot(
+        user_id,
+        session_id,
+        &turn,
+        &spans,
+        &llm_calls,
+        &tool_calls,
+        &intent_resolutions,
+    );
     json!({
         "success": true,
         "user_id": user_id,
@@ -60,6 +69,7 @@ fn assemble_snapshot(
     spans: &[HashMap<String, Value>],
     llm_calls: &[HashMap<String, Value>],
     tool_calls: &[HashMap<String, Value>],
+    intent_resolutions: &[HashMap<String, Value>],
 ) -> Value {
     let turn_id = turn.get("turn_id").and_then(|v| v.as_str()).unwrap_or("");
     let trace_id = turn.get("trace_id").and_then(|v| v.as_str()).unwrap_or("");
@@ -95,9 +105,18 @@ fn assemble_snapshot(
                 .map(|sid| (sid, tc))
         })
         .collect();
+    let intent_by_span: HashMap<&str, &HashMap<String, Value>> = intent_resolutions
+        .iter()
+        .filter_map(|ir| {
+            ir.get("span_id")
+                .and_then(|v| v.as_str())
+                .map(|sid| (sid, ir))
+        })
+        .collect();
 
     let mut node_by_id: HashMap<String, Value> = HashMap::new();
     let mut children_by_parent: HashMap<Option<String>, Vec<String>> = HashMap::new();
+    let turn_span_id = format!("{}:turn", turn_id);
 
     for span in spans {
         let span_id = span
@@ -112,52 +131,27 @@ fn assemble_snapshot(
             span,
             llm_by_span.get(span_id.as_str()).copied(),
             tool_by_span.get(span_id.as_str()).copied(),
+            intent_by_span.get(span_id.as_str()).copied(),
         );
         node_by_id.insert(span_id.clone(), node);
 
         let parent = span
             .get("parent_span_id")
             .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string());
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
         children_by_parent.entry(parent).or_default().push(span_id);
     }
 
-    for (parent_id, child_ids) in &children_by_parent {
-        if let Some(pid) = parent_id {
-            let mut sorted_children: Vec<Value> = child_ids
-                .iter()
-                .filter_map(|cid| node_by_id.remove(cid))
-                .collect();
-            sorted_children.sort_by(|a, b| {
-                let a_started = a.get("started_at").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let b_started = b.get("started_at").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                a_started
-                    .partial_cmp(&b_started)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
-            if let Some(parent) = node_by_id.get_mut(pid) {
-                if let Some(arr) = parent.get_mut("children").and_then(|v| v.as_array_mut()) {
-                    arr.extend(sorted_children);
-                }
-            } else {
-                for child in sorted_children {
-                    let child_id = child
-                        .get("id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    if !child_id.is_empty() {
-                        node_by_id.insert(child_id, child);
-                    }
-                }
-            }
-        }
-    }
-
-    let turn_span_id = format!("{}:turn", turn_id);
+    let mut visiting = HashSet::new();
+    let turn_node = take_node_with_children(
+        &turn_span_id,
+        &mut node_by_id,
+        &children_by_parent,
+        &mut visiting,
+    );
     let mut top_ids: Vec<String> = children_by_parent.get(&None).cloned().unwrap_or_default();
-    let turn_node = node_by_id.remove(&turn_span_id);
     if turn_node.is_none() {
         if let Some(turn_children) = children_by_parent.get(&Some(turn_span_id.clone())) {
             top_ids.extend(turn_children.clone());
@@ -167,22 +161,22 @@ fn assemble_snapshot(
 
     let mut top_level: Vec<Value> = top_ids
         .iter()
-        .filter_map(|id| node_by_id.remove(id))
+        .filter_map(|id| {
+            take_node_with_children(id, &mut node_by_id, &children_by_parent, &mut visiting)
+        })
         .collect();
     if let Some(tn) = &turn_node {
         if let Some(arr) = tn.get("children").and_then(|v| v.as_array()) {
             top_level.extend(arr.clone());
         }
     }
-    top_level.sort_by(|a, b| {
-        let a_started = a.get("started_at").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        let b_started = b.get("started_at").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        a_started
-            .partial_cmp(&b_started)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    top_level.extend(node_by_id.drain().map(|(_, node)| node));
+    sort_nodes(&mut top_level);
 
     let (active, completed, failed) = count_steps_in_children(&top_level);
+    let total_input_tokens = sum_metric(llm_calls, "input_tokens");
+    let total_output_tokens = sum_metric(llm_calls, "output_tokens");
+    let total_reasoning_tokens = sum_metric(llm_calls, "reasoning_tokens");
     let duration = match (started_at, ended_at) {
         (Some(started), Some(ended)) => (ended - started).max(0.0),
         _ => 0.0,
@@ -215,6 +209,9 @@ fn assemble_snapshot(
         "completed_steps": completed,
         "failed_steps": failed,
         "duration_seconds": (duration * 1000.0).round() / 1000.0,
+        "total_input_tokens": total_input_tokens,
+        "total_output_tokens": total_output_tokens,
+        "total_reasoning_tokens": total_reasoning_tokens,
         "trace_available": trace_available,
         "orchestration_id": opt_str(turn.get("orchestration_id").unwrap_or(&Value::Null)),
         "plan_summary": null,
@@ -240,4 +237,58 @@ fn assemble_snapshot(
         "summary": summary,
         "root": root,
     })
+}
+
+fn sum_metric(rows: &[HashMap<String, Value>], key: &str) -> i64 {
+    rows.iter()
+        .map(|row| row.get(key).and_then(|v| v.as_i64()).unwrap_or(0))
+        .sum()
+}
+
+fn sort_nodes(nodes: &mut Vec<Value>) {
+    nodes.sort_by(|a, b| {
+        let a_started = a.get("started_at").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let b_started = b.get("started_at").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let ordering = a_started
+            .partial_cmp(&b_started)
+            .unwrap_or(std::cmp::Ordering::Equal);
+        if ordering == std::cmp::Ordering::Equal {
+            let a_id = a.get("id").and_then(|v| v.as_str()).unwrap_or("");
+            let b_id = b.get("id").and_then(|v| v.as_str()).unwrap_or("");
+            a_id.cmp(b_id)
+        } else {
+            ordering
+        }
+    });
+}
+
+fn take_node_with_children(
+    node_id: &str,
+    node_by_id: &mut HashMap<String, Value>,
+    children_by_parent: &HashMap<Option<String>, Vec<String>>,
+    visiting: &mut HashSet<String>,
+) -> Option<Value> {
+    if !visiting.insert(node_id.to_string()) {
+        return node_by_id.remove(node_id);
+    }
+    let mut node = node_by_id.remove(node_id)?;
+    let mut children = Vec::new();
+    if let Some(child_ids) = children_by_parent.get(&Some(node_id.to_string())) {
+        for child_id in child_ids {
+            if child_id == node_id {
+                continue;
+            }
+            if let Some(child) =
+                take_node_with_children(child_id, node_by_id, children_by_parent, visiting)
+            {
+                children.push(child);
+            }
+        }
+    }
+    sort_nodes(&mut children);
+    if let Some(arr) = node.get_mut("children").and_then(|v| v.as_array_mut()) {
+        arr.extend(children);
+    }
+    visiting.remove(node_id);
+    Some(node)
 }

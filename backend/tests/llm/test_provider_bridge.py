@@ -1,6 +1,7 @@
 """
 Tests for provider bridge normalization and provider-specific parameters.
 """
+
 from types import SimpleNamespace
 from typing import Any, AsyncIterator, Dict, List, Optional
 
@@ -15,7 +16,8 @@ from magi.config.models import (
 from magi.llm.base import LLMAdapter
 from magi.llm.anthropic import AnthropicAdapter
 from magi.llm.openai import OpenAIAdapter
-from magi.llm.provider_bridge import LLMProviderBridge
+from magi.llm.provider_bridge import LLMProviderBridge, ProviderToolCall
+from magi.llm.provider_bridge import _with_trace_previews
 
 
 class DummyLLMAdapter(LLMAdapter):
@@ -144,7 +146,9 @@ def _build_test_llm_config(*, override_limit: int | None = None):
         llm_settings.model_runtime_overrides["openai::api.openai.com::gpt-5.2::chat"] = (
             LLMConcurrencyOverrideSettings(max_concurrency=override_limit)
         )
-    return SimpleNamespace(llm=SimpleNamespace(model_runtime_overrides=llm_settings.model_runtime_overrides))
+    return SimpleNamespace(
+        llm=SimpleNamespace(model_runtime_overrides=llm_settings.model_runtime_overrides)
+    )
 
 
 @pytest.mark.asyncio
@@ -180,6 +184,18 @@ async def test_openai_tool_call_parsing_and_assistant_message():
     assert result.assistant_message["tool_calls"][0]["id"] == "call_1"
 
 
+def test_trace_preview_describes_tool_call_response_without_text() -> None:
+    context = _with_trace_previews(
+        None,
+        messages=[{"role": "user", "content": "search coffee machines"}],
+        response_text="",
+        tool_calls=[ProviderToolCall(id="call_1", name="web-search", arguments={})],
+    )
+
+    assert context["request_preview"] == "search coffee machines"
+    assert context["response_preview"] == "Requested tools: web-search"
+
+
 @pytest.mark.asyncio
 async def test_openai_chat_response_converts_generic_image_blocks() -> None:
     response = SimpleNamespace(
@@ -211,7 +227,9 @@ async def test_openai_chat_response_converts_generic_image_blocks() -> None:
 
 @pytest.mark.asyncio
 async def test_anthropic_path_converts_tool_result_messages():
-    tool_block = SimpleNamespace(type="tool_use", id="toolu_1", name="bash", input={"command": "ls"})
+    tool_block = SimpleNamespace(
+        type="tool_use", id="toolu_1", name="bash", input={"command": "ls"}
+    )
     text_block = SimpleNamespace(type="text", text="done")
     response = SimpleNamespace(content=[tool_block, text_block])
     messages_client = DummyAnthropicMessagesClient(response=response)
@@ -225,7 +243,10 @@ async def test_anthropic_path_converts_tool_result_messages():
     result = await bridge.chat_with_tools(
         system_prompt="sys",
         messages=[
-            {"role": "assistant", "content": [{"type": "tool_use", "id": "toolu_0", "name": "bash", "input": {}}]},
+            {
+                "role": "assistant",
+                "content": [{"type": "tool_use", "id": "toolu_0", "name": "bash", "input": {}}],
+            },
             {"role": "tool", "tool_call_id": "toolu_0", "content": '{"success": true}'},
         ],
         tools=[{"type": "function", "function": {"name": "bash"}}],
@@ -243,7 +264,9 @@ async def test_anthropic_path_converts_tool_result_messages():
 @pytest.mark.asyncio
 async def test_anthropic_chat_response_converts_generic_image_blocks() -> None:
     text_block = SimpleNamespace(type="text", text="done")
-    response = SimpleNamespace(content=[text_block], usage=SimpleNamespace(input_tokens=1, output_tokens=1))
+    response = SimpleNamespace(
+        content=[text_block], usage=SimpleNamespace(input_tokens=1, output_tokens=1)
+    )
     messages_client = DummyAnthropicMessagesClient(response=response)
     llm = DummyLLMAdapter(
         provider="anthropic",
@@ -369,7 +392,9 @@ async def test_chat_response_uses_shared_concurrency_limiter() -> None:
 
 
 @pytest.mark.asyncio
-async def test_chat_response_passes_shared_override_before_registry_default_before_fallback(monkeypatch) -> None:
+async def test_chat_response_passes_shared_override_before_registry_default_before_fallback(
+    monkeypatch,
+) -> None:
     message = SimpleNamespace(content="ok", tool_calls=[], role="assistant")
     response = SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason="stop")])
     client = DummyOpenAIClient(response=response)
@@ -385,7 +410,9 @@ async def test_chat_response_passes_shared_override_before_registry_default_befo
     override_config = _build_test_llm_config(override_limit=7)
     default_config = _build_test_llm_config()
 
-    monkeypatch.setattr("magi.llm.provider_bridge.options.get_config", lambda: override_config, raising=False)
+    monkeypatch.setattr(
+        "magi.llm.provider_bridge.options.get_config", lambda: override_config, raising=False
+    )
 
     await bridge.chat_response(
         system_prompt="sys",
@@ -394,7 +421,9 @@ async def test_chat_response_passes_shared_override_before_registry_default_befo
 
     assert limiter.calls[-1]["limit"] == 7
 
-    monkeypatch.setattr("magi.llm.provider_bridge.options.get_config", lambda: default_config, raising=False)
+    monkeypatch.setattr(
+        "magi.llm.provider_bridge.options.get_config", lambda: default_config, raising=False
+    )
 
     await bridge.chat_response(
         system_prompt="sys",
@@ -412,7 +441,11 @@ async def test_chat_response_passes_shared_override_before_registry_default_befo
     )
     fallback_bridge = LLMProviderBridge(fallback_llm, concurrency_limiter=limiter)
 
-    monkeypatch.setattr("magi.llm.provider_bridge.options.get_config", lambda: _build_test_llm_config(), raising=False)
+    monkeypatch.setattr(
+        "magi.llm.provider_bridge.options.get_config",
+        lambda: _build_test_llm_config(),
+        raising=False,
+    )
 
     await fallback_bridge.chat_response(
         system_prompt="sys",

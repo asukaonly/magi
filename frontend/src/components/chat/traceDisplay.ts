@@ -32,6 +32,7 @@ export const formatTraceKind = (kind: string, t: TFunction<'app'>): string => {
     llm: 'chat.trace.kindLlm',
     llm_call: 'chat.trace.kindLlm',
     response: 'chat.trace.kindResponse',
+    rhythm: 'chat.trace.kindRhythm',
     dispatch: 'chat.trace.kindDispatch',
     attempt: 'chat.trace.kindAttempt',
     step: 'chat.trace.kindStep',
@@ -47,8 +48,9 @@ export const formatTraceLabel = (
 ): string => {
   if (kind === 'root') return t('chat.trace.node.callTrace');
   if (label === 'Intent resolution') return t('chat.trace.node.intentResolution');
-  if (label === 'Main LLM call') return t('chat.trace.node.mainLlmCall');
+  if (label === 'Main LLM call') return t('chat.trace.node.coreModelProcessing');
   if (label === 'Response emission') return t('chat.trace.node.responseEmission');
+  if (label === 'Response rhythm processing') return t('chat.trace.node.responseRhythmProcessing');
   if (label === 'Task orchestration') return t('chat.trace.node.taskOrchestration');
   if (label === 'Tool chain') return t('chat.trace.node.callTrace');
 

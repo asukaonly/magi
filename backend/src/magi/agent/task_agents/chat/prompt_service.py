@@ -40,6 +40,7 @@ class ChatPromptService:
         json_mode: bool = False,
         timeout_seconds: float | None = None,
         llm_trace_callback=None,
+        event_context: dict[str, Any] | None = None,
     ) -> str:
         return await self._llm_service.call(
             system_prompt=system_prompt,
@@ -50,6 +51,7 @@ class ChatPromptService:
             json_mode=json_mode,
             timeout_seconds=timeout_seconds,
             llm_trace_callback=llm_trace_callback,
+            event_context=event_context,
         )
 
     async def call_llm_stream(
@@ -61,6 +63,7 @@ class ChatPromptService:
         thinking_depth: ThinkingDepth | None = None,
         json_mode: bool = False,
         timeout_seconds: float | None = None,
+        event_context: dict[str, Any] | None = None,
     ) -> AsyncIterator[LLMStreamEvent]:
         """Streaming variant of call_llm(). Yields typed LLM stream events."""
         async for event in self._llm_service.call_stream(
@@ -71,6 +74,7 @@ class ChatPromptService:
             temperature=0.7,
             json_mode=json_mode,
             timeout_seconds=timeout_seconds,
+            event_context=event_context,
         ):
             yield event
 

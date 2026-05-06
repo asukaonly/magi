@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::{OnceLock, RwLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
@@ -168,6 +169,13 @@ pub fn count_rows(conn: &Connection, sql: &str, params: &[&dyn rusqlite::types::
         .unwrap_or(0)
 }
 
+fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(0)
+}
+
 /// Insert a row into `runtime_notifications` so the notification bridge
 /// picks it up and emits it to the frontend via Tauri events.
 pub fn emit_notification(channel: &str, user_id: &str, session_id: &str, payload: &Value) {
@@ -178,9 +186,9 @@ pub fn emit_notification(channel: &str, user_id: &str, session_id: &str, payload
     };
     let payload_json = serde_json::to_string(payload).unwrap_or_default();
     conn.execute(
-        "INSERT INTO runtime_notifications (channel, user_id, session_id, payload_json) \
-         VALUES (?1, ?2, ?3, ?4)",
-        rusqlite::params![channel, user_id, session_id, payload_json],
+        "INSERT INTO runtime_notifications (channel, user_id, session_id, payload_json, created_at_ms) \
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        rusqlite::params![channel, user_id, session_id, payload_json, now_ms()],
     )
     .ok();
 }

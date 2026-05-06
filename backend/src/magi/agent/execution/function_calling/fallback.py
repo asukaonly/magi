@@ -53,6 +53,7 @@ class _FallbackHostProtocol(Protocol):
         turn_id: str | None = None,
         intent: str = "unknown",
         execution_agent_id: str = "chat_agent",
+        iteration: int | None = None,
     ) -> dict[str, Any]: ...
 
     def _format_exception_trace_text(self, exc: Exception, *, max_length: int = 600) -> str: ...
@@ -84,6 +85,7 @@ class _FallbackHostProtocol(Protocol):
         session_run_id: str | None = None,
         session_run_revision: int = 0,
         user_message: str | None = None,
+        iteration: int | None = None,
     ) -> ToolCallResult: ...
 
     def _append_message(self, messages: list[dict[str, Any]], message: dict[str, Any]) -> None: ...
@@ -155,6 +157,7 @@ class FunctionCallingFallbackMixin:
                 turn_id=turn_id,
                 intent=intent,
                 execution_agent_id=execution_agent_id,
+                iteration=state.iteration,
             )
         except Exception as exc:
             error_text = host._format_exception_trace_text(exc)
@@ -183,7 +186,9 @@ class FunctionCallingFallbackMixin:
                 len(fallback_tool_calls),
             )
             if fallback_content:
-                host._append_message(state.messages, {"role": "assistant", "content": fallback_content})
+                host._append_message(
+                    state.messages, {"role": "assistant", "content": fallback_content}
+                )
             for tool_call in fallback_tool_calls:
                 result = await host._execute_tool_call(
                     tool_call=tool_call,
@@ -197,6 +202,7 @@ class FunctionCallingFallbackMixin:
                     execution_workspace=execution_workspace,
                     orchestration_strategy=orchestration_strategy,
                     user_message=None,
+                    iteration=state.iteration,
                 )
                 if not result.success:
                     state.tool_failures.append(
@@ -243,6 +249,7 @@ class FunctionCallingFallbackMixin:
                     turn_id=turn_id,
                     intent=intent,
                     execution_agent_id=execution_agent_id,
+                    iteration=state.iteration,
                 )
             except Exception as exc:
                 error_text = host._format_exception_trace_text(exc)
@@ -294,6 +301,7 @@ class FunctionCallingFallbackMixin:
                     turn_id=turn_id,
                     intent=intent,
                     execution_agent_id=execution_agent_id,
+                    iteration=state.iteration,
                 )
             except Exception as exc:
                 return ExecutionOutcome(

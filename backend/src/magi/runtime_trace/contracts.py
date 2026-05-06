@@ -45,6 +45,8 @@ class TraceSpanRecord:
     execution_agent_id: str | None = None
     result_preview: str | None = None
     error_text: str | None = None
+    input_preview: str | None = None
+    output_preview: str | None = None
     run_id: str | None = None
     run_revision: int = 0
     started_at_ms: int = 0

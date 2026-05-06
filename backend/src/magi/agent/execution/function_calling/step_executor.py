@@ -92,6 +92,7 @@ class FunctionCallingStepExecutor:
                 turn_id=turn_id,
                 intent=intent,
                 execution_agent_id=execution_agent_id,
+                iteration=iteration,
             )
         except Exception as exc:
             failure_reason = self._driver._classify_exception_failure(exc)
@@ -151,9 +152,7 @@ class FunctionCallingStepExecutor:
                         status="cancelled",
                         error_text="Run cancelled before tool execution",
                     )
-                    return FunctionCallingStepOutcome(
-                        status="cancelled", iteration=iteration
-                    )
+                    return FunctionCallingStepOutcome(status="cancelled", iteration=iteration)
                 result = await self._driver._execute_tool_call(
                     tool_call=tool_call,
                     user_message=user_message,
@@ -164,6 +163,7 @@ class FunctionCallingStepExecutor:
                     turn_id=turn_id,
                     intent=intent,
                     execution_agent_id=execution_agent_id,
+                    iteration=iteration,
                     execution_workspace=execution_workspace,
                     orchestration_strategy=orchestration_strategy,
                     cancel_token=token,
@@ -176,12 +176,9 @@ class FunctionCallingStepExecutor:
                         execution_agent_id=execution_agent_id,
                         started_at_ms=iteration_started_at_ms,
                         status="cancelled",
-                        error_text=result.error
-                        or "Run cancelled during tool execution",
+                        error_text=result.error or "Run cancelled during tool execution",
                     )
-                    return FunctionCallingStepOutcome(
-                        status="cancelled", iteration=iteration
-                    )
+                    return FunctionCallingStepOutcome(status="cancelled", iteration=iteration)
                 if not result.success:
                     state.tool_failures.append(
                         {
@@ -239,24 +236,20 @@ class FunctionCallingStepExecutor:
                         ),
                     },
                 )
-            new_chat_attachments = (
-                self._driver._extract_chat_attachments_from_tool_results(tool_results)
+            new_chat_attachments = self._driver._extract_chat_attachments_from_tool_results(
+                tool_results
             )
             state.chat_attachments.extend(new_chat_attachments)
             if new_chat_attachments and state.allow_attachment_grounding:
-                state.messages = (
-                    self._driver.inject_prepared_attachment_grounding_message(
-                        messages=state.messages,
-                        attachments=new_chat_attachments,
-                        user_id=user_id,
-                        session_id=session_id,
-                    )
+                state.messages = self._driver.inject_prepared_attachment_grounding_message(
+                    messages=state.messages,
+                    attachments=new_chat_attachments,
+                    user_id=user_id,
+                    session_id=session_id,
                 )
             state.message_payload = self._driver._merge_assistant_message_payload(
                 state.message_payload,
-                self._driver._extract_assistant_message_payload_from_tool_results(
-                    tool_results
-                ),
+                self._driver._extract_assistant_message_payload_from_tool_results(tool_results),
             )
 
             if all(not result.success for result in tool_results):
@@ -299,9 +292,7 @@ class FunctionCallingStepExecutor:
                         status="completed",
                         result_preview="All requested tools failed",
                     )
-                    return FunctionCallingStepOutcome(
-                        status="continue", iteration=iteration
-                    )
+                    return FunctionCallingStepOutcome(status="continue", iteration=iteration)
                 state.all_tools_failed = True
                 await self._driver._complete_iteration_trace(
                     turn_id=turn_id,

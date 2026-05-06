@@ -45,7 +45,7 @@ class TraceRuntimeRowsMixin:
             """
             SELECT *
             FROM trace_spans
-            WHERE trace_id = ?
+            WHERE trace_id = ? AND node_type <> 'turn_record'
             ORDER BY started_at_ms ASC, span_id ASC
             """,
             (trace_id,),

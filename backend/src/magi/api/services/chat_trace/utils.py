@@ -1,4 +1,5 @@
 """Pure helper functions for chat execution trace read models."""
+
 from __future__ import annotations
 
 import json
@@ -34,6 +35,7 @@ def map_trace_kind(node_type: str) -> str:
         "worker_dispatch": "dispatch",
         "worker_attempt": "attempt",
         "response_emit": "response",
+        "rhythm_processing": "rhythm",
     }
     return mapping.get(node_type, node_type or "step")
 
@@ -47,7 +49,9 @@ def compact_value(value: Any) -> str:
         summary = str(value.get("summary") or value.get("result_preview") or "").strip()
         if summary:
             return summary[:240]
-        content_preview = str(value.get("content_preview") or value.get("stdout_preview") or "").strip()
+        content_preview = str(
+            value.get("content_preview") or value.get("stdout_preview") or ""
+        ).strip()
         if content_preview:
             return content_preview[:240]
     if isinstance(value, list):
@@ -119,9 +123,9 @@ def status_from_worker_event(event_type: str, payload: dict[str, Any]) -> str:
 
 def normalize_status(status: str) -> str:
     lowered = str(status or "running").strip().lower()
-    if lowered in {"completed", "success"}:
+    if lowered in {"completed", "ok", "success", "succeeded", "done"}:
         return "completed"
-    if lowered in {"failed", "error"}:
+    if lowered in {"failed", "error", "errored", "timeout", "timed_out"}:
         return "failed"
     if lowered == "interrupted":
         return "interrupted"

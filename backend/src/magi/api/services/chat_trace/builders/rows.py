@@ -1,4 +1,5 @@
 """Helpers for turning persisted runtime trace rows into UI trace nodes."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -54,7 +55,15 @@ def build_trace_row_node(
         "duration_ms": safe_int(span.get("duration_ms"), default=0),
         "execution_agent_id": span.get("execution_agent_id"),
     }
+    input_preview = str(span.get("input_preview") or "").strip()
+    output_preview = str(span.get("output_preview") or "").strip()
+    if input_preview:
+        metadata["input"] = {"preview": input_preview}
+    if output_preview:
+        metadata["output"] = {"preview": output_preview}
     if llm_call is not None:
+        request_preview = str(llm_call.get("request_preview") or "").strip()
+        response_preview = str(llm_call.get("response_preview") or "").strip()
         metadata.update(
             {
                 "provider": llm_call.get("provider"),
@@ -65,11 +74,15 @@ def build_trace_row_node(
                 "cache_read_tokens": safe_int(llm_call.get("cache_read_tokens"), default=0),
                 "cache_write_tokens": safe_int(llm_call.get("cache_write_tokens"), default=0),
                 "thinking_enabled": bool(llm_call.get("thinking_enabled")),
-                "request_preview": llm_call.get("request_preview") or None,
-                "response_preview": llm_call.get("response_preview") or None,
+                "request_preview": request_preview or None,
+                "response_preview": response_preview or None,
                 "thinking_content": llm_call.get("thinking_content") or None,
             }
         )
+        if request_preview:
+            metadata["input"] = {"preview": request_preview}
+        if response_preview:
+            metadata["output"] = {"preview": response_preview}
     if tool_call is not None:
         metadata.update(
             {
@@ -87,10 +100,33 @@ def build_trace_row_node(
         task_hint = None
         recommended_tools = None
         if isinstance(selected_tools, dict):
-            selected_tool_list = selected_tools.get("selected_tools") if isinstance(selected_tools.get("selected_tools"), list) else None
-            router_tools = selected_tools.get("router_tools") if isinstance(selected_tools.get("router_tools"), list) else None
-            task_hint = selected_tools.get("task_hint") if isinstance(selected_tools.get("task_hint"), dict) else None
-            recommended_tools = selected_tools.get("recommended_tools") if isinstance(selected_tools.get("recommended_tools"), list) else None
+            selected_tool_list = (
+                selected_tools.get("selected_tools")
+                if isinstance(selected_tools.get("selected_tools"), list)
+                else None
+            )
+            router_tools = (
+                selected_tools.get("router_tools")
+                if isinstance(selected_tools.get("router_tools"), list)
+                else None
+            )
+            task_hint = (
+                selected_tools.get("task_hint")
+                if isinstance(selected_tools.get("task_hint"), dict)
+                else None
+            )
+            recommended_tools = (
+                selected_tools.get("recommended_tools")
+                if isinstance(selected_tools.get("recommended_tools"), list)
+                else None
+            )
+            llm_trace = (
+                selected_tools.get("llm_trace")
+                if isinstance(selected_tools.get("llm_trace"), dict)
+                else None
+            )
+        else:
+            llm_trace = None
         metadata.update(
             {
                 "intent_label": intent_resolution.get("intent") or None,
@@ -103,6 +139,28 @@ def build_trace_row_node(
                 "selected_worker_type": intent_resolution.get("selected_worker_type") or None,
             }
         )
+        if isinstance(llm_trace, dict):
+            request_preview = str(llm_trace.get("request_preview") or "").strip()
+            response_preview = str(llm_trace.get("response_preview") or "").strip()
+            metadata.update(
+                {
+                    "provider": llm_trace.get("provider"),
+                    "model": llm_trace.get("model"),
+                    "input_tokens": safe_int(llm_trace.get("input_tokens"), default=0),
+                    "output_tokens": safe_int(llm_trace.get("output_tokens"), default=0),
+                    "total_tokens": safe_int(llm_trace.get("total_tokens"), default=0),
+                    "duration_ms": safe_int(
+                        llm_trace.get("duration_ms"), default=metadata.get("duration_ms") or 0
+                    ),
+                    "thinking_enabled": bool(llm_trace.get("thinking_enabled")),
+                }
+            )
+            if request_preview:
+                metadata["input"] = {"preview": request_preview}
+                metadata["request_preview"] = request_preview
+            if response_preview:
+                metadata["output"] = {"preview": response_preview}
+                metadata["response_preview"] = response_preview
 
     return ExecutionTraceNode(
         id=str(span.get("span_id") or ""),
@@ -116,6 +174,7 @@ def build_trace_row_node(
             llm_call=llm_call,
             tool_call=tool_call,
         ),
-        error=str(span.get("error_text") or (tool_call or {}).get("error_message") or "").strip() or None,
+        error=str(span.get("error_text") or (tool_call or {}).get("error_message") or "").strip()
+        or None,
         metadata=metadata,
     )

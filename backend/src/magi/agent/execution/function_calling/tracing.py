@@ -9,7 +9,12 @@ import time
 from collections.abc import Callable
 from typing import Any, Dict, Protocol, cast
 
-from ....runtime_trace import RuntimeTraceStore, TraceSpanRecord, TraceToolRecord
+from ....runtime_trace import (
+    RuntimeTraceStore,
+    RuntimeTraceWriter,
+    TraceSpanRecord,
+    TraceToolRecord,
+)
 from .types import ToolCall, ToolCallResult
 
 logger = logging.getLogger(__name__)
@@ -23,6 +28,12 @@ class _TracingHostProtocol(Protocol):
 
 class FunctionCallingTracingMixin:
     """Emit function-calling callbacks and persist runtime trace rows."""
+
+    def _runtime_trace_writer(self) -> RuntimeTraceWriter | None:
+        host = cast(_TracingHostProtocol, self)
+        if host.runtime_trace_store is None:
+            return None
+        return RuntimeTraceWriter(host.runtime_trace_store)
 
     async def _emit_tool_result(
         self,
@@ -85,10 +96,11 @@ class FunctionCallingTracingMixin:
     ) -> int | None:
         host = cast(_TracingHostProtocol, self)
         normalized_turn_id = str(turn_id or "").strip()
-        if host.runtime_trace_store is None or not normalized_turn_id:
+        writer = self._runtime_trace_writer()
+        if writer is None or not normalized_turn_id:
             return None
         started_at_ms = int(time.time() * 1000)
-        await host.runtime_trace_store.upsert_span(
+        await writer.record_span(
             TraceSpanRecord(
                 span_id=self._build_iteration_span_id(normalized_turn_id, iteration),
                 trace_id=self._build_trace_id(normalized_turn_id),
@@ -119,10 +131,11 @@ class FunctionCallingTracingMixin:
     ) -> None:
         host = cast(_TracingHostProtocol, self)
         normalized_turn_id = str(turn_id or "").strip()
-        if host.runtime_trace_store is None or not normalized_turn_id or started_at_ms is None:
+        writer = self._runtime_trace_writer()
+        if writer is None or not normalized_turn_id or started_at_ms is None:
             return
         ended_at_ms = int(time.time() * 1000)
-        await host.runtime_trace_store.upsert_span(
+        await writer.record_span(
             TraceSpanRecord(
                 span_id=self._build_iteration_span_id(normalized_turn_id, iteration),
                 trace_id=self._build_trace_id(normalized_turn_id),
@@ -179,7 +192,8 @@ class FunctionCallingTracingMixin:
     ) -> None:
         host = cast(_TracingHostProtocol, self)
         normalized_turn_id = str(turn_id or "").strip()
-        if host.runtime_trace_store is None or not normalized_turn_id:
+        writer = self._runtime_trace_writer()
+        if writer is None or not normalized_turn_id:
             return
         ended_at_ms = int(time.time() * 1000)
         duration_ms = max(0, int(round(float(result.execution_time or 0.0) * 1000)))
@@ -189,10 +203,12 @@ class FunctionCallingTracingMixin:
         result_json_str: str | None = None
         if result.data is not None:
             try:
-                result_json_str = json.dumps(result.data) if not isinstance(result.data, str) else result.data
+                result_json_str = (
+                    json.dumps(result.data) if not isinstance(result.data, str) else result.data
+                )
             except (TypeError, ValueError):
                 result_json_str = str(result.data)
-        await host.runtime_trace_store.upsert_span(
+        await writer.record_span(
             TraceSpanRecord(
                 span_id=span_id,
                 trace_id=self._build_trace_id(normalized_turn_id),
@@ -212,7 +228,7 @@ class FunctionCallingTracingMixin:
                 updated_at_ms=ended_at_ms,
             )
         )
-        await host.runtime_trace_store.upsert_tool_call(
+        await writer.record_tool_call(
             TraceToolRecord(
                 span_id=span_id,
                 trace_id=self._build_trace_id(normalized_turn_id),

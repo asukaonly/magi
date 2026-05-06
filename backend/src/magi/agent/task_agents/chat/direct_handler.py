@@ -17,6 +17,7 @@ from .handler_helpers import (
     resolve_turn_workspace_path as _resolve_turn_workspace_path,
     serialize_ux_plan as _serialize_ux_plan,
 )
+from ....runtime_trace import enrich_event_context_with_turn_trace
 
 IMAGE_VISION_UNSUPPORTED_RESPONSE_KEY = "chat.image_vision_unsupported"
 
@@ -39,6 +40,15 @@ def _image_attachments_supported(context: object, attachments: list[object]) -> 
 
 def _image_vision_unsupported_response() -> str:
     return core_i18n.t(IMAGE_VISION_UNSUPPORTED_RESPONSE_KEY)
+
+
+def _build_llm_event_context(context: object, turn_id: object) -> dict[str, object]:
+    return enrich_event_context_with_turn_trace(
+        {
+            "session_id": getattr(context, "session_id", None),
+            "turn_id": turn_id,
+        }
+    )
 
 
 class DirectLLMHandler(BaseExecutionHandler):
@@ -97,6 +107,7 @@ class DirectLLMHandler(BaseExecutionHandler):
             llm_trace.update(payload)
 
         turn_id = getattr(request.context.latest_payload, "turn_id", None)
+        event_context = _build_llm_event_context(request.context, turn_id)
         attachments = list(getattr(request.context.latest_payload, "attachments", []) or [])
         if not _image_attachments_supported(request.context, attachments):
             return ExecutionResult(
@@ -114,6 +125,7 @@ class DirectLLMHandler(BaseExecutionHandler):
                 system_prompt=request.system_prompt,
                 messages=request.messages,
                 thinking_depth=request.thinking_depth,
+                event_context=event_context,
             ):
                 if event.kind == "text_delta" and event.text:
                     chunks.append(event.text)
@@ -133,6 +145,7 @@ class DirectLLMHandler(BaseExecutionHandler):
             messages=request.messages,
             thinking_depth=request.thinking_depth,
             llm_trace_callback=_capture_llm_trace,
+            event_context=event_context,
         )
         return ExecutionResult(
             mode=request.mode,

@@ -1,5 +1,20 @@
 import React from 'react';
-import { Brain, Clock3, Hammer, Hourglass, Loader2, MessageSquare, Search } from 'lucide-react';
+import type { TFunction } from 'i18next';
+import {
+  Brain,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  CircleDashed,
+  Clock3,
+  Hammer,
+  Layers3,
+  Loader2,
+  MessageSquare,
+  Search,
+  Workflow,
+  XCircle,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   Sheet,
@@ -8,8 +23,8 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
-import TraceTree from './TraceTree';
 import { flattenPlanningNodeForDisplay, type NormalizedExecutionTraceNode, type NormalizedExecutionTraceSnapshot } from '@/domain/chat/state';
+import { cn } from '@/lib/utils';
 import { formatTraceKind, formatTraceLabel, formatTraceStatus } from './traceDisplay';
 
 interface ToolchainDrawerProps {
@@ -21,46 +36,23 @@ interface ToolchainDrawerProps {
   subtitle: string;
 }
 
+type TraceTableRow = {
+  node: NormalizedExecutionTraceNode;
+  depth: number;
+};
+
+const statusTone: Record<string, string> = {
+  completed: 'text-[hsl(var(--trace-status-completed-fg))] bg-[hsl(var(--trace-status-completed-bg))] border-[hsl(var(--trace-status-completed-border))]',
+  running: 'text-[hsl(var(--trace-status-running-fg))] bg-[hsl(var(--trace-status-running-bg))] border-[hsl(var(--trace-status-running-border))]',
+  pending: 'text-[hsl(var(--trace-status-pending-fg))] bg-[hsl(var(--trace-status-pending-bg))] border-[hsl(var(--trace-status-pending-border))]',
+  failed: 'text-[hsl(var(--trace-status-failed-fg))] bg-[hsl(var(--trace-status-failed-bg))] border-[hsl(var(--trace-status-failed-border))]',
+};
+
 const formatDuration = (seconds: number): string => {
   if (!seconds) return '0.0s';
   if (seconds < 60) return `${seconds.toFixed(1)}s`;
   return `${Math.floor(seconds / 60)}m ${(seconds % 60).toFixed(0)}s`;
 };
-
-const asRecord = (value: unknown): Record<string, unknown> => (
-  value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
-);
-
-const asArray = (value: unknown): unknown[] => (
-  Array.isArray(value) ? value : []
-);
-
-const asStringArray = (value: unknown): string[] => (
-  asArray(value)
-    .map((item) => String(item || '').trim())
-    .filter(Boolean)
-);
-
-type RecommendedToolItem = {
-  tool: string;
-  reason: string;
-  priority: number | null;
-  domains: string[];
-  operations: string[];
-};
-
-const asRecommendedTools = (value: unknown): RecommendedToolItem[] => (
-  asArray(value)
-    .map((item) => asRecord(item))
-    .map((item) => ({
-      tool: String(item.tool || '').trim(),
-      reason: String(item.reason || '').trim(),
-      priority: Number.isFinite(Number(item.priority)) ? Number(item.priority) : null,
-      domains: asStringArray(item.domains),
-      operations: asStringArray(item.operations),
-    }))
-    .filter((item) => item.tool)
-);
 
 const formatMilliseconds = (value: unknown): string => {
   const normalized = Number(value || 0);
@@ -86,20 +78,34 @@ const formatTraceTime = (value?: number | null, locale?: string): string => {
   return `${formatted}.${milliseconds}`;
 };
 
-const formatExecutionTime = (value: unknown): string => {
-  const normalized = Number(value || 0);
-  if (!normalized) return '--';
-  return `${normalized.toFixed(normalized >= 10 ? 1 : 2)}s`;
+const formatTokenCount = (input?: number, output?: number, reasoning?: number): string => {
+  const parts: string[] = [];
+  if (input) parts.push(`In ${input.toLocaleString()}`);
+  if (output) parts.push(`Out ${output.toLocaleString()}`);
+  if (reasoning) parts.push(`Think ${reasoning.toLocaleString()}`);
+  return parts.length > 0 ? parts.join(' / ') : '--';
 };
 
-const formatCount = (value: unknown): string => {
-  const normalized = Number(value || 0);
-  if (!normalized) return '0';
-  return String(Math.round(normalized));
+const asRecord = (value: unknown): Record<string, unknown> => (
+  value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+);
+
+const asArray = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
+
+const asStringArray = (value: unknown): string[] => (
+  asArray(value)
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+);
+
+const compactText = (value: unknown, limit = 480): string => {
+  if (value === null || value === undefined) return '';
+  const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+  return text.trim().slice(0, limit);
 };
 
-const formatBoolean = (value: unknown, truthyLabel: string, falsyLabel: string): string => (
-  value ? truthyLabel : falsyLabel
+const hasValue = (value: unknown): boolean => (
+  value !== null && value !== undefined && String(value).trim().length > 0
 );
 
 const stringifyStructuredValue = (value: unknown): string => {
@@ -112,63 +118,183 @@ const stringifyStructuredValue = (value: unknown): string => {
   }
 };
 
-const formatTokenCount = (input?: number, output?: number, reasoning?: number): string => {
-  const parts: string[] = [];
-  if (input) parts.push(`In ${input.toLocaleString()}`);
-  if (output) parts.push(`Out ${output.toLocaleString()}`);
-  if (reasoning) parts.push(`Think ${reasoning.toLocaleString()}`);
-  return parts.length > 0 ? parts.join(' / ') : '--';
+const flattenTraceRows = (node: NormalizedExecutionTraceNode, depth = 0): TraceTableRow[] => {
+  const current = node.kind === 'root' ? [] : [{ node, depth }];
+  const childDepth = node.kind === 'root' ? depth : depth + 1;
+  return [
+    ...current,
+    ...node.children.flatMap((child) => flattenTraceRows(child, childDepth)),
+  ];
 };
 
-const DetailBlock = ({ label, value }: { label: string; value: string }) => (
-  <div className="rounded-2xl border border-border/50 bg-background/80 px-3 py-3">
-    <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground/70">{label}</div>
-    <div className="mt-2 text-sm font-medium text-foreground">{value}</div>
+const statusIcon = (status: string) => {
+  if (status === 'completed') return <CheckCircle2 className="h-3.5 w-3.5" />;
+  if (status === 'failed') return <XCircle className="h-3.5 w-3.5" />;
+  if (status === 'running') return <CircleDashed className="h-3.5 w-3.5 animate-spin" />;
+  return <CircleDashed className="h-3.5 w-3.5" />;
+};
+
+const kindIcon = (kind: string) => {
+  if (kind === 'root') return <Layers3 className="h-4 w-4" />;
+  if (kind === 'planning') return <Workflow className="h-4 w-4" />;
+  if (kind === 'tool' || kind === 'tool_call') return <Hammer className="h-4 w-4" />;
+  if (kind === 'llm' || kind === 'llm_call') return <Brain className="h-4 w-4" />;
+  if (kind === 'intent' || kind === 'intent_resolution') return <Search className="h-4 w-4" />;
+  if (kind === 'response' || kind === 'rhythm') return <MessageSquare className="h-4 w-4" />;
+  return <Workflow className="h-4 w-4" />;
+};
+
+const nodeTitle = (node: NormalizedExecutionTraceNode, t: TFunction<'app'>): string => {
+  if (node.kind === 'llm' || node.kind === 'llm_call') {
+    return t('chat.trace.node.coreModelProcessing');
+  }
+  return formatTraceLabel(node.label, node.kind, t);
+};
+
+const nodeSubtitle = (node: NormalizedExecutionTraceNode): string => {
+  const meta = asRecord(node.metadata);
+  if (node.kind === 'tool' || node.kind === 'tool_call') {
+    return String(meta.tool_name || '').trim();
+  }
+  if (node.kind === 'llm' || node.kind === 'llm_call') {
+    return String(meta.model || '').trim();
+  }
+  return String(node.resultPreview || '').trim();
+};
+
+const nodeDuration = (node: NormalizedExecutionTraceNode): string => {
+  const meta = asRecord(node.metadata);
+  if (Number(meta.duration_ms || 0) > 0) {
+    return formatMilliseconds(meta.duration_ms);
+  }
+  if (node.startedAt && node.endedAt) {
+    return formatDuration(Math.max(0, node.endedAt - node.startedAt));
+  }
+  return '--';
+};
+
+const previewFromSlot = (value: unknown): string => {
+  const record = asRecord(value);
+  return compactText(record.preview || record.summary || record.result_preview || record.content_preview);
+};
+
+const inputPreview = (node: NormalizedExecutionTraceNode): string => {
+  const meta = asRecord(node.metadata);
+  return (
+    previewFromSlot(meta.input)
+    || compactText(meta.request_preview)
+    || compactText(meta.arguments)
+    || compactText(meta.tool_arguments)
+  );
+};
+
+const outputPreview = (node: NormalizedExecutionTraceNode): string => {
+  const meta = asRecord(node.metadata);
+  return (
+    previewFromSlot(meta.output)
+    || compactText(meta.response_preview)
+    || compactText(node.resultPreview)
+    || compactText(meta.result_json)
+  );
+};
+
+const DetailField = ({ label, value }: { label: string; value: string }) => (
+  <div className="min-w-0 border-l border-border/60 pl-3">
+    <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground/70">{label}</div>
+    <div className="mt-1 truncate text-sm font-medium text-foreground">{value || '--'}</div>
   </div>
 );
 
-const TokenPill = ({ children }: { children: React.ReactNode }) => (
-  <span className="inline-flex items-center rounded-full border border-border/60 bg-background/85 px-2.5 py-1 text-xs font-medium text-foreground shadow-sm">
-    {children}
-  </span>
-);
-
-const TokenListSection = ({
-  icon,
-  label,
-  items,
-}: {
-  icon?: React.ReactNode;
-  label: string;
-  items: string[];
-}) => (
-  <ContentSection icon={icon} label={label}>
-    <div className="flex flex-wrap gap-2">
-      {items.map((item) => (
-        <TokenPill key={item}>{item}</TokenPill>
-      ))}
-    </div>
-  </ContentSection>
-);
-
-const ContentSection = ({ icon, label, children }: { icon?: React.ReactNode; label: string; children: React.ReactNode }) => (
-  <div className="rounded-3xl border border-border/50 bg-card px-5 py-5 shadow-sm">
-    <div className="mb-3 flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">
-      {icon}
-      {label}
-    </div>
-    {children}
+const PreviewBlock = ({ label, children }: { label: string; children: string }) => (
+  <div className="min-w-0">
+    <div className="mb-2 text-[10px] uppercase tracking-[0.16em] text-muted-foreground/70">{label}</div>
+    <pre className="max-h-56 overflow-auto rounded-md border border-border/50 bg-background/80 p-3 text-xs leading-6 text-muted-foreground whitespace-pre-wrap break-words">
+      {children}
+    </pre>
   </div>
 );
 
-const PreBlock = ({ children }: { children: string }) => (
-  <pre className="overflow-x-auto rounded-2xl border border-border/50 bg-background/80 p-4 text-xs leading-6 text-muted-foreground whitespace-pre-wrap break-words">
-    {children}
-  </pre>
-);
+const TokenList = ({ label, items }: { label: string; items: string[] }) => {
+  if (!items.length) return null;
+  return (
+    <div>
+      <div className="mb-2 text-[10px] uppercase tracking-[0.16em] text-muted-foreground/70">{label}</div>
+      <div className="flex flex-wrap gap-1.5">
+        {items.map((item) => (
+          <span key={item} className="rounded-full border border-border/60 bg-background/80 px-2 py-0.5 text-xs text-foreground">
+            {item}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const NodeDetails = ({ node }: { node: NormalizedExecutionTraceNode }) => {
+  const { t, i18n } = useTranslation('app');
+  const meta = asRecord(node.metadata);
+  const taskHint = asRecord(meta.task_hint);
+  const routerTools = asStringArray(meta.router_tools);
+  const selectedTools = asStringArray(meta.selected_tools);
+  const input = inputPreview(node) || t('chat.trace.previewUnavailable');
+  const output = outputPreview(node) || t('chat.trace.previewUnavailable');
+  const metadataDefaultOpen = node.status === 'failed' || node.status === 'running';
+  const hasModelInfo = hasValue(meta.model) || hasValue(meta.provider);
+  const hasTokenInfo = Boolean(meta.input_tokens || meta.output_tokens || meta.reasoning_tokens);
+  const hasRouteReason = hasValue(meta.route_reason);
+
+  return (
+    <div className="border-b border-border/35 border-t border-border/40 bg-muted/20 px-5 py-5">
+      <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <DetailField label={t('chat.trace.startedAt')} value={formatTraceTime(node.startedAt, i18n.language)} />
+        <DetailField label={t('chat.trace.endedAt')} value={formatTraceTime(node.endedAt, i18n.language)} />
+        <DetailField label={t('chat.trace.nodeDuration')} value={nodeDuration(node)} />
+        <DetailField label={t('chat.trace.executionTime')} value={formatMilliseconds(meta.execution_time || meta.duration_ms)} />
+        {hasModelInfo && <DetailField label={t('chat.trace.model')} value={String(meta.model || '--')} />}
+        {hasValue(meta.provider) && <DetailField label={t('chat.trace.provider')} value={String(meta.provider || '--')} />}
+        {hasTokenInfo && (
+          <DetailField
+            label={t('chat.trace.summaryTokens')}
+            value={formatTokenCount(Number(meta.input_tokens || 0), Number(meta.output_tokens || 0), Number(meta.reasoning_tokens || 0))}
+          />
+        )}
+        {hasValue(meta.intent_label) && <DetailField label={t('chat.trace.intentLabel')} value={String(meta.intent_label)} />}
+        {hasValue(meta.execution_mode) && <DetailField label={t('chat.trace.executionMode')} value={String(meta.execution_mode)} />}
+        {hasValue(taskHint.task_intent) && <DetailField label={t('chat.trace.taskIntent')} value={String(taskHint.task_intent)} />}
+        {hasValue(taskHint.domain) && <DetailField label={t('chat.trace.taskDomain')} value={String(taskHint.domain)} />}
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <PreviewBlock label={t('chat.trace.input')}>{input}</PreviewBlock>
+        <PreviewBlock label={t('chat.trace.output')}>{output}</PreviewBlock>
+      </div>
+
+      {(hasRouteReason || routerTools.length || selectedTools.length || node.error) && (
+        <div className="mt-4 grid gap-4 xl:grid-cols-2">
+          {hasRouteReason && <PreviewBlock label={t('chat.trace.routeReason')}>{String(meta.route_reason)}</PreviewBlock>}
+          {node.error && <PreviewBlock label={t('chat.trace.error')}>{node.error}</PreviewBlock>}
+          <TokenList label={t('chat.trace.routerTools')} items={routerTools} />
+          <TokenList label={t('chat.trace.selectedTools')} items={selectedTools} />
+        </div>
+      )}
+
+      <details className="mt-4 rounded-md border border-border/50 bg-background/70" open={metadataDefaultOpen}>
+        <summary className="flex cursor-pointer select-none items-center gap-2 px-4 py-3 text-[10px] uppercase tracking-[0.16em] text-muted-foreground/70">
+          <Clock3 className="h-3.5 w-3.5" />
+          {t('chat.trace.metadata')}
+        </summary>
+        <div className="border-t border-border/40 p-3">
+          <pre className="max-h-72 overflow-auto text-xs leading-6 text-muted-foreground whitespace-pre-wrap break-words">
+            {stringifyStructuredValue(node.metadata)}
+          </pre>
+        </div>
+      </details>
+    </div>
+  );
+};
 
 const ContinuationNotice = ({ children }: { children: React.ReactNode }) => (
-  <div className="rounded-2xl border border-amber-300/40 bg-amber-50/80 px-4 py-3 text-sm text-amber-950 shadow-sm dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
+  <div className="rounded-md border border-amber-300/40 bg-amber-50/80 px-4 py-3 text-sm text-amber-950 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
     {children}
   </div>
 );
@@ -181,89 +307,32 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
   title,
   subtitle,
 }) => {
-  const { t, i18n } = useTranslation('app');
-  const [selectedNode, setSelectedNode] = React.useState<NormalizedExecutionTraceNode | null>(null);
+  const { t } = useTranslation('app');
+  const [expandedNodeIds, setExpandedNodeIds] = React.useState<Set<string>>(() => new Set());
   const displayRoot = React.useMemo(
     () => (snapshot?.root ? flattenPlanningNodeForDisplay(snapshot.root) : null),
     [snapshot],
   );
-  const selectedMetadata = React.useMemo(
-    () => asRecord(selectedNode?.metadata),
-    [selectedNode],
+  const rows = React.useMemo(
+    () => (displayRoot ? flattenTraceRows(displayRoot) : []),
+    [displayRoot],
   );
-  const selectedInput = React.useMemo(
-    () => {
-      const input = asRecord(selectedMetadata.input);
-      if (Object.keys(input).length > 0) {
-        return input;
-      }
-      return asRecord(selectedMetadata.arguments);
-    },
-    [selectedMetadata],
-  );
-  const selectedOutput = React.useMemo(
-    () => asRecord(selectedMetadata.output),
-    [selectedMetadata],
-  );
-  const selectedMetrics = React.useMemo(
-    () => {
-      const metrics = asRecord(selectedMetadata.metrics);
-      const canonicalMetrics = {
-        provider: selectedMetadata.provider,
-        model: selectedMetadata.model,
-        input_tokens: selectedMetadata.input_tokens,
-        output_tokens: selectedMetadata.output_tokens,
-        reasoning_tokens: selectedMetadata.reasoning_tokens,
-        cache_read_tokens: selectedMetadata.cache_read_tokens,
-        cache_write_tokens: selectedMetadata.cache_write_tokens,
-        thinking_enabled: selectedMetadata.thinking_enabled,
-      };
-      return Object.fromEntries(
-        Object.entries({
-          ...metrics,
-          ...canonicalMetrics,
-        }).filter(([, value]) => value !== undefined && value !== null && value !== '')
-      );
-    },
-    [selectedMetadata],
-  );
-  const selectedTaskHint = React.useMemo(
-    () => asRecord(selectedMetadata.task_hint),
-    [selectedMetadata],
-  );
-  const selectedTools = React.useMemo(
-    () => asStringArray(selectedMetadata.selected_tools),
-    [selectedMetadata],
-  );
-  const routerTools = React.useMemo(
-    () => asStringArray(selectedMetadata.router_tools),
-    [selectedMetadata],
-  );
-  const recommendedTools = React.useMemo(
-    () => asRecommendedTools(selectedMetadata.recommended_tools),
-    [selectedMetadata],
-  );
-
-  const nodeDurationValue = React.useMemo(() => (
-    Number(selectedMetadata.duration_ms || 0) > 0
-      ? formatMilliseconds(selectedMetadata.duration_ms)
-      : formatDuration(
-        selectedNode?.startedAt && selectedNode.endedAt
-          ? Math.max(0, selectedNode.endedAt - selectedNode.startedAt)
-          : 0,
-      )
-  ), [selectedMetadata.duration_ms, selectedNode?.endedAt, selectedNode?.startedAt]);
-  const executionTimeValue = React.useMemo(() => (
-    Number(selectedMetadata.duration_ms || 0) > 0
-      ? formatMilliseconds(selectedMetadata.duration_ms)
-      : formatExecutionTime(selectedMetadata.execution_time)
-  ), [selectedMetadata.duration_ms, selectedMetadata.execution_time]);
 
   React.useEffect(() => {
-    if (displayRoot) {
-      setSelectedNode(displayRoot.children[0] || displayRoot);
-    }
-  }, [displayRoot]);
+    setExpandedNodeIds(new Set());
+  }, [snapshot?.turnId]);
+
+  const toggleNode = React.useCallback((nodeId: string) => {
+    setExpandedNodeIds((current) => {
+      const next = new Set(current);
+      if (next.has(nodeId)) {
+        next.delete(nodeId);
+      } else {
+        next.add(nodeId);
+      }
+      return next;
+    });
+  }, []);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -272,7 +341,7 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
         className="trace-theme-surface my-3 mr-2 flex h-[calc(100%-1.5rem)] w-[min(1180px,calc(100vw-72px))] max-w-[1180px] flex-col overflow-hidden rounded-3xl border border-border/60 bg-card p-0 shadow-2xl"
       >
         <SheetHeader className="border-b border-border/50 bg-muted/30 px-8 py-6">
-          <SheetTitle className="text-[28px] font-semibold tracking-[-0.04em] text-foreground">{title}</SheetTitle>
+          <SheetTitle className="text-[28px] font-semibold text-foreground">{title}</SheetTitle>
           <SheetDescription className="max-w-3xl pt-1 text-sm leading-6 text-muted-foreground">{subtitle}</SheetDescription>
         </SheetHeader>
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -313,6 +382,7 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
                   </div>
                 </div>
               )}
+
               <div className="grid shrink-0 grid-cols-2 gap-2 border-b border-border/40 bg-muted/30 px-8 py-3 xl:grid-cols-4">
                 <div className="rounded-xl border border-border/50 bg-card px-5 py-2.5 shadow-sm">
                   <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">{t('chat.trace.summaryStatus')}</div>
@@ -344,233 +414,66 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
                   </div>
                 </div>
               </div>
-              <div className="grid min-h-0 flex-1 gap-0 overflow-hidden xl:grid-cols-[minmax(320px,0.74fr)_minmax(0,1.26fr)]">
-                <div className="min-h-0 min-w-0 overflow-y-auto border-r border-border/40 bg-muted/20 px-6 py-6 xl:px-7">
-                  {displayRoot && (
-                    <TraceTree node={displayRoot} selectedNodeId={selectedNode?.id || null} onSelectNode={setSelectedNode} />
-                  )}
-                </div>
-                <div className="min-h-0 min-w-0 overflow-y-auto bg-muted/30 px-6 py-6 pb-10 xl:px-7">
-                  {selectedNode ? (
-                    <div className="space-y-4">
-                      <div className="rounded-3xl border border-border/50 bg-card px-6 py-5 shadow-sm">
-                        <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">{t('chat.trace.selected')}</div>
-                        <div className="mt-2 flex flex-wrap items-center gap-3">
-                          <div className="text-[24px] font-semibold tracking-[-0.04em] text-foreground">
-                            {formatTraceLabel(selectedNode.label, selectedNode.kind, t)}
+
+              <div className="min-h-0 flex-1 overflow-auto bg-muted/20 px-6 py-5 xl:px-8">
+                <div className="min-w-[760px] overflow-hidden rounded-xl border border-border/50 bg-card shadow-sm">
+                  <div className="grid grid-cols-[minmax(0,1fr)_112px_132px_56px] border-b border-border/50 bg-muted/35 px-4 py-2 text-[10px] uppercase tracking-[0.16em] text-muted-foreground/70">
+                    <div>{t('chat.trace.tableNode')}</div>
+                    <div>{t('chat.trace.tableDuration')}</div>
+                    <div>{t('chat.trace.tableStatus')}</div>
+                    <div className="text-right">{t('chat.trace.tableAction')}</div>
+                  </div>
+                  {rows.map(({ node, depth }) => {
+                    const expanded = expandedNodeIds.has(node.id);
+                    const subtitle = nodeSubtitle(node);
+                    return (
+                      <React.Fragment key={node.id}>
+                        <div className={cn(
+                          'grid grid-cols-[minmax(0,1fr)_112px_132px_56px] items-center border-b border-border/35 px-4 py-3 transition-colors',
+                          expanded ? 'bg-muted/30' : 'hover:bg-muted/20',
+                        )}>
+                          <div className="min-w-0">
+                            <div className="flex min-w-0 items-center gap-3" style={{ paddingLeft: `${depth * 22}px` }}>
+                              {depth > 0 && <span className="h-8 w-px shrink-0 bg-border/70" />}
+                              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border/60 bg-background text-muted-foreground">
+                                {kindIcon(node.kind)}
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex min-w-0 items-center gap-2">
+                                  <span className="truncate text-sm font-semibold text-foreground">{nodeTitle(node, t)}</span>
+                                  <span className="shrink-0 rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground">
+                                    {formatTraceKind(node.kind, t)}
+                                  </span>
+                                </div>
+                                {subtitle && (
+                                  <div className="mt-1 truncate text-xs text-muted-foreground">{subtitle}</div>
+                                )}
+                              </div>
+                            </div>
                           </div>
-                          <div className="rounded-full border border-border/60 bg-muted/35 px-3 py-1 text-xs capitalize text-muted-foreground">
-                            {formatTraceKind(selectedNode.kind, t)} · {formatTraceStatus(selectedNode.status, t)}
+                          <div className="text-sm font-medium text-foreground">{nodeDuration(node)}</div>
+                          <div>
+                            <span className={cn('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs', statusTone[node.status] || statusTone.pending)}>
+                              {statusIcon(node.status)}
+                              {formatTraceStatus(node.status, t)}
+                            </span>
+                          </div>
+                          <div className="flex justify-end">
+                            <button
+                              type="button"
+                              onClick={() => toggleNode(node.id)}
+                              aria-expanded={expanded}
+                              aria-label={expanded ? t('chat.trace.collapseNode') : t('chat.trace.expandNode')}
+                              className="flex h-8 w-8 items-center justify-center rounded-md border border-border/60 bg-background text-muted-foreground transition-colors hover:text-foreground"
+                            >
+                              {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                            </button>
                           </div>
                         </div>
-                      </div>
-
-                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                        <DetailBlock
-                          label={t('chat.trace.startedAt')}
-                          value={formatTraceTime(selectedNode.startedAt, i18n.language)}
-                        />
-                        <DetailBlock
-                          label={t('chat.trace.endedAt')}
-                          value={formatTraceTime(selectedNode.endedAt, i18n.language)}
-                        />
-                        <DetailBlock
-                          label={t('chat.trace.nodeDuration')}
-                          value={nodeDurationValue}
-                        />
-                        <DetailBlock
-                          label={t('chat.trace.executionTime')}
-                          value={executionTimeValue}
-                        />
-                      </div>
-
-                      {/* -- LLM-specific detail -- */}
-                      {(selectedNode.kind === 'llm' || selectedNode.kind === 'llm_call') && (
-                        <>
-                          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                            <DetailBlock label={t('chat.trace.model')} value={String(selectedMetrics.model || selectedMetadata.model || '--')} />
-                            <DetailBlock label={t('chat.trace.provider')} value={String(selectedMetrics.provider || selectedMetadata.provider || '--')} />
-                            <DetailBlock label={t('chat.trace.inputTokens')} value={formatCount(selectedMetrics.input_tokens)} />
-                            <DetailBlock label={t('chat.trace.outputTokens')} value={formatCount(selectedMetrics.output_tokens)} />
-                          </div>
-                          {(Number(selectedMetrics.reasoning_tokens) > 0 || selectedMetrics.thinking_enabled) && (
-                            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                              <DetailBlock label={t('chat.trace.reasoningTokens')} value={formatCount(selectedMetrics.reasoning_tokens)} />
-                              <DetailBlock label={t('chat.trace.thinking')} value={formatBoolean(selectedMetrics.thinking_enabled, t('chat.trace.enabled'), t('chat.trace.disabled'))} />
-                            </div>
-                          )}
-                          {selectedMetadata.request_preview && (
-                            <ContentSection icon={<MessageSquare className="h-3.5 w-3.5" />} label={t('chat.trace.requestPreview')}>
-                              <PreBlock>{String(selectedMetadata.request_preview)}</PreBlock>
-                            </ContentSection>
-                          )}
-                          {selectedMetadata.response_preview && (
-                            <ContentSection icon={<MessageSquare className="h-3.5 w-3.5" />} label={t('chat.trace.responsePreview')}>
-                              <PreBlock>{String(selectedMetadata.response_preview)}</PreBlock>
-                            </ContentSection>
-                          )}
-                          {selectedMetadata.thinking_content && (
-                            <ContentSection icon={<Brain className="h-3.5 w-3.5" />} label={t('chat.trace.thinkingContent')}>
-                              <PreBlock>{String(selectedMetadata.thinking_content)}</PreBlock>
-                            </ContentSection>
-                          )}
-                        </>
-                      )}
-
-                      {/* -- Tool-specific detail -- */}
-                      {(selectedNode.kind === 'tool' || selectedNode.kind === 'tool_call') && (
-                        <>
-                          <div className="grid gap-3 md:grid-cols-2">
-                            <DetailBlock label={t('chat.trace.toolName')} value={String(selectedMetadata.tool_name || selectedNode.label || '--')} />
-                            <DetailBlock label={t('chat.trace.executionTime')} value={executionTimeValue} />
-                          </div>
-                          {selectedMetadata.tool_arguments && (
-                            <ContentSection icon={<Hammer className="h-3.5 w-3.5" />} label={t('chat.trace.toolArguments')}>
-                              <PreBlock>{stringifyStructuredValue(selectedMetadata.tool_arguments)}</PreBlock>
-                            </ContentSection>
-                          )}
-                          {selectedMetadata.result_json && (
-                            <ContentSection icon={<Hourglass className="h-3.5 w-3.5" />} label={t('chat.trace.toolResult')}>
-                              <PreBlock>{stringifyStructuredValue(selectedMetadata.result_json)}</PreBlock>
-                            </ContentSection>
-                          )}
-                          {!selectedMetadata.result_json && selectedNode.resultPreview && (
-                            <ContentSection icon={<Hourglass className="h-3.5 w-3.5" />} label={t('chat.trace.result')}>
-                              <div className="rounded-2xl border border-border/50 bg-background/80 px-4 py-4 text-sm leading-7 text-foreground">
-                                {selectedNode.resultPreview}
-                              </div>
-                            </ContentSection>
-                          )}
-                        </>
-                      )}
-
-                      {/* -- Intent-specific detail -- */}
-                      {(selectedNode.kind === 'intent' || selectedNode.kind === 'intent_resolution') && (
-                        <>
-                          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                            {!!selectedMetadata.intent_label && <DetailBlock label={t('chat.trace.intentLabel')} value={String(selectedMetadata.intent_label)} />}
-                            {!!selectedMetadata.execution_mode && <DetailBlock label={t('chat.trace.executionMode')} value={String(selectedMetadata.execution_mode)} />}
-                            {!!selectedTaskHint.task_intent && <DetailBlock label={t('chat.trace.taskIntent')} value={String(selectedTaskHint.task_intent)} />}
-                            {!!selectedTaskHint.operation && <DetailBlock label={t('chat.trace.taskOperation')} value={String(selectedTaskHint.operation)} />}
-                          </div>
-                          {!!selectedTaskHint.domain && (
-                            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                              <DetailBlock label={t('chat.trace.taskDomain')} value={String(selectedTaskHint.domain)} />
-                            </div>
-                          )}
-                          {(Number(selectedMetrics.input_tokens) > 0 || Number(selectedMetrics.output_tokens) > 0) && (
-                            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                              <DetailBlock label={t('chat.trace.model')} value={String(selectedMetrics.model || selectedMetadata.model || '--')} />
-                              <DetailBlock label={t('chat.trace.provider')} value={String(selectedMetrics.provider || selectedMetadata.provider || '--')} />
-                              <DetailBlock label={t('chat.trace.inputTokens')} value={formatCount(selectedMetrics.input_tokens)} />
-                              <DetailBlock label={t('chat.trace.outputTokens')} value={formatCount(selectedMetrics.output_tokens)} />
-                            </div>
-                          )}
-                          {selectedMetadata.route_reason && (
-                            <ContentSection label={t('chat.trace.routeReason')}>
-                              <PreBlock>{String(selectedMetadata.route_reason)}</PreBlock>
-                            </ContentSection>
-                          )}
-                          {!!routerTools.length && (
-                            <TokenListSection
-                              icon={<Search className="h-3.5 w-3.5" />}
-                              label={t('chat.trace.routerTools')}
-                              items={routerTools}
-                            />
-                          )}
-                          {!!selectedTools.length && (
-                            <TokenListSection
-                              icon={<Hammer className="h-3.5 w-3.5" />}
-                              label={t('chat.trace.selectedTools')}
-                              items={selectedTools}
-                            />
-                          )}
-                          {!!recommendedTools.length && (
-                            <ContentSection icon={<Brain className="h-3.5 w-3.5" />} label={t('chat.trace.recommendedTools')}>
-                              <div className="space-y-3">
-                                {recommendedTools.map((item) => {
-                                  const chips = [...item.domains, ...item.operations];
-                                  return (
-                                    <div key={`${item.priority ?? 'x'}:${item.tool}`} className="rounded-2xl border border-border/60 bg-background/85 px-4 py-3 shadow-sm">
-                                      <div className="flex flex-wrap items-center gap-2">
-                                        <div className="text-sm font-semibold text-foreground">{item.tool}</div>
-                                        {item.priority !== null && (
-                                          <span className="rounded-full border border-border/60 bg-muted/50 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                                            #{item.priority}
-                                          </span>
-                                        )}
-                                      </div>
-                                      {item.reason && (
-                                        <div className="mt-2 text-sm leading-6 text-foreground/85">{item.reason}</div>
-                                      )}
-                                      {!!chips.length && (
-                                        <div className="mt-3 flex flex-wrap gap-2">
-                                          {chips.map((chip) => (
-                                            <TokenPill key={`${item.tool}:${chip}`}>{chip}</TokenPill>
-                                          ))}
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </ContentSection>
-                          )}
-                        </>
-                      )}
-
-                      {/* -- Generic fallback for other kinds -- */}
-                      {selectedNode.kind !== 'llm' && selectedNode.kind !== 'llm_call' &&
-                       selectedNode.kind !== 'tool' && selectedNode.kind !== 'tool_call' &&
-                       selectedNode.kind !== 'intent' && selectedNode.kind !== 'intent_resolution' && (
-                        <>
-                          {selectedNode.resultPreview && (
-                            <ContentSection icon={<Hourglass className="h-3.5 w-3.5" />} label={t('chat.trace.result')}>
-                              <div className="rounded-2xl border border-border/50 bg-background/80 px-4 py-4 text-sm leading-7 text-foreground">
-                                {selectedNode.resultPreview}
-                              </div>
-                            </ContentSection>
-                          )}
-                          {!!Object.keys(selectedInput).length && (
-                            <ContentSection label={t('chat.trace.input')}>
-                              <PreBlock>{stringifyStructuredValue(selectedInput)}</PreBlock>
-                            </ContentSection>
-                          )}
-                          {!!Object.keys(selectedOutput).length && (
-                            <ContentSection label={t('chat.trace.output')}>
-                              <PreBlock>{stringifyStructuredValue(selectedOutput)}</PreBlock>
-                            </ContentSection>
-                          )}
-                          {!!Object.keys(selectedMetrics).length && (
-                            <ContentSection label={t('chat.trace.metrics')}>
-                              <PreBlock>{stringifyStructuredValue(selectedMetrics)}</PreBlock>
-                            </ContentSection>
-                          )}
-                        </>
-                      )}
-
-                      {selectedNode.error && (
-                        <div className="rounded-3xl border border-[hsl(var(--trace-error-border))] bg-[hsl(var(--trace-error-bg)/0.92)] px-5 py-5 shadow-sm">
-                          <div className="mb-3 text-[10px] uppercase tracking-[0.18em] text-[hsl(var(--trace-error-foreground)/0.82)]">{t('chat.trace.error')}</div>
-                          <div className="rounded-2xl border border-[hsl(var(--trace-error-border))] bg-card px-4 py-4 text-sm leading-7 text-[hsl(var(--trace-error-foreground))]">
-                            {selectedNode.error}
-                          </div>
-                        </div>
-                      )}
-
-                      <details className="rounded-3xl border border-border/50 bg-card shadow-sm">
-                        <summary className="cursor-pointer px-5 py-4 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70 flex items-center gap-2 select-none">
-                          <Clock3 className="h-3.5 w-3.5" />
-                          {t('chat.trace.metadata')}
-                        </summary>
-                        <div className="px-5 pb-5">
-                          <PreBlock>{JSON.stringify(selectedNode.metadata, null, 2)}</PreBlock>
-                        </div>
-                      </details>
-                    </div>
-                  ) : (
-                    <div className="text-sm text-muted-foreground">{t('chat.trace.noSelection')}</div>
-                  )}
+                        {expanded && <NodeDetails node={node} />}
+                      </React.Fragment>
+                    );
+                  })}
                 </div>
               </div>
             </>

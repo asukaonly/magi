@@ -13,6 +13,11 @@ from .....runtime_trace.span_publisher import publish_trace_span, resolve_event_
 from ..contracts import ChatRuntimeContext
 
 
+def _preview_text(value: Any, *, limit: int = 240) -> str | None:
+    text = " ".join(str(value or "").strip().split())
+    return text[:limit] or None
+
+
 class _IntentPostprocessHostProtocol(Protocol):
     _runtime_trace_store: Any
 
@@ -39,6 +44,7 @@ class _IntentPostprocessHostProtocol(Protocol):
         selected_tools: list[str],
         task_hint: Any,
         recommended_tools: list[dict[str, Any]],
+        llm_trace: dict[str, Any] | None = None,
     ) -> str: ...
 
     async def _ensure_turn_trace_started(
@@ -96,33 +102,25 @@ def _intent_resolution_attributes(
     router_tools = list(getattr(decision, "tools", []) or [])
     selected = list(selected_tools if selected_tools is not None else router_tools)
     selected_worker_type = (
-        str(
-            getattr(
-                getattr(decision, "orchestration_plan", None), "default_leaf_type", ""
-            )
-            or ""
-        )
+        str(getattr(getattr(decision, "orchestration_plan", None), "default_leaf_type", "") or "")
         or None
     )
     return {
         "intent": str(getattr(decision, "intent", "") or ""),
-        "execution_mode": host._normalize_mode(
-            getattr(decision, "execution_mode", None)
-        ),
+        "execution_mode": host._normalize_mode(getattr(decision, "execution_mode", None)),
         "route_reason": str(getattr(decision, "reasoning", "") or "") or None,
         "selected_tools_json": host._serialize_selected_tools_payload(
             router_tools=router_tools,
             selected_tools=selected,
             task_hint=(
-                task_hint
-                if task_hint is not None
-                else getattr(decision, "task_hint", None)
+                task_hint if task_hint is not None else getattr(decision, "task_hint", None)
             ),
             recommended_tools=list(
                 recommended_tools
                 if recommended_tools is not None
                 else (getattr(decision, "recommended_tools", []) or [])
             ),
+            llm_trace=getattr(decision, "llm_trace", None),
         ),
         "selected_worker_type": selected_worker_type,
     }
@@ -131,9 +129,7 @@ def _intent_resolution_attributes(
 class ChatPostprocessIntentMixin:
     """Persist intent-routing and selected-tool trace details."""
 
-    async def record_intent_resolution(
-        self, context: ChatRuntimeContext, decision: Any
-    ) -> None:
+    async def record_intent_resolution(self, context: ChatRuntimeContext, decision: Any) -> None:
         host = cast(_IntentPostprocessHostProtocol, self)
         latest_fact = context.latest_fact
         if host._runtime_trace_store is None or not isinstance(latest_fact, FactRecord):
@@ -162,6 +158,11 @@ class ChatPostprocessIntentMixin:
         span_id = host._build_span_id(turn_id, "intent_resolution")
         intent_preview = str(getattr(decision, "intent", "") or "")[:240] or None
         # intent_resolution sub-table row (subscriber writes trace_spans + trace_intent_resolutions)
+        attributes = _intent_resolution_attributes(decision=decision, host=host)
+        attributes["input_preview"] = _preview_text(context.latest_user_message)
+        attributes["output_preview"] = _preview_text(
+            f"{getattr(decision, 'intent', '')} / {host._normalize_mode(getattr(decision, 'execution_mode', None))}"
+        )
         await publish_trace_span(
             event_bus=bus,
             node_type="intent_resolution",
@@ -174,7 +175,7 @@ class ChatPostprocessIntentMixin:
             ended_at_ms=ended_at_ms,
             result_preview=intent_preview,
             turn_id=turn_id,
-            attributes=_intent_resolution_attributes(decision=decision, host=host),
+            attributes=attributes,
         )
         # Note: llm_call SpanCompleted is now published by provider_bridge
         # (see llm/provider_bridge/responses.py:_emit_usage_event). The intent
@@ -182,9 +183,7 @@ class ChatPostprocessIntentMixin:
         ux_plan = host._serialize_ux_plan(decision)
         await host._persist_turn_ux_plan(
             turn_id=turn_id,
-            execution_mode=host._normalize_mode(
-                getattr(decision, "execution_mode", None)
-            ),
+            execution_mode=host._normalize_mode(getattr(decision, "execution_mode", None)),
             ux_plan=ux_plan,
             updated_at_ms=ended_at_ms,
             run_id=context.session_run_id,
@@ -200,15 +199,9 @@ class ChatPostprocessIntentMixin:
             session_id=context.session_id,
             turn_id=turn_id,
             ux_plan=ux_plan,
-            message_id=(
-                turn_ux_message.message_id if turn_ux_message is not None else None
-            ),
-            message_kind=(
-                turn_ux_message.message_kind if turn_ux_message is not None else None
-            ),
-            timestamp_ms=(
-                turn_ux_message.created_at_ms if turn_ux_message is not None else None
-            ),
+            message_id=(turn_ux_message.message_id if turn_ux_message is not None else None),
+            message_kind=(turn_ux_message.message_kind if turn_ux_message is not None else None),
+            timestamp_ms=(turn_ux_message.created_at_ms if turn_ux_message is not None else None),
         )
 
     async def record_tool_selection(
@@ -228,6 +221,18 @@ class ChatPostprocessIntentMixin:
         span_id = host._build_span_id(turn_id, "intent_resolution")
         trace_id = host._build_trace_id(turn_id)
         now_ms = now_wall_ms()
+        attributes = _intent_resolution_attributes(
+            decision=decision,
+            host=host,
+            selected_tools=list(getattr(tool_selection, "tools", []) or []),
+            task_hint=getattr(tool_selection, "task_hint", None)
+            or getattr(decision, "task_hint", None),
+            recommended_tools=list(getattr(tool_selection, "recommended_tools", []) or []),
+        )
+        attributes["input_preview"] = _preview_text(context.latest_user_message)
+        attributes["output_preview"] = _preview_text(
+            f"{getattr(decision, 'intent', '')} / {host._normalize_mode(getattr(decision, 'execution_mode', None))}"
+        )
         await publish_trace_span(
             event_bus=bus,
             node_type="intent_resolution",
@@ -239,16 +244,7 @@ class ChatPostprocessIntentMixin:
             started_at_ms=now_ms,
             ended_at_ms=now_ms,
             turn_id=turn_id,
-            attributes=_intent_resolution_attributes(
-                decision=decision,
-                host=host,
-                selected_tools=list(getattr(tool_selection, "tools", []) or []),
-                task_hint=getattr(tool_selection, "task_hint", None)
-                or getattr(decision, "task_hint", None),
-                recommended_tools=list(
-                    getattr(tool_selection, "recommended_tools", []) or []
-                ),
-            ),
+            attributes=attributes,
         )
 
 

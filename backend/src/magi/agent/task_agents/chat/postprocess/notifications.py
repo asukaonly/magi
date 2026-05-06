@@ -164,6 +164,7 @@ class ChatRuntimeNotifier:
             "user_id": user_id,
             "session_id": session_id,
             "turn_id": turn_id,
+            "refresh_trace": True,
         }
         if trace_summary is not None:
             payload["trace_summary"] = trace_summary

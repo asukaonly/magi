@@ -45,6 +45,59 @@ def _coerce_thinking_depth(
     return ThinkingDepth.MEDIUM
 
 
+def _compact_trace_preview(value: Any, *, limit: int = 240) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    return " ".join(text.split())[:limit]
+
+
+def _build_request_preview(messages: List[Dict[str, Any]]) -> str:
+    for message in reversed(messages or []):
+        content = message.get("content") if isinstance(message, dict) else None
+        preview = _compact_trace_preview(content)
+        if preview:
+            return preview
+    return ""
+
+
+def _build_tool_call_preview(tool_calls: Any) -> str:
+    names: list[str] = []
+    for tool_call in list(tool_calls or []):
+        name = getattr(tool_call, "name", None)
+        if not name and isinstance(tool_call, dict):
+            name = tool_call.get("name")
+        text = str(name or "").strip()
+        if text:
+            names.append(text)
+    if not names:
+        return ""
+    return f"Requested tools: {', '.join(names)}"
+
+
+def _with_trace_previews(
+    event_context: Optional[Dict[str, Any]],
+    *,
+    messages: List[Dict[str, Any]],
+    response_text: Any = None,
+    tool_calls: Any = None,
+) -> Dict[str, Any]:
+    context = dict(event_context or {})
+    request_preview = _compact_trace_preview(
+        context.get("request_preview")
+    ) or _build_request_preview(messages)
+    response_preview = _compact_trace_preview(
+        context.get("response_preview")
+    ) or _compact_trace_preview(response_text) or _build_tool_call_preview(tool_calls)
+    if request_preview:
+        context.setdefault("request_preview", request_preview)
+        context.setdefault("input_preview", request_preview)
+    if response_preview:
+        context.setdefault("response_preview", response_preview)
+        context.setdefault("output_preview", response_preview)
+    return context
+
+
 class LLMProviderBridge:
     """Unified entrypoint for provider-specific LLM calls."""
 
@@ -74,6 +127,7 @@ class LLMProviderBridge:
         temperature: float = 0.7,
         json_mode: bool = False,
         timeout_seconds: Optional[float] = None,
+        event_context: Optional[Dict[str, Any]] = None,
         thinking_depth: ThinkingDepth | None = None,
     ) -> AsyncIterator[LLMStreamEvent]:
         return self._operations.chat_response_stream(
@@ -83,6 +137,7 @@ class LLMProviderBridge:
             temperature=temperature,
             json_mode=json_mode,
             timeout_seconds=timeout_seconds,
+            event_context=event_context,
             thinking_depth=thinking_depth,
         )
 
@@ -158,7 +213,12 @@ class LLMProviderBridge:
                 success=True,
                 latency_ms=latency_ms,
                 usage=provider_response.usage,
-                event_context=event_context,
+                event_context=_with_trace_previews(
+                    event_context,
+                    messages=messages,
+                    response_text=provider_response.content,
+                    tool_calls=provider_response.tool_calls,
+                ),
             )
             return provider_response
         except Exception as exc:
@@ -166,7 +226,7 @@ class LLMProviderBridge:
                 success=False,
                 latency_ms=int((time.time() - started_at) * 1000),
                 usage=None,
-                event_context=event_context,
+                event_context=_with_trace_previews(event_context, messages=messages),
                 error=str(exc),
             )
             raise
@@ -226,7 +286,12 @@ class LLMProviderBridge:
                 success=True,
                 latency_ms=latency_ms,
                 usage=provider_response.usage,
-                event_context=event_context,
+                event_context=_with_trace_previews(
+                    event_context,
+                    messages=messages,
+                    response_text=provider_response.content,
+                    tool_calls=provider_response.tool_calls,
+                ),
             )
             return provider_response
         except Exception as exc:
@@ -234,7 +299,7 @@ class LLMProviderBridge:
                 success=False,
                 latency_ms=int((time.time() - started_at) * 1000),
                 usage=None,
-                event_context=event_context,
+                event_context=_with_trace_previews(event_context, messages=messages),
                 error=str(exc),
             )
             raise
@@ -287,7 +352,12 @@ class LLMProviderBridge:
                 success=True,
                 latency_ms=latency_ms,
                 usage=result.provider_response.usage,
-                event_context=event_context,
+                event_context=_with_trace_previews(
+                    event_context,
+                    messages=messages,
+                    response_text=result.provider_response.content,
+                    tool_calls=result.provider_response.tool_calls,
+                ),
             )
             return result
         except Exception as exc:
@@ -295,7 +365,7 @@ class LLMProviderBridge:
                 success=False,
                 latency_ms=int((time.time() - started_at) * 1000),
                 usage=None,
-                event_context=event_context,
+                event_context=_with_trace_previews(event_context, messages=messages),
                 error=str(exc),
             )
             raise

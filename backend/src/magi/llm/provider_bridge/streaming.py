@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any, AsyncIterator, Dict, List, Optional, cast
 
 from ..streaming_events import LLMStreamEvent, emit_stream_event
@@ -9,6 +10,24 @@ from .streaming_core import ProviderBridgeStreamingHostProtocol, ThinkTagScrubbe
 from .tool_streaming import ProviderBridgeToolStreamingMixin
 from ...config.constants import DEFAULT_THINKING_TOKENS
 from ...config.models import ThinkingDepth
+from ...events.tracing import current_trace_context
+from ...runtime_trace import enrich_event_context_with_turn_trace
+
+
+def _compact_trace_preview(value: Any, *, limit: int = 240) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    return " ".join(text.split())[:limit]
+
+
+def _build_request_preview(messages: List[Dict[str, Any]]) -> str:
+    for message in reversed(messages or []):
+        content = message.get("content") if isinstance(message, dict) else None
+        preview = _compact_trace_preview(content)
+        if preview:
+            return preview
+    return ""
 
 
 class ProviderBridgeChatStreamingMixin:
@@ -22,12 +41,17 @@ class ProviderBridgeChatStreamingMixin:
         temperature: float = 0.7,
         json_mode: bool = False,
         timeout_seconds: Optional[float] = None,
+        event_context: Optional[Dict[str, Any]] = None,
         thinking_depth: ThinkingDepth | None = None,
     ) -> AsyncIterator[LLMStreamEvent]:
         """Streaming variant of chat_response()."""
         host = cast(ProviderBridgeStreamingHostProtocol, self)
+        event_context = enrich_event_context_with_turn_trace(event_context)
         depth = thinking_depth if thinking_depth is not None else ThinkingDepth.MEDIUM
+        started_at = time.time()
         usage_data: Any = None
+        usage_payload: dict[str, int] | None = None
+        response_preview_parts: list[str] = []
         if host.is_anthropic():
             api_messages = host._convert_messages_to_anthropic(messages)
             anthropic_kwargs: Dict[str, Any] = {
@@ -63,6 +87,7 @@ class ProviderBridgeChatStreamingMixin:
                         await emit_stream_event(event_payload)
                         yield event_payload
                     elif getattr(delta, "text", None):
+                        response_preview_parts.append(delta.text)
                         event_payload = LLMStreamEvent(kind="text_delta", text=delta.text)
                         await emit_stream_event(event_payload)
                         yield event_payload
@@ -80,7 +105,9 @@ class ProviderBridgeChatStreamingMixin:
                 await emit_stream_event(usage_event)
                 yield usage_event
         else:
-            full_messages = [{"role": "system", "content": system_prompt}] + host._convert_messages_to_openai(messages)
+            full_messages = [
+                {"role": "system", "content": system_prompt}
+            ] + host._convert_messages_to_openai(messages)
             chat_kwargs: Dict[str, Any] = {
                 "messages": full_messages,
                 "max_tokens": max_tokens,
@@ -104,9 +131,8 @@ class ProviderBridgeChatStreamingMixin:
                     delta = chunk.choices[0].delta
                     if delta is None:
                         continue
-                    reasoning_text = (
-                        getattr(delta, "reasoning_content", None)
-                        or getattr(delta, "reasoning", None)
+                    reasoning_text = getattr(delta, "reasoning_content", None) or getattr(
+                        delta, "reasoning", None
                     )
                     if reasoning_text:
                         event_payload = LLMStreamEvent(kind="reasoning_delta", text=reasoning_text)
@@ -116,10 +142,13 @@ class ProviderBridgeChatStreamingMixin:
                     if content:
                         visible, reasoning_leak = scrubber.feed(content)
                         if reasoning_leak:
-                            event_payload = LLMStreamEvent(kind="reasoning_delta", text=reasoning_leak)
+                            event_payload = LLMStreamEvent(
+                                kind="reasoning_delta", text=reasoning_leak
+                            )
                             await emit_stream_event(event_payload)
                             yield event_payload
                         if visible:
+                            response_preview_parts.append(visible)
                             event_payload = LLMStreamEvent(kind="text_delta", text=visible)
                             await emit_stream_event(event_payload)
                             yield event_payload
@@ -131,6 +160,7 @@ class ProviderBridgeChatStreamingMixin:
                     await emit_stream_event(event_payload)
                     yield event_payload
                 if tail_visible:
+                    response_preview_parts.append(tail_visible)
                     event_payload = LLMStreamEvent(kind="text_delta", text=tail_visible)
                     await emit_stream_event(event_payload)
                     yield event_payload
@@ -152,13 +182,33 @@ class ProviderBridgeChatStreamingMixin:
                         await emit_stream_event(event_payload)
                         yield event_payload
                     if visible:
+                        response_preview_parts.append(visible)
                         event_payload = LLMStreamEvent(kind="text_delta", text=visible)
                         await emit_stream_event(event_payload)
                         yield event_payload
+        if current_trace_context() is not None or event_context.get("trace_id"):
+            event_context = dict(event_context or {})
+            request_preview = _compact_trace_preview(
+                event_context.get("request_preview")
+            ) or _build_request_preview(messages)
+            response_preview = _compact_trace_preview(
+                event_context.get("response_preview")
+            ) or _compact_trace_preview("".join(response_preview_parts))
+            if request_preview:
+                event_context.setdefault("request_preview", request_preview)
+                event_context.setdefault("input_preview", request_preview)
+            if response_preview:
+                event_context.setdefault("response_preview", response_preview)
+                event_context.setdefault("output_preview", response_preview)
+            await host._emit_usage_event(
+                success=True,
+                latency_ms=int((time.time() - started_at) * 1000),
+                usage=usage_payload,
+                event_context=event_context,
+            )
         done_event = LLMStreamEvent(kind="done")
         await emit_stream_event(done_event)
         yield done_event
-
 
 
 __all__ = [

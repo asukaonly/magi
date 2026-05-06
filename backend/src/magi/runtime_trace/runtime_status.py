@@ -57,22 +57,28 @@ class RuntimeStatusPersistenceMixin:
                 user_id,
                 session_id,
                 turn_id,
+                run_id,
+                run_revision,
                 payload_json,
                 created_at_ms
-            ) VALUES (?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record.channel,
                 record.user_id,
                 record.session_id,
                 record.turn_id,
+                record.run_id,
+                record.run_revision,
                 record.payload_json,
                 record.created_at_ms or self._now_ms(),
             ),
         )
         return int(cursor.lastrowid)
 
-    async def list_notifications(self, *, after_id: int, limit: int = 50) -> list[RuntimeNotificationRecord]:
+    async def list_notifications(
+        self, *, after_id: int, limit: int = 50
+    ) -> list[RuntimeNotificationRecord]:
         await self.initialize()
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             db.row_factory = aiosqlite.Row
@@ -94,6 +100,8 @@ class RuntimeStatusPersistenceMixin:
                 user_id=str(row["user_id"]),
                 session_id=str(row["session_id"]),
                 turn_id=str(row["turn_id"]) if row["turn_id"] is not None else None,
+                run_id=str(row["run_id"]) if row["run_id"] is not None else None,
+                run_revision=int(row["run_revision"] or 0),
                 payload_json=str(row["payload_json"]),
                 created_at_ms=int(row["created_at_ms"] or 0),
             )
