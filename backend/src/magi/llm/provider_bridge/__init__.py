@@ -74,6 +74,7 @@ class LLMProviderBridge:
         temperature: float = 0.7,
         json_mode: bool = False,
         timeout_seconds: Optional[float] = None,
+        event_context: Optional[Dict[str, Any]] = None,
         thinking_depth: ThinkingDepth | None = None,
     ) -> AsyncIterator[LLMStreamEvent]:
         return self._operations.chat_response_stream(
@@ -83,6 +84,7 @@ class LLMProviderBridge:
             temperature=temperature,
             json_mode=json_mode,
             timeout_seconds=timeout_seconds,
+            event_context=event_context,
             thinking_depth=thinking_depth,
         )
 

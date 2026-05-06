@@ -1,14 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { applyRealtimeStoreProjection } from '@/realtime/store-projection';
+import { useChatTraceStore } from '@/stores/chat-trace';
 import { useConversationStore } from '@/stores/conversation-store';
 
 describe('conversation store', () => {
   beforeEach(() => {
     useConversationStore.getState().reset();
+    useChatTraceStore.getState().reset();
   });
 
   afterEach(() => {
     useConversationStore.getState().reset();
+    useChatTraceStore.getState().reset();
   });
 
   it('increments unread count for inactive sessions on agent response', () => {
@@ -72,6 +75,21 @@ describe('conversation store', () => {
       content: 'hello from seven',
       personaId: 'persona-seven',
     }));
+  });
+
+  it('accepts trace update invalidations without summaries', () => {
+    const projected = applyRealtimeStoreProjection({
+      event: 'execution_trace_update',
+      data: {
+        session_id: 'session-a',
+        turn_id: 'turn-a',
+        refresh_trace: true,
+      },
+    });
+
+    expect(projected).toBe(true);
+    expect(useChatTraceStore.getState().summaries).toEqual({});
+    expect(useConversationStore.getState().messagesBySession).toEqual({});
   });
 
   it('preserves persona identity when later realtime updates omit it', () => {

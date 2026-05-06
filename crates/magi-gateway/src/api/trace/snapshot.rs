@@ -42,8 +42,17 @@ pub(in crate::api) fn build_trace_snapshot(
     let spans = load_trace_spans(&conn, &trace_id);
     let llm_calls = load_detail_rows(&conn, "trace_llm_calls", &trace_id);
     let tool_calls = load_detail_rows(&conn, "trace_tools", &trace_id);
+    let intent_resolutions = load_detail_rows(&conn, "trace_intent_resolutions", &trace_id);
 
-    let snapshot = assemble_snapshot(user_id, session_id, &turn, &spans, &llm_calls, &tool_calls);
+    let snapshot = assemble_snapshot(
+        user_id,
+        session_id,
+        &turn,
+        &spans,
+        &llm_calls,
+        &tool_calls,
+        &intent_resolutions,
+    );
     json!({
         "success": true,
         "user_id": user_id,
@@ -60,6 +69,7 @@ fn assemble_snapshot(
     spans: &[HashMap<String, Value>],
     llm_calls: &[HashMap<String, Value>],
     tool_calls: &[HashMap<String, Value>],
+    intent_resolutions: &[HashMap<String, Value>],
 ) -> Value {
     let turn_id = turn.get("turn_id").and_then(|v| v.as_str()).unwrap_or("");
     let trace_id = turn.get("trace_id").and_then(|v| v.as_str()).unwrap_or("");
@@ -95,6 +105,14 @@ fn assemble_snapshot(
                 .map(|sid| (sid, tc))
         })
         .collect();
+    let intent_by_span: HashMap<&str, &HashMap<String, Value>> = intent_resolutions
+        .iter()
+        .filter_map(|ir| {
+            ir.get("span_id")
+                .and_then(|v| v.as_str())
+                .map(|sid| (sid, ir))
+        })
+        .collect();
 
     let mut node_by_id: HashMap<String, Value> = HashMap::new();
     let mut children_by_parent: HashMap<Option<String>, Vec<String>> = HashMap::new();
@@ -112,6 +130,7 @@ fn assemble_snapshot(
             span,
             llm_by_span.get(span_id.as_str()).copied(),
             tool_by_span.get(span_id.as_str()).copied(),
+            intent_by_span.get(span_id.as_str()).copied(),
         );
         node_by_id.insert(span_id.clone(), node);
 
@@ -183,6 +202,9 @@ fn assemble_snapshot(
     });
 
     let (active, completed, failed) = count_steps_in_children(&top_level);
+    let total_input_tokens = sum_metric(llm_calls, "input_tokens");
+    let total_output_tokens = sum_metric(llm_calls, "output_tokens");
+    let total_reasoning_tokens = sum_metric(llm_calls, "reasoning_tokens");
     let duration = match (started_at, ended_at) {
         (Some(started), Some(ended)) => (ended - started).max(0.0),
         _ => 0.0,
@@ -215,6 +237,9 @@ fn assemble_snapshot(
         "completed_steps": completed,
         "failed_steps": failed,
         "duration_seconds": (duration * 1000.0).round() / 1000.0,
+        "total_input_tokens": total_input_tokens,
+        "total_output_tokens": total_output_tokens,
+        "total_reasoning_tokens": total_reasoning_tokens,
         "trace_available": trace_available,
         "orchestration_id": opt_str(turn.get("orchestration_id").unwrap_or(&Value::Null)),
         "plan_summary": null,
@@ -240,4 +265,10 @@ fn assemble_snapshot(
         "summary": summary,
         "root": root,
     })
+}
+
+fn sum_metric(rows: &[HashMap<String, Value>], key: &str) -> i64 {
+    rows.iter()
+        .map(|row| row.get(key).and_then(|v| v.as_i64()).unwrap_or(0))
+        .sum()
 }

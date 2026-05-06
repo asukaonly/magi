@@ -349,29 +349,49 @@ class ProviderBridgeResponseMixin:
         }
         provider_response.metadata = metadata
 
+    @staticmethod
+    def _usage_int(usage: ProviderUsage | dict[str, Any] | None, *keys: str) -> int:
+        if usage is None:
+            return 0
+        for key in keys:
+            value = usage.get(key) if isinstance(usage, dict) else getattr(usage, key, None)
+            if value is None:
+                continue
+            if not isinstance(value, (int, float, str)):
+                continue
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                continue
+        return 0
+
     async def _emit_usage_event(
         self,
         *,
         success: bool,
         latency_ms: int,
-        usage: ProviderUsage | None,
+        usage: ProviderUsage | dict[str, Any] | None,
         event_context: dict[str, Any] | None,
         error: str | None = None,
     ) -> None:
         """Publish a SpanCompleted(node_type='llm_call') event for this LLM call."""
         from magi.runtime_trace.span_publisher import publish_trace_span, resolve_event_bus
+        from magi.runtime_trace import enrich_event_context_with_turn_trace
         from magi.events.tracing import current_trace_context
         from magi.events.domain_payloads import ToolError
 
-        context = dict(event_context or {})
+        context = enrich_event_context_with_turn_trace(event_context)
         request_id = str(context.get("request_id") or uuid.uuid4().hex[:8])
         provider = self._provider_name() or type(self.llm).__name__
         model = str(getattr(self.llm, "model_name", "unknown"))
         request_kind = str(context.get("request_kind") or "chat")
 
-        prompt_tokens = int(usage.prompt_tokens if usage else 0)
-        completion_tokens = int(usage.completion_tokens if usage else 0)
-        total_tokens = int(usage.total_tokens if usage else 0)
+        prompt_tokens = self._usage_int(usage, "prompt_tokens", "input_tokens")
+        completion_tokens = self._usage_int(usage, "completion_tokens", "output_tokens")
+        total_tokens = self._usage_int(usage, "total_tokens") or prompt_tokens + completion_tokens
+        reasoning_tokens = self._usage_int(usage, "reasoning_tokens")
+        cache_read_tokens = self._usage_int(usage, "cache_read_tokens")
+        cache_write_tokens = self._usage_int(usage, "cache_write_tokens")
 
         ended_at = time.time()
         started_at = ended_at - (latency_ms / 1000.0)
@@ -383,8 +403,12 @@ class ProviderBridgeResponseMixin:
             error_obj = ToolError(type="LLMError", message=str(error)[:1000])
 
         ctx = current_trace_context()
-        trace_id = ctx.trace_id if ctx is not None else ""
-        parent_span_id = ctx.span_id if ctx is not None else None
+        trace_id = ctx.trace_id if ctx is not None else str(context.get("trace_id") or "")
+        parent_span_id = (
+            ctx.span_id
+            if ctx is not None
+            else str(context.get("parent_span_id") or "").strip() or None
+        )
 
         try:
             await publish_trace_span(
@@ -405,10 +429,16 @@ class ProviderBridgeResponseMixin:
                     "request_kind": request_kind,
                     "prompt_tokens": prompt_tokens,
                     "completion_tokens": completion_tokens,
+                    "input_tokens": prompt_tokens,
+                    "output_tokens": completion_tokens,
                     "total_tokens": total_tokens,
+                    "reasoning_tokens": reasoning_tokens,
+                    "cache_read_tokens": cache_read_tokens,
+                    "cache_write_tokens": cache_write_tokens,
                     "usage_available": usage is not None,
                     "correlation_id": context.get("correlation_id"),
                     "session_id": context.get("session_id"),
+                    "turn_id": context.get("turn_id"),
                     "agent_id": context.get("agent_id"),
                 },
             )

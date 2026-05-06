@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from typing import Any, Dict, Optional, Protocol, cast
 
@@ -139,6 +140,12 @@ class WorkerPublicationMixin:
         turn_id = str(payload.get("turn_id") or "").strip() or None
         if not user_id or not session_id or not turn_id:
             return
+        notification_payload = {
+            "user_id": user_id,
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "refresh_trace": True,
+        }
         await host._runtime_trace_store.append_notification(
             RuntimeNotificationRecord(
                 notification_id=0,
@@ -146,7 +153,7 @@ class WorkerPublicationMixin:
                 user_id=user_id,
                 session_id=session_id,
                 turn_id=turn_id,
-                payload_json="{}",
+                payload_json=json.dumps(notification_payload, ensure_ascii=False),
                 created_at_ms=now_wall_ms(),
             )
         )

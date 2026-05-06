@@ -22,6 +22,7 @@ Span subclasses TraceContext so that A-era code that treats the yielded
 object as a TraceContext (isinstance / .trace_id / .span_id /
 .parent_span_id) keeps working unchanged.
 """
+
 from __future__ import annotations
 import asyncio
 import contextvars
@@ -119,10 +120,12 @@ class Span(TraceContext):
 
 
 _current_trace_context: contextvars.ContextVar[Optional[TraceContext]] = contextvars.ContextVar(
-    "magi_trace_context", default=None,
+    "magi_trace_context",
+    default=None,
 )
 _current_span: contextvars.ContextVar[Optional[Span]] = contextvars.ContextVar(
-    "magi_current_span", default=None,
+    "magi_current_span",
+    default=None,
 )
 
 
@@ -160,11 +163,15 @@ def _resolve_event_bus() -> Any:
     return bus
 
 
-def _new_context(trace_id: Optional[str], parent_ctx: Optional[TraceContext]) -> TraceContext:
+def _new_context(
+    trace_id: Optional[str],
+    parent_ctx: Optional[TraceContext],
+    parent_span_id: Optional[str] = None,
+) -> TraceContext:
     return TraceContext(
         trace_id=trace_id or (parent_ctx.trace_id if parent_ctx else str(ULID())),
         span_id=str(ULID()),
-        parent_span_id=parent_ctx.span_id if parent_ctx else None,
+        parent_span_id=parent_ctx.span_id if parent_ctx else parent_span_id,
     )
 
 
@@ -173,9 +180,10 @@ def _build_span(
     node_type: str,
     name: str,
     trace_id: Optional[str],
+    parent_span_id: Optional[str] = None,
 ) -> Span:
     parent_ctx = _current_trace_context.get()
-    ctx = _new_context(trace_id, parent_ctx)
+    ctx = _new_context(trace_id, parent_ctx, parent_span_id)
     started_at_ms = int(time.time() * 1000)
     span = Span(node_type=node_type, name=name, context=ctx, started_at_ms=started_at_ms)
     parent_span = _current_span.get()
@@ -190,9 +198,15 @@ def start_span(
     node_type: str = "span",
     name: str = "",
     trace_id: Optional[str] = None,
+    parent_span_id: Optional[str] = None,
     delivery: str = "async",
 ) -> Iterator[Span]:
-    span = _build_span(node_type=node_type, name=name, trace_id=trace_id)
+    span = _build_span(
+        node_type=node_type,
+        name=name,
+        trace_id=trace_id,
+        parent_span_id=parent_span_id,
+    )
     span_token = _current_span.set(span)
     ctx_token = _current_trace_context.set(span)
     try:
@@ -219,9 +233,15 @@ async def start_async_span(
     node_type: str = "span",
     name: str = "",
     trace_id: Optional[str] = None,
+    parent_span_id: Optional[str] = None,
     delivery: str = "async",
 ) -> AsyncIterator[Span]:
-    span = _build_span(node_type=node_type, name=name, trace_id=trace_id)
+    span = _build_span(
+        node_type=node_type,
+        name=name,
+        trace_id=trace_id,
+        parent_span_id=parent_span_id,
+    )
     span_token = _current_span.set(span)
     ctx_token = _current_trace_context.set(span)
     try:
@@ -248,6 +268,7 @@ def _publish_span_completed_sync(span: Span, ended_at_ms: int, *, delivery: str)
     if bus is None:
         return
     from .events import Event, EventTypes
+
     event = Event(type=EventTypes.SPAN_COMPLETED, data=payload, source="tracing")
     try:
         loop = asyncio.get_running_loop()
@@ -265,6 +286,7 @@ async def _publish_span_completed_async(span: Span, ended_at_ms: int, *, deliver
     if bus is None:
         return
     from .events import Event, EventTypes
+
     event = Event(type=EventTypes.SPAN_COMPLETED, data=payload, source="tracing")
     if delivery == "sync":
         try:

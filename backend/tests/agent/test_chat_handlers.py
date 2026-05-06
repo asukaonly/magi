@@ -25,6 +25,7 @@ class _FakeContextService:
 class _FakePromptService:
     def __init__(self) -> None:
         self.call_llm_calls = 0
+        self.event_contexts: list[dict[str, object] | None] = []
 
     def augment_system_prompt_with_reply_context(
         self,
@@ -46,8 +47,10 @@ class _FakePromptService:
         json_mode=False,
         timeout_seconds=None,
         llm_trace_callback=None,
+        event_context=None,
     ):
         self.call_llm_calls += 1
+        self.event_contexts.append(event_context)
         _ = (system_prompt, messages, disable_thinking, thinking_depth, json_mode, timeout_seconds)
         if llm_trace_callback is not None:
             callback_result = llm_trace_callback(
@@ -68,7 +71,8 @@ class _FakePromptService:
 
 @pytest.mark.asyncio
 async def test_direct_llm_handler_carries_llm_trace_into_execution_result() -> None:
-    handler = DirectLLMHandler(SimpleNamespace(prompt_service=_FakePromptService()))
+    prompt_service = _FakePromptService()
+    handler = DirectLLMHandler(SimpleNamespace(prompt_service=prompt_service))
     context = ChatRuntimeContext(
         latest_fact=None,
         recent_facts=[],
@@ -113,6 +117,14 @@ async def test_direct_llm_handler_carries_llm_trace_into_execution_result() -> N
     assert result.llm_trace["model"] == "gpt-test"
     assert result.llm_trace["input_tokens"] == 64
     assert result.llm_trace["duration_ms"] == 920
+    assert prompt_service.event_contexts == [
+        {
+            "session_id": "session-1",
+            "turn_id": "turn-1",
+            "trace_id": "trace:turn-1",
+            "parent_span_id": "turn-1:turn",
+        }
+    ]
 
 
 @pytest.mark.asyncio

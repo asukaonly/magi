@@ -196,14 +196,18 @@ class ChatPostprocessOutcomeMixin:
         selected_tools: list[str],
         task_hint: Any,
         recommended_tools: list[dict[str, Any]],
+        llm_trace: dict[str, Any] | None = None,
     ) -> str:
+        payload = {
+            "router_tools": list(router_tools or []),
+            "selected_tools": list(selected_tools or []),
+            "task_hint": dict(task_hint or {}),
+            "recommended_tools": list(recommended_tools or []),
+        }
+        if isinstance(llm_trace, dict):
+            payload["llm_trace"] = dict(llm_trace)
         return json.dumps(
-            {
-                "router_tools": list(router_tools or []),
-                "selected_tools": list(selected_tools or []),
-                "task_hint": dict(task_hint or {}),
-                "recommended_tools": list(recommended_tools or []),
-            },
+            payload,
             ensure_ascii=False,
         )
 

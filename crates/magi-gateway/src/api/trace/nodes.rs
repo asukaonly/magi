@@ -29,10 +29,14 @@ pub(super) fn is_terminal(status: &str) -> bool {
 fn map_trace_kind(node_type: &str) -> &str {
     match node_type {
         "turn" => "root",
+        "intent_resolution" | "intent" => "intent",
         "orchestration_plan" | "plan" => "planning",
-        "worker" | "subtask" | "subtask_group" => "worker",
-        "tool_call" | "tool" => "tool",
+        "worker_dispatch" => "dispatch",
+        "worker" | "worker_attempt" | "subtask" | "subtask_group" => "worker",
+        "tool_call" | "tool_invocation" | "tool" => "tool",
         "llm_call" | "llm" => "llm",
+        "iteration" => "iteration",
+        "response_emit" => "response",
         _ => "step",
     }
 }
@@ -40,9 +44,14 @@ fn map_trace_kind(node_type: &str) -> &str {
 fn default_trace_label(node_type: &str) -> &str {
     match node_type {
         "turn" => "Turn",
+        "intent_resolution" | "intent" => "Intent resolution",
         "plan" | "orchestration_plan" => "Planning",
-        "tool_call" | "tool" => "Tool call",
+        "worker_dispatch" => "Worker dispatch",
+        "worker_attempt" => "Worker attempt",
+        "tool_call" | "tool_invocation" | "tool" => "Tool call",
         "llm_call" | "llm" => "LLM call",
+        "iteration" => "Iteration",
+        "response_emit" => "Response",
         "worker" | "subtask" => "Worker",
         _ => "Step",
     }
@@ -88,6 +97,7 @@ pub(super) fn build_trace_node(
     span: &HashMap<String, Value>,
     llm_call: Option<&HashMap<String, Value>>,
     tool_call: Option<&HashMap<String, Value>>,
+    intent_resolution: Option<&HashMap<String, Value>>,
 ) -> Value {
     let node_type = span
         .get("node_type")
@@ -143,6 +153,68 @@ pub(super) fn build_trace_node(
             .and_then(|s| serde_json::from_str(s).ok())
             .unwrap_or(json!({}));
         metadata["execution_time"] = tc.get("execution_time_ms").cloned().unwrap_or(Value::Null);
+    }
+
+    if let Some(ir) = intent_resolution {
+        let selected_payload = ir
+            .get("selected_tools_json")
+            .and_then(|v| v.as_str())
+            .and_then(|s| serde_json::from_str::<Value>(s).ok())
+            .unwrap_or(Value::Null);
+        metadata["intent_label"] = ir.get("intent").cloned().unwrap_or(Value::Null);
+        metadata["execution_mode"] = ir.get("execution_mode").cloned().unwrap_or(Value::Null);
+        metadata["route_reason"] = ir.get("route_reason").cloned().unwrap_or(Value::Null);
+        metadata["selected_worker_type"] = ir
+            .get("selected_worker_type")
+            .cloned()
+            .unwrap_or(Value::Null);
+        if selected_payload.is_array() {
+            metadata["selected_tools"] = selected_payload.clone();
+        } else if selected_payload.is_object() {
+            metadata["selected_tools"] = selected_payload
+                .get("selected_tools")
+                .cloned()
+                .unwrap_or(Value::Null);
+            metadata["router_tools"] = selected_payload
+                .get("router_tools")
+                .cloned()
+                .unwrap_or(Value::Null);
+            metadata["task_hint"] = selected_payload
+                .get("task_hint")
+                .cloned()
+                .unwrap_or(Value::Null);
+            metadata["recommended_tools"] = selected_payload
+                .get("recommended_tools")
+                .cloned()
+                .unwrap_or(Value::Null);
+            if let Some(llm_trace) = selected_payload
+                .get("llm_trace")
+                .and_then(|v| v.as_object())
+            {
+                metadata["provider"] = llm_trace.get("provider").cloned().unwrap_or(Value::Null);
+                metadata["model"] = llm_trace.get("model").cloned().unwrap_or(Value::Null);
+                metadata["input_tokens"] = json!(safe_int(
+                    llm_trace.get("input_tokens").unwrap_or(&Value::Null),
+                    0
+                ));
+                metadata["output_tokens"] = json!(safe_int(
+                    llm_trace.get("output_tokens").unwrap_or(&Value::Null),
+                    0
+                ));
+                metadata["total_tokens"] = json!(safe_int(
+                    llm_trace.get("total_tokens").unwrap_or(&Value::Null),
+                    0
+                ));
+                metadata["duration_ms"] = json!(safe_int(
+                    llm_trace.get("duration_ms").unwrap_or(&Value::Null),
+                    safe_int(span.get("duration_ms").unwrap_or(&Value::Null), 0)
+                ));
+                metadata["thinking_enabled"] = json!(llm_trace
+                    .get("thinking_enabled")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false));
+            }
+        }
     }
 
     let status_raw = span

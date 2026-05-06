@@ -26,14 +26,10 @@ class TraceRecordPersistenceMixin:
     async def _upsert_detail(self, sql: str, params: tuple[Any, ...]) -> None:
         raise NotImplementedError
 
-    async def _fetchone(
-        self, sql: str, params: tuple[Any, ...]
-    ) -> aiosqlite.Row | None:
+    async def _fetchone(self, sql: str, params: tuple[Any, ...]) -> aiosqlite.Row | None:
         raise NotImplementedError
 
-    def _row_to_record(
-        self, record_type: type[T], row: aiosqlite.Row | None
-    ) -> T | None:
+    def _row_to_record(self, record_type: type[T], row: aiosqlite.Row | None) -> T | None:
         raise NotImplementedError
 
     @staticmethod
@@ -60,6 +56,8 @@ class TraceRecordPersistenceMixin:
                     user_message_preview,
                     response_preview,
                     error_summary,
+                    run_id,
+                    run_revision,
                     continued_from_turn_id,
                     continued_from_trace_id,
                     superseded_by_turn_id,
@@ -67,7 +65,7 @@ class TraceRecordPersistenceMixin:
                     created_at_ms,
                     updated_at_ms
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(trace_id) DO UPDATE SET
                     status = excluded.status,
                     mode = excluded.mode,
@@ -78,6 +76,8 @@ class TraceRecordPersistenceMixin:
                     user_message_preview = COALESCE(excluded.user_message_preview, trace_turns.user_message_preview),
                     response_preview = COALESCE(excluded.response_preview, trace_turns.response_preview),
                     error_summary = COALESCE(excluded.error_summary, trace_turns.error_summary),
+                    run_id = COALESCE(excluded.run_id, trace_turns.run_id),
+                    run_revision = MAX(trace_turns.run_revision, excluded.run_revision),
                     continued_from_turn_id = COALESCE(excluded.continued_from_turn_id, trace_turns.continued_from_turn_id),
                     continued_from_trace_id = COALESCE(excluded.continued_from_trace_id, trace_turns.continued_from_trace_id),
                     superseded_by_turn_id = COALESCE(excluded.superseded_by_turn_id, trace_turns.superseded_by_turn_id),
@@ -98,6 +98,8 @@ class TraceRecordPersistenceMixin:
                     record.user_message_preview,
                     record.response_preview,
                     record.error_summary,
+                    record.run_id,
+                    record.run_revision,
                     record.continued_from_turn_id,
                     record.continued_from_trace_id,
                     record.superseded_by_turn_id,
@@ -128,13 +130,15 @@ class TraceRecordPersistenceMixin:
                     execution_agent_id,
                     result_preview,
                     error_text,
+                    run_id,
+                    run_revision,
                     started_at_ms,
                     ended_at_ms,
                     duration_ms,
                     created_at_ms,
                     updated_at_ms
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(span_id) DO UPDATE SET
                     parent_span_id = COALESCE(excluded.parent_span_id, trace_spans.parent_span_id),
                     status = excluded.status,
@@ -144,6 +148,8 @@ class TraceRecordPersistenceMixin:
                     execution_agent_id = COALESCE(excluded.execution_agent_id, trace_spans.execution_agent_id),
                     result_preview = COALESCE(excluded.result_preview, trace_spans.result_preview),
                     error_text = COALESCE(excluded.error_text, trace_spans.error_text),
+                    run_id = COALESCE(excluded.run_id, trace_spans.run_id),
+                    run_revision = MAX(trace_spans.run_revision, excluded.run_revision),
                     started_at_ms = MIN(trace_spans.started_at_ms, excluded.started_at_ms),
                     ended_at_ms = COALESCE(excluded.ended_at_ms, trace_spans.ended_at_ms),
                     duration_ms = COALESCE(excluded.duration_ms, trace_spans.duration_ms),
@@ -163,6 +169,8 @@ class TraceRecordPersistenceMixin:
                     record.execution_agent_id,
                     record.result_preview,
                     record.error_text,
+                    record.run_id,
+                    record.run_revision,
                     record.started_at_ms,
                     record.ended_at_ms,
                     record.duration_ms,
@@ -172,9 +180,7 @@ class TraceRecordPersistenceMixin:
             )
             await db.commit()
 
-    async def upsert_intent_resolution(
-        self, record: TraceIntentResolutionRecord
-    ) -> None:
+    async def upsert_intent_resolution(self, record: TraceIntentResolutionRecord) -> None:
         await self._upsert_detail(
             """
             INSERT INTO trace_intent_resolutions (
@@ -222,11 +228,12 @@ class TraceRecordPersistenceMixin:
                 cache_read_tokens,
                 cache_write_tokens,
                 thinking_enabled,
+                thinking_depth,
                 request_preview,
                 response_preview,
                 thinking_content
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(span_id) DO UPDATE SET
                 provider = excluded.provider,
                 model = excluded.model,
@@ -236,6 +243,7 @@ class TraceRecordPersistenceMixin:
                 cache_read_tokens = excluded.cache_read_tokens,
                 cache_write_tokens = excluded.cache_write_tokens,
                 thinking_enabled = excluded.thinking_enabled,
+                thinking_depth = excluded.thinking_depth,
                 request_preview = excluded.request_preview,
                 response_preview = excluded.response_preview,
                 thinking_content = excluded.thinking_content
@@ -252,6 +260,7 @@ class TraceRecordPersistenceMixin:
                 record.cache_read_tokens,
                 record.cache_write_tokens,
                 int(record.thinking_enabled),
+                record.thinking_depth,
                 record.request_preview,
                 record.response_preview,
                 record.thinking_content,
@@ -317,9 +326,7 @@ class TraceRecordPersistenceMixin:
         )
         return self._row_to_record(TraceSpanRecord, row)
 
-    async def get_intent_resolution(
-        self, span_id: str
-    ) -> TraceIntentResolutionRecord | None:
+    async def get_intent_resolution(self, span_id: str) -> TraceIntentResolutionRecord | None:
         row = await self._fetchone(
             "SELECT * FROM trace_intent_resolutions WHERE span_id = ?",
             (span_id,),
@@ -354,14 +361,10 @@ class TraceRecordPersistenceMixin:
         params: list[object] = []
         where_clause = ""
         if tool_names:
-            normalized_names = [
-                str(name).strip() for name in tool_names if str(name).strip()
-            ]
+            normalized_names = [str(name).strip() for name in tool_names if str(name).strip()]
             if not normalized_names:
                 return {}
-            where_clause = (
-                f"WHERE tool_name IN ({', '.join('?' for _ in normalized_names)})"
-            )
+            where_clause = f"WHERE tool_name IN ({', '.join('?' for _ in normalized_names)})"
             params.extend(normalized_names)
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             db.row_factory = aiosqlite.Row
@@ -389,9 +392,7 @@ class TraceRecordPersistenceMixin:
                 "total_calls": total_calls,
                 "successful_calls": successful_calls,
                 "failed_calls": failed_calls,
-                "success_rate": (
-                    float(successful_calls / total_calls) if total_calls else 0.0
-                ),
+                "success_rate": (float(successful_calls / total_calls) if total_calls else 0.0),
                 "avg_execution_time_ms": float(row["avg_execution_time_ms"] or 0.0),
             }
         return stats

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any, AsyncIterator, Dict, List, Optional, cast
 
 from ..streaming_events import LLMStreamEvent, emit_stream_event
@@ -9,6 +10,8 @@ from .streaming_core import ProviderBridgeStreamingHostProtocol, ThinkTagScrubbe
 from .tool_streaming import ProviderBridgeToolStreamingMixin
 from ...config.constants import DEFAULT_THINKING_TOKENS
 from ...config.models import ThinkingDepth
+from ...events.tracing import current_trace_context
+from ...runtime_trace import enrich_event_context_with_turn_trace
 
 
 class ProviderBridgeChatStreamingMixin:
@@ -22,12 +25,16 @@ class ProviderBridgeChatStreamingMixin:
         temperature: float = 0.7,
         json_mode: bool = False,
         timeout_seconds: Optional[float] = None,
+        event_context: Optional[Dict[str, Any]] = None,
         thinking_depth: ThinkingDepth | None = None,
     ) -> AsyncIterator[LLMStreamEvent]:
         """Streaming variant of chat_response()."""
         host = cast(ProviderBridgeStreamingHostProtocol, self)
+        event_context = enrich_event_context_with_turn_trace(event_context)
         depth = thinking_depth if thinking_depth is not None else ThinkingDepth.MEDIUM
+        started_at = time.time()
         usage_data: Any = None
+        usage_payload: dict[str, int] | None = None
         if host.is_anthropic():
             api_messages = host._convert_messages_to_anthropic(messages)
             anthropic_kwargs: Dict[str, Any] = {
@@ -155,11 +162,16 @@ class ProviderBridgeChatStreamingMixin:
                         event_payload = LLMStreamEvent(kind="text_delta", text=visible)
                         await emit_stream_event(event_payload)
                         yield event_payload
+        if current_trace_context() is not None or event_context.get("trace_id"):
+            await host._emit_usage_event(
+                success=True,
+                latency_ms=int((time.time() - started_at) * 1000),
+                usage=usage_payload,
+                event_context=event_context,
+            )
         done_event = LLMStreamEvent(kind="done")
         await emit_stream_event(done_event)
         yield done_event
-
-
 
 __all__ = [
     "ProviderBridgeChatStreamingMixin",

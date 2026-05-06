@@ -39,6 +39,7 @@ class _IntentPostprocessHostProtocol(Protocol):
         selected_tools: list[str],
         task_hint: Any,
         recommended_tools: list[dict[str, Any]],
+        llm_trace: dict[str, Any] | None = None,
     ) -> str: ...
 
     async def _ensure_turn_trace_started(
@@ -123,6 +124,7 @@ def _intent_resolution_attributes(
                 if recommended_tools is not None
                 else (getattr(decision, "recommended_tools", []) or [])
             ),
+            llm_trace=getattr(decision, "llm_trace", None),
         ),
         "selected_worker_type": selected_worker_type,
     }

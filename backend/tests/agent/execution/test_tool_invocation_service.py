@@ -71,6 +71,8 @@ async def test_publishes_span_completed_on_success(fake_bus, fake_registry, ctx)
     assert payload.attributes["tool_category"] == "external_tool"
     assert payload.attributes["success"] is True
     assert payload.turn_id == "t"
+    assert payload.trace_id == "trace:t"
+    assert payload.parent_span_id == "t:turn"
 
 
 @pytest.mark.asyncio

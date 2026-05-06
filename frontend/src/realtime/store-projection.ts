@@ -232,7 +232,7 @@ export const applyRealtimeStoreProjection = (
       conversationStore.upsertTraceSummary(sessionId, turnId, summary);
       return true;
     }
-    return false;
+    return Boolean(sessionId && turnId);
   }
 
   if (eventName === 'context_usage' && message.data && typeof message.data === 'object') {

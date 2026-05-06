@@ -42,6 +42,8 @@ async def test_publishes_span_completed_with_llm_call_node_type(fake_bus):
                 "correlation_id": "corr-1",
                 "session_id": "sess-1",
                 "turn_id": "turn-1",
+                "trace_id": "trace:turn-1",
+                "parent_span_id": "turn-1:turn",
                 "agent_id": "chat",
             },
             error=None,
@@ -55,12 +57,16 @@ async def test_publishes_span_completed_with_llm_call_node_type(fake_bus):
     assert payload.status == "ok"
     assert payload.duration_ms == 1500
     assert payload.turn_id == "turn-1"
+    assert payload.trace_id == "trace:turn-1"
+    assert payload.parent_span_id == "turn-1:turn"
     attrs = payload.attributes
     assert attrs["request_id"] == "req-abc"
     assert attrs["provider"] == "anthropic"
     assert attrs["request_kind"] == "chat"
     assert attrs["prompt_tokens"] == 100
     assert attrs["completion_tokens"] == 50
+    assert attrs["input_tokens"] == 100
+    assert attrs["output_tokens"] == 50
     assert attrs["total_tokens"] == 150
     assert attrs["usage_available"] is True
     assert attrs["session_id"] == "sess-1"
@@ -103,7 +109,11 @@ async def test_inherits_trace_context_from_parent_span(fake_bus):
                 success=True,
                 latency_ms=100,
                 usage=None,
-                event_context={"request_kind": "chat"},
+                event_context={
+                    "request_kind": "chat",
+                    "trace_id": "trace:event-context",
+                    "parent_span_id": "event-parent",
+                },
                 error=None,
             )
     llm_events = [

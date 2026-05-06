@@ -837,7 +837,7 @@ Execution observability is owned by the dedicated runtime trace store rather tha
 
 The current runtime trace path is:
 
-1. chat postprocess, function-calling orchestration, and worker execution publish `SpanCompleted` events that `RuntimeTraceSubscriber` projects into canonical trace rows
+1. chat postprocess, direct LLM calls, function-calling orchestration, and worker execution publish `SpanCompleted` events that `RuntimeTraceSubscriber` projects through the runtime trace writer into canonical trace rows
 2. every executable chat turn creates a `trace_turns` root row at intent/runtime start, before final response emission
 3. `runtime_trace.db` stores turn summaries, spans, LLM call details, tool call details, and intent-resolution records
 4. `ChatTraceReadService` reconstructs the UI trace tree from those canonical rows
@@ -849,6 +849,10 @@ Two rules matter here:
 
 - runtime trace data is execution observability, not durable memory
 - `L1` stores recall-worthy facts, while `runtime_trace.db` stores execution structure and metrics
+- `trace_turns` is the turn-level trace ledger used for availability, status, and duration; visible execution tree nodes live in `trace_spans`
+- `turn_record` is an internal projection event for `trace_turns` and must not be stored or displayed as a visible span
+- `DIRECT_LLM` turns carry explicit trace context into provider calls so the main model call is attached under the turn root and contributes token metrics
+- business runtime code should call the runtime trace writer facade for live span/detail updates instead of calling store `upsert_*` methods directly
 - derived tool execution statistics must read from `runtime_trace.trace_tools`, not from procedural memory counters
 - cross-turn chat continuity should prefer compact recent-tool state over replaying old raw tool transcripts; exact execution inspection should prefer `trace_query`
 

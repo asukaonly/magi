@@ -19,6 +19,15 @@ def _list_tables(db_path: Path) -> set[str]:
     return rows
 
 
+def _list_columns(db_path: Path, table_name: str) -> set[str]:
+    conn = sqlite3.connect(str(db_path))
+    cur = conn.cursor()
+    cur.execute(f"PRAGMA table_info({table_name})")
+    rows = {str(row[1]) for row in cur.fetchall()}
+    conn.close()
+    return rows
+
+
 def _read_journal_mode(db_path: Path) -> str:
     conn = sqlite3.connect(str(db_path))
     try:
@@ -89,6 +98,10 @@ async def test_runtime_trace_store_creates_turn_and_span_tables(tmp_path: Path) 
         assert "trace_tools" in tables
         assert "trace_intent_resolutions" in tables
         assert "runtime_notifications" in tables
+        assert {"run_id", "run_revision"}.issubset(_list_columns(db_path, "trace_turns"))
+        assert {"run_id", "run_revision"}.issubset(_list_columns(db_path, "trace_spans"))
+        assert "thinking_depth" in _list_columns(db_path, "trace_llm_calls")
+        assert {"run_id", "run_revision"}.issubset(_list_columns(db_path, "runtime_notifications"))
         journal_mode = _read_journal_mode(db_path)
         assert journal_mode == "wal"
     finally:
@@ -111,6 +124,8 @@ async def test_runtime_trace_store_persists_notifications(tmp_path: Path) -> Non
                 user_id="user-1",
                 session_id="session-1",
                 turn_id="turn-1",
+                run_id="run-1",
+                run_revision=2,
                 payload_json='{"content":"hello"}',
                 created_at_ms=123,
             )
@@ -121,6 +136,8 @@ async def test_runtime_trace_store_persists_notifications(tmp_path: Path) -> Non
         assert notifications[0].notification_id == notification_id
         assert notifications[0].channel == "agent_response"
         assert notifications[0].turn_id == "turn-1"
+        assert notifications[0].run_id == "run-1"
+        assert notifications[0].run_revision == 2
 
         latest_id = await store.get_latest_notification_id()
         assert latest_id == notification_id
@@ -198,6 +215,96 @@ async def test_runtime_trace_store_round_trips_turn_continuation_metadata(tmp_pa
         assert turn is not None
         assert turn.continued_from_turn_id == "turn-1"
         assert turn.continued_from_trace_id == "trace-turn-1"
+    finally:
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_runtime_trace_store_preserves_latest_run_revision(tmp_path: Path) -> None:
+    from magi.runtime_trace import RuntimeTraceStore, TraceSpanRecord, TraceTurnRecord
+
+    db_path = tmp_path / "runtime_trace.db"
+    store = RuntimeTraceStore(db_path=str(db_path))
+    await store.initialize()
+
+    try:
+        await store.upsert_turn(
+            TraceTurnRecord(
+                trace_id="trace-turn-3",
+                turn_id="turn-3",
+                session_id="session-1",
+                user_id="user-1",
+                status="running",
+                mode="function_calling",
+                run_id="run-1",
+                run_revision=3,
+                started_at_ms=100,
+                created_at_ms=100,
+                updated_at_ms=100,
+            )
+        )
+        await store.upsert_turn(
+            TraceTurnRecord(
+                trace_id="trace-turn-3",
+                turn_id="turn-3",
+                session_id="session-1",
+                user_id="user-1",
+                status="completed",
+                mode="function_calling",
+                run_revision=0,
+                started_at_ms=100,
+                ended_at_ms=200,
+                duration_ms=100,
+                created_at_ms=100,
+                updated_at_ms=200,
+            )
+        )
+
+        await store.upsert_span(
+            TraceSpanRecord(
+                span_id="span-1",
+                trace_id="trace-turn-3",
+                turn_id="turn-3",
+                parent_span_id=None,
+                node_type="llm_call",
+                name="LLM call",
+                status="running",
+                run_id="run-1",
+                run_revision=3,
+                started_at_ms=120,
+                created_at_ms=120,
+                updated_at_ms=120,
+            )
+        )
+        await store.upsert_span(
+            TraceSpanRecord(
+                span_id="span-1",
+                trace_id="trace-turn-3",
+                turn_id="turn-3",
+                parent_span_id=None,
+                node_type="llm_call",
+                name="LLM call",
+                status="ok",
+                run_revision=0,
+                started_at_ms=120,
+                ended_at_ms=180,
+                duration_ms=60,
+                created_at_ms=120,
+                updated_at_ms=180,
+            )
+        )
+
+        turn = await store.get_turn("turn-3")
+        span = await store.get_span("span-1")
+
+        assert turn is not None
+        assert turn.run_id == "run-1"
+        assert turn.run_revision == 3
+        assert turn.status == "completed"
+        assert span is not None
+        assert span.run_id == "run-1"
+        assert span.run_revision == 3
+        assert span.status == "ok"
     finally:
         await store.shutdown()
 

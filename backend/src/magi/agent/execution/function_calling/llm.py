@@ -14,6 +14,7 @@ from ....config.models import ThinkingDepth
 from ....llm.base import LLMAdapter
 from ....llm.provider_bridge import LLMProviderBridge, ToolStreamResult
 from ....llm.streaming_events import get_stream_sink
+from ....runtime_trace import enrich_event_context_with_turn_trace
 from ....utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
 from ..context_compactor import ContextCompactor
 from .types import ToolCall
@@ -22,6 +23,28 @@ logger = logging.getLogger(__name__)
 llm_logger = get_llm_logger("function_calling")
 
 THINKING_LLM_TIMEOUT_SECONDS = 180.0
+
+
+def _build_llm_event_context(
+    *,
+    request_id: str,
+    request_kind: str,
+    session_id: str | None,
+    turn_id: str | None,
+    execution_agent_id: str,
+    intent: str,
+) -> dict[str, Any]:
+    return enrich_event_context_with_turn_trace(
+        {
+            "request_id": request_id,
+            "request_kind": request_kind,
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "agent_id": execution_agent_id,
+            "correlation_id": turn_id,
+            "intent": intent,
+        }
+    )
 
 
 class _LlmHostProtocol(Protocol):
@@ -88,21 +111,24 @@ class FunctionCallingLlmMixin:
                         max_tokens=DEFAULT_MAX_TOKENS,
                         temperature=0.7,
                         thinking_depth=thinking_depth,
-                        timeout_seconds=self._resolve_llm_timeout(timeout_seconds, thinking_depth=thinking_depth),
-                        event_context={
-                            "request_id": request_id,
-                            "request_kind": "function_calling:tools",
-                            "session_id": session_id,
-                            "turn_id": turn_id,
-                            "agent_id": execution_agent_id,
-                            "correlation_id": turn_id,
-                            "intent": intent,
-                        },
+                        timeout_seconds=self._resolve_llm_timeout(
+                            timeout_seconds, thinking_depth=thinking_depth
+                        ),
+                        event_context=_build_llm_event_context(
+                            request_id=request_id,
+                            request_kind="function_calling:tools",
+                            session_id=session_id,
+                            turn_id=turn_id,
+                            execution_agent_id=execution_agent_id,
+                            intent=intent,
+                        ),
                     ),
                     label="chat_with_tools_stream",
                 )
                 provider_response = stream_result.provider_response
-                streamed = not stream_result.has_tool_calls and stream_result.text_chunks_emitted > 0
+                streamed = (
+                    not stream_result.has_tool_calls and stream_result.text_chunks_emitted > 0
+                )
             else:
                 provider_response = await host._invoke_with_rate_limit_backoff(
                     lambda: host.provider_bridge.chat_with_tools(
@@ -112,16 +138,17 @@ class FunctionCallingLlmMixin:
                         max_tokens=DEFAULT_MAX_TOKENS,
                         temperature=0.7,
                         thinking_depth=thinking_depth,
-                        timeout_seconds=self._resolve_llm_timeout(timeout_seconds, thinking_depth=thinking_depth),
-                        event_context={
-                            "request_id": request_id,
-                            "request_kind": "function_calling:tools",
-                            "session_id": session_id,
-                            "turn_id": turn_id,
-                            "agent_id": execution_agent_id,
-                            "correlation_id": turn_id,
-                            "intent": intent,
-                        },
+                        timeout_seconds=self._resolve_llm_timeout(
+                            timeout_seconds, thinking_depth=thinking_depth
+                        ),
+                        event_context=_build_llm_event_context(
+                            request_id=request_id,
+                            request_kind="function_calling:tools",
+                            session_id=session_id,
+                            turn_id=turn_id,
+                            execution_agent_id=execution_agent_id,
+                            intent=intent,
+                        ),
                     ),
                     label="chat_with_tools",
                 )
@@ -224,7 +251,17 @@ class FunctionCallingLlmMixin:
                     max_tokens=DEFAULT_MAX_TOKENS,
                     temperature=0.7,
                     thinking_depth=thinking_depth,
-                    timeout_seconds=self._resolve_llm_timeout(timeout_seconds, thinking_depth=thinking_depth),
+                    timeout_seconds=self._resolve_llm_timeout(
+                        timeout_seconds, thinking_depth=thinking_depth
+                    ),
+                    event_context=_build_llm_event_context(
+                        request_id=request_id,
+                        request_kind="function_calling:final_response",
+                        session_id=session_id,
+                        turn_id=turn_id,
+                        execution_agent_id=execution_agent_id,
+                        intent=intent,
+                    ),
                 ):
                     if event.kind == "text_delta" and event.text:
                         chunks.append(event.text)
@@ -240,16 +277,17 @@ class FunctionCallingLlmMixin:
                         temperature=0.7,
                         thinking_depth=thinking_depth,
                         json_mode=json_mode,
-                        timeout_seconds=self._resolve_llm_timeout(timeout_seconds, thinking_depth=thinking_depth),
-                        event_context={
-                            "request_id": request_id,
-                            "request_kind": "function_calling:final_response",
-                            "session_id": session_id,
-                            "turn_id": turn_id,
-                            "agent_id": execution_agent_id,
-                            "correlation_id": turn_id,
-                            "intent": intent,
-                        },
+                        timeout_seconds=self._resolve_llm_timeout(
+                            timeout_seconds, thinking_depth=thinking_depth
+                        ),
+                        event_context=_build_llm_event_context(
+                            request_id=request_id,
+                            request_kind="function_calling:final_response",
+                            session_id=session_id,
+                            turn_id=turn_id,
+                            execution_agent_id=execution_agent_id,
+                            intent=intent,
+                        ),
                     ),
                     label="chat_response",
                 )
@@ -337,7 +375,9 @@ class FunctionCallingLlmMixin:
         trace_metrics.setdefault("reasoning_tokens", 0)
         trace_metrics.setdefault("cache_read_tokens", 0)
         trace_metrics.setdefault("cache_write_tokens", 0)
-        trace_metrics.setdefault("thinking_enabled", thinking_depth not in (ThinkingDepth.NONE, ThinkingDepth.LOW))
+        trace_metrics.setdefault(
+            "thinking_enabled", thinking_depth not in (ThinkingDepth.NONE, ThinkingDepth.LOW)
+        )
         trace_metrics.setdefault("thinking_depth", thinking_depth.value)
         trace_metrics.setdefault("duration_ms", duration_ms)
         return trace_metrics

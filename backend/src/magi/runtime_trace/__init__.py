@@ -16,9 +16,21 @@ from .contracts import (
     TraceTurnRecord,
 )
 from .store import RuntimeTraceStore
+from .writer import RuntimeTraceWriter
+from .ids import (
+    build_root_span_id,
+    build_trace_id,
+    enrich_event_context_with_turn_trace,
+    normalize_turn_id,
+)
 
 __all__ = [
     "RuntimeTraceStore",
+    "RuntimeTraceWriter",
+    "build_root_span_id",
+    "build_trace_id",
+    "enrich_event_context_with_turn_trace",
+    "normalize_turn_id",
     "StoredPluginIngressEventRecord",
     "RuntimeHeartbeatRecord",
     "RuntimeNotificationRecord",
