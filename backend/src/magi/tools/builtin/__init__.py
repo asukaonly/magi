@@ -8,6 +8,7 @@ from .file_read_tool import FileReadTool
 from .file_write_tool import FileWriteTool
 from .file_edit_tool import FileEditTool
 from .file_rollback_tool import FileRollbackTool
+from .file_diff_tool import FileDiffTool
 from .grep_tool import GrepTool
 from .glob_tool import GlobTool
 from .dynamic_tool import DynamicTool, create_dynamic_tool
@@ -27,6 +28,7 @@ __all__ = [
     "FileWriteTool",
     "FileEditTool",
     "FileRollbackTool",
+    "FileDiffTool",
     "GrepTool",
     "GlobTool",
     "DynamicTool",
