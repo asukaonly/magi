@@ -196,7 +196,10 @@ class DelegateToExternalCoderTool(Tool):
         )
 
         service = CodeAgentService(cleanup_worktree=False)
-        result = await service.delegate(req, dry_run=bool(parameters.get("dry_run")))
+        user_id = str((context.env_vars or {}).get("user_id") or "").strip() or None
+        result = await service.delegate(
+            req, dry_run=bool(parameters.get("dry_run")), user_id=user_id,
+        )
         return ToolResult(
             success=result.success,
             data=result.model_dump(),

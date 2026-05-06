@@ -34,6 +34,8 @@ const BRIDGE_EVENTS = [
   'chat_message_upserted',
   'chat_message_hidden',
   'background_task_state_changed',
+  'code_agent_delegation_event',
+  'code_agent_delegation_state',
   // Control-plane channels (forwarded by the Rust bridge with `.` → `:` swap;
   // see backend/src/magi/agent/control/common/events.py).
   'control:permission:requested',
