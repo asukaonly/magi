@@ -53,6 +53,7 @@ class WorkerAgentManager(
     TYPE_GENERAL = "general-purpose"
     TYPE_EXPLORE = "Explore"
     TYPE_PLAN = "Plan"
+    TYPE_CODING = "Coding"
 
     _WORKER_TYPE_MAP = {
         "general-purpose": TYPE_GENERAL,
@@ -62,10 +63,19 @@ class WorkerAgentManager(
         "Explore": TYPE_EXPLORE,
         "plan": TYPE_PLAN,
         "Plan": TYPE_PLAN,
+        "coding": TYPE_CODING,
+        "Coding": TYPE_CODING,
+        "code": TYPE_CODING,
     }
 
     _EXPLORE_TOOL_CANDIDATES = ["glob", "grep", "file_read"]
     _PLAN_TOOL_CANDIDATES = ["glob", "grep", "file_read", "web-search"]
+    _CODING_TOOL_CANDIDATES = [
+        "file_read", "file_edit", "file_write", "file_rollback", "file_diff",
+        "verify",
+        "glob", "grep", "file_list", "file_info",
+        "bash", "todo_write",
+    ]
 
     def __init__(self) -> None:
         self._llm_adapter = None

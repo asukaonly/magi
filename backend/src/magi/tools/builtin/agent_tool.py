@@ -31,6 +31,7 @@ class AgentTool(Tool):
     TYPE_GENERAL = "general-purpose"
     TYPE_EXPLORE = "Explore"
     TYPE_PLAN = "Plan"
+    TYPE_CODING = "Coding"
 
     _WORKER_TYPE_MAP = {
         "general-purpose": TYPE_GENERAL,
@@ -40,6 +41,9 @@ class AgentTool(Tool):
         "Explore": TYPE_EXPLORE,
         "plan": TYPE_PLAN,
         "Plan": TYPE_PLAN,
+        "coding": TYPE_CODING,
+        "Coding": TYPE_CODING,
+        "code": TYPE_CODING,
     }
 
     def __init__(self) -> None:
@@ -82,15 +86,18 @@ class AgentTool(Tool):
                 ToolParameter(
                     name="subagent_type",
                     type=ParameterType.STRING,
-                    description="Worker type: general-purpose, Explore, or Plan",
+                    description="Worker type: general-purpose, Explore, Plan, or Coding",
                     required=False,
                     enum=[
                         self.TYPE_GENERAL,
                         self.TYPE_EXPLORE,
                         self.TYPE_PLAN,
+                        self.TYPE_CODING,
                         "explore",
                         "plan",
+                        "coding",
                         "general",
+                        "code",
                     ],
                 ),
                 ToolParameter(
