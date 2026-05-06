@@ -68,7 +68,9 @@ class DelegateToExternalCoderTool(Tool):
                 "tool runs in an isolated git worktree under "
                 ".magi/sessions/<sid>/worktrees/<delegation_id>/; the result "
                 "returns as a unified diff and a summary. Do NOT use for: "
-                "questions, single-line edits, exploration."
+                "questions, single-line edits, exploration. "
+                "IMPORTANT: Respond to the user in the SAME LANGUAGE they used "
+                "in their request (e.g., Chinese for Chinese, English for English)."
             ),
             category="agent",
             version="1.0.0",

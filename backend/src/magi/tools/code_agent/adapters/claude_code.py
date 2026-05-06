@@ -207,7 +207,9 @@ class ClaudeCodeAdapter:
     def _compose_stdin(self, req: DelegateRequest) -> str:
         bundle_hint = (
             "Read TASK.md and CONSTRAINTS.md from the directory I added before "
-            "starting; treat them as authoritative."
+            "starting; treat them as authoritative.\n"
+            "IMPORTANT: Respond in the same language as the user's request. "
+            "If the user wrote in Chinese, respond in Chinese. If in English, respond in English, etc."
         )
         return f"{bundle_hint}\n\n{req.prompt}\n"
 
