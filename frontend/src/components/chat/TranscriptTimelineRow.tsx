@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { ProjectedChatTimelineMessage } from '@/domain/chat/presentation';
 import { formatChatClockTime } from '@/domain/chat/timestamps';
 import { useConversationStore } from '@/stores/conversation-store';
-import { useDelegationsStore } from '@/stores/delegations-store';
+import { useDelegationsStore, type DelegationCardState } from '@/stores/delegations-store';
 import { ChatRoleAvatar } from './ChatRoleAvatar';
 import { DelegationCard } from './DelegationCard';
 import { MessageLabelBadge } from './MessageLabelBadge';
@@ -22,6 +22,7 @@ import { UserTurnTraceStatus } from './UserTurnTraceStatus';
 const resolveTranscriptContent = (
   message: ProjectedChatTimelineMessage['message'],
   t: (key: string, values?: Record<string, unknown>) => string,
+  delegationCard: DelegationCardState | null,
 ): string => {
   const payload = message.payload && typeof message.payload === 'object'
     ? message.payload as Record<string, unknown>
@@ -30,6 +31,13 @@ const resolveTranscriptContent = (
   const backgroundTaskTitle = String(payload?.background_task_title || '').trim();
   const backgroundTaskStatus = String(payload?.background_task_status || '').trim().toLowerCase();
 
+  // Check if delegation has finished by looking at the card state
+  const isDelegationTerminal = delegationCard?.lifecycle === 'finished'
+    || delegationCard?.lifecycle === 'failed'
+    || delegationCard?.lifecycle === 'cancelled'
+    || delegationCard?.lifecycle === 'applied'
+    || delegationCard?.lifecycle === 'discarded';
+
   if (
     message.role === 'assistant'
     && message.messageKind === 'assistant_final'
@@ -37,6 +45,7 @@ const resolveTranscriptContent = (
     && backgroundTaskId
     && backgroundTaskTitle
     && !backgroundTaskStatus
+    && !isDelegationTerminal
   ) {
     return t('chat.backgroundTask.startedMessage', { title: backgroundTaskTitle });
   }
@@ -78,16 +87,26 @@ export const TranscriptTimelineRow = ({
   const traceEntryLabel = t('chat.trace.view');
   const message = projectedMessage.message;
   const transcript = projectedMessage.transcript;
-  const content = resolveTranscriptContent(message, t);
+
+  const sessionId = interactions.currentSessionId;
+  const delegationCards = useDelegationsStore((state) =>
+    sessionId ? state.delegationsBySession[sessionId] ?? null : null,
+  );
+
+  // Find matching delegation card for this message (by background_task_id -> delegation_id)
+  const backgroundTaskId = message.payload && typeof message.payload === 'object'
+    ? String((message.payload as Record<string, unknown>).background_task_id || '').trim()
+    : '';
+  const matchingDelegation = backgroundTaskId && delegationCards?.[backgroundTaskId]
+    ? delegationCards[backgroundTaskId]
+    : null;
+
+  const content = resolveTranscriptContent(message, t, matchingDelegation);
   const messageAssistant = message.role === 'assistant'
     ? resolveAssistantIdentity(assistant, message.personaId)
     : assistant;
 
-  const sessionId = interactions.currentSessionId;
   const showDelegationCards = isLastAssistant && message.role === 'assistant' && Boolean(sessionId);
-  const delegationCards = useDelegationsStore((state) =>
-    sessionId ? state.delegationsBySession[sessionId] ?? null : null,
-  );
   const workspacePath = useConversationStore((state) =>
     sessionId ? state.sessionsById[sessionId]?.workspace_path ?? null : null,
   );

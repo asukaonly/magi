@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Loader2,
@@ -11,10 +11,7 @@ import {
 } from 'lucide-react';
 
 import { codeAgentApi } from '@/api/modules/codeAgent';
-import type {
-  DelegationLifecycle,
-  RunEvent,
-} from '@/api/modules/codeAgent';
+import type { RunEvent } from '@/api/modules/codeAgent';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useDelegationHydration } from '@/hooks/useDelegationHydration';
@@ -31,11 +28,6 @@ interface DelegationCardProps {
 }
 
 
-const TERMINAL_STATES: DelegationLifecycle[] = [
-  'finished', 'failed', 'cancelled', 'discarded', 'applied',
-];
-
-const isTerminal = (l: DelegationLifecycle) => TERMINAL_STATES.includes(l);
 
 
 export function DelegationCard({
@@ -135,7 +127,6 @@ export function DelegationCard({
   const summary = result?.summary ?? null;
   const errorMessage = result?.error ?? null;
   const filesChanged = result?.files_changed ?? [];
-  const diffPath = result?.diff_path ?? null;
   const cost = result?.cost ?? null;
 
   const showRunningPanel = lifecycle === 'started' || lifecycle === 'running';
@@ -242,17 +233,15 @@ export function DelegationCard({
               {t('chat.delegation.cost', { usd: cost.usd.toFixed(4) })}
             </div>
           )}
-          {filesChanged.length > 0 && (
+          {filesChanged.length > 0 && diffText && (
             <div className="space-y-1">
               <div className="text-muted-foreground">
                 {t('chat.delegation.filesChanged', { count: filesChanged.length })}
               </div>
-              {diffPath && (
-                <DiffPreview
-                  diffText={diffText}
-                  filesChanged={filesChanged}
-                />
-              )}
+              <DiffPreview
+                diffText={diffText}
+                filesChanged={filesChanged}
+              />
             </div>
           )}
           {applyOutcome && !applyOutcome.applied && applyOutcome.rejects.length > 0 && (
