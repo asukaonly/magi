@@ -27,15 +27,27 @@ export function useDelegationHydration(
   const setDiffText = useDelegationsStore((s) => s.setDiffText);
 
   useEffect(() => {
-    if (!sessionId || !delegationId || !workspace) return;
+    if (!sessionId || !delegationId || !workspace) {
+      console.log('[useDelegationHydration] Skip: missing data', { sessionId, delegationId, workspace });
+      return;
+    }
     // Only skip if we already have diff_text OR we're already hydrating
-    if (card?.diffText || card?.hydrating) return;
+    if (card?.diffText || card?.hydrating) {
+      console.log('[useDelegationHydration] Skip: already has data', { hasDiffText: !!card?.diffText, hydrating: card?.hydrating });
+      return;
+    }
+    console.log('[useDelegationHydration] Starting hydration', { sessionId, delegationId, workspace });
 
     let cancelled = false;
     setHydrating(sessionId, delegationId, true);
     codeAgentApi
       .getDelegation(sessionId, delegationId, workspace)
       .then(({ result, events_tail, diff_text }) => {
+        console.log('[useDelegationHydration] API response', {
+          hasResult: !!result,
+          eventsCount: events_tail?.length,
+          diffLength: diff_text?.length,
+        });
         if (cancelled) return;
         if (result) {
           setResult(sessionId, delegationId, result);

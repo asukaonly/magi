@@ -119,6 +119,12 @@ def apply_delegation(
     )
 
     if proc.returncode != 0:
+        # Clear any partially applied files from index
+        subprocess.run(
+            ["git", "reset", "--mixed"] + files,
+            cwd=workspace_root,
+            capture_output=True,
+        )
         rejects = [
             str(p.relative_to(workspace_root))
             for p in workspace_root.rglob("*.rej")
@@ -159,6 +165,14 @@ def apply_delegation(
             )
         except Exception:
             pass
+
+    # Unstage files so they appear in working directory, not as staged changes
+    if files:
+        subprocess.run(
+            ["git", "reset", "--mixed"] + files,
+            cwd=workspace_root,
+            capture_output=True,
+        )
 
     if result:
         result["applied_at"] = int(time.time() * 1000)
