@@ -33,6 +33,8 @@ class ToolContextFormatterRegistry:
         registry.register("agent", lambda data: compact_agent_tool_data(data, max_items=max_items))
         registry.register("memory_query", memory_formatter)
         registry.register("prepare_chat_attachments", compact_prepare_chat_attachments_tool_data)
+        registry.register("image-generation", compact_image_generation_tool_data)
+        registry.register("image_generation", compact_image_generation_tool_data)
         return registry
 
 
@@ -189,3 +191,32 @@ def compact_prepare_chat_attachments_tool_data(data: Dict[str, Any]) -> Dict[str
         ],
         "summary": data.get("summary"),
     }
+
+
+def compact_image_generation_tool_data(data: Dict[str, Any]) -> Dict[str, Any]:
+    attachments = data.get("chat_attachments") if isinstance(data.get("chat_attachments"), list) else []
+    artifacts = data.get("artifacts") if isinstance(data.get("artifacts"), list) else []
+    paths = data.get("paths") if isinstance(data.get("paths"), list) else []
+    generated_count = len(artifacts) or len(attachments) or len(paths)
+    payload: Dict[str, Any] = {
+        "generated_count": generated_count,
+        "model": data.get("model"),
+        "summary": data.get("message") or data.get("summary"),
+    }
+    if attachments:
+        payload["attachments"] = [
+            {
+                "attachment_id": item.get("attachment_id"),
+                "kind": item.get("kind"),
+                "original_name": item.get("original_name"),
+                "size_bytes": item.get("size_bytes"),
+            }
+            for item in attachments
+            if isinstance(item, dict)
+        ]
+        payload["display_guidance"] = (
+            "Generated images are attached to the assistant reply; do not print local filesystem paths unless asked."
+        )
+    elif paths:
+        payload["paths"] = paths[:3]
+    return payload

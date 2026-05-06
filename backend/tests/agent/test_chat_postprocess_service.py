@@ -498,6 +498,15 @@ async def test_outcome_writer_persists_segmented_chat_outcome(chat_store: ChatSt
                 ),
             ],
         ),
+        attachments=[
+            {
+                "attachment_id": "att-1",
+                "kind": "image",
+                "original_name": "generated.png",
+                "mime_type": "image/png",
+                "size_bytes": 10,
+            }
+        ],
         message_payload={"asset_refs": [{"asset_ref_id": "asset-1"}]},
         started_at_ms=1710000000000,
         completed_at_ms=1710000000200,
@@ -522,6 +531,15 @@ async def test_outcome_writer_persists_segmented_chat_outcome(chat_store: ChatSt
     }
     assert second_payload["rhythm"]["segment_index"] == 1
     assert second_payload["asset_refs"] == [{"asset_ref_id": "asset-1"}]
+    assert second_payload["attachments"] == [
+        {
+            "attachment_id": "att-1",
+            "kind": "image",
+            "original_name": "generated.png",
+            "mime_type": "image/png",
+            "size_bytes": 10,
+        }
+    ]
 
 
 @pytest.mark.asyncio

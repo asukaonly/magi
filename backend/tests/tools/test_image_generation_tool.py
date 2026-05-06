@@ -102,6 +102,11 @@ def _context(tmp_path: Path) -> ToolExecutionContext:
     )
 
 
+@pytest.fixture(autouse=True)
+def _reload_config_uses_test_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(image_tool_module, "reload_config", _config)
+
+
 @pytest.mark.asyncio
 async def test_image_generation_tool_saves_and_returns_chat_attachment(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -147,6 +152,8 @@ async def test_image_generation_tool_saves_and_returns_chat_attachment(
     assert result.data["artifacts"][0]["attachment_id"] == "attachment-1"
     assert result.data["chat_attachments"][0]["attachment_id"] == "attachment-1"
     assert result.data["assistant_payload"]["asset_refs"][0]["attachment_id"] == "attachment-1"
+    assert "Attached 1 generated image(s) to the reply." in result.data["summary"]
+    assert "Saved to:" not in result.data["summary"]
     assert fake_adapter.requests[0].prompt == "draw a small desk"
     assert fake_adapter.closed is True
     assert adapter_kwargs["timeout"] == 181
@@ -221,6 +228,38 @@ async def test_image_generation_tool_uses_model_default_size_when_size_is_omitte
 
     assert result.success is True
     assert fake_adapter.requests[0].size == "1280x1280"
+
+
+@pytest.mark.asyncio
+async def test_image_generation_tool_reloads_config_before_execution(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    stale_config = _config()
+    stale_config.llm.providers["openai"].services.image_generation.enabled = False
+    fake_adapter = _FakeAdapter(
+        response=ImageGenerationResponse(images=[ImageArtifact(b64="ZmFrZQ==")], model="gpt-image-1")
+    )
+
+    monkeypatch.setattr(image_tool_module, "get_config", lambda: stale_config)
+    monkeypatch.setattr(image_tool_module, "reload_config", _config)
+    monkeypatch.setattr(
+        image_tool_module,
+        "load_llm_provider_registry",
+        lambda *_args, **_kwargs: LLMProviderRegistryModel(),
+    )
+    monkeypatch.setattr(
+        image_tool_module,
+        "create_image_generation_adapter",
+        lambda **_kwargs: fake_adapter,
+    )
+
+    tool = ImageGenerationTool()
+    tool._ingestion_service = _FakeIngestionService()
+
+    result = await tool.execute({"prompt": "draw a small desk"}, _context(tmp_path))
+
+    assert result.success is True
+    assert fake_adapter.requests[0].prompt == "draw a small desk"
 
 
 @pytest.mark.asyncio

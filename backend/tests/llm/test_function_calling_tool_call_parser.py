@@ -636,6 +636,52 @@ def test_postprocessor_uses_registered_tool_context_formatter() -> None:
     assert payload["data"] == {"custom": 42}
 
 
+def test_postprocessor_compacts_image_generation_tool_data_for_display() -> None:
+    postprocessor = FunctionCallingPostprocessor()
+
+    payload = postprocessor.build_tool_message_payload(
+        tool_name="image-generation",
+        result=ToolCallResult(
+            tool_call_id="img-1",
+            tool_name="image-generation",
+            success=True,
+            data={
+                "message": "Generated 1 image(s). Attached 1 generated image(s) to the reply.",
+                "model": "gpt-image-1",
+                "paths": ["/Users/example/generated_images/image.png"],
+                "artifacts": [{"path": "/Users/example/generated_images/image.png"}],
+                "chat_attachments": [
+                    {
+                        "attachment_id": "att-1",
+                        "kind": "image",
+                        "original_name": "generated.png",
+                        "size_bytes": 10,
+                        "storage_path": "secret",
+                    }
+                ],
+            },
+            error=None,
+        ),
+    )
+
+    assert payload["data"] == {
+        "generated_count": 1,
+        "model": "gpt-image-1",
+        "summary": "Generated 1 image(s). Attached 1 generated image(s) to the reply.",
+        "attachments": [
+            {
+                "attachment_id": "att-1",
+                "kind": "image",
+                "original_name": "generated.png",
+                "size_bytes": 10,
+            }
+        ],
+        "display_guidance": (
+            "Generated images are attached to the assistant reply; do not print local filesystem paths unless asked."
+        ),
+    }
+
+
 def test_build_tool_message_payload_sanitizes_assistant_payload_and_chat_attachments() -> None:
     postprocessor = FunctionCallingPostprocessor()
 

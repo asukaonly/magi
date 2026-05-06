@@ -254,10 +254,12 @@ class ChatOutcomeWriter:
         total = len(response_plan.segments)
         records: list[ChatMessageRecord] = []
         for index, segment in enumerate(response_plan.segments):
+            segment_attachments = attachments if index == total - 1 else None
             segment_payload = self._build_segment_payload_json(
                 base_payload=message_payload,
                 segment=segment,
                 total_segments=total,
+                attachments=segment_attachments,
             )
             segment_reply_to_message_id = (
                 str(reply_to_message_id or "").strip() or None
@@ -284,7 +286,7 @@ class ChatOutcomeWriter:
             )
             await self._chat_store.append_message(
                 record,
-                attachment_payloads=attachments if index == total - 1 else None,
+                attachment_payloads=segment_attachments,
             )
             records.append(record)
         await self._chat_store.bump_history_version(existing_turn.session_id)
@@ -326,6 +328,7 @@ class ChatOutcomeWriter:
         base_payload: dict[str, Any] | None,
         segment: AssistantResponseSegment,
         total_segments: int,
+        attachments: list[dict[str, Any]] | None = None,
     ) -> str:
         payload = dict(base_payload or {})
         payload.pop("attachments", None)
@@ -336,6 +339,8 @@ class ChatOutcomeWriter:
             "delay_ms": segment.delay_ms,
             "source_unit_ids": list(segment.source_unit_ids),
         }
+        if attachments:
+            payload["attachments"] = ChatStore._public_attachment_payloads(list(attachments))
         return json.dumps(payload, ensure_ascii=False)
 
     async def persist_turn_supersession(

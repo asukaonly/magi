@@ -27,7 +27,7 @@ from ..schema import (
     ParameterType,
     ToolErrorCode,
 )
-from ...config import get_config
+from ...config import get_config, reload_config
 from ...config.loader import get_llm_provider_registry_file
 from ...config.llm_registry import LLMProviderRegistryModel, load_llm_provider_registry
 from ...config.models import LLMScenario
@@ -117,29 +117,40 @@ class ImageGenerationTool(Tool):
     @staticmethod
     def _configured_timeout_seconds() -> int:
         try:
-            config = get_config()
-            selection = config.llm.selections.get(LLMScenario.IMAGE_GENERATION.value)
-            provider_settings = (
-                config.llm.providers.get(selection.provider_id) if selection is not None else None
-            )
-            image_generation = getattr(
-                getattr(provider_settings, "services", None),
-                "image_generation",
-                None,
-            )
-            return max(
-                1,
-                int(
-                    getattr(
-                        image_generation,
-                        "timeout",
-                        DEFAULT_IMAGE_GENERATION_TIMEOUT_SECONDS,
-                    )
-                    or DEFAULT_IMAGE_GENERATION_TIMEOUT_SECONDS
-                ),
-            )
+            return ImageGenerationTool._timeout_seconds_from_config(get_config())
         except Exception:
             return DEFAULT_IMAGE_GENERATION_TIMEOUT_SECONDS
+
+    @staticmethod
+    def _load_execution_config():
+        try:
+            return reload_config()
+        except Exception as exc:  # noqa: BLE001 - fall back to cached config if reload is unavailable
+            logger.warning("Failed to reload config for image generation", error=str(exc))
+            return get_config()
+
+    @staticmethod
+    def _timeout_seconds_from_config(config: Any) -> int:
+        selection = config.llm.selections.get(LLMScenario.IMAGE_GENERATION.value)
+        provider_settings = (
+            config.llm.providers.get(selection.provider_id) if selection is not None else None
+        )
+        image_generation = getattr(
+            getattr(provider_settings, "services", None),
+            "image_generation",
+            None,
+        )
+        return max(
+            1,
+            int(
+                getattr(
+                    image_generation,
+                    "timeout",
+                    DEFAULT_IMAGE_GENERATION_TIMEOUT_SECONDS,
+                )
+                or DEFAULT_IMAGE_GENERATION_TIMEOUT_SECONDS
+            ),
+        )
 
     async def execute(
         self,
@@ -160,7 +171,7 @@ class ImageGenerationTool(Tool):
         size = str(parameters.get("size") or "").strip()
         quality = str(parameters.get("quality") or "auto").strip()
 
-        config = get_config()
+        config = self._load_execution_config()
         selection = config.llm.selections.get(LLMScenario.IMAGE_GENERATION.value)
         if selection is None or not selection.model:
             return ToolResult(
@@ -213,7 +224,7 @@ class ImageGenerationTool(Tool):
                 provider_settings=provider_settings,
                 model=selection.model,
                 registry=registry,
-                timeout=self._configured_timeout_seconds(),
+                timeout=self._timeout_seconds_from_config(config),
                 proxy_url=proxy_url,
             )
             request_size = size or self._default_size_for_adapter(adapter)
@@ -260,10 +271,10 @@ class ImageGenerationTool(Tool):
             summary_parts = [
                 f"Generated {len(artifacts)} image(s) using model '{result.model}'.",
             ]
-            if saved_paths:
-                summary_parts.append(f"Saved to: {saved_paths[0]}")
             if chat_attachments:
-                summary_parts.append(f"Prepared {len(chat_attachments)} chat attachment(s).")
+                summary_parts.append(f"Attached {len(chat_attachments)} generated image(s) to the reply.")
+            elif saved_paths:
+                summary_parts.append(f"Saved to: {saved_paths[0]}")
             if revised_prompt:
                 summary_parts.append(f"Revised prompt: {revised_prompt}")
 
