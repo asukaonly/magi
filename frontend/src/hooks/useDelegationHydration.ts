@@ -1,0 +1,76 @@
+/**
+ * Lazy hydration for delegation cards.
+ *
+ * When a card is mounted for a delegation we haven't seen via realtime
+ * (e.g. after page reload, or for a historical chat message), this hook
+ * fetches the persisted ``result.json`` + last 50 events so the UI can
+ * render the same shape as live delegations.
+ */
+import { useEffect } from 'react';
+
+import { codeAgentApi } from '@/api/modules/codeAgent';
+import { useDelegationsStore, selectDelegationCard } from '@/stores/delegations-store';
+
+
+export function useDelegationHydration(
+  sessionId: string | null,
+  delegationId: string | null,
+  workspace: string | null,
+): void {
+  const card = useDelegationsStore(
+    sessionId && delegationId ? selectDelegationCard(sessionId, delegationId) : () => null,
+  );
+  const setHydrating = useDelegationsStore((s) => s.setHydrating);
+  const setResult = useDelegationsStore((s) => s.setResult);
+  const setEventsTail = useDelegationsStore((s) => s.setEventsTail);
+  const setLifecycle = useDelegationsStore((s) => s.setLifecycle);
+
+  useEffect(() => {
+    if (!sessionId || !delegationId || !workspace) return;
+    if (card?.result || card?.hydrating) return;
+
+    let cancelled = false;
+    setHydrating(sessionId, delegationId, true);
+    codeAgentApi
+      .getDelegation(sessionId, delegationId, workspace)
+      .then(({ result, events_tail }) => {
+        if (cancelled) return;
+        if (result) {
+          setResult(sessionId, delegationId, result);
+          if (result.applied_at) {
+            setLifecycle(sessionId, delegationId, 'applied');
+          } else if (result.discarded_at) {
+            setLifecycle(sessionId, delegationId, 'discarded');
+          } else if (result.success === false) {
+            setLifecycle(sessionId, delegationId, 'failed');
+          } else {
+            setLifecycle(sessionId, delegationId, 'finished');
+          }
+        }
+        if (Array.isArray(events_tail) && events_tail.length > 0) {
+          setEventsTail(sessionId, delegationId, events_tail);
+        }
+      })
+      .catch(() => {
+        // Hydration is best-effort. The card stays in its current shape.
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setHydrating(sessionId, delegationId, false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    sessionId,
+    delegationId,
+    workspace,
+    card?.result,
+    card?.hydrating,
+    setHydrating,
+    setResult,
+    setEventsTail,
+    setLifecycle,
+  ]);
+}

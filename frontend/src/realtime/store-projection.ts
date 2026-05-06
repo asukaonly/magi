@@ -8,6 +8,11 @@ import { useBackgroundTaskStore } from '@/stores/background-tasks';
 import { useChatTraceStore } from '@/stores/chat-trace';
 import { useConversationStore } from '@/stores/conversation-store';
 import { useContextUsageStore } from '@/stores/context-usage';
+import { useDelegationsStore } from '@/stores/delegations-store';
+import type {
+  DelegationLifecycle,
+  RunEvent,
+} from '@/api/modules/codeAgent';
 import type { RealtimeStreamEvent } from './stream-events';
 import { normalizeRealtimeStreamEvent } from './stream-events';
 
@@ -256,6 +261,31 @@ export const applyRealtimeStoreProjection = (
     const payload = message.data as Record<string, unknown>;
     if (typeof payload.task_id === 'string' && typeof payload.status === 'string') {
       useBackgroundTaskStore.getState().upsert(payload as any);
+      return true;
+    }
+    return false;
+  }
+
+  if (eventName === 'code_agent_delegation_event' && message.data && typeof message.data === 'object') {
+    const payload = message.data as Record<string, unknown>;
+    const sid = typeof payload.session_id === 'string' ? payload.session_id : null;
+    const did = typeof payload.delegation_id === 'string' ? payload.delegation_id : null;
+    const event = (payload.event ?? null) as RunEvent | null;
+    if (sid && did && event && typeof event === 'object' && typeof event.kind === 'string') {
+      useDelegationsStore.getState().upsertEvent(sid, did, event);
+      return true;
+    }
+    return false;
+  }
+
+  if (eventName === 'code_agent_delegation_state' && message.data && typeof message.data === 'object') {
+    const payload = message.data as Record<string, unknown>;
+    const sid = typeof payload.session_id === 'string' ? payload.session_id : null;
+    const did = typeof payload.delegation_id === 'string' ? payload.delegation_id : null;
+    const state = typeof payload.state === 'string' ? (payload.state as DelegationLifecycle) : null;
+    const summary = (payload.summary ?? {}) as Record<string, unknown>;
+    if (sid && did && state) {
+      useDelegationsStore.getState().upsertState(sid, did, state, summary);
       return true;
     }
     return false;
