@@ -9,6 +9,13 @@ from typing import Any, Protocol, cast
 
 from ....core.logger import get_logger
 from ...event_contracts import MemoryEvent
+from ..batching_policy import (
+    DEFAULT_L2_MAX_ESTIMATED_TOKENS_PER_BATCH,
+    DEFAULT_L2_MAX_EVENTS_PER_BATCH,
+    BatchingPolicy,
+    BucketState,
+    decide_flush,
+)
 from ..models import (
     L2BatchJob,
     L2PendingBatchBucket,
@@ -20,8 +27,6 @@ from .projection import L2PipelineProjectionMixin
 logger = get_logger(__name__)
 
 DEFAULT_L2_FLUSH_POLL_INTERVAL_SECONDS = 0.2
-DEFAULT_L2_MAX_EVENTS_PER_BATCH = 12
-DEFAULT_L2_MAX_ESTIMATED_TOKENS_PER_BATCH = 2400
 
 
 class _L2PipelineStagingHostProtocol(Protocol):
@@ -294,22 +299,24 @@ class L2PipelineStagingMixin(L2PipelineProjectionMixin):
 
     def _flush_reason_for_bucket(self, bucket: L2PendingBatchBucket) -> str | None:
         host = self._staging_host()
-        max_events = bucket.max_events or DEFAULT_L2_MAX_EVENTS_PER_BATCH
-        max_estimated_tokens = (
-            bucket.max_estimated_tokens or DEFAULT_L2_MAX_ESTIMATED_TOKENS_PER_BATCH
+        policy = BatchingPolicy(
+            max_events=bucket.max_events or DEFAULT_L2_MAX_EVENTS_PER_BATCH,
+            max_estimated_tokens=(
+                bucket.max_estimated_tokens or DEFAULT_L2_MAX_ESTIMATED_TOKENS_PER_BATCH
+            ),
+            max_wait_seconds=float(max(0, host._batch_flush_interval_seconds)),
         )
-        if len(bucket.events) >= max_events:
-            return "max_events"
-        if bucket.estimated_tokens >= max_estimated_tokens:
-            return "token_cap"
-        if not bucket.events:
-            return None
-        if host._batch_flush_interval_seconds <= 0:
-            return "interval_elapsed"
-        oldest_age_seconds = max(0.0, time.time() - bucket.created_at)
-        if oldest_age_seconds >= float(host._batch_flush_interval_seconds):
-            return "interval_elapsed"
-        return None
+        state = BucketState(
+            event_count=len(bucket.events),
+            estimated_tokens=bucket.estimated_tokens,
+            oldest_age_seconds=time.time() - bucket.created_at,
+        )
+        reason = decide_flush(
+            state,
+            policy,
+            batching_enabled=host._batch_flush_interval_seconds > 0,
+        )
+        return reason.value if reason is not None else None
 
     def _refresh_staging_stats_locked(self) -> None:
         host = self._staging_host()
