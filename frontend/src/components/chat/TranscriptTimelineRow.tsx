@@ -22,7 +22,7 @@ import { UserTurnTraceStatus } from './UserTurnTraceStatus';
 const resolveTranscriptContent = (
   message: ProjectedChatTimelineMessage['message'],
   delegationCard: DelegationCardState | null,
-): { content: string; hideBubble: boolean } => {
+): string => {
   const payload = message.payload && typeof message.payload === 'object'
     ? message.payload as Record<string, unknown>
     : null;
@@ -31,10 +31,6 @@ const resolveTranscriptContent = (
   // Check if this message has an associated delegation
   const hasDelegation = backgroundTaskId && delegationCard;
 
-  // Check if delegation is running (not terminal)
-  const isDelegationRunning = delegationCard?.lifecycle === 'started'
-    || delegationCard?.lifecycle === 'running';
-
   // Check if delegation has finished
   const isDelegationTerminal = delegationCard?.lifecycle === 'finished'
     || delegationCard?.lifecycle === 'failed'
@@ -42,21 +38,16 @@ const resolveTranscriptContent = (
     || delegationCard?.lifecycle === 'applied'
     || delegationCard?.lifecycle === 'discarded';
 
-  // When delegation is running, hide the message bubble and show only the card
-  if (hasDelegation && isDelegationRunning) {
-    return { content: '', hideBubble: true };
-  }
-
   // When delegation is finished, show the summary as the message content
   if (hasDelegation && isDelegationTerminal) {
     const summary = delegationCard?.result?.summary;
     if (summary) {
-      return { content: summary, hideBubble: false };
+      return summary;
     }
   }
 
   // Default: show original content
-  return { content: message.content, hideBubble: false };
+  return message.content;
 };
 
 const resolveAssistantIdentity = (
@@ -107,14 +98,14 @@ export const TranscriptTimelineRow = ({
     ? delegationCards[backgroundTaskId]
     : null;
 
-  const resolved = resolveTranscriptContent(message, matchingDelegation);
+  const messageContent = resolveTranscriptContent(message, matchingDelegation);
   const messageAssistant = message.role === 'assistant'
     ? resolveAssistantIdentity(assistant, message.personaId)
     : assistant;
 
-  // When delegation is running, hide the message bubble and show card separately
-  // When delegation is finished, show the message with summary content
-  const shouldHideBubble = resolved.hideBubble;
+  // Check if this message has an associated delegation (running or finished)
+  const hasAssociatedDelegation = Boolean(matchingDelegation);
+
   const showDelegationCards = isLastAssistant && message.role === 'assistant' && Boolean(sessionId);
   const workspacePath = useConversationStore((state) =>
     sessionId ? state.sessionsById[sessionId]?.workspace_path ?? null : null,
@@ -149,11 +140,12 @@ export const TranscriptTimelineRow = ({
     return [...runningIds, ...finishedIds, ...visibleDiscarded];
   }, [showDelegationCards, delegationCards]);
 
-  // Check if we have running delegations (should show cards before message)
-  const hasRunningDelegations = delegationIds.some((did) => {
-    const card = delegationCards?.[did];
-    return card?.lifecycle === 'started' || card?.lifecycle === 'running';
-  });
+  // Check if the associated delegation is running
+  const isAssociatedDelegationRunning = matchingDelegation?.lifecycle === 'started'
+    || matchingDelegation?.lifecycle === 'running';
+
+  // Check if we have any delegation cards at all
+  const hasAnyDelegationCards = delegationIds.length > 0;
 
   // Render delegation cards
   const renderDelegationCards = (aboveMessage = false) => {
@@ -174,16 +166,14 @@ export const TranscriptTimelineRow = ({
 
   return (
     <>
-      {/* Show delegation cards above message when running, or when message bubble is hidden */}
-      {(shouldHideBubble || hasRunningDelegations) && sessionId && delegationIds.length > 0
-        ? renderDelegationCards(true)
-        : null}
+      {/* Show delegation cards above message when there are any delegation cards */}
+      {hasAnyDelegationCards && sessionId && renderDelegationCards(true)}
 
-      {/* Only show message bubble if not hiding it */}
-      {!shouldHideBubble && (
+      {/* Show message bubble when delegation is finished, or when there's no associated delegation */}
+      {(!isAssociatedDelegationRunning || !hasAssociatedDelegation) && (
         <TranscriptTimelineMessage
           message={message}
-          content={resolved.content}
+          content={messageContent}
           assistantName={messageAssistant.name}
           userNameLabel={t('chat.you')}
           timestampLabel={formatChatClockTime(message.timestamp, i18n.language)}
@@ -255,10 +245,6 @@ export const TranscriptTimelineRow = ({
                   )}
                 />
               ) : null}
-              {/* Show delegation cards below message when finished (no running cards) */}
-              {!hasRunningDelegations && !shouldHideBubble && sessionId && delegationIds.length > 0
-                ? renderDelegationCards(false)
-                : null}
             </>
           )}
           onContextMenu={(event) => {
