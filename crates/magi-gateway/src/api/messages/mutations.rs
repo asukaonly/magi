@@ -275,8 +275,8 @@ mod tests {
         let _ = remember_recent_workspace("/three");
         let _ = remember_recent_workspace("/four");
         let _ = remember_recent_workspace("/five");
-        let paths = remember_recent_workspace("/two");
         let paths = {
+            let _ = remember_recent_workspace("/two");
             let _ = remember_recent_workspace("/six");
             load_recent_workspaces()
         };

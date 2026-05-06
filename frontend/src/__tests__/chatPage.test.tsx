@@ -646,6 +646,20 @@ describe('ChatPage', () => {
           title_overridden: false,
           last_timestamp: 0,
           message_count: 0,
+          workspace_path: '/tmp/existing-workspace',
+        },
+      } as any)
+      .mockResolvedValueOnce({
+        success: true,
+        user_id: 'local_user',
+        session: {
+          session_id: 'session-1',
+          title: 'New Chat',
+          last_message_preview: '',
+          last_user_message_preview: '',
+          title_overridden: false,
+          last_timestamp: 0,
+          message_count: 0,
           workspace_path: null,
         },
       } as any);

@@ -106,6 +106,14 @@ export const TranscriptTimelineRow = ({
       messageId: message.id,
     });
   }
+  // Debug: log when message has background_task_id and matching delegation
+  if (backgroundTaskId && matchingDelegation) {
+    console.log('[TranscriptTimelineRow] Message has background_task_id with matching delegation', {
+      backgroundTaskId,
+      lifecycle: matchingDelegation.lifecycle,
+      messageId: message.id,
+    });
+  }
 
   const messageContent = resolveTranscriptContent(message, matchingDelegation);
   const messageAssistant = message.role === 'assistant'
@@ -129,6 +137,23 @@ export const TranscriptTimelineRow = ({
     // Otherwise, if we're the last assistant message, show all relevant cards
     const showDelegationCards = isLastAssistant && message.role === 'assistant' && Boolean(sessionId);
     if (!showDelegationCards) return [];
+
+    const allIds = Object.keys(delegationCards);
+    // Filter out discarded cards initially
+    const activeIds = allIds.filter((did) => {
+      const card = delegationCards[did];
+      return card?.lifecycle !== 'discarded';
+    });
+    // For finished cards, only show the most recent one
+    const finishedIds = activeIds.filter((did) => {
+      const card = delegationCards[did];
+      return card?.lifecycle === 'finished' || card?.lifecycle === 'applied';
+    });
+    // Running cards: show ALL of them (not just the most recent) during execution
+    const runningIds = activeIds.filter((did) => {
+      const card = delegationCards[did];
+      return card?.lifecycle === 'started' || card?.lifecycle === 'running' || card?.lifecycle === 'cancelled' || card?.lifecycle === 'failed';
+    });
 
     const allIds = Object.keys(delegationCards);
     // Filter out discarded cards initially
