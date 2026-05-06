@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '@/api/client';
+import { STORAGE_KEYS } from '@/constants/app';
 import { configApi } from '../../api/modules/config';
 import type { SystemConfig, EmbeddingConfig, CrossEncoderConfig } from '../../api/modules/config';
 import { personasApi, selectDefaultSeedPreview } from '../../api/modules/personas';
@@ -25,7 +26,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 type Mode = 'quick' | 'expert' | null;
 type Phase = 'welcome' | 'guided';
 
-const STORAGE_KEY = 'magi_onboarding_state';
+const STORAGE_KEY = STORAGE_KEYS.ONBOARDING_STATE;
 const BUILTIN_SCENARIOS = ['context_decider', 'core', 'embedding'] as const;
 const RUNTIME_READY_WAIT_INTERVAL_MS = 500;
 const RUNTIME_READY_WAIT_TIMEOUT_MS = 12_000;

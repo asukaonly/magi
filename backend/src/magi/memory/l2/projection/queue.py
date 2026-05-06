@@ -32,30 +32,6 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
         self.db_path = db_path
 
     # ------------------------------------------------------------------
-    # Schema
-    # ------------------------------------------------------------------
-
-    async def ensure_schema(self, db: aiosqlite.Connection) -> None:
-        """Add any missing columns to the projection jobs table (migrations)."""
-        db.row_factory = aiosqlite.Row
-        async with db.execute("PRAGMA table_info(l2_projection_jobs)") as cursor:
-            rows = await cursor.fetchall()
-        existing_columns = {str(row["name"]) for row in rows}
-        required_columns = {
-            "catch_up_owner": "TEXT",
-            "max_events": "INTEGER",
-            "min_ready_events": "INTEGER",
-            "max_wait_seconds": "REAL",
-            "started_at": "REAL",
-        }
-        for column_name, column_type in required_columns.items():
-            if column_name in existing_columns:
-                continue
-            await db.execute(
-                f"ALTER TABLE l2_projection_jobs ADD COLUMN {column_name} {column_type}"
-            )
-
-    # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 

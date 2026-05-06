@@ -1,8 +1,7 @@
 import type { RefObject } from 'react';
 import { useMemo } from 'react';
-import type { ExecutionTraceSummary } from '@/api';
 import { projectChatTimelineRow, type TurnExecutionControlState } from '@/domain/chat/presentation';
-import type { ChatTimelineMessage, ChatTimelineReplyPreview } from '@/domain/chat/state';
+import type { ChatTimelineMessage, ChatTimelineReplyPreview, NormalizedExecutionTraceSummary } from '@/domain/chat/state';
 import type { LabelPopoverState, MessageContextMenuState } from '@/hooks/useChatMessageOverlays';
 import { ChatMessageContextMenuOverlay } from './ChatMessageContextMenuOverlay';
 import { StatusTimelineRow } from './StatusTimelineRow';
@@ -21,7 +20,7 @@ type ChatTimelinePaneProps = {
   assistantPersonas: Record<string, TimelineAssistantPersona>;
   currentSessionId: string | null;
   shouldReduceMotion: boolean;
-  summaries: Record<string, ExecutionTraceSummary>;
+  summaries: Record<string, NormalizedExecutionTraceSummary>;
   executionControlByTurnId: Record<string, TurnExecutionControlState>;
   cancellingTurnIds: string[];
   detachingTurnIds: string[];

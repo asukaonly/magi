@@ -813,7 +813,3 @@ class AppConfig(BaseModel):
     network: NetworkProxySettings = Field(default_factory=NetworkProxySettings)
     debug: bool = Field(default=False)
     log_level: str = Field(default="INFO")
-
-
-# Type alias for backward compatibility
-Config = AppConfig

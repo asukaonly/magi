@@ -51,10 +51,10 @@ export const UI_CONFIG = {
 // ============================================================================
 
 export const STORAGE_KEYS = {
-  AUTH_TOKEN: 'auth_token',
   LANGUAGE: 'magi_language',
-  THEME: 'magi_theme',
+  THEME: 'magi-theme-mode',
   ONBOARDING_COMPLETED: 'magi_onboarding_completed',
+  ONBOARDING_STATE: 'magi_onboarding_state',
 } as const;
 
 // ============================================================================

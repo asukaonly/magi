@@ -1,13 +1,14 @@
 import { create } from 'zustand';
-import type { ExecutionTraceSnapshot, ExecutionTraceSummary } from '@/api';
+import type { ExecutionTraceSnapshot } from '@/api';
+import type { NormalizedExecutionTraceSummary } from '@/domain/chat/state';
 
 interface ChatTraceState {
-  summaries: Record<string, ExecutionTraceSummary>;
+  summaries: Record<string, NormalizedExecutionTraceSummary>;
   snapshots: Record<string, ExecutionTraceSnapshot>;
   drawerOpen: boolean;
   activeTurnId: string | null;
-  upsertSummary: (summary: ExecutionTraceSummary) => void;
-  replaceSummaries: (summaries: ExecutionTraceSummary[]) => void;
+  upsertSummary: (summary: NormalizedExecutionTraceSummary) => void;
+  replaceSummaries: (summaries: NormalizedExecutionTraceSummary[]) => void;
   setSnapshot: (snapshot: ExecutionTraceSnapshot) => void;
   openDrawer: (turnId: string) => void;
   closeDrawer: () => void;
@@ -23,12 +24,12 @@ export const useChatTraceStore = create<ChatTraceState>((set) => ({
     set((state) => ({
       summaries: {
         ...state.summaries,
-        [summary.turn_id]: summary,
+        [summary.turnId]: summary,
       },
     })),
   replaceSummaries: (summaries) =>
     set((state) => ({
-      summaries: Object.fromEntries(summaries.map((summary) => [summary.turn_id, summary])),
+      summaries: Object.fromEntries(summaries.map((summary) => [summary.turnId, summary])),
       snapshots: state.snapshots,
       drawerOpen: state.drawerOpen,
       activeTurnId: state.activeTurnId,

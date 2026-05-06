@@ -8,6 +8,21 @@ def _turn(text: str) -> UserTurnInput:
     return UserTurnInput(text=text, attachments=[], user_id=None, session_id=None)
 
 
+def _turn_with_attachments(text: str) -> UserTurnInput:
+    return UserTurnInput(
+        text=text,
+        attachments=[
+            {
+                "kind": "audio",
+                "mime_type": "audio/silk",
+                "parse_status": "unsupported",
+            }
+        ],
+        user_id="user-1",
+        session_id="session-1",
+    )
+
+
 def test_append_latest_user_message_without_limit_keeps_full_short_history() -> None:
     history = [
         {"role": "user", "content": "message 1"},
@@ -66,3 +81,23 @@ def test_append_latest_user_message_keeps_legacy_limit_when_explicit() -> None:
     )
 
     assert [item["content"] for item in messages] == ["message 2", "message 3"]
+
+
+def test_append_latest_user_message_removes_persisted_current_turn_with_attachment() -> None:
+    history = [
+        {"role": "user", "content": "previous message"},
+        {"role": "assistant", "content": "previous answer"},
+        {"role": "user", "content": "Voice transcript: hello"},
+    ]
+
+    messages = append_latest_user_message(
+        history,
+        _turn_with_attachments("Voice transcript: hello"),
+        history_token_budget=10_000,
+    )
+
+    assert [item["content"] for item in messages] == [
+        "previous message",
+        "previous answer",
+        "Voice transcript: hello",
+    ]

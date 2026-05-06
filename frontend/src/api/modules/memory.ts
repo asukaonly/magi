@@ -370,7 +370,7 @@ type L3SummariesParams = PaginationParams & { summary_type?: string; summary_cat
 
 const unwrapMemoryResponse = <T>(response: GatewayResponse<T>): T => unwrapGatewayPayload<T>(response);
 
-// Legacy API object for backward compatibility
+// Memory API client
 export const memoryApi = {
   // L0 Working Memory
   getL0Sessions: async (params?: PaginationParams & { status?: string; query?: string }): Promise<L0SessionsResponse> =>

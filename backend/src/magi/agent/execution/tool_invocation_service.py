@@ -56,10 +56,12 @@ class InvocationContext:
 
 
 class ToolInvocationService:
-    def __init__(self, tool_registry, event_bus):
+    def __init__(self, tool_registry, event_bus=None):
         self._tool_registry = tool_registry
-        # kept for backward compat; SpanCompleted publishes via container.message_bus
-        self._event_bus = event_bus
+        # ``event_bus`` is accepted for backward-compatible construction but
+        # SpanCompleted is published exclusively via ``container.message_bus``
+        # inside ``start_async_span``.
+        del event_bus
 
     async def invoke(self, call: ToolCall, ctx: InvocationContext):
         started_at = time.time()
@@ -110,7 +112,7 @@ class ToolInvocationService:
                         "error_message": err_msg,
                     })
                     # Build a structured error so SpanCompleted.error is populated for
-                    # legacy translators that read sp.error.
+                    # subscribers that read sp.error (event_translation, runtime_trace_subscriber).
                     span._error = ToolError(
                         type=err_code or "ToolFailure",
                         message=err_msg or "",

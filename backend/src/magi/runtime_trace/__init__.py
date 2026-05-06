@@ -1,12 +1,9 @@
 """Runtime trace persistence package.
 
-`PluginIngressEventRecord` is re-exported here as the SDK-facing ingress event
-protocol for compatibility with older plugin code that typed handlers against
-`magi.runtime_trace`. Backend code that needs the persisted row model should use
-`StoredPluginIngressEventRecord` or import directly from `.contracts`.
+The persisted ingress row dataclass is exported as
+``StoredPluginIngressEventRecord``. The SDK-facing Protocol lives in
+``magi_plugin_sdk.ingress`` and should be imported from there directly.
 """
-
-from magi_plugin_sdk.ingress import PluginIngressEventRecord
 
 from .contracts import (
     PluginIngressEventRecord as StoredPluginIngressEventRecord,
@@ -22,7 +19,6 @@ from .store import RuntimeTraceStore
 
 __all__ = [
     "RuntimeTraceStore",
-    "PluginIngressEventRecord",
     "StoredPluginIngressEventRecord",
     "RuntimeHeartbeatRecord",
     "RuntimeNotificationRecord",

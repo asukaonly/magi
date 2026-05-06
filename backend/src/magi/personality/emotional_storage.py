@@ -56,11 +56,6 @@ class EmotionalStateStorageMixin:
                 )
             """)
 
-            try:
-                await db.execute("ALTER TABLE emotional_events ADD COLUMN persona_id TEXT NOT NULL DEFAULT ''")
-            except Exception:
-                pass
-
             await db.execute("""
                 create index IF NOT EXISTS idx_emotional_events_timestamp
                 ON emotional_events(timestamp DESC)

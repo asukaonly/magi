@@ -12,7 +12,7 @@ import logging
 from typing import Any, Optional
 
 from ..config.constants import DEFAULT_THINKING_TOKENS
-from ..config.models import LLMScenario
+from ..config.models import LLMScenario, ThinkingDepth
 from ..llm.base import LLMAdapter
 from ..llm.provider_bridge import LLMProviderBridge
 from ..utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
@@ -96,7 +96,7 @@ class ContextDecider(
             return ContextDecision(
                 intent="unknown",
                 tools=[],
-                deep_thinking=False,
+                thinking_depth=ThinkingDepth.NONE,
                 reasoning="LLM not available",
                 orchestration_strategy=self._default_orchestration_strategy(),
             )
@@ -182,7 +182,7 @@ class ContextDecider(
             return ContextDecision(
                 intent="error",
                 tools=[],
-                deep_thinking=False,
+                thinking_depth=ThinkingDepth.NONE,
                 reasoning=f"error: {str(e)}",
                 orchestration_strategy=self._default_orchestration_strategy(),
             )

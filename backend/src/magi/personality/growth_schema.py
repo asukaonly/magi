@@ -34,12 +34,6 @@ async def ensure_growth_memory_schema(db: aiosqlite.Connection) -> None:
         )
     """)
 
-    for table_name in ("milestones", "relationships"):
-        try:
-            await db.execute(f"ALTER TABLE {table_name} ADD COLUMN persona_id TEXT NOT NULL DEFAULT ''")
-        except Exception:
-            pass
-
     await db.execute("""
         create table IF NOT EXISTS personality_evolution (
             id intEGER primary key AUTOINCREMENT,

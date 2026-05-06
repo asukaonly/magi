@@ -18,18 +18,12 @@ class OpenAIAdapter(LLMAdapter):
     - Embeddings (text-embedding-3-small, text-embedding-3-large)
     """
 
-    # Legacy fallback value retained for compatibility references.
-    DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
-    GLM_DISABLED_THINKING_PAYLOAD = {"thinking": {"type": "disabled"}}
-    DASHSCOPE_DISABLED_THINKING_PAYLOAD = {"enable_thinking": False}
-
     def __init__(
         self,
         api_key: str,
         model: str = "gpt-4",
         provider: str = "openai",
         base_url: Optional[str] = None,
-        api_base: Optional[str] = None,
         timeout: int = 60,
         embedding_dimension: Optional[int] = None,
         proxy_url: Optional[str] = None,
@@ -41,7 +35,6 @@ class OpenAIAdapter(LLMAdapter):
             api_key: OpenAI API key
             model: Model name
             base_url: Custom API endpoint (optional, for proxy or relay service)
-            api_base: Compatible with old config, same as base_url
             timeout: Request timeout in seconds
             proxy_url: HTTP/SOCKS5 proxy URL (optional). When omitted, connects directly.
         """
@@ -50,8 +43,7 @@ class OpenAIAdapter(LLMAdapter):
         self._provider = provider.lower()
         self._embedding_dimension = int(embedding_dimension) if embedding_dimension is not None else None
 
-        # Prefer base_url, fallback to api_base (compatible with old config)
-        api_endpoint = base_url or api_base
+        api_endpoint = base_url
         self._base_url = api_endpoint
 
         # Always ignore system proxy; use explicit proxy_url when configured.
@@ -71,33 +63,6 @@ class OpenAIAdapter(LLMAdapter):
         self._client = AsyncOpenAI(**client_kwargs)
         # Keep embedding model aligned with the scenario-selected model instead of a hardcoded default.
         self._embedding_model = model
-
-    def _apply_glm_thinking_control(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
-        """Strip ``disable_thinking`` from kwargs and, for GLM, inject extra_body toggle.
-
-        .. deprecated::
-            Thinking depth is now managed by ``LLMProviderBridge._apply_provider_options``.
-            This method remains only for direct adapter calls that bypass the bridge.
-        """
-        payload = dict(kwargs)
-        disable_thinking = payload.pop("disable_thinking", None)
-        if disable_thinking is not True:
-            return payload
-        if self._provider not in ("glm", "dashscope"):
-            return payload
-
-        extra_body = payload.get("extra_body")
-        if isinstance(extra_body, dict):
-            merged_extra_body = dict(extra_body)
-        else:
-            merged_extra_body = {}
-
-        if self._provider == "dashscope":
-            merged_extra_body.update(self.DASHSCOPE_DISABLED_THINKING_PAYLOAD)
-        else:
-            merged_extra_body.update(self.GLM_DISABLED_THINKING_PAYLOAD)
-        payload["extra_body"] = merged_extra_body
-        return payload
 
     async def generate(
         self,
@@ -131,8 +96,6 @@ class OpenAIAdapter(LLMAdapter):
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
 
-        kwargs = self._apply_glm_thinking_control(kwargs)
-
         response = await self._client.chat.completions.create(
             model=self._model,
             messages=messages,
@@ -164,8 +127,6 @@ class OpenAIAdapter(LLMAdapter):
         Yields:
             Text chunks
         """
-        kwargs = self._apply_glm_thinking_control(kwargs)
-
         stream = await self._client.chat.completions.create(
             model=self._model,
             messages=[{"role": "user", "content": prompt}],
@@ -198,8 +159,6 @@ class OpenAIAdapter(LLMAdapter):
         Returns:
             Assistant response
         """
-        kwargs = self._apply_glm_thinking_control(kwargs)
-
         response = await self._client.chat.completions.create(
             model=self._model,
             messages=messages,
@@ -231,8 +190,6 @@ class OpenAIAdapter(LLMAdapter):
         Yields:
             Text chunks
         """
-        kwargs = self._apply_glm_thinking_control(kwargs)
-
         stream = await self._client.chat.completions.create(
             model=self._model,
             messages=messages,

@@ -47,16 +47,6 @@ class ProviderBridgeOptionsMixin:
         return self._provider_name() in ("glm", "glm_codeplan")
 
     @staticmethod
-    def _disabled_thinking_extra_body(disable_thinking: bool | None) -> Dict[str, Any] | None:
-        """Build provider-specific payload to disable reasoning/thinking mode.
-
-        .. deprecated:: Use ``_build_glm_thinking_params`` with ThinkingDepth.
-        """
-        if disable_thinking is not True:
-            return None
-        return {"thinking": {"type": "disabled"}}
-
-    @staticmethod
     def _build_glm_thinking_params(depth: ThinkingDepth) -> Dict[str, Any] | None:
         """Build GLM extra_body payload for the requested thinking depth.
 

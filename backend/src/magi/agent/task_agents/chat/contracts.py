@@ -109,14 +109,8 @@ class IntentDecision(BaseIntentDecision):
     llm_trace: dict[str, Any] = field(default_factory=dict)
     thinking_depth: ThinkingDepth = ThinkingDepth.NONE
     memory_route: str = "none"
-    routing_memory_hint: dict[str, Any] | None = None
     task_hint: dict[str, Any] = field(default_factory=dict)
     recommended_tools: list[dict[str, Any]] = field(default_factory=list)
-
-    @property
-    def deep_thinking(self) -> bool:
-        """Legacy accessor: True when thinking_depth >= MEDIUM."""
-        return self.thinking_depth not in (ThinkingDepth.NONE, ThinkingDepth.LOW)
 
 
 @dataclass(slots=True)

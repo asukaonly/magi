@@ -15,7 +15,7 @@ type ExecutionActionProjectionInput = {
 };
 
 export type ChatTimelineExecutionProjectionInput = ExecutionActionProjectionInput & {
-  summaries: Record<string, { trace_available?: boolean }>;
+  summaries: Record<string, { traceAvailable?: boolean }>;
   finalizedTurnIds?: ReadonlySet<string>;
 };
 
@@ -124,7 +124,7 @@ export const getExecutionActionState = (
 
 export const projectTraceEntryPresentation = (
   message: Pick<ChatTimelineMessage, 'turnId' | 'traceDisplayMode' | 'traceAvailable' | 'traceSummary'>,
-  summary?: { trace_available?: boolean } | null,
+  summary?: { traceAvailable?: boolean } | null,
 ): ProjectedTraceEntryPresentation => {
   const turnId = String(message.turnId || '').trim();
   const traceDisplayMode = String(message.traceDisplayMode || '').trim() || 'collapsible';
@@ -139,7 +139,7 @@ export const projectTraceEntryPresentation = (
 export const projectExecutionProgressPresentation = (
   message: ChatTimelineMessage,
   options: ExecutionActionProjectionInput & {
-    summary?: { trace_available?: boolean } | null;
+    summary?: { traceAvailable?: boolean } | null;
     variant?: 'card' | 'bubble';
   },
 ): ProjectedExecutionProgressPresentation => {

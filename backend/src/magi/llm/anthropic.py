@@ -23,7 +23,6 @@ class AnthropicAdapter(LLMAdapter):
         api_key: str,
         model: str = "claude-3-opus-20240229",
         base_url: Optional[str] = None,
-        api_base: Optional[str] = None,
         timeout: int = 60,
         proxy_url: Optional[str] = None,
     ):
@@ -34,15 +33,13 @@ class AnthropicAdapter(LLMAdapter):
             api_key: Anthropic API key
             model: Model name
             base_url: Custom API endpoint (optional, for proxy or relay services)
-            api_base: Compatible with legacy configuration, equivalent to base_url
             timeout: Request timeout duration (seconds)
             proxy_url: HTTP/SOCKS5 proxy URL (optional). When omitted, connects directly.
         """
         self._model = model
         self._timeout = timeout
 
-        # Prefer base_url; fall back to api_base (backward compatible with legacy configuration)
-        api_endpoint = base_url or api_base
+        api_endpoint = base_url
         self._base_url = api_endpoint
 
         # Always ignore system proxy; use explicit proxy_url when configured.

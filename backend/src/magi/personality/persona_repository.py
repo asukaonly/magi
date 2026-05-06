@@ -103,21 +103,6 @@ class PersonaRepository:
         """Create tables if they do not exist."""
         async with sqlite_connection_async(self._db_path) as db:
             await db.executescript(_CREATE_SCHEMA)
-            # Migrate: add description column if missing.
-            cols = {r["name"] for r in await db.execute_fetchall("PRAGMA table_info(personas)")}
-            if "description" not in cols:
-                await db.execute("ALTER TABLE personas ADD COLUMN description TEXT NOT NULL DEFAULT ''")
-                # Backfill from config_json.
-                rows = await db.execute_fetchall("SELECT persona_id, config_json FROM personas")
-                for row in rows:
-                    try:
-                        d = json.loads(row["config_json"])
-                        desc = d.get("description", "")
-                    except (json.JSONDecodeError, TypeError):
-                        desc = ""
-                    await db.execute("UPDATE personas SET description = ? WHERE persona_id = ?", (desc, row["persona_id"]))
-            if "deleted_at" not in cols:
-                await db.execute("ALTER TABLE personas ADD COLUMN deleted_at REAL")
             await db.commit()
 
     # ---- create ----

@@ -392,16 +392,14 @@ export const normalizeTraceSnapshot = (raw: ExecutionTraceSnapshot | null | unde
 export const normalizeTurnUxPlan = (raw: unknown): NormalizedTurnUxPlan | null => {
   if (!raw || typeof raw !== 'object') return null;
   const plan = raw as Record<string, unknown>;
-  const assistantSurfaceMode = String(
-    plan.assistantSurfaceMode || plan.assistant_surface_mode || ''
-  ).trim();
+  const assistantSurfaceMode = String(plan.assistant_surface_mode || '').trim();
   if (!assistantSurfaceMode) return null;
 
-  const interimTextRaw = plan.interimText ?? plan.interim_text;
-  const thinkingIndicatorRaw = plan.thinkingIndicator ?? plan.thinking_indicator;
-  const traceDisplayModeRaw = plan.traceDisplayMode ?? plan.trace_display_mode;
-  const reactionStyleRaw = plan.reactionStyle ?? plan.reaction_style;
-  const allowTraceCollapseRaw = plan.allowTraceCollapse ?? plan.allow_trace_collapse;
+  const interimTextRaw = plan.interim_text;
+  const thinkingIndicatorRaw = plan.thinking_indicator;
+  const traceDisplayModeRaw = plan.trace_display_mode;
+  const reactionStyleRaw = plan.reaction_style;
+  const allowTraceCollapseRaw = plan.allow_trace_collapse;
 
   return {
     assistantSurfaceMode,
@@ -638,7 +636,7 @@ export const upsertTraceSummary = (
 
 export const shouldShowTraceEntry = (
   message: Pick<ChatTimelineMessage, 'turnId' | 'traceDisplayMode' | 'traceAvailable' | 'traceSummary'>,
-  summary?: { trace_available?: boolean } | null,
+  summary?: { traceAvailable?: boolean } | null,
 ): boolean => {
   const turnId = String(message.turnId || '').trim();
   if (!turnId) return false;
@@ -647,7 +645,7 @@ export const shouldShowTraceEntry = (
   return Boolean(
     message.traceAvailable ||
     message.traceSummary?.traceAvailable ||
-    summary?.trace_available
+    summary?.traceAvailable
   );
 };
 

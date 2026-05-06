@@ -44,6 +44,8 @@ CREATE TABLE IF NOT EXISTS procedural_skills (
     embedding_profile_id TEXT,
     embedding_chunk_count INTEGER NOT NULL DEFAULT 0,
     last_embedded_at REAL,
+    pending_trace_count INTEGER NOT NULL DEFAULT 0,
+    deleted_at REAL,
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL,
     UNIQUE(skill_name, skill_category)
@@ -86,12 +88,6 @@ CREATE TABLE IF NOT EXISTS l4_execution_traces (
 CREATE INDEX IF NOT EXISTS idx_l4_traces_skill
     ON l4_execution_traces(skill_id, created_at DESC);
 """
-
-PENDING_TRACE_COUNT_MIGRATION_SQL = (
-    "ALTER TABLE procedural_skills ADD COLUMN pending_trace_count INTEGER NOT NULL DEFAULT 0"
-)
-TRACE_TURN_ID_MIGRATION_SQL = f"ALTER TABLE {EXECUTION_TRACES_TABLE} ADD COLUMN turn_id TEXT"
-DELETED_AT_MIGRATION_SQL = "ALTER TABLE procedural_skills ADD COLUMN deleted_at REAL"
 TRACE_TURN_INDEX_SQL = (
     f"CREATE INDEX IF NOT EXISTS idx_l4_traces_turn ON {EXECUTION_TRACES_TABLE}(turn_id, created_at ASC)"
 )
@@ -99,16 +95,4 @@ TRACE_TURN_INDEX_SQL = (
 
 async def ensure_procedural_memory_schema(db: aiosqlite.Connection) -> None:
     await db.executescript(PROCEDURAL_MEMORY_SCHEMA_SQL)
-    try:
-        await db.execute(PENDING_TRACE_COUNT_MIGRATION_SQL)
-    except Exception:
-        pass
-    try:
-        await db.execute(TRACE_TURN_ID_MIGRATION_SQL)
-    except Exception:
-        pass
-    try:
-        await db.execute(DELETED_AT_MIGRATION_SQL)
-    except Exception:
-        pass
     await db.execute(TRACE_TURN_INDEX_SQL)

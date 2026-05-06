@@ -377,7 +377,7 @@ export const personasApi = {
   },
 
   // -----------------------------------------------------------------------
-  // Personality generation & bootstrap (legacy endpoints, still active)
+  // Personality generation & bootstrap
   // -----------------------------------------------------------------------
 
   /** AI-generate a personality config from a description. */

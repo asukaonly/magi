@@ -1,0 +1,85 @@
+"""Runtime hooks for Alembic-managed schema migrations.
+
+Each runtime SQLite database that participates in Alembic has its
+schema versioned by an environment under ``magi/db/migrations/<name>``.
+At process startup, ``CoreDependenciesModule`` calls
+``run_upgrade_head`` for each registered target after the runtime
+paths have been resolved; this brings the on-disk schema up to the
+latest committed revision before any store opens its connection.
+
+Migration files are written by hand (no SQLAlchemy models, no
+autogenerate). The ``0001_initial`` revision in each environment
+loads the canonical baseline DDL via ``op.executescript``; later
+revisions use the high-level ``op.add_column`` / ``op.create_index``
+APIs.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable, Iterable
+
+from alembic import command
+from alembic.config import Config
+
+from ..core.logger import get_logger
+from ..utils.runtime import RuntimePaths
+
+logger = get_logger(__name__)
+
+_MIGRATIONS_ROOT = Path(__file__).resolve().parent / "migrations"
+
+
+@dataclass(frozen=True)
+class MigrationTarget:
+    """A single Alembic environment driving one runtime SQLite file."""
+
+    name: str
+    """Environment name (matches the directory under ``migrations/``)."""
+
+    db_path: Callable[[RuntimePaths], Path]
+    """Resolves the DB file path from the active runtime paths."""
+
+    def script_location(self) -> Path:
+        return _MIGRATIONS_ROOT / self.name
+
+
+MIGRATION_TARGETS: tuple[MigrationTarget, ...] = (
+    MigrationTarget(name="chat", db_path=lambda rp: rp.chat_db_path),
+    MigrationTarget(name="l1", db_path=lambda rp: rp.l1_memory_db_path),
+    MigrationTarget(name="memory_shared", db_path=lambda rp: rp.memory_db_path),
+    MigrationTarget(name="runtime_trace", db_path=lambda rp: rp.runtime_trace_db_path),
+    MigrationTarget(name="llm_usage", db_path=lambda rp: rp.llm_usage_db_path),
+    MigrationTarget(
+        name="persona_registry",
+        db_path=lambda rp: rp.persona_registry_db_path,
+    ),
+)
+
+
+def _build_config(target: MigrationTarget, db_path: Path) -> Config:
+    cfg = Config()
+    cfg.set_main_option("script_location", str(target.script_location()))
+    cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
+    cfg.set_main_option("version_path_separator", "os")
+    return cfg
+
+
+def run_upgrade_head(
+    runtime_paths: RuntimePaths,
+    *,
+    targets: Iterable[MigrationTarget] | None = None,
+) -> None:
+    """Run ``alembic upgrade head`` for every registered migration target.
+
+    ``targets`` is a hook for tests or partial rollouts; production
+    callers omit it to upgrade everything.
+    """
+    selected = tuple(targets) if targets is not None else MIGRATION_TARGETS
+    for target in selected:
+        db_path = target.db_path(runtime_paths)
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        cfg = _build_config(target, db_path)
+        logger.info("alembic upgrade head: %s -> %s", target.name, db_path)
+        command.upgrade(cfg, "head")

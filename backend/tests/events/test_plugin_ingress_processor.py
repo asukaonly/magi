@@ -9,7 +9,8 @@ from unittest.mock import patch
 import pytest
 
 from magi.bootstrap.context import RuntimeBootstrapContext
-from magi.runtime_trace import PluginIngressEventRecord, RuntimeTraceStore
+from magi.runtime_trace import RuntimeTraceStore, StoredPluginIngressEventRecord
+from magi_plugin_sdk.ingress import PluginIngressEventRecord
 from magi.utils.runtime import RuntimePaths
 
 _plugins_path = Path(__file__).resolve().parents[3] / "plugins"
@@ -68,7 +69,7 @@ async def test_plugin_ingress_processor_routes_matching_events(tmp_path) -> None
 
     try:
         await store.append_plugin_ingress_event(
-            PluginIngressEventRecord(
+            StoredPluginIngressEventRecord(
                 event_id=0,
                 source_kind="desktop",
                 producer="frontmost_app_monitor",
@@ -122,7 +123,7 @@ async def test_plugin_ingress_processor_marks_events_failed_when_handler_raises(
 
     try:
         event_id = await store.append_plugin_ingress_event(
-            PluginIngressEventRecord(
+            StoredPluginIngressEventRecord(
                 event_id=0,
                 source_kind="desktop",
                 producer="frontmost_app_monitor",
@@ -176,7 +177,7 @@ async def test_plugin_ingress_processor_loads_screen_time_handler_from_plugin_ma
 
     try:
         first_event_id = await store.append_plugin_ingress_event(
-            PluginIngressEventRecord(
+            StoredPluginIngressEventRecord(
                 event_id=0,
                 source_kind="desktop",
                 producer="frontmost_app_monitor",
@@ -188,7 +189,7 @@ async def test_plugin_ingress_processor_loads_screen_time_handler_from_plugin_ma
             )
         )
         second_event_id = await store.append_plugin_ingress_event(
-            PluginIngressEventRecord(
+            StoredPluginIngressEventRecord(
                 event_id=0,
                 source_kind="desktop",
                 producer="frontmost_app_monitor",

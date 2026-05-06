@@ -6,7 +6,7 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 import pytest
 
 from magi.llm.base import LLMAdapter
-from magi.config.models import LLMScenario
+from magi.config.models import LLMScenario, ThinkingDepth
 from magi.tools.context_decider import ContextDecider
 from magi.tools.context_decider_context import ContextDeciderContext
 
@@ -253,7 +253,7 @@ def test_context_decider_rule_fallback_routes_complex_news_to_generic_decompose(
 
     assert decision.intent == "planning"
     assert decision.tools == ["web-search"]
-    assert decision.deep_thinking is True
+    assert decision.thinking_depth not in (ThinkingDepth.NONE, ThinkingDepth.LOW)
     assert decision.orchestration_strategy["mode"] == "decompose"
     assert decision.orchestration_strategy["default_leaf_type"] == "general-purpose"
     assert decision.orchestration_strategy["allow_parallel"] is True
@@ -286,7 +286,7 @@ async def test_context_decider_overrides_llm_direct_news_with_research_guardrail
     )
 
     assert decision.intent == "planning"
-    assert decision.deep_thinking is True
+    assert decision.thinking_depth not in (ThinkingDepth.NONE, ThinkingDepth.LOW)
     assert decision.orchestration_strategy["mode"] == "decompose"
     assert decision.orchestration_strategy["default_leaf_type"] == "general-purpose"
 

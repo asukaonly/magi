@@ -2,10 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { STORAGE_KEYS } from '@/constants/app';
 import { configApi, DEFAULT_SYSTEM_CONFIG, type LanguageCode, SystemConfig } from '../api/modules/config';
 import OnboardingFlow from '../components/onboarding/OnboardingFlow';
 
-const STORAGE_KEY = 'magi_onboarding_state';
+const STORAGE_KEY = STORAGE_KEYS.ONBOARDING_STATE;
 const LANGUAGE_KEY = 'magi_language';
 
 // Detect browser language preference

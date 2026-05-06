@@ -61,13 +61,6 @@ async def ensure_chat_sessions_schema_async(db: aiosqlite.Connection) -> None:
     """Create the canonical chat session schema for an async connection."""
 
     await db.executescript(CHAT_SESSIONS_SCHEMA_SQL)
-    cursor = await db.execute(f"PRAGMA table_info({CHAT_SESSIONS_TABLE})")
-    rows = await cursor.fetchall()
-    column_names = {str(row[1]) for row in rows}
-    if "workspace_path" not in column_names:
-        await db.execute(
-            f"ALTER TABLE {CHAT_SESSIONS_TABLE} ADD COLUMN workspace_path TEXT"
-        )
 
 
 def create_chat_session_record(

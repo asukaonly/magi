@@ -122,43 +122,14 @@ def _from_assistant_response(event: Event) -> MemoryEvent:
 
 def _from_sensor(event: Event) -> MemoryEvent:
     p: SensorEventEmitted = event.data
-    if isinstance(p.policy_dict, Mapping) and p.policy_dict:
-        # C producer: full context — use shared projection function.
-        from magi.awareness.sensor_memory_projection import build_sensor_memory_event
-        return build_sensor_memory_event(
-            p,
-            event_id=event.event_id,
-            correlation_id=event.correlation_id,
-            causation_id=event.causation_id,
-            trace_context=event.trace_context,
-        )
-    return _from_sensor_legacy(event)
-
-
-def _from_sensor_legacy(event: Event) -> MemoryEvent:
-    """Pre-C path: SensorEventEmitted with only sensor_name + payload + context.
-
-    Used by chat projector and any transitional producer that emits the lean
-    A-era SensorEventEmitted shape. Will be removed when all producers upgrade.
-    """
-    p: SensorEventEmitted = event.data
-    legacy_data = {
-        **_ctx_dict(p.context),
-        "sensor_name": p.sensor_name,
-        **dict(p.payload or {}),
-    }
-    return normalize_runtime_event(Event(
-        type="SENSOR_EVENT",
-        data=legacy_data,
-        timestamp=event.timestamp,
-        source=str(event.source or "awareness"),
-        level=event.level,
-        correlation_id=event.correlation_id,
-        metadata=dict(event.metadata or {}),
+    from magi.awareness.sensor_memory_projection import build_sensor_memory_event
+    return build_sensor_memory_event(
+        p,
         event_id=event.event_id,
+        correlation_id=event.correlation_id,
         causation_id=event.causation_id,
         trace_context=event.trace_context,
-    ))
+    )
 
 
 def _from_task_started(event: Event) -> MemoryEvent:

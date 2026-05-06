@@ -18,7 +18,6 @@ from .embeddings.common import (
     EMBEDDING_PROFILES_TABLE,
     EMBEDDING_TEXT_BUILDER_VERSION,
     EVENT_CHUNKS_TABLE,
-    FACT_EVENTS_TABLE,
 )
 
 EMBEDDING_QUEUE_MAXSIZE = 512
@@ -80,6 +79,10 @@ class L1EventLifecycleMixin:
                     embedding_profile_id TEXT,
                     embedding_chunk_count INTEGER NOT NULL DEFAULT 0,
                     last_embedded_at REAL,
+                    causation_id TEXT,
+                    trace_id TEXT,
+                    span_id TEXT,
+                    parent_span_id TEXT,
                     deleted_at REAL
                 );
 
@@ -93,6 +96,10 @@ class L1EventLifecycleMixin:
                 CREATE INDEX IF NOT EXISTS idx_fact_events_user ON fact_events(user_id);
                 CREATE INDEX IF NOT EXISTS idx_fact_events_importance ON fact_events(importance_score DESC);
                 CREATE INDEX IF NOT EXISTS idx_fact_events_retention ON fact_events(retention_class);
+                CREATE INDEX IF NOT EXISTS idx_fact_events_trace ON fact_events(trace_id);
+                CREATE INDEX IF NOT EXISTS idx_fact_events_causation ON fact_events(causation_id);
+                CREATE INDEX IF NOT EXISTS idx_fact_events_embedding_status ON fact_events(embedding_status);
+                CREATE INDEX IF NOT EXISTS idx_fact_events_embedding_profile ON fact_events(embedding_profile_id);
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_events_business_idempotency
                     ON fact_events(source, event_type, idempotency_key);
                 CREATE TABLE IF NOT EXISTS embedding_profiles (
@@ -142,17 +149,6 @@ class L1EventLifecycleMixin:
             await db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_l1_event_entities_entity"
                 " ON l1_event_entities(entity_id)"
-            )
-            await self._ensure_event_identity_schema(db)
-            await self._ensure_embedding_status_columns(db)
-            await self._ensure_metadata_json_column(db)
-            await self._ensure_envelope_columns(db)
-            await self._backfill_external_owner_user_ids(db)
-            await db.execute(
-                f"CREATE INDEX IF NOT EXISTS idx_fact_events_embedding_status ON {FACT_EVENTS_TABLE}(embedding_status)"
-            )
-            await db.execute(
-                f"CREATE INDEX IF NOT EXISTS idx_fact_events_embedding_profile ON {FACT_EVENTS_TABLE}(embedding_profile_id)"
             )
             await ensure_chat_sessions_schema_async(db)
             if self._vector_index is not None:

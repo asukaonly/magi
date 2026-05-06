@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Any, Awaitable, Callable, Dict, List
 
 from ....agent.message_utils import build_recent_messages
+from ....config.models import ThinkingDepth
 from ....core.logger import get_logger
 from ....personality.active_persona import get_current_personality_config
 from ....tools.context_decider import ContextDecider
@@ -193,7 +194,7 @@ class ChatExecutionCoordinator:
         )
         intent_decision = IntentDecision(
             intent=decision.intent,
-            difficulty="hard" if decision.deep_thinking else "normal",
+            difficulty="hard" if decision.thinking_depth not in (ThinkingDepth.NONE, ThinkingDepth.LOW) else "normal",
             execution_mode=execution_mode,
             ux_plan=self._build_turn_ux_plan(
                 user_message=context.latest_user_message,
@@ -207,7 +208,6 @@ class ChatExecutionCoordinator:
             reasoning=str(decision.reasoning),
             orchestration_plan=orchestration_plan,
             memory_route=str(getattr(decision, "memory_route", "none") or "none"),
-            routing_memory_hint=getattr(decision, "routing_memory_hint", None),
             task_hint=self._resolve_runtime_task_hint(
                 user_message=context.latest_user_message,
                 selected_tools=selected_tools,
