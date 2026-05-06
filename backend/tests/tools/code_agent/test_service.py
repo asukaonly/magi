@@ -277,3 +277,57 @@ async def test_service_does_not_broadcast_when_user_id_missing(
     await service.delegate(_request(repo))  # no user_id
     assert state_calls == []
 
+
+@pytest.mark.asyncio
+async def test_service_cancel_returns_false_for_unknown_id() -> None:
+    assert CodeAgentService.cancel("does-not-exist") is False
+
+
+@pytest.mark.asyncio
+async def test_service_cancel_signals_active_delegation(
+    isolated_magi_home: Path, tmp_path: Path,
+) -> None:
+    """A running delegation should expose its cancel token via the registry."""
+    import asyncio
+
+    repo = _make_repo(tmp_path / "repo")
+    seen_cancelled: list[bool] = []
+
+    class _SlowAdapter:
+        name = "claude_code"
+        display_name = "Slow"
+
+        @classmethod
+        async def detect(cls):
+            raise NotImplementedError
+
+        async def run(self, req, *, cwd, bundle_dir, stdout_path, stderr_path,
+                      on_event, cancel_token, binary_path):
+            stdout_path.parent.mkdir(parents=True, exist_ok=True)
+            stdout_path.write_text("")
+            stderr_path.write_text("")
+            for _ in range(40):
+                if cancel_token.cancelled:
+                    seen_cancelled.append(True)
+                    return AdapterRunOutcome(
+                        exit_code=-1, summary=None, cost=None,
+                        error="cancelled by user",
+                    )
+                await asyncio.sleep(0.05)
+            return AdapterRunOutcome(
+                exit_code=0, summary="not cancelled", cost=None, error=None,
+            )
+
+    service = CodeAgentService(
+        adapters_factory=lambda: {"claude_code": _SlowAdapter()},
+        binary_paths={"claude_code": "/unused", "codex": "/unused"},
+    )
+    req = _request(repo)
+    delegate_task = asyncio.create_task(service.delegate(req))
+    await asyncio.sleep(0.15)
+    assert CodeAgentService.cancel(req.delegation_id) is True
+    result = await delegate_task
+    assert seen_cancelled == [True]
+    assert result.success is False
+    assert req.delegation_id not in CodeAgentService._ACTIVE_CANCEL_TOKENS
+

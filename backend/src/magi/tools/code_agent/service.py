@@ -5,7 +5,7 @@ import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, ClassVar, Optional
 
 from ...agent.workspace_cache.atomic_io import append_jsonl, atomic_write_text
 from .adapters.base import AdapterRunOutcome, CancelToken, CodeAgentAdapter, OnEvent
@@ -47,6 +47,21 @@ class CodeAgentService:
     adapters_factory: Callable[[], dict[AdapterName, CodeAgentAdapter]] = _default_adapters_factory
     binary_paths: Optional[dict[AdapterName, Optional[str]]] = None
     cleanup_worktree: bool = False
+
+    _ACTIVE_CANCEL_TOKENS: ClassVar[dict[str, CancelToken]] = {}
+
+    @classmethod
+    def cancel(cls, delegation_id: str) -> bool:
+        """Signal an active delegation to cancel cooperatively.
+
+        Returns ``True`` when the delegation_id was active and the token has
+        been flipped, ``False`` when no active delegation matches.
+        """
+        token = cls._ACTIVE_CANCEL_TOKENS.get(delegation_id)
+        if token is None:
+            return False
+        token.cancel()
+        return True
 
     async def delegate(
         self,
@@ -179,6 +194,7 @@ class CodeAgentService:
             ))
 
         cancel_token = CancelToken()
+        CodeAgentService._ACTIVE_CANCEL_TOKENS[req.delegation_id] = cancel_token
         outcome: AdapterRunOutcome
         try:
             outcome = await adapter.run(
@@ -196,6 +212,8 @@ class CodeAgentService:
                 exit_code=-1, summary=None, cost=None,
                 error=f"adapter raised: {exc}",
             )
+        finally:
+            CodeAgentService._ACTIVE_CANCEL_TOKENS.pop(req.delegation_id, None)
 
         snapshot = collect_diff(worktree)
         patch_path = delegation_dir / "changes.patch"
