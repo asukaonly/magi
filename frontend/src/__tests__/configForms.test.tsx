@@ -181,6 +181,36 @@ vi.mock('../api/modules/config', async () => {
         },
       },
       {
+        id: 'grok',
+        display_name: 'xAI Grok',
+        description: 'OpenAI-compatible Grok models from xAI',
+        icon: 'grok',
+        default_model: 'grok-4.3',
+        default_base_url: 'https://api.x.ai/v1',
+        chat_models: [
+          {
+            id: 'grok-4.3',
+            label: 'Grok 4.3',
+            capabilities: {
+              vision: true,
+              image_output: false,
+              tool_calling: true,
+              reasoning: true,
+              embedding: false,
+            },
+            limits: {
+              context_window: 1000000,
+              max_output_tokens: 65536,
+            },
+            provider_options_example: {},
+          },
+        ],
+        fields: {
+          api_key: { visible: true, required: true },
+          base_url: { visible: true, required: false },
+        },
+      },
+      {
         id: 'deepseek',
         display_name: 'DeepSeek',
         description: 'Reasoning and coding models',
@@ -645,6 +675,19 @@ describe('config forms', () => {
           tts: { enabled: false, api_key: '', base_url: 'https://open.bigmodel.cn/api/paas/v4', model: '', voice: '', response_format: '' },
         },
       },
+      grok: {
+        enabled: false,
+        provider_type: 'grok',
+        display_name: 'xAI Grok',
+        api_key: '',
+        base_url: 'https://api.x.ai/v1',
+        services: {
+          chat: { enabled: true, api_key: '', base_url: 'https://api.x.ai/v1' },
+          embedding: { enabled: false, api_key: '', base_url: 'https://api.x.ai/v1' },
+          image_generation: { enabled: false, api_key: '', base_url: 'https://api.x.ai/v1', timeout: 180, native_protocol: null },
+          tts: { enabled: false, api_key: '', base_url: 'https://api.x.ai/v1', model: '', voice: '', response_format: '' },
+        },
+      },
     },
     selections: {
       context_decider: {
@@ -748,9 +791,11 @@ describe('config forms', () => {
     expect(within(providerList).getByTestId('llm-provider-row-openai')).toHaveTextContent('OpenAI');
     expect(within(providerList).getByTestId('llm-provider-row-anthropic')).toHaveTextContent('Anthropic');
     expect(within(providerList).getByTestId('llm-provider-row-glm')).toHaveTextContent('Z.ai');
+    expect(within(providerList).getByTestId('llm-provider-row-grok')).toHaveTextContent('xAI Grok');
     expect(within(providerList).getByTestId('llm-provider-icon-openai')).toBeInTheDocument();
     expect(within(providerList).getByTestId('llm-provider-icon-anthropic')).toBeInTheDocument();
     expect(within(providerList).getByTestId('llm-provider-icon-zai')).toBeInTheDocument();
+    expect(within(providerList).getByTestId('llm-provider-icon-grok')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'llm.providerConfiguration.addProvider' })).toBeInTheDocument();
   });
 

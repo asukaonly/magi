@@ -11,6 +11,7 @@ Included assets:
 - `anthropic.svg`
 - `zai.svg`
 - `gemini-color.svg`
+- `grok.svg`
 - `deepseek-color.svg`
 - `kimi.svg`
 - `minimax-color.svg`
