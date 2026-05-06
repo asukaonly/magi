@@ -25,12 +25,10 @@ from .lifecycle import (
 from .retrieval.fts import L1EventFtsMixin
 from .retrieval.queries import L1EventQueryMixin
 from .storage.rows import L1EventRowMixin
-from .storage.schema import L1EventSchemaMixin
 from .writes import L1EventWriteMixin, L1_STORE_DIAGNOSTIC_EVENT_TYPES
 
 
 class L1EventStore(
-    L1EventSchemaMixin,
     L1EventEntityMixin,
     L1EventRowMixin,
     L1EventFtsMixin,
