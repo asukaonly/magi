@@ -99,6 +99,7 @@ class UnifiedMemoryStore(
         self.l2_entity_catalog: Optional[L2EntityCatalog] = None
         self.l2_llm_service: Optional[L2LLMService] = None
         self.l2_pipeline: Optional[L2Pipeline] = None
+        self._l2_batch_flush_interval_seconds = int(l2_batch_flush_interval_seconds)
         self.l3: Optional[L3SummaryStore] = None
         self.l4: Optional[L4ProceduralMemoryStore] = None
         self._contradiction_service = ContradictionInsightService()

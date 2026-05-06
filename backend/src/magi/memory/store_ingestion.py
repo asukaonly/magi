@@ -109,7 +109,12 @@ class MemoryIngestionMixin:
         return [
             L0Layer(self.l0),
             L1Layer(self.l1),
-            L2ProjectionLayer(self.l2),
+            L2ProjectionLayer(
+                self.l2,
+                batch_flush_interval_seconds=getattr(
+                    self, "_l2_batch_flush_interval_seconds", None
+                ),
+            ),
             L2PipelineLayer(self.l2, self.l2_pipeline),
             L4Layer(self.l4),
         ]
