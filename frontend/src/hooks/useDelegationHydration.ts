@@ -6,7 +6,7 @@
  * fetches the persisted ``result.json`` + last 50 events so the UI can
  * render the same shape as live delegations.
  */
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 import { codeAgentApi } from '@/api/modules/codeAgent';
 import { useDelegationsStore, selectDelegationCard } from '@/stores/delegations-store';
@@ -26,36 +26,31 @@ export function useDelegationHydration(
   const setLifecycle = useDelegationsStore((s) => s.setLifecycle);
   const setDiffText = useDelegationsStore((s) => s.setDiffText);
 
+  // Track the latest request ID to handle React StrictMode double invocation
+  const requestIdRef = useRef<number>(0);
+
   useEffect(() => {
     if (!sessionId || !delegationId || !workspace) {
-      console.log('[useDelegationHydration] Skip: missing data', { sessionId, delegationId, workspace });
       return;
     }
     // Only skip if we already have diff_text OR we're already hydrating
     if (card?.diffText || card?.hydrating) {
-      console.log('[useDelegationHydration] Skip: already has data', { hasDiffText: !!card?.diffText, hydrating: card?.hydrating });
       return;
     }
-    console.log('[useDelegationHydration] Starting hydration', { sessionId, delegationId, workspace });
 
-    let cancelled = false;
+    // Increment request ID for this effect invocation
+    const currentRequestId = ++requestIdRef.current;
     setHydrating(sessionId, delegationId, true);
+
     codeAgentApi
       .getDelegation(sessionId, delegationId, workspace)
       .then((response) => {
-        console.log('[useDelegationHydration] Raw API response', { cancelled });
-        const { result, events_tail, diff_text } = response;
-        console.log('[useDelegationHydration] Destructured values', {
-          hasResult: !!result,
-          eventsCount: events_tail?.length,
-          diffTextType: typeof diff_text,
-          diffTextValue: diff_text?.substring(0, 100),
-        });
-        if (cancelled) {
-          console.log('[useDelegationHydration] Skipping because cancelled=true');
+        // Only process if this is still the latest request
+        if (currentRequestId !== requestIdRef.current) {
           return;
         }
-        console.log('[useDelegationHydration] Processing result...');
+        const { result, events_tail, diff_text } = response;
+
         if (result) {
           setResult(sessionId, delegationId, result);
           if (result.applied_at) {
@@ -70,28 +65,20 @@ export function useDelegationHydration(
         }
         if (Array.isArray(events_tail) && events_tail.length > 0) {
           setEventsTail(sessionId, delegationId, events_tail);
-          console.log('[useDelegationHydration] Events set');
         }
         if (typeof diff_text === 'string') {
-          console.log('[useDelegationHydration] Setting diffText...', { length: diff_text.length });
           setDiffText(sessionId, delegationId, diff_text);
-          console.log('[useDelegationHydration] DiffText set');
-        } else {
-          console.log('[useDelegationHydration] diff_text is not a string', typeof diff_text);
         }
       })
-      .catch((err) => {
-        console.error('[useDelegationHydration] Failed', err);
+      .catch(() => {
         // Hydration is best-effort. The card stays in its current shape.
       })
       .finally(() => {
-        if (!cancelled) {
+        // Only clear hydrating if this is still the latest request
+        if (currentRequestId === requestIdRef.current) {
           setHydrating(sessionId, delegationId, false);
         }
       });
-    return () => {
-      cancelled = true;
-    };
   }, [
     sessionId,
     delegationId,
