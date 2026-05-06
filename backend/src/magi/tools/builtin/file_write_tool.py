@@ -4,6 +4,7 @@ File write tool
 import os
 from typing import Dict, Any
 from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType, ToolErrorCode
+from ._read_constraint import require_prior_read
 
 
 class FileWriteTool(Tool):
@@ -17,7 +18,7 @@ class FileWriteTool(Tool):
         """initialize Schema"""
         self.schema = ToolSchema(
             name="file_write",
-            description="Write file content",
+            description="Write file content. When overwriting an existing file, that file must have been read with file_read in this session first. Creating a new file or appending does not require a prior read.",
             category="file",
             version="1.0.0",
             author="Magi Team",
@@ -103,6 +104,15 @@ class FileWriteTool(Tool):
         encoding = parameters.get("encoding", "utf-8")
         mode = parameters.get("mode", "overwrite")
         create_dirs = parameters.get("create_dirs", False)
+
+        if mode == "overwrite" and os.path.exists(file_path):
+            block_msg = require_prior_read(context, file_path)
+            if block_msg is not None:
+                return ToolResult(
+                    success=False,
+                    error=block_msg,
+                    error_code=ToolErrorCode.INVALID_PARAMETERS.value,
+                )
 
         try:
             # Check and create directory
