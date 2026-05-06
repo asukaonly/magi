@@ -17,7 +17,9 @@ from .utils import resolve_event_bus
 class _IntentPostprocessHostProtocol(Protocol):
     _runtime_trace_store: Any
 
-    def _resolve_turn_id(self, context: ChatRuntimeContext, payload: dict[str, Any]) -> str | None: ...
+    def _resolve_turn_id(
+        self, context: ChatRuntimeContext, payload: dict[str, Any]
+    ) -> str | None: ...
 
     def _build_trace_id(self, turn_id: str) -> str: ...
 
@@ -105,12 +107,18 @@ def _intent_resolution_attributes(
     )
     return {
         "intent": str(getattr(decision, "intent", "") or ""),
-        "execution_mode": host._normalize_mode(getattr(decision, "execution_mode", None)),
+        "execution_mode": host._normalize_mode(
+            getattr(decision, "execution_mode", None)
+        ),
         "route_reason": str(getattr(decision, "reasoning", "") or "") or None,
         "selected_tools_json": host._serialize_selected_tools_payload(
             router_tools=router_tools,
             selected_tools=selected,
-            task_hint=task_hint if task_hint is not None else getattr(decision, "task_hint", None),
+            task_hint=(
+                task_hint
+                if task_hint is not None
+                else getattr(decision, "task_hint", None)
+            ),
             recommended_tools=list(
                 recommended_tools
                 if recommended_tools is not None
@@ -124,13 +132,16 @@ def _intent_resolution_attributes(
 class ChatPostprocessIntentMixin:
     """Persist intent-routing and selected-tool trace details."""
 
-    async def record_intent_resolution(self, context: ChatRuntimeContext, decision: Any) -> None:
+    async def record_intent_resolution(
+        self, context: ChatRuntimeContext, decision: Any
+    ) -> None:
         host = cast(_IntentPostprocessHostProtocol, self)
         latest_fact = context.latest_fact
         if host._runtime_trace_store is None or not isinstance(latest_fact, FactRecord):
             return
         turn_id = host._resolve_turn_id(
-            context, latest_fact.payload if isinstance(latest_fact.payload, dict) else {}
+            context,
+            latest_fact.payload if isinstance(latest_fact.payload, dict) else {},
         )
         if not turn_id:
             return
@@ -144,6 +155,8 @@ class ChatPostprocessIntentMixin:
             started_at_ms=started_at_ms,
             user_message=context.latest_user_message,
             mode=host._normalize_mode(getattr(decision, "execution_mode", None)),
+            run_id=context.session_run_id,
+            run_revision=context.session_run_revision,
         )
         bus = getattr(host, "_event_bus", None) or resolve_event_bus()
         ended_at_ms = now_wall_ms()
@@ -170,7 +183,9 @@ class ChatPostprocessIntentMixin:
         ux_plan = host._serialize_ux_plan(decision)
         await host._persist_turn_ux_plan(
             turn_id=turn_id,
-            execution_mode=host._normalize_mode(getattr(decision, "execution_mode", None)),
+            execution_mode=host._normalize_mode(
+                getattr(decision, "execution_mode", None)
+            ),
             ux_plan=ux_plan,
             updated_at_ms=ended_at_ms,
             run_id=context.session_run_id,
@@ -186,9 +201,15 @@ class ChatPostprocessIntentMixin:
             session_id=context.session_id,
             turn_id=turn_id,
             ux_plan=ux_plan,
-            message_id=turn_ux_message.message_id if turn_ux_message is not None else None,
-            message_kind=turn_ux_message.message_kind if turn_ux_message is not None else None,
-            timestamp_ms=turn_ux_message.created_at_ms if turn_ux_message is not None else None,
+            message_id=(
+                turn_ux_message.message_id if turn_ux_message is not None else None
+            ),
+            message_kind=(
+                turn_ux_message.message_kind if turn_ux_message is not None else None
+            ),
+            timestamp_ms=(
+                turn_ux_message.created_at_ms if turn_ux_message is not None else None
+            ),
         )
 
     async def record_tool_selection(
@@ -199,7 +220,8 @@ class ChatPostprocessIntentMixin:
         if host._runtime_trace_store is None or not isinstance(latest_fact, FactRecord):
             return
         turn_id = host._resolve_turn_id(
-            context, latest_fact.payload if isinstance(latest_fact.payload, dict) else {}
+            context,
+            latest_fact.payload if isinstance(latest_fact.payload, dict) else {},
         )
         if not turn_id:
             return
@@ -224,7 +246,9 @@ class ChatPostprocessIntentMixin:
                 selected_tools=list(getattr(tool_selection, "tools", []) or []),
                 task_hint=getattr(tool_selection, "task_hint", None)
                 or getattr(decision, "task_hint", None),
-                recommended_tools=list(getattr(tool_selection, "recommended_tools", []) or []),
+                recommended_tools=list(
+                    getattr(tool_selection, "recommended_tools", []) or []
+                ),
             ),
         )
 

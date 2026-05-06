@@ -1,4 +1,5 @@
 """Runtime task agent for chat facts."""
+
 from __future__ import annotations
 
 from typing import Any, Callable
@@ -12,7 +13,12 @@ from ...core.logger import get_logger
 from ...agent.runtime.contracts import FactRecord
 from ...agent.runtime.task_agent import TaskAgent, TaskAgentRuntimeContext
 from ...agent.runtime.types import TaskAgentType
-from ...context import ContextAssemblyService, ContextRetrievalService, PromptContextAssembler, PromptContextRenderer
+from ...context import (
+    ContextAssemblyService,
+    ContextRetrievalService,
+    PromptContextAssembler,
+    PromptContextRenderer,
+)
 from ...context.user_profile_service import UserProfileService
 from ...tools.context_decider import ContextDecider
 from ...tools.registry import tool_registry
@@ -49,9 +55,14 @@ from .chat.rhythm import ResponseRhythmPlanner, is_conversation_rhythm_enabled
 from .chat.session_control import ChatSessionControlMixin
 from .chat.streaming import ChatStreamingMixin, format_llm_error as _format_llm_error
 from .chat.transcript_summarizer import ChatTranscriptSummarizer
-from .common import FactOnlyHandler, OrchestrationLaunchHandler, OrchestrationUpdateHandler
+from .common import (
+    FactOnlyHandler,
+    OrchestrationLaunchHandler,
+    OrchestrationUpdateHandler,
+)
 
 logger = get_logger(__name__)
+
 
 def _default_chat_read_service_factory() -> ChatReadService:
     from ...chat import get_chat_read_service
@@ -63,7 +74,13 @@ class ChatTaskAgent(
     ChatSessionControlMixin,
     ChatStreamingMixin,
     ChatReplyContextMixin,
-    TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection, ExecutionRequest, ExecutionResult],
+    TaskAgent[
+        ChatRuntimeContext,
+        IntentDecision,
+        ToolSelection,
+        ExecutionRequest,
+        ExecutionResult,
+    ],
 ):
     """Consumes chat facts and delegates execution to typed handlers."""
 
@@ -95,7 +112,10 @@ class ChatTaskAgent(
         self.unified_memory = unified_memory
         self.memory_integration = memory_integration
         self._chat_store = chat_store
-        self._chat_read_service_factory = chat_read_service_factory or _default_chat_read_service_factory
+        self._runtime_trace_store = runtime_trace_store
+        self._chat_read_service_factory = (
+            chat_read_service_factory or _default_chat_read_service_factory
+        )
         self.context_decider = ContextDecider(
             tool_registry=tool_registry,
             llm_adapter=llm_adapter,
@@ -113,7 +133,11 @@ class ChatTaskAgent(
         )
         self._context_service = ContextAssemblyService(
             agent_id=self.agent_id,
-            agent_type=str(self.agent_type.value if hasattr(self.agent_type, "value") else self.agent_type),
+            agent_type=str(
+                self.agent_type.value
+                if hasattr(self.agent_type, "value")
+                else self.agent_type
+            ),
             prompt_context_assembler=self.prompt_context_assembler,
             prompt_context_renderer=self.prompt_context_renderer,
             retrieval_memory_provider=self._context_retrieval_service.build_retrieved_memory_payload,
@@ -168,6 +192,7 @@ class ChatTaskAgent(
         )
         # Initialize trace read service for enriching AI_RESPONSE events
         from ...api.services.chat_trace.read_service import ChatTraceReadService
+
         try:
             trace_read_service = ChatTraceReadService()
         except Exception:
@@ -203,7 +228,9 @@ class ChatTaskAgent(
                 revision=revision,
             ),
             drain_deferred_turns=self._drain_deferred_turns,
-            response_rhythm_planner=ResponseRhythmPlanner(prompt_service=self._prompt_service),
+            response_rhythm_planner=ResponseRhythmPlanner(
+                prompt_service=self._prompt_service
+            ),
             transcript_summarizer=self._transcript_summarizer,
             event_bus=self._resolve_message_bus(),
         )
@@ -283,8 +310,12 @@ class ChatTaskAgent(
             updated_at_ms=updated_at_ms,
         )
 
-    async def _resolve_session_workspace_path(self, *, user_id: str, session_id: str) -> str | None:
-        summary = await self._chat_read_service.aget_session_summary(user_id, session_id)
+    async def _resolve_session_workspace_path(
+        self, *, user_id: str, session_id: str
+    ) -> str | None:
+        summary = await self._chat_read_service.aget_session_summary(
+            user_id, session_id
+        )
         return summary.workspace_path if summary is not None else None
 
     @staticmethod
@@ -301,9 +332,67 @@ class ChatTaskAgent(
 
     async def _get_tool_advisory(self, task_context: str | None = None) -> list[dict]:
         """Fetch notable L4 advisories for the coordinator."""
+        available_tool_names = tool_registry.list_tools()
+        trace_stats: dict[str, dict[str, float | int]] = {}
+        if self._runtime_trace_store is not None:
+            try:
+                trace_stats = await self._runtime_trace_store.get_tool_execution_stats(
+                    available_tool_names
+                )
+            except Exception as exc:
+                logger.debug("Failed to fetch runtime trace tool stats: %s", exc)
+
+        advisories_by_tool: dict[str, dict] = {}
         if self.unified_memory is None or self.unified_memory.l4 is None:
-            return []
-        return await self.unified_memory.l4.get_notable_advisories(task_context=task_context)
+            base_advisories = []
+        else:
+            try:
+                base_advisories = await self.unified_memory.l4.get_notable_advisories(
+                    task_context=task_context
+                )
+            except Exception as exc:
+                logger.debug("Failed to fetch L4 tool advisories: %s", exc)
+                base_advisories = []
+        for advisory in base_advisories:
+            tool_name = str(advisory.get("tool_name") or "").strip()
+            if tool_name:
+                advisories_by_tool[tool_name] = dict(advisory)
+
+        for tool_name, stats in trace_stats.items():
+            total_calls = int(stats.get("total_calls") or 0)
+            if total_calls <= 0:
+                continue
+            success_rate = float(stats.get("success_rate") or 0.0)
+            failed_calls = int(stats.get("failed_calls") or 0)
+            advisory = advisories_by_tool.setdefault(
+                tool_name,
+                {
+                    "tool_name": tool_name,
+                    "available": True,
+                    "breaker_state": "closed",
+                    "strategy_hint": None,
+                    "context_fit": 0.0,
+                },
+            )
+            advisory["success_rate"] = success_rate
+            advisory["total_attempts"] = total_calls
+            advisory["failure_count"] = failed_calls
+            advisory["stats_source"] = "runtime_trace.trace_tools"
+            if success_rate < 0.7 and total_calls >= 3:
+                advisory["risk_note"] = (
+                    f"Low success rate ({success_rate:.0%} over {total_calls} attempts)"
+                )
+
+        return [
+            advisory
+            for advisory in advisories_by_tool.values()
+            if advisory.get("strategy_hint") is not None
+            or advisory.get("breaker_state") != "closed"
+            or (
+                float(advisory.get("success_rate") or 0.0) < 0.7
+                and int(advisory.get("total_attempts") or 0) >= 3
+            )
+        ][:10]
 
     async def add_fact(self, fact: FactRecord) -> bool:
         """Enqueue the fact, fast-pathing obvious INTERRUPT user turns.
@@ -328,7 +417,11 @@ class ChatTaskAgent(
     async def build_context(self, merged_facts: list[FactRecord]) -> ChatRuntimeContext:
         base_context = await super().build_context(merged_facts)
         batch_facts = list(self._last_batch_facts)
-        latest_fact = base_context.latest_fact if isinstance(base_context, TaskAgentRuntimeContext) else None
+        latest_fact = (
+            base_context.latest_fact
+            if isinstance(base_context, TaskAgentRuntimeContext)
+            else None
+        )
         classified = self._fact_classifier.classify(
             agent_id=self.agent_id,
             latest_fact=latest_fact,
@@ -336,13 +429,21 @@ class ChatTaskAgent(
         )
         run_decision = await self._session_run_coordinator.aroute(classified)
         if run_decision.superseded_turns:
-            updated_at_ms = int(latest_fact.timestamp * 1000) if isinstance(latest_fact, FactRecord) else now_wall_ms()
+            updated_at_ms = (
+                int(latest_fact.timestamp * 1000)
+                if isinstance(latest_fact, FactRecord)
+                else now_wall_ms()
+            )
             await self._postprocess_service.persist_turn_supersessions(
                 superseded_turns=run_decision.superseded_turns,
                 updated_at_ms=updated_at_ms,
             )
-        session_id = self._history_service.require_session_id(classified.user_id, classified.session_id)
-        active_persona_id = await self._resolve_context_persona_id(run_decision.latest_payload)
+        session_id = self._history_service.require_session_id(
+            classified.user_id, classified.session_id
+        )
+        active_persona_id = await self._resolve_context_persona_id(
+            run_decision.latest_payload
+        )
         history_context = await self._history_service.get_or_load_history_context(
             classified.user_id,
             session_id,
@@ -361,7 +462,9 @@ class ChatTaskAgent(
             statuses=["running", "aggregating"],
         )
         reply_context = await self._resolve_reply_context(run_decision.latest_payload)
-        streaming_chat_enabled = bool(get_user_preference("streaming_chat_enabled", False))
+        streaming_chat_enabled = bool(
+            get_user_preference("streaming_chat_enabled", False)
+        )
         if is_conversation_rhythm_enabled():
             streaming_chat_enabled = False
         allow_media_grounding_for_conversation = bool(
@@ -373,14 +476,28 @@ class ChatTaskAgent(
         )
         return ChatRuntimeContext(
             latest_fact=latest_fact if isinstance(latest_fact, FactRecord) else None,
-            recent_facts=list(base_context.recent_facts if isinstance(base_context, TaskAgentRuntimeContext) else []),
+            recent_facts=list(
+                base_context.recent_facts
+                if isinstance(base_context, TaskAgentRuntimeContext)
+                else []
+            ),
             batch_facts=batch_facts,
             agent_id=self.agent_id,
-            agent_type=str(base_context.agent_type if isinstance(base_context, TaskAgentRuntimeContext) else TaskAgentType.CHAT.value),
-            runtime_key=str(base_context.runtime_key if isinstance(base_context, TaskAgentRuntimeContext) else self.runtime_key),
+            agent_type=str(
+                base_context.agent_type
+                if isinstance(base_context, TaskAgentRuntimeContext)
+                else TaskAgentType.CHAT.value
+            ),
+            runtime_key=str(
+                base_context.runtime_key
+                if isinstance(base_context, TaskAgentRuntimeContext)
+                else self.runtime_key
+            ),
             user_id=classified.user_id,
             session_id=session_id,
-            history_key=self._history_service.history_key(classified.user_id, session_id),
+            history_key=self._history_service.history_key(
+                classified.user_id, session_id
+            ),
             history=history,
             conversation_history=history,
             active_orchestrations=[item.to_dict() for item in active_orchestrations],
@@ -390,8 +507,16 @@ class ChatTaskAgent(
             incoming_fact_kind=run_decision.planner_fact_kind,
             latest_payload=run_decision.latest_payload,
             active_run=run_decision.active_run,
-            session_run_id=run_decision.active_run.run_id if run_decision.active_run is not None else None,
-            session_run_revision=run_decision.active_run.revision if run_decision.active_run is not None else 0,
+            session_run_id=(
+                run_decision.active_run.run_id
+                if run_decision.active_run is not None
+                else None
+            ),
+            session_run_revision=(
+                run_decision.active_run.revision
+                if run_decision.active_run is not None
+                else 0
+            ),
             session_run_disposition=run_decision.run_disposition,
             planner_fact=run_decision.planner_fact,
             planner_fact_kind=run_decision.planner_fact_kind,
@@ -417,7 +542,9 @@ class ChatTaskAgent(
                 if user_message is not None and user_message.persona_id:
                     return str(user_message.persona_id).strip() or None
             except Exception:
-                logger.debug("Failed to resolve persona id from user turn", turn_id=turn_id)
+                logger.debug(
+                    "Failed to resolve persona id from user turn", turn_id=turn_id
+                )
         try:
             from ...personality.persona_repository import PersonaRepository
 
@@ -440,12 +567,23 @@ class ChatTaskAgent(
         intent_result,
         tool_result,
     ) -> ExecutionRequest:
-        return await self._coordinator.assemble_request(context, intent_result, tool_result)
+        return await self._coordinator.assemble_request(
+            context, intent_result, tool_result
+        )
 
-    async def call_llm(self, context: ChatRuntimeContext, llm_params: ExecutionRequest) -> ExecutionResult:
+    async def call_llm(
+        self, context: ChatRuntimeContext, llm_params: ExecutionRequest
+    ) -> ExecutionResult:
         sink = None
-        turn_id = str(getattr(context.latest_payload, "turn_id", "") or "").strip() or None
-        if context.user_id and context.session_id and turn_id and self._streaming_enabled(context.user_id):
+        turn_id = (
+            str(getattr(context.latest_payload, "turn_id", "") or "").strip() or None
+        )
+        if (
+            context.user_id
+            and context.session_id
+            and turn_id
+            and self._streaming_enabled(context.user_id)
+        ):
             sink = self._build_stream_sink(
                 user_id=context.user_id,
                 session_id=context.session_id,
@@ -482,11 +620,16 @@ class ChatTaskAgent(
 
     def _streaming_enabled(self, _user_id: str) -> bool:
         try:
-            return bool(get_user_preference("streaming_chat_enabled", False)) and not is_conversation_rhythm_enabled()
+            return (
+                bool(get_user_preference("streaming_chat_enabled", False))
+                and not is_conversation_rhythm_enabled()
+            )
         except Exception:
             return False
 
-    async def parse_result(self, context: ChatRuntimeContext, raw_result: ExecutionResult) -> None:
+    async def parse_result(
+        self, context: ChatRuntimeContext, raw_result: ExecutionResult
+    ) -> None:
         await self._postprocess_service.handle(context, raw_result)
 
     def get_conversation_history(self, user_id: str, session_id: str) -> list[dict]:

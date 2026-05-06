@@ -88,10 +88,28 @@ export const getExecutionActionState = (
   const turnId = String(message.turnId || '').trim();
   const executionControl = turnId ? executionControlByTurnId[turnId] : undefined;
   const traceStatus = String(message.traceSummary?.status || '').trim() || 'running';
-  const executionState = executionControl?.state
-    || (turnId && detachingTurnIds.includes(turnId) ? 'detaching' : traceStatus);
+  const backendRunState = String(message.runState?.state || '').trim();
+  const terminalBackendRunState = ['cancelled', 'completed', 'failed'].includes(backendRunState)
+    ? backendRunState
+    : '';
+  const optimisticState = turnId && detachingTurnIds.includes(turnId)
+    ? 'detaching'
+    : turnId && cancellingTurnIds.includes(turnId)
+      ? 'cancelling'
+      : '';
+  const executionState = terminalBackendRunState
+    || optimisticState
+    || executionControl?.state
+    || backendRunState
+    || traceStatus;
   const isCancelling = executionState === 'cancelling' || (turnId ? cancellingTurnIds.includes(turnId) : false);
   const isDetaching = executionState === 'detaching' || (turnId ? detachingTurnIds.includes(turnId) : false);
+  const canCancel = typeof message.runState?.can_cancel === 'boolean'
+    ? message.runState.can_cancel
+    : executionState === 'running' || executionState === 'cancelling';
+  const canDetach = typeof message.runState?.can_detach === 'boolean'
+    ? message.runState.can_detach
+    : executionState === 'running';
 
   return {
     turnId,
@@ -99,8 +117,8 @@ export const getExecutionActionState = (
     executionState,
     isCancelling,
     isDetaching,
-    showCancelButton: Boolean(turnId) && (executionState === 'running' || executionState === 'cancelling'),
-    showDetachButton: Boolean(turnId) && executionState === 'running',
+    showCancelButton: Boolean(turnId) && canCancel,
+    showDetachButton: Boolean(turnId) && canDetach,
   };
 };
 

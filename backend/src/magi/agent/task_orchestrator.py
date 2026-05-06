@@ -1,4 +1,5 @@
 """Shared parent-task orchestration for task agents."""
+
 from __future__ import annotations
 
 import time
@@ -25,9 +26,13 @@ from .orchestration import (
 from .task_orchestration_todos import TaskOrchestrationTodosMixin
 from .task_orchestration_workers import TaskOrchestrationWorkerMixin
 from .task_orchestration_workspace import TaskOrchestrationWorkspaceMixin
+
 logger = get_logger(__name__)
 
-WorkerPlanCallback = Callable[[str, list[dict[str, Any]], dict[str, Any], str, str, str | None, int], Awaitable[SubtaskPlan]]
+WorkerPlanCallback = Callable[
+    [str, list[dict[str, Any]], dict[str, Any], str, str, str | None, int],
+    Awaitable[SubtaskPlan],
+]
 AggregateCallback = Callable[[TaskOrchestrationState], Awaitable[str]]
 HistoryCallback = Callable[[str, str], None]
 SessionWorkspaceProvider = Callable[..., Awaitable[str | None] | str | None]
@@ -75,13 +80,16 @@ class TaskOrchestrator(
         if not hasattr(self, "_event_bus_cached"):
             try:
                 from ..core.container import Container
+
                 bus = Container.message_bus()
             except Exception:
                 bus = None
             if bus is None or type(bus).__name__ == "object":
+
                 class _NoopBus:
                     async def publish(self, event):
                         return False
+
                 bus = _NoopBus()
             self._event_bus_cached = bus
         return self._event_bus_cached
@@ -136,12 +144,14 @@ class TaskOrchestrator(
             },
         )
         try:
-            await self._event_bus.publish(Event(
-                type=EventTypes.SPAN_COMPLETED,
-                data=payload,
-                source="task_orchestrator",
-                correlation_id=state.turn_id,
-            ))
+            await self._event_bus.publish(
+                Event(
+                    type=EventTypes.SPAN_COMPLETED,
+                    data=payload,
+                    source="task_orchestrator",
+                    correlation_id=state.turn_id,
+                )
+            )
         except Exception:
             logger.exception("publish task_lifecycle SpanCompleted failed")
 
@@ -222,7 +232,9 @@ class TaskOrchestrator(
             session_id=session_id,
             root_user_message=user_message,
             turn_id=turn_id,
-            planner=str(orchestration_strategy.get("planner", "task_agent") or "task_agent"),
+            planner=str(
+                orchestration_strategy.get("planner", "task_agent") or "task_agent"
+            ),
             workspace_root=workspace_root,
             status="running",
             retry_budget=DEFAULT_WORKER_RETRY_BUDGET,
@@ -276,12 +288,19 @@ class TaskOrchestrator(
             turn_id=turn_id,
         )
 
-    async def process_worker_updates(self, batch_facts: list[Any]) -> OrchestrationExecutionResult:
-        from .task_agents.common.contracts import WorkerUpdatePayload  # avoid circular import
+    async def process_worker_updates(
+        self, batch_facts: list[Any]
+    ) -> OrchestrationExecutionResult:
+        from .task_agents.common.contracts import (
+            WorkerUpdatePayload,
+        )  # avoid circular import
 
         touched_states: dict[str, TaskOrchestrationState] = {}
         for fact in batch_facts:
-            if not isinstance(fact, FactRecord) or fact.event_type not in self.WORKER_AGENT_EVENT_TYPES:
+            if (
+                not isinstance(fact, FactRecord)
+                or fact.event_type not in self.WORKER_AGENT_EVENT_TYPES
+            ):
                 continue
 
             payload = (
@@ -289,14 +308,18 @@ class TaskOrchestrator(
                 if isinstance(fact.payload, dict)
                 else None
             )
-            orchestration_id = str(payload.orchestration_id or "").strip() if payload else ""
+            orchestration_id = (
+                str(payload.orchestration_id or "").strip() if payload else ""
+            )
             subtask_id = str(payload.subtask_id or "").strip() if payload else ""
             if not orchestration_id or not subtask_id:
                 continue
 
             state = touched_states.get(orchestration_id)
             if state is None:
-                state = await self._orchestration_store.get_orchestration(orchestration_id)
+                state = await self._orchestration_store.get_orchestration(
+                    orchestration_id
+                )
             if state is None or state.status in {"completed", "failed", "cancelled"}:
                 continue
 
@@ -305,7 +328,11 @@ class TaskOrchestrator(
                 continue
 
             payload_worker_id = str(payload.worker_id or "").strip() if payload else ""
-            if payload_worker_id and subtask.worker_id and payload_worker_id != subtask.worker_id:
+            if (
+                payload_worker_id
+                and subtask.worker_id
+                and payload_worker_id != subtask.worker_id
+            ):
                 continue
 
             now = time.time()
@@ -320,13 +347,17 @@ class TaskOrchestrator(
             if fact.event_type == "WORKER_AGENT_COMPLETED":
                 worker_result = payload.worker_result if payload else None
                 if worker_result is None and payload_worker_id:
-                    worker_result = await self._orchestration_store.get_worker_result(payload_worker_id)
+                    worker_result = await self._orchestration_store.get_worker_result(
+                        payload_worker_id
+                    )
                 if not isinstance(worker_result, WorkerResult):
                     subtask.status = "failed"
                     subtask.failure_reason = "INVALID_WORKER_RESULT"
                 elif worker_result.result_status == "failed":
                     subtask.worker_result = worker_result
-                    subtask.failure_reason = worker_result.failure_reason or "WORKER_REPORTED_FAILURE"
+                    subtask.failure_reason = (
+                        worker_result.failure_reason or "WORKER_REPORTED_FAILURE"
+                    )
                     subtask.status = "failed"
                 else:
                     subtask.worker_result = worker_result
@@ -443,6 +474,11 @@ class TaskOrchestrator(
     ) -> list[str]:
         """Cancel persisted orchestrations that belong to the specified run."""
         cancelled_ids: list[str] = []
+        await self._cancel_live_workers(
+            session_id=session_id,
+            run_id=run_id,
+            run_revision=run_revision,
+        )
         candidate_states = await self._orchestration_store.list_orchestrations(
             session_id=session_id,
             statuses=["running", "aggregating", "cancelling"],
@@ -465,6 +501,37 @@ class TaskOrchestrator(
             )
             cancelled_ids.append(state.orchestration_id)
         return cancelled_ids
+
+    async def _cancel_live_workers(
+        self,
+        *,
+        session_id: str,
+        run_id: str,
+        run_revision: int,
+    ) -> list[str]:
+        try:
+            agent_tool = self._tool_registry.get_tool("agent")
+            manager = getattr(agent_tool, "_manager", None)
+            cancel_workers = getattr(manager, "cancel_run_workers", None)
+            if not callable(cancel_workers):
+                return []
+            return await cancel_workers(
+                session_id=session_id,
+                run_id=run_id,
+                run_revision=run_revision,
+                reason="session_run_cancelled",
+            )
+        except (
+            Exception
+        ) as exc:  # noqa: BLE001 - cancellation must still mark orchestration state
+            logger.warning(
+                "Failed to cancel live worker tasks",
+                session_id=session_id,
+                run_id=run_id,
+                run_revision=run_revision,
+                error=str(exc),
+            )
+            return []
 
     @staticmethod
     def _extract_run_id(state: TaskOrchestrationState) -> str | None:

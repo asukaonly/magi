@@ -1,4 +1,5 @@
 """Read-side service for chat sessions and conversation history."""
+
 from __future__ import annotations
 
 import asyncio
@@ -70,7 +71,9 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
                 pass
             self._conn = None
 
-    async def acreate_new_session(self, user_id: str, workspace_path: str | None = None) -> str:
+    async def acreate_new_session(
+        self, user_id: str, workspace_path: str | None = None
+    ) -> str:
         """Create a session without blocking the event loop."""
         return await self._run_threaded("create_new_session", user_id, workspace_path)
 
@@ -92,13 +95,19 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
         session_ids: list[str],
     ) -> dict[str, "ChatSessionSummary"]:
         """Fetch multiple session summaries in one query without blocking."""
-        return await self._run_threaded("get_session_summaries_batch", user_id, session_ids)
+        return await self._run_threaded(
+            "get_session_summaries_batch", user_id, session_ids
+        )
 
-    async def alist_sessions(self, user_id: str, limit: int = 30) -> list[ChatSessionSummary]:
+    async def alist_sessions(
+        self, user_id: str, limit: int = 30
+    ) -> list[ChatSessionSummary]:
         """List sessions without blocking the event loop."""
         return await self._run_threaded("list_sessions", user_id, limit)
 
-    async def arename_session(self, user_id: str, session_id: str, title: str) -> ChatSessionRenameResult:
+    async def arename_session(
+        self, user_id: str, session_id: str, title: str
+    ) -> ChatSessionRenameResult:
         """Rename a session without blocking the event loop."""
         return await self._run_threaded("rename_session", user_id, session_id, title)
 
@@ -109,7 +118,9 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
         workspace_path: str | None,
     ) -> SessionWorkspaceUpdateResult:
         """Update a session workspace path without blocking the event loop."""
-        return await self._run_threaded("update_session_workspace", user_id, session_id, workspace_path)
+        return await self._run_threaded(
+            "update_session_workspace", user_id, session_id, workspace_path
+        )
 
     async def adelete_session(self, user_id: str, session_id: str) -> None:
         """Delete a session without blocking the event loop."""
@@ -122,7 +133,9 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
         limit: int = 200,
     ) -> list[ChatDisplayMessage]:
         """Load conversation history without blocking the event loop."""
-        return await self._run_threaded("get_conversation_history", user_id, session_id, limit)
+        return await self._run_threaded(
+            "get_conversation_history", user_id, session_id, limit
+        )
 
     async def aget_display_history(
         self,
@@ -131,7 +144,9 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
         limit: int = 200,
     ) -> list[ChatDisplayMessage]:
         """Load display history without blocking the event loop."""
-        return await self._run_threaded("get_display_history", user_id, session_id, limit)
+        return await self._run_threaded(
+            "get_display_history", user_id, session_id, limit
+        )
 
     async def aget_display_message(
         self,
@@ -140,7 +155,9 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
         message_id: str,
     ) -> ChatDisplayMessage | None:
         """Load one visible display message without blocking the event loop."""
-        return await self._run_threaded("get_display_message", user_id, session_id, message_id)
+        return await self._run_threaded(
+            "get_display_message", user_id, session_id, message_id
+        )
 
     async def aget_attachment_payload(
         self,
@@ -149,7 +166,9 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
         attachment_id: str,
     ) -> dict[str, Any] | None:
         """Load one persisted attachment payload without blocking the event loop."""
-        return await self._run_threaded("get_attachment_payload", user_id, session_id, attachment_id)
+        return await self._run_threaded(
+            "get_attachment_payload", user_id, session_id, attachment_id
+        )
 
     async def aclear_conversation_history(self, user_id: str, session_id: str) -> None:
         """Clear a session history without blocking the event loop."""
@@ -280,7 +299,8 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
         return conn.execute(
             f"""
             SELECT turn_id, session_id, user_id, status, response_mode, execution_mode,
-                   ux_plan_json, created_at_ms, updated_at_ms, completed_at_ms
+                     ux_plan_json, created_at_ms, updated_at_ms, completed_at_ms,
+                     error_text, run_id, run_revision, run_disposition
             FROM {CHAT_TURNS_TABLE}
             WHERE user_id = ?
               AND session_id = ?
@@ -318,9 +338,7 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
         messages: list[ChatDisplayMessage],
     ) -> None:
         rows_by_message_id = {
-            str(row["message_id"]): row
-            for row in rows
-            if row["message_id"] is not None
+            str(row["message_id"]): row for row in rows if row["message_id"] is not None
         }
         for row, message in zip(rows, messages):
             reply_to_message_id = str(row["reply_to_message_id"] or "").strip()
@@ -329,14 +347,18 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
                 continue
             target_row = rows_by_message_id.get(reply_to_message_id)
             if target_row is None:
-                target_row = self._get_conn().execute(
-                    f"""
+                target_row = (
+                    self._get_conn()
+                    .execute(
+                        f"""
                     SELECT message_id, role, message_kind, content_text
                     FROM {CHAT_MESSAGES_TABLE}
                     WHERE message_id = ?
                     """,
-                    (reply_to_message_id,),
-                ).fetchone()
+                        (reply_to_message_id,),
+                    )
+                    .fetchone()
+                )
             message.reply_to = self._build_reply_preview(target_row)
 
     @staticmethod
@@ -366,6 +388,7 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
             return method(*args)
         finally:
             service.close()
+
 
 def get_chat_read_service() -> ChatReadService:
     """Get the shared ChatReadService instance."""

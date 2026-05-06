@@ -6,6 +6,7 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..cancel import EventCancelToken
 
 WORKER_AGENT_PROGRESS = "WORKER_AGENT_PROGRESS"
 WORKER_AGENT_COMPLETED = "WORKER_AGENT_COMPLETED"
@@ -42,6 +43,7 @@ class WorkerRunState:
     failure_reason: str | None = None
     retry_count: int = 0
     task: asyncio.Task | None = None
+    cancel_token: EventCancelToken | None = None
     selected_tools: list[str] = field(default_factory=list)
     parent_context_summary: str = ""
     started_at_ms: int = 0

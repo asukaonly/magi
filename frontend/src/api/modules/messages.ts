@@ -44,6 +44,17 @@ export interface ChatMessageLabel {
   created_at_ms: number;
 }
 
+export interface ChatRunState {
+  state: string;
+  run_id?: string | null;
+  run_revision?: number;
+  run_disposition?: string | null;
+  can_cancel?: boolean;
+  can_detach?: boolean;
+  error_text?: string | null;
+  completed_at_ms?: number | null;
+}
+
 // Backend response data shape
 export interface MessageData {
   user_id: string;
@@ -65,6 +76,7 @@ export interface ChatHistoryMessage {
   allow_trace_collapse?: boolean;
   trace_summary?: Record<string, any> | null;
   trace_available?: boolean;
+  run_state?: ChatRunState | null;
   attachments?: ChatAttachment[];
   reply_to?: ChatReplyPreview | null;
   label?: ChatMessageLabel | null;

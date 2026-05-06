@@ -26,10 +26,14 @@ class TraceRecordPersistenceMixin:
     async def _upsert_detail(self, sql: str, params: tuple[Any, ...]) -> None:
         raise NotImplementedError
 
-    async def _fetchone(self, sql: str, params: tuple[Any, ...]) -> aiosqlite.Row | None:
+    async def _fetchone(
+        self, sql: str, params: tuple[Any, ...]
+    ) -> aiosqlite.Row | None:
         raise NotImplementedError
 
-    def _row_to_record(self, record_type: type[T], row: aiosqlite.Row | None) -> T | None:
+    def _row_to_record(
+        self, record_type: type[T], row: aiosqlite.Row | None
+    ) -> T | None:
         raise NotImplementedError
 
     @staticmethod
@@ -168,7 +172,9 @@ class TraceRecordPersistenceMixin:
             )
             await db.commit()
 
-    async def upsert_intent_resolution(self, record: TraceIntentResolutionRecord) -> None:
+    async def upsert_intent_resolution(
+        self, record: TraceIntentResolutionRecord
+    ) -> None:
         await self._upsert_detail(
             """
             INSERT INTO trace_intent_resolutions (
@@ -311,7 +317,9 @@ class TraceRecordPersistenceMixin:
         )
         return self._row_to_record(TraceSpanRecord, row)
 
-    async def get_intent_resolution(self, span_id: str) -> TraceIntentResolutionRecord | None:
+    async def get_intent_resolution(
+        self, span_id: str
+    ) -> TraceIntentResolutionRecord | None:
         row = await self._fetchone(
             "SELECT * FROM trace_intent_resolutions WHERE span_id = ?",
             (span_id,),
@@ -337,3 +345,53 @@ class TraceRecordPersistenceMixin:
         if record is not None:
             record.success = bool(record.success)
         return record
+
+    async def get_tool_execution_stats(
+        self,
+        tool_names: list[str] | None = None,
+    ) -> dict[str, dict[str, float | int]]:
+        await self.initialize()
+        params: list[object] = []
+        where_clause = ""
+        if tool_names:
+            normalized_names = [
+                str(name).strip() for name in tool_names if str(name).strip()
+            ]
+            if not normalized_names:
+                return {}
+            where_clause = (
+                f"WHERE tool_name IN ({', '.join('?' for _ in normalized_names)})"
+            )
+            params.extend(normalized_names)
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                f"""
+                SELECT
+                    tool_name,
+                    COUNT(*) AS total_calls,
+                    SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS successful_calls,
+                    SUM(CASE WHEN success = 1 THEN 0 ELSE 1 END) AS failed_calls,
+                    AVG(execution_time_ms) AS avg_execution_time_ms
+                FROM trace_tools
+                {where_clause}
+                GROUP BY tool_name
+                """,
+                tuple(params),
+            )
+            rows = await cursor.fetchall()
+        stats: dict[str, dict[str, float | int]] = {}
+        for row in rows:
+            total_calls = int(row["total_calls"] or 0)
+            successful_calls = int(row["successful_calls"] or 0)
+            failed_calls = int(row["failed_calls"] or 0)
+            stats[str(row["tool_name"])] = {
+                "total_calls": total_calls,
+                "successful_calls": successful_calls,
+                "failed_calls": failed_calls,
+                "success_rate": (
+                    float(successful_calls / total_calls) if total_calls else 0.0
+                ),
+                "avg_execution_time_ms": float(row["avg_execution_time_ms"] or 0.0),
+            }
+        return stats

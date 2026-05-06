@@ -4,6 +4,7 @@ This module intentionally contains only lightweight, host-agnostic tool
 contracts and helper logic. Runtime registries, planners, built-in tools,
 and provider implementations remain backend-owned.
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -60,6 +61,7 @@ class ToolErrorCode(str, Enum):
     PROVIDER_CHALLENGE = "PROVIDER_CHALLENGE"
     NO_PROVIDERS_CONFIGURED = "NO_PROVIDERS_CONFIGURED"
     ALL_PROVIDERS_FAILED = "ALL_PROVIDERS_FAILED"
+    CANCELLED = "CANCELLED"
     FILE_NOT_FOUND = "FILE_NOT_FOUND"
     PATH_NOT_FOUND = "PATH_NOT_FOUND"
     NOT_A_FILE = "NOT_A_FILE"
@@ -103,15 +105,25 @@ class ToolSchema(BaseModel):
     category: str = Field(..., description="Tool category")
     version: str = Field(default="1.0.0", description="Tool version")
     author: str = Field(default="Magi Team", description="Author")
-    parameters: List[ToolParameter] = Field(default_factory=list, description="Parameter list")
-    examples: List[Dict[str, Any]] = Field(default_factory=list, description="Usage examples")
+    parameters: List[ToolParameter] = Field(
+        default_factory=list, description="Parameter list"
+    )
+    examples: List[Dict[str, Any]] = Field(
+        default_factory=list, description="Usage examples"
+    )
     timeout: int = Field(default=30, description="Timeout in seconds")
-    retry_on_failure: bool = Field(default=False, description="Whether to retry on failure")
+    retry_on_failure: bool = Field(
+        default=False, description="Whether to retry on failure"
+    )
     max_retries: int = Field(default=3, description="Maximum retry count")
-    requires_auth: bool = Field(default=False, description="Whether authentication required")
+    requires_auth: bool = Field(
+        default=False, description="Whether authentication required"
+    )
     allowed_roles: List[str] = Field(default_factory=list, description="Allowed roles")
     dangerous: bool = Field(default=False, description="Whether dangerous operation")
-    feature_flags: List[str] = Field(default_factory=list, description="Required feature flags")
+    feature_flags: List[str] = Field(
+        default_factory=list, description="Required feature flags"
+    )
     tags: List[str] = Field(default_factory=list, description="Tags")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Other metadata")
 
@@ -122,9 +134,17 @@ class ToolExecutionContext(BaseModel):
     agent_id: str
     task_id: Optional[str] = None
     workspace: str = Field(default="./workspace", description="Working directory")
-    env_vars: Dict[str, str] = Field(default_factory=dict, description="Environment variables")
+    env_vars: Dict[str, str] = Field(
+        default_factory=dict, description="Environment variables"
+    )
     permissions: List[str] = Field(default_factory=list, description="Permission list")
-    enabled_features: List[str] = Field(default_factory=list, description="Enabled feature flags")
+    enabled_features: List[str] = Field(
+        default_factory=list, description="Enabled feature flags"
+    )
+    cancellation: Any = Field(
+        default=None, description="Cooperative cancellation token"
+    )
+    trace_context: Any = Field(default=None, description="Runtime trace context")
 
 
 class ToolResult(BaseModel):
@@ -148,9 +168,15 @@ class ToolConfigSpec(BaseModel):
     read_only: bool = Field(default=False, description="Cannot be changed")
     required: bool = Field(default=False, description="Whether this config is required")
     default: Optional[Any] = Field(default=None, description="Default value")
-    enum: Optional[List[Any]] = Field(default=None, description="Enum values for selection")
-    placeholder: Optional[str] = Field(default=None, description="Input placeholder hint")
-    providers: Optional[List[str]] = Field(default=None, description="Providers that this spec applies to")
+    enum: Optional[List[Any]] = Field(
+        default=None, description="Enum values for selection"
+    )
+    placeholder: Optional[str] = Field(
+        default=None, description="Input placeholder hint"
+    )
+    providers: Optional[List[str]] = Field(
+        default=None, description="Providers that this spec applies to"
+    )
 
 
 class Tool(ABC):
@@ -211,11 +237,17 @@ class Tool(ABC):
 
                 if param.min_value is not None and isinstance(value, (int, float)):
                     if value < param.min_value:
-                        return False, f"Parameter {param.name} must be >= {param.min_value}"
+                        return (
+                            False,
+                            f"Parameter {param.name} must be >= {param.min_value}",
+                        )
 
                 if param.max_value is not None and isinstance(value, (int, float)):
                     if value > param.max_value:
-                        return False, f"Parameter {param.name} must be <= {param.max_value}"
+                        return (
+                            False,
+                            f"Parameter {param.name} must be <= {param.max_value}",
+                        )
 
         return True, None
 
@@ -245,7 +277,11 @@ class Tool(ABC):
             "name": self.schema.name if self.schema else "Unknown",
             "description": self.schema.description if self.schema else "",
             "category": self.schema.category if self.schema else "unknown",
-            "parameters": [p.model_dump(mode="json") for p in self.schema.parameters] if self.schema else [],
+            "parameters": (
+                [p.model_dump(mode="json") for p in self.schema.parameters]
+                if self.schema
+                else []
+            ),
             "examples": self.schema.examples if self.schema else [],
             "version": self.schema.version if self.schema else "1.0.0",
             "dangerous": self.schema.dangerous if self.schema else False,
@@ -357,7 +393,8 @@ class Tool(ABC):
                         ParameterType(param_def["items"]["type"])
                         if param_type == ParameterType.ARRAY
                         and isinstance(param_def.get("items"), dict)
-                        and param_def["items"].get("type") in ParameterType._value2member_map_
+                        and param_def["items"].get("type")
+                        in ParameterType._value2member_map_
                         else None
                     ),
                 )

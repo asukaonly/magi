@@ -22,8 +22,19 @@ from magi.tools.builtin.agent_tool import (
     WORKER_AGENT_PROGRESS,
 )
 from magi.agent.execution.function_calling import ExecutionOutcome
+from magi.events.in_memory_backend import InMemoryMessageBusBackend
 from magi.runtime_trace.store import RuntimeTraceStore
+from magi.runtime_trace.subscribers.runtime_trace_subscriber import RuntimeTraceSubscriber
 from magi.tools.schema import ToolExecutionContext
+
+
+async def _flush_trace_bus(bus, subscriber) -> None:
+    while True:
+        stats = await bus.get_stats()
+        if stats["queue_length"] == 0 and stats["active_dispatches"] == 0:
+            break
+        await asyncio.sleep(0.01)
+    await subscriber.drain()
 
 
 class _FakeLLMAdapter:
@@ -58,6 +69,7 @@ class _FakeFunctionCallingOrchestrator:
         self._loop_event_callback = loop_event_callback
         self._runtime_trace_store = runtime_trace_store
         self.last_max_iterations = None
+        self.last_cancel_token = None
 
     async def execute_with_tools(
         self,
@@ -77,6 +89,7 @@ class _FakeFunctionCallingOrchestrator:
         llm_timeout_seconds=None,
         final_response_json_mode=False,
         thinking_depth=None,
+        cancel_token=None,
     ):
         user_message = turn.text
         _ = (
@@ -96,6 +109,7 @@ class _FakeFunctionCallingOrchestrator:
             thinking_depth,
         )
         self.last_max_iterations = max_iterations
+        self.last_cancel_token = cancel_token
         if self._tool_result_callback:
             await self._tool_result_callback(
                 {
@@ -235,6 +249,7 @@ async def test_agent_tool_uses_30_iteration_default_for_workers(monkeypatch):
     assert result.success is True
     assert fake_orchestrators
     assert fake_orchestrators[0].last_max_iterations == 30
+    assert fake_orchestrators[0].last_cancel_token is not None
 
 
 @pytest.mark.asyncio
@@ -250,12 +265,20 @@ async def test_agent_tool_persists_worker_trace_nodes_to_runtime_trace_store(
     tool = AgentTool()
     runtime_trace_store = RuntimeTraceStore(db_path=str(tmp_path / "runtime_trace.db"))
     await runtime_trace_store.initialize()
+    message_bus = InMemoryMessageBusBackend()
+    await message_bus.start()
+    trace_subscriber = RuntimeTraceSubscriber(
+        event_bus=message_bus,
+        trace_store=runtime_trace_store,
+    )
+    await trace_subscriber.start()
 
     try:
         tool.configure(
             llm_adapter=_FakeLLMAdapter(),
             tool_registry_instance=_FakeToolRegistry(),
             runtime_trace_store=runtime_trace_store,
+            message_bus=message_bus,
         )
 
         async def _fake_publish(run_state, event_type, internal_payload, public_payload=None):
@@ -281,20 +304,23 @@ async def test_agent_tool_persists_worker_trace_nodes_to_runtime_trace_store(
                 permissions=["authenticated"],
             ),
         )
+        await _flush_trace_bus(message_bus, trace_subscriber)
 
         dispatch_span = await runtime_trace_store.get_span("turn-1:worker_dispatch:subtask-1")
         attempt_span = await runtime_trace_store.get_span("turn-1:worker_attempt:subtask-1:1")
         worker_span = await runtime_trace_store.get_span("turn-1:worker:subtask-1:1")
-        llm_call = await runtime_trace_store.get_llm_call(
-            "turn-1:worker_llm:subtask-1:1:final_response:1"
+        tool_call = await runtime_trace_store.get_tool_call(
+            "turn-1:worker_tool:subtask-1:1:glob"
         )
 
         assert result.success is True
         assert dispatch_span is not None
         assert attempt_span is not None
         assert worker_span is not None
-        assert llm_call is not None
+        assert tool_call is not None
     finally:
+        await trace_subscriber.stop()
+        await message_bus.stop()
         await runtime_trace_store.shutdown()
 
 
@@ -643,6 +669,56 @@ async def test_await_timeout_does_not_cancel_worker_task():
         await run_state.task
     except asyncio.CancelledError:
         pass
+
+
+@pytest.mark.asyncio
+async def test_cancel_run_workers_prefers_cooperative_token():
+    from magi.agent.cancel import EventCancelToken
+
+    tool = AgentTool()
+    tool.configure(llm_adapter=_FakeLLMAdapter(), tool_registry_instance=_FakeToolRegistry())
+    cancel_token = EventCancelToken()
+    observed_cancel = False
+
+    async def _cooperative_task():
+        nonlocal observed_cancel
+        await cancel_token.wait()
+        observed_cancel = True
+
+    run_state = WorkerRunState(
+        worker_id="worker_cancel_check",
+        subagent_type=tool.TYPE_EXPLORE,
+        description="cancel behavior check",
+        prompt="noop",
+        orchestration_id=None,
+        subtask_id=None,
+        parent_task_agent_type="chat",
+        parent_task_agent_id="u-chat",
+        target_task_agent_type="chat",
+        target_task_agent_id="u-chat",
+        user_id="u-chat",
+        session_id="s-chat",
+        turn_id=None,
+        run_id="run-1",
+        run_revision=2,
+        created_at=0.0,
+        updated_at=0.0,
+        cancel_token=cancel_token,
+    )
+    run_state.task = asyncio.create_task(_cooperative_task())
+    tool._runs[run_state.worker_id] = run_state
+
+    cancelled_ids = await tool._manager.cancel_run_workers(
+        session_id="s-chat",
+        run_id="run-1",
+        run_revision=2,
+        reason="test_cancel",
+    )
+
+    assert cancelled_ids == ["worker_cancel_check"]
+    assert observed_cancel is True
+    assert run_state.task.done()
+    assert not run_state.task.cancelled()
 
 
 @pytest.mark.asyncio

@@ -52,7 +52,9 @@ class WorkerStatusMixin:
                 "worker_count": len(workers),
                 "missing_worker_ids": missing_ids,
             },
-            error=None if success else f"Some workers not found: {', '.join(missing_ids)}",
+            error=(
+                None if success else f"Some workers not found: {', '.join(missing_ids)}"
+            ),
             error_code=None if success else ToolErrorCode.TOOL_NOT_FOUND.value,
         )
 
@@ -83,7 +85,9 @@ class WorkerStatusMixin:
         await self._refresh_run_state(run_state)
         return self._build_run_result(run_state)
 
-    async def _await_workers(self, worker_ids: List[str], timeout_seconds: int) -> ToolResult:
+    async def _await_workers(
+        self, worker_ids: List[str], timeout_seconds: int
+    ) -> ToolResult:
         host = cast(_WorkerStatusHostProtocol, self)
         run_states = []
         missing_ids = []
@@ -104,13 +108,16 @@ class WorkerStatusMixin:
             )
 
         pending_tasks = [
-            state.task for state in run_states if state.task is not None and not state.task.done()
+            state.task
+            for state in run_states
+            if state.task is not None and not state.task.done()
         ]
         if pending_tasks:
             try:
                 await asyncio.wait_for(
                     asyncio.gather(
-                        *(asyncio.shield(task) for task in pending_tasks), return_exceptions=True
+                        *(asyncio.shield(task) for task in pending_tasks),
+                        return_exceptions=True,
                     ),
                     timeout=float(timeout_seconds),
                 )
@@ -119,7 +126,11 @@ class WorkerStatusMixin:
                     success=False,
                     error=f"Waiting for workers timed out after {timeout_seconds}s",
                     error_code=ToolErrorCode.TIMEOUT.value,
-                    data={"workers": [self._serialize_run_state(state) for state in run_states]},
+                    data={
+                        "workers": [
+                            self._serialize_run_state(state) for state in run_states
+                        ]
+                    },
                 )
 
         for state in run_states:
@@ -128,7 +139,9 @@ class WorkerStatusMixin:
         all_success = all(state.status == "completed" for state in run_states)
         return ToolResult(
             success=all_success,
-            data={"workers": [self._serialize_run_state(state) for state in run_states]},
+            data={
+                "workers": [self._serialize_run_state(state) for state in run_states]
+            },
             error=None if all_success else "Some workers failed",
             error_code=None if all_success else ToolErrorCode.EXECUTION_ERROR.value,
         )
@@ -149,11 +162,16 @@ class WorkerStatusMixin:
 
     def _build_run_result(self, run_state: WorkerRunState) -> ToolResult:
         success = run_state.status == "completed"
+        error_code = (
+            ToolErrorCode.CANCELLED.value
+            if run_state.status == "cancelled"
+            else ToolErrorCode.EXECUTION_ERROR.value
+        )
         return ToolResult(
             success=success,
             data=self._serialize_run_state(run_state),
             error=None if success else run_state.error or "Worker execution failed",
-            error_code=None if success else ToolErrorCode.EXECUTION_ERROR.value,
+            error_code=None if success else error_code,
         )
 
     def _serialize_run_state(self, run_state: WorkerRunState) -> Dict[str, Any]:

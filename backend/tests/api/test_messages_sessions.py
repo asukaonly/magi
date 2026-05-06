@@ -28,8 +28,7 @@ CHAT_MESSAGES_TABLE = "chat_messages"
 def _init_event_store(db_path: Path) -> None:
     conn = sqlite3.connect(str(db_path))
     cur = conn.cursor()
-    cur.execute(
-        f"""
+    cur.execute(f"""
         CREATE TABLE IF NOT EXISTS {FACT_EVENTS_TABLE} (
             event_id TEXT PRIMARY KEY,
             event_type TEXT NOT NULL,
@@ -40,10 +39,13 @@ def _init_event_store(db_path: Path) -> None:
             turn_id TEXT,
             deleted_at REAL
         )
-        """
+        """)
+    cur.execute(
+        f"CREATE INDEX IF NOT EXISTS idx_{FACT_EVENTS_TABLE}_user ON {FACT_EVENTS_TABLE}(user_id)"
     )
-    cur.execute(f"CREATE INDEX IF NOT EXISTS idx_{FACT_EVENTS_TABLE}_user ON {FACT_EVENTS_TABLE}(user_id)")
-    cur.execute(f"CREATE INDEX IF NOT EXISTS idx_{FACT_EVENTS_TABLE}_session ON {FACT_EVENTS_TABLE}(session_id)")
+    cur.execute(
+        f"CREATE INDEX IF NOT EXISTS idx_{FACT_EVENTS_TABLE}_session ON {FACT_EVENTS_TABLE}(session_id)"
+    )
     conn.commit()
     conn.close()
 
@@ -51,8 +53,7 @@ def _init_event_store(db_path: Path) -> None:
 def _init_chat_session_store(db_path: Path) -> None:
     conn = sqlite3.connect(str(db_path))
     cur = conn.cursor()
-    cur.executescript(
-        f"""
+    cur.executescript(f"""
         CREATE TABLE IF NOT EXISTS {CHAT_SESSIONS_TABLE} (
             session_id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
@@ -84,7 +85,10 @@ def _init_chat_session_store(db_path: Path) -> None:
             created_at_ms INTEGER NOT NULL,
             updated_at_ms INTEGER NOT NULL,
             completed_at_ms INTEGER,
-            error_text TEXT
+            error_text TEXT,
+            run_id TEXT,
+            run_revision INTEGER NOT NULL DEFAULT 0,
+            run_disposition TEXT
         );
         CREATE TABLE IF NOT EXISTS {CHAT_MESSAGES_TABLE} (
             message_id TEXT PRIMARY KEY,
@@ -102,8 +106,7 @@ def _init_chat_session_store(db_path: Path) -> None:
             replaces_message_id TEXT,
             replaced_by_message_id TEXT
         );
-        """
-    )
+        """)
     conn.commit()
     conn.close()
 
@@ -158,6 +161,9 @@ def _insert_chat_turn(db_path: Path, **values) -> None:
         "updated_at_ms": values.get("updated_at_ms", values.get("created_at_ms", 0)),
         "completed_at_ms": values.get("completed_at_ms"),
         "error_text": values.get("error_text"),
+        "run_id": values.get("run_id"),
+        "run_revision": values.get("run_revision", 0),
+        "run_disposition": values.get("run_disposition"),
     }
     conn = sqlite3.connect(str(db_path))
     cur = conn.cursor()
@@ -166,8 +172,8 @@ def _insert_chat_turn(db_path: Path, **values) -> None:
         INSERT INTO {CHAT_TURNS_TABLE} (
             turn_id, session_id, user_id, trace_id, orchestration_id, status,
             response_mode, execution_mode, ux_plan_json, created_at_ms, updated_at_ms,
-            completed_at_ms, error_text
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            completed_at_ms, error_text, run_id, run_revision, run_disposition
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         tuple(payload.values()),
     )
@@ -211,8 +217,7 @@ def _insert_chat_message(db_path: Path, **values) -> None:
 def _init_runtime_trace_store(db_path: Path) -> None:
     conn = sqlite3.connect(str(db_path))
     cur = conn.cursor()
-    cur.executescript(
-        """
+    cur.executescript("""
         CREATE TABLE IF NOT EXISTS trace_turns (
             trace_id TEXT PRIMARY KEY,
             turn_id TEXT NOT NULL UNIQUE,
@@ -292,8 +297,7 @@ def _init_runtime_trace_store(db_path: Path) -> None:
             error_message TEXT,
             result_preview TEXT
         );
-        """
-    )
+        """)
     conn.commit()
     conn.close()
 
@@ -318,7 +322,9 @@ def _insert_trace_turn(db_path: Path, **values) -> None:
         "superseded_by_turn_id": values.get("superseded_by_turn_id"),
         "supersession_reason": values.get("supersession_reason"),
         "created_at_ms": values.get("created_at_ms", values.get("started_at_ms", 0)),
-        "updated_at_ms": values.get("updated_at_ms", values.get("ended_at_ms", values.get("started_at_ms", 0))),
+        "updated_at_ms": values.get(
+            "updated_at_ms", values.get("ended_at_ms", values.get("started_at_ms", 0))
+        ),
     }
     conn = sqlite3.connect(str(db_path))
     cur = conn.cursor()
@@ -356,7 +362,9 @@ def _insert_trace_span(db_path: Path, **values) -> None:
         "ended_at_ms": values.get("ended_at_ms"),
         "duration_ms": values.get("duration_ms"),
         "created_at_ms": values.get("created_at_ms", values.get("started_at_ms", 0)),
-        "updated_at_ms": values.get("updated_at_ms", values.get("ended_at_ms", values.get("started_at_ms", 0))),
+        "updated_at_ms": values.get(
+            "updated_at_ms", values.get("ended_at_ms", values.get("started_at_ms", 0))
+        ),
     }
     conn = sqlite3.connect(str(db_path))
     cur = conn.cursor()
@@ -599,6 +607,57 @@ def test_get_display_history_returns_attachment_metadata_for_user_message(tmp_pa
 
     assert history[0].attachments == [{"kind": "pdf", "attachment_id": "att-1"}]
     assert history[0].content == ""
+
+
+def test_get_display_history_includes_turn_run_state(tmp_path):
+    service = _build_service(tmp_path)
+    _init_chat_session_store(service._chat_db_path)
+    _insert_session(
+        service._chat_db_path,
+        session_id="s1",
+        user_id="u1",
+        title="Run State Chat",
+        created_at=1000,
+        updated_at=1000,
+        message_count=1,
+    )
+    _insert_chat_turn(
+        service._chat_db_path,
+        turn_id="turn-1",
+        session_id="s1",
+        user_id="u1",
+        status="cancelled",
+        run_id="run-1",
+        run_revision=2,
+        run_disposition="root",
+        completed_at_ms=1200,
+        created_at_ms=1000,
+        updated_at_ms=1200,
+    )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-1",
+        session_id="s1",
+        turn_id="turn-1",
+        user_id="u1",
+        role="assistant",
+        message_kind="assistant_final",
+        content_text="cancelled",
+        created_at_ms=1200,
+    )
+
+    history = service.get_display_history("u1", "s1", limit=10)
+
+    assert history[0].run_state == {
+        "state": "cancelled",
+        "run_id": "run-1",
+        "run_revision": 2,
+        "run_disposition": "root",
+        "can_cancel": False,
+        "can_detach": False,
+        "error_text": None,
+        "completed_at_ms": 1200,
+    }
 
 
 def test_update_session_workspace_persists_and_allows_clearing(tmp_path):
@@ -1289,7 +1348,11 @@ def test_get_display_history_keeps_replaced_interim_message_for_reload(tmp_path)
     messages = service.get_display_history("u1", "s-chat", limit=20)
 
     assert [item.kind for item in messages] == ["user", "assistant", "assistant"]
-    assert [item.message_kind for item in messages] == ["user_text", "assistant_interim", "assistant_final"]
+    assert [item.message_kind for item in messages] == [
+        "user_text",
+        "assistant_interim",
+        "assistant_final",
+    ]
     assert [item.content for item in messages] == [
         "chat-store user",
         "让我仔细想想再回复你。",
@@ -1388,19 +1451,25 @@ def test_history_requires_explicit_session_id():
 
 def test_trace_requires_explicit_session_id():
     with pytest.raises(messages.HTTPException) as exc_info:
-        __import__("asyncio").run(messages.get_execution_trace(user_id="u1", session_id=None, turn_id="turn-1"))
+        __import__("asyncio").run(
+            messages.get_execution_trace(user_id="u1", session_id=None, turn_id="turn-1")
+        )
 
     assert exc_info.value.status_code == 400
 
 
 def test_clear_history_requires_explicit_session_id():
     with pytest.raises(messages.HTTPException) as exc_info:
-        __import__("asyncio").run(messages.clear_conversation_history(user_id="u1", session_id=None))
+        __import__("asyncio").run(
+            messages.clear_conversation_history(user_id="u1", session_id=None)
+        )
 
     assert exc_info.value.status_code == 400
 
 
-def test_get_display_history_surfaces_trace_status_instead_of_worker_messages(tmp_path, monkeypatch):
+def test_get_display_history_surfaces_trace_status_instead_of_worker_messages(
+    tmp_path, monkeypatch
+):
     service = _build_service(tmp_path)
     trace_service = ChatTraceReadService()
     trace_service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
@@ -1564,7 +1633,9 @@ def test_get_display_history_includes_control_status_messages(tmp_path, monkeypa
         role="assistant",
         message_kind="todo_state",
         content_text="first\nsecond",
-        payload_json=json.dumps({"items": [{"id": "1", "content": "first", "status": "in_progress"}]}),
+        payload_json=json.dumps(
+            {"items": [{"id": "1", "content": "first", "status": "in_progress"}]}
+        ),
         created_at_ms=1020,
         sequence_no=3,
     )
@@ -1605,7 +1676,9 @@ def test_get_display_history_includes_control_status_messages(tmp_path, monkeypa
         "ask_request",
     ]
     assert messages[1].payload == {"active": True, "plan_text": "step 1\nstep 2"}
-    assert messages[2].payload == {"items": [{"id": "1", "content": "first", "status": "in_progress"}]}
+    assert messages[2].payload == {
+        "items": [{"id": "1", "content": "first", "status": "in_progress"}]
+    }
 
 
 def test_trace_summary_reads_runtime_trace_tool_rows(tmp_path, monkeypatch):
@@ -1735,7 +1808,10 @@ def test_trace_summary_reads_runtime_trace_tool_rows(tmp_path, monkeypatch):
     assert snapshot is not None
     assert snapshot["summary"]["trace_available"] is True
     assert snapshot["root"]["children"][0]["children"][0]["label"] == "grep"
-    assert snapshot["root"]["children"][0]["children"][0]["metadata"]["arguments"]["pattern"] == "qweather"
+    assert (
+        snapshot["root"]["children"][0]["children"][0]["metadata"]["arguments"]["pattern"]
+        == "qweather"
+    )
 
 
 def test_trace_snapshot_reads_runtime_trace_store_without_ai_response(tmp_path):
@@ -1869,7 +1945,9 @@ def test_trace_snapshot_reads_runtime_trace_store_without_ai_response(tmp_path):
     child_kinds = {child["kind"] for child in snapshot["root"]["children"]}
     assert {"intent", "planning", "response"} <= child_kinds
 
-    planning_node = next(child for child in snapshot["root"]["children"] if child["kind"] == "planning")
+    planning_node = next(
+        child for child in snapshot["root"]["children"] if child["kind"] == "planning"
+    )
     dispatch_node = planning_node["children"][0]
     assert dispatch_node["kind"] == "dispatch"
     worker_node = dispatch_node["children"][0]
@@ -1944,7 +2022,9 @@ def test_trace_snapshot_groups_worker_retry_attempts_from_normalized_spans(tmp_p
     snapshot = service.get_trace_snapshot(user_id="u1", session_id="s1", turn_id="turn_retry")
 
     assert snapshot is not None
-    planning_node = next(child for child in snapshot["root"]["children"] if child["kind"] == "planning")
+    planning_node = next(
+        child for child in snapshot["root"]["children"] if child["kind"] == "planning"
+    )
     dispatch_node = planning_node["children"][0]
     attempt_nodes = dispatch_node["children"]
     assert len(attempt_nodes) == 2
