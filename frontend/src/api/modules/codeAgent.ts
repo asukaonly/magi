@@ -216,6 +216,7 @@ export interface DelegateResult {
   success: boolean;
   exit_code: number;
   duration_ms: number;
+  adapter: AdapterName;
   diff_path: string | null;
   diff_stats: DiffStats;
   files_changed: string[];

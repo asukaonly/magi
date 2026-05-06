@@ -44,6 +44,17 @@ def create_worktree(
 ) -> Path:
     workspace_root = Path(workspace_root).resolve()
     assert_git_repo(workspace_root)
+    # Check for uncommitted changes that would cause apply failures
+    status = _run_git(["status", "--porcelain"], cwd=workspace_root)
+    if status.returncode == 0 and status.stdout.strip():
+        # Has uncommitted changes - warn via logging but continue
+        # The worktree will still be created from HEAD, so apply may fail
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(
+            f"Workspace {workspace_root} has uncommitted changes. "
+            f"Delegation worktree will be created from HEAD, so git apply may fail."
+        )
     target = _worktree_path(workspace_root, session_id, delegation_id)
     if target.is_dir() and (target / ".git").exists():
         return target

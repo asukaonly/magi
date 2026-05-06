@@ -123,10 +123,22 @@ def apply_delegation(
             str(p.relative_to(workspace_root))
             for p in workspace_root.rglob("*.rej")
         ]
+        error_msg = proc.stderr.strip() or proc.stdout.strip() or "git apply failed"
+        # Check for common errors and provide helpful hints
+        if "does not match index" in error_msg:
+            error_msg += (
+                ". The working directory has uncommitted changes that differ from the worktree base. "
+                "Commit or stash your changes, then try again."
+            )
+        elif "patch does not apply" in error_msg:
+            error_msg += (
+                ". The delegation's changes conflict with the current file contents. "
+                "This usually happens when files were modified outside the delegation."
+            )
         return ApplyOutcome(
             applied=False,
             rejects=rejects,
-            error=(proc.stderr.strip() or proc.stdout.strip() or "git apply failed"),
+            error=error_msg,
         )
 
     import hashlib

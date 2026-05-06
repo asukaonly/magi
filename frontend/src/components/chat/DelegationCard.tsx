@@ -130,7 +130,7 @@ export function DelegationCard({
     return null;
   })();
 
-  const adapterName = (result as any)?.adapter ?? 'external coder';
+  const adapterName = result?.adapter === 'claude_code' ? 'Claude Code' : result?.adapter === 'codex' ? 'Codex' : 'External Coder';
 
   const summary = result?.summary ?? null;
   const errorMessage = result?.error ?? null;

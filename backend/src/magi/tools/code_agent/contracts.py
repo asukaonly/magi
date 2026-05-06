@@ -86,6 +86,7 @@ class DelegateResult(_Frozen):
     success: bool
     exit_code: int
     duration_ms: int = Field(ge=0)
+    adapter: AdapterName
     diff_path: Optional[str]
     diff_stats: DiffStats
     files_changed: list[str] = Field(default_factory=list)

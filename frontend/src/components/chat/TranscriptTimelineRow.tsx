@@ -94,7 +94,7 @@ export const TranscriptTimelineRow = ({
   const delegationIds = useMemo(() => {
     if (!showDelegationCards || !delegationCards) return [];
     const allIds = Object.keys(delegationCards);
-    // Filter out discarded cards entirely
+    // Filter out discarded cards initially
     const activeIds = allIds.filter((did) => {
       const card = delegationCards[did];
       return card?.lifecycle !== 'discarded';
@@ -108,12 +108,17 @@ export const TranscriptTimelineRow = ({
       const card = delegationCards[did];
       return card?.lifecycle === 'started' || card?.lifecycle === 'running' || card?.lifecycle === 'cancelled' || card?.lifecycle === 'failed';
     });
-    // If there are multiple finished cards, only keep the most recent (by timestamp in events or creation order)
+    // Keep only the most recent finished card
     if (finishedIds.length > 1) {
-      // For now, just keep the last one in the list (Object.keys order is insertion order)
       finishedIds.splice(0, finishedIds.length - 1);
     }
-    return [...runningIds, ...finishedIds];
+    // Include discarded cards only when there are no active ones (for visual feedback)
+    const discardedIds = allIds.filter((did) => {
+      const card = delegationCards[did];
+      return card?.lifecycle === 'discarded';
+    });
+    const visibleDiscarded = (runningIds.length > 0 || finishedIds.length > 0) ? [] : discardedIds.slice(-1);
+    return [...runningIds, ...finishedIds, ...visibleDiscarded];
   }, [showDelegationCards, delegationCards]);
 
   return (

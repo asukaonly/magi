@@ -239,3 +239,47 @@ async def test_claude_adapter_filters_stream_events(tmp_path: Path) -> None:
         if e.kind == "status" and e.payload.get("event") == "stream_event"
     ]
     assert len(stream_event_statuses) == 0, "stream_event noise should be filtered"
+
+
+@pytest.mark.asyncio
+async def test_claude_adapter_filters_user_events(tmp_path: Path) -> None:
+    """Verify adapter drops noisy user (tool_result) events."""
+    # Mix of user/tool_result events and assistant message
+    transcript = "\n".join([
+        json.dumps({"type": "user", "message": {"content": [{"type": "tool_result", "content": "some file content"}]}}),
+        json.dumps({"type": "user", "message": {"content": [{"type": "tool_result", "content": "more content"}]}}),
+        json.dumps({"type": "assistant", "message": {"content": [
+            {"type": "text", "text": "Done"}]}}),
+        json.dumps({"type": "result", "subtype": "success",
+                    "total_cost_usd": 0.02,
+                    "usage": {"input_tokens": 300, "output_tokens": 50}}),
+    ]) + "\n"
+    bin_dir = tmp_path / "bin"
+    fake = _make_fake_claude(bin_dir, transcript)
+
+    events: list[RunEvent] = []
+
+    async def on_event(ev: RunEvent) -> None:
+        events.append(ev)
+
+    adapter = ClaudeCodeAdapter()
+    outcome = await adapter.run(
+        _request(tmp_path),
+        cwd=tmp_path,
+        bundle_dir=tmp_path,
+        stdout_path=tmp_path / "stdout.log",
+        stderr_path=tmp_path / "stderr.log",
+        on_event=on_event,
+        cancel_token=CancelToken(),
+        binary_path=str(fake),
+    )
+    assert outcome.exit_code == 0
+    # Should have assistant_text but no user status entries
+    event_kinds = [e.kind for e in events]
+    assert "assistant_text" in event_kinds
+    # Count status events with user payload
+    user_statuses = [
+        e for e in events
+        if e.kind == "status" and e.payload.get("event") == "user"
+    ]
+    assert len(user_statuses) == 0, "user/tool_result events should be filtered"
