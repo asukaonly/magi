@@ -1,10 +1,25 @@
 from __future__ import annotations
 import pytest
+from dependency_injector import providers
 from unittest.mock import AsyncMock, MagicMock
 
+from magi.core.container import Container, init_container
 from magi.events.events import Event, EventTypes
 from magi.events.domain_payloads import SpanCompleted
-from magi.runtime_trace.span_publisher import publish_trace_span
+from magi.runtime_trace.span_publisher import publish_trace_span, resolve_event_bus
+
+
+def test_resolve_event_bus_uses_global_container_instance():
+    container = init_container()
+    bus = MagicMock()
+    bus.publish = AsyncMock(return_value=True)
+    container.message_bus.override(providers.Object(bus))
+
+    try:
+        assert Container.message_bus() is not bus
+        assert resolve_event_bus() is bus
+    finally:
+        container.message_bus.reset_override()
 
 
 @pytest.mark.asyncio

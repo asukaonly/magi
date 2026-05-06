@@ -139,11 +139,11 @@ def get_tool_invocation_service(tool_registry) -> ToolInvocationService:
     an async publish() that returns False — span publishing also tolerates an
     unresolved bus.
     """
-    from magi.core.container import Container
+    from magi.core.container import get_container
 
     bus = None
     try:
-        bus = Container.message_bus()
+        bus = get_container().message_bus()
     except Exception:
         bus = None
 

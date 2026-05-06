@@ -1,12 +1,15 @@
 from __future__ import annotations
 import pytest
+from dependency_injector import providers
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from magi.agent.execution.tool_invocation_service import (
+    get_tool_invocation_service,
     InvocationContext,
     ToolCall,
     ToolInvocationService,
 )
+from magi.core.container import Container, init_container
 from magi.events.events import Event, EventTypes
 from magi.events.domain_payloads import SpanCompleted, TaskContext
 from magi.events.tracing import drain_pending
@@ -31,6 +34,18 @@ def ctx():
         task_context=TaskContext("s", "t", None, "u"),
         execution_context=MagicMock(),
     )
+
+
+def test_tool_invocation_service_factory_uses_global_container_instance(fake_bus, fake_registry):
+    container = init_container()
+    container.message_bus.override(providers.Object(fake_bus))
+
+    try:
+        assert Container.message_bus() is not fake_bus
+        service = get_tool_invocation_service(fake_registry)
+        assert service._event_bus is fake_bus
+    finally:
+        container.message_bus.reset_override()
 
 
 @pytest.mark.asyncio

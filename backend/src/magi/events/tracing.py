@@ -150,8 +150,9 @@ async def drain_pending() -> None:
 
 def _resolve_event_bus() -> Any:
     try:
-        from ..core.container import Container
-        bus = Container.message_bus()
+        from ..core.container import get_container
+
+        bus = get_container().message_bus()
     except Exception:
         return None
     if bus is None or not hasattr(bus, "publish"):

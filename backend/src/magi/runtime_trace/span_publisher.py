@@ -21,15 +21,15 @@ def resolve_event_bus(*, fallback: Any = None) -> Any | None:
     """Resolve a message bus for trace publishing.
 
     Prefer the explicit fallback (e.g. ``self._message_bus``); otherwise pull
-    from the global ``Container``; otherwise return None. The returned value is
+    from the global container instance; otherwise return None. The returned value is
     guaranteed to expose a ``publish`` attribute when non-None.
     """
     if fallback is not None and hasattr(fallback, "publish"):
         return fallback
     try:
-        from magi.core.container import Container
+        from magi.core.container import get_container
 
-        bus = Container.message_bus()
+        bus = get_container().message_bus()
     except Exception:
         return None
     if bus is None or type(bus).__name__ == "object":
