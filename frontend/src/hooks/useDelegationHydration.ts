@@ -65,7 +65,14 @@ export function useDelegationHydration(
           setEventsTail(sessionId, delegationId, events_tail);
         }
         if (typeof diff_text === 'string') {
+          console.log('[useDelegationHydration] Setting diffText', { length: diff_text.length });
           setDiffText(sessionId, delegationId, diff_text);
+          console.log('[useDelegationHydration] DiffText set, checking card...', {
+            diffTextSet: !!diff_text,
+            cardDiffText: useDelegationsStore.getState().delegationsBySession[sessionId]?.[delegationId]?.diffText?.length
+          });
+        } else {
+          console.log('[useDelegationHydration] diff_text is not a string', typeof diff_text);
         }
       })
       .catch((err) => {

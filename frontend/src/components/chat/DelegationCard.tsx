@@ -50,6 +50,15 @@ export function DelegationCard({
   const applyOutcome = card?.applyOutcome ?? null;
   const diffText = card?.diffText ?? '';
 
+  // Debug: log when card data changes
+  console.log('[DelegationCard] Render', {
+    delegationId,
+    lifecycle,
+    hasResult: !!result,
+    filesChangedCount: result?.files_changed?.length ?? 0,
+    diffTextLength: diffText?.length ?? 0,
+  });
+
   const eventsTail = useMemo(() => events.slice(-50), [events]);
 
   if (!card) {
