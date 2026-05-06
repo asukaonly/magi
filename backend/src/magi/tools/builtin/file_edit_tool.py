@@ -6,6 +6,7 @@ import sys
 import tempfile
 from typing import Dict, Any, List, Tuple
 from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType, ToolErrorCode
+from ._edit_journal import record_edit_after, snapshot_before_edit
 from ._read_constraint import require_prior_read
 
 _IS_WINDOWS = sys.platform == "win32"
@@ -213,8 +214,11 @@ class FileEditTool(Tool):
                 replacements = 1
                 matched_lines = matched_lines[:1]
 
-            # Atomic write with file lock
+            # Atomic write with file lock; snapshot the prior bytes first so
+            # the edit can be rolled back via the file_rollback tool.
+            snapshot_ctx = snapshot_before_edit(context, file_path)
             self._atomic_write(file_path, new_content, encoding)
+            record_edit_after(context, file_path, snapshot_ctx, op="replace")
 
             result_data = {
                 "path": file_path,
