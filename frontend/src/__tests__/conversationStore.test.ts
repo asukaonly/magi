@@ -74,6 +74,40 @@ describe('conversation store', () => {
     }));
   });
 
+  it('projects assistant attachments from realtime agent responses', () => {
+    applyRealtimeStoreProjection({
+      event: 'agent_response',
+      data: {
+        session_id: 'session-a',
+        content: '图片已生成',
+        timestamp: Date.now() / 1000,
+        turn_id: 'turn-a',
+        message_id: 'msg-a',
+        message_kind: 'assistant_final',
+        attachments: [
+          {
+            attachment_id: 'att-a',
+            kind: 'image',
+            original_name: 'generated.png',
+            size_bytes: 1024,
+          },
+        ],
+      },
+    });
+
+    const message = useConversationStore.getState().messagesBySession['session-a']?.[0];
+
+    expect(message).toEqual(expect.objectContaining({
+      attachments: [
+        expect.objectContaining({
+          attachment_id: 'att-a',
+          kind: 'image',
+          original_name: 'generated.png',
+        }),
+      ],
+    }));
+  });
+
   it('preserves persona identity when later realtime updates omit it', () => {
     const store = useConversationStore.getState();
 

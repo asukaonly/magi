@@ -74,6 +74,9 @@ export const applyRealtimeStoreProjection = (
       conversationStore.receiveAgentResponse({
         sessionId,
         content: String(payload.content || ''),
+        attachments: Array.isArray(payload.attachments)
+          ? payload.attachments as any[]
+          : undefined,
         timestamp,
         messageId: payload.message_id ? String(payload.message_id) : undefined,
         messageKind: payload.message_kind ? String(payload.message_kind) : null,

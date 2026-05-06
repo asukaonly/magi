@@ -1649,6 +1649,37 @@ describe('ChatPage', () => {
     ).toBe(1710000000000);
   });
 
+  it('shows assistant image attachments immediately from realtime agent responses', async () => {
+    render(<ChatPage />);
+
+    act(() => {
+      realtimeListener?.({
+        event: 'agent_response',
+        data: {
+          session_id: 'session-1',
+          message_id: 'msg-final-image-live',
+          message_kind: 'assistant_final',
+          content: '图片已生成。',
+          timestamp: Date.now() / 1000,
+          turn_id: 'turn-image-live',
+          attachments: [
+            {
+              attachment_id: 'att-image-live',
+              kind: 'image',
+              original_name: 'live.png',
+              size_bytes: 2048,
+            },
+          ],
+        },
+      });
+    });
+
+    expect(await screen.findByRole('img', { name: 'live.png' })).toHaveAttribute(
+      'src',
+      'http://127.0.0.1:8000/api/messages/session/session-1/attachments/att-image-live/content?user_id=local_user',
+    );
+  });
+
   it('hides the trace entry when ux plan disables trace display', async () => {
     const view = render(<ChatPage />);
     const scoped = within(view.container);
