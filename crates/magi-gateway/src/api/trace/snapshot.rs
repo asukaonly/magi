@@ -1,6 +1,6 @@
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::db;
 
@@ -116,6 +116,7 @@ fn assemble_snapshot(
 
     let mut node_by_id: HashMap<String, Value> = HashMap::new();
     let mut children_by_parent: HashMap<Option<String>, Vec<String>> = HashMap::new();
+    let turn_span_id = format!("{}:turn", turn_id);
 
     for span in spans {
         let span_id = span
@@ -134,49 +135,18 @@ fn assemble_snapshot(
         );
         node_by_id.insert(span_id.clone(), node);
 
-        let parent = span
-            .get("parent_span_id")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string());
+        let parent = effective_parent_span_id(span, spans, &turn_span_id);
         children_by_parent.entry(parent).or_default().push(span_id);
     }
 
-    for (parent_id, child_ids) in &children_by_parent {
-        if let Some(pid) = parent_id {
-            let mut sorted_children: Vec<Value> = child_ids
-                .iter()
-                .filter_map(|cid| node_by_id.remove(cid))
-                .collect();
-            sorted_children.sort_by(|a, b| {
-                let a_started = a.get("started_at").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let b_started = b.get("started_at").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                a_started
-                    .partial_cmp(&b_started)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
-            if let Some(parent) = node_by_id.get_mut(pid) {
-                if let Some(arr) = parent.get_mut("children").and_then(|v| v.as_array_mut()) {
-                    arr.extend(sorted_children);
-                }
-            } else {
-                for child in sorted_children {
-                    let child_id = child
-                        .get("id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    if !child_id.is_empty() {
-                        node_by_id.insert(child_id, child);
-                    }
-                }
-            }
-        }
-    }
-
-    let turn_span_id = format!("{}:turn", turn_id);
+    let mut visiting = HashSet::new();
+    let turn_node = take_node_with_children(
+        &turn_span_id,
+        &mut node_by_id,
+        &children_by_parent,
+        &mut visiting,
+    );
     let mut top_ids: Vec<String> = children_by_parent.get(&None).cloned().unwrap_or_default();
-    let turn_node = node_by_id.remove(&turn_span_id);
     if turn_node.is_none() {
         if let Some(turn_children) = children_by_parent.get(&Some(turn_span_id.clone())) {
             top_ids.extend(turn_children.clone());
@@ -186,20 +156,17 @@ fn assemble_snapshot(
 
     let mut top_level: Vec<Value> = top_ids
         .iter()
-        .filter_map(|id| node_by_id.remove(id))
+        .filter_map(|id| {
+            take_node_with_children(id, &mut node_by_id, &children_by_parent, &mut visiting)
+        })
         .collect();
     if let Some(tn) = &turn_node {
         if let Some(arr) = tn.get("children").and_then(|v| v.as_array()) {
             top_level.extend(arr.clone());
         }
     }
-    top_level.sort_by(|a, b| {
-        let a_started = a.get("started_at").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        let b_started = b.get("started_at").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        a_started
-            .partial_cmp(&b_started)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    top_level.extend(node_by_id.drain().map(|(_, node)| node));
+    sort_nodes(&mut top_level);
 
     let (active, completed, failed) = count_steps_in_children(&top_level);
     let total_input_tokens = sum_metric(llm_calls, "input_tokens");
@@ -271,4 +238,237 @@ fn sum_metric(rows: &[HashMap<String, Value>], key: &str) -> i64 {
     rows.iter()
         .map(|row| row.get(key).and_then(|v| v.as_i64()).unwrap_or(0))
         .sum()
+}
+
+fn row_str(row: &HashMap<String, Value>, key: &str) -> String {
+    row.get(key)
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string()
+}
+
+fn row_i64(row: &HashMap<String, Value>, key: &str) -> i64 {
+    row.get(key).and_then(|v| v.as_i64()).unwrap_or(0)
+}
+
+fn contains_span(parent: &HashMap<String, Value>, child: &HashMap<String, Value>) -> bool {
+    let child_started = row_i64(child, "started_at_ms");
+    if child_started <= 0 {
+        return false;
+    }
+    let parent_started = row_i64(parent, "started_at_ms");
+    let parent_ended = row_i64(parent, "ended_at_ms");
+    let parent_ended = if parent_ended > 0 {
+        parent_ended
+    } else {
+        child_started
+    };
+    parent_started <= child_started && child_started <= parent_ended
+}
+
+fn find_iteration_parent(
+    span: &HashMap<String, Value>,
+    spans: &[HashMap<String, Value>],
+) -> Option<String> {
+    let mut candidates: Vec<&HashMap<String, Value>> = spans
+        .iter()
+        .filter(|item| row_str(item, "node_type") == "iteration" && contains_span(item, span))
+        .collect();
+    candidates.sort_by_key(|item| -row_i64(item, "started_at_ms"));
+    candidates.first().and_then(|item| {
+        let span_id = row_str(item, "span_id");
+        if span_id.is_empty() {
+            None
+        } else {
+            Some(span_id)
+        }
+    })
+}
+
+fn find_semantic_tool_parent(
+    span: &HashMap<String, Value>,
+    spans: &[HashMap<String, Value>],
+) -> Option<String> {
+    let tool_name = row_str(span, "name");
+    let span_started = row_i64(span, "started_at_ms");
+    let mut candidates: Vec<&HashMap<String, Value>> = spans
+        .iter()
+        .filter(|item| {
+            if row_str(item, "node_type") != "tool_call" {
+                return false;
+            }
+            let item_name = row_str(item, "name");
+            if !tool_name.is_empty() && !item_name.starts_with(&tool_name) {
+                return false;
+            }
+            (row_i64(item, "started_at_ms") - span_started).abs() <= 250
+        })
+        .collect();
+    candidates.sort_by_key(|item| (row_i64(item, "started_at_ms") - span_started).abs());
+    candidates.first().and_then(|item| {
+        let span_id = row_str(item, "span_id");
+        if span_id.is_empty() {
+            None
+        } else {
+            Some(span_id)
+        }
+    })
+}
+
+fn effective_parent_span_id(
+    span: &HashMap<String, Value>,
+    spans: &[HashMap<String, Value>],
+    turn_span_id: &str,
+) -> Option<String> {
+    let raw_parent = row_str(span, "parent_span_id");
+    let parent = if raw_parent.is_empty() {
+        None
+    } else {
+        Some(raw_parent)
+    };
+    if parent.as_deref().is_some_and(|value| value != turn_span_id) {
+        return parent;
+    }
+    match row_str(span, "node_type").as_str() {
+        "llm_call" => find_iteration_parent(span, spans).or(parent),
+        "tool_invocation" => find_semantic_tool_parent(span, spans)
+            .or_else(|| find_iteration_parent(span, spans))
+            .or(parent),
+        _ => parent,
+    }
+}
+
+fn sort_nodes(nodes: &mut Vec<Value>) {
+    nodes.sort_by(|a, b| {
+        let a_started = a.get("started_at").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let b_started = b.get("started_at").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let ordering = a_started
+            .partial_cmp(&b_started)
+            .unwrap_or(std::cmp::Ordering::Equal);
+        if ordering == std::cmp::Ordering::Equal {
+            let a_id = a.get("id").and_then(|v| v.as_str()).unwrap_or("");
+            let b_id = b.get("id").and_then(|v| v.as_str()).unwrap_or("");
+            a_id.cmp(b_id)
+        } else {
+            ordering
+        }
+    });
+}
+
+fn take_node_with_children(
+    node_id: &str,
+    node_by_id: &mut HashMap<String, Value>,
+    children_by_parent: &HashMap<Option<String>, Vec<String>>,
+    visiting: &mut HashSet<String>,
+) -> Option<Value> {
+    if !visiting.insert(node_id.to_string()) {
+        return node_by_id.remove(node_id);
+    }
+    let mut node = node_by_id.remove(node_id)?;
+    let mut children = Vec::new();
+    if let Some(child_ids) = children_by_parent.get(&Some(node_id.to_string())) {
+        for child_id in child_ids {
+            if child_id == node_id {
+                continue;
+            }
+            if let Some(child) =
+                take_node_with_children(child_id, node_by_id, children_by_parent, visiting)
+            {
+                children.push(child);
+            }
+        }
+    }
+    sort_nodes(&mut children);
+    if let Some(arr) = node.get_mut("children").and_then(|v| v.as_array_mut()) {
+        arr.extend(children);
+    }
+    visiting.remove(node_id);
+    Some(node)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn row(entries: Vec<(&str, Value)>) -> HashMap<String, Value> {
+        entries
+            .into_iter()
+            .map(|(key, value)| (key.to_string(), value))
+            .collect()
+    }
+
+    #[test]
+    fn assemble_snapshot_infers_function_calling_parent_links() {
+        let turn = row(vec![
+            ("turn_id", json!("turn-1")),
+            ("trace_id", json!("trace:turn-1")),
+            ("status", json!("completed")),
+            ("mode", json!("function_calling")),
+            ("started_at_ms", json!(1000)),
+            ("ended_at_ms", json!(5000)),
+        ]);
+        let spans = vec![
+            row(vec![
+                ("span_id", json!("turn-1:turn")),
+                ("trace_id", json!("trace:turn-1")),
+                ("node_type", json!("turn")),
+                ("name", json!("Chat turn")),
+                ("status", json!("completed")),
+                ("started_at_ms", json!(1000)),
+                ("ended_at_ms", json!(5000)),
+            ]),
+            row(vec![
+                ("span_id", json!("turn-1:iteration:1")),
+                ("trace_id", json!("trace:turn-1")),
+                ("parent_span_id", json!("turn-1:turn")),
+                ("node_type", json!("iteration")),
+                ("name", json!("Iteration 1")),
+                ("status", json!("completed")),
+                ("started_at_ms", json!(2000)),
+                ("ended_at_ms", json!(4000)),
+            ]),
+            row(vec![
+                ("span_id", json!("llm-1")),
+                ("trace_id", json!("trace:turn-1")),
+                ("parent_span_id", json!("turn-1:turn")),
+                ("node_type", json!("llm_call")),
+                ("name", json!("qwen")),
+                ("status", json!("ok")),
+                ("started_at_ms", json!(2100)),
+                ("ended_at_ms", json!(2500)),
+            ]),
+            row(vec![
+                ("span_id", json!("tool-call-1")),
+                ("trace_id", json!("trace:turn-1")),
+                ("parent_span_id", json!("turn-1:iteration:1")),
+                ("node_type", json!("tool_call")),
+                ("name", json!("web-search tool call")),
+                ("status", json!("completed")),
+                ("started_at_ms", json!(2500)),
+                ("ended_at_ms", json!(3000)),
+            ]),
+            row(vec![
+                ("span_id", json!("raw-tool-1")),
+                ("trace_id", json!("trace:turn-1")),
+                ("parent_span_id", json!("turn-1:turn")),
+                ("node_type", json!("tool_invocation")),
+                ("name", json!("web-search")),
+                ("status", json!("ok")),
+                ("started_at_ms", json!(2510)),
+                ("ended_at_ms", json!(3000)),
+            ]),
+        ];
+
+        let snapshot = assemble_snapshot("user", "session", &turn, &spans, &[], &[], &[]);
+        let children = snapshot["root"]["children"].as_array().unwrap();
+        assert_eq!(children[0]["id"], json!("turn-1:iteration:1"));
+        let iteration_children = children[0]["children"].as_array().unwrap();
+        assert_eq!(iteration_children[0]["id"], json!("llm-1"));
+        assert_eq!(iteration_children[1]["id"], json!("tool-call-1"));
+        assert_eq!(
+            iteration_children[1]["children"][0]["id"],
+            json!("raw-tool-1")
+        );
+    }
 }

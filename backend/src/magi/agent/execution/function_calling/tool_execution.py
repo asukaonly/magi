@@ -17,9 +17,7 @@ logger = logging.getLogger(__name__)
 class _ToolRegistryProtocol(Protocol):
     def get_tool_info(self, tool_name: str) -> dict[str, Any] | None: ...
 
-    async def execute(
-        self, tool_name: str, arguments: dict[str, Any], context: Any
-    ) -> Any: ...
+    async def execute(self, tool_name: str, arguments: dict[str, Any], context: Any) -> Any: ...
 
 
 class _FunctionCallingToolExecutionHostProtocol(Protocol):
@@ -40,9 +38,7 @@ class _FunctionCallingToolExecutionHostProtocol(Protocol):
         user_message: str | None,
     ) -> tuple[dict[str, Any], str | None]: ...
 
-    def _classify_guardrail_error_code(
-        self, *, tool_name: str, error_text: str
-    ) -> str: ...
+    def _classify_guardrail_error_code(self, *, tool_name: str, error_text: str) -> str: ...
 
     def _normalize_agent_launch_arguments(
         self,
@@ -67,9 +63,7 @@ class _FunctionCallingToolExecutionHostProtocol(Protocol):
         gateway: Any = None,
     ) -> ToolCallResult | None: ...
 
-    def _resolve_scan_root_path(
-        self, path_value: Any, execution_workspace: str | None
-    ) -> str: ...
+    def _resolve_scan_root_path(self, path_value: Any, execution_workspace: str | None) -> str: ...
 
 
 class FunctionCallingToolExecutionMixin:
@@ -88,6 +82,7 @@ class FunctionCallingToolExecutionMixin:
         session_run_id: str | None = None,
         session_run_revision: int = 0,
         user_message: str | None = None,
+        iteration: int | None = None,
         cancel_token: CancelToken | None = None,
     ) -> ToolCallResult:
         """Execute a single tool call."""
@@ -155,7 +150,13 @@ class FunctionCallingToolExecutionMixin:
             if tool_info and tool_info.get("dangerous", False):
                 permissions.append("dangerous_tools")
             normalized_session_id = str(session_id or "").strip()
+            normalized_turn_id = str(turn_id or "").strip()
             target_task_agent_id = normalized_session_id or user_id
+            trace_parent_span_id = (
+                self._build_tool_span_id(normalized_turn_id, iteration, tool_call.id)
+                if normalized_turn_id and iteration is not None and iteration > 0
+                else ""
+            )
 
             context = ToolExecutionContext(
                 agent_id=execution_agent_id,
@@ -169,6 +170,9 @@ class FunctionCallingToolExecutionMixin:
                     "run_revision": str(session_run_revision),
                     "target_task_agent_type": "chat",
                     "target_task_agent_id": target_task_agent_id,
+                    "trace_id": f"trace:{normalized_turn_id}" if normalized_turn_id else "",
+                    "trace_parent_span_id": trace_parent_span_id,
+                    "trace_tool_call_id": tool_call.id,
                 },
                 permissions=permissions,
                 cancellation=token,
@@ -202,9 +206,7 @@ class FunctionCallingToolExecutionMixin:
                     "[FunctionCalling] Executing scan tool: %s | workspace=%s | path=%s | args=%s",
                     tool_name,
                     workspace_root,
-                    host._resolve_scan_root_path(
-                        arguments.get("path"), execution_workspace
-                    ),
+                    host._resolve_scan_root_path(arguments.get("path"), execution_workspace),
                     arguments,
                 )
             else:
@@ -221,9 +223,7 @@ class FunctionCallingToolExecutionMixin:
             from ....events.domain_payloads import TaskContext
 
             if not hasattr(host, "_tool_invocation_service"):
-                host._tool_invocation_service = get_tool_invocation_service(
-                    host.tool_registry
-                )
+                host._tool_invocation_service = get_tool_invocation_service(host.tool_registry)
 
             result = await host._tool_invocation_service.invoke(
                 _ServiceToolCall(name=tool_name, args=arguments),
@@ -254,9 +254,7 @@ class FunctionCallingToolExecutionMixin:
                     "[FunctionCalling] Slow scan tool: %s | workspace=%s | path=%s | elapsed_ms=%.1f | args=%s",
                     tool_name,
                     workspace_root,
-                    host._resolve_scan_root_path(
-                        arguments.get("path"), execution_workspace
-                    ),
+                    host._resolve_scan_root_path(arguments.get("path"), execution_workspace),
                     execution_time * 1000,
                     arguments,
                 )

@@ -10,7 +10,11 @@ from magi.llm.base import LLMAdapter
 from magi.llm.provider_bridge import ProviderResponse, ProviderToolCall
 from magi.agent.execution.function_calling.postprocessor import FunctionCallingPostprocessor
 from magi.agent.execution.function_calling import llm as function_calling_llm_module
-from magi.agent.execution.function_calling import FunctionCallingOrchestrator, ToolCall, ToolCallResult
+from magi.agent.execution.function_calling import (
+    FunctionCallingOrchestrator,
+    ToolCall,
+    ToolCallResult,
+)
 from magi.config.models import ThinkingDepth
 from magi.tools.schema import ToolResult
 from magi.agent.turn_input import UserTurnInput
@@ -158,7 +162,9 @@ async def test_execute_with_tools_runs_legacy_tool_call_blocks() -> None:
     )
 
     result = await executor.execute_with_tools(
-        turn=UserTurnInput(text="run legacy tool calls", attachments=[], user_id=None, session_id=None),
+        turn=UserTurnInput(
+            text="run legacy tool calls", attachments=[], user_id=None, session_id=None
+        ),
         system_prompt="sys",
         selected_tools=["bash", "agent"],
         user_id="u1",
@@ -191,7 +197,12 @@ def test_build_tool_message_payload_compacts_glob_matches() -> None:
             tool_call_id="t1",
             tool_name="glob",
             success=True,
-            data={"pattern": "**/*.py", "base_path": "/tmp", "matches": matches, "count": len(matches)},
+            data={
+                "pattern": "**/*.py",
+                "base_path": "/tmp",
+                "matches": matches,
+                "count": len(matches),
+            },
             error=None,
         ),
     )
@@ -275,7 +286,9 @@ async def test_max_iterations_fallback_executes_legacy_tool_call_once() -> None:
         if _fake_call_llm_without_tools.calls == 1:
             return {
                 "content": "",
-                "tool_calls": [ToolCall(id="legacy_call_1", name="agent", arguments={"timeout_seconds": 5})],
+                "tool_calls": [
+                    ToolCall(id="legacy_call_1", name="agent", arguments={"timeout_seconds": 5})
+                ],
             }
         return {"content": "final answer"}
 
@@ -324,12 +337,18 @@ async def test_max_iterations_fallback_forces_plain_text_after_repeated_legacy_t
         if call_index == 1:
             return {
                 "content": "",
-                "tool_calls": [ToolCall(id="legacy_call_1", name="agent", arguments={"timeout_seconds": 5})],
+                "tool_calls": [
+                    ToolCall(id="legacy_call_1", name="agent", arguments={"timeout_seconds": 5})
+                ],
             }
         if call_index == 2:
             return {
                 "content": "",
-                "tool_calls": [ToolCall(id="legacy_call_2", name="grep", arguments={"pattern": "x", "path": "."})],
+                "tool_calls": [
+                    ToolCall(
+                        id="legacy_call_2", name="grep", arguments={"pattern": "x", "path": "."}
+                    )
+                ],
             }
         return {"content": "final explanation"}
 
@@ -411,7 +430,9 @@ def test_compact_message_history_preserves_protocol_for_multi_tool_blocks() -> N
             {
                 "role": "tool",
                 "tool_call_id": f"call_{index}",
-                "content": json.dumps({"success": True, "data": {"result_summary": f"ok {index}"}, "error": None}),
+                "content": json.dumps(
+                    {"success": True, "data": {"result_summary": f"ok {index}"}, "error": None}
+                ),
             }
         )
 
@@ -479,7 +500,9 @@ def test_build_final_response_system_prompt_removes_tool_guidance() -> None:
         "- use tools\n"
     )
 
-    final_prompt = executor._build_final_response_system_prompt(system_prompt, strict_plain_text=True)
+    final_prompt = executor._build_final_response_system_prompt(
+        system_prompt, strict_plain_text=True
+    )
 
     assert "# Tool Information" not in final_prompt
     assert "Tool recovery rules" not in final_prompt
@@ -504,7 +527,9 @@ def test_build_final_response_system_prompt_prioritizes_memory_query_results() -
         "* memory_query\n"
     )
 
-    final_prompt = executor._build_final_response_system_prompt(system_prompt, strict_plain_text=True)
+    final_prompt = executor._build_final_response_system_prompt(
+        system_prompt, strict_plain_text=True
+    )
 
     assert "memory_query results as the source of truth" in final_prompt
     assert "Do not replace missing recall results with implicit memory" in final_prompt
@@ -539,7 +564,9 @@ def test_postprocessor_marks_memory_query_results_as_source_of_truth() -> None:
     assert "implicit memory" in payload["usage_guidance"]
 
 
-def test_build_tool_message_payload_keeps_only_projected_historical_recall_for_memory_query() -> None:
+def test_build_tool_message_payload_keeps_only_projected_historical_recall_for_memory_query() -> (
+    None
+):
     postprocessor = FunctionCallingPostprocessor(max_items=2, max_text_chars=80)
     result = type(
         "Result",
@@ -775,7 +802,11 @@ async def test_execute_with_tools_replans_after_recoverable_tool_failure() -> No
                         }
                     ],
                 },
-                "tool_calls": [ToolCall(id="call_grep", name="grep", arguments={"pattern": "TODO", "glob": "**/*"})],
+                "tool_calls": [
+                    ToolCall(
+                        id="call_grep", name="grep", arguments={"pattern": "TODO", "glob": "**/*"}
+                    )
+                ],
             }
         if call_index == 2:
             return {
@@ -791,11 +822,16 @@ async def test_execute_with_tools_replans_after_recoverable_tool_failure() -> No
                         }
                     ],
                 },
-                "tool_calls": [ToolCall(id="call_glob", name="glob", arguments={"pattern": "backend/**/*.py"})],
+                "tool_calls": [
+                    ToolCall(id="call_glob", name="glob", arguments={"pattern": "backend/**/*.py"})
+                ],
             }
         return {
             "content": "Recovered with a narrower scan.",
-            "assistant_message": {"role": "assistant", "content": "Recovered with a narrower scan."},
+            "assistant_message": {
+                "role": "assistant",
+                "content": "Recovered with a narrower scan.",
+            },
             "tool_calls": [],
         }
 
@@ -874,7 +910,9 @@ async def test_execute_with_tools_stops_replanning_for_non_recoverable_tool_fail
                     }
                 ],
             },
-            "tool_calls": [ToolCall(id="call_search", name="web_search", arguments={"query": "magi"})],
+            "tool_calls": [
+                ToolCall(id="call_search", name="web_search", arguments={"query": "magi"})
+            ],
         }
 
     async def _fake_call_llm_without_tools(**kwargs):  # type: ignore[no-untyped-def]
@@ -898,7 +936,9 @@ async def test_execute_with_tools_stops_replanning_for_non_recoverable_tool_fail
 
 
 @pytest.mark.asyncio
-async def test_call_llm_without_tools_logs_provider_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_call_llm_without_tools_logs_provider_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     executor = FunctionCallingOrchestrator(
         llm_adapter=_DummyLLMAdapter(),
         tool_registry=_RecordingToolRegistry(),  # type: ignore[arg-type]
@@ -918,7 +958,16 @@ async def test_call_llm_without_tools_logs_provider_metadata(monkeypatch: pytest
         )
 
     def _fake_log_llm_response(logger, request_id, response, success=True, error=None, duration_ms=None, truncate=True, response_max_length=3000, **metadata):  # type: ignore[no-untyped-def]
-        _ = (logger, request_id, response, success, error, duration_ms, truncate, response_max_length)
+        _ = (
+            logger,
+            request_id,
+            response,
+            success,
+            error,
+            duration_ms,
+            truncate,
+            response_max_length,
+        )
         captured.update(metadata)
 
     executor.provider_bridge.chat_response = _fake_chat_response  # type: ignore[method-assign]
@@ -978,7 +1027,16 @@ async def test_call_llm_with_tools_logs_json_response_without_ascii_escaping(
         )
 
     def _fake_log_llm_response(logger, request_id, response, success=True, error=None, duration_ms=None, truncate=True, response_max_length=3000, **metadata):  # type: ignore[no-untyped-def]
-        _ = (logger, request_id, success, error, duration_ms, truncate, response_max_length, metadata)
+        _ = (
+            logger,
+            request_id,
+            success,
+            error,
+            duration_ms,
+            truncate,
+            response_max_length,
+            metadata,
+        )
         captured["response"] = response
 
     executor.provider_bridge.chat_with_tools = _fake_chat_with_tools  # type: ignore[method-assign]
@@ -1064,3 +1122,29 @@ async def test_call_llm_with_tools_uses_extended_timeout_when_thinking_enabled()
     assert captured["timeout_seconds"] == 180.0
     assert result["llm_trace"]["input_tokens"] == 22
     assert result["llm_trace"]["thinking_enabled"] is True
+
+
+@pytest.mark.asyncio
+async def test_call_llm_with_tools_parents_trace_to_iteration() -> None:
+    executor = FunctionCallingOrchestrator(
+        llm_adapter=_DummyLLMAdapter(),
+        tool_registry=_RecordingToolRegistry(),  # type: ignore[arg-type]
+    )
+
+    captured: dict[str, Any] = {}
+
+    async def _fake_chat_with_tools(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+        return ProviderResponse(content="done")
+
+    executor.provider_bridge.chat_with_tools = _fake_chat_with_tools  # type: ignore[method-assign]
+
+    await executor._call_llm_with_tools(
+        system_prompt="sys",
+        messages=[{"role": "user", "content": "plan"}],
+        tools=[],
+        turn_id="turn-abc",
+        iteration=2,
+    )
+
+    assert captured["event_context"]["parent_span_id"] == "turn-abc:iteration:2"

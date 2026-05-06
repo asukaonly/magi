@@ -641,7 +641,7 @@
       "kindParallelGroup": "并行分组",
       "kindWorker": "Worker",
       "kindTool": "工具调用",
-      "kindIteration": "编排轮次",
+      "kindIteration": "处理轮次",
       "kindIntent": "意图识别",
       "kindLlm": "LLM 调用",
       "kindResponse": "结果输出",
@@ -657,7 +657,7 @@
         "responseEmission": "结果输出",
         "responseRhythmProcessing": "自然节奏处理",
         "taskOrchestration": "任务编排",
-        "roundLabel": "第 {{count}} 轮"
+        "roundLabel": "第 {{count}} 轮处理"
       },
       "tableNode": "节点",
       "tableDuration": "耗时",

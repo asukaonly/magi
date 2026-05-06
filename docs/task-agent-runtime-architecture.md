@@ -852,6 +852,7 @@ Two rules matter here:
 - `trace_turns` is the turn-level trace ledger used for availability, status, and duration; visible execution tree nodes live in `trace_spans`
 - `turn_record` is an internal projection event for `trace_turns` and must not be stored or displayed as a visible span
 - `DIRECT_LLM` turns carry explicit trace context into provider calls so the main model call is attached under the turn root and contributes token metrics
+- function-calling turns group each bounded loop as an `iteration` span; LLM decisions and semantic tool calls inside that loop must be children of the iteration, and low-level `tool_invocation` spans should sit under their semantic `tool_call`
 - response rhythm planning emits a `rhythm_processing` span when the final answer is split into multiple natural-language segments
 - user-facing input/output details in trace UI must remain bounded previews, not raw full prompts, transcripts, or tool payloads
 - business runtime code should call the runtime trace writer facade for live span/detail updates instead of calling store `upsert_*` methods directly

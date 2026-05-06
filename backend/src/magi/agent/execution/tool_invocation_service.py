@@ -73,12 +73,19 @@ class ToolInvocationService:
 
         turn_id = ctx.task_context.turn_id if ctx.task_context else None
         normalized_turn_id = normalize_turn_id(turn_id)
+        env_vars = getattr(ctx.execution_context, "env_vars", None)
+        env_vars = env_vars if isinstance(env_vars, Mapping) else {}
+        context_trace_id = str(env_vars.get("trace_id") or "").strip() or None
+        context_parent_span_id = str(env_vars.get("trace_parent_span_id") or "").strip() or None
+        context_tool_call_id = str(env_vars.get("trace_tool_call_id") or "").strip() or None
         trace_id = (
-            build_trace_id(normalized_turn_id)
+            context_trace_id or build_trace_id(normalized_turn_id)
             if normalized_turn_id and current_trace_context() is None
             else None
         )
-        parent_span_id = build_root_span_id(normalized_turn_id) if trace_id else None
+        parent_span_id = None
+        if trace_id:
+            parent_span_id = context_parent_span_id or build_root_span_id(normalized_turn_id)
 
         async with start_async_span(
             node_type="tool_invocation",
@@ -93,7 +100,7 @@ class ToolInvocationService:
             span.set_attributes(
                 {
                     "tool_name": call.name,
-                    "tool_call_id": None,
+                    "tool_call_id": context_tool_call_id,
                     "tool_category": ctx.tool_category,
                     "args_summary": args_summary,
                     "arguments_json": arguments_json,

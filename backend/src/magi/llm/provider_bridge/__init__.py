@@ -61,11 +61,26 @@ def _build_request_preview(messages: List[Dict[str, Any]]) -> str:
     return ""
 
 
+def _build_tool_call_preview(tool_calls: Any) -> str:
+    names: list[str] = []
+    for tool_call in list(tool_calls or []):
+        name = getattr(tool_call, "name", None)
+        if not name and isinstance(tool_call, dict):
+            name = tool_call.get("name")
+        text = str(name or "").strip()
+        if text:
+            names.append(text)
+    if not names:
+        return ""
+    return f"Requested tools: {', '.join(names)}"
+
+
 def _with_trace_previews(
     event_context: Optional[Dict[str, Any]],
     *,
     messages: List[Dict[str, Any]],
     response_text: Any = None,
+    tool_calls: Any = None,
 ) -> Dict[str, Any]:
     context = dict(event_context or {})
     request_preview = _compact_trace_preview(
@@ -73,7 +88,7 @@ def _with_trace_previews(
     ) or _build_request_preview(messages)
     response_preview = _compact_trace_preview(
         context.get("response_preview")
-    ) or _compact_trace_preview(response_text)
+    ) or _compact_trace_preview(response_text) or _build_tool_call_preview(tool_calls)
     if request_preview:
         context.setdefault("request_preview", request_preview)
         context.setdefault("input_preview", request_preview)
@@ -202,6 +217,7 @@ class LLMProviderBridge:
                     event_context,
                     messages=messages,
                     response_text=provider_response.content,
+                    tool_calls=provider_response.tool_calls,
                 ),
             )
             return provider_response
@@ -274,6 +290,7 @@ class LLMProviderBridge:
                     event_context,
                     messages=messages,
                     response_text=provider_response.content,
+                    tool_calls=provider_response.tool_calls,
                 ),
             )
             return provider_response
@@ -339,6 +356,7 @@ class LLMProviderBridge:
                     event_context,
                     messages=messages,
                     response_text=result.provider_response.content,
+                    tool_calls=result.provider_response.tool_calls,
                 ),
             )
             return result

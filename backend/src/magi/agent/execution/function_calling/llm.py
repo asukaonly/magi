@@ -33,18 +33,21 @@ def _build_llm_event_context(
     turn_id: str | None,
     execution_agent_id: str,
     intent: str,
+    iteration: int | None = None,
 ) -> dict[str, Any]:
-    return enrich_event_context_with_turn_trace(
-        {
-            "request_id": request_id,
-            "request_kind": request_kind,
-            "session_id": session_id,
-            "turn_id": turn_id,
-            "agent_id": execution_agent_id,
-            "correlation_id": turn_id,
-            "intent": intent,
-        }
-    )
+    context = {
+        "request_id": request_id,
+        "request_kind": request_kind,
+        "session_id": session_id,
+        "turn_id": turn_id,
+        "agent_id": execution_agent_id,
+        "correlation_id": turn_id,
+        "intent": intent,
+    }
+    normalized_turn_id = str(turn_id or "").strip()
+    if normalized_turn_id and iteration is not None and iteration > 0:
+        context["parent_span_id"] = f"{normalized_turn_id}:iteration:{iteration}"
+    return enrich_event_context_with_turn_trace(context)
 
 
 class _LlmHostProtocol(Protocol):
@@ -75,6 +78,7 @@ class FunctionCallingLlmMixin:
         turn_id: Optional[str] = None,
         intent: str = "unknown",
         execution_agent_id: str = "chat_agent",
+        iteration: int | None = None,
     ) -> Dict[str, Any]:
         """
         Call LLM with tools parameter
@@ -121,6 +125,7 @@ class FunctionCallingLlmMixin:
                             turn_id=turn_id,
                             execution_agent_id=execution_agent_id,
                             intent=intent,
+                            iteration=iteration,
                         ),
                     ),
                     label="chat_with_tools_stream",
@@ -148,6 +153,7 @@ class FunctionCallingLlmMixin:
                             turn_id=turn_id,
                             execution_agent_id=execution_agent_id,
                             intent=intent,
+                            iteration=iteration,
                         ),
                     ),
                     label="chat_with_tools",
@@ -225,6 +231,7 @@ class FunctionCallingLlmMixin:
         turn_id: Optional[str] = None,
         intent: str = "unknown",
         execution_agent_id: str = "chat_agent",
+        iteration: int | None = None,
     ) -> Dict[str, Any]:
         """Call LLM without tools for final response"""
         host = cast(_LlmHostProtocol, self)
@@ -261,6 +268,7 @@ class FunctionCallingLlmMixin:
                         turn_id=turn_id,
                         execution_agent_id=execution_agent_id,
                         intent=intent,
+                        iteration=iteration,
                     ),
                 ):
                     if event.kind == "text_delta" and event.text:
@@ -287,6 +295,7 @@ class FunctionCallingLlmMixin:
                             turn_id=turn_id,
                             execution_agent_id=execution_agent_id,
                             intent=intent,
+                            iteration=iteration,
                         ),
                     ),
                     label="chat_response",
