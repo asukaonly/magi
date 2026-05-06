@@ -50,7 +50,6 @@ class LLMUsageStore:
                     created_at REAL NOT NULL
                 )
             """)
-            await self._ensure_optional_columns(db)
             await db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_llm_usage_created_at ON llm_usage(created_at)"
             )
@@ -61,21 +60,6 @@ class LLMUsageStore:
                 "CREATE INDEX IF NOT EXISTS idx_llm_usage_request_kind ON llm_usage(request_kind)"
             )
             await db.commit()
-
-    async def _ensure_optional_columns(self, db: aiosqlite.Connection) -> None:
-        cursor = await db.execute("PRAGMA table_info(llm_usage)")
-        rows = await cursor.fetchall()
-        existing_columns = {str(row[1]) for row in rows}
-
-        if "ttft_ms" not in existing_columns:
-            await db.execute(
-                "ALTER TABLE llm_usage ADD COLUMN ttft_ms INTEGER NOT NULL DEFAULT 0"
-            )
-
-        if "cost_usd" not in existing_columns:
-            await db.execute(
-                "ALTER TABLE llm_usage ADD COLUMN cost_usd REAL NOT NULL DEFAULT 0"
-            )
 
     async def start(self) -> None:
         """Initialize storage. Subscription is wired by LLMUsageSubscriberModule."""

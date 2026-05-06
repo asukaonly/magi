@@ -30,14 +30,12 @@ from .graph.fact_kind import L2StoreFactKindMixin
 from .graph.writes import L2StoreGraphWriteMixin
 from .projection.jobs import L2ProjectionJobStoreMixin
 from .retrieval.queries import L2StoreQueryMixin
-from .storage.migrations import L2StoreMigrationMixin
 from .storage.rows import L2StoreRowMappingMixin
 from .storage.schema import L2_COGNITION_SCHEMA_SQL
 
 logger = get_logger(__name__)
 
 class L2CognitionStore(
-    L2StoreMigrationMixin,
     L2EntityFacetStoreMixin,
     L2EpisodeStoreMixin,
     L2StoreGraphConflictMixin,
@@ -85,11 +83,6 @@ class L2CognitionStore(
                 USING fts5(episode_id, summary, label, user_label)
                 """
             )
-            await self._ensure_knowledge_graph_columns(db)
-            await self._ensure_entity_facet_columns(db)
-            await self._ensure_tom_assertion_schema(db)
-            await self._ensure_tom_snapshot_schema(db)
-            await self._projection_queue.ensure_schema(db)
             await db.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_l2_projection_jobs_catch_up_owner_status_created

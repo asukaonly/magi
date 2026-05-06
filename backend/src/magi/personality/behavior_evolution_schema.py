@@ -61,12 +61,6 @@ class BehaviorEvolutionSchemaMixin:
                 )
             """)
 
-            for table_name in ("task_interactions", "category_statistics", "behavior_profiles"):
-                try:
-                    await db.execute(f"ALTER TABLE {table_name} ADD COLUMN persona_id TEXT NOT NULL DEFAULT ''")
-                except Exception:
-                    pass
-
             await db.execute("""
                 create index IF NOT EXISTS idx_task_interactions_category
                 ON task_interactions(task_category)

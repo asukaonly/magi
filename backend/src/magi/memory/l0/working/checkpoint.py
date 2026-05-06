@@ -8,11 +8,7 @@ from typing import Any, Optional
 import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
-from .schema import (
-    clear_l0_checkpoint_tables,
-    ensure_execution_pending_turn_columns,
-    ensure_execution_run_columns,
-)
+from .schema import clear_l0_checkpoint_tables
 from .serialization import (
     active_entity_key,
     encode_json,
@@ -284,14 +280,6 @@ class L0CheckpointMixin:
                 async for row in cursor:
                     result = row_to_execution_result(row)
                     self._execution_results.setdefault(str(result["session_id"]), []).append(result)
-
-    @staticmethod
-    async def _ensure_execution_run_columns(db: aiosqlite.Connection) -> None:
-        await ensure_execution_run_columns(db)
-
-    @staticmethod
-    async def _ensure_execution_pending_turn_columns(db: aiosqlite.Connection) -> None:
-        await ensure_execution_pending_turn_columns(db)
 
 
 __all__ = ["L0CheckpointMixin"]

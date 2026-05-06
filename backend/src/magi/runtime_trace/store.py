@@ -15,7 +15,7 @@ from ..core.logger import get_logger
 from ..core.sqlite import sqlite_connection_async
 from .plugin_ingress import PluginIngressPersistenceMixin
 from .runtime_status import RuntimeStatusPersistenceMixin
-from .schema import ensure_runtime_trace_schema, ensure_trace_detail_columns, ensure_trace_turn_columns
+from .schema import ensure_runtime_trace_schema
 from .trace_records import TraceRecordPersistenceMixin
 
 T = TypeVar("T")
@@ -55,12 +55,6 @@ class RuntimeTraceStore(
 
     async def shutdown(self) -> None:
         self._initialized = False
-
-    async def _ensure_trace_turn_columns(self, db: aiosqlite.Connection) -> None:
-        await ensure_trace_turn_columns(db)
-
-    async def _ensure_trace_detail_columns(self, db: aiosqlite.Connection) -> None:
-        await ensure_trace_detail_columns(db)
 
     async def _execute_hot_write(
         self,

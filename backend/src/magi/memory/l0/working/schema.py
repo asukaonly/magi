@@ -106,34 +106,7 @@ DELETE FROM l0_execution_results;
 
 async def ensure_l0_checkpoint_schema(db: aiosqlite.Connection) -> None:
     await db.executescript(L0_CHECKPOINT_SCHEMA_SQL)
-    await ensure_execution_run_columns(db)
-    await ensure_execution_pending_turn_columns(db)
 
 
 async def clear_l0_checkpoint_tables(db: aiosqlite.Connection) -> None:
     await db.executescript(L0_CLEAR_SQL)
-
-
-async def ensure_execution_run_columns(db: aiosqlite.Connection) -> None:
-    async with db.execute("PRAGMA table_info(l0_execution_runs)") as cursor:
-        rows = await cursor.fetchall()
-    column_names = {str(row[1]) for row in rows}
-    if "cancel_requested_at" not in column_names:
-        await db.execute("ALTER TABLE l0_execution_runs ADD COLUMN cancel_requested_at REAL")
-    if "cancel_reason" not in column_names:
-        await db.execute("ALTER TABLE l0_execution_runs ADD COLUMN cancel_reason TEXT")
-    if "cancel_requested_by" not in column_names:
-        await db.execute("ALTER TABLE l0_execution_runs ADD COLUMN cancel_requested_by TEXT")
-    if "cancel_anchor_turn_id" not in column_names:
-        await db.execute("ALTER TABLE l0_execution_runs ADD COLUMN cancel_anchor_turn_id TEXT")
-
-
-async def ensure_execution_pending_turn_columns(db: aiosqlite.Connection) -> None:
-    async with db.execute("PRAGMA table_info(l0_execution_pending_turns)") as cursor:
-        rows = await cursor.fetchall()
-    column_names = {str(row[1]) for row in rows}
-    if "disposition" not in column_names:
-        await db.execute(
-            "ALTER TABLE l0_execution_pending_turns "
-            "ADD COLUMN disposition TEXT NOT NULL DEFAULT 'augment'"
-        )

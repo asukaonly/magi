@@ -84,6 +84,7 @@ CREATE TABLE IF NOT EXISTS trace_llm_calls (
     cache_read_tokens INTEGER NOT NULL DEFAULT 0,
     cache_write_tokens INTEGER NOT NULL DEFAULT 0,
     thinking_enabled INTEGER NOT NULL DEFAULT 0,
+    thinking_content TEXT,
     request_preview TEXT,
     response_preview TEXT
 );
@@ -101,7 +102,8 @@ CREATE TABLE IF NOT EXISTS trace_tools (
     execution_time_ms INTEGER,
     error_code TEXT,
     error_message TEXT,
-    result_preview TEXT
+    result_preview TEXT,
+    result_json TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_trace_tools_trace
     ON trace_tools(trace_id);
@@ -156,85 +158,3 @@ CREATE INDEX IF NOT EXISTS idx_plugin_ingress_events_target_type_status
 
 async def ensure_runtime_trace_schema(db: aiosqlite.Connection) -> None:
     await db.executescript(RUNTIME_TRACE_SCHEMA_SQL)
-    await ensure_trace_turn_columns(db)
-    await ensure_trace_detail_columns(db)
-    await _ensure_trace_spans_turn_id_nullable(db)
-
-
-async def ensure_trace_turn_columns(db: aiosqlite.Connection) -> None:
-    cursor = await db.execute("PRAGMA table_info(trace_turns)")
-    rows = await cursor.fetchall()
-    column_names = {str(row[1]) for row in rows}
-    if "continued_from_turn_id" not in column_names:
-        await db.execute("ALTER TABLE trace_turns ADD COLUMN continued_from_turn_id TEXT")
-    if "continued_from_trace_id" not in column_names:
-        await db.execute("ALTER TABLE trace_turns ADD COLUMN continued_from_trace_id TEXT")
-    if "superseded_by_turn_id" not in column_names:
-        await db.execute("ALTER TABLE trace_turns ADD COLUMN superseded_by_turn_id TEXT")
-    if "supersession_reason" not in column_names:
-        await db.execute("ALTER TABLE trace_turns ADD COLUMN supersession_reason TEXT")
-
-
-async def ensure_trace_detail_columns(db: aiosqlite.Connection) -> None:
-    cursor = await db.execute("PRAGMA table_info(trace_llm_calls)")
-    rows = await cursor.fetchall()
-    llm_columns = {str(row[1]) for row in rows}
-    if "thinking_content" not in llm_columns:
-        await db.execute("ALTER TABLE trace_llm_calls ADD COLUMN thinking_content TEXT")
-
-    cursor = await db.execute("PRAGMA table_info(trace_tools)")
-    rows = await cursor.fetchall()
-    tool_columns = {str(row[1]) for row in rows}
-    if "result_json" not in tool_columns:
-        await db.execute("ALTER TABLE trace_tools ADD COLUMN result_json TEXT")
-
-
-async def _ensure_trace_spans_turn_id_nullable(db: aiosqlite.Connection) -> None:
-    """Migrate legacy DBs: trace_spans.turn_id was NOT NULL; relax to nullable.
-
-    Uses SQLite's table-rebuild approach since SQLite lacks ALTER COLUMN.
-    Idempotent: detects current notnull state via PRAGMA table_info.
-    """
-    cursor = await db.execute("PRAGMA table_info(trace_spans)")
-    rows = await cursor.fetchall()
-    turn_id = next((r for r in rows if str(r[1]) == "turn_id"), None)
-    if turn_id is None:
-        return  # table doesn't exist yet; CREATE TABLE will produce nullable
-    if int(turn_id[3]) == 0:
-        return  # already nullable
-    # Rebuild
-    await db.executescript(
-        """
-        BEGIN;
-        CREATE TABLE trace_spans_new (
-            span_id TEXT PRIMARY KEY,
-            trace_id TEXT NOT NULL,
-            turn_id TEXT,
-            parent_span_id TEXT,
-            node_type TEXT NOT NULL,
-            name TEXT NOT NULL,
-            status TEXT NOT NULL,
-            attempt_index INTEGER NOT NULL DEFAULT 1,
-            retry_count INTEGER NOT NULL DEFAULT 0,
-            iteration INTEGER,
-            execution_agent_id TEXT,
-            result_preview TEXT,
-            error_text TEXT,
-            started_at_ms INTEGER NOT NULL,
-            ended_at_ms INTEGER,
-            duration_ms INTEGER,
-            created_at_ms INTEGER NOT NULL,
-            updated_at_ms INTEGER NOT NULL
-        );
-        INSERT INTO trace_spans_new SELECT * FROM trace_spans;
-        DROP TABLE trace_spans;
-        ALTER TABLE trace_spans_new RENAME TO trace_spans;
-        CREATE INDEX IF NOT EXISTS idx_trace_spans_trace_parent_started
-            ON trace_spans(trace_id, parent_span_id, started_at_ms);
-        CREATE INDEX IF NOT EXISTS idx_trace_spans_turn_started
-            ON trace_spans(turn_id, started_at_ms);
-        CREATE INDEX IF NOT EXISTS idx_trace_spans_trace_node_type
-            ON trace_spans(trace_id, node_type);
-        COMMIT;
-        """
-    )

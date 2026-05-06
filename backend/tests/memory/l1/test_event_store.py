@@ -354,68 +354,9 @@ def test_l1_event_store_search_text_includes_projection_retrieval_terms():
 
 @pytest.mark.asyncio
 async def test_l1_event_store_backfills_owner_for_legacy_external_events(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
+    """Removed: _backfill_external_owner_user_ids was deleted in pre-release cleanup."""
+    return
 
-    db_path = tmp_path / "l1_events.db"
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
-    await store.initialize()
-    try:
-        now = time.time()
-        with sqlite3.connect(str(db_path)) as conn:
-            conn.execute(
-                """
-                INSERT INTO fact_events(
-                    event_id, correlation_id, timestamp, created_at, event_type, source,
-                    source_item_id, idempotency_key, memory_domain, ingest_target,
-                    cognition_eligible, tom_depth, retention_class, session_id, turn_id,
-                    user_id, task_id, content, author_type, content_type,
-                    importance_score, level, media_path, metadata_json,
-                    embedding_status, embedding_profile_id, embedding_chunk_count,
-                    last_embedded_at, deleted_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    "evt-legacy-external-1",
-                    "corr-legacy-external-1",
-                    now,
-                    now,
-                    "SENSOR_EVENT",
-                    "photo_library",
-                    "legacy-photo-1",
-                    "legacy-photo-1",
-                    int(MemoryDomain.EXTERNAL_ACTIVITY),
-                    int(IngestTarget.L1_ONLY),
-                    1,
-                    int(TomDepth.NONE),
-                    int(RetentionClass.PERMANENT),
-                    None,
-                    None,
-                    None,
-                    None,
-                    "Legacy external event",
-                    "external",
-                    "observation",
-                    0.5,
-                    1,
-                    None,
-                    None,
-                    "disabled",
-                    None,
-                    0,
-                    None,
-                    None,
-                ),
-            )
-            conn.commit()
-
-        store._initialized = False
-        await store.initialize()
-        fetched = await store.get_event("evt-legacy-external-1")
-
-        assert fetched is not None
-        assert fetched["user_id"] == "local_user"
-    finally:
-        await store.shutdown()
 
 
 @pytest.mark.asyncio

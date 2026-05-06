@@ -70,7 +70,6 @@ class DatabaseInitializer:
         await self._init_behavior_evolution_db()
         await self._init_emotional_state_db()
         await self._init_growth_memory_db()
-        await self._init_llm_usage_db()
 
         # 2. Run registered custom initializers
         for initializer in self._initializers:
@@ -289,43 +288,6 @@ class DatabaseInitializer:
 
             await db.commit()
         logger.debug(f"Initialized growth_memory.db at {db_path}")
-
-    async def _init_llm_usage_db(self) -> None:
-        """Initialize LLM usage statistics database."""
-        db_path = self.runtime_paths.llm_usage_db_path
-        async with sqlite_connection_async(str(db_path), use_row_factory=False) as db:
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS llm_usage (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    request_id TEXT NOT NULL,
-                    provider TEXT NOT NULL,
-                    model TEXT NOT NULL,
-                    request_kind TEXT NOT NULL,
-                    prompt_tokens INTEGER NOT NULL DEFAULT 0,
-                    completion_tokens INTEGER NOT NULL DEFAULT 0,
-                    total_tokens INTEGER NOT NULL DEFAULT 0,
-                    usage_available INTEGER NOT NULL DEFAULT 0,
-                    latency_ms INTEGER NOT NULL DEFAULT 0,
-                    success INTEGER NOT NULL DEFAULT 1,
-                    error TEXT,
-                    correlation_id TEXT,
-                    session_id TEXT,
-                    turn_id TEXT,
-                    agent_id TEXT,
-                    created_at REAL NOT NULL
-                )
-            """)
-            await db.execute(
-                "CREATE INDEX IF NOT EXISTS idx_llm_usage_created_at ON llm_usage(created_at)"
-            )
-            await db.execute(
-                "CREATE INDEX IF NOT EXISTS idx_llm_usage_provider_model ON llm_usage(provider, model)"
-            )
-            await db.execute(
-                "CREATE INDEX IF NOT EXISTS idx_llm_usage_request_kind ON llm_usage(request_kind)"
-            )
-            await db.commit()
-        logger.debug(f"Initialized llm_usage.db at {db_path}")
 
     async def insert_default_data(self, persona_name: str = "default") -> None:
         """Insert default data (first run only)."""

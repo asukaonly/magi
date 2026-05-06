@@ -82,56 +82,6 @@ async def test_chat_store_creates_chat_tables(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_chat_store_migrates_workspace_path_column(tmp_path: Path) -> None:
-    from magi.chat import ChatStore
-
-    db_path = tmp_path / "chat.db"
-    conn = sqlite3.connect(str(db_path))
-    try:
-        conn.executescript(
-            """
-            CREATE TABLE chat_sessions (
-                session_id TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                title TEXT NOT NULL,
-                title_overridden INTEGER NOT NULL DEFAULT 0,
-                summary TEXT NOT NULL DEFAULT '',
-                created_at_ms INTEGER NOT NULL,
-                updated_at_ms INTEGER NOT NULL,
-                last_message_at_ms INTEGER,
-                last_user_message_at_ms INTEGER,
-                last_message_preview TEXT NOT NULL DEFAULT '',
-                last_user_message_preview TEXT NOT NULL DEFAULT '',
-                message_count INTEGER NOT NULL DEFAULT 0,
-                history_version INTEGER NOT NULL DEFAULT 0,
-                archived_at_ms INTEGER,
-                deleted_at_ms INTEGER
-            );
-            """
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-    store = ChatStore(db_path=str(db_path))
-    await store.initialize()
-
-    try:
-        conn = sqlite3.connect(str(db_path))
-        try:
-            columns = {
-                str(row[1])
-                for row in conn.execute("PRAGMA table_info(chat_sessions)").fetchall()
-            }
-        finally:
-            conn.close()
-
-        assert "workspace_path" in columns
-    finally:
-        await store.shutdown()
-
-
-@pytest.mark.asyncio
 async def test_chat_store_persists_turn_and_message_records(tmp_path: Path) -> None:
     from magi.chat import ChatMessageRecord, ChatSessionRecord, ChatStore, ChatTurnRecord
 

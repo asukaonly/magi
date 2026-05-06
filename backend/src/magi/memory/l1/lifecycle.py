@@ -143,11 +143,9 @@ class L1EventLifecycleMixin:
                 "CREATE INDEX IF NOT EXISTS idx_l1_event_entities_entity"
                 " ON l1_event_entities(entity_id)"
             )
-            await self._ensure_event_identity_schema(db)
             await self._ensure_embedding_status_columns(db)
             await self._ensure_metadata_json_column(db)
             await self._ensure_envelope_columns(db)
-            await self._backfill_external_owner_user_ids(db)
             await db.execute(
                 f"CREATE INDEX IF NOT EXISTS idx_fact_events_embedding_status ON {FACT_EVENTS_TABLE}(embedding_status)"
             )

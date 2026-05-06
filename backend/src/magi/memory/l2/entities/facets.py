@@ -183,18 +183,3 @@ class L2EntityFacetStoreMixin:
             "source_type": row["source_type"],
             "extraction_method": row["extraction_method"],
         }
-
-    async def _ensure_entity_facet_columns(self, db: aiosqlite.Connection) -> None:
-        """Backfill additive columns for older entity_facets schemas."""
-        db.row_factory = aiosqlite.Row
-        async with db.execute("PRAGMA table_info(entity_facets)") as cursor:
-            rows = await cursor.fetchall()
-        columns = {str(row["name"]) for row in rows}
-        if "status" not in columns:
-            await db.execute(
-                "ALTER TABLE entity_facets ADD COLUMN status TEXT NOT NULL DEFAULT 'active'"
-            )
-        if "privacy_scope" not in columns:
-            await db.execute(
-                "ALTER TABLE entity_facets ADD COLUMN privacy_scope TEXT NOT NULL DEFAULT 'private'"
-            )

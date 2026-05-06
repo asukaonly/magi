@@ -10,12 +10,7 @@ import aiosqlite
 from ..core.sqlite import sqlite_connection_async
 from .contracts import ChatMessageRecord, ChatSessionRecord
 from .storage.context_summaries import ChatContextSummaryPersistenceMixin
-from .storage.schema import (
-    ensure_chat_message_columns,
-    ensure_chat_session_columns,
-    ensure_chat_store_schema,
-    ensure_chat_turn_columns,
-)
+from .storage.schema import ensure_chat_store_schema
 from .storage.attachments import ChatAttachmentPersistenceMixin
 from .storage.messages import ChatMessagePersistenceMixin
 from .storage.serialization import build_user_message_payload_json
@@ -225,15 +220,6 @@ class ChatStore(
     @staticmethod
     def _build_user_message_payload_json(attachment_payloads: list[dict[str, object]] | None) -> str:
         return build_user_message_payload_json(attachment_payloads)
-
-    async def _ensure_chat_turn_columns(self, db: aiosqlite.Connection) -> None:
-        await ensure_chat_turn_columns(db)
-
-    async def _ensure_chat_session_columns(self, db: aiosqlite.Connection) -> None:
-        await ensure_chat_session_columns(db)
-
-    async def _ensure_chat_message_columns(self, db: aiosqlite.Connection) -> None:
-        await ensure_chat_message_columns(db)
 
     async def _fetchone(self, sql: str, params: tuple[object, ...]) -> aiosqlite.Row | None:
         await self.initialize()
