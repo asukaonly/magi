@@ -131,7 +131,7 @@ class DelegateToExternalCoderTool(Tool):
             ],
             timeout=3600,
             retry_on_failure=False,
-            dangerous=True,
+            dangerous=False,  # Runs in isolated worktree, safer than direct file edits
             tags=["agent", "delegate", "code"],
             metadata={
                 "task_intents": ["implement_feature", "apply_change"],

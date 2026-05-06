@@ -144,7 +144,7 @@ export function DelegationCard({
     lifecycle === 'cancelled' ||
     lifecycle === 'failed' ||
     lifecycle === 'applied';
-  const showActions = showResultPanel && lifecycle !== 'applied' && lifecycle !== 'discarded';
+  const showActions = showResultPanel && lifecycle === 'finished';  // Only show actions for successfully finished delegations
 
   return (
     <div
