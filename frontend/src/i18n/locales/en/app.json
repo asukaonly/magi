@@ -497,8 +497,11 @@
     "workspace": {
       "label": "Conversation Workspace",
       "messageCount": "messages",
-      "change": "Change Directory",
-      "clear": "Clear Directory",
+      "change": "Choose Directory",
+      "clear": "Restore Default Directory",
+      "recentMenu": "Open workspace menu",
+      "recentTitle": "Recent Directories",
+      "noRecentDirectories": "No recent directories yet",
       "notSet": "Using runtime default directory",
       "updateFailed": "Failed to update conversation workspace: {{message}}"
     },

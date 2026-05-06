@@ -285,6 +285,7 @@ export const applyRealtimeStoreProjection = (
     const state = typeof payload.state === 'string' ? (payload.state as DelegationLifecycle) : null;
     const summary = (payload.summary ?? {}) as Record<string, unknown>;
     if (sid && did && state) {
+      console.log('[store-projection] Received delegation state', { sid, did, state });
       useDelegationsStore.getState().upsertState(sid, did, state, summary);
       return true;
     }

@@ -134,6 +134,8 @@ vi.mock('@/api', () => ({
     getTrace: vi.fn(),
     uploadAttachment: vi.fn(),
     updateSessionWorkspace: vi.fn(),
+    getRecentWorkspaces: vi.fn().mockResolvedValue({ paths: [] }),
+    rememberWorkspace: vi.fn().mockResolvedValue({ paths: [] }),
     cancelRun: vi.fn(),
     detachRun: vi.fn(),
     labelMessage: vi.fn(),
@@ -205,6 +207,8 @@ describe('ChatPage', () => {
       turn_id: 'turn-default',
       trace: null,
     } as any);
+    vi.mocked(messagesApi.getRecentWorkspaces).mockReset().mockResolvedValue({ paths: [] } as any);
+    vi.mocked(messagesApi.rememberWorkspace).mockReset().mockResolvedValue({ paths: [] } as any);
     vi.mocked(messagesApi.labelMessage).mockReset();
     vi.mocked(messagesApi.deleteMessage).mockReset();
     vi.mocked(updateSessionSettings).mockClear();
@@ -606,6 +610,16 @@ describe('ChatPage', () => {
   it('updates and clears the current session workspace from the status bar', async () => {
     const user = userEvent.setup();
     pickDirectoryMock.mockResolvedValue('/tmp/next-workspace');
+    vi.mocked(messagesApi.getRecentWorkspaces).mockResolvedValue({
+      paths: ['/Users/asuka/code/magi', '/tmp/existing-workspace'],
+    } as any);
+    vi.mocked(messagesApi.rememberWorkspace)
+      .mockResolvedValueOnce({
+        paths: ['/tmp/next-workspace', '/Users/asuka/code/magi', '/tmp/existing-workspace'],
+      } as any)
+      .mockResolvedValueOnce({
+        paths: ['/Users/asuka/code/magi', '/tmp/existing-workspace', '/tmp/next-workspace'],
+      } as any);
     vi.mocked(messagesApi.updateSessionWorkspace)
       .mockResolvedValueOnce({
         success: true,
@@ -655,9 +669,20 @@ describe('ChatPage', () => {
 
     await waitFor(() => expect(pickDirectoryMock).toHaveBeenCalledWith('/Users/asuka/code/magi'));
     await waitFor(() => expect(messagesApi.updateSessionWorkspace).toHaveBeenCalledWith('local_user', 'session-1', '/tmp/next-workspace'));
+    await waitFor(() => expect(messagesApi.rememberWorkspace).toHaveBeenCalledWith('/tmp/next-workspace'));
     expect(screen.getByTestId('chat-workspace-path')).toHaveTextContent('/tmp/next-workspace');
 
-    await user.click(screen.getByRole('button', { name: 'chat.workspace.clear' }));
+    await user.click(screen.getByRole('button', { name: 'chat.workspace.recentMenu' }));
+    expect(await screen.findByText('/tmp/existing-workspace')).toBeInTheDocument();
+
+    await user.click(screen.getByText('/tmp/existing-workspace'));
+
+    await waitFor(() => expect(messagesApi.updateSessionWorkspace).toHaveBeenLastCalledWith('local_user', 'session-1', '/tmp/existing-workspace'));
+    await waitFor(() => expect(messagesApi.rememberWorkspace).toHaveBeenLastCalledWith('/tmp/existing-workspace'));
+    expect(screen.getByTestId('chat-workspace-path')).toHaveTextContent('/tmp/existing-workspace');
+
+    await user.click(screen.getByRole('button', { name: 'chat.workspace.recentMenu' }));
+    await user.click(screen.getByText('settings.actions.restoreDefaultDirectory'));
 
     await waitFor(() => expect(messagesApi.updateSessionWorkspace).toHaveBeenLastCalledWith('local_user', 'session-1', null));
     expect(screen.getByTestId('chat-workspace-path')).toHaveTextContent('~/.magi/chat-workspace');

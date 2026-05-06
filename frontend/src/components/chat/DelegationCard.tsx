@@ -14,6 +14,7 @@ import { codeAgentApi } from '@/api/modules/codeAgent';
 import type { RunEvent } from '@/api/modules/codeAgent';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { MarkdownBlock } from '@/components/ui/markdown-block';
 import { useDelegationHydration } from '@/hooks/useDelegationHydration';
 import { selectDelegationCard, useDelegationsStore } from '@/stores/delegations-store';
 import { cn } from '@/lib/utils';
@@ -208,7 +209,9 @@ export function DelegationCard({
         <div className="mt-2 space-y-2">
           {summary && (
             <div className="rounded bg-muted/40 px-2 py-1.5 text-foreground">
-              {summary}
+              <div className="max-h-40 overflow-y-auto">
+                <MarkdownBlock className="text-sm">{summary}</MarkdownBlock>
+              </div>
             </div>
           )}
           {errorMessage && (

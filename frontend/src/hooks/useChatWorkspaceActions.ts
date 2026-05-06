@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { messagesApi } from '@/api';
 import type { ChatSessionListItem } from '@/api';
@@ -22,8 +22,25 @@ export function useChatWorkspaceActions({
   translate,
 }: UseChatWorkspaceActionsOptions) {
   const [updatingWorkspace, setUpdatingWorkspace] = useState(false);
+  const [recentWorkspaces, setRecentWorkspaces] = useState<string[]>([]);
 
-  const persistSessionWorkspace = useCallback(async (workspacePath: string | null) => {
+  const loadRecentWorkspaces = useCallback(async () => {
+    try {
+      const response = await messagesApi.getRecentWorkspaces();
+      setRecentWorkspaces(Array.isArray(response.paths) ? response.paths : []);
+    } catch {
+      setRecentWorkspaces([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadRecentWorkspaces();
+  }, [loadRecentWorkspaces]);
+
+  const persistSessionWorkspace = useCallback(async (
+    workspacePath: string | null,
+    options?: { remember?: boolean },
+  ) => {
     if (!currentSessionId) {
       toast.error(translate('chat.sessionRequired'));
       return;
@@ -32,6 +49,10 @@ export function useChatWorkspaceActions({
     setUpdatingWorkspace(true);
     try {
       const response = await messagesApi.updateSessionWorkspace(USER_ID, currentSessionId, workspacePath);
+      if (workspacePath && options?.remember !== false) {
+        const recent = await messagesApi.rememberWorkspace(workspacePath);
+        setRecentWorkspaces(Array.isArray(recent.paths) ? recent.paths : []);
+      }
       upsertSession(response.session);
       window.dispatchEvent(new Event(APP_EVENTS.SESSION_SYNC));
     } catch (error: unknown) {
@@ -43,17 +64,23 @@ export function useChatWorkspaceActions({
   }, [currentSessionId, translate, upsertSession]);
 
   const handlePickWorkspace = useCallback(async () => {
-    const selectedPath = await pickDirectory(currentWorkspacePath ?? null);
+    const selectedPath = await pickDirectory(currentWorkspacePath ?? recentWorkspaces[0] ?? null);
     if (!selectedPath) {
       return;
     }
 
     await persistSessionWorkspace(selectedPath);
-  }, [currentWorkspacePath, persistSessionWorkspace]);
+  }, [currentWorkspacePath, persistSessionWorkspace, recentWorkspaces]);
+
+  const handleSelectRecentWorkspace = useCallback(async (workspacePath: string) => {
+    await persistSessionWorkspace(workspacePath);
+  }, [persistSessionWorkspace]);
 
   return {
+    recentWorkspaces,
     updatingWorkspace,
     persistSessionWorkspace,
     handlePickWorkspace,
+    handleSelectRecentWorkspace,
   };
 }

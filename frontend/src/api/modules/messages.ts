@@ -206,6 +206,7 @@ type CreateSessionResponse = {
 };
 type RenameSessionResponse = { success: boolean; user_id: string; session: { session_id: string; title: string } };
 type UpdateSessionWorkspaceResponse = { success: boolean; user_id: string; session: ChatSessionListItem };
+type RecentWorkspacesResponse = { paths: string[] };
 type DeleteMessageResponse = { success: boolean; user_id: string; session_id: string; deleted_message_id: string };
 type DeleteSessionResponse = { success: boolean; user_id: string; deleted_session_id: string };
 type TraceResponse = {
@@ -276,6 +277,16 @@ export const messagesApi = {
         workspace_path: workspacePath,
       }
     );
+    return unwrapGatewayPayload(response);
+  },
+
+  getRecentWorkspaces: async (): Promise<RecentWorkspacesResponse> => {
+    const response = await api.get<RecentWorkspacesResponse>('/messages/workspaces/recent');
+    return unwrapGatewayPayload(response);
+  },
+
+  rememberWorkspace: async (path: string): Promise<RecentWorkspacesResponse> => {
+    const response = await api.post<RecentWorkspacesResponse>('/messages/workspaces/recent', { path });
     return unwrapGatewayPayload(response);
   },
 
