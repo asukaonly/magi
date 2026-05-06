@@ -232,6 +232,7 @@ export interface DelegateResult {
 export interface DelegationFetchResponse {
   result: DelegateResult | null;
   events_tail: RunEvent[];
+  diff_text: string;
 }
 
 export interface ApplyOutcome {

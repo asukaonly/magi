@@ -28,6 +28,7 @@ export interface DelegationCardState {
   hydrating: boolean;
   applyOutcome: ApplyOutcome | null;
   error: string | null;
+  diffText: string;
 }
 
 interface DelegationsStoreState {
@@ -44,6 +45,7 @@ interface DelegationsStoreState {
   setHydrating: (sessionId: string, did: string, hydrating: boolean) => void;
   setApplyOutcome: (sessionId: string, did: string, outcome: ApplyOutcome) => void;
   setLifecycle: (sessionId: string, did: string, lifecycle: DelegationLifecycle) => void;
+  setDiffText: (sessionId: string, did: string, diffText: string) => void;
   reset: () => void;
 }
 
@@ -56,6 +58,7 @@ const defaultCard = (sessionId: string, did: string): DelegationCardState => ({
   hydrating: false,
   applyOutcome: null,
   error: null,
+  diffText: '',
 });
 
 const upsertCard = (
@@ -128,6 +131,9 @@ export const useDelegationsStore = create<DelegationsStoreState>((set) => ({
 
   setLifecycle: (sessionId, did, lifecycle) =>
     set((state) => upsertCard(state, sessionId, did, { lifecycle })),
+
+  setDiffText: (sessionId, did, diffText) =>
+    set((state) => upsertCard(state, sessionId, did, { diffText })),
 
   reset: () => set({ delegationsBySession: {} }),
 }));
