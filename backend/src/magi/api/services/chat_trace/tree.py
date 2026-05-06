@@ -9,70 +9,6 @@ from .builders.rows import build_trace_row_node
 from .utils import derive_children_status, is_terminal_status, ms_to_seconds
 
 
-def _safe_ms(value: Any) -> int:
-    try:
-        return int(value or 0)
-    except (TypeError, ValueError):
-        return 0
-
-
-def _contains_span(parent: dict[str, Any], child: dict[str, Any]) -> bool:
-    child_started = _safe_ms(child.get("started_at_ms"))
-    if not child_started:
-        return False
-    parent_started = _safe_ms(parent.get("started_at_ms"))
-    parent_ended = _safe_ms(parent.get("ended_at_ms")) or child_started
-    return parent_started <= child_started <= parent_ended
-
-
-def _find_iteration_parent(span: dict[str, Any], spans: list[dict[str, Any]]) -> str | None:
-    candidates = [
-        item
-        for item in spans
-        if str(item.get("node_type") or "") == "iteration" and _contains_span(item, span)
-    ]
-    candidates.sort(key=lambda item: _safe_ms(item.get("started_at_ms")), reverse=True)
-    if not candidates:
-        return None
-    return str(candidates[0].get("span_id") or "").strip() or None
-
-
-def _find_semantic_tool_parent(span: dict[str, Any], spans: list[dict[str, Any]]) -> str | None:
-    tool_name = str(span.get("name") or "").strip()
-    span_started = _safe_ms(span.get("started_at_ms"))
-    matches = []
-    for item in spans:
-        if str(item.get("node_type") or "") != "tool_call":
-            continue
-        item_name = str(item.get("name") or "").strip()
-        if tool_name and not item_name.startswith(tool_name):
-            continue
-        if abs(_safe_ms(item.get("started_at_ms")) - span_started) <= 250:
-            matches.append(item)
-    matches.sort(key=lambda item: abs(_safe_ms(item.get("started_at_ms")) - span_started))
-    if not matches:
-        return None
-    return str(matches[0].get("span_id") or "").strip() or None
-
-
-def _effective_parent_span_id(
-    span: dict[str, Any], *, spans: list[dict[str, Any]], turn_span_id: str
-) -> str | None:
-    parent_span_id = str(span.get("parent_span_id") or "").strip() or None
-    node_type = str(span.get("node_type") or "")
-    if parent_span_id not in {None, turn_span_id}:
-        return parent_span_id
-    if node_type == "llm_call":
-        return _find_iteration_parent(span, spans) or parent_span_id
-    if node_type == "tool_invocation":
-        return (
-            _find_semantic_tool_parent(span, spans)
-            or _find_iteration_parent(span, spans)
-            or parent_span_id
-        )
-    return parent_span_id
-
-
 def build_runtime_trace_root(
     *,
     turn: dict[str, Any],
@@ -98,11 +34,7 @@ def build_runtime_trace_root(
             tool_call=tool_by_span.get(span_id),
             intent_resolution=intent_by_span.get(span_id),
         )
-        parent_span_id = _effective_parent_span_id(
-            span,
-            spans=spans,
-            turn_span_id=turn_span_id,
-        )
+        parent_span_id = str(span.get("parent_span_id") or "").strip() or None
         children_by_parent.setdefault(parent_span_id, []).append(span_id)
 
     for parent_span_id, child_ids in children_by_parent.items():

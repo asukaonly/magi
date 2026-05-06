@@ -135,7 +135,12 @@ fn assemble_snapshot(
         );
         node_by_id.insert(span_id.clone(), node);
 
-        let parent = effective_parent_span_id(span, spans, &turn_span_id);
+        let parent = span
+            .get("parent_span_id")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
         children_by_parent.entry(parent).or_default().push(span_id);
     }
 
@@ -240,105 +245,6 @@ fn sum_metric(rows: &[HashMap<String, Value>], key: &str) -> i64 {
         .sum()
 }
 
-fn row_str(row: &HashMap<String, Value>, key: &str) -> String {
-    row.get(key)
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .trim()
-        .to_string()
-}
-
-fn row_i64(row: &HashMap<String, Value>, key: &str) -> i64 {
-    row.get(key).and_then(|v| v.as_i64()).unwrap_or(0)
-}
-
-fn contains_span(parent: &HashMap<String, Value>, child: &HashMap<String, Value>) -> bool {
-    let child_started = row_i64(child, "started_at_ms");
-    if child_started <= 0 {
-        return false;
-    }
-    let parent_started = row_i64(parent, "started_at_ms");
-    let parent_ended = row_i64(parent, "ended_at_ms");
-    let parent_ended = if parent_ended > 0 {
-        parent_ended
-    } else {
-        child_started
-    };
-    parent_started <= child_started && child_started <= parent_ended
-}
-
-fn find_iteration_parent(
-    span: &HashMap<String, Value>,
-    spans: &[HashMap<String, Value>],
-) -> Option<String> {
-    let mut candidates: Vec<&HashMap<String, Value>> = spans
-        .iter()
-        .filter(|item| row_str(item, "node_type") == "iteration" && contains_span(item, span))
-        .collect();
-    candidates.sort_by_key(|item| -row_i64(item, "started_at_ms"));
-    candidates.first().and_then(|item| {
-        let span_id = row_str(item, "span_id");
-        if span_id.is_empty() {
-            None
-        } else {
-            Some(span_id)
-        }
-    })
-}
-
-fn find_semantic_tool_parent(
-    span: &HashMap<String, Value>,
-    spans: &[HashMap<String, Value>],
-) -> Option<String> {
-    let tool_name = row_str(span, "name");
-    let span_started = row_i64(span, "started_at_ms");
-    let mut candidates: Vec<&HashMap<String, Value>> = spans
-        .iter()
-        .filter(|item| {
-            if row_str(item, "node_type") != "tool_call" {
-                return false;
-            }
-            let item_name = row_str(item, "name");
-            if !tool_name.is_empty() && !item_name.starts_with(&tool_name) {
-                return false;
-            }
-            (row_i64(item, "started_at_ms") - span_started).abs() <= 250
-        })
-        .collect();
-    candidates.sort_by_key(|item| (row_i64(item, "started_at_ms") - span_started).abs());
-    candidates.first().and_then(|item| {
-        let span_id = row_str(item, "span_id");
-        if span_id.is_empty() {
-            None
-        } else {
-            Some(span_id)
-        }
-    })
-}
-
-fn effective_parent_span_id(
-    span: &HashMap<String, Value>,
-    spans: &[HashMap<String, Value>],
-    turn_span_id: &str,
-) -> Option<String> {
-    let raw_parent = row_str(span, "parent_span_id");
-    let parent = if raw_parent.is_empty() {
-        None
-    } else {
-        Some(raw_parent)
-    };
-    if parent.as_deref().is_some_and(|value| value != turn_span_id) {
-        return parent;
-    }
-    match row_str(span, "node_type").as_str() {
-        "llm_call" => find_iteration_parent(span, spans).or(parent),
-        "tool_invocation" => find_semantic_tool_parent(span, spans)
-            .or_else(|| find_iteration_parent(span, spans))
-            .or(parent),
-        _ => parent,
-    }
-}
-
 fn sort_nodes(nodes: &mut Vec<Value>) {
     nodes.sort_by(|a, b| {
         let a_started = a.get("started_at").and_then(|v| v.as_f64()).unwrap_or(0.0);
@@ -385,90 +291,4 @@ fn take_node_with_children(
     }
     visiting.remove(node_id);
     Some(node)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn row(entries: Vec<(&str, Value)>) -> HashMap<String, Value> {
-        entries
-            .into_iter()
-            .map(|(key, value)| (key.to_string(), value))
-            .collect()
-    }
-
-    #[test]
-    fn assemble_snapshot_infers_function_calling_parent_links() {
-        let turn = row(vec![
-            ("turn_id", json!("turn-1")),
-            ("trace_id", json!("trace:turn-1")),
-            ("status", json!("completed")),
-            ("mode", json!("function_calling")),
-            ("started_at_ms", json!(1000)),
-            ("ended_at_ms", json!(5000)),
-        ]);
-        let spans = vec![
-            row(vec![
-                ("span_id", json!("turn-1:turn")),
-                ("trace_id", json!("trace:turn-1")),
-                ("node_type", json!("turn")),
-                ("name", json!("Chat turn")),
-                ("status", json!("completed")),
-                ("started_at_ms", json!(1000)),
-                ("ended_at_ms", json!(5000)),
-            ]),
-            row(vec![
-                ("span_id", json!("turn-1:iteration:1")),
-                ("trace_id", json!("trace:turn-1")),
-                ("parent_span_id", json!("turn-1:turn")),
-                ("node_type", json!("iteration")),
-                ("name", json!("Iteration 1")),
-                ("status", json!("completed")),
-                ("started_at_ms", json!(2000)),
-                ("ended_at_ms", json!(4000)),
-            ]),
-            row(vec![
-                ("span_id", json!("llm-1")),
-                ("trace_id", json!("trace:turn-1")),
-                ("parent_span_id", json!("turn-1:turn")),
-                ("node_type", json!("llm_call")),
-                ("name", json!("qwen")),
-                ("status", json!("ok")),
-                ("started_at_ms", json!(2100)),
-                ("ended_at_ms", json!(2500)),
-            ]),
-            row(vec![
-                ("span_id", json!("tool-call-1")),
-                ("trace_id", json!("trace:turn-1")),
-                ("parent_span_id", json!("turn-1:iteration:1")),
-                ("node_type", json!("tool_call")),
-                ("name", json!("web-search tool call")),
-                ("status", json!("completed")),
-                ("started_at_ms", json!(2500)),
-                ("ended_at_ms", json!(3000)),
-            ]),
-            row(vec![
-                ("span_id", json!("raw-tool-1")),
-                ("trace_id", json!("trace:turn-1")),
-                ("parent_span_id", json!("turn-1:turn")),
-                ("node_type", json!("tool_invocation")),
-                ("name", json!("web-search")),
-                ("status", json!("ok")),
-                ("started_at_ms", json!(2510)),
-                ("ended_at_ms", json!(3000)),
-            ]),
-        ];
-
-        let snapshot = assemble_snapshot("user", "session", &turn, &spans, &[], &[], &[]);
-        let children = snapshot["root"]["children"].as_array().unwrap();
-        assert_eq!(children[0]["id"], json!("turn-1:iteration:1"));
-        let iteration_children = children[0]["children"].as_array().unwrap();
-        assert_eq!(iteration_children[0]["id"], json!("llm-1"));
-        assert_eq!(iteration_children[1]["id"], json!("tool-call-1"));
-        assert_eq!(
-            iteration_children[1]["children"][0]["id"],
-            json!("raw-tool-1")
-        );
-    }
 }
