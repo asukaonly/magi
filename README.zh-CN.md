@@ -143,6 +143,7 @@ Rust gateway 负责桌面端 API 与 WebSocket。需要模型调用、Agent 执�
 Windows 下可使用 PowerShell 脚本：
 
 ```powershell
+./scripts/install-deps.ps1
 .\scripts\dev-tauri-hot.ps1
 ```
 

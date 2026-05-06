@@ -40,11 +40,16 @@ def _request(request_id: str = "req-1", session_id: str | None = "sid-1") -> Per
 def test_permission_request_payload_uses_canonical_turn_id() -> None:
     req = _request()
     req.turn_id = "turn-1"
+    req.timeout_seconds = 120.0
+    req.expires_at = req.created_at + 120.0
 
     payload = req.to_dict()
 
     assert payload["turn_id"] == "turn-1"
     assert "task_id" not in payload
+    assert payload["created_at_ms"] == int(req.created_at * 1000)
+    assert payload["timeout_seconds"] == 120.0
+    assert payload["expires_at_ms"] == int(req.expires_at * 1000)
 
 
 @pytest.mark.asyncio
@@ -172,3 +177,5 @@ async def test_prompter_invokes_notify_callback() -> None:
     assert event == "control.permission.requested"
     assert payload["request_id"] == "req-e"
     assert payload["tool_name"] == "bash"
+    assert payload["timeout_seconds"] == 2.0
+    assert payload["expires_at_ms"] == int((req.created_at + 2.0) * 1000)

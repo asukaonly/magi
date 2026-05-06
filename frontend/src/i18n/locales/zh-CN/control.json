@@ -42,6 +42,9 @@
     "reason_label": "备注（可选）",
     "reason_placeholder": "例如：这个工具可信，允许在本会话里重复执行",
     "reason_help": "这条备注会附在本次权限决定上；如果你选择保存规则，它也会作为规则说明一起保存。",
+    "expires_in": "{{seconds}} 秒后过期",
+    "expired": "已过期",
+    "expired_help": "这条请求已经不再有效，智能体运行已从这个提示继续收尾。",
     "toast_timed_out": "这条权限请求已超时，执行已取消。",
     "empty": "暂无待处理权限请求。",
     "preview": "预览",
@@ -58,6 +61,8 @@
     "options": "可选回答",
     "answer_placeholder": "输入你的回答…",
     "submit": "回答",
+    "expires_in": "{{seconds}} 秒后过期",
+    "expired": "已过期",
     "background_badge": "后台任务已挂起",
     "free_text_disabled": "请从下列选项中选择。",
     "card": {

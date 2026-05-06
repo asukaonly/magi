@@ -86,10 +86,33 @@ describe('control API routes', () => {
       } as any);
 
     await expect(listPendingPermissions('session-1')).resolves.toEqual([
-      expect.objectContaining({ request_id: 'perm-1', tool: 'bash' }),
+      expect.objectContaining({ request_id: 'perm-1', tool: 'bash', tool_name: 'bash' }),
     ]);
     await expect(getTodos('session-1')).resolves.toEqual([
       expect.objectContaining({ id: 'todo-1', content: 'Inspect runtime drift' }),
     ]);
+  });
+
+  it('normalizes legacy ask state fields into the frontend contract', async () => {
+    vi.mocked(api.get).mockResolvedValue({
+      ask: {
+        request_id: 'ask-1',
+        question: 'Proceed?',
+        options: ['yes'],
+        allow_free_text: true,
+        resolution: null,
+        asked_at: 2,
+        timeout_seconds: 5,
+        answer: null,
+      },
+    } as any);
+
+    await expect(getAskState('session-1')).resolves.toEqual(expect.objectContaining({
+      request_id: 'ask-1',
+      status: 'pending',
+      created_at_ms: 2000,
+      timeout_seconds: 5,
+      expires_at_ms: 7000,
+    }));
   });
 });

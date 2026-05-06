@@ -32,6 +32,7 @@ import {
   respondPermission,
 } from '@/api/modules/control';
 import { cn } from '@/lib/utils';
+import { isInteractionExpired, remainingInteractionSeconds } from './interaction-expiry';
 
 export interface PermissionModalProps {
   request: PendingPermissionDTO | null;
@@ -64,6 +65,7 @@ export function PermissionModal({
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   useEffect(() => {
     if (!open || !request) return;
@@ -72,7 +74,18 @@ export function PermissionModal({
     setPattern('');
     setReason('');
     setError(null);
+    setNowMs(Date.now());
   }, [open, request?.request_id]);
+
+  useEffect(() => {
+    if (!open || !request?.expires_at_ms) return () => undefined;
+    const handle = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+    return () => {
+      window.clearInterval(handle);
+    };
+  }, [open, request?.request_id, request?.expires_at_ms]);
 
   const riskLabel = useMemo(() => {
     if (!request) return '';
@@ -94,8 +107,22 @@ export function PermissionModal({
     [allowScope, denyScope],
   );
 
+  const expired = useMemo(
+    () => isInteractionExpired(request?.expires_at_ms, nowMs),
+    [request?.expires_at_ms, nowMs],
+  );
+
+  const remainingSeconds = useMemo(
+    () => remainingInteractionSeconds(request?.expires_at_ms, nowMs),
+    [request?.expires_at_ms, nowMs],
+  );
+
   const submit = async (outcome: PermissionAction, scope: PermissionScope) => {
     if (!request) return;
+    if (isInteractionExpired(request.expires_at_ms)) {
+      setError(t('permission.expired'));
+      return;
+    }
     if (scope === 'persistent_pattern' && !pattern.trim()) {
       setError(t('permission.pattern_required'));
       return;
@@ -174,7 +201,7 @@ export function PermissionModal({
             size="sm"
             className="h-9 flex-1 rounded-r-none px-3 text-sm"
             onClick={() => submit(action, scope)}
-            disabled={submitting}
+            disabled={submitting || expired}
             data-testid={`${action}-btn`}
           >
             {t(`permission.${action}`)}
@@ -185,7 +212,7 @@ export function PermissionModal({
                 variant={tone.button}
                 size="sm"
                 className="h-9 w-10 rounded-l-none border-l border-background/20 px-0"
-                disabled={submitting}
+                disabled={submitting || expired}
                 aria-label={t(`permission.${action}_scope_menu`)}
                 data-testid={`${action}-scope-trigger`}
               >
@@ -270,6 +297,13 @@ export function PermissionModal({
                     <span>{request.origin}</span>
                   </Badge>
                 ) : null}
+                {remainingSeconds !== null ? (
+                  <Badge variant={expired ? 'destructive' : 'secondary'} className="rounded-full px-3 py-1 font-medium">
+                    {expired
+                      ? t('permission.expired')
+                      : t('permission.expires_in', { seconds: remainingSeconds })}
+                  </Badge>
+                ) : null}
               </div>
             </div>
           </div>
@@ -297,6 +331,11 @@ export function PermissionModal({
             {renderActionCard('allow', allowScope, setAllowScope)}
             {renderActionCard('deny', denyScope, setDenyScope)}
           </section>
+          {expired ? (
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700">
+              {t('permission.expired_help')}
+            </div>
+          ) : null}
           {patternRequired ? (
             <section className="rounded-2xl border border-border/60 bg-background p-4 shadow-sm">
               <label className="mb-2 block text-sm font-medium text-foreground">

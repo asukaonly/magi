@@ -22,6 +22,7 @@ _MIN_DELAY_MS = 1000
 _DEFAULT_DELAY_MS = 1200
 _MAX_DELAY_MS = 2400
 _CJK_RE = re.compile(r"[\u3400-\u9fff\uf900-\ufaff]")
+_MARKDOWN_LIST_LINE_RE = re.compile(r"(?m)^\s{0,3}(?:[-*+]\s+|\d+[.)]\s+)")
 _LIST_ITEM_RE = re.compile(r"(?m)^\s*(?:[-*+]\s+|\d+[.)、]\s+|[一二三四五六七八九十]+[、.]\s*)")
 _TABLE_ROW_RE = re.compile(r"(?m)^\s*\|[^\n|]+(?:\|[^\n|]+)+\|\s*$")
 _CONFIG_LINE_RE = re.compile(r"(?m)^\s{0,4}[A-Za-z_][\w.-]*:\s+\S+")
@@ -142,6 +143,8 @@ class ResponseRhythmPlanner:
     @staticmethod
     def _split_units(response_text: str) -> list[_RhythmUnit]:
         if "```" in response_text:
+            return []
+        if _MARKDOWN_LIST_LINE_RE.search(response_text):
             return []
         paragraphs = [part.strip() for part in re.split(r"\n\s*\n+", response_text) if part.strip()]
         if len(paragraphs) < 2:

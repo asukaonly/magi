@@ -38,6 +38,7 @@ class RuntimePaths:
             self.chat_resources_dir,
             self.runtime_dir,
             self.cache_dir,
+            self.workspaces_dir,
             self.models_cache_dir,
             self.reranker_models_dir,
             self.embedding_models_dir,
@@ -110,6 +111,11 @@ class RuntimePaths:
     def cache_dir(self) -> Path:
         """Rebuildable runtime and plugin cache directory."""
         return self.base_dir / "cache"
+
+    @property
+    def workspaces_dir(self) -> Path:
+        """Private workspace-scoped runtime buckets."""
+        return self.base_dir / "workspaces"
 
     @property
     def plugins_cache_dir(self) -> Path:
@@ -232,6 +238,19 @@ class RuntimePaths:
         if not normalized:
             raise ValueError("plugin_id is required")
         return self.plugins_cache_dir / normalized
+
+    def workspace_bucket_dir(self, workspace_id: str) -> Path:
+        """Return the private global bucket for one workspace."""
+        normalized = (
+            str(workspace_id or "")
+            .strip()
+            .replace("/", "_")
+            .replace("\\", "_")
+            .replace(":", "_")
+        )
+        if not normalized:
+            raise ValueError("workspace_id is required")
+        return self.workspaces_dir / normalized
 
     def managed_reranker_model_dir(self, model_id: str) -> Path:
         """Return the managed cache directory for one reranker model."""

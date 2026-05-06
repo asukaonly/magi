@@ -178,6 +178,14 @@ The durable design is documented in [Persona Runtime Architecture](./persona-run
 - `~/.magi/cache/plugins/<plugin_id>/`
   Rebuildable plugin-owned state such as in-progress sensor aggregation caches
 
+- `~/.magi/workspaces/<workspace_id>/`
+  Private workspace-scoped buckets for heavy rebuildable project state such as code indexes, plugin caches, and task runtime checkpoints. These buckets are keyed by normalized workspace identity and are not chat, memory, or trace truth.
+
+- `<workspace>/.magi/`
+  Optional project-local overlay for team-shareable project instructions, rules, skills, safe project settings, and gitignored local runtime/cache/traces. It is created only by explicit workspace initialization or by a feature that needs generated workspace-local state.
+
+Workspace storage is an overlay, not a second global database. Core path infrastructure owns workspace identity, path resolution, generated directory creation, local `.gitignore` guards, and state manifests. Context may read project knowledge from the overlay; agent runtime, tools, and plugins may use scoped cache/runtime directories through the workspace path facade; memory projection remains the only route into durable memory databases.
+
 Chat ownership is now intentionally separated by domain:
 
 - `chat.db`

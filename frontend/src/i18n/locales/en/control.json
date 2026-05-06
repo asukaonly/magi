@@ -42,6 +42,9 @@
     "reason_label": "Note (optional)",
     "reason_placeholder": "For example: this tool is trusted for repeated use in this session",
     "reason_help": "This note is attached to the current permission decision, and it is saved with the rule when you choose a persistent scope.",
+    "expires_in": "Expires in {{seconds}}s",
+    "expired": "Expired",
+    "expired_help": "This request is no longer active. The agent run has already moved on from this prompt.",
     "toast_timed_out": "This permission request timed out and the run was cancelled.",
     "empty": "No permission requests waiting.",
     "preview": "Preview",
@@ -58,6 +61,8 @@
     "options": "Options",
     "answer_placeholder": "Type your answer...",
     "submit": "Answer",
+    "expires_in": "Expires in {{seconds}}s",
+    "expired": "Expired",
     "background_badge": "Background task suspended",
     "free_text_disabled": "Please select one of the options.",
     "card": {

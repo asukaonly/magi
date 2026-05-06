@@ -4,7 +4,7 @@
  * the queue. Meant to be mounted once near the root of the chat
  * surface so any pending prompt automatically surfaces.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -12,6 +12,7 @@ import { useConversationStore } from '@/stores';
 import { PermissionModal } from './PermissionModal';
 import { usePendingPermissions } from './usePendingPermissions';
 import { OPEN_PERMISSION_REQUEST_EVENT } from './ui-events';
+import { isInteractionExpired } from './interaction-expiry';
 
 export interface PermissionModalHostProps {
   sessionId: string | null | undefined;
@@ -31,14 +32,37 @@ export function PermissionModalHost({
     enabled: Boolean(sessionId),
   });
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const resolvedRequestIdsRef = useRef<Set<string>>(new Set());
   const previousActiveRequestIdRef = useRef<string | null>(null);
+
+  const visibleItems = useMemo(
+    () => items.filter((item) => !isInteractionExpired(item.expires_at_ms, nowMs)),
+    [items, nowMs],
+  );
 
   useEffect(() => {
     setDismissed(new Set());
     resolvedRequestIdsRef.current = new Set();
     previousActiveRequestIdRef.current = null;
+    setNowMs(Date.now());
   }, [sessionId]);
+
+  useEffect(() => {
+    const nextDeadline = items
+      .map((item) => item.expires_at_ms)
+      .filter((deadline): deadline is number => typeof deadline === 'number' && deadline > nowMs)
+      .sort((a, b) => a - b)[0];
+    if (!nextDeadline) return () => undefined;
+    const delay = Math.max(0, nextDeadline - nowMs + 50);
+    const handle = window.setTimeout(() => {
+      setNowMs(Date.now());
+      void refresh();
+    }, delay);
+    return () => {
+      window.clearTimeout(handle);
+    };
+  }, [items, nowMs, refresh]);
 
   useEffect(() => {
     const handleOpenRequest = (event: Event) => {
@@ -71,7 +95,7 @@ export function PermissionModalHost({
     }
 
     const currentMessages = state.messagesBySession[sessionId] || [];
-    const activeMessageIds = new Set(items.map((item) => `permission:${item.request_id}`));
+    const activeMessageIds = new Set(visibleItems.map((item) => `permission:${item.request_id}`));
     currentMessages
       .filter((message) => message.messageKind === 'permission_request')
       .forEach((message) => {
@@ -81,7 +105,7 @@ export function PermissionModalHost({
         }
       });
 
-    items.forEach((item) => {
+    visibleItems.forEach((item) => {
       const turnId = String(item.turn_id || '').trim() || undefined;
       upsertMessage(sessionId, {
         id: `permission:${item.request_id}`,
@@ -98,20 +122,22 @@ export function PermissionModalHost({
           risk_level: item.risk_level,
           origin: item.origin,
           tool_args: item.arguments,
+          timeout_seconds: item.timeout_seconds,
+          expires_at_ms: item.expires_at_ms,
         },
       });
     });
-  }, [items, removeMessage, sessionId, upsertMessage]);
+  }, [visibleItems, removeMessage, sessionId, upsertMessage]);
 
   const active =
-    items.find((req) => !dismissed.has(req.request_id)) ?? null;
+    visibleItems.find((req) => !dismissed.has(req.request_id)) ?? null;
 
   useEffect(() => {
     const previousActiveRequestId = previousActiveRequestIdRef.current;
     const currentActiveRequestId = active?.request_id ?? null;
 
     if (previousActiveRequestId && previousActiveRequestId !== currentActiveRequestId) {
-      const stillPending = items.some((item) => item.request_id === previousActiveRequestId);
+      const stillPending = visibleItems.some((item) => item.request_id === previousActiveRequestId);
       const wasResolved = resolvedRequestIdsRef.current.has(previousActiveRequestId);
       const wasDismissed = dismissed.has(previousActiveRequestId);
 
@@ -123,7 +149,7 @@ export function PermissionModalHost({
     }
 
     previousActiveRequestIdRef.current = currentActiveRequestId;
-  }, [active?.request_id, dismissed, items, sessionId, t]);
+  }, [active?.request_id, dismissed, visibleItems, sessionId, t]);
 
   return (
     <PermissionModal

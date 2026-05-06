@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import sys
 
 import pytest
 
 from magi.config.models import AppConfig, PluginSettings
 from magi.plugins import Plugin
+from magi.plugins.installation import replace_plugin_directory
 from magi.plugins.manager import PluginManager, build_plugin_runtime
 from magi.plugins.sensors import SensorRegistry
 from magi.tools.registry import ToolRegistry, tool_registry as shared_tool_registry
@@ -70,6 +73,83 @@ class ExternalToolPlugin(Plugin):
 """.strip(),
         encoding="utf-8",
     )
+
+
+def _write_reload_test_plugin(base: Path, *, imported_name: str, imported_value: int) -> None:
+    plugin_dir = base / "reload-test"
+    plugin_dir.mkdir(parents=True, exist_ok=True)
+    (plugin_dir / "plugin.toml").write_text(
+        """
+[plugin]
+id = "reload-test"
+name = "Reload Test"
+version = "1.0.0"
+description = "Reload behavior test plugin"
+author = "Test"
+entry_module = "plugin"
+entry_class = "ReloadTestPlugin"
+official = false
+contribution_types = ["tool"]
+""".strip(),
+        encoding="utf-8",
+    )
+    (plugin_dir / "reader.py").write_text(f"{imported_name} = {imported_value}\n", encoding="utf-8")
+    (plugin_dir / "plugin.py").write_text(
+        f"""from magi_plugin_sdk import Plugin
+from .reader import {imported_name}
+
+class ReloadTestPlugin(Plugin):
+    def __init__(self):
+        self.marker = {imported_name}
+
+    def get_tools(self):
+        return []
+""".strip(),
+        encoding="utf-8",
+    )
+
+
+def _write_install_test_plugin(
+    base: Path,
+    *,
+    plugin_id: str,
+    version: str,
+    marker: str,
+    dependencies: list[str] | None = None,
+) -> Path:
+    plugin_dir = base / plugin_id
+    plugin_dir.mkdir(parents=True, exist_ok=True)
+    dependencies_line = ""
+    if dependencies:
+        quoted = ", ".join(f'\"{item}\"' for item in dependencies)
+        dependencies_line = f"\ndependencies = [{quoted}]"
+    (plugin_dir / "plugin.toml").write_text(
+        f"""
+[plugin]
+id = "{plugin_id}"
+name = "Install Test"
+version = "{version}"
+description = "Install behavior test plugin"
+author = "Test"
+entry_module = "plugin"
+entry_class = "InstallTestPlugin"
+official = false
+contribution_types = ["tool"]{dependencies_line}
+""".strip(),
+        encoding="utf-8",
+    )
+    (plugin_dir / "plugin.py").write_text(
+        f"""from magi_plugin_sdk import Plugin
+
+class InstallTestPlugin(Plugin):
+    marker = \"{marker}\"
+
+    def get_tools(self):
+        return []
+""".strip(),
+        encoding="utf-8",
+    )
+    return plugin_dir
 
 
 @pytest.mark.asyncio
@@ -161,6 +241,132 @@ def test_core_tools_plugin_registers_memory_query_tool(monkeypatch: pytest.Monke
     manager.activate_enabled_plugins()
 
     assert "memory_query" in tool_registry.list_tools()
+
+
+def test_plugin_manager_reload_clears_cached_plugin_submodules(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _write_reload_test_plugin(tmp_path, imported_name="VALUE", imported_value=1)
+    config = AppConfig()
+    config.plugins.packages["reload-test"] = PluginSettings(
+        enabled=True,
+        trusted=True,
+        source="external",
+        settings={},
+    )
+    tool_registry = ToolRegistry()
+
+    monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
+    monkeypatch.setattr("magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True)
+
+    manager = PluginManager(
+        tool_registry=tool_registry,
+        sensor_registry=SensorRegistry(),
+        search_paths=[tmp_path],
+    )
+
+    manager.scan(persist_discovery=True)
+    manager.activate_enabled_plugins()
+
+    assert manager._plugin_instances["reload-test"].marker == 1
+    assert "magi_plugin_reload_test.reader" in sys.modules
+
+    _write_reload_test_plugin(tmp_path, imported_name="DETECT_STEAM_ROOT", imported_value=2)
+    manager.reload_plugin("reload-test")
+
+    assert manager._plugin_instances["reload-test"].marker == 2
+    reader_module = sys.modules["magi_plugin_reload_test.reader"]
+    assert getattr(reader_module, "DETECT_STEAM_ROOT") == 2
+    assert not hasattr(reader_module, "VALUE")
+
+
+def test_install_plugin_from_directory_keeps_existing_plugin_until_staging_ready(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    user_root = tmp_path / "user-plugins"
+    source_root = tmp_path / "incoming"
+    existing_dir = _write_install_test_plugin(
+        user_root,
+        plugin_id="swap-test",
+        version="1.0.0",
+        marker="old-version",
+    )
+    incoming_dir = _write_install_test_plugin(
+        source_root,
+        plugin_id="swap-test",
+        version="2.0.0",
+        marker="new-version",
+        dependencies=["broken-dependency"],
+    )
+
+    config = AppConfig()
+    tool_registry = ToolRegistry()
+
+    monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
+    monkeypatch.setattr("magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True)
+    monkeypatch.setattr(PluginManager, "_user_plugins_root", staticmethod(lambda: user_root))
+
+    manager = PluginManager(
+        tool_registry=tool_registry,
+        sensor_registry=SensorRegistry(),
+        search_paths=[user_root],
+    )
+    manager.scan(persist_discovery=True)
+
+    unload_calls: list[str] = []
+    original_unload = manager.unload_plugin
+
+    def tracking_unload(plugin_id: str) -> None:
+        unload_calls.append(plugin_id)
+        original_unload(plugin_id)
+
+    monkeypatch.setattr(manager, "unload_plugin", tracking_unload)
+
+    def fail_install_dependencies(dependencies: list[str], plugin_dir: Path) -> None:
+        _ = dependencies, plugin_dir
+        raise RuntimeError("dependency install failed")
+
+    monkeypatch.setattr(PluginManager, "_install_dependencies", staticmethod(fail_install_dependencies))
+
+    with pytest.raises(RuntimeError, match="dependency install failed"):
+        manager.install_plugin_from_directory(incoming_dir)
+
+    assert unload_calls == []
+    assert existing_dir.exists()
+    assert "old-version" in (existing_dir / "plugin.py").read_text(encoding="utf-8")
+    assert "new-version" not in (existing_dir / "plugin.py").read_text(encoding="utf-8")
+
+
+def test_replace_plugin_directory_rolls_back_when_promotion_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "marker.txt").write_text("new", encoding="utf-8")
+
+    dest_dir = tmp_path / "installed"
+    dest_dir.mkdir()
+    (dest_dir / "marker.txt").write_text("old", encoding="utf-8")
+
+    original_replace = Path.replace
+    replace_calls: list[tuple[str, str]] = []
+
+    def flaky_replace(self: Path, target: Path) -> Path:
+        replace_calls.append((str(self), str(target)))
+        if len(replace_calls) == 2:
+            raise OSError("promotion failed")
+        return original_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", flaky_replace)
+
+    with pytest.raises(OSError, match="promotion failed"):
+        replace_plugin_directory(source_dir, dest_dir)
+
+    assert (dest_dir / "marker.txt").read_text(encoding="utf-8") == "old"
+    assert len(replace_calls) >= 2
 
 
 def test_build_plugin_runtime_uses_shared_tool_registry_by_default(

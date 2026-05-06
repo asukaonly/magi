@@ -9,7 +9,7 @@ import { openExternalUrl } from '@/runtime/desktop';
 const markdownBlockComponents: Components = {
   p: ({ children }) => <p className="m-0 whitespace-pre-wrap leading-6 last:mb-0">{children}</p>,
   ul: ({ children }) => <ul className="my-1 list-disc space-y-1 pl-5 leading-6 marker:text-muted-foreground">{children}</ul>,
-  ol: ({ children }) => <ol className="my-1 list-decimal space-y-1 pl-5 leading-6 marker:text-muted-foreground">{children}</ol>,
+  ol: ({ children, start }) => <ol start={start} className="my-1 list-decimal space-y-1 pl-5 leading-6 marker:text-muted-foreground">{children}</ol>,
   li: ({ children }) => <li className="pl-1">{children}</li>,
   strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
   code: ({ children }) => (

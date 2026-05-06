@@ -324,3 +324,32 @@ async def test_response_rhythm_planner_skips_streamed_turns(monkeypatch) -> None
 
     assert plan is None
     assert prompt_service.calls == []
+
+
+@pytest.mark.asyncio
+async def test_response_rhythm_planner_keeps_markdown_lists_in_one_message(monkeypatch) -> None:
+    monkeypatch.setattr(
+        rhythm_module,
+        "get_user_preference",
+        lambda key, default=None: True if key == "conversation_rhythm_enabled" else default,
+    )
+    prompt_service = _FakePromptService('{"groups": []}')
+    planner = ResponseRhythmPlanner(prompt_service=prompt_service)
+
+    plan = await planner.plan(
+        user_message="你知道我最喜欢看什么吗",
+        response_text=(
+            "根据记忆，你最近最关注的内容比较杂，主要集中在以下几个领域：\n\n"
+            "1. AI 与技术前沿：\n"
+            "- Role-Playing Chatbots（角色扮演聊天机器人）及其性能指标能力。\n"
+            "- AI Agents（智能体）的开发、分类与 Benchmark。\n\n"
+            "2. 硬核 / 极客话题：\n"
+            "- 路由器 CPU 性能天梯榜。\n"
+            "- Token 中转站的盈利模式和内幕。"
+        ),
+        execution_mode="direct_llm",
+        ux_plan={"assistant_surface_mode": "final_only"},
+    )
+
+    assert plan is None
+    assert prompt_service.calls == []

@@ -390,7 +390,9 @@ async def test_get_pending_permissions_filters_by_session(wiring, monkeypatch):
         session_id="sid-A",
         turn_id=None,
         workspace=None,
+        timeout_seconds=120.0,
     )
+    req_a.expires_at = req_a.created_at + 120.0
     req_b = PermissionRequest(
         request_id="req-b",
         tool_name="bash",
@@ -413,6 +415,8 @@ async def test_get_pending_permissions_filters_by_session(wiring, monkeypatch):
     assert resp.status_code == 200
     body = resp.json()
     assert [item["request_id"] for item in body["items"]] == ["req-a"]
+    assert body["items"][0]["timeout_seconds"] == 120.0
+    assert body["items"][0]["expires_at_ms"] == int(req_a.expires_at * 1000)
 
     empty = client.get("/api/control/sessions/sid-C/permissions").json()
     assert empty["items"] == []
