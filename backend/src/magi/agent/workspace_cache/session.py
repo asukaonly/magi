@@ -8,9 +8,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
 
-from .atomic_io import append_jsonl, atomic_write_text
-from .contracts import EditOp, EditRecord, ReadRecord, TodoState
-from .errors import SessionCacheCorruptError
+from .atomic_io import append_jsonl, atomic_write_bytes, atomic_write_text
+from .contracts import EditOp, EditRecord, ReadRecord, SnapshotRef, TodoState
+from .errors import SessionCacheCorruptError, SnapshotIntegrityError
 from .root import WorkspaceCacheRoot
 
 
@@ -165,3 +165,30 @@ class SessionCache:
 
     def write_todo(self, state: TodoState) -> None:
         atomic_write_text(self.todo_path, state.model_dump_json())
+
+    @property
+    def snapshots_dir(self) -> Path:
+        d = self.session_dir / "snapshots"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def _snapshot_path(self, sha: str) -> Path:
+        return self.snapshots_dir / f"{sha}.bin"
+
+    def write_snapshot(self, data: bytes) -> SnapshotRef:
+        sha = hashlib.sha256(data).hexdigest()
+        path = self._snapshot_path(sha)
+        if not path.exists():
+            atomic_write_bytes(path, data)
+        return SnapshotRef(sha256=sha)
+
+    def read_snapshot(self, ref: SnapshotRef) -> bytes:
+        path = self._snapshot_path(ref.sha256)
+        if not path.exists():
+            raise FileNotFoundError(path)
+        data = path.read_bytes()
+        if hashlib.sha256(data).hexdigest() != ref.sha256:
+            raise SnapshotIntegrityError(
+                f"snapshot {ref.sha256} bytes do not match expected hash"
+            )
+        return data
