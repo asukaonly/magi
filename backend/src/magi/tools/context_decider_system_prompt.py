@@ -15,7 +15,7 @@ JSON structure:
   "orchestration_strategy": {
     "mode": "direct|decompose",
     "planner": "task_agent|plan_worker",
-    "default_leaf_type": "Explore|general-purpose",
+    "default_leaf_type": "Explore|general-purpose|Coding",
     "allow_parallel": boolean
   }
 }
@@ -99,6 +99,12 @@ JSON: {"intent": "realtime_query", "tools": ["weather"], "thinking_depth": "none
 
 User: "read /src/main.py and fix the race condition"
 JSON: {"intent": "code_execution", "tools": ["file_read", "file_write"], "thinking_depth": "high", "reasoning": "Complex bug diagnosis required.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
+
+User: "add a max_retries argument to the connect() helper in src/net.py and update its docstring"
+JSON: {"intent": "code_execution", "tools": ["agent"], "thinking_depth": "medium", "reasoning": "Bounded edit on a single helper. Spawn a Coding worker so the read-edit-verify discipline is enforced.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "Coding", "allow_parallel": false}}
+
+User: "修一下 backend/src/magi/agent/foo.py 里那个 race condition"
+JSON: {"intent": "code_execution", "tools": ["agent"], "thinking_depth": "medium", "reasoning": "Targeted bug fix in one file. Coding worker handles read-before-edit and verify automatically.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "Coding", "allow_parallel": false}}
 
 User: "analyze this large repo and design a migration plan"
 JSON: {"intent": "planning", "tools": ["agent"], "thinking_depth": "high", "reasoning": "Large repo analysis should be decomposed by the parent task agent into bounded workers.", "orchestration_strategy": {"mode": "decompose", "planner": "task_agent", "default_leaf_type": "Explore", "allow_parallel": true}}

@@ -99,3 +99,22 @@ def test_neutral_chat_falls_through_to_general() -> None:
         user_lower="hey what's up",
     )
     assert out["default_leaf_type"] == "general-purpose"
+
+
+def test_system_prompt_advertises_coding_in_schema() -> None:
+    from magi.tools.context_decider_system_prompt import CONTEXT_DECIDER_SYSTEM_PROMPT
+    assert "Coding" in CONTEXT_DECIDER_SYSTEM_PROMPT
+    assert '"default_leaf_type": "Explore|general-purpose|Coding"' in CONTEXT_DECIDER_SYSTEM_PROMPT
+
+
+def test_system_prompt_has_coding_few_shot() -> None:
+    from magi.tools.context_decider_system_prompt import CONTEXT_DECIDER_SYSTEM_PROMPT
+    assert '"default_leaf_type": "Coding"' in CONTEXT_DECIDER_SYSTEM_PROMPT
+    coding_blocks = [
+        block
+        for block in CONTEXT_DECIDER_SYSTEM_PROMPT.split("\n\n")
+        if '"default_leaf_type": "Coding"' in block
+    ]
+    assert coding_blocks, "no Coding few-shot found"
+    for block in coding_blocks:
+        assert '"agent"' in block, f"Coding few-shot must include agent tool: {block!r}"
