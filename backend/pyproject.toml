@@ -45,6 +45,7 @@ dependencies = [
     # Database
     "aiosqlite>=0.19.0",
     "sqlalchemy>=2.0.0",
+    "alembic>=1.13.0",
     "apscheduler>=3.10.0",
 
     # Vector database
@@ -102,6 +103,12 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "magi.i18n" = ["locales/*.json"]
+"magi.db.migrations.chat" = ["script.py.mako"]
+"magi.db.migrations.l1" = ["script.py.mako"]
+"magi.db.migrations.memory_shared" = ["script.py.mako"]
+"magi.db.migrations.runtime_trace" = ["script.py.mako"]
+"magi.db.migrations.llm_usage" = ["script.py.mako"]
+"magi.db.migrations.persona_registry" = ["script.py.mako"]
 
 [tool.black]
 line-length = 100
