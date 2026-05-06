@@ -120,4 +120,138 @@ export const codeAgentApi = {
     });
     return unwrap(response as { ok: boolean } | ApiResponse<{ ok: boolean }>);
   },
+
+  getDelegation: async (
+    sessionId: string,
+    delegationId: string,
+    workspace: string,
+  ): Promise<DelegationFetchResponse> => {
+    const response = await api.get<DelegationFetchResponse>(
+      `/code_agent/delegations/${encodeURIComponent(sessionId)}/${encodeURIComponent(delegationId)}?workspace=${encodeURIComponent(workspace)}`,
+    );
+    return unwrap(response as DelegationFetchResponse | ApiResponse<DelegationFetchResponse>);
+  },
+
+  cancelDelegation: async (
+    sessionId: string,
+    delegationId: string,
+    workspace: string,
+  ): Promise<{ ok: boolean }> => {
+    const response = await api.post<{ ok: boolean }>(
+      `/code_agent/delegations/${encodeURIComponent(sessionId)}/${encodeURIComponent(delegationId)}/cancel`,
+      { workspace },
+    );
+    return unwrap(response as { ok: boolean } | ApiResponse<{ ok: boolean }>);
+  },
+
+  applyDelegation: async (
+    sessionId: string,
+    delegationId: string,
+    workspace: string,
+  ): Promise<{ outcome: ApplyOutcome }> => {
+    const response = await api.post<{ outcome: ApplyOutcome }>(
+      `/code_agent/delegations/${encodeURIComponent(sessionId)}/${encodeURIComponent(delegationId)}/apply`,
+      { workspace },
+    );
+    return unwrap(response as { outcome: ApplyOutcome } | ApiResponse<{ outcome: ApplyOutcome }>);
+  },
+
+  discardDelegation: async (
+    sessionId: string,
+    delegationId: string,
+    workspace: string,
+  ): Promise<{ ok: boolean }> => {
+    const response = await api.post<{ ok: boolean }>(
+      `/code_agent/delegations/${encodeURIComponent(sessionId)}/${encodeURIComponent(delegationId)}/discard`,
+      { workspace },
+    );
+    return unwrap(response as { ok: boolean } | ApiResponse<{ ok: boolean }>);
+  },
 };
+
+
+// ===========================================================================
+// Delegation runtime contracts
+// ===========================================================================
+
+export type DelegationLifecycle =
+  | 'started'
+  | 'running'
+  | 'finished'
+  | 'failed'
+  | 'cancelled'
+  | 'discarded'
+  | 'applied';
+
+export type RunEventKind =
+  | 'stdout'
+  | 'stderr'
+  | 'tool_call'
+  | 'tool_result'
+  | 'assistant_text'
+  | 'thinking'
+  | 'status'
+  | 'error';
+
+export interface RunEvent {
+  kind: RunEventKind;
+  ts_ms: number;
+  payload: Record<string, unknown>;
+}
+
+export interface DiffStats {
+  files_changed: number;
+  additions: number;
+  deletions: number;
+}
+
+export interface CostInfo {
+  usd: number | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+}
+
+export interface DelegateResult {
+  delegation_id: string;
+  success: boolean;
+  exit_code: number;
+  duration_ms: number;
+  diff_path: string | null;
+  diff_stats: DiffStats;
+  files_changed: string[];
+  summary: string | null;
+  logs_path: string;
+  events_path: string;
+  error: string | null;
+  cost: CostInfo | null;
+  applied_at?: number;
+  applied_files?: string[];
+  discarded_at?: number;
+}
+
+export interface DelegationFetchResponse {
+  result: DelegateResult | null;
+  events_tail: RunEvent[];
+}
+
+export interface ApplyOutcome {
+  applied: boolean;
+  files_applied: string[];
+  rejects: string[];
+  error: string | null;
+}
+
+export interface DelegationStateBroadcast {
+  user_id: string;
+  session_id: string;
+  delegation_id: string;
+  state: DelegationLifecycle;
+  summary: Record<string, unknown>;
+}
+
+export interface DelegationEventBroadcast {
+  user_id: string;
+  session_id: string;
+  delegation_id: string;
+  event: RunEvent;
+}
