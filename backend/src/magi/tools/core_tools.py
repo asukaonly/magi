@@ -13,6 +13,7 @@ from .builtin.file_list_tool import FileListTool
 from .builtin.file_read_tool import FileReadTool
 from .builtin.file_rollback_tool import FileRollbackTool
 from .builtin.file_write_tool import FileWriteTool
+from .builtin.verify_tool import VerifyTool
 from .builtin.glob_tool import GlobTool
 from .builtin.grep_tool import GrepTool
 from .builtin.image_generation_tool import ImageGenerationTool
@@ -36,6 +37,7 @@ CORE_TOOL_CLASSES: tuple[type, ...] = (
     FileEditTool,
     FileRollbackTool,
     FileDiffTool,
+    VerifyTool,
     FileListTool,
     FileInfoTool,
     GrepTool,
