@@ -38,12 +38,11 @@ def append_latest_user_message(
         user_id=turn.user_id,
         session_id=turn.session_id,
     )
-    # Remove all trailing user messages that match the current message to
-    # collapse duplicates caused by retried sends that had no assistant
-    # response in between.
-    if not turn.attachments:
-        while source_messages and _is_matching_user_message(source_messages[-1], normalized_latest):
-            source_messages.pop()
+    # The durable history can already include the current turn before the
+    # runtime command is processed. Keep the richer latest turn below, which
+    # may include model-visible attachments, and remove matching text copies.
+    while source_messages and _is_matching_user_message(source_messages[-1], normalized_latest):
+        source_messages.pop()
 
     if history_limit is not None:
         safe_history_limit = max(0, history_limit)
