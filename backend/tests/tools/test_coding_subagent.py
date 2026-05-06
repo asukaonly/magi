@@ -9,6 +9,29 @@ from magi.tools.builtin.agent_tool import AgentTool
 from magi.agent.workers import WorkerAgentManager
 
 
+class _FakeRegistry:
+    """Mirrors the fake registry pattern in tests/tools/test_agent_tool.py."""
+
+    def __init__(self, tools: list[str]) -> None:
+        self._tools = list(tools)
+
+    def list_tools(self) -> list[str]:
+        return list(self._tools)
+
+
+_CODING_REGISTRY_TOOLS = [
+    "file_read", "file_edit", "file_write", "file_rollback", "file_diff",
+    "verify", "glob", "grep", "file_list", "file_info", "bash", "todo_write",
+    "agent", "memory_query", "web_search", "web_fetch",  # not in whitelist
+]
+
+
+def _coding_manager() -> WorkerAgentManager:
+    mgr = WorkerAgentManager()
+    mgr._tool_registry = _FakeRegistry(_CODING_REGISTRY_TOOLS)  # type: ignore[assignment]
+    return mgr
+
+
 def test_worker_manager_exposes_coding_type() -> None:
     assert WorkerAgentManager.TYPE_CODING == "Coding"
 
@@ -31,3 +54,17 @@ def test_agent_tool_constants_match_manager() -> None:
     assert tool.TYPE_CODING == WorkerAgentManager.TYPE_CODING
     assert tool._WORKER_TYPE_MAP["coding"] == tool.TYPE_CODING
     assert tool._WORKER_TYPE_MAP["code"] == tool.TYPE_CODING
+
+
+def test_coding_tool_whitelist_filters_against_registry() -> None:
+    mgr = _coding_manager()
+    tools = mgr._resolve_tools_for_type(WorkerAgentManager.TYPE_CODING)
+    expected_present = {"file_read", "file_edit", "file_write", "file_rollback",
+                        "file_diff", "verify", "glob", "grep", "bash"}
+    assert expected_present.issubset(set(tools)), (
+        f"Coding whitelist missing: {expected_present - set(tools)}"
+    )
+    excluded = {"agent", "memory_query", "web_search", "web_fetch"}
+    assert excluded.isdisjoint(set(tools)), (
+        f"Coding whitelist must not include {excluded & set(tools)}"
+    )

@@ -14,9 +14,11 @@ class _WorkerPromptHostProtocol(Protocol):
     TYPE_GENERAL: str
     TYPE_EXPLORE: str
     TYPE_PLAN: str
+    TYPE_CODING: str
     _WORKER_TYPE_MAP: dict[str, str]
     _EXPLORE_TOOL_CANDIDATES: list[str]
     _PLAN_TOOL_CANDIDATES: list[str]
+    _CODING_TOOL_CANDIDATES: list[str]
     _tool_registry: Any
 
 
@@ -36,6 +38,8 @@ class WorkerPromptMixin:
             return [name for name in host._EXPLORE_TOOL_CANDIDATES if name in available_tools]
         if subagent_type == host.TYPE_PLAN:
             return [name for name in host._PLAN_TOOL_CANDIDATES if name in available_tools]
+        if subagent_type == host.TYPE_CODING:
+            return [name for name in host._CODING_TOOL_CANDIDATES if name in available_tools]
         return []
 
     def _build_worker_system_prompt(
