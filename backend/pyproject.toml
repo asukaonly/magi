@@ -38,6 +38,7 @@ dependencies = [
     # Configuration
     "pyyaml>=6.0.1",
     "tomli>=1.1.0; python_version < '3.11'",
+    "tomli-w>=1.0",
 
     # Logging
     "structlog>=24.1.0",

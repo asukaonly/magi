@@ -175,6 +175,12 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/expand-skill": {"POST"},
         "/run-skill-as-background": {"POST"},
     },
+    "code_agent": {
+        "/probe": {"GET"},
+        "/rescan": {"POST"},
+        "/settings": {"GET", "PATCH"},
+        "/settings/reset": {"POST"},
+    },
 
 }
 
@@ -216,6 +222,7 @@ def register_api_routes(app: FastAPI) -> None:
         control_router,
         mcp_router,
         commands_router,
+        code_agent_router,
     )
 
     app.include_router(
@@ -311,4 +318,9 @@ def register_api_routes(app: FastAPI) -> None:
         _build_public_router(commands_router, _PUBLIC_ROUTE_METHODS["commands"]),
         prefix="/api/commands",
         tags=["Commands"],
+    )
+    app.include_router(
+        _build_public_router(code_agent_router, _PUBLIC_ROUTE_METHODS["code_agent"]),
+        prefix="/api/code_agent",
+        tags=["CodeAgent"],
     )
