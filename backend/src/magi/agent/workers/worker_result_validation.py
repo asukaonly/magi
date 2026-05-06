@@ -12,11 +12,14 @@ class WorkerResultValidationMixin:
     """Validate structured JSON emitted by worker agents."""
 
     TYPE_PLAN: str
+    TYPE_CODING: str
 
     def _validate_worker_result(self, subagent_type: str, content: str) -> WorkerResult:
         stripped = str(content or "").strip()
         if not stripped:
             raise ValueError("Worker returned an empty response")
+        if subagent_type == self.TYPE_CODING:
+            return WorkerResult(summary=stripped, result_status="success")
         try:
             parsed = json.loads(stripped)
         except json.JSONDecodeError as exc:

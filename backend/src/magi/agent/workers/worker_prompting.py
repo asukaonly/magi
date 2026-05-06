@@ -14,9 +14,11 @@ class _WorkerPromptHostProtocol(Protocol):
     TYPE_GENERAL: str
     TYPE_EXPLORE: str
     TYPE_PLAN: str
+    TYPE_CODING: str
     _WORKER_TYPE_MAP: dict[str, str]
     _EXPLORE_TOOL_CANDIDATES: list[str]
     _PLAN_TOOL_CANDIDATES: list[str]
+    _CODING_TOOL_CANDIDATES: list[str]
     _tool_registry: Any
 
 
@@ -36,6 +38,8 @@ class WorkerPromptMixin:
             return [name for name in host._EXPLORE_TOOL_CANDIDATES if name in available_tools]
         if subagent_type == host.TYPE_PLAN:
             return [name for name in host._PLAN_TOOL_CANDIDATES if name in available_tools]
+        if subagent_type == host.TYPE_CODING:
+            return [name for name in host._CODING_TOOL_CANDIDATES if name in available_tools]
         return []
 
     def _build_worker_system_prompt(
@@ -72,6 +76,8 @@ class WorkerPromptMixin:
                 "If you name a file, symbol, route, flag, or config key in findings or evidence, confirm it exists in the current code before treating it as fact. "
                 "Any response that is not a single valid JSON object will be treated as failure."
             )
+        elif subagent_type == host.TYPE_CODING:
+            role_rules = self._build_coding_role_rules()
         else:
             role_rules = (
                 "Act as a general-purpose leaf execution agent for one bounded task. "
@@ -80,6 +86,26 @@ class WorkerPromptMixin:
                 "Any response that is not a single valid JSON object will be treated as failure."
             )
         return "\n".join([base_rules, environment_rules, role_rules, tool_rules])
+
+    def _build_coding_role_rules(self) -> str:
+        return (
+            "Role: small-scope coding worker for a single bounded change "
+            "(typically 1-3 files).\n"
+            "Discipline:\n"
+            "1. Always file_read a file before file_edit / file_write overwrite.\n"
+            "2. After every batch of edits, call verify (mode=changed). Do not "
+            "claim done while verify reports failures unrelated to pre-existing issues.\n"
+            "3. Match existing nearby style. Do not refactor unrelated code, do not "
+            "add backwards-compatibility shims, and do not add comments unless the "
+            "*why* is non-obvious.\n"
+            "4. If a destructive bash command (rm -rf, git push --force, git reset "
+            "--hard) is required, STOP and report. Never pass confirm_destructive=true "
+            "on your own initiative; that decision is the user's.\n"
+            "5. If two consecutive verify cycles still fail, stop and report what "
+            "blocked you instead of looping.\n"
+            "Final reply: plain text. List (a) files changed, (b) intent of the "
+            "change, (c) verify summary, (d) anything you noticed but did not do."
+        )
 
     def _build_worker_environment_rules(self, execution_workspace: Optional[str]) -> str:
         workspace_root = self._resolve_execution_workspace(execution_workspace)
