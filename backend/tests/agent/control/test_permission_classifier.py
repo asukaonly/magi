@@ -22,16 +22,24 @@ def classifier() -> RiskClassifier:
         ("bash", {"command": "rg 'foo' src/"}, RiskLevel.LOW),
         ("bash", {"command": "git status"}, RiskLevel.LOW),
         ("bash", {"command": "git log --oneline"}, RiskLevel.LOW),
-        # Shell — redirects push to at least MEDIUM.
+        ("bash", {"command": "docker ps"}, RiskLevel.LOW),
+        # Shell — redirects and ordinary mutating ops stay MEDIUM.
         ("bash", {"command": "echo hi > /tmp/foo"}, RiskLevel.MEDIUM),
+        ("bash", {"command": "rm note.txt"}, RiskLevel.MEDIUM),
+        ("bash", {"command": "mv old.py new.py"}, RiskLevel.MEDIUM),
+        ("bash", {"command": "chmod 755 script.sh"}, RiskLevel.MEDIUM),
+        ("bash", {"command": "git commit -m 'x'"}, RiskLevel.MEDIUM),
+        ("bash", {"command": "sed -i 's/a/b/' file.txt"}, RiskLevel.MEDIUM),
+        # Shell — installers, sudo, and plain git push publish or persist.
+        ("bash", {"command": "npm install react"}, RiskLevel.HIGH),
+        ("bash", {"command": "pip install requests"}, RiskLevel.HIGH),
+        ("bash", {"command": "sudo apt-get update"}, RiskLevel.HIGH),
+        ("bash", {"command": "git push origin main"}, RiskLevel.HIGH),
         # Shell — destructive verbs.
         ("bash", {"command": "rm -rf ./node_modules"}, RiskLevel.DESTRUCTIVE),
-        ("bash", {"command": "sudo apt-get update"}, RiskLevel.DESTRUCTIVE),
-        ("bash", {"command": "npm install react"}, RiskLevel.HIGH),
-        ("bash", {"command": "git commit -m 'x'"}, RiskLevel.HIGH),
         ("bash", {"command": "git push --force origin main"}, RiskLevel.DESTRUCTIVE),
-        ("bash", {"command": "git push origin main"}, RiskLevel.HIGH),
-        ("bash", {"command": "sed -i 's/a/b/' file.txt"}, RiskLevel.HIGH),
+        ("bash", {"command": "dd if=/dev/zero of=/dev/sda"}, RiskLevel.DESTRUCTIVE),
+        ("bash", {"command": "docker system prune"}, RiskLevel.DESTRUCTIVE),
         # File tools.
         ("file_write", {"path": "/tmp/note.md"}, RiskLevel.MEDIUM),
         ("file_edit", {"path": "src/app.py"}, RiskLevel.MEDIUM),

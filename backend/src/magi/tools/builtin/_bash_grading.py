@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 import shlex
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 RiskLevel = Literal["read_only", "mutating", "destructive"]
 
@@ -226,4 +226,114 @@ def classify_command(command: str) -> CommandGrade:
     return CommandGrade(level, best_reason)
 
 
-__all__ = ["CommandGrade", "RiskLevel", "classify_command"]
+# Heads that, even when a command is "mutating", warrant a HIGH bump in the
+# permission classifier because their effects publish or persist beyond the
+# workspace and are awkward to undo.
+_HIGH_BUMP_HEADS = frozenset({
+    "sudo",
+    "apt", "apt-get", "brew", "yum", "dnf", "pacman",
+    "npm", "yarn", "pnpm",
+    "pip", "pip3", "pipx", "uv",
+    "cargo", "gem",
+})
+
+
+def _classify_token_for_high_bump(tokens: list[str]) -> bool:
+    """Return True when this stage should bump 'mutating' to HIGH risk."""
+    i = 0
+    while i < len(tokens) and "=" in tokens[i] and tokens[i].split("=")[0].isidentifier():
+        i += 1
+    if i >= len(tokens):
+        return False
+    head = tokens[i]
+    rest = tokens[i + 1:]
+    if head == "sudo":
+        return True
+    if head in _HIGH_BUMP_HEADS:
+        # ``pip list``, ``npm ls`` etc. are read-only and never reach this
+        # point (handled earlier as read_only). Any *other* subcommand of an
+        # installer head is treated as side-effect-publishing.
+        if rest and rest[0] in {"--version", "-V", "--help", "-h", "version"}:
+            return False
+        return True
+    if head == "git":
+        if not rest:
+            return False
+        sub = rest[0]
+        if sub == "push":
+            # plain ``git push`` publishes; ``git push --force`` is already
+            # destructive (handled by _DESTRUCTIVE_PATTERNS).
+            return True
+    return False
+
+
+def classify_for_permission(arguments: dict[str, Any]) -> "ClassificationResult":
+    """Bridge ``classify_command`` into the permission classifier's contract.
+
+    Mapping:
+
+    * ``read_only``  → ``RiskLevel.LOW``
+    * ``mutating``   → ``RiskLevel.MEDIUM`` by default; bumped to ``HIGH``
+      when any pipeline stage runs ``sudo``, ``git push`` (no ``--force``),
+      or a package installer (``npm install``, ``pip install``, ``brew``,
+      ``apt-get``, ``cargo``, ``yarn``, ``pnpm``, ``apt``, ``pipx``, ``uv``,
+      ``gem``, ``yum``, ``dnf``, ``pacman``).
+    * ``destructive`` → ``RiskLevel.DESTRUCTIVE``
+
+    Imports the permission contracts lazily so this module stays usable in
+    contexts that don't pull the agent.control package.
+    """
+    from ...agent.control.permission.classifier_models import (
+        ClassificationResult,
+        RiskSignal,
+    )
+    from ...agent.control.permission.contracts import RiskLevel as PermissionRiskLevel
+
+    command = ""
+    for key in ("command", "cmd", "script", "input"):
+        value = arguments.get(key)
+        if isinstance(value, str):
+            command = value
+            break
+
+    if not command.strip():
+        return ClassificationResult(
+            level=PermissionRiskLevel.LOW,
+            signals=[RiskSignal(key="empty_command", description="empty command")],
+            preview=None,
+        )
+
+    grade = classify_command(command)
+    preview = command.strip().splitlines()[0][:200] if command.strip() else None
+    signals = [RiskSignal(key=f"shell_{grade.level}", description=grade.reason)]
+
+    if grade.level == "read_only":
+        return ClassificationResult(
+            level=PermissionRiskLevel.LOW, signals=signals, preview=preview,
+        )
+    if grade.level == "destructive":
+        return ClassificationResult(
+            level=PermissionRiskLevel.DESTRUCTIVE, signals=signals, preview=preview,
+        )
+
+    bumped = False
+    for part in _split_pipeline(command):
+        try:
+            tokens = shlex.split(part, posix=True)
+        except ValueError:
+            tokens = part.split()
+        if _classify_token_for_high_bump(tokens):
+            bumped = True
+            signals.append(RiskSignal(
+                key="shell_publishes_or_installs",
+                description=f"stage runs an installer / sudo / git push: {part.strip()[:80]}",
+            ))
+            break
+    return ClassificationResult(
+        level=PermissionRiskLevel.HIGH if bumped else PermissionRiskLevel.MEDIUM,
+        signals=signals,
+        preview=preview,
+    )
+
+
+__all__ = ["CommandGrade", "RiskLevel", "classify_command", "classify_for_permission"]

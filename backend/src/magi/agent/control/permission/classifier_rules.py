@@ -6,8 +6,18 @@ from collections.abc import Callable
 from typing import Any
 
 from .classifier_models import ClassificationResult, RiskSignal
-from .classifier_shell import classify_shell
 from .contracts import RiskLevel
+
+
+def _classify_shell(arguments: dict[str, Any]) -> ClassificationResult:
+    """Lazy bridge to the shared bash command classifier.
+
+    Imported lazily because :mod:`magi.tools.builtin._bash_grading` lives in
+    the tools tree and would create a cross-package import cycle if pulled at
+    module-load time.
+    """
+    from ....tools.builtin._bash_grading import classify_for_permission
+    return classify_for_permission(arguments)
 
 
 def _classify_file_write(arguments: dict[str, Any]) -> ClassificationResult:
@@ -113,10 +123,10 @@ def _is_sensitive_user_path(path: str) -> bool:
 
 
 RULES: dict[str, Callable[[dict[str, Any]], ClassificationResult]] = {
-    "bash": classify_shell,
-    "shell": classify_shell,
-    "execute_command": classify_shell,
-    "run_command": classify_shell,
+    "bash": _classify_shell,
+    "shell": _classify_shell,
+    "execute_command": _classify_shell,
+    "run_command": _classify_shell,
     "file_write": _classify_file_write,
     "write_file": _classify_file_write,
     "file_edit": _classify_file_edit,
