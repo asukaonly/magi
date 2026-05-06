@@ -37,6 +37,10 @@ from .settings import (
     load_settings,
 )
 from .workspace import assert_git_repo, create_worktree, remove_worktree
+from .adapters.base import AdapterRunOutcome, CancelToken, CodeAgentAdapter, OnEvent
+from .adapters.claude_code import ClaudeCodeAdapter
+from .adapters.codex import CodexAdapter
+from .service import CodeAgentService
 from ._user_paths import (
     code_agent_probe_cache_path,
     code_agent_settings_path,
@@ -79,6 +83,13 @@ __all__ = [
     "assert_git_repo",
     "create_worktree",
     "remove_worktree",
+    "AdapterRunOutcome",
+    "CancelToken",
+    "CodeAgentAdapter",
+    "OnEvent",
+    "ClaudeCodeAdapter",
+    "CodexAdapter",
+    "CodeAgentService",
     "code_agent_probe_cache_path",
     "code_agent_settings_path",
     "magi_user_root",
