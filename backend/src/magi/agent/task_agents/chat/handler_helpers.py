@@ -22,25 +22,13 @@ def build_attachment_preparation_guidance_block(selected_tools: list[str]) -> st
     return "\n".join(lines)
 
 
-def build_memory_query_guidance_block(routing_memory_hint: dict | None) -> str:
-    lines = [
+MEMORY_QUERY_GUIDANCE_BLOCK = "\n".join(
+    [
         "# Memory Query Guidance",
         "Use `memory_query` before broader search or filesystem tools when the turn is primarily asking for historical recall.",
         "Use the memory-query result to ground later tool calls instead of re-discovering the same context from scratch.",
     ]
-    if not isinstance(routing_memory_hint, dict) or not routing_memory_hint:
-        return "\n".join(lines)
-
-    preferred_scope = str(routing_memory_hint.get("preferred_scope") or "").strip()
-    preferred_query = str(routing_memory_hint.get("preferred_query") or "").strip()
-    recall_target = str(routing_memory_hint.get("recall_target") or "").strip()
-    if preferred_scope:
-        lines.append(f"Preferred scope: {preferred_scope}")
-    if preferred_query:
-        lines.append(f"Preferred memory query: {preferred_query}")
-    if recall_target:
-        lines.append(f"Recall target: {recall_target}")
-    return "\n".join(lines)
+)
 
 
 def build_scope_guidance_block(task_hint: dict | None) -> str:

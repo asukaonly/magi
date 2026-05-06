@@ -33,8 +33,8 @@ from .prompt_service import ChatPromptService
 from .explore_render import start_explore_task_agent
 from .runtime_control import FunctionCallingRuntimeControlMixin
 from .handler_helpers import (
+    MEMORY_QUERY_GUIDANCE_BLOCK,
     build_attachment_preparation_guidance_block as _build_attachment_preparation_guidance_block,
-    build_memory_query_guidance_block as _build_memory_query_guidance_block,
     build_scope_guidance_block as _build_scope_guidance_block,
     resolve_execution_workspace as _resolve_execution_workspace,
     resolve_turn_workspace_path as _resolve_turn_workspace_path,
@@ -103,11 +103,7 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
             selected_tools = ["memory_query"] + [
                 tool for tool in selected_tools if tool != "memory_query"
             ]
-            memory_guidance_block = _build_memory_query_guidance_block(
-                request.intent.routing_memory_hint
-            )
-            if memory_guidance_block:
-                system_prompt = f"{system_prompt}\n\n{memory_guidance_block}"
+            system_prompt = f"{system_prompt}\n\n{MEMORY_QUERY_GUIDANCE_BLOCK}"
         scope_guidance_block = _build_scope_guidance_block(
             getattr(request.tool_selection, "task_hint", None)
             or getattr(request.intent, "task_hint", None)

@@ -208,7 +208,6 @@ class ChatExecutionCoordinator:
             reasoning=str(decision.reasoning),
             orchestration_plan=orchestration_plan,
             memory_route=str(getattr(decision, "memory_route", "none") or "none"),
-            routing_memory_hint=getattr(decision, "routing_memory_hint", None),
             task_hint=self._resolve_runtime_task_hint(
                 user_message=context.latest_user_message,
                 selected_tools=selected_tools,

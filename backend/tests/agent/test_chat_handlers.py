@@ -481,7 +481,6 @@ async def test_function_calling_handler_appends_scope_guidance_from_task_hint() 
                 reasoning="tool use",
                 orchestration_plan=OrchestrationPlan(),
                 memory_route="none",
-                routing_memory_hint=None,
                 task_hint={
                     "target_locality": "ambiguous_external_reference",
                     "preferred_resolution_order": "ask_or_web_before_external_scan",
