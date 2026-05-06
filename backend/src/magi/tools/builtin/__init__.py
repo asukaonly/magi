@@ -10,6 +10,7 @@ from .file_edit_tool import FileEditTool
 from .file_rollback_tool import FileRollbackTool
 from .file_diff_tool import FileDiffTool
 from .verify_tool import VerifyTool
+from .delegate_to_external_coder_tool import DelegateToExternalCoderTool
 from .grep_tool import GrepTool
 from .glob_tool import GlobTool
 from .dynamic_tool import DynamicTool, create_dynamic_tool
@@ -31,6 +32,7 @@ __all__ = [
     "FileRollbackTool",
     "FileDiffTool",
     "VerifyTool",
+    "DelegateToExternalCoderTool",
     "GrepTool",
     "GlobTool",
     "DynamicTool",
