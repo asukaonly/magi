@@ -74,6 +74,21 @@ def _classify_send_message(arguments: dict[str, Any]) -> ClassificationResult:
     )
 
 
+def _classify_image_generation(arguments: dict[str, Any]) -> ClassificationResult:
+    prompt = arguments.get("prompt") or ""
+    return ClassificationResult(
+        level=RiskLevel.HIGH,
+        signals=[
+            RiskSignal(
+                key="provider_generation",
+                description="external image generation request",
+            ),
+            RiskSignal(key="fs_write", description="writes generated image artifacts"),
+        ],
+        preview=str(prompt)[:200] if prompt else None,
+    )
+
+
 def _classify_file_read(arguments: dict[str, Any]) -> ClassificationResult:
     path = arguments.get("path") or arguments.get("file_path") or ""
     return ClassificationResult(
@@ -124,6 +139,8 @@ RULES: dict[str, Callable[[dict[str, Any]], ClassificationResult]] = {
     "notify_user": _classify_send_message,
     "notification_send": _classify_send_message,
     "sms_send": _classify_send_message,
+    "image-generation": _classify_image_generation,
+    "image_generation": _classify_image_generation,
 }
 
 EXTERNAL_SEND_SUBSTRINGS: tuple[str, ...] = (

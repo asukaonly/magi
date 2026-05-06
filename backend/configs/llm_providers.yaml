@@ -206,6 +206,43 @@ providers:
         dimensions: [1024, 2048]
         limits:
           max_concurrency: 6
+    image_generation_models:
+      - id: glm-image
+        label: GLM Image
+        supported_sizes: [1280x1280, 1568x1056, 1056x1568, 1472x1088, 1088x1472, 1728x960, 960x1728]
+        supported_qualities: [auto, high]
+        supports_seed: false
+        supports_negative_prompt: false
+        supports_reference: false
+        max_n: 1
+        native_protocol: zai_images
+      - id: cogview-4-250304
+        label: CogView 4 250304
+        supported_sizes: [1024x1024, 768x1344, 864x1152, 1344x768, 1152x864, 1440x720, 720x1440]
+        supported_qualities: [auto, high, medium, low]
+        supports_seed: false
+        supports_negative_prompt: false
+        supports_reference: false
+        max_n: 1
+        native_protocol: zai_images
+      - id: cogview-4
+        label: CogView 4
+        supported_sizes: [1024x1024, 768x1344, 864x1152, 1344x768, 1152x864, 1440x720, 720x1440]
+        supported_qualities: [auto, high, medium, low]
+        supports_seed: false
+        supports_negative_prompt: false
+        supports_reference: false
+        max_n: 1
+        native_protocol: zai_images
+      - id: cogview-3-flash
+        label: CogView 3 Flash
+        supported_sizes: [1024x1024, 768x1344, 864x1152, 1344x768, 1152x864, 1440x720, 720x1440]
+        supported_qualities: [auto, high, medium, low]
+        supports_seed: false
+        supports_negative_prompt: false
+        supports_reference: false
+        max_n: 1
+        native_protocol: zai_images
     fields:
       model:
         visible: true
@@ -386,6 +423,34 @@ providers:
         dimensions: [3072, 1536, 768]
         limits:
           max_concurrency: 4
+    image_generation_models:
+      - id: imagen-4.0-generate-001
+        label: Imagen 4
+        supported_sizes: [1024x1024, 1024x768, 768x1024, 1792x1024, 1024x1792]
+        supported_qualities: [auto, high, medium, low]
+        supports_seed: false
+        supports_negative_prompt: false
+        supports_reference: false
+        max_n: 4
+        native_protocol: gemini_predict
+      - id: imagen-4.0-ultra-generate-001
+        label: Imagen 4 Ultra
+        supported_sizes: [1024x1024, 1024x768, 768x1024, 1792x1024, 1024x1792]
+        supported_qualities: [auto, high, medium, low]
+        supports_seed: false
+        supports_negative_prompt: false
+        supports_reference: false
+        max_n: 1
+        native_protocol: gemini_predict
+      - id: imagen-4.0-fast-generate-001
+        label: Imagen 4 Fast
+        supported_sizes: [1024x1024, 1024x768, 768x1024, 1792x1024, 1024x1792]
+        supported_qualities: [auto, high, medium, low]
+        supports_seed: false
+        supports_negative_prompt: false
+        supports_reference: false
+        max_n: 4
+        native_protocol: gemini_predict
     fields:
       model:
         visible: true
@@ -507,6 +572,57 @@ providers:
         dimensions: [1024, 768, 512]
         limits:
           max_concurrency: 6
+    image_generation_models:
+      - id: qwen-image-2.0-pro
+        label: Qwen Image 2.0 Pro
+        supported_sizes:
+          [1024x1024, 2048x2048, 1536x864, 864x1536, 1152x864, 864x1152, 1344x768, 768x1344]
+        supported_qualities: [auto, high, medium, low]
+        supports_seed: false
+        supports_negative_prompt: true
+        supports_reference: false
+        max_n: 6
+        native_protocol: dashscope_multimodal_image
+      - id: qwen-image-2.0
+        label: Qwen Image 2.0
+        supported_sizes:
+          [1024x1024, 2048x2048, 1536x864, 864x1536, 1152x864, 864x1152, 1344x768, 768x1344]
+        supported_qualities: [auto, high, medium, low]
+        supports_seed: false
+        supports_negative_prompt: true
+        supports_reference: false
+        max_n: 6
+        native_protocol: dashscope_multimodal_image
+      - id: qwen-image-max
+        label: Qwen Image Max
+        supported_sizes:
+          [1024x1024, 2048x2048, 1536x864, 864x1536, 1152x864, 864x1152, 1344x768, 768x1344]
+        supported_qualities: [auto, high, medium, low]
+        supports_seed: false
+        supports_negative_prompt: true
+        supports_reference: false
+        max_n: 6
+        native_protocol: dashscope_multimodal_image
+      - id: qwen-image-plus
+        label: Qwen Image Plus
+        supported_sizes:
+          [1024x1024, 2048x2048, 1536x864, 864x1536, 1152x864, 864x1152, 1344x768, 768x1344]
+        supported_qualities: [auto, high, medium, low]
+        supports_seed: false
+        supports_negative_prompt: true
+        supports_reference: false
+        max_n: 6
+        native_protocol: dashscope_multimodal_image
+      - id: qwen-image
+        label: Qwen Image
+        supported_sizes:
+          [1024x1024, 2048x2048, 1536x864, 864x1536, 1152x864, 864x1152, 1344x768, 768x1344]
+        supported_qualities: [auto, high, medium, low]
+        supports_seed: false
+        supports_negative_prompt: true
+        supports_reference: false
+        max_n: 6
+        native_protocol: dashscope_multimodal_image
     fields:
       model:
         visible: true
@@ -623,6 +739,16 @@ providers:
         dimensions: [1536]
         limits:
           max_concurrency: 6
+    image_generation_models:
+      - id: image-01
+        label: Image 01
+        supported_sizes: [1024x1024, 1792x1024, 1024x1792, 1024x768, 768x1024]
+        supported_qualities: [auto, high, medium, low]
+        supports_seed: false
+        supports_negative_prompt: false
+        supports_reference: false
+        max_n: 1
+        native_protocol: minimax_image
     fields:
       model:
         visible: true

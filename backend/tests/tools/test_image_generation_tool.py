@@ -18,6 +18,7 @@ from magi.config.models import (
 from magi.llm.image_generation import (
     ImageArtifact,
     ImageGenRateLimitError,
+    ImageGenerationCapability,
     ImageGenerationRequest,
     ImageGenerationResponse,
 )
@@ -31,10 +32,13 @@ class _FakeAdapter:
         self,
         response: ImageGenerationResponse | None = None,
         error: Exception | None = None,
+        capability: ImageGenerationCapability | None = None,
     ) -> None:
         self.response = response
         self.error = error
+        self.capability = capability
         self.requests: list[ImageGenerationRequest] = []
+        self.closed = False
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
         self.requests.append(request)
@@ -42,6 +46,9 @@ class _FakeAdapter:
             raise self.error
         assert self.response is not None
         return self.response
+
+    async def aclose(self) -> None:
+        self.closed = True
 
 
 class _FakeIngestionService:
@@ -141,7 +148,79 @@ async def test_image_generation_tool_saves_and_returns_chat_attachment(
     assert result.data["chat_attachments"][0]["attachment_id"] == "attachment-1"
     assert result.data["assistant_payload"]["asset_refs"][0]["attachment_id"] == "attachment-1"
     assert fake_adapter.requests[0].prompt == "draw a small desk"
+    assert fake_adapter.closed is True
     assert adapter_kwargs["timeout"] == 181
+
+
+@pytest.mark.asyncio
+async def test_image_generation_tool_downloads_url_artifacts_as_chat_attachments(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fake_adapter = _FakeAdapter(
+        response=ImageGenerationResponse(
+            images=[ImageArtifact(url="https://images.example.com/generated.png")],
+            model="gpt-image-1",
+        )
+    )
+
+    monkeypatch.setattr(image_tool_module, "get_config", _config)
+    monkeypatch.setattr(
+        image_tool_module,
+        "load_llm_provider_registry",
+        lambda *_args, **_kwargs: LLMProviderRegistryModel(),
+    )
+    monkeypatch.setattr(
+        image_tool_module,
+        "create_image_generation_adapter",
+        lambda **_kwargs: fake_adapter,
+    )
+
+    tool = ImageGenerationTool()
+    tool._ingestion_service = _FakeIngestionService()
+
+    async def fake_download_image_url(*_args, **_kwargs):
+        return b"downloaded-image", "image/png"
+
+    monkeypatch.setattr(tool, "_download_image_url", fake_download_image_url)
+
+    result = await tool.execute({"prompt": "draw a small desk"}, _context(tmp_path))
+
+    assert result.success is True
+    assert Path(result.data["paths"][0]).is_file()
+    assert result.data["artifacts"][0]["url"] == "https://images.example.com/generated.png"
+    assert result.data["artifacts"][0]["attachment_id"] == "attachment-1"
+    assert result.data["chat_attachments"][0]["attachment_id"] == "attachment-1"
+    assert fake_adapter.closed is True
+
+
+@pytest.mark.asyncio
+async def test_image_generation_tool_uses_model_default_size_when_size_is_omitted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fake_adapter = _FakeAdapter(
+        response=ImageGenerationResponse(images=[ImageArtifact(b64="ZmFrZQ==")], model="glm-image"),
+        capability=ImageGenerationCapability(supported_sizes=["1280x1280", "1568x1056"]),
+    )
+
+    monkeypatch.setattr(image_tool_module, "get_config", _config)
+    monkeypatch.setattr(
+        image_tool_module,
+        "load_llm_provider_registry",
+        lambda *_args, **_kwargs: LLMProviderRegistryModel(),
+    )
+    monkeypatch.setattr(
+        image_tool_module,
+        "create_image_generation_adapter",
+        lambda **_kwargs: fake_adapter,
+    )
+
+    tool = ImageGenerationTool()
+    tool._ingestion_service = _FakeIngestionService()
+
+    result = await tool.execute({"prompt": "draw a small desk"}, _context(tmp_path))
+
+    assert result.success is True
+    assert fake_adapter.requests[0].size == "1280x1280"
 
 
 @pytest.mark.asyncio
@@ -174,3 +253,4 @@ async def test_image_generation_tool_maps_rate_limit(
     assert result.error_code == ToolErrorCode.RATE_LIMITED.value
     assert result.metadata["status_code"] == 429
     assert len(fake_adapter.requests) == 2
+    assert fake_adapter.closed is True

@@ -262,8 +262,11 @@ class LLMImageGenerationModelMetaModel(BaseModel):
     supports_reference: bool = Field(default=False)
     max_n: int = Field(default=1, ge=1)
     native_protocol: Literal[
+        "dashscope_multimodal_image",
         "openai_images",
         "gemini_predict",
+        "minimax_image",
+        "zai_images",
         "doubao_seedream",
         "replicate",
         "custom",

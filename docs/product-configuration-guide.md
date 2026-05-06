@@ -195,7 +195,10 @@ Current product expectations:
 - custom-provider creation fields and defaults should be delivered by a dedicated template endpoint rather than piggybacking on generic config responses
 - image generation model catalogs should expose provider-owned capability metadata such as supported sizes, supported quality values, maximum image count, and native generation protocol
 - image generation runtime configuration is not inferred from chat settings; it uses `services.image_generation` for timeout and native protocol, and uses service-specific API key/Base URL overrides when present before falling back to the provider-level defaults
+- built-in native image generation adapters currently cover OpenAI Images, Gemini Imagen via `models:predict`, DashScope multimodal image generation, MiniMax Image, and Z.ai Images; providers without verified native image generation should not expose image models
 - image generation models must come from provider-owned registry metadata or native adapter support; manually marking a chat model as `image_output` must not create an image generation model
+- generated image artifacts should be persisted into the active chat workspace and, when a chat session/turn is active, imported as managed chat attachments; provider-hosted image URLs are downloaded best-effort before falling back to the original URL
+- image generation tool invocations are permission-classified as high risk because they trigger external generation and write local image artifacts
 
 At a minimum, the product should support:
 

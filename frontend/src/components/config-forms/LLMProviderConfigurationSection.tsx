@@ -83,6 +83,14 @@ const SERVICE_MODEL_KIND: Record<VisibleServiceName, ServiceModelKind> = {
   image_generation: 'image',
 };
 
+const IMAGE_NATIVE_PROTOCOL_OPTIONS = [
+  { label: 'OpenAI Images', value: 'openai_images' },
+  { label: 'Gemini Predict', value: 'gemini_predict' },
+  { label: 'DashScope Multimodal Image', value: 'dashscope_multimodal_image' },
+  { label: 'MiniMax Image', value: 'minimax_image' },
+  { label: 'Z.ai Images', value: 'zai_images' },
+];
+
 const createInstanceId = (providerType: string): string => `${providerType}_${Date.now()}`;
 
 const cloneConnection = (value?: Partial<LLMProviderConnectionConfig>, defaultEnabled = true): LLMProviderConnectionConfig => ({
@@ -610,7 +618,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       value={draftProvider.services.image_generation.native_protocol || ''}
                       allowEmpty
                       placeholder={t('llm.providerConfiguration.modelDefaultProtocol')}
-                      options={[{ label: 'OpenAI Images', value: 'openai_images' }]}
+                      options={IMAGE_NATIVE_PROTOCOL_OPTIONS}
                       onChange={(nextValue) => updateDraftService('image_generation', (draft) => {
                         draft.native_protocol = nextValue || null;
                       })}

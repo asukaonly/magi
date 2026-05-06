@@ -22,6 +22,9 @@ class ImageGenerationAdapter(ABC):
     async def generate(self, req: ImageGenerationRequest) -> ImageGenerationResponse:
         """Generate images from a provider-independent request."""
 
+    async def aclose(self) -> None:
+        """Release provider adapter resources."""
+
     def normalize_size(self, raw: str) -> str:
         value = str(raw or "").strip().lower()
         allowed = [

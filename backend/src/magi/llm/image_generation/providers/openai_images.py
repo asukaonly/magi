@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
 import httpx
@@ -48,18 +49,27 @@ class OpenAIImagesAdapter(ImageGenerationAdapter):
         self._timeout = timeout
         self.capability = capability or self._default_capability_for_model(model)
 
-        http_client = httpx.AsyncClient(
+        self._http_client = httpx.AsyncClient(
             proxy=proxy_url,
             trust_env=False,
         )
         client_kwargs: dict[str, Any] = {
             "api_key": api_key,
             "timeout": timeout,
-            "http_client": http_client,
+            "http_client": self._http_client,
         }
         if base_url:
             client_kwargs["base_url"] = base_url
         self._client = AsyncOpenAI(**client_kwargs)
+
+    async def aclose(self) -> None:
+        close = getattr(self._client, "close", None)
+        if callable(close):
+            result = close()
+            if inspect.isawaitable(result):
+                await result
+            return
+        await self._http_client.aclose()
 
     @staticmethod
     def _default_capability_for_model(model: str) -> ImageGenerationCapability:

@@ -46,6 +46,7 @@ def classifier() -> RiskClassifier:
         ("web_search", {"query": "python asyncio"}, RiskLevel.LOW),
         # External side effects.
         ("send_message", {"channel": "#general", "text": "hi"}, RiskLevel.HIGH),
+        ("image-generation", {"prompt": "draw a small desk"}, RiskLevel.HIGH),
     ],
 )
 def test_classifier_matrix(
@@ -102,3 +103,19 @@ def test_external_send_substring_fallback_high(
 def test_empty_shell_command_low(classifier: RiskClassifier) -> None:
     result = classifier.classify(tool_name="bash", arguments={"command": "   "})
     assert result.level is RiskLevel.LOW
+
+
+def test_image_generation_records_generation_and_write_signals(
+    classifier: RiskClassifier,
+) -> None:
+    result = classifier.classify(
+        tool_name="image-generation",
+        arguments={"prompt": "draw a small desk"},
+    )
+
+    assert result.level is RiskLevel.HIGH
+    assert result.preview == "draw a small desk"
+    assert {signal.key for signal in result.signals} == {
+        "provider_generation",
+        "fs_write",
+    }

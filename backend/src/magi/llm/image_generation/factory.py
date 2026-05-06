@@ -17,6 +17,7 @@ from .errors import ImageGenInvalidParameterError
 from .registry import (
     get_image_generation_adapter_class,
     is_registered_image_generation_protocol,
+    registered_image_generation_protocols,
 )
 from .types import ImageGenerationCapability
 
@@ -187,7 +188,7 @@ def create_image_generation_adapter(
         raise ImageGenInvalidParameterError(
             f"Image generation protocol '{protocol or 'unknown'}' is not supported yet.",
             field="native_protocol",
-            allowed_values=["openai_images"],
+            allowed_values=registered_image_generation_protocols(),
             provider_id=provider_id,
         )
 

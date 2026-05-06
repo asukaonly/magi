@@ -4,12 +4,20 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import binascii
+import inspect
 import time
 import uuid
 from pathlib import Path
 from typing import Any, Dict
+from urllib.parse import urlparse
 
-from ...chat.attachment_ingestion import LocalChatAttachmentIngestionService
+import httpx
+
+from ...chat.attachment_ingestion import (
+    MAX_IMAGE_ATTACHMENT_BYTES,
+    LocalChatAttachmentIngestionService,
+)
 from ..schema import (
     Tool,
     ToolSchema,
@@ -39,6 +47,7 @@ from ...llm.image_generation import (
 logger = get_logger(__name__, category="TOOLS")
 
 DEFAULT_IMAGE_GENERATION_TIMEOUT_SECONDS = 180
+DEFAULT_IMAGE_DOWNLOAD_TIMEOUT_SECONDS = 30
 TRANSIENT_IMAGE_GENERATION_RETRIES = 1
 
 
@@ -148,7 +157,7 @@ class ImageGenerationTool(Tool):
                 execution_time=time.time() - start,
             )
 
-        size = str(parameters.get("size") or "1024x1024").strip()
+        size = str(parameters.get("size") or "").strip()
         quality = str(parameters.get("quality") or "auto").strip()
 
         config = get_config()
@@ -207,17 +216,21 @@ class ImageGenerationTool(Tool):
                 timeout=self._configured_timeout_seconds(),
                 proxy_url=proxy_url,
             )
+            request_size = size or self._default_size_for_adapter(adapter)
 
-            result = await self._generate_with_transient_retry(
-                adapter,
-                ImageGenerationRequest(
-                    prompt=prompt,
-                    model=selection.model,
-                    size=size,
-                    quality=quality,
-                    n=1,
-                ),
-            )
+            try:
+                result = await self._generate_with_transient_retry(
+                    adapter,
+                    ImageGenerationRequest(
+                        prompt=prompt,
+                        model=selection.model,
+                        size=request_size,
+                        quality=quality,
+                        n=1,
+                    ),
+                )
+            finally:
+                await self._close_adapter(adapter)
 
             if not result.images:
                 return ToolResult(
@@ -227,12 +240,13 @@ class ImageGenerationTool(Tool):
                     execution_time=time.time() - start,
                 )
 
-            saved_paths, artifacts, chat_attachments = self._persist_images(
+            saved_paths, artifacts, chat_attachments = await self._persist_images(
                 images=result.images,
                 workspace=Path(context.workspace).resolve(),
                 model=selection.model,
                 session_id=str(context.env_vars.get("session_id") or "").strip(),
                 turn_id=str(context.env_vars.get("turn_id") or "").strip(),
+                proxy_url=proxy_url,
             )
 
             revised_prompt = next(
@@ -313,7 +327,27 @@ class ImageGenerationTool(Tool):
         assert last_error is not None
         raise last_error
 
-    def _persist_images(
+    @staticmethod
+    def _default_size_for_adapter(adapter: Any) -> str:
+        capability = getattr(adapter, "capability", None)
+        supported_sizes = getattr(capability, "supported_sizes", None)
+        if isinstance(supported_sizes, list) and supported_sizes:
+            return str(supported_sizes[0])
+        return "1024x1024"
+
+    @staticmethod
+    async def _close_adapter(adapter: Any) -> None:
+        close = getattr(adapter, "aclose", None)
+        if not callable(close):
+            return
+        try:
+            result = close()
+            if inspect.isawaitable(result):
+                await result
+        except Exception as exc:  # noqa: BLE001 - cleanup must not hide generation errors
+            logger.warning("Image generation adapter cleanup failed", error=str(exc))
+
+    async def _persist_images(
         self,
         *,
         images: list[ImageArtifact],
@@ -321,6 +355,7 @@ class ImageGenerationTool(Tool):
         model: str,
         session_id: str,
         turn_id: str,
+        proxy_url: str | None = None,
     ) -> tuple[list[str], list[dict[str, Any]], list[dict[str, object]]]:
         output_dir = workspace / "generated_images"
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -332,12 +367,28 @@ class ImageGenerationTool(Tool):
         for idx, image in enumerate(images):
             saved_path: str | None = None
             attachment: dict[str, object] | None = None
+            image_bytes: bytes | None = None
+            image_mime = image.mime
 
             if image.b64:
-                extension = self._extension_for_mime(image.mime)
+                image_bytes = self._decode_image_b64(image.b64)
+            elif image.url:
+                downloaded = await self._download_image_url(
+                    image.url,
+                    fallback_mime=image.mime,
+                    proxy_url=proxy_url,
+                )
+                if downloaded is not None:
+                    image_bytes, image_mime = downloaded
+                else:
+                    saved_path = image.url
+                    saved_paths.append(image.url)
+
+            if image_bytes is not None:
+                extension = self._extension_for_mime(image_mime)
                 filename = f"{uuid.uuid4().hex[:12]}{extension}"
                 filepath = output_dir / filename
-                filepath.write_bytes(base64.b64decode(image.b64))
+                filepath.write_bytes(image_bytes)
                 saved_path = str(filepath)
                 saved_paths.append(saved_path)
                 logger.info("Image saved", path=saved_path, model=model)
@@ -347,16 +398,16 @@ class ImageGenerationTool(Tool):
                         turn_id=turn_id,
                         file_path=saved_path,
                         original_name=filename,
-                        mime_type=image.mime,
+                        mime_type=image_mime,
                     )
                     chat_attachments.append(attachment)
-            elif image.url:
+            elif image.url and saved_path is None:
                 saved_path = image.url
                 saved_paths.append(image.url)
 
             artifact_payload: dict[str, Any] = {
                 "index": idx,
-                "mime": image.mime,
+                "mime": image_mime,
                 "path": saved_path,
                 "url": image.url,
                 "seed": image.seed,
@@ -369,6 +420,70 @@ class ImageGenerationTool(Tool):
             )
 
         return saved_paths, artifacts, chat_attachments
+
+    @staticmethod
+    def _decode_image_b64(value: str) -> bytes:
+        try:
+            return base64.b64decode(value, validate=True)
+        except binascii.Error as exc:
+            raise ImageGenInvalidParameterError(
+                "Provider returned invalid base64 image data.",
+                field="image.b64",
+                raw=exc,
+            ) from exc
+
+    @staticmethod
+    async def _download_image_url(
+        url: str,
+        *,
+        fallback_mime: str,
+        proxy_url: str | None = None,
+    ) -> tuple[bytes, str] | None:
+        parsed = urlparse(str(url or "").strip())
+        if parsed.scheme not in {"http", "https"}:
+            logger.warning("Skipping generated image URL with unsupported scheme", url=url)
+            return None
+
+        try:
+            async with httpx.AsyncClient(
+                follow_redirects=True,
+                proxy=proxy_url,
+                timeout=DEFAULT_IMAGE_DOWNLOAD_TIMEOUT_SECONDS,
+                trust_env=False,
+            ) as client:
+                response = await client.get(url)
+                response.raise_for_status()
+                content_type = (
+                    str(response.headers.get("content-type") or "")
+                    .split(";", 1)[0]
+                    .strip()
+                    .lower()
+                )
+                content_length = response.headers.get("content-length")
+                if content_length and int(content_length) > MAX_IMAGE_ATTACHMENT_BYTES:
+                    logger.warning("Generated image URL is too large to import", url=url)
+                    return None
+                content = await response.aread()
+        except Exception as exc:  # noqa: BLE001 - provider URLs are best-effort artifact imports
+            logger.warning("Failed to download generated image URL", url=url, error=str(exc))
+            return None
+
+        if not content or len(content) > MAX_IMAGE_ATTACHMENT_BYTES:
+            logger.warning("Generated image URL content is empty or too large", url=url)
+            return None
+        if (
+            content_type
+            and not content_type.startswith("image/")
+            and content_type != "application/octet-stream"
+        ):
+            logger.warning(
+                "Generated image URL returned a non-image content type",
+                url=url,
+                content_type=content_type,
+            )
+            return None
+        resolved_mime = content_type if content_type.startswith("image/") else fallback_mime
+        return content, resolved_mime or "image/png"
 
     @staticmethod
     def _extension_for_mime(mime: str) -> str:
