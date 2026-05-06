@@ -46,6 +46,9 @@ Local-only working drafts, design spikes, and execution plans belong under `docs
   resolution, chat attachments, or follow-up routing from memory recall to
   plugin-owned evidence.
 
+13. [Persistence & Migrations](./persistence-and-migrations.md)
+  Read this when working on any SQLite schema — adding columns, creating tables, changing indexes — or before running anything in `python -m magi.db`. Covers the runtime DB layout, the Alembic environment per core DB, and the workflow for landing a schema change.
+
 12. [Backlog](./backlog.md)
   Current development and maintenance follow-ups that are intentionally not mixed into the design docs.
 
@@ -65,6 +68,9 @@ Local-only working drafts, design spikes, and execution plans belong under `docs
 
 - Memory maintainers
   Read [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md), then [Memory System Design](./memory-system-design.md).
+
+- Schema and storage maintainers
+  Read [Persistence & Migrations](./persistence-and-migrations.md) before touching any SQLite DDL or migration file.
 
 - Plugin maintainers
   Read [Unified Plugin Architecture](./plugin-extension-architecture.md), [Plugin Development Guide](./plugin-development-guide.md), and [Unified Asset Resolver Architecture](./unified-asset-resolver-architecture.md) when contributing reusable local assets.
