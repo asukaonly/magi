@@ -71,10 +71,17 @@ class WorkerAgentManager(
     _EXPLORE_TOOL_CANDIDATES = ["glob", "grep", "file_read"]
     _PLAN_TOOL_CANDIDATES = ["glob", "grep", "file_read", "web-search"]
     _CODING_TOOL_CANDIDATES = [
-        "file_read", "file_edit", "file_write", "file_rollback", "file_diff",
+        "file_read",
+        "file_edit",
+        "file_write",
+        "file_rollback",
+        "file_diff",
         "verify",
-        "glob", "grep", "file_list", "file_info",
-        "bash", "todo_write",
+        "glob",
+        "grep",
+        "file_list",
+        "file_info",
+        "bash",
     ]
 
     def __init__(self) -> None:
@@ -155,9 +162,7 @@ class WorkerAgentManager(
                 llm_adapter=self._llm_adapter,
                 tool_registry=self._tool_registry,
                 skill_runner=None,
-                tool_result_callback=lambda payload: self._handle_tool_result(
-                    run_state, payload
-                ),
+                tool_result_callback=lambda payload: self._handle_tool_result(run_state, payload),
                 loop_event_callback=lambda payload: self._handle_worker_loop_event(
                     run_state, payload
                 ),
@@ -370,9 +375,7 @@ class WorkerAgentManager(
                 await asyncio.gather(*pending, return_exceptions=True)
         return cancelled_worker_ids
 
-    async def _handle_tool_result(
-        self, run_state: WorkerRunState, payload: Dict[str, Any]
-    ) -> None:
+    async def _handle_tool_result(self, run_state: WorkerRunState, payload: Dict[str, Any]) -> None:
         result_preview = self._compact_value(payload.get("data"))
         await self._emit_worker_tool_trace(
             run_state=run_state,

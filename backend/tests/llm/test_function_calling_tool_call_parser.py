@@ -216,6 +216,46 @@ def test_build_tool_message_payload_compacts_glob_matches() -> None:
     assert "modified" not in payload["data"]["matches"][0]
 
 
+def test_build_tool_message_payload_compacts_file_list_entries() -> None:
+    postprocessor = FunctionCallingPostprocessor()
+    entries = [
+        {
+            "name": f"episode_{i}.mp4",
+            "path": f"/tmp/series/episode_{i}.mp4",
+            "relative_path": f"episode_{i}.mp4",
+            "kind": "file",
+            "is_dir": False,
+            "size": i,
+            "modified": i,
+            "depth": 0,
+        }
+        for i in range(45)
+    ]
+    payload = postprocessor.build_tool_message_payload(
+        tool_name="file_list",
+        result=ToolCallResult(
+            tool_call_id="l1",
+            tool_name="file_list",
+            success=True,
+            data={
+                "path": "/tmp/series",
+                "recursive": True,
+                "count": len(entries),
+                "entries": entries,
+            },
+            error=None,
+        ),
+    )
+
+    assert payload["success"] is True
+    assert payload["data"]["count"] == 45
+    assert payload["data"]["omitted_entries"] == 5
+    assert len(payload["data"]["entries"]) == 40
+    assert payload["data"]["entries"][0]["relative_path"] == "episode_0.mp4"
+    assert "modified" not in payload["data"]["entries"][0]
+    assert "path" not in payload["data"]["entries"][0]
+
+
 def test_build_tool_message_payload_keeps_structured_worker_result() -> None:
     postprocessor = FunctionCallingPostprocessor()
     payload = postprocessor.build_tool_message_payload(
@@ -919,6 +959,103 @@ def test_classify_final_failure_returns_ambiguous_scope_for_scope_only_failures(
     )
 
     assert failure == "AMBIGUOUS_SCOPE"
+
+
+def test_classify_exception_failure_detects_content_inspection() -> None:
+    executor = FunctionCallingOrchestrator(
+        llm_adapter=_DummyLLMAdapter(),
+        tool_registry=_RecordingToolRegistry(),  # type: ignore[arg-type]
+    )
+
+    failure = executor._classify_exception_failure(
+        RuntimeError("<400> InternalError.Algo.DataInspectionFailed: data_inspection_failed")
+    )
+
+    assert failure == "CONTENT_INSPECTION_FAILED"
+
+
+@pytest.mark.asyncio
+async def test_execute_with_tools_blocks_unchanged_failed_tool_retry() -> None:
+    registry = _SequencedToolRegistry(
+        results={
+            "grep": [
+                ToolResult(
+                    success=False,
+                    error="Explore worker guardrail: root-wide grep is blocked.",
+                    error_code="INVALID_PARAMETERS",
+                )
+            ],
+        }
+    )
+    executor = FunctionCallingOrchestrator(
+        llm_adapter=_DummyLLMAdapter(),
+        tool_registry=registry,  # type: ignore[arg-type]
+    )
+
+    llm_calls: list[dict[str, Any]] = []
+
+    async def _fake_call_llm_with_tools(**kwargs):  # type: ignore[no-untyped-def]
+        llm_calls.append(kwargs)
+        return {
+            "content": "",
+            "assistant_message": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": f"call_grep_{len(llm_calls)}",
+                        "type": "function",
+                        "function": {"name": "grep", "arguments": "{}"},
+                    }
+                ],
+            },
+            "tool_calls": [
+                ToolCall(
+                    id=f"call_grep_{len(llm_calls)}",
+                    name="grep",
+                    arguments={"pattern": "TODO", "glob": "**/*"},
+                )
+            ],
+        }
+
+    executor._call_llm_with_tools = _fake_call_llm_with_tools  # type: ignore[method-assign]
+
+    result = await executor.execute_with_tools(
+        turn=UserTurnInput(text="inspect backend", attachments=[], user_id=None, session_id=None),
+        system_prompt="sys",
+        selected_tools=["grep"],
+        user_id="u1",
+        max_iterations=4,
+    )
+
+    assert result.status == "failed"
+    assert [call[0] for call in registry.calls] == ["grep"]
+    assert any(item["error_code"] == "REPEATED_FAILED_TOOL_CALL" for item in result.tool_failures)
+
+
+@pytest.mark.asyncio
+async def test_worker_origin_cannot_execute_todo_write() -> None:
+    registry = _RecordingToolRegistry()
+    executor = FunctionCallingOrchestrator(
+        llm_adapter=_DummyLLMAdapter(),
+        tool_registry=registry,  # type: ignore[arg-type]
+    )
+
+    result = await executor._execute_tool_call(
+        tool_call=ToolCall(id="todo_1", name="todo_write", arguments={"items": []}),
+        user_message="update worker todo",
+        user_id="u1",
+        session_id="s1",
+        turn_id="t1",
+        intent="worker_coding",
+        execution_agent_id="worker_123",
+        execution_workspace="/tmp",
+        orchestration_strategy=None,
+    )
+
+    assert result.success is False
+    assert result.error_code == "ROLE_NOT_ALLOWED"
+    assert registry.calls == []
 
 
 @pytest.mark.asyncio

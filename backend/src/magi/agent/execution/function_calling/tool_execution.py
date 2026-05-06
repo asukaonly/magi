@@ -116,6 +116,22 @@ class FunctionCallingToolExecutionMixin:
                     execution_workspace=execution_workspace,
                 )
 
+            if tool_name == "todo_write" and (
+                str(intent or "").startswith("worker_")
+                or str(execution_agent_id or "").startswith("worker_")
+            ):
+                return ToolCallResult(
+                    tool_call_id=tool_call.id,
+                    tool_name=tool_name,
+                    success=False,
+                    error=(
+                        "todo_write is owned by the parent task agent; "
+                        "worker agents must report progress through worker results."
+                    ),
+                    error_code="ROLE_NOT_ALLOWED",
+                    execution_time=time.time() - start_time,
+                )
+
             arguments, guardrail_error = host._apply_worker_explore_guardrails(
                 intent=intent,
                 tool_name=tool_name,

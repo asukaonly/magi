@@ -400,6 +400,28 @@ Explicit historical recall is handled separately from implicit prompt injection:
 - raw retrieval traces remain in the debug/trace path and are not reinjected into the main LLM tool-message context
 - cross-turn tool continuity uses only a compact chat-specific summary block; old raw tool transcripts, full arguments, and full results are not replayed into the general chat prompt
 
+### Function-calling recovery rules
+
+`FunctionCallingOrchestrator` owns the bounded tool loop used by chat turns,
+workers, and background tasks. The loop treats some failures as terminal for
+the current plan instead of spending extra LLM rounds on retries that cannot
+change the outcome:
+
+- provider content-inspection failures are classified as
+  `CONTENT_INSPECTION_FAILED`, retain a compact upstream error trace for
+  diagnostics, and do not trigger automatic replanning
+- an unchanged tool call that already failed in the same loop is blocked with
+  `REPEATED_FAILED_TOOL_CALL`; the model must change parameters or choose a
+  different path before another attempt is allowed
+- final response synthesis should prefer the latest successful verification or
+  listing evidence over older failed attempts, and a dry-run reporting zero
+  planned operations is treated as current-state evidence rather than an
+  instruction to ask the user to run a script
+
+Tool-message context stays compact. Large listing-style tools, including
+`glob` and `file_list`, expose bounded path/name summaries to the LLM while
+leaving exact execution details in `runtime_trace.db`.
+
 ### `ExploreTaskAgent`
 
 Specialized task agent in `agent/task_agents/explore_task_agent.py`.
@@ -438,6 +460,14 @@ Current responsibilities:
 - persist worker results for parent-task recovery
 
 Workers remain leaf executors and do not recursively create other workers.
+They also do not own user-facing control state: worker tool profiles exclude
+`todo_write`, and function-calling execution rejects worker-originated
+`todo_write` calls even if a stale or custom profile exposes the tool.
+
+Worker outputs must still satisfy the typed worker-result contract, but the
+validator accepts a JSON object embedded in surrounding prose or a fenced code
+block before checking required fields. This keeps minor formatting drift from
+turning an otherwise valid worker result into an orchestration failure.
 
 ## Background Tasks
 
@@ -624,7 +654,10 @@ Event channels (all published via
   control-plane store at ``start_orchestration`` and after every
   worker progress/completion/failure fact. Leaf workers do not own the
   todo list; their ``todo_write`` tool is removed from worker tool
-  allowlists so the planner stays the single source of truth.
+  allowlists and denied at execution time so the planner stays the
+  single source of truth. Once the orchestration or all of its subtasks
+  reach terminal states, the planner publishes an empty todo list so the
+  frontend does not keep stale in-progress items after completion.
 
 All payloads include ``session_id`` and, where a tool context is
 available, ``turn_id`` derived from ``ToolExecutionContext.env_vars``.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any
 
@@ -38,6 +39,20 @@ class FunctionCallingGuardrailsMixin:
         "bun.lockb",
     ]
     _FILE_SCAN_TOOLS = {"glob", "grep"}
+
+    @staticmethod
+    def _tool_call_fingerprint(tool_name: str, arguments: dict[str, Any]) -> str:
+        """Return a stable identity for blocking unchanged failed retries."""
+        try:
+            rendered_arguments = json.dumps(
+                arguments,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        except TypeError:
+            rendered_arguments = repr(arguments)
+        return f"{tool_name}:{rendered_arguments}"
 
     def _apply_worker_explore_guardrails(
         self,
@@ -94,7 +109,9 @@ class FunctionCallingGuardrailsMixin:
         if tool_name == "grep":
             file_glob = str(safe_args.get("glob", "*")).strip()
             path_value = str(safe_args.get("path", ".")).strip()
-            if file_glob in {"*", "**/*", "**"} and self._is_workspace_root_path(path_value, execution_workspace):
+            if file_glob in {"*", "**/*", "**"} and self._is_workspace_root_path(
+                path_value, execution_workspace
+            ):
                 return {}, (
                     f"{scan_label} worker guardrail: root-wide grep is blocked. "
                     "Use a scoped glob like frontend/**/*.ts or backend/**/*.py."
@@ -164,14 +181,19 @@ class FunctionCallingGuardrailsMixin:
         return any(candidate and candidate in normalized_message for candidate in candidates)
 
     def _resolve_execution_workspace(self, execution_workspace: str | None) -> str:
-        raw_workspace = str(execution_workspace or "").strip() or _resolve_default_chat_workspace_path()
+        raw_workspace = (
+            str(execution_workspace or "").strip() or _resolve_default_chat_workspace_path()
+        )
         return os.path.realpath(os.path.expandvars(os.path.expanduser(raw_workspace)))
 
     @staticmethod
     def _classify_guardrail_error_code(*, tool_name: str, error_text: str) -> str:
-        if tool_name in {"glob", "grep"} and str(error_text or "").startswith("File scan guardrail:"):
+        if tool_name in {"glob", "grep"} and str(error_text or "").startswith(
+            "File scan guardrail:"
+        ):
             return "AMBIGUOUS_SCOPE"
-            from ....tools.schema import ToolErrorCode
+
+        from ....tools.schema import ToolErrorCode
 
         return str(ToolErrorCode.INVALID_PARAMETERS.value)
 

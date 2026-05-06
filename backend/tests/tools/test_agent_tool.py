@@ -46,6 +46,23 @@ class _FakeToolRegistry:
         return ["glob", "grep", "file_read", "bash", "web-search", "agent"]
 
 
+class _FakeToolRegistryWithTodo:
+    def list_tools(self):
+        return [
+            "glob",
+            "grep",
+            "file_read",
+            "file_edit",
+            "file_write",
+            "file_list",
+            "file_info",
+            "verify",
+            "bash",
+            "todo_write",
+            "agent",
+        ]
+
+
 class _FakeFunctionCallingOrchestrator:
     def __init__(
         self,
@@ -309,9 +326,7 @@ async def test_agent_tool_persists_worker_trace_nodes_to_runtime_trace_store(
         dispatch_span = await runtime_trace_store.get_span("turn-1:worker_dispatch:subtask-1")
         attempt_span = await runtime_trace_store.get_span("turn-1:worker_attempt:subtask-1:1")
         worker_span = await runtime_trace_store.get_span("turn-1:worker:subtask-1:1")
-        tool_call = await runtime_trace_store.get_tool_call(
-            "turn-1:worker_tool:subtask-1:1:glob"
-        )
+        tool_call = await runtime_trace_store.get_tool_call("turn-1:worker_tool:subtask-1:1:glob")
 
         assert result.success is True
         assert dispatch_span is not None
@@ -815,9 +830,74 @@ async def test_invalid_json_worker_result_is_marked_failed(monkeypatch):
     assert result.success is False
     assert result.data["status"] == "failed"
     assert result.data["failure_reason"] == "INVALID_WORKER_RESULT"
-    assert result.error == "Worker did not return valid JSON"
+    assert result.error == "Worker result is missing required fields"
     assert published_events[-1][0] == "WORKER_AGENT_FAILED"
     assert published_events[-1][1] == "INVALID_WORKER_RESULT"
+
+
+@pytest.mark.asyncio
+async def test_embedded_json_worker_result_is_accepted(monkeypatch):
+    from magi.agent.workers import worker_manager as worker_manager_module
+
+    class _EmbeddedJsonExecutor:
+        def __init__(self, *args, **kwargs):
+            _ = (args, kwargs)
+
+        async def execute_with_tools(self, **kwargs):  # type: ignore[no-untyped-def]
+            _ = kwargs
+            return ExecutionOutcome(
+                status="completed",
+                content=(
+                    'Result:\n```json\n{"result_status":"success","summary":"done",'
+                    '"findings":[{"title":"file","detail":"checked",'
+                    '"path":"/tmp/a.py","why_it_matters":"evidence"}],'
+                    '"evidence":[{"path":"/tmp/a.py","detail":"checked"}],'
+                    '"gaps":[],"next_steps":[],"failure_reason":null}\n```'
+                ),
+                iterations=1,
+            )
+
+    monkeypatch.setattr(worker_manager_module, "FunctionCallingOrchestrator", _EmbeddedJsonExecutor)
+    tool = AgentTool()
+    tool.configure(llm_adapter=_FakeLLMAdapter(), tool_registry_instance=_FakeToolRegistry())
+
+    async def _fake_publish(run_state, event_type, internal_payload, public_payload=None):
+        _ = (run_state, event_type, internal_payload, public_payload)
+
+    monkeypatch.setattr(tool._manager, "_publish_worker_fact", _fake_publish)
+
+    result = await tool.execute(
+        parameters={
+            "action": "launch",
+            "subagent_type": "Explore",
+            "description": "scan auth flow",
+            "prompt": "Locate token generation points",
+            "run_in_background": False,
+        },
+        context=ToolExecutionContext(
+            agent_id="chat:u-chat",
+            workspace="/tmp",
+            env_vars={"user_id": "u-chat", "session_id": "s-chat"},
+            permissions=["authenticated"],
+        ),
+    )
+
+    assert result.success is True
+    assert result.data["status"] == "completed"
+    assert result.data["result"]["summary"] == "done"
+
+
+def test_coding_worker_tool_profile_excludes_todo_write() -> None:
+    tool = AgentTool()
+    tool.configure(
+        llm_adapter=_FakeLLMAdapter(),
+        tool_registry_instance=_FakeToolRegistryWithTodo(),
+    )
+
+    selected_tools = tool._resolve_tools_for_type("Coding")
+
+    assert "todo_write" not in selected_tools
+    assert "file_write" in selected_tools
 
 
 @pytest.mark.asyncio

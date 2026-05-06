@@ -46,6 +46,9 @@ class FunctionCallingResponseMixin:
             "- Tools are no longer available in this step.",
             "- Do not emit tool calls, XML-like <tool_call> blocks, JSON tool payloads, or any protocol markup.",
             "- Use the existing evidence in the conversation and write the final answer directly.",
+            "- When tool results conflict, prefer the later tool result over earlier plans, guesses, or dry-run output.",
+            "- Treat successful verification and directory-listing tool results as the current state of the world.",
+            "- If a dry-run reports zero planned operations, do not tell the user to run the script unless later evidence proves work is still pending; explain whether the current state already appears complete or the script failed to match.",
             "- Return natural language only.",
         ]
         if strict_plain_text:
@@ -74,6 +77,7 @@ class FunctionCallingResponseMixin:
         final_messages = [dict(message) for message in messages]
         reminder = (
             "Use the gathered evidence and write the final answer now. "
+            "Prefer the latest successful verification/listing result when describing current state. "
             "Do not call tools or output any tool markup."
         )
         if force_plain_text:
@@ -105,10 +109,7 @@ class FunctionCallingResponseMixin:
             return True
         if available_tools:
             failed_names = {str(result.tool_name) for result in tool_results}
-            all_names = {
-                str(tool.get("function", {}).get("name", ""))
-                for tool in available_tools
-            }
+            all_names = {str(tool.get("function", {}).get("name", "")) for tool in available_tools}
             if all_names - failed_names:
                 return True
         return False
@@ -173,7 +174,9 @@ class FunctionCallingResponseMixin:
             if key == "attachments":
                 continue
             if isinstance(value, list):
-                normalized_items = [dict(item) if isinstance(item, dict) else item for item in value]
+                normalized_items = [
+                    dict(item) if isinstance(item, dict) else item for item in value
+                ]
                 existing = merged.get(key)
                 if isinstance(existing, list):
                     merged[key] = [*existing, *normalized_items]
@@ -188,9 +191,13 @@ class FunctionCallingResponseMixin:
         tool_failures: list[dict[str, Any]],
         all_tools_failed: bool,
     ) -> str:
-        if tool_failures and all(item.get("error_code") == "AMBIGUOUS_SCOPE" for item in tool_failures):
+        if tool_failures and all(
+            item.get("error_code") == "AMBIGUOUS_SCOPE" for item in tool_failures
+        ):
             return "AMBIGUOUS_SCOPE"
-        if tool_failures and all(item.get("error_code") == "INVALID_PARAMETERS" for item in tool_failures):
+        if tool_failures and all(
+            item.get("error_code") == "INVALID_PARAMETERS" for item in tool_failures
+        ):
             return "INVALID_TOOL_CALL"
         if all_tools_failed and tool_failures:
             return "ALL_TOOLS_FAILED"
@@ -227,11 +234,11 @@ class FunctionCallingResponseMixin:
         if not messages:
             return ""
 
-        recent = messages[-self._PARENT_CONTEXT_MAX_MESSAGES:]
+        recent = messages[-self._PARENT_CONTEXT_MAX_MESSAGES :]
         rendered = str(ContextCompactor._render_messages_for_summary(recent))
         if len(rendered) > self._PARENT_CONTEXT_MAX_CHARS:
-            rendered = rendered[-self._PARENT_CONTEXT_MAX_CHARS:]
+            rendered = rendered[-self._PARENT_CONTEXT_MAX_CHARS :]
             newline_index = rendered.find("\n")
             if newline_index > 0:
-                rendered = rendered[newline_index + 1:]
+                rendered = rendered[newline_index + 1 :]
         return rendered

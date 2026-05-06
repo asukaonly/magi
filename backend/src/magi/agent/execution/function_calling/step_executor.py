@@ -8,6 +8,7 @@ from typing import Any
 
 from ....config.models import ThinkingDepth
 from ...cancel import CancelToken, null_cancel_token
+from .types import ToolCallResult
 
 
 @dataclass(slots=True)
@@ -24,6 +25,7 @@ class FunctionCallingStepState:
     allow_attachment_grounding: bool = False
     consecutive_failed_tool_iterations: int = 0
     all_tools_failed: bool = False
+    failed_tool_call_fingerprints: set[str] = field(default_factory=set)
 
 
 @dataclass(slots=True)
@@ -34,6 +36,7 @@ class FunctionCallingStepOutcome:
     iteration: int
     content: str = ""
     failure_reason: str | None = None
+    error_text: str | None = None
 
 
 class FunctionCallingStepExecutor:
@@ -96,18 +99,20 @@ class FunctionCallingStepExecutor:
             )
         except Exception as exc:
             failure_reason = self._driver._classify_exception_failure(exc)
+            error_text = self._driver._format_exception_trace_text(exc)
             await self._driver._complete_iteration_trace(
                 turn_id=turn_id,
                 iteration=iteration,
                 execution_agent_id=execution_agent_id,
                 started_at_ms=iteration_started_at_ms,
                 status="failed",
-                error_text=failure_reason,
+                error_text=error_text,
             )
             return FunctionCallingStepOutcome(
                 status="failed",
                 iteration=iteration,
                 failure_reason=failure_reason,
+                error_text=error_text,
             )
 
         assistant_message = response.get("assistant_message")
@@ -143,6 +148,8 @@ class FunctionCallingStepExecutor:
 
             tool_results = []
             for tool_call in tool_calls:
+                raw_arguments = tool_call.arguments if isinstance(tool_call.arguments, dict) else {}
+                fingerprint = self._driver._tool_call_fingerprint(tool_call.name, raw_arguments)
                 if await token.is_cancelled():
                     await self._driver._complete_iteration_trace(
                         turn_id=turn_id,
@@ -153,21 +160,33 @@ class FunctionCallingStepExecutor:
                         error_text="Run cancelled before tool execution",
                     )
                     return FunctionCallingStepOutcome(status="cancelled", iteration=iteration)
-                result = await self._driver._execute_tool_call(
-                    tool_call=tool_call,
-                    user_message=user_message,
-                    user_id=user_id,
-                    session_id=session_id,
-                    session_run_id=session_run_id,
-                    session_run_revision=session_run_revision,
-                    turn_id=turn_id,
-                    intent=intent,
-                    execution_agent_id=execution_agent_id,
-                    iteration=iteration,
-                    execution_workspace=execution_workspace,
-                    orchestration_strategy=orchestration_strategy,
-                    cancel_token=token,
-                )
+                if fingerprint in state.failed_tool_call_fingerprints:
+                    result = ToolCallResult(
+                        tool_call_id=tool_call.id,
+                        tool_name=tool_call.name,
+                        success=False,
+                        error=(
+                            "Repeated failed tool call blocked: choose corrected arguments, "
+                            "a narrower scope, or a different tool."
+                        ),
+                        error_code="REPEATED_FAILED_TOOL_CALL",
+                    )
+                else:
+                    result = await self._driver._execute_tool_call(
+                        tool_call=tool_call,
+                        user_message=user_message,
+                        user_id=user_id,
+                        session_id=session_id,
+                        session_run_id=session_run_id,
+                        session_run_revision=session_run_revision,
+                        turn_id=turn_id,
+                        intent=intent,
+                        execution_agent_id=execution_agent_id,
+                        iteration=iteration,
+                        execution_workspace=execution_workspace,
+                        orchestration_strategy=orchestration_strategy,
+                        cancel_token=token,
+                    )
                 tool_results.append(result)
                 if result.error_code == "CANCELLED" or await token.is_cancelled():
                     await self._driver._complete_iteration_trace(
@@ -180,6 +199,7 @@ class FunctionCallingStepExecutor:
                     )
                     return FunctionCallingStepOutcome(status="cancelled", iteration=iteration)
                 if not result.success:
+                    state.failed_tool_call_fingerprints.add(fingerprint)
                     state.tool_failures.append(
                         {
                             "tool_call_id": result.tool_call_id,
