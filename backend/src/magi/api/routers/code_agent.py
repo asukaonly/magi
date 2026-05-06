@@ -156,7 +156,14 @@ def get_delegation(
     else:
         result = None
     events_tail = _read_events_tail(delegation_dir / "events.jsonl", limit=50)
-    return {"result": result, "events_tail": events_tail}
+    patch_path = delegation_dir / "changes.patch"
+    diff_text = ""
+    if patch_path.is_file():
+        try:
+            diff_text = patch_path.read_text(encoding="utf-8")
+        except OSError:
+            diff_text = ""
+    return {"result": result, "events_tail": events_tail, "diff_text": diff_text}
 
 
 @code_agent_router.post("/delegations/{session_id}/{delegation_id}/cancel")

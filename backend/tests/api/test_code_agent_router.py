@@ -159,7 +159,8 @@ def test_get_delegation_returns_result_and_events_tail(
 ) -> None:
     workspace = tmp_path / "ws"
     workspace.mkdir()
-    _stage_delegation(workspace, "s1", "x" * 32)
+    delegation_dir = _stage_delegation(workspace, "s1", "x" * 32)
+    (delegation_dir / "changes.patch").write_text("--- a/x\n+++ b/x\n")
     res = client.get(
         f"/api/code_agent/delegations/s1/{'x' * 32}",
         params={"workspace": str(workspace)},
@@ -168,6 +169,7 @@ def test_get_delegation_returns_result_and_events_tail(
     body = res.json()
     assert body["result"]["delegation_id"] == "x" * 32
     assert len(body["events_tail"]) == 2
+    assert "+++ b/x" in body["diff_text"]
 
 
 def test_get_delegation_404_when_missing(client: TestClient, tmp_path: Path) -> None:

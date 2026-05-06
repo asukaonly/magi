@@ -24,6 +24,7 @@ export function useDelegationHydration(
   const setResult = useDelegationsStore((s) => s.setResult);
   const setEventsTail = useDelegationsStore((s) => s.setEventsTail);
   const setLifecycle = useDelegationsStore((s) => s.setLifecycle);
+  const setDiffText = useDelegationsStore((s) => s.setDiffText);
 
   useEffect(() => {
     if (!sessionId || !delegationId || !workspace) return;
@@ -33,7 +34,7 @@ export function useDelegationHydration(
     setHydrating(sessionId, delegationId, true);
     codeAgentApi
       .getDelegation(sessionId, delegationId, workspace)
-      .then(({ result, events_tail }) => {
+      .then(({ result, events_tail, diff_text }) => {
         if (cancelled) return;
         if (result) {
           setResult(sessionId, delegationId, result);
@@ -49,6 +50,9 @@ export function useDelegationHydration(
         }
         if (Array.isArray(events_tail) && events_tail.length > 0) {
           setEventsTail(sessionId, delegationId, events_tail);
+        }
+        if (typeof diff_text === 'string') {
+          setDiffText(sessionId, delegationId, diff_text);
         }
       })
       .catch(() => {
@@ -72,5 +76,6 @@ export function useDelegationHydration(
     setResult,
     setEventsTail,
     setLifecycle,
+    setDiffText,
   ]);
 }
