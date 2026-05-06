@@ -106,12 +106,21 @@ export const TranscriptTimelineRow = ({
   // Check if this message has an associated delegation (running or finished)
   const hasAssociatedDelegation = Boolean(matchingDelegation);
 
-  const showDelegationCards = isLastAssistant && message.role === 'assistant' && Boolean(sessionId);
   const workspacePath = useConversationStore((state) =>
     sessionId ? state.sessionsById[sessionId]?.workspace_path ?? null : null,
   );
   const delegationIds = useMemo(() => {
-    if (!showDelegationCards || !delegationCards) return [];
+    if (!delegationCards) return [];
+
+    // If this message has an associated delegation, show only that card
+    if (hasAssociatedDelegation && matchingDelegation) {
+      return [matchingDelegation.delegation_id];
+    }
+
+    // Otherwise, if we're the last assistant message, show all relevant cards
+    const showDelegationCards = isLastAssistant && message.role === 'assistant' && Boolean(sessionId);
+    if (!showDelegationCards) return [];
+
     const allIds = Object.keys(delegationCards);
     // Filter out discarded cards initially
     const activeIds = allIds.filter((did) => {
@@ -138,7 +147,7 @@ export const TranscriptTimelineRow = ({
     });
     const visibleDiscarded = (runningIds.length > 0 || finishedIds.length > 0) ? [] : discardedIds.slice(-1);
     return [...runningIds, ...finishedIds, ...visibleDiscarded];
-  }, [showDelegationCards, delegationCards]);
+  }, [delegationCards, hasAssociatedDelegation, matchingDelegation, isLastAssistant, message.role, sessionId]);
 
   // Check if the associated delegation is running
   const isAssociatedDelegationRunning = matchingDelegation?.lifecycle === 'started'
