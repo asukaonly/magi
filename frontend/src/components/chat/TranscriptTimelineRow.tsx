@@ -1,7 +1,10 @@
 import { useTranslation } from 'react-i18next';
 import type { ProjectedChatTimelineMessage } from '@/domain/chat/presentation';
 import { formatChatClockTime } from '@/domain/chat/timestamps';
+import { useConversationStore } from '@/stores/conversation-store';
+import { useDelegationsStore } from '@/stores/delegations-store';
 import { ChatRoleAvatar } from './ChatRoleAvatar';
+import { DelegationCard } from './DelegationCard';
 import { MessageLabelBadge } from './MessageLabelBadge';
 import type {
   TimelineAssistantIdentity,
@@ -59,6 +62,7 @@ const resolveAssistantIdentity = (
 type TranscriptTimelineRowProps = TimelineRowSharedProps & {
   projectedMessage: Extract<ProjectedChatTimelineMessage, { surface: 'transcript' }>;
   interactions: TranscriptTimelineInteractions;
+  isLastAssistant?: boolean;
 };
 
 export const TranscriptTimelineRow = ({
@@ -67,6 +71,7 @@ export const TranscriptTimelineRow = ({
   shouldReduceMotion,
   execution,
   interactions,
+  isLastAssistant = false,
 }: TranscriptTimelineRowProps) => {
   const { t, i18n } = useTranslation('app');
   const traceEntryLabel = t('chat.trace.view');
@@ -76,6 +81,18 @@ export const TranscriptTimelineRow = ({
   const messageAssistant = message.role === 'assistant'
     ? resolveAssistantIdentity(assistant, message.personaId)
     : assistant;
+
+  const sessionId = interactions.currentSessionId;
+  const showDelegationCards = isLastAssistant && message.role === 'assistant' && Boolean(sessionId);
+  const delegationCards = useDelegationsStore((state) =>
+    sessionId ? state.delegationsBySession[sessionId] ?? null : null,
+  );
+  const workspacePath = useConversationStore((state) =>
+    sessionId ? state.sessionsById[sessionId]?.workspace_path ?? null : null,
+  );
+  const delegationIds = showDelegationCards && delegationCards
+    ? Object.keys(delegationCards)
+    : [];
 
   return (
     <TranscriptTimelineMessage
@@ -151,6 +168,18 @@ export const TranscriptTimelineRow = ({
                 />
               )}
             />
+          ) : null}
+          {showDelegationCards && sessionId && delegationIds.length > 0 ? (
+            <div className="mt-2 space-y-2">
+              {delegationIds.map((did) => (
+                <DelegationCard
+                  key={did}
+                  sessionId={sessionId}
+                  delegationId={did}
+                  workspace={workspacePath}
+                />
+              ))}
+            </div>
           ) : null}
         </>
       )}
