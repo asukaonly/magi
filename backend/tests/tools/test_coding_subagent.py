@@ -68,3 +68,41 @@ def test_coding_tool_whitelist_filters_against_registry() -> None:
     assert excluded.isdisjoint(set(tools)), (
         f"Coding whitelist must not include {excluded & set(tools)}"
     )
+
+
+def test_coding_system_prompt_mentions_role_and_workspace(tmp_path) -> None:
+    mgr = _coding_manager()
+    tools = mgr._resolve_tools_for_type(WorkerAgentManager.TYPE_CODING)
+    prompt = mgr._build_worker_system_prompt(
+        worker_id="w1",
+        subagent_type=WorkerAgentManager.TYPE_CODING,
+        description="Add a max_retries argument to the connect() helper",
+        selected_tools=tools,
+        execution_workspace=str(tmp_path),
+    )
+    assert "coding worker" in prompt.lower()
+    assert "Add a max_retries argument" in prompt
+    assert "file_read" in prompt
+    assert "verify" in prompt
+    assert str(tmp_path) in prompt
+    assert "confirm_destructive" in prompt
+    assert "ONLY valid JSON" not in prompt
+    assert '"result_status"' not in prompt
+
+
+def test_coding_system_prompt_lists_only_whitelisted_tools() -> None:
+    mgr = _coding_manager()
+    tools = mgr._resolve_tools_for_type(WorkerAgentManager.TYPE_CODING)
+    prompt = mgr._build_worker_system_prompt(
+        worker_id="w2",
+        subagent_type=WorkerAgentManager.TYPE_CODING,
+        description="trivial",
+        selected_tools=tools,
+        execution_workspace=None,
+    )
+    assert "Only use these tools:" in prompt
+    rules_line = next(
+        line for line in prompt.splitlines() if line.startswith("Only use these tools:")
+    )
+    for t in tools:
+        assert t in rules_line
