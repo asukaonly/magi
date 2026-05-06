@@ -44,6 +44,23 @@ def default_orchestration_strategy(
                 "default_leaf_type": "Explore",
                 "allow_parallel": False,
             }
+        if any(
+            kw in user_lower
+            for kw in [
+                "fix bug", "bug fix", "fix this bug", "fix the bug", "fix a bug",
+                "refactor",
+                "add function", "add a function", "add helper",
+                "implement function", "rename", "replace",
+                "改代码", "改一下", "修复", "修一下", "重构",
+                "加一个函数", "实现", "修 bug", "修一个 bug",
+            ]
+        ):
+            return {
+                "mode": "direct",
+                "planner": "task_agent",
+                "default_leaf_type": "Coding",
+                "allow_parallel": False,
+            }
     return {
         "mode": "direct",
         "planner": "task_agent",
@@ -64,7 +81,7 @@ def normalize_orchestration_strategy(payload: Any) -> dict[str, Any]:
         mode = strategy["mode"]
     if planner not in {"task_agent", "plan_worker"}:
         planner = strategy["planner"]
-    if default_leaf_type not in {"Explore", "general-purpose"}:
+    if default_leaf_type not in {"Explore", "general-purpose", "Coding"}:
         default_leaf_type = strategy["default_leaf_type"]
     if mode == "direct":
         allow_parallel = False
