@@ -143,6 +143,7 @@ The Rust gateway owns the desktop-facing API and WebSocket surface. Requests tha
 On Windows, use the PowerShell helpers where applicable:
 
 ```powershell
+./scripts/install-deps.ps1
 .\scripts\dev-tauri-hot.ps1
 ```
 
