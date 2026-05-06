@@ -256,11 +256,6 @@ const createApiClient = (): AxiosInstance => {
   // Request interceptor
   client.interceptors.request.use(
     (config: InternalAxiosRequestConfig) => {
-      // Add auth token if present
-      const token = localStorage.getItem('auth_token');
-      if (token && config.headers) {
-        config.headers.Authorization = `Bearer ${token}`;
-      }
       const runtime = getRuntimeConfig();
       const sessionToken = desktopSessionToken || runtime.sessionToken;
       if (sessionToken && config.headers) {
@@ -284,12 +279,6 @@ const createApiClient = (): AxiosInstance => {
       return response;
     },
     (error: AxiosError<ApiError>) => {
-      if (error.response?.status === 401) {
-        localStorage.removeItem('auth_token');
-        if (typeof window !== 'undefined') {
-          window.location.href = '/login';
-        }
-      }
       const clientError = toApiClientError(error);
       syncBackendHealthFromApiError(clientError);
       return Promise.reject(clientError);

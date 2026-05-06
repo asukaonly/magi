@@ -46,16 +46,24 @@ describe('chat trace store', () => {
 
     store.replaceSummaries([
       {
-        turn_id: 'turn_1',
+        turnId: 'turn_1',
         mode: 'orchestration',
         status: 'completed',
         headline: '工具链已完成',
-        active_steps: 0,
-        completed_steps: 3,
-        failed_steps: 0,
-        duration_seconds: 1.0,
-        trace_available: true,
-        orchestration_id: 'orch_1',
+        activeSteps: 0,
+        completedSteps: 3,
+        failedSteps: 0,
+        durationSeconds: 1.0,
+        traceAvailable: true,
+        orchestrationId: 'orch_1',
+        planSummary: null,
+        continuedFromTurnId: null,
+        continuedFromTraceId: null,
+        supersededByTurnId: null,
+        supersessionReason: null,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        totalReasoningTokens: 0,
       },
     ]);
 

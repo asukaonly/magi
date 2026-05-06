@@ -1,4 +1,3 @@
-import type { ExecutionTraceSummary } from '@/api';
 import {
   normalizeHistoryMessages,
   normalizeTraceSummary,
@@ -28,41 +27,6 @@ const normalizeOptionalString = (value: unknown): string | undefined => {
   return normalized || undefined;
 };
 
-const toExecutionTraceSummary = (
-  summary: NonNullable<ReturnType<typeof normalizeTraceSummary>>,
-): ExecutionTraceSummary => ({
-  turn_id: summary.turnId,
-  mode: summary.mode,
-  status: summary.status,
-  headline: summary.headline,
-  active_steps: summary.activeSteps,
-  completed_steps: summary.completedSteps,
-  failed_steps: summary.failedSteps,
-  duration_seconds: summary.durationSeconds,
-  trace_available: summary.traceAvailable,
-  orchestration_id: summary.orchestrationId || null,
-  plan_summary: summary.planSummary
-    ? {
-      planner: summary.planSummary.planner || null,
-      parallel_mode: summary.planSummary.parallelMode,
-      total_steps: summary.planSummary.totalSteps,
-      remaining_steps: summary.planSummary.remainingSteps,
-      steps: summary.planSummary.steps.map((step) => ({
-        subtask_id: step.subtaskId || null,
-        label: step.label,
-        status: step.status,
-      })),
-    }
-    : null,
-  continued_from_turn_id: summary.continuedFromTurnId || null,
-  continued_from_trace_id: summary.continuedFromTraceId || null,
-  superseded_by_turn_id: summary.supersededByTurnId || null,
-  supersession_reason: summary.supersessionReason || null,
-  total_input_tokens: summary.totalInputTokens,
-  total_output_tokens: summary.totalOutputTokens,
-  total_reasoning_tokens: summary.totalReasoningTokens,
-});
-
 export const applyRealtimeStoreProjection = (
   message: RealtimeStoreProjectionMessage,
   options: RealtimeStoreProjectionOptions = {},
@@ -74,7 +38,7 @@ export const applyRealtimeStoreProjection = (
     const payload = message.data as Record<string, unknown>;
     const sessionId = String(payload.session_id || conversationStore.currentSessionId || '').trim();
     const turnId = String(payload.turn_id || '').trim();
-    const personaId = normalizeOptionalString(payload.persona_id || payload.personaId);
+    const personaId = normalizeOptionalString(payload.persona_id);
     const timestamp = normalizeChatTimestamp(payload.timestamp);
     const summary = normalizeTraceSummary(payload.trace_summary);
     const uxPlan = normalizeTurnUxPlan(payload.ux_plan);
@@ -83,7 +47,7 @@ export const applyRealtimeStoreProjection = (
       if (!summary) {
         return false;
       }
-      useChatTraceStore.getState().upsertSummary(toExecutionTraceSummary(summary));
+      useChatTraceStore.getState().upsertSummary(summary);
       if (sessionId) {
         conversationStore.upsertTraceSummary(sessionId, summary.turnId, summary);
       }
@@ -133,7 +97,7 @@ export const applyRealtimeStoreProjection = (
     const payload = message.data as Record<string, unknown>;
     const sessionId = String(payload.session_id || conversationStore.currentSessionId || '').trim();
     const turnId = String(payload.turn_id || '').trim();
-    const personaId = normalizeOptionalString(payload.persona_id || payload.personaId);
+    const personaId = normalizeOptionalString(payload.persona_id);
     const streamEvent = message.streamEvent ?? normalizeRealtimeStreamEvent(payload);
 
     if (!sessionId || !turnId) {
@@ -264,7 +228,7 @@ export const applyRealtimeStoreProjection = (
     const turnId = String(payload.turn_id || '').trim();
     const summary = normalizeTraceSummary(payload.trace_summary);
     if (sessionId && turnId && summary) {
-      useChatTraceStore.getState().upsertSummary(toExecutionTraceSummary(summary));
+      useChatTraceStore.getState().upsertSummary(summary);
       conversationStore.upsertTraceSummary(sessionId, turnId, summary);
       return true;
     }

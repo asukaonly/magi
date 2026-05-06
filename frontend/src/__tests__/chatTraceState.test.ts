@@ -242,7 +242,7 @@ describe('chat trace state helpers', () => {
     }, {
       summaries: {
         'turn-background': {
-          trace_available: true,
+          traceAvailable: true,
         },
       },
       executionControlByTurnId: {},
@@ -477,7 +477,7 @@ describe('chat trace state helpers', () => {
       },
       cancellingTurnIds: ['turn-running-panel'],
       detachingTurnIds: [],
-      summary: { trace_available: true },
+      summary: { traceAvailable: true },
       variant: 'bubble',
     })).toMatchObject({
       turnId: 'turn-running-panel',

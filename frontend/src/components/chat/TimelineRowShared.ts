@@ -1,7 +1,6 @@
 import type { RefObject } from 'react';
-import type { ExecutionTraceSummary } from '@/api';
 import type { TurnExecutionControlState } from '@/domain/chat/presentation';
-import type { ChatTimelineMessage, ChatTimelineReplyPreview } from '@/domain/chat/state';
+import type { ChatTimelineMessage, ChatTimelineReplyPreview, NormalizedExecutionTraceSummary } from '@/domain/chat/state';
 import type { LabelPopoverState } from '@/hooks/useChatMessageOverlays';
 
 export type TimelineAssistantPersona = {
@@ -16,7 +15,7 @@ export type TimelineAssistantIdentity = {
 };
 
 export type TimelineExecutionBindings = {
-  summaries: Record<string, ExecutionTraceSummary>;
+  summaries: Record<string, NormalizedExecutionTraceSummary>;
   executionControlByTurnId: Record<string, TurnExecutionControlState>;
   cancellingTurnIds: string[];
   detachingTurnIds: string[];
