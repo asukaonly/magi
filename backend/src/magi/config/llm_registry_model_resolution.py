@@ -9,6 +9,7 @@ from .models import (
     LLMCapabilityOverridesSettings,
     LLMLimitsOverrideSettings,
     LLMLimitsSettings,
+    LLMModelCostModel,
     LLMModelMetadataOverrideSettings,
     LLMProviderSettings,
 )
@@ -95,6 +96,7 @@ def _resolve_chat_model(
     label: Optional[str],
     capabilities: LLMCapabilitiesSettings,
     limits: LLMLimitsSettings,
+    cost: Optional[LLMModelCostModel],
     provider_options_example: Dict[str, Any],
     override: Optional[LLMModelMetadataOverrideSettings],
 ) -> LLMResolvedModelMetaModel:
@@ -131,6 +133,11 @@ def _resolve_chat_model(
         ),
         capabilities=resolved_capabilities,
         limits=resolved_limits,
+        cost=(
+            override.cost.model_copy(deep=True)
+            if override is not None and override.cost is not None
+            else cost.model_copy(deep=True) if cost is not None else None
+        ),
         input_modalities=(
             list(override.input_modalities)
             if override is not None and override.input_modalities is not None
@@ -157,6 +164,7 @@ def _resolve_embedding_model(
     dimensions: list[int],
     capabilities: LLMCapabilitiesSettings,
     limits: LLMLimitsSettings,
+    cost: Optional[LLMModelCostModel],
     provider_options_example: Dict[str, Any],
     override: Optional[LLMModelMetadataOverrideSettings],
 ) -> LLMResolvedEmbeddingModelMetaModel:
@@ -199,6 +207,11 @@ def _resolve_embedding_model(
         capabilities=resolved_capabilities,
         dimensions=resolved_dimensions,
         limits=resolved_limits,
+        cost=(
+            override.cost.model_copy(deep=True)
+            if override is not None and override.cost is not None
+            else cost.model_copy(deep=True) if cost is not None else None
+        ),
         input_modalities=(
             list(override.input_modalities)
             if override is not None and override.input_modalities is not None
@@ -224,6 +237,7 @@ def _resolve_image_generation_model(
     label: Optional[str],
     capabilities: LLMCapabilitiesSettings,
     limits: LLMLimitsSettings,
+    cost: Optional[LLMModelCostModel],
     provider_options_example: Dict[str, Any],
     override: Optional[LLMModelMetadataOverrideSettings],
     supported_sizes: Optional[list[str]] = None,
@@ -269,6 +283,11 @@ def _resolve_image_generation_model(
         ),
         capabilities=resolved_capabilities,
         limits=resolved_limits,
+        cost=(
+            override.cost.model_copy(deep=True)
+            if override is not None and override.cost is not None
+            else cost.model_copy(deep=True) if cost is not None else None
+        ),
         input_modalities=(
             list(override.input_modalities)
             if override is not None and override.input_modalities is not None
@@ -426,6 +445,7 @@ def resolve_provider_model_catalog(
                 label=model.label,
                 capabilities=base_capabilities,
                 limits=model.limits,
+                cost=model.cost,
                 provider_options_example=model.provider_options_example,
                 override=overrides.get(model.id),
             )
@@ -445,6 +465,7 @@ def resolve_provider_model_catalog(
                 dimensions=model.dimensions,
                 capabilities=base_capabilities,
                 limits=model.limits,
+                cost=model.cost,
                 provider_options_example=model.provider_options_example,
                 override=overrides.get(model.id),
             )
@@ -463,6 +484,7 @@ def resolve_provider_model_catalog(
                 label=model.label,
                 capabilities=base_capabilities,
                 limits=LLMLimitsSettings(),
+                cost=model.cost,
                 provider_options_example=model.provider_options_example,
                 override=overrides.get(model.id),
                 supported_sizes=model.supported_sizes,
@@ -482,6 +504,7 @@ def resolve_provider_model_catalog(
                 label=model_id,
                 capabilities=manual_base_capabilities,
                 limits=manual_base_limits,
+                cost=None,
                 provider_options_example=manual_provider_options,
                 override=overrides.get(model_id),
             )
@@ -498,6 +521,7 @@ def resolve_provider_model_catalog(
                 label=model_id,
                 capabilities=manual_base_capabilities,
                 limits=manual_base_limits,
+                cost=None,
                 provider_options_example=manual_provider_options,
                 override=override,
             )
@@ -531,6 +555,7 @@ def resolve_provider_model_catalog(
                     if base_chat_model is not None
                     else LLMLimitsSettings()
                 ),
+                cost=(base_chat_model.cost if base_chat_model is not None else None),
                 provider_options_example=(
                     base_chat_model.provider_options_example
                     if base_chat_model is not None

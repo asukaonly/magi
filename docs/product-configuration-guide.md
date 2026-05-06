@@ -187,10 +187,12 @@ Current product expectations:
 - expert-facing configuration can expose more fields than quick mode
 - provider/model metadata should come from the backend registry rather than hardcoded frontend lists
 - each selected model can expose a capability profile such as vision, reasoning, tool calling, and embedding support
+- model metadata can include provider-published cost values; chat models use input/output token pricing, embedding models use input token pricing, and image generation models use per-image pricing when the provider bills successful generations by count
+- usage accounting should prefer explicit provider-reported cost when present, then fall back to registry chat model pricing for USD-denominated token usage
 - users can review the active model capability profile during onboarding and later in settings
 - users add or edit provider instances from provider templates or a custom-provider template
 - custom providers may define manual chat model IDs and a selectable default model
-- advanced users can override capability flags, model limits, and provider-specific JSON options for the current model
+- advanced users can override capability flags, model limits, model cost metadata, and provider-specific JSON options for the current model
 - provider and model catalogs should be delivered by dedicated LLM catalog endpoints that already merge saved provider instances, manual chat/embedding model IDs, and metadata overrides on the backend
 - custom-provider creation fields and defaults should be delivered by a dedicated template endpoint rather than piggybacking on generic config responses
 - image generation model catalogs should expose provider-owned capability metadata such as supported sizes, supported quality values, maximum image count, and native generation protocol

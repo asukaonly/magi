@@ -128,7 +128,7 @@ class ProviderBridgeOptionsMixin:
             if budget:
                 kwargs.update(budget)
 
-        elif self._model_supports_reasoning():
+        elif provider != "grok" and self._model_supports_reasoning():
             kwargs.update(self._build_openai_reasoning_params(thinking_depth))
 
         return kwargs

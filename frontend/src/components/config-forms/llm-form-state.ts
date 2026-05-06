@@ -116,6 +116,7 @@ export const cloneProvider = (value?: Partial<LLMProviderConfig>): LLMProviderCo
             : override?.provider_options_example
               ? { ...override.provider_options_example }
               : undefined,
+        cost: override?.cost === null ? null : override?.cost ? { ...override.cost } : undefined,
       },
     ])
   ),

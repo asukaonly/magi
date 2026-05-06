@@ -26,6 +26,7 @@ export type LLMProvider =
   | 'glm'
   | 'glm_codeplan'
   | 'gemini'
+  | 'grok'
   | 'deepseek'
   | 'dashscope'
   | 'kimi'
@@ -145,6 +146,17 @@ export interface LLMLimitsOverride {
   max_concurrency?: number | null;
 }
 
+export interface LLMModelCost {
+  currency: string;
+  input_per_million_tokens?: number | null;
+  cached_input_per_million_tokens?: number | null;
+  cache_write_per_million_tokens?: number | null;
+  output_per_million_tokens?: number | null;
+  per_image?: number | null;
+  source?: string | null;
+  source_note?: string | null;
+}
+
 export interface LLMModelMetadataOverride {
   label?: string | null;
   description?: string | null;
@@ -154,6 +166,7 @@ export interface LLMModelMetadataOverride {
   input_modalities?: string[] | null;
   output_modalities?: string[] | null;
   provider_options_example?: Record<string, any> | null;
+  cost?: LLMModelCost | null;
   hidden?: boolean | null;
   preferred?: boolean | null;
   source_note?: string | null;
@@ -215,6 +228,7 @@ export interface LLMChatModelMeta {
   label?: string;
   capabilities: LLMChatCapabilities;
   limits: LLMRuntimeLimits;
+  cost?: LLMModelCost | null;
   provider_options_example?: Record<string, any>;
 }
 
@@ -243,6 +257,7 @@ export interface LLMResolvedImageGenerationModelMeta {
   input_modalities: string[];
   output_modalities: string[];
   provider_options_example?: Record<string, any>;
+  cost?: LLMModelCost | null;
   supported_sizes?: string[];
   supported_qualities?: string[];
   supports_seed?: boolean;
@@ -257,6 +272,7 @@ export interface LLMEmbeddingModelMeta {
   label?: string;
   dimensions: number[];
   limits?: LLMRuntimeLimits;
+  cost?: LLMModelCost | null;
   provider_options_example?: Record<string, any>;
 }
 
@@ -274,6 +290,7 @@ export interface LLMResolvedEmbeddingModelMeta extends LLMEmbeddingModelMeta {
 export interface LLMGenerationModelMeta {
   id: string;
   label?: string;
+  cost?: LLMModelCost | null;
   provider_options_example?: Record<string, any>;
   supported_sizes?: string[];
   supported_qualities?: string[];
