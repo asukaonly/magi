@@ -43,16 +43,3 @@ def resolve_started_at_ms(result: ExecutionResult | None, latest_fact: FactRecor
 
 def normalize_mode(mode: Any) -> str:
     return str(getattr(mode, "value", mode) or "unknown")
-
-
-def resolve_event_bus() -> Any | None:
-    """Backward-compatible thin wrapper.
-
-    Phase 6 moved the canonical implementation to
-    :mod:`magi.runtime_trace.span_publisher`; this wrapper is kept so existing
-    chat post-process callers continue to work without churn. New callers
-    (worker-trace, etc.) should import from ``span_publisher`` directly.
-    """
-    from .....runtime_trace.span_publisher import resolve_event_bus as _resolve
-
-    return _resolve()

@@ -449,7 +449,7 @@ def test_real_adapters_expose_base_url_for_host_aware_keying() -> None:
     anthropic_adapter = AnthropicAdapter(
         api_key="sk-test",
         model="claude-sonnet-4-6",
-        api_base="https://proxy.example.com/v1",
+        base_url="https://proxy.example.com/v1",
     )
 
     assert openai_adapter.base_url == "https://gateway.example.com/v1"

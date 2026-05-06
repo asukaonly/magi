@@ -8,7 +8,7 @@ import json
 from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..core.logger import get_logger
-from ..runtime_trace import PluginIngressEventRecord
+from magi_plugin_sdk.ingress import PluginIngressEventRecord
 from .contracts import RuntimeCommandType
 from .plugin_ingress import PluginIngressHandlerRegistration
 from .events import (

@@ -13,8 +13,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from .....runtime_trace.span_publisher import publish_trace_span
-from .utils import resolve_event_bus
+from .....runtime_trace.span_publisher import publish_trace_span, resolve_event_bus
 
 
 def _root_turn_attributes(

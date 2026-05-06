@@ -4,7 +4,6 @@ from magi.events.plugin_ingress import PluginIngressEventHandler as BackendPlugi
 from magi.events.plugin_ingress import PluginIngressEventRecord as BackendPluginIngressEventRecord
 from magi.events.plugin_ingress import PluginIngressHandlerRegistration as BackendPluginIngressHandlerRegistration
 from magi.plugins import Plugin
-from magi.runtime_trace import PluginIngressEventRecord as BackendRuntimeTracePluginIngressEventRecord
 from magi.runtime_trace import StoredPluginIngressEventRecord
 from magi_plugin_sdk.ingress import PluginIngressEventHandler as SdkPluginIngressEventHandler
 from magi_plugin_sdk.ingress import PluginIngressEventRecord as SdkPluginIngressEventRecord
@@ -37,7 +36,6 @@ def test_backend_ingress_contracts_reexport_sdk_symbols() -> None:
     assert BackendPluginIngressEventHandler is SdkPluginIngressEventHandler
     assert BackendPluginIngressEventRecord is SdkPluginIngressEventRecord
     assert BackendPluginIngressHandlerRegistration is SdkPluginIngressHandlerRegistration
-    assert BackendRuntimeTracePluginIngressEventRecord is SdkPluginIngressEventRecord
 
 
 def test_runtime_trace_keeps_storage_record_alias() -> None:

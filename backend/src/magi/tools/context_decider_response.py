@@ -34,7 +34,7 @@ class ContextDeciderResponseMixin:
             return ContextDecision(
                 intent="unknown",
                 tools=[],
-                deep_thinking=False,
+                thinking_depth=ThinkingDepth.NONE,
                 reasoning="Empty LLM response",
                 orchestration_strategy=self._default_orchestration_strategy(),
             )
@@ -44,7 +44,7 @@ class ContextDeciderResponseMixin:
             return ContextDecision(
                 intent="unknown",
                 tools=[],
-                deep_thinking=False,
+                thinking_depth=ThinkingDepth.NONE,
                 reasoning="Incomplete LLM response",
                 orchestration_strategy=self._default_orchestration_strategy(),
             )
@@ -104,7 +104,7 @@ class ContextDeciderResponseMixin:
         return ContextDecision(
             intent="unknown",
             tools=[],
-            deep_thinking=False,
+            thinking_depth=ThinkingDepth.NONE,
             reasoning="Failed to parse LLM response",
             orchestration_strategy=self._default_orchestration_strategy(),
         )

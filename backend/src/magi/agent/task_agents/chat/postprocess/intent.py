@@ -9,9 +9,8 @@ from typing import Any, Protocol, cast
 
 from .....agent.runtime.contracts import FactRecord
 from .....agent.trace import now_wall_ms
-from .....runtime_trace.span_publisher import publish_trace_span
+from .....runtime_trace.span_publisher import publish_trace_span, resolve_event_bus
 from ..contracts import ChatRuntimeContext
-from .utils import resolve_event_bus
 
 
 class _IntentPostprocessHostProtocol(Protocol):

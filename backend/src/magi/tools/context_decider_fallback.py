@@ -6,6 +6,7 @@ import logging
 from typing import Any, Optional
 
 from .context_routing import ContextDecision
+from ..config.models import ThinkingDepth
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,7 @@ class ContextDeciderFallbackMixin:
                     return ContextDecision(
                         intent="retry_last_tool",
                         tools=[last_tool],
-                        deep_thinking=False,
+                        thinking_depth=ThinkingDepth.NONE,
                         reasoning=f"Retry request detected, reusing last failed tool: {last_tool}",
                         orchestration_strategy=self._default_orchestration_strategy(),
                     )
@@ -80,7 +81,7 @@ class ContextDeciderFallbackMixin:
                 return ContextDecision(
                     intent="chat",
                     tools=["trace_query"],
-                    deep_thinking=False,
+                    thinking_depth=ThinkingDepth.NONE,
                     reasoning="The user is asking for concrete recent tool execution details, so query the persisted trace.",
                     orchestration_strategy=self._default_orchestration_strategy(),
                 )
@@ -103,7 +104,7 @@ class ContextDeciderFallbackMixin:
             return ContextDecision(
                 intent="planning",
                 tools=["agent"],
-                deep_thinking=True,
+                thinking_depth=ThinkingDepth.HIGH,
                 reasoning="Complex request detected, delegating to worker agent tool",
                 orchestration_strategy=strategy,
             )
@@ -119,7 +120,7 @@ class ContextDeciderFallbackMixin:
             return ContextDecision(
                 intent="planning",
                 tools=tools[: self.max_tools],
-                deep_thinking=True,
+                thinking_depth=ThinkingDepth.HIGH,
                 reasoning="Complex research request detected, routing to generic parent-task decomposition.",
                 orchestration_strategy=self._default_orchestration_strategy(tools[: self.max_tools], user_lower),
             )
@@ -178,7 +179,7 @@ class ContextDeciderFallbackMixin:
         return ContextDecision(
             intent=intent,
             tools=tools[:self.max_tools],
-            deep_thinking=False,
+            thinking_depth=ThinkingDepth.NONE,
             reasoning="Rule-based fallback (LLM returned empty/incomplete response)",
             orchestration_strategy=self._default_orchestration_strategy(tools[:self.max_tools], user_lower),
         )

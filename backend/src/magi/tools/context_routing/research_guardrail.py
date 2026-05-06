@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Callable, Optional
 
 from .models import ContextDecision
+from ...config.models import ThinkingDepth
 
 
 def is_complex_research_request(user_lower: str) -> bool:
@@ -97,7 +98,7 @@ def apply_research_guardrail(
     return ContextDecision(
         intent="planning",
         tools=selected_tools,
-        deep_thinking=True,
+        thinking_depth=ThinkingDepth.HIGH,
         reasoning="Complex research request guardrail: force bounded generic decomposition with explicit retrieval steps.",
         orchestration_strategy=strategy_factory(selected_tools, user_lower),
     )

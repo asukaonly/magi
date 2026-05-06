@@ -73,10 +73,15 @@ def test_assistant_response_produced_translation():
 
 
 def test_sensor_event_emitted_translation():
+    """C producer (with policy_dict) is the only supported sensor shape."""
+    from magi_plugin_sdk.sensors import SensorMemoryPolicy
+
     payload = SensorEventEmitted(
         sensor_name="screen_time",
         payload={"app": "chrome", "duration": 60},
         context=TaskContext(None, None, None, "u"),
+        sensor_id="screen_time",
+        policy_dict=SensorMemoryPolicy().to_dict(),
     )
     me = translate(Event(type=EventTypes.SENSOR_EVENT_EMITTED, data=payload))
     assert me is not None
@@ -226,18 +231,3 @@ def test_sensor_main_path_uses_build_sensor_memory_event():
     assert me.source == "external_activity"
     assert me.idempotency_key == "ik-1"
     assert me.user_id == "user-1"
-
-
-def test_sensor_legacy_path_when_no_policy_dict():
-    """A-era producer (no policy_dict) hits legacy normalize path."""
-    payload = SensorEventEmitted(
-        sensor_name="legacy_sensor",
-        payload={"content": "legacy content"},
-        context=TaskContext("s", "t", None, "u"),
-        # No policy_dict (defaults to {})
-    )
-    ev = Event(type=EventTypes.SENSOR_EVENT_EMITTED, data=payload, event_id="evt-L")
-    me = translate(ev)
-    assert me is not None
-    # legacy normalize ends up with event_type "SENSOR_EVENT" via legacy logic
-    assert me.event_type == "SENSOR_EVENT"

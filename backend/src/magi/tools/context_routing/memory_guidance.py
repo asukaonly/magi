@@ -54,7 +54,7 @@ def apply_memory_guidance(
     return ContextDecision(
         intent=decision.intent,
         tools=tools[:max_tools],
-        deep_thinking=decision.deep_thinking,
+        thinking_depth=decision.thinking_depth,
         reasoning=decision.reasoning,
         orchestration_strategy=decision.orchestration_strategy,
         memory_layer=decision.memory_layer,

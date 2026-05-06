@@ -72,9 +72,6 @@ from .models import (
     PersonalitySettings,
     PluginSettings,
     PluginsSettings,
-
-    # Backward compatibility
-    Config,
 )
 from .llm_registry import (
     LLMAudioGenerationModelMetaModel,
@@ -156,7 +153,4 @@ __all__ = [
     "PersonalitySettings",
     "PluginSettings",
     "PluginsSettings",
-
-    # Backward compatibility
-    "Config",
 ]
