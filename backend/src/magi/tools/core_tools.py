@@ -6,6 +6,7 @@ from .builtin.ask_user_question_tool import AskUserQuestionTool
 from .builtin.bash_tool import BashTool
 from .builtin.capabilities_tool import CapabilitiesTool
 from .builtin.detach_to_background_tool import DetachToBackgroundTool
+from .builtin.file_diff_tool import FileDiffTool
 from .builtin.file_edit_tool import FileEditTool
 from .builtin.file_info_tool import FileInfoTool
 from .builtin.file_list_tool import FileListTool
@@ -34,6 +35,7 @@ CORE_TOOL_CLASSES: tuple[type, ...] = (
     FileWriteTool,
     FileEditTool,
     FileRollbackTool,
+    FileDiffTool,
     FileListTool,
     FileInfoTool,
     GrepTool,

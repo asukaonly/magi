@@ -28,6 +28,7 @@ from .builtin.file_read_tool import FileReadTool
 from .builtin.file_write_tool import FileWriteTool
 from .builtin.file_edit_tool import FileEditTool
 from .builtin.file_rollback_tool import FileRollbackTool
+from .builtin.file_diff_tool import FileDiffTool
 from .builtin.grep_tool import GrepTool
 from .builtin.glob_tool import GlobTool
 from .builtin.dynamic_tool import DynamicTool, create_dynamic_tool
@@ -92,6 +93,7 @@ __all__ = [
     "FileWriteTool",
     "FileEditTool",
     "FileRollbackTool",
+    "FileDiffTool",
     "GrepTool",
     "GlobTool",
     "CapabilitiesTool",
