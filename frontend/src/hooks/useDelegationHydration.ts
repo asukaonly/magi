@@ -43,15 +43,19 @@ export function useDelegationHydration(
     codeAgentApi
       .getDelegation(sessionId, delegationId, workspace)
       .then((response) => {
-        console.log('[useDelegationHydration] Raw API response', response);
+        console.log('[useDelegationHydration] Raw API response', { cancelled });
         const { result, events_tail, diff_text } = response;
         console.log('[useDelegationHydration] Destructured values', {
           hasResult: !!result,
           eventsCount: events_tail?.length,
           diffTextType: typeof diff_text,
-          diffTextValue: diff_text,
+          diffTextValue: diff_text?.substring(0, 100),
         });
-        if (cancelled) return;
+        if (cancelled) {
+          console.log('[useDelegationHydration] Skipping because cancelled=true');
+          return;
+        }
+        console.log('[useDelegationHydration] Processing result...');
         if (result) {
           setResult(sessionId, delegationId, result);
           if (result.applied_at) {
@@ -66,14 +70,12 @@ export function useDelegationHydration(
         }
         if (Array.isArray(events_tail) && events_tail.length > 0) {
           setEventsTail(sessionId, delegationId, events_tail);
+          console.log('[useDelegationHydration] Events set');
         }
         if (typeof diff_text === 'string') {
-          console.log('[useDelegationHydration] Setting diffText', { length: diff_text.length });
+          console.log('[useDelegationHydration] Setting diffText...', { length: diff_text.length });
           setDiffText(sessionId, delegationId, diff_text);
-          console.log('[useDelegationHydration] DiffText set, checking card...', {
-            diffTextSet: !!diff_text,
-            cardDiffText: useDelegationsStore.getState().delegationsBySession[sessionId]?.[delegationId]?.diffText?.length
-          });
+          console.log('[useDelegationHydration] DiffText set');
         } else {
           console.log('[useDelegationHydration] diff_text is not a string', typeof diff_text);
         }
