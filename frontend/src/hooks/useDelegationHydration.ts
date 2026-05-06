@@ -42,11 +42,14 @@ export function useDelegationHydration(
     setHydrating(sessionId, delegationId, true);
     codeAgentApi
       .getDelegation(sessionId, delegationId, workspace)
-      .then(({ result, events_tail, diff_text }) => {
-        console.log('[useDelegationHydration] API response', {
+      .then((response) => {
+        console.log('[useDelegationHydration] Raw API response', response);
+        const { result, events_tail, diff_text } = response;
+        console.log('[useDelegationHydration] Destructured values', {
           hasResult: !!result,
           eventsCount: events_tail?.length,
-          diffLength: diff_text?.length,
+          diffTextType: typeof diff_text,
+          diffTextValue: diff_text,
         });
         if (cancelled) return;
         if (result) {
