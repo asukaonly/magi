@@ -15,9 +15,16 @@ from ...config.models import (
 from .personality_config_schemas import PersonalityConfigModel as FullPersonalityConfigModel
 
 
+class BackgroundTasksConfigModel(BaseModel):
+    auto_detect_long_task: bool = Field(default=False)
+
+
 class AgentConfigModel(BaseModel):
     name: str = Field(default="magi-agent")
     description: Optional[str] = Field(default="Magi AI Agent Framework")
+    background_tasks: BackgroundTasksConfigModel = Field(
+        default_factory=BackgroundTasksConfigModel
+    )
 
 
 class LLMProviderConnectionConfigModel(BaseModel):

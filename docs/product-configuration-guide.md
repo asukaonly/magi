@@ -174,6 +174,8 @@ Current product expectations:
 - clearing the saved default workspace should fall back to the managed local workspace behavior instead of breaking new conversations
 - clearing the default chat workspace should fall back to provider-independent runtime defaults
 - per-conversation workspace changes should not overwrite the saved global default
+- automatic long-task background routing should default to off; when enabled, Magi may use rule and model classification to move likely long-running chat turns to background execution
+- when automatic long-task background routing is off, users should still be able to move an active task to the background manually from the chat surface
 
 ## Code Agent Settings
 

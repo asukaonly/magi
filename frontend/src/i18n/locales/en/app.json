@@ -927,6 +927,8 @@
     "mediaGroundingUnavailable": "The current primary model does not support vision, so this option stays unavailable until you switch to a vision-capable model.",
     "allowInterjectionLabel": "Allow interjection",
     "allowInterjectionDesc": "When enabled, you can keep sending messages while the AI is replying, whether to add context, attach new evidence, or ask a follow-up. When disabled, the input stays locked until the current reply finishes.",
+    "autoBackgroundLongTasksLabel": "Automatically move long tasks to background",
+    "autoBackgroundLongTasksDesc": "When enabled, Magi uses rules and the model to decide whether longer tasks should continue in the background. When disabled, you can still move a running task manually.",
     "allowAskInBackgroundLabel": "Let background tasks ask questions",
     "allowAskInBackgroundDesc": "When enabled, a task running in the background may open a question dialog and wait for your answer. When disabled, background tasks may not block on user input and will error out if they try.",
 
@@ -1033,6 +1035,7 @@
       "conversationRhythm": "Natural reply rhythm",
       "mediaGrounding": "Media grounding",
       "allowInterjection": "Allow interjection",
+      "autoBackgroundLongTasks": "Automatically move long tasks to background",
       "allowAskInBackground": "Let background tasks ask questions",
       "userMode": "User Mode",
       "provider": "Provider",

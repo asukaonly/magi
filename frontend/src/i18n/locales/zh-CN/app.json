@@ -926,6 +926,8 @@
     "mediaGroundingUnavailable": "当前核心模型不支持视觉能力，切换到支持视觉的核心模型后才能开启。",
     "allowInterjectionLabel": "允许插话",
     "allowInterjectionDesc": "开启后可在 AI 回复过程中继续发送消息，补充说明、追加证据或直接跟进问题。关闭后需等待当前回复完成才能发送下一条消息。",
+    "autoBackgroundLongTasksLabel": "自动将长周期任务转至后台",
+    "autoBackgroundLongTasksDesc": "开启后，Magi 会用规则和模型判断较长任务是否适合后台执行。关闭后不会自动转后台，但你仍可在任务运行时手动转到后台。",
     "allowAskInBackgroundLabel": "允许后台任务向我提问",
     "allowAskInBackgroundDesc": "开启后，在后台运行的任务可以弹出问题对话框并等待你的回复。关闭时，后台任务尝试提问会直接报错，不会阻塞等待。",
 
@@ -1032,6 +1034,7 @@
       "conversationRhythm": "自然节奏回复",
       "mediaGrounding": "媒体理解",
       "allowInterjection": "允许插话",
+      "autoBackgroundLongTasks": "自动将长周期任务转至后台",
       "allowAskInBackground": "允许后台任务向我提问",
       "userMode": "用户模式",
       "provider": "提供商",

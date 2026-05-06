@@ -17,6 +17,7 @@ from magi.api.services.llm_testing_service import _default_llm_provider_registry
 from magi.api.routers.llm import llm_router
 from magi.config.loader import get_config
 from magi.config.models import (
+    BackgroundTasksSettings,
     LLMCapabilityOverridesSettings,
     LLMConcurrencyOverrideSettings,
     LLMLimitsSettings,
@@ -26,6 +27,7 @@ from magi.config.models import (
     LLMSelectionSettings,
     LLMSettings,
 )
+from magi.config.agent_models import BackgroundTasksSettings as AgentBackgroundTasksSettings
 from magi.config.llm_registry import (
     build_runtime_llm_defaults,
     resolve_provider_model_catalog,
@@ -147,6 +149,30 @@ def test_system_config_defaults_include_close_to_tray_enabled_preference():
 
     assert config.preferences.close_to_tray_enabled is True
     assert config.preferences.default_chat_workspace_path == "~/.magi/chat-workspace"
+
+
+def test_background_auto_dispatch_defaults_off():
+    config = SystemConfigModel()
+
+    assert config.agent.background_tasks.auto_detect_long_task is False
+    assert BackgroundTasksSettings().auto_detect_long_task is False
+    assert AgentBackgroundTasksSettings().auto_detect_long_task is False
+
+
+def test_build_update_paths_includes_background_auto_dispatch_setting(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(
+        "magi.api.routers.config._build_system_config",
+        lambda mask_api_key=False: SystemConfigModel(),
+    )
+    config = SystemConfigModel(
+        agent={"background_tasks": {"auto_detect_long_task": True}}
+    )
+
+    updates = _build_update_paths(config)
+
+    assert updates["agent.background_tasks.auto_detect_long_task"] is True
 
 
 def test_build_system_config_loads_close_to_tray_enabled_preference_from_raw_yaml(

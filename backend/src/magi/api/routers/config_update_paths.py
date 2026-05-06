@@ -239,6 +239,9 @@ def build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
     updates: Dict[str, Any] = {
         "agent.name": config.agent.name,
         "agent.description": config.agent.description,
+        "agent.background_tasks.auto_detect_long_task": (
+            config.agent.background_tasks.auto_detect_long_task
+        ),
         "llm.providers": llm_providers,
         "llm.selections": {
             selection_id: prune_sparse_value(selection.model_dump(exclude_none=True))

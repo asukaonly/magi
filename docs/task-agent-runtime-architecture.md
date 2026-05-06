@@ -511,7 +511,11 @@ Configuration lives under `agent.background_tasks` in
 ``auto_detect_long_task``, ``auto_detect_threshold``,
 ``default_task_timeout_seconds``, ``history_retention_days``. When
 ``enabled`` is ``false`` the lifecycle leaves the dispatcher and launch
-service unwired so the runtime still boots.
+service unwired so the runtime still boots. ``auto_detect_long_task``
+defaults to ``false``; when disabled, the chat runtime skips the
+planner/rule/LLM automatic dispatch chain while keeping manual
+detach-to-background available as long as the background subsystem is
+enabled.
 
 REST surface: the `/api/background-tasks` router
 ([api/routers/background_tasks.py](../backend/src/magi/api/routers/background_tasks.py))
