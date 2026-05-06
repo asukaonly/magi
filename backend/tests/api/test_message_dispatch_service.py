@@ -99,6 +99,37 @@ class _FakeChatReadService:
         )()
 
 
+@dataclass(slots=True)
+class _FakeAskState:
+    request_id: str
+    status: str = "pending"
+    expires_at: float | None = None
+
+
+class _FakeControlSessionStore:
+    def __init__(self, ask_state: _FakeAskState | None) -> None:
+        self._ask_state = ask_state
+
+    def ask_state(self, session_id: str) -> _FakeAskState | None:
+        return self._ask_state if session_id == "session-for-u1" else None
+
+
+class _FakeControlInteractionBroker:
+    def __init__(self, resolve_result: bool = True) -> None:
+        self.resolve_result = resolve_result
+        self.resolutions: list[dict[str, object]] = []
+
+    async def resolve(self, *, interaction_id: str, kind: str, response: object) -> bool:
+        self.resolutions.append(
+            {
+                "interaction_id": interaction_id,
+                "kind": kind,
+                "response": response,
+            }
+        )
+        return self.resolve_result
+
+
 @pytest.mark.asyncio
 async def test_dispatch_user_message_returns_message_bus_error_when_bus_missing(
     monkeypatch: pytest.MonkeyPatch,
@@ -140,6 +171,68 @@ async def test_dispatch_user_message_persists_chat_turn_before_enqueue(monkeypat
     assert chat_projector.user_messages[0]["message_id"] == f"msg-{outcome.turn_id}"
     assert chat_projector.user_messages[0]["metadata"] == {}
     assert len(queue.commands) == 1
+
+
+@pytest.mark.asyncio
+async def test_dispatch_user_message_resolves_pending_ask_before_chat_turn(monkeypatch: pytest.MonkeyPatch) -> None:
+    queue = _FakeRuntimeCommandQueue()
+    chat_store = _FakeChatStore()
+    broker = _FakeControlInteractionBroker()
+    ask_state = _FakeAskState(request_id="ask-1")
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "get_chat_store", lambda: chat_store)
+    monkeypatch.setattr(service, "resolve_control_session_store", lambda: _FakeControlSessionStore(ask_state))
+    monkeypatch.setattr(service, "resolve_control_interaction_broker", lambda: broker)
+
+    outcome = await service.dispatch_user_message(
+        source="api",
+        user_id="u1",
+        message="  main  ",
+        session_id="session-for-u1",
+    )
+
+    assert outcome.success is True
+    assert outcome.handled_as == "ask_response"
+    assert outcome.ask_request_id == "ask-1"
+    assert outcome.session_id == "session-for-u1"
+    assert chat_store.created_turns == []
+    assert queue.commands == []
+    assert broker.resolutions == [
+        {
+            "interaction_id": "ask-1",
+            "kind": "ask",
+            "response": "main",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_user_message_rejects_pending_ask_answer_with_attachments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queue = _FakeRuntimeCommandQueue()
+    chat_store = _FakeChatStore()
+    broker = _FakeControlInteractionBroker()
+    ask_state = _FakeAskState(request_id="ask-1")
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "get_chat_store", lambda: chat_store)
+    monkeypatch.setattr(service, "resolve_control_session_store", lambda: _FakeControlSessionStore(ask_state))
+    monkeypatch.setattr(service, "resolve_control_interaction_broker", lambda: broker)
+
+    outcome = await service.dispatch_user_message(
+        source="api",
+        user_id="u1",
+        message="main",
+        session_id="session-for-u1",
+        attachments=[{"kind": "file", "attachment_id": "att-1"}],
+    )
+
+    assert outcome.success is False
+    assert outcome.error_code == service.ASK_RESPONSE_ATTACHMENTS_UNSUPPORTED
+    assert outcome.handled_as == "ask_response"
+    assert chat_store.created_turns == []
+    assert queue.commands == []
+    assert broker.resolutions == []
 
 
 @pytest.mark.asyncio

@@ -13,6 +13,21 @@ import type {
 } from './TimelineRowShared';
 import { TranscriptTimelineRow } from './TranscriptTimelineRow';
 
+type RenderableTimelineMessage = ReturnType<typeof projectChatTimelineRow>;
+
+const shouldPinExecutionPlaceholderToTail = (projectedMessage: RenderableTimelineMessage): boolean => {
+  const turnId = String(projectedMessage.message.turnId || '').trim();
+  if (!turnId) {
+    return false;
+  }
+  if (projectedMessage.surface === 'runtime_status') {
+    return true;
+  }
+  return projectedMessage.surface === 'transcript'
+    && projectedMessage.message.messageKind === 'assistant_interim'
+    && Boolean(projectedMessage.transcript.executionProgress);
+};
+
 type ChatTimelinePaneProps = {
   messages: ChatTimelineMessage[];
   assistantName: string;
@@ -114,6 +129,33 @@ export const ChatTimelinePane = ({
     }
     return ids;
   }, [messages]);
+  const projectedMessages = useMemo(() => {
+    const regular: RenderableTimelineMessage[] = [];
+    const tailPlaceholders: RenderableTimelineMessage[] = [];
+
+    for (const message of messages) {
+      const projectedMessage = projectChatTimelineRow(message, {
+        summaries,
+        executionControlByTurnId,
+        cancellingTurnIds,
+        detachingTurnIds,
+        finalizedTurnIds,
+      });
+
+      const projectedTurnId = String(projectedMessage.message.turnId || '').trim();
+      if (projectedMessage.surface === 'runtime_status' && projectedTurnId && finalizedTurnIds.has(projectedTurnId)) {
+        continue;
+      }
+
+      if (shouldPinExecutionPlaceholderToTail(projectedMessage)) {
+        tailPlaceholders.push(projectedMessage);
+      } else {
+        regular.push(projectedMessage);
+      }
+    }
+
+    return [...regular, ...tailPlaceholders];
+  }, [cancellingTurnIds, detachingTurnIds, executionControlByTurnId, finalizedTurnIds, messages, summaries]);
   const transcriptInteractions: TranscriptTimelineInteractions = {
     currentSessionId,
     labelPopoverState,
@@ -141,20 +183,7 @@ export const ChatTimelinePane = ({
         onCopyMessage={onCopyMessage}
         onDeleteMessage={onDeleteMessage}
       />
-      {messages.map((msg) => {
-        const projectedMessage = projectChatTimelineRow(msg, {
-          summaries,
-          executionControlByTurnId,
-          cancellingTurnIds,
-          detachingTurnIds,
-          finalizedTurnIds,
-        });
-
-        const projectedTurnId = String(projectedMessage.message.turnId || '').trim();
-        if (projectedMessage.surface === 'runtime_status' && projectedTurnId && finalizedTurnIds.has(projectedTurnId)) {
-          return null;
-        }
-
+      {projectedMessages.map((projectedMessage) => {
         return projectedMessage.surface !== 'transcript' ? (
           <StatusTimelineRow
             key={projectedMessage.message.id}

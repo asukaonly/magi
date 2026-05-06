@@ -52,21 +52,26 @@
     "waiting_since": "自 {{time}} 起等待",
     "card": {
       "waiting": "执行已暂停，等待你处理这条请求。",
-      "review": "查看请求"
+      "review": "更多选项",
+      "allow_once": "允许一次",
+      "deny_once": "拒绝一次"
     }
   },
   "ask": {
-    "title": "智能体提问",
+    "title": "想确认一下",
     "question": "问题",
     "options": "可选回答",
-    "answer_placeholder": "输入你的回答…",
+    "answer_placeholder": "直接输入你的回答…",
     "submit": "回答",
+    "answered": "已回答",
     "expires_in": "{{seconds}} 秒后过期",
     "expired": "已过期",
     "background_badge": "后台任务已挂起",
     "free_text_disabled": "请从下列选项中选择。",
+    "quick": {
+      "no_options": "这次没有预设选项，直接输入回答即可。"
+    },
     "card": {
-      "waiting": "智能体已暂停，等待你回答这个问题。",
       "answer": "立即回答",
       "free_text": "你可以直接输入自定义回答。"
     }

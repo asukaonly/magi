@@ -20,6 +20,18 @@ export type PendingTurnPayload = {
   replyTo?: ChatTimelineReplyPreview | null;
 };
 
+export type PendingAskSendContext = {
+  requestId: string;
+  sessionId: string;
+  messageId: string | null;
+  question: string;
+};
+
+export type PendingAskAnswerPayload = PendingAskSendContext & {
+  answer: string;
+  timestamp: number;
+};
+
 export type UseChatSendMessageOptions = {
   currentSessionId: string | null;
   currentWorkspacePath: string | null | undefined;
@@ -27,12 +39,14 @@ export type UseChatSendMessageOptions = {
   draftAttachments: ComposerDraftItem[];
   replyTarget: ChatTimelineReplyPreview | null;
   allowInterjection: boolean;
+  pendingAsk: PendingAskSendContext | null;
   appendPendingTurn: (payload: PendingTurnPayload) => void;
   setInputValue: (value: string) => void;
   setCurrentSessionId: (sessionId: string | null) => void;
   clearDraftAttachments: () => void;
   clearReplyTarget: () => void;
   onPendingResponseTurn: (turnId: string) => void;
+  onAskAnswered: (answer: PendingAskAnswerPayload) => void;
   translate: (key: string, options?: Record<string, unknown>) => string;
 };
 
@@ -54,12 +68,14 @@ export function useChatSendMessage({
   draftAttachments,
   replyTarget,
   allowInterjection,
+  pendingAsk,
   appendPendingTurn,
   setInputValue,
   setCurrentSessionId,
   clearDraftAttachments,
   clearReplyTarget,
   onPendingResponseTurn,
+  onAskAnswered,
   translate,
 }: UseChatSendMessageOptions) {
   const [sendingMessage, setSendingMessage] = useState(false);
@@ -95,6 +111,48 @@ export function useChatSendMessage({
     }
     if (!currentSessionId) {
       toast.error(translate('chat.sessionRequired'));
+      return;
+    }
+
+    if (pendingAsk) {
+      if (!trimmedMessage) {
+        toast.warning(translate('chat.emptyInput'));
+        return;
+      }
+      if (draftAttachments.length > 0) {
+        toast.warning(translate('chat.askAttachmentsUnsupported', { defaultValue: 'Remove attachments before answering this question.' }));
+        return;
+      }
+
+      setSendingMessage(true);
+      try {
+        const result = await messagesApi.sendMessage({
+          user_id: USER_ID,
+          session_id: currentSessionId,
+          message: trimmedMessage,
+          workspace_path: currentWorkspacePath ?? null,
+        });
+        if (result.success === false) {
+          throw new Error(result.message || translate('chat.sendFailed'));
+        }
+        if (result.data?.session_id) {
+          setCurrentSessionId(String(result.data.session_id));
+        }
+        setInputValue('');
+        clearDraftAttachments();
+        clearReplyTarget();
+        onAskAnswered({
+          ...pendingAsk,
+          answer: trimmedMessage,
+          timestamp: Date.now(),
+        });
+        window.dispatchEvent(new Event(APP_EVENTS.SESSION_SYNC));
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : translate('chat.sendFailed');
+        toast.error(message);
+      } finally {
+        setSendingMessage(false);
+      }
       return;
     }
 
@@ -149,7 +207,9 @@ export function useChatSendMessage({
     currentWorkspacePath,
     draftAttachments,
     inputValue,
+    onAskAnswered,
     onPendingResponseTurn,
+    pendingAsk,
     replyTarget,
     setCurrentSessionId,
     setInputValue,

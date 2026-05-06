@@ -319,6 +319,8 @@ Important rule: chat UI behavior should not depend directly on raw intent-classi
 
 `TurnUXPlan` is now persisted on `chat_turns.ux_plan_json` and reused by both runtime notifications and history read models. This keeps reload behavior aligned with the same presentation contract that was active when the turn originally ran.
 
+Active execution placeholders are a live tail control for the current turn, not a transcript event. Chat clients should render the active runtime-status card or interim execution placeholder after other in-run transcript/control messages, and remove or quiet that placeholder once a final assistant message finalizes the turn.
+
 The current call-trace visibility policy intentionally separates storage from presentation:
 
 - runtime trace persistence should remain available for every user-visible turn so support, debugging, and history reload can recover the execution path consistently
@@ -622,9 +624,12 @@ permission prompts, ask-user questions, plan mode, and todo updates,
 and it ships as runtime notification channels plus UI surfaces that
 render either direct prompts or durable chat-backed status messages.
 
-Permission and ask-user interactions remain prompt-style control
-surfaces, while plan mode and todo updates are also mirrored into
-``chat_messages`` as ``plan_state`` / ``todo_state`` status messages.
+Permission interactions are chat-backed action cards by default. Ask-user
+questions are persisted as assistant transcript bubbles with stable
+``ask:<request_id>`` message ids, and answered asks add a paired user
+``ask-response:<request_id>`` transcript row. Answer submission is routed
+through the shared user-message dispatch path. Plan mode and todo updates
+are mirrored into ``chat_messages`` as ``plan_state`` / ``todo_state`` status messages.
 Those status rows use replacement semantics within the same turn so the
 chat transcript keeps the latest control state without accumulating
 stale intermediate copies after reloads or reconnects.
@@ -639,7 +644,7 @@ Event channels (all published via
   and ``expires_at_ms`` so clients can disable stale affordances at the
   same deadline the backend broker will enforce.
 - ``control.ask.requested`` — emitted by the ``ask_user_question`` tool
-  when it opens a dialog. Ask snapshots expose a frontend-facing ``status`` plus
+  when it opens a user question. Ask snapshots expose a frontend-facing ``status`` plus
   ``created_at_ms``, ``timeout_seconds``, and ``expires_at_ms``; legacy
   ``asked_at`` / ``resolution`` fields may still appear for diagnostics.
 - ``control.background.suspended`` / ``control.background.resumed``
@@ -668,18 +673,31 @@ Frontend composition:
   ``assistant_interim`` bubble. Chat-only runtime progress (trace
   headline, execution-control state, plan preview, cancel/detach
   affordances) no longer uses the generic chat status-card path.
-- Durable control-plane projections remain status messages. ``ask`` /
-  ``permission`` stay prompt-style surfaces, while ``plan_state`` /
-  ``todo_state`` remain chat-backed status rows because they represent
-  control state rather than assistant utterances.
+- Durable control-plane projections remain status messages except for
+  ``ask``. Ask questions render as assistant transcript bubbles because
+  they are agent utterances; their suggested answers appear as quick
+  replies above the composer. After a reply, the ask bubble is updated to
+  an answered state and the user reply remains in transcript/history
+  across session switches. Permission cards keep a one-shot allow/deny
+  path inline and open the full permission detail prompt only when the
+  user asks for more options. ``plan_state`` / ``todo_state`` remain
+  chat-backed status rows because they represent control state rather
+  than assistant utterances.
 
 - ``PermissionModalHost`` and ``AskDialog`` are mounted once at the
-  ``MainLayout`` root so prompts stay visible while the user navigates
-  between Chat, Tasks, and Settings. They are keyed by the currently
-  selected session from ``useConversationStore``. These hosts treat
+  ``MainLayout`` root so pending interaction state can be mirrored into
+  the selected chat session. They fetch once on mount/session switch and
+  then rely on control-plane realtime events for wake-ups; continuous
+  polling is disabled by default. ``PermissionModalHost`` only opens the
+  full prompt after an explicit card action. These hosts treat
   ``expires_at_ms`` as the last safe click time: expired prompts are
   removed from the active UI and action buttons are disabled before any
   stale response can be posted back to the broker.
+- When a session has a pending ask, the next non-empty user message sent
+  through ``dispatch_user_message`` resolves the ask broker response
+  before normal chat-turn persistence or runtime queueing. This makes the
+  desktop composer and external channel adapters share the same answer
+  routing semantics.
 - ``SessionControlRail`` is mounted inside the chat page and hosts
   ``PlanCard`` + ``TodoPanel``. The rail self-hides when there is no
   active plan and no todos so the chat surface stays clean.

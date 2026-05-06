@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { motion, useReducedMotion } from 'framer-motion';
 import { ChatWorkspaceStatusBar } from '@/components/chat/ChatWorkspaceStatusBar';
 import { useChatComposerController } from '@/hooks/useChatComposerController';
+import type { PendingAskAnswerPayload } from '@/hooks/useChatSendMessage';
 import { useChatMessageOverlays } from '@/hooks/useChatMessageOverlays';
 import { useChatMessageMutations } from '@/hooks/useChatMessageMutations';
 import { useChatRealtimeEffects } from '@/hooks/useChatRealtimeEffects';
@@ -15,6 +16,7 @@ import { useChatWorkspaceActions } from '@/hooks/useChatWorkspaceActions';
 import { useChatExecutionControls } from '@/hooks/useChatExecutionControls';
 import { useConversationStore } from '@/stores';
 import { ChatComposerPane } from '@/components/chat/ChatComposerPane';
+import { ComposerAskQuickReplies } from '@/components/chat/ComposerAskQuickReplies';
 import { ChatPageOverlays } from '@/components/chat/ChatPageOverlays';
 import { ChatTimelinePane } from '@/components/chat/ChatTimelinePane';
 import { ComposerMentionPicker } from '@/components/chat/ComposerMentionPicker';
@@ -27,6 +29,8 @@ import { commandsApi, messagesApi, type CommandDescriptor, type SkillCommandDesc
 import { DEFAULT_USER_ID } from '@/constants';
 import { toast } from 'sonner';
 import { isTranscriptMessage } from '@/domain/chat/presentation';
+import type { ChatTimelineMessage } from '@/domain/chat/state';
+
 const DEFAULT_CHAT_WORKSPACE_DISPLAY = '~/.magi/chat-workspace';
 const toPlainText = (content: string): string => String(content || '')
   .replace(/```[\s\S]*?```/g, (block) => block.replace(/```[\w-]*\n?/g, '').replace(/```/g, ''))
@@ -51,6 +55,76 @@ interface HistoryImagePreview {
 const getWorkspaceDisplayPath = (workspacePath: string | null | undefined): string => {
   const normalizedPath = String(workspacePath || '').trim();
   return normalizedPath || DEFAULT_CHAT_WORKSPACE_DISPLAY;
+};
+
+type PendingAskComposerState = {
+  requestId: string;
+  sessionId: string;
+  messageId: string | null;
+  question: string;
+  options: string[];
+  allowFreeText: boolean;
+  expiresAtMs: number | null;
+};
+
+const numberOrNull = (value: unknown): number | null => {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+const normalizeAskOptions = (value: unknown): string[] => (
+  Array.isArray(value)
+    ? value.map((item) => String(item || '').trim()).filter(Boolean)
+    : []
+);
+
+const resolvePendingAskComposerState = (
+  messages: ChatTimelineMessage[],
+  currentSessionId: string | null,
+): PendingAskComposerState | null => {
+  const sessionId = String(currentSessionId || '').trim();
+  if (!sessionId) {
+    return null;
+  }
+  for (const message of [...messages].reverse()) {
+    if (message.messageKind !== 'ask_request') {
+      continue;
+    }
+    const payload = message.payload && typeof message.payload === 'object'
+      ? message.payload as Record<string, unknown>
+      : {};
+    const payloadSessionId = String(payload.session_id || '').trim();
+    if (payloadSessionId && payloadSessionId !== sessionId) {
+      continue;
+    }
+    const status = String(payload.status || 'pending').trim().toLowerCase();
+    if (status !== 'pending') {
+      continue;
+    }
+    const expiresAtMs = numberOrNull(payload.expires_at_ms);
+    if (expiresAtMs !== null && expiresAtMs <= Date.now()) {
+      continue;
+    }
+    const requestId = String(payload.ask_request_id || '').trim();
+    if (!requestId) {
+      continue;
+    }
+    const messageId = String(message.messageId || message.id || '').trim() || null;
+    const question = String(payload.question || message.content || '').trim();
+    return {
+      requestId,
+      sessionId,
+      messageId,
+      question,
+      options: normalizeAskOptions(payload.options),
+      allowFreeText: payload.allow_free_text !== false,
+      expiresAtMs,
+    };
+  }
+  return null;
 };
 
 export const ChatPage: React.FC = () => {
@@ -117,6 +191,74 @@ export const ChatPage: React.FC = () => {
     translate: t,
   });
 
+  const activePendingAsk = React.useMemo(
+    () => resolvePendingAskComposerState(messages, currentSessionId),
+    [currentSessionId, messages],
+  );
+
+  const handleAskAnswerSent = React.useCallback((answerPayload: PendingAskAnswerPayload) => {
+    const state = useConversationStore.getState();
+    const sessionMessages = state.messagesBySession[answerPayload.sessionId] || [];
+    const askMessage = sessionMessages.find((message) => {
+      const messageId = String(message.messageId || message.id || '').trim();
+      return messageId === answerPayload.messageId;
+    }) || null;
+    const askMessageId = answerPayload.messageId || `ask:${answerPayload.requestId}`;
+    const askQuestion = String(askMessage?.content || answerPayload.question || '').trim();
+    const askPayload = askMessage?.payload && typeof askMessage.payload === 'object'
+      ? askMessage.payload as Record<string, unknown>
+      : {};
+
+    upsertMessage(answerPayload.sessionId, askMessage ? {
+      ...askMessage,
+      payload: {
+        ...askPayload,
+        status: 'answered',
+        answer: answerPayload.answer,
+        answered_at_ms: answerPayload.timestamp,
+      },
+    } : {
+      id: askMessageId,
+      messageId: askMessageId,
+      role: 'assistant',
+      kind: 'assistant',
+      messageKind: 'ask_request',
+      content: askQuestion,
+      timestamp: Math.max(0, answerPayload.timestamp - 1),
+      payload: {
+        ask_request_id: answerPayload.requestId,
+        session_id: answerPayload.sessionId,
+        status: 'answered',
+        question: askQuestion,
+        answer: answerPayload.answer,
+        answered_at_ms: answerPayload.timestamp,
+      },
+    });
+
+    upsertMessage(answerPayload.sessionId, {
+      id: `ask-response:${answerPayload.requestId}`,
+      messageId: `ask-response:${answerPayload.requestId}`,
+      role: 'user',
+      kind: 'user',
+      messageKind: 'ask_response',
+      content: answerPayload.answer,
+      timestamp: answerPayload.timestamp,
+      replyTo: askQuestion ? {
+        messageId: askMessageId,
+        role: 'assistant',
+        messageKind: 'ask_request',
+        contentExcerpt: askQuestion.length > 140 ? `${askQuestion.slice(0, 137)}...` : askQuestion,
+      } : null,
+      payload: {
+        ask_request_id: answerPayload.requestId,
+        session_id: answerPayload.sessionId,
+        answer: answerPayload.answer,
+      },
+      traceDisplayMode: null,
+      allowTraceCollapse: false,
+    });
+  }, [upsertMessage]);
+
   const {
     updatingWorkspace,
     persistSessionWorkspace,
@@ -171,8 +313,10 @@ export const ChatPage: React.FC = () => {
     currentWorkspacePath: currentSession?.workspace_path,
     allowInterjection,
     coreModelSupportsVision,
+    pendingAsk: activePendingAsk,
     appendPendingTurn,
     setCurrentSessionId,
+    onAskAnswered: handleAskAnswerSent,
     requestRunCancel,
     translate: t,
   });
@@ -337,6 +481,19 @@ export const ChatPage: React.FC = () => {
       commands.onValueChange(next);
     },
     [commands, mentions, setInputValue],
+  );
+
+  const handleAskQuickReplyPicked = React.useCallback(
+    (value: string) => {
+      const option = String(value || '').trim();
+      if (!option) return;
+      const next = inputValue.trim() ? `${inputValue.trim()} ${option}` : option;
+      handleInputChangeWithMentions(next);
+      window.requestAnimationFrame(() => {
+        composerTextareaRef.current?.focus();
+      });
+    },
+    [handleInputChangeWithMentions, inputValue],
   );
 
   const handleKeyDownWithMentions = React.useCallback(
@@ -543,6 +700,14 @@ export const ChatPage: React.FC = () => {
         imageInputRef={imageInputRef}
         fileInputRef={fileInputRef}
         onAttachmentInputChange={handleAttachmentInputChange}
+        askAnswerSlot={activePendingAsk ? (
+          <ComposerAskQuickReplies
+            options={activePendingAsk.options}
+            allowFreeText={activePendingAsk.allowFreeText}
+            expiresAtMs={activePendingAsk.expiresAtMs}
+            onPick={handleAskQuickReplyPicked}
+          />
+        ) : undefined}
         pickerSlot={
           <>
             <ComposerMentionPicker

@@ -117,6 +117,20 @@ async def send_user_message(request: UserMessageRequest):
                 },
             )
 
+        if outcome.handled_as == "ask_response":
+            return MessageResponse(
+                success=True,
+                message=core_i18n.t("chat.dispatch.ask_response_recorded", fallback="Answer recorded"),
+                data={
+                    "user_id": request.user_id,
+                    "session_id": outcome.session_id,
+                    "handled_as": outcome.handled_as,
+                    "ask_request_id": outcome.ask_request_id,
+                    "message_length": len(request.message),
+                    "timestamp": time.time(),
+                },
+            )
+
         logger.info(
             "Message from %s queued for runtime processing | Queue size: %s",
             request.user_id,

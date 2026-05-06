@@ -1,8 +1,7 @@
 /**
  * Convenience orchestrator: given a session id, polls pending
- * permissions and renders ``PermissionModal`` for the first one in
- * the queue. Meant to be mounted once near the root of the chat
- * surface so any pending prompt automatically surfaces.
+ * permissions, mirrors them into chat status cards, and opens the
+ * full permission prompt only when the user requests more options.
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useRef } from 'react';
@@ -31,10 +30,9 @@ export function PermissionModalHost({
     intervalMs,
     enabled: Boolean(sessionId),
   });
-  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [focusedRequestId, setFocusedRequestId] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const resolvedRequestIdsRef = useRef<Set<string>>(new Set());
-  const previousActiveRequestIdRef = useRef<string | null>(null);
+  const previousFocusedRequestIdRef = useRef<string | null>(null);
 
   const visibleItems = useMemo(
     () => items.filter((item) => !isInteractionExpired(item.expires_at_ms, nowMs)),
@@ -42,9 +40,8 @@ export function PermissionModalHost({
   );
 
   useEffect(() => {
-    setDismissed(new Set());
-    resolvedRequestIdsRef.current = new Set();
-    previousActiveRequestIdRef.current = null;
+    setFocusedRequestId(null);
+    previousFocusedRequestIdRef.current = null;
     setNowMs(Date.now());
   }, [sessionId]);
 
@@ -68,22 +65,14 @@ export function PermissionModalHost({
     const handleOpenRequest = (event: Event) => {
       const detail = (event as CustomEvent<{ requestId?: string }>).detail;
       const requestId = String(detail?.requestId || '').trim();
-      if (!requestId) {
-        setDismissed(new Set());
-        return;
-      }
-      setDismissed((prev) => {
-        const next = new Set(prev);
-        next.delete(requestId);
-        return next;
-      });
+      setFocusedRequestId(requestId || visibleItems[0]?.request_id || null);
     };
 
     window.addEventListener(OPEN_PERMISSION_REQUEST_EVENT, handleOpenRequest as EventListener);
     return () => {
       window.removeEventListener(OPEN_PERMISSION_REQUEST_EVENT, handleOpenRequest as EventListener);
     };
-  }, []);
+  }, [visibleItems]);
 
   useEffect(() => {
     if (!sessionId) {
@@ -118,6 +107,7 @@ export function PermissionModalHost({
         turnId,
         payload: {
           permission_request_id: item.request_id,
+          session_id: sessionId,
           tool: item.tool_name,
           risk_level: item.risk_level,
           origin: item.origin,
@@ -129,43 +119,42 @@ export function PermissionModalHost({
     });
   }, [visibleItems, removeMessage, sessionId, upsertMessage]);
 
-  const active =
-    visibleItems.find((req) => !dismissed.has(req.request_id)) ?? null;
+  const active = focusedRequestId
+    ? visibleItems.find((req) => req.request_id === focusedRequestId) ?? null
+    : null;
 
   useEffect(() => {
-    const previousActiveRequestId = previousActiveRequestIdRef.current;
+    if (focusedRequestId && !active) {
+      setFocusedRequestId(null);
+    }
+  }, [active, focusedRequestId]);
+
+  useEffect(() => {
+    const previousActiveRequestId = previousFocusedRequestIdRef.current;
     const currentActiveRequestId = active?.request_id ?? null;
 
     if (previousActiveRequestId && previousActiveRequestId !== currentActiveRequestId) {
       const stillPending = visibleItems.some((item) => item.request_id === previousActiveRequestId);
-      const wasResolved = resolvedRequestIdsRef.current.has(previousActiveRequestId);
-      const wasDismissed = dismissed.has(previousActiveRequestId);
 
-      if (!stillPending && !wasResolved && !wasDismissed && sessionId) {
+      if (!stillPending && sessionId) {
         toast.warning(t('permission.toast_timed_out'));
       }
-
-      resolvedRequestIdsRef.current.delete(previousActiveRequestId);
     }
 
-    previousActiveRequestIdRef.current = currentActiveRequestId;
-  }, [active?.request_id, dismissed, visibleItems, sessionId, t]);
+    previousFocusedRequestIdRef.current = currentActiveRequestId;
+  }, [active?.request_id, visibleItems, sessionId, t]);
 
   return (
     <PermissionModal
       request={active}
       open={active !== null}
       onOpenChange={(open) => {
-        if (!open && active) {
-          setDismissed((prev) => {
-            const next = new Set(prev);
-            next.add(active.request_id);
-            return next;
-          });
+        if (!open) {
+          setFocusedRequestId(null);
         }
       }}
-      onResolved={(requestId) => {
-        resolvedRequestIdsRef.current.add(requestId);
+      onResolved={() => {
+        setFocusedRequestId(null);
         void refresh();
       }}
     />

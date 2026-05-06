@@ -59,7 +59,11 @@ export interface ChatRunState {
 export interface MessageData {
   user_id: string;
   session_id?: string;
+  turn_id?: string | null;
+  handled_as?: string | null;
+  ask_request_id?: string | null;
   message_length: number;
+  attachment_count?: number;
   timestamp: number;
 }
 

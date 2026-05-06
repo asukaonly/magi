@@ -26,9 +26,11 @@ class _FakeStore:
         question: str,
         options: list[str],
         allow_free_text: bool,
+        timeout_seconds: float,
+        request_id: str | None,
     ) -> _FakeAsk:
-        _ = (session_id, question, options, allow_free_text)
-        return _FakeAsk(request_id="ask-1")
+        _ = (session_id, question, options, allow_free_text, timeout_seconds)
+        return _FakeAsk(request_id=request_id or "ask-1")
 
     async def close_ask(
         self,

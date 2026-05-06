@@ -46,10 +46,9 @@ const MainLayout: React.FC = () => {
           <ShellOverlays />
         </div>
       </div>
-      {/* Control-plane hosts are mounted app-wide so prompts from
-          background subagents surface regardless of the active page. */}
+      {/* Control-plane hosts mirror pending interactions into the active chat. */}
       <PermissionModalHost sessionId={currentSessionId} intervalMs={0} />
-      <AskDialog sessionId={currentSessionId} intervalMs={5000} />
+      <AskDialog sessionId={currentSessionId} intervalMs={0} />
     </AppShellProviders>
   );
 };

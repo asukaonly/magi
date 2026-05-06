@@ -64,6 +64,14 @@ const stringifyPreviewValue = (value: unknown): string | null => {
   }
 };
 
+const numberOrNull = (value: unknown): number | null => {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
 const normalizeTodoStatus = (value: unknown): ProjectedControlTodoItem['status'] => {
   switch (String(value || '').trim().toLowerCase()) {
     case 'completed':
@@ -145,22 +153,27 @@ export const projectControlStatusCardPresentation = (
       return {
         kind: 'permission_request',
         requestId: String(payload.permission_request_id || '').trim() || null,
+        sessionId: String(payload.session_id || '').trim() || null,
         tool: String(payload.tool || message.content || '').trim(),
         riskLevel,
         riskTone: getRiskTone(riskLevel),
         origin: String(payload.origin || '').trim() || null,
         argsPreview: stringifyPreviewValue(payload.tool_args || {}),
+        expiresAtMs: numberOrNull(payload.expires_at_ms),
       };
     }
     case 'ask_request': {
       return {
         kind: 'ask_request',
+        requestId: String(payload.ask_request_id || '').trim() || null,
+        sessionId: String(payload.session_id || '').trim() || null,
         question: String(payload.question || message.content || '').trim(),
         options: Array.isArray(payload.options)
           ? payload.options.map((item) => String(item || '').trim()).filter(Boolean)
           : [],
         allowFreeText: Boolean(payload.allow_free_text),
         isBackground: Boolean(payload.background),
+        expiresAtMs: numberOrNull(payload.expires_at_ms),
       };
     }
     case 'plan_state': {

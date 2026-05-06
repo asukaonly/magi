@@ -1,11 +1,30 @@
 from __future__ import annotations
 
 import contextlib
+import json
 
 import pytest
 
 from magi.chat import ChatSessionRecord, ChatStore, ChatTurnRecord
 from magi.core.container import get_container
+
+
+class _AskState:
+    def __init__(self) -> None:
+        self.request_id = "ask-1"
+        self.question = "Proceed?"
+        self.options = ("yes", "no")
+        self.allow_free_text = True
+        self.asked_at = 1.0
+        self.timeout_seconds = 60.0
+        self.expires_at = 61.0
+        self.answered_at = None
+        self.answer = None
+        self.resolution = None
+
+    @property
+    def status(self) -> str:
+        return "answered" if self.resolution == "user" else "pending"
 
 
 @contextlib.contextmanager
@@ -244,5 +263,60 @@ async def test_persist_todo_state_message_noops_when_payload_unchanged(
     assert messages[0].is_visible is True
     assert upserts == [first_id]
     assert hidden == []
+
+    await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_persist_ask_messages_use_stable_transcript_rows(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from magi.agent.control.chat_state_persister import (
+        persist_ask_request_message,
+        persist_ask_response_message,
+    )
+
+    store = ChatStore(db_path=str(tmp_path / "chat.db"))
+    await store.initialize()
+    await _seed_turn(store)
+    upserts: list[str] = []
+
+    async def _noop_upsert(**kwargs):
+        upserts.append(str(kwargs["message_id"]))
+
+    monkeypatch.setattr(
+        "magi.agent.control.chat_state_persister.broadcast_chat_message_upsert",
+        _noop_upsert,
+    )
+
+    ask = _AskState()
+
+    with _override(chat_store=store):
+        ask_message_id = await persist_ask_request_message(
+            session_id="session-1",
+            user_id="user-1",
+            turn_id="turn-1",
+            ask=ask,
+        )
+        ask.answer = "yes"
+        ask.resolution = "user"
+        ask.answered_at = 2.0
+        response_message_id = await persist_ask_response_message(
+            session_id="session-1",
+            user_id="user-1",
+            turn_id="turn-1",
+            ask=ask,
+            answer="yes",
+        )
+
+    messages = await store.list_messages(session_id="session-1")
+    assert ask_message_id == "ask:ask-1"
+    assert response_message_id == "ask-response:ask-1"
+    assert [message.message_kind for message in messages] == ["ask_request", "ask_response"]
+    assert json.loads(messages[0].payload_json)["status"] == "answered"
+    assert messages[1].role == "user"
+    assert messages[1].reply_to_message_id == "ask:ask-1"
+    assert upserts == ["ask:ask-1", "ask:ask-1", "ask-response:ask-1"]
 
     await store.shutdown()

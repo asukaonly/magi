@@ -3,13 +3,15 @@ import type React from 'react';
 import { shouldSubmitOnEnter } from '@/pages/chat-route-helpers';
 import type { ChatTimelineReplyPreview } from '@/domain/chat/state';
 import { useChatDraftAttachments } from './useChatDraftAttachments';
-import { useChatSendMessage, type UseChatSendMessageOptions } from './useChatSendMessage';
+import { useChatSendMessage, type PendingAskAnswerPayload, type PendingAskSendContext, type UseChatSendMessageOptions } from './useChatSendMessage';
 
 type UseChatComposerControllerOptions = Pick<
   UseChatSendMessageOptions,
   'currentSessionId' | 'currentWorkspacePath' | 'allowInterjection' | 'appendPendingTurn' | 'setCurrentSessionId' | 'translate'
 > & {
   coreModelSupportsVision: boolean;
+  pendingAsk: PendingAskSendContext | null;
+  onAskAnswered: (answer: PendingAskAnswerPayload) => void;
   requestRunCancel: (turnId: string) => Promise<unknown> | void;
 };
 
@@ -18,8 +20,10 @@ export function useChatComposerController({
   currentWorkspacePath,
   allowInterjection,
   coreModelSupportsVision,
+  pendingAsk,
   appendPendingTurn,
   setCurrentSessionId,
+  onAskAnswered,
   requestRunCancel,
   translate,
 }: UseChatComposerControllerOptions) {
@@ -68,12 +72,14 @@ export function useChatComposerController({
     draftAttachments,
     replyTarget,
     allowInterjection,
+    pendingAsk,
     appendPendingTurn,
     setInputValue,
     setCurrentSessionId,
     clearDraftAttachments,
     clearReplyTarget,
     onPendingResponseTurn: handlePendingResponseTurn,
+    onAskAnswered,
     translate,
   });
 
@@ -90,12 +96,12 @@ export function useChatComposerController({
   }, [handleSendMessage]);
 
   const handleComposerPrimaryAction = useCallback(() => {
-    if (!allowInterjection && turnActive && pendingResponseTurnId) {
+    if (!pendingAsk && !allowInterjection && turnActive && pendingResponseTurnId) {
       void requestRunCancel(pendingResponseTurnId);
       return;
     }
     void handleSendMessage();
-  }, [allowInterjection, handleSendMessage, pendingResponseTurnId, requestRunCancel, turnActive]);
+  }, [allowInterjection, handleSendMessage, pendingAsk, pendingResponseTurnId, requestRunCancel, turnActive]);
 
   const handleCompositionStart = useCallback(() => {
     isComposingRef.current = true;
@@ -127,6 +133,6 @@ export function useChatComposerController({
     setAttachmentMenuOpen,
     setInputValue,
     setReplyTarget,
-    waitingForReply: !allowInterjection && turnActive,
+    waitingForReply: !pendingAsk && !allowInterjection && turnActive,
   };
 }

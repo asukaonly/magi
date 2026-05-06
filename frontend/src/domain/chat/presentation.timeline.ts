@@ -51,6 +51,7 @@ export const projectChatTimelineMessage = (
   }
 
   const isAssistantInterim = message.role === 'assistant' && message.messageKind === 'assistant_interim';
+  const isAskRequest = message.messageKind === 'ask_request';
   const rhythmPayload = message.payload?.rhythm;
   const rhythmSegmentIndex = rhythmPayload && typeof rhythmPayload === 'object'
     ? Number((rhythmPayload as Record<string, unknown>).segment_index ?? 0)
@@ -58,8 +59,8 @@ export const projectChatTimelineMessage = (
   const isSecondaryRhythmSegment = message.role === 'assistant'
     && message.messageKind === 'assistant_rhythm_segment'
     && rhythmSegmentIndex > 0;
-  const replyPreview = buildReplyPreviewFromMessage(message);
-  const canQuickLabel = message.role === 'assistant' && Boolean(String(message.messageId || '').trim());
+  const replyPreview = isAskRequest ? null : buildReplyPreviewFromMessage(message);
+  const canQuickLabel = !isAskRequest && message.role === 'assistant' && Boolean(String(message.messageId || '').trim());
   const showReactionBadge = message.role === 'user'
     && Boolean(message.reaction)
     && message.label?.text !== message.reaction;
@@ -73,7 +74,7 @@ export const projectChatTimelineMessage = (
     message,
     surface: 'transcript',
     transcript: {
-      showHeaderTraceEntry: message.role === 'assistant' && !isAssistantInterim && !isSecondaryRhythmSegment,
+      showHeaderTraceEntry: message.role === 'assistant' && !isAskRequest && !isAssistantInterim && !isSecondaryRhythmSegment,
       showExecutionBubbleFooter: isAssistantInterim,
       bubbleTop: {
         replyTo: message.replyTo ?? null,

@@ -145,6 +145,7 @@ def _insert_chat_message(db_path: Path, **values) -> None:
         "sequence_no": values.get("sequence_no", 1),
         "replaces_message_id": values.get("replaces_message_id"),
         "replaced_by_message_id": values.get("replaced_by_message_id"),
+        "reply_to_message_id": values.get("reply_to_message_id"),
     }
     conn = sqlite3.connect(str(db_path))
     cur = conn.cursor()
@@ -153,8 +154,8 @@ def _insert_chat_message(db_path: Path, **values) -> None:
         INSERT INTO {CHAT_MESSAGES_TABLE} (
             message_id, session_id, turn_id, user_id, role, message_kind, content_text,
             payload_json, is_final, is_visible, created_at_ms, sequence_no,
-            replaces_message_id, replaced_by_message_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            replaces_message_id, replaced_by_message_id, reply_to_message_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         tuple(payload.values()),
     )
@@ -1613,19 +1614,40 @@ def test_get_display_history_includes_control_status_messages(tmp_path, monkeypa
         created_at_ms=1040,
         sequence_no=5,
     )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-ask-response",
+        session_id="s-control",
+        turn_id="turn-control",
+        user_id="u1",
+        role="user",
+        message_kind="ask_response",
+        content_text="yes",
+        payload_json=json.dumps({"ask_request_id": "ask-1", "answer": "yes"}),
+        created_at_ms=1041,
+        sequence_no=6,
+        reply_to_message_id="msg-ask",
+    )
 
     messages = service.get_display_history("u1", "s-control", limit=20)
 
-    assert [item.kind for item in messages] == ["user", "status", "status", "status", "status"]
+    assert [item.kind for item in messages] == ["user", "status", "status", "status", "assistant", "user"]
     assert [item.message_kind for item in messages[1:]] == [
         "plan_state",
         "todo_state",
         "permission_request",
         "ask_request",
+        "ask_response",
     ]
     assert messages[1].payload == {"active": True, "plan_text": "step 1\nstep 2"}
     assert messages[2].payload == {
         "items": [{"id": "1", "content": "first", "status": "in_progress"}]
+    }
+    assert messages[-1].reply_to == {
+        "message_id": "msg-ask",
+        "role": "assistant",
+        "message_kind": "ask_request",
+        "content_excerpt": "Need confirmation?",
     }
 
 

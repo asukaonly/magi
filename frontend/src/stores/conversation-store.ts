@@ -346,7 +346,9 @@ const mergeHistorySnapshot = (
   });
 
   const localPendingMessages = existingMessages.filter((message) => {
-    if (String(message.messageId || '').trim()) {
+    const messageKind = String(message.messageKind || '').trim();
+    const isLocalAskTranscript = messageKind === 'ask_request' || messageKind === 'ask_response';
+    if (String(message.messageId || '').trim() && !isLocalAskTranscript) {
       return false;
     }
     return !snapshotMessages.some((snapshotMessage) => canMergeTimelineMessage(message, snapshotMessage));
