@@ -1,4 +1,5 @@
 """Read-side DTOs for chat sessions and display history."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -78,6 +79,7 @@ class ChatDisplayMessage:
     allow_trace_collapse: bool = False
     trace_summary: dict[str, Any] | None = None
     trace_available: bool = False
+    run_state: dict[str, Any] | None = None
     reply_to: dict[str, Any] | None = None
     label: dict[str, Any] | None = None
     payload: dict[str, Any] | None = None
@@ -97,7 +99,12 @@ class ChatDisplayMessage:
             "allow_trace_collapse": self.allow_trace_collapse,
             "trace_summary": self.trace_summary,
             "trace_available": self.trace_available,
-            "reply_to": dict(self.reply_to) if isinstance(self.reply_to, dict) else None,
+            "run_state": (
+                dict(self.run_state) if isinstance(self.run_state, dict) else None
+            ),
+            "reply_to": (
+                dict(self.reply_to) if isinstance(self.reply_to, dict) else None
+            ),
             "label": dict(self.label) if isinstance(self.label, dict) else None,
             "payload": dict(self.payload) if isinstance(self.payload, dict) else None,
         }

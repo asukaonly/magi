@@ -5,6 +5,8 @@ from __future__ import annotations
 import inspect
 from typing import Any, Callable, Protocol, cast
 
+from .....agent.trace import now_wall_ms
+from .....chat import ChatTurnRecord
 from .....core.logger import get_logger
 from ..contracts import ChatRuntimeContext
 
@@ -16,6 +18,7 @@ class _SessionPostprocessHostProtocol(Protocol):
     _resolve_session_run_status: Callable[[str, str, int], Any] | None
     _drain_deferred_turns: Callable[[str], Any] | None
     _unified_memory: Any
+    _chat_store: Any
 
     async def emit_execution_control_notification(
         self,
@@ -28,8 +31,7 @@ class _SessionPostprocessHostProtocol(Protocol):
         state: str,
         can_cancel: bool = False,
         label: str | None = None,
-    ) -> None:
-        ...
+    ) -> None: ...
 
 
 class ChatPostprocessSessionMixin:
@@ -63,17 +65,30 @@ class ChatPostprocessSessionMixin:
         status = self._session_run_status(context)
         if status == "cancelled":
             active_run = context.active_run
+            await self._mark_cancelled_turn(context)
             await host.emit_execution_control_notification(
                 user_id=context.user_id,
                 session_id=context.session_id,
                 turn_id=(
-                    str((active_run.cancel_anchor_turn_id if active_run is not None else None) or "").strip()
-                    or str((active_run.root_turn_id if active_run is not None else None) or "").strip()
+                    str(
+                        (
+                            active_run.cancel_anchor_turn_id
+                            if active_run is not None
+                            else None
+                        )
+                        or ""
+                    ).strip()
+                    or str(
+                        (active_run.root_turn_id if active_run is not None else None)
+                        or ""
+                    ).strip()
                     or None
                 ),
                 run_id=run_id,
                 orchestration_id=(
-                    str(context.active_orchestrations[0].get("orchestration_id") or "").strip()
+                    str(
+                        context.active_orchestrations[0].get("orchestration_id") or ""
+                    ).strip()
                     if context.active_orchestrations
                     and isinstance(context.active_orchestrations[0], dict)
                     else None
@@ -84,6 +99,73 @@ class ChatPostprocessSessionMixin:
             )
         await self._drain_deferred_user_turns(context)
         await self._notify_memory_session_end(context.session_id)
+
+    async def _mark_cancelled_turn(self, context: ChatRuntimeContext) -> None:
+        host = cast(_SessionPostprocessHostProtocol, self)
+        if host._chat_store is None:
+            return
+        active_run = context.active_run
+        turn_id = str(
+            (active_run.cancel_anchor_turn_id if active_run is not None else None)
+            or (active_run.root_turn_id if active_run is not None else None)
+            or getattr(context.latest_payload, "turn_id", None)
+            or ""
+        ).strip()
+        if not turn_id:
+            return
+        existing_turn = await host._chat_store.get_turn(turn_id)
+        if existing_turn is None:
+            return
+        completed_at_ms = now_wall_ms()
+        await host._chat_store.upsert_turn(
+            ChatTurnRecord(
+                turn_id=existing_turn.turn_id,
+                session_id=existing_turn.session_id,
+                user_id=existing_turn.user_id,
+                trace_id=existing_turn.trace_id,
+                orchestration_id=existing_turn.orchestration_id,
+                status="cancelled",
+                response_mode=existing_turn.response_mode,
+                execution_mode=existing_turn.execution_mode,
+                ux_plan_json=existing_turn.ux_plan_json,
+                created_at_ms=existing_turn.created_at_ms,
+                updated_at_ms=completed_at_ms,
+                completed_at_ms=completed_at_ms,
+                error_text=existing_turn.error_text
+                or (active_run.cancel_reason if active_run is not None else None),
+                run_id=existing_turn.run_id or context.session_run_id,
+                run_revision=existing_turn.run_revision
+                or int(context.session_run_revision or 0),
+                run_disposition=existing_turn.run_disposition,
+                response_anchor_turn_id=existing_turn.response_anchor_turn_id,
+                superseded_by_turn_id=existing_turn.superseded_by_turn_id,
+                supersession_reason=existing_turn.supersession_reason,
+            )
+        )
+        emit_cancelled_turn_trace = getattr(self, "emit_cancelled_turn_trace", None)
+        if callable(emit_cancelled_turn_trace):
+            await emit_cancelled_turn_trace(
+                user_id=existing_turn.user_id,
+                session_id=existing_turn.session_id,
+                turn_id=existing_turn.turn_id,
+                started_at_ms=existing_turn.created_at_ms,
+                cancelled_at_ms=completed_at_ms,
+                user_message=(
+                    str(
+                        active_run.root_user_message
+                        or context.latest_user_message
+                        or ""
+                    )
+                    if active_run is not None
+                    else str(context.latest_user_message or "")
+                ),
+                mode=str(existing_turn.execution_mode or "function_calling"),
+                run_id=existing_turn.run_id or context.session_run_id,
+                run_revision=existing_turn.run_revision
+                or int(context.session_run_revision or 0),
+                error_summary=existing_turn.error_text
+                or (active_run.cancel_reason if active_run is not None else None),
+            )
 
     async def _drain_deferred_user_turns(self, context: ChatRuntimeContext) -> None:
         """Re-inject DEFER pending turns after active run finalization."""

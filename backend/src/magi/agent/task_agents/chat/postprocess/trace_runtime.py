@@ -74,7 +74,9 @@ def _root_turn_attributes(
         attrs["superseded_by_turn_id"] = superseded_by_turn_id
     if supersession_reason is not None:
         attrs["supersession_reason"] = supersession_reason
-    attrs["created_at_ms"] = int(created_at_ms if created_at_ms is not None else started_at_ms)
+    attrs["created_at_ms"] = int(
+        created_at_ms if created_at_ms is not None else started_at_ms
+    )
     attrs["updated_at_ms"] = int(
         updated_at_ms
         if updated_at_ms is not None
@@ -193,12 +195,14 @@ class ChatPostprocessRuntimeTraceMixin:
         started_at_ms: int,
         user_message: str,
         mode: str,
+        run_id: str | None = None,
+        run_revision: int | None = None,
     ) -> None:
         if self._runtime_trace_store is None or turn_id in self._started_turn_traces:
             return
         bus = self._resolve_trace_event_bus()
-        continued_from_turn_id, continued_from_trace_id = await self._resolve_trace_continuation(
-            anchor_turn_id=turn_id
+        continued_from_turn_id, continued_from_trace_id = (
+            await self._resolve_trace_continuation(anchor_turn_id=turn_id)
         )
         await publish_trace_span(
             event_bus=bus,
@@ -218,6 +222,8 @@ class ChatPostprocessRuntimeTraceMixin:
                 mode=mode,
                 started_at_ms=started_at_ms,
                 user_message_preview=user_message[:240] or None,
+                run_id=run_id,
+                run_revision=run_revision,
                 continued_from_turn_id=continued_from_turn_id,
                 continued_from_trace_id=continued_from_trace_id,
                 created_at_ms=started_at_ms,
@@ -238,6 +244,77 @@ class ChatPostprocessRuntimeTraceMixin:
         )
         self._started_turn_traces.add(turn_id)
 
+    async def emit_cancelled_turn_trace(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        turn_id: str,
+        started_at_ms: int,
+        cancelled_at_ms: int,
+        user_message: str,
+        mode: str,
+        run_id: str | None = None,
+        run_revision: int | None = None,
+        error_summary: str | None = None,
+    ) -> None:
+        normalized_turn_id = str(turn_id or "").strip()
+        if self._runtime_trace_store is None or not normalized_turn_id:
+            return
+        bus = self._resolve_trace_event_bus()
+        trace_id = self._build_trace_id(normalized_turn_id)
+        await self._ensure_turn_trace_started(
+            trace_id=trace_id,
+            turn_id=normalized_turn_id,
+            user_id=user_id,
+            session_id=session_id,
+            started_at_ms=started_at_ms,
+            user_message=user_message,
+            mode=mode,
+            run_id=run_id,
+            run_revision=run_revision,
+        )
+        await publish_trace_span(
+            event_bus=bus,
+            node_type="turn",
+            name="Chat turn",
+            span_id=self._build_root_span_id(normalized_turn_id),
+            trace_id=trace_id,
+            parent_span_id=None,
+            status="cancelled",
+            started_at_ms=started_at_ms,
+            ended_at_ms=cancelled_at_ms,
+            turn_id=normalized_turn_id,
+            result_preview=error_summary,
+        )
+        await publish_trace_span(
+            event_bus=bus,
+            node_type="turn_record",
+            name=f"turn:{normalized_turn_id}",
+            trace_id=trace_id,
+            parent_span_id=None,
+            status="ok",
+            started_at_ms=started_at_ms,
+            ended_at_ms=cancelled_at_ms,
+            turn_id=normalized_turn_id,
+            attributes=_root_turn_attributes(
+                turn_id=normalized_turn_id,
+                session_id=session_id,
+                user_id=user_id,
+                status="cancelled",
+                mode=mode,
+                started_at_ms=started_at_ms,
+                ended_at_ms=cancelled_at_ms,
+                duration_ms=max(0, cancelled_at_ms - started_at_ms),
+                user_message_preview=user_message[:240] or None,
+                error_summary=error_summary,
+                run_id=run_id,
+                run_revision=run_revision,
+                created_at_ms=started_at_ms,
+                updated_at_ms=cancelled_at_ms,
+            ),
+        )
+
     async def _resolve_trace_continuation(
         self,
         *,
@@ -245,10 +322,17 @@ class ChatPostprocessRuntimeTraceMixin:
     ) -> tuple[str | None, str | None]:
         if self._chat_store is None:
             return (None, None)
-        previous_turn = await self._chat_store.get_latest_superseded_turn(anchor_turn_id=anchor_turn_id)
+        previous_turn = await self._chat_store.get_latest_superseded_turn(
+            anchor_turn_id=anchor_turn_id
+        )
         if previous_turn is None:
             return (None, None)
-        trace_id = str(previous_turn.trace_id or self._build_trace_id(previous_turn.turn_id)).strip() or None
+        trace_id = (
+            str(
+                previous_turn.trace_id or self._build_trace_id(previous_turn.turn_id)
+            ).strip()
+            or None
+        )
         return (previous_turn.turn_id, trace_id)
 
     async def _persist_trace_supersession(
@@ -301,7 +385,9 @@ class ChatPostprocessRuntimeTraceMixin:
                 updated_at_ms=ended_at_ms,
             ),
         )
-        root_span = await self._runtime_trace_store.get_span(self._build_root_span_id(turn_id))
+        root_span = await self._runtime_trace_store.get_span(
+            self._build_root_span_id(turn_id)
+        )
         if root_span is None:
             return
         span_started = int(root_span.started_at_ms or started_at_ms)

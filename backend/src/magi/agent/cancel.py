@@ -51,6 +51,10 @@ class CancelToken(Protocol):
         """Best-effort label describing *why* cancellation occurred."""
         ...
 
+    async def wait(self) -> None:  # pragma: no cover - protocol
+        """Block until cancellation is requested."""
+        ...
+
 
 class NullCancelToken:
     """A token that is never cancelled.
@@ -67,6 +71,9 @@ class NullCancelToken:
     @property
     def reason(self) -> CancelReason | None:
         return None
+
+    async def wait(self) -> None:
+        await asyncio.Event().wait()
 
 
 _NULL_CANCEL_TOKEN = NullCancelToken()
@@ -155,3 +162,7 @@ class SessionRunCancelToken:
     @property
     def reason(self) -> CancelReason | None:
         return self._reason
+
+    async def wait(self) -> None:
+        while not await self.is_cancelled():
+            await asyncio.sleep(0.25)

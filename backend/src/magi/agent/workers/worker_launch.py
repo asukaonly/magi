@@ -7,6 +7,7 @@ import time
 import uuid
 from typing import Any, Dict, List, Protocol, cast
 
+from ..cancel import EventCancelToken
 from ...tools.schema import ToolErrorCode, ToolExecutionContext, ToolResult
 from .worker_state import DEFAULT_WORKER_MAX_ITERATIONS, WorkerRunState, optional_string
 
@@ -53,7 +54,9 @@ class _WorkerLaunchHostProtocol(Protocol):
 
     async def _emit_worker_dispatch_trace(self, run_state: WorkerRunState) -> None: ...
 
-    async def _emit_worker_attempt_started_trace(self, run_state: WorkerRunState) -> None: ...
+    async def _emit_worker_attempt_started_trace(
+        self, run_state: WorkerRunState
+    ) -> None: ...
 
     async def _emit_worker_started_trace(self, run_state: WorkerRunState) -> None: ...
 
@@ -106,7 +109,9 @@ class WorkerLaunchMixin:
                 error_code=ToolErrorCode.EXECUTION_ERROR.value,
             )
 
-        subagent_type = host._normalize_subagent_type(str(parameters.get("subagent_type", "")))
+        subagent_type = host._normalize_subagent_type(
+            str(parameters.get("subagent_type", ""))
+        )
         if not subagent_type:
             return ToolResult(
                 success=False,
@@ -116,12 +121,18 @@ class WorkerLaunchMixin:
 
         description = str(parameters.get("description", "")).strip()
         prompt = str(parameters.get("prompt", "")).strip()
-        max_iterations = int(parameters.get("max_iterations", DEFAULT_WORKER_MAX_ITERATIONS))
+        max_iterations = int(
+            parameters.get("max_iterations", DEFAULT_WORKER_MAX_ITERATIONS)
+        )
         orchestration_id = optional_string(parameters.get("orchestration_id"))
         subtask_id = optional_string(parameters.get("subtask_id"))
         retry_count = int(parameters.get("retry_count", 0))
-        parent_context_summary = str(parameters.get("parent_context_summary", "")).strip()
-        turn_id = optional_string(parameters.get("turn_id") or context.env_vars.get("turn_id"))
+        parent_context_summary = str(
+            parameters.get("parent_context_summary", "")
+        ).strip()
+        turn_id = optional_string(
+            parameters.get("turn_id") or context.env_vars.get("turn_id")
+        )
 
         user_id = str(context.env_vars.get("user_id", "unknown"))
         session_id = str(context.env_vars.get("session_id", ""))
@@ -143,17 +154,24 @@ class WorkerLaunchMixin:
         target_task_agent_type = str(
             parameters.get("target_task_agent_type") or parent_task_agent_type
         )
-        target_task_agent_id = str(parameters.get("target_task_agent_id") or parent_task_agent_id)
+        target_task_agent_id = str(
+            parameters.get("target_task_agent_id") or parent_task_agent_id
+        )
 
         worker_id = f"worker_{uuid.uuid4().hex[:10]}"
         created_at = time.time()
         started_at_ms = int(created_at * 1000)
         run_id = (
-            str(parameters.get("run_id") or context.env_vars.get("run_id") or "").strip() or None
+            str(
+                parameters.get("run_id") or context.env_vars.get("run_id") or ""
+            ).strip()
+            or None
         )
         try:
             run_revision = int(
-                parameters.get("run_revision") or context.env_vars.get("run_revision") or 0
+                parameters.get("run_revision")
+                or context.env_vars.get("run_revision")
+                or 0
             )
         except (TypeError, ValueError):
             run_revision = 0
@@ -179,6 +197,7 @@ class WorkerLaunchMixin:
             parent_context_summary=parent_context_summary,
             started_at_ms=started_at_ms,
             started_monotonic=time.monotonic(),
+            cancel_token=EventCancelToken(),
         )
 
         selected_tools = host._resolve_tools_for_type(subagent_type)

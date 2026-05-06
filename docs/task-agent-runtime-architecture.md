@@ -664,6 +664,17 @@ answer broker and ``resume_from_wait`` once the answer or timeout
 resolves, so the durable status of the task reflects the real wait
 state.
 
+Foreground chat cancellation uses the same run-level cancellation
+contract. ``SessionRun`` remains the lifecycle source of truth, while
+``CancelToken`` is threaded into function-calling tools and worker
+runs through ``ToolExecutionContext``. Blocking tools such as
+``ask_user_question`` must race their user wait against the token,
+close any pending UI prompt as ``cancelled``, and return a standard
+``CANCELLED`` tool result. ``TaskOrchestrator.cancel_run`` also
+forwards the cancellation to live leaf workers before marking the
+persisted orchestration terminal, so a cancelled run cannot leave a
+worker task or prompt waiting only on timeout.
+
 ## Typed Execution Framework
 
 The shared execution framework lives under `agent/task_agents/common/`.
@@ -811,16 +822,19 @@ Execution observability is owned by the dedicated runtime trace store rather tha
 
 The current runtime trace path is:
 
-1. chat postprocess, function-calling orchestration, and worker execution write canonical trace rows directly
-2. `runtime_trace.db` stores turn summaries, spans, LLM call details, tool call details, and intent-resolution records
-3. `ChatTraceReadService` reconstructs the UI trace tree from those canonical rows
-4. the Rust gateway and IPC-dispatched message APIs expose trace summaries and snapshots without routing trace nodes through `L1`
-5. the builtin `trace_query` tool reads those persisted summaries and tool-call details when the user asks which tool ran, which parameters were used, how long it took, or why it failed
+1. chat postprocess, function-calling orchestration, and worker execution publish `SpanCompleted` events that `RuntimeTraceSubscriber` projects into canonical trace rows
+2. every executable chat turn creates a `trace_turns` root row at intent/runtime start, before final response emission
+3. `runtime_trace.db` stores turn summaries, spans, LLM call details, tool call details, and intent-resolution records
+4. `ChatTraceReadService` reconstructs the UI trace tree from those canonical rows
+5. chat display history projects a lightweight `run_state` from `chat_turns` so reload/session-switch UI uses backend state rather than local button state
+6. the Rust gateway and IPC-dispatched message APIs expose trace summaries and snapshots without routing trace nodes through `L1`
+7. the builtin `trace_query` tool reads those persisted summaries and tool-call details when the user asks which tool ran, which parameters were used, how long it took, or why it failed
 
 Two rules matter here:
 
 - runtime trace data is execution observability, not durable memory
 - `L1` stores recall-worthy facts, while `runtime_trace.db` stores execution structure and metrics
+- derived tool execution statistics must read from `runtime_trace.trace_tools`, not from procedural memory counters
 - cross-turn chat continuity should prefer compact recent-tool state over replaying old raw tool transcripts; exact execution inspection should prefer `trace_query`
 
 ## Timeline Pull-Sync Flow

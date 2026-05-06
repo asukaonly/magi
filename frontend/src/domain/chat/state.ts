@@ -2,6 +2,7 @@ import type {
   ChatAttachment,
   ChatHistoryMessage,
   ChatMessageLabel,
+  ChatRunState,
   ChatReplyPreview,
   ExecutionTraceNode,
   ExecutionTraceSnapshot,
@@ -36,6 +37,7 @@ export interface ChatTimelineMessage {
   allowTraceCollapse?: boolean;
   traceSummary?: NormalizedExecutionTraceSummary | null;
   traceAvailable?: boolean;
+  runState?: ChatRunState | null;
   streaming?: boolean;
   reasoning?: ReasoningTrace[];
   toolCalls?: ToolCallTrace[];
@@ -435,6 +437,7 @@ export const normalizeHistoryMessages = (messages: ChatHistoryMessage[]): ChatTi
       label: normalizeMessageLabel(message.label),
       traceSummary,
       traceAvailable: Boolean(message.trace_available || traceSummary?.traceAvailable),
+      runState: message.run_state || null,
       payload:
         message.payload && typeof message.payload === 'object'
           ? (message.payload as Record<string, unknown>)

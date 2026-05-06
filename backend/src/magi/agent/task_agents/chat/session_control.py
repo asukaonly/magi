@@ -7,6 +7,8 @@ from uuid import uuid4
 
 from ....agent.runtime.contracts import FactRecord
 from ....agent.runtime.types import TaskAgentType
+from ....agent.trace import now_wall_ms
+from ....chat import ChatTurnRecord
 from ....core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -20,6 +22,7 @@ class ChatSessionControlMixin:
     _task_agent_manager: Any
     _task_orchestrator: Any
     _postprocess_service: Any
+    _chat_store: Any
     agent_id: str
     runtime_key: str
     agent_type: Any
@@ -96,7 +99,11 @@ class ChatSessionControlMixin:
             }
             fact = FactRecord(
                 agent_id=self.runtime_key,
-                agent_type=str(self.agent_type.value if hasattr(self.agent_type, "value") else self.agent_type),
+                agent_type=str(
+                    self.agent_type.value
+                    if hasattr(self.agent_type, "value")
+                    else self.agent_type
+                ),
                 agent_instance_id=normalized_session_id,
                 event_type=EventTypes.USER_MESSAGE,
                 payload=payload,
@@ -139,26 +146,97 @@ class ChatSessionControlMixin:
             run_id=active_run.run_id,
             run_revision=active_run.revision,
         )
+        self._session_run_coordinator.complete_run(
+            session_id=session_id,
+            run_id=active_run.run_id,
+            revision=active_run.revision,
+        )
+        await self._mark_session_turn_cancelled(active_run)
         await self._postprocess_service.emit_execution_control_notification(
             user_id=self.agent_id,
             session_id=session_id,
             turn_id=active_run.cancel_anchor_turn_id or active_run.root_turn_id,
             run_id=active_run.run_id,
-            orchestration_id=(cancelled_orchestration_ids[0] if cancelled_orchestration_ids else None),
-            state="cancelling",
+            orchestration_id=(
+                cancelled_orchestration_ids[0] if cancelled_orchestration_ids else None
+            ),
+            state="cancelled",
             can_cancel=False,
-            label="Cancelling run",
+            label="Run cancelled",
+        )
+        current_run = (
+            self._session_run_coordinator.get_active_run(session_id) or active_run
         )
         return {
             "session_id": session_id,
-            "run_id": active_run.run_id,
-            "revision": active_run.revision,
-            "status": active_run.status,
-            "cancel_reason": active_run.cancel_reason,
-            "cancel_requested_by": active_run.cancel_requested_by,
-            "cancel_anchor_turn_id": active_run.cancel_anchor_turn_id,
+            "run_id": current_run.run_id,
+            "revision": current_run.revision,
+            "status": current_run.status,
+            "cancel_reason": current_run.cancel_reason,
+            "cancel_requested_by": current_run.cancel_requested_by,
+            "cancel_anchor_turn_id": current_run.cancel_anchor_turn_id,
             "cancelled_orchestration_ids": cancelled_orchestration_ids,
         }
+
+    async def _mark_session_turn_cancelled(self, active_run: Any) -> None:
+        chat_store = getattr(self, "_chat_store", None)
+        if chat_store is None:
+            return
+        turn_id = str(
+            getattr(active_run, "cancel_anchor_turn_id", None)
+            or getattr(active_run, "root_turn_id", None)
+            or ""
+        ).strip()
+        if not turn_id:
+            return
+        existing_turn = await chat_store.get_turn(turn_id)
+        if existing_turn is None:
+            return
+        completed_at_ms = now_wall_ms()
+        await chat_store.upsert_turn(
+            ChatTurnRecord(
+                turn_id=existing_turn.turn_id,
+                session_id=existing_turn.session_id,
+                user_id=existing_turn.user_id,
+                trace_id=existing_turn.trace_id,
+                orchestration_id=existing_turn.orchestration_id,
+                status="cancelled",
+                response_mode=existing_turn.response_mode,
+                execution_mode=existing_turn.execution_mode,
+                ux_plan_json=existing_turn.ux_plan_json,
+                created_at_ms=existing_turn.created_at_ms,
+                updated_at_ms=completed_at_ms,
+                completed_at_ms=completed_at_ms,
+                error_text=existing_turn.error_text
+                or getattr(active_run, "cancel_reason", None),
+                run_id=existing_turn.run_id or getattr(active_run, "run_id", None),
+                run_revision=existing_turn.run_revision
+                or int(getattr(active_run, "revision", 0) or 0),
+                run_disposition=existing_turn.run_disposition,
+                response_anchor_turn_id=existing_turn.response_anchor_turn_id,
+                superseded_by_turn_id=existing_turn.superseded_by_turn_id,
+                supersession_reason=existing_turn.supersession_reason,
+            )
+        )
+        emit_cancelled_turn_trace = getattr(
+            self._postprocess_service,
+            "emit_cancelled_turn_trace",
+            None,
+        )
+        if callable(emit_cancelled_turn_trace):
+            await emit_cancelled_turn_trace(
+                user_id=existing_turn.user_id,
+                session_id=existing_turn.session_id,
+                turn_id=existing_turn.turn_id,
+                started_at_ms=existing_turn.created_at_ms,
+                cancelled_at_ms=completed_at_ms,
+                user_message=str(getattr(active_run, "root_user_message", "") or ""),
+                mode=str(existing_turn.execution_mode or "function_calling"),
+                run_id=existing_turn.run_id or getattr(active_run, "run_id", None),
+                run_revision=existing_turn.run_revision
+                or int(getattr(active_run, "revision", 0) or 0),
+                error_summary=getattr(active_run, "cancel_reason", None),
+            )
 
     async def request_session_detach(
         self,

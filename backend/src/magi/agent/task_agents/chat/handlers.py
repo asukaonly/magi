@@ -1,4 +1,5 @@
 """Execution handlers for chat task-agent modes."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -59,9 +60,9 @@ class ChatHandlerDependencies:
     session_run_coordinator: Any | None = None
     background_dispatcher: BackgroundDispatcher | None = None
     background_launch_service: BackgroundLaunchService | None = None
-    persist_turn_supersessions: (
-        Callable[[list[Any], int], Awaitable[None]] | None
-    ) = None
+    persist_turn_supersessions: Callable[[list[Any], int], Awaitable[None]] | None = (
+        None
+    )
 
 
 def build_common_handler_dependencies(
@@ -69,7 +70,9 @@ def build_common_handler_dependencies(
 ):
     return CommonHandlerDependencies(
         task_orchestrator=deps.task_orchestrator,
-        start_specialized_orchestration=lambda request: _start_explore_task_agent(deps, request),
+        start_specialized_orchestration=lambda request: _start_explore_task_agent(
+            deps, request
+        ),
     )
 
 
@@ -81,7 +84,9 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
             user_id=request.context.user_id,
             session_id=request.context.session_id,
             user_message=request.context.latest_user_message,
-            attachments=list(getattr(request.context.latest_payload, "attachments", []) or []),
+            attachments=list(
+                getattr(request.context.latest_payload, "attachments", []) or []
+            ),
             task_category=request.intent.intent,
             tools=request.tool_selection.tools,
             scenario=Scenario.CHAT,
@@ -91,17 +96,27 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
         )
         selected_tools = list(request.tool_selection.tools)
         system_prompt = prompt_package.system_prompt
-        if request.intent.memory_route == "explicit_query" and "memory_query" in selected_tools:
-            selected_tools = ["memory_query"] + [tool for tool in selected_tools if tool != "memory_query"]
-            memory_guidance_block = _build_memory_query_guidance_block(request.intent.routing_memory_hint)
+        if (
+            request.intent.memory_route == "explicit_query"
+            and "memory_query" in selected_tools
+        ):
+            selected_tools = ["memory_query"] + [
+                tool for tool in selected_tools if tool != "memory_query"
+            ]
+            memory_guidance_block = _build_memory_query_guidance_block(
+                request.intent.routing_memory_hint
+            )
             if memory_guidance_block:
                 system_prompt = f"{system_prompt}\n\n{memory_guidance_block}"
         scope_guidance_block = _build_scope_guidance_block(
-            getattr(request.tool_selection, "task_hint", None) or getattr(request.intent, "task_hint", None)
+            getattr(request.tool_selection, "task_hint", None)
+            or getattr(request.intent, "task_hint", None)
         )
         if scope_guidance_block:
             system_prompt = f"{system_prompt}\n\n{scope_guidance_block}"
-        attachment_guidance_block = _build_attachment_preparation_guidance_block(selected_tools)
+        attachment_guidance_block = _build_attachment_preparation_guidance_block(
+            selected_tools
+        )
         if attachment_guidance_block:
             system_prompt = f"{system_prompt}\n\n{attachment_guidance_block}"
         return FunctionCallingRequest(
@@ -134,7 +149,9 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
                 self._deps.session_run_coordinator is not None
                 and request.context.session_run_id
                 and hasattr(self._deps.function_calling_orchestrator, "step_executor")
-                and hasattr(self._deps.function_calling_orchestrator, "build_step_state")
+                and hasattr(
+                    self._deps.function_calling_orchestrator, "build_step_state"
+                )
             ):
                 result = await self._execute_with_session_checkpoints(
                     request,
@@ -149,35 +166,40 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
                 return result
 
             cancel_token = self._build_cancel_token(request)
-            execution_outcome = await self._deps.function_calling_orchestrator.execute_with_tools(
-                turn=UserTurnInput(
-                    text=request.context.latest_user_message,
-                    attachments=list(getattr(request.context.latest_payload, "attachments", []) or []),
+            execution_outcome = (
+                await self._deps.function_calling_orchestrator.execute_with_tools(
+                    turn=UserTurnInput(
+                        text=request.context.latest_user_message,
+                        attachments=list(
+                            getattr(request.context.latest_payload, "attachments", [])
+                            or []
+                        ),
+                        user_id=request.context.user_id,
+                        session_id=request.context.session_id,
+                    ),
+                    system_prompt=request.system_prompt,
+                    selected_tools=request.selected_tools,
                     user_id=request.context.user_id,
                     session_id=request.context.session_id,
-                ),
-                system_prompt=request.system_prompt,
-                selected_tools=request.selected_tools,
-                user_id=request.context.user_id,
-                session_id=request.context.session_id,
-                session_run_id=request.context.session_run_id,
-                session_run_revision=request.context.session_run_revision,
-                turn_id=turn_id,
-                conversation_history=request.context.history,
-                session_summary=getattr(request.context, "session_summary", None),
-                session_origin=getattr(request.context, "session_origin", None),
-                thinking_depth=request.thinking_depth,
-                intent=request.intent.intent,
-                execution_agent_id=request.context.runtime_key,
-                execution_workspace=execution_workspace,
-                orchestration_strategy=(
-                    request.intent.orchestration_plan.to_strategy_dict()
-                    if request.intent.orchestration_plan is not None
-                    else None
-                ),
-                cancel_token=cancel_token,
-                detach_signal=detach_signal,
-                steer_inbox=steer_inbox,
+                    session_run_id=request.context.session_run_id,
+                    session_run_revision=request.context.session_run_revision,
+                    turn_id=turn_id,
+                    conversation_history=request.context.history,
+                    session_summary=getattr(request.context, "session_summary", None),
+                    session_origin=getattr(request.context, "session_origin", None),
+                    thinking_depth=request.thinking_depth,
+                    intent=request.intent.intent,
+                    execution_agent_id=request.context.runtime_key,
+                    execution_workspace=execution_workspace,
+                    orchestration_strategy=(
+                        request.intent.orchestration_plan.to_strategy_dict()
+                        if request.intent.orchestration_plan is not None
+                        else None
+                    ),
+                    cancel_token=cancel_token,
+                    detach_signal=detach_signal,
+                    steer_inbox=steer_inbox,
+                )
             )
 
             streamed = streaming_enabled and execution_outcome.status == "completed"
@@ -186,7 +208,9 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
                 mode=request.mode,
                 response_text=execution_outcome.content,
                 attachments=list(getattr(execution_outcome, "attachments", []) or []),
-                message_payload=dict(getattr(execution_outcome, "message_payload", {}) or {}),
+                message_payload=dict(
+                    getattr(execution_outcome, "message_payload", {}) or {}
+                ),
                 root_user_message=request.context.latest_user_message,
                 execution_outcome=execution_outcome.to_dict(),
                 turn_id=turn_id,
@@ -198,7 +222,9 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
                 return handoff
             return fc_result
         finally:
-            self._release_detach_signal(session_id=session_id, detach_signal=detach_signal)
+            self._release_detach_signal(
+                session_id=session_id, detach_signal=detach_signal
+            )
 
     async def _execute_with_session_checkpoints(
         self,
@@ -218,7 +244,9 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
         def _build_turn(text: str) -> UserTurnInput:
             return UserTurnInput(
                 text=text,
-                attachments=list(getattr(request.context.latest_payload, "attachments", []) or []),
+                attachments=list(
+                    getattr(request.context.latest_payload, "attachments", []) or []
+                ),
                 user_id=request.context.user_id,
                 session_id=request.context.session_id,
             )
@@ -231,7 +259,11 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
             session_summary=getattr(request.context, "session_summary", None),
             session_origin=getattr(request.context, "session_origin", None),
             allow_attachment_grounding=(
-                bool(getattr(request.context, "allow_media_grounding_for_conversation", False))
+                bool(
+                    getattr(
+                        request.context, "allow_media_grounding_for_conversation", False
+                    )
+                )
                 and bool(getattr(request.context, "core_model_supports_vision", False))
             ),
         )
@@ -243,16 +275,26 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
                     return FunctionCallingExecutionResult(
                         mode=request.mode,
                         response_text="",
-                        attachments=list(getattr(step_state, "chat_attachments", []) or []),
-                        message_payload=dict(getattr(step_state, "message_payload", {}) or {}),
+                        attachments=list(
+                            getattr(step_state, "chat_attachments", []) or []
+                        ),
+                        message_payload=dict(
+                            getattr(step_state, "message_payload", {}) or {}
+                        ),
                         root_user_message=current_user_message,
                         execution_outcome={
                             "status": "cancelled",
                             "content": "",
                             "failure_reason": None,
-                            "attachments": list(getattr(step_state, "chat_attachments", []) or []),
-                            "message_payload": dict(getattr(step_state, "message_payload", {}) or {}),
-                            "tool_failures": list(getattr(step_state, "tool_failures", [])),
+                            "attachments": list(
+                                getattr(step_state, "chat_attachments", []) or []
+                            ),
+                            "message_payload": dict(
+                                getattr(step_state, "message_payload", {}) or {}
+                            ),
+                            "tool_failures": list(
+                                getattr(step_state, "tool_failures", [])
+                            ),
                             "iterations": step_state.iteration,
                         },
                         turn_id=current_turn_id,
@@ -292,6 +334,7 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
                         if request.intent.orchestration_plan is not None
                         else None
                     ),
+                    cancel_token=cancel_token,
                 )
                 if step_outcome.status == "completed":
                     execution_outcome = {
@@ -304,10 +347,37 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
                     return FunctionCallingExecutionResult(
                         mode=request.mode,
                         response_text=step_outcome.content,
-                        attachments=list(getattr(step_state, "chat_attachments", []) or []),
-                        message_payload=dict(getattr(step_state, "message_payload", {}) or {}),
+                        attachments=list(
+                            getattr(step_state, "chat_attachments", []) or []
+                        ),
+                        message_payload=dict(
+                            getattr(step_state, "message_payload", {}) or {}
+                        ),
                         root_user_message=current_user_message,
                         execution_outcome=execution_outcome,
+                        turn_id=current_turn_id,
+                        ux_plan=_serialize_ux_plan(request.intent),
+                    )
+                if step_outcome.status == "cancelled":
+                    return FunctionCallingExecutionResult(
+                        mode=request.mode,
+                        response_text="",
+                        attachments=list(
+                            getattr(step_state, "chat_attachments", []) or []
+                        ),
+                        message_payload=dict(
+                            getattr(step_state, "message_payload", {}) or {}
+                        ),
+                        root_user_message=current_user_message,
+                        execution_outcome={
+                            "status": "cancelled",
+                            "content": "",
+                            "failure_reason": None,
+                            "tool_failures": list(
+                                getattr(step_state, "tool_failures", [])
+                            ),
+                            "iterations": step_outcome.iteration,
+                        },
                         turn_id=current_turn_id,
                         ux_plan=_serialize_ux_plan(request.intent),
                     )
@@ -328,21 +398,37 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
                         current_turn_id=current_turn_id,
                     )
 
-                active_run = session_run_coordinator.get_active_run(request.context.session_id)
+                active_run = session_run_coordinator.get_active_run(
+                    request.context.session_id
+                )
                 if active_run is not None and active_run.revision != current_revision:
                     current_revision = active_run.revision
-                    current_user_message = str(active_run.root_user_message or current_user_message)
+                    current_user_message = str(
+                        active_run.root_user_message or current_user_message
+                    )
                     current_turn_id = active_run.root_turn_id or current_turn_id
                     step_state = orchestrator.build_step_state(
                         turn=_build_turn(current_user_message),
                         system_prompt=request.system_prompt,
                         selected_tools=request.selected_tools,
                         conversation_history=request.context.history,
-                        session_summary=getattr(request.context, "session_summary", None),
+                        session_summary=getattr(
+                            request.context, "session_summary", None
+                        ),
                         session_origin=getattr(request.context, "session_origin", None),
                         allow_attachment_grounding=(
-                            bool(getattr(request.context, "allow_media_grounding_for_conversation", False))
-                            and bool(getattr(request.context, "core_model_supports_vision", False))
+                            bool(
+                                getattr(
+                                    request.context,
+                                    "allow_media_grounding_for_conversation",
+                                    False,
+                                )
+                            )
+                            and bool(
+                                getattr(
+                                    request.context, "core_model_supports_vision", False
+                                )
+                            )
                         ),
                     )
                     if steer_inbox is not None:
@@ -352,20 +438,38 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
                         await steer_inbox.drain()
                     continue
 
-                checkpoint = session_run_coordinator.consume_checkpoint(request.context.session_id)
+                checkpoint = session_run_coordinator.consume_checkpoint(
+                    request.context.session_id
+                )
                 if checkpoint.pending_turns:
-                    current_user_message = str(checkpoint.visible_user_message or current_user_message)
-                    current_turn_id = checkpoint.pending_turns[-1].turn_id or current_turn_id
+                    current_user_message = str(
+                        checkpoint.visible_user_message or current_user_message
+                    )
+                    current_turn_id = (
+                        checkpoint.pending_turns[-1].turn_id or current_turn_id
+                    )
                     step_state = orchestrator.build_step_state(
                         turn=_build_turn(current_user_message),
                         system_prompt=request.system_prompt,
                         selected_tools=request.selected_tools,
                         conversation_history=request.context.history,
-                        session_summary=getattr(request.context, "session_summary", None),
+                        session_summary=getattr(
+                            request.context, "session_summary", None
+                        ),
                         session_origin=getattr(request.context, "session_origin", None),
                         allow_attachment_grounding=(
-                            bool(getattr(request.context, "allow_media_grounding_for_conversation", False))
-                            and bool(getattr(request.context, "core_model_supports_vision", False))
+                            bool(
+                                getattr(
+                                    request.context,
+                                    "allow_media_grounding_for_conversation",
+                                    False,
+                                )
+                            )
+                            and bool(
+                                getattr(
+                                    request.context, "core_model_supports_vision", False
+                                )
+                            )
                         ),
                     )
                     continue
@@ -394,12 +498,15 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
             mode=request.mode,
             response_text=execution_outcome.content,
             attachments=list(getattr(execution_outcome, "attachments", []) or []),
-            message_payload=dict(getattr(execution_outcome, "message_payload", {}) or {}),
+            message_payload=dict(
+                getattr(execution_outcome, "message_payload", {}) or {}
+            ),
             root_user_message=current_user_message,
             execution_outcome=execution_outcome.to_dict(),
             turn_id=current_turn_id,
             ux_plan=_serialize_ux_plan(request.intent),
         )
+
 
 async def _start_explore_task_agent(
     deps: ChatHandlerDependencies,

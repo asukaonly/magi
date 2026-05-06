@@ -8,6 +8,7 @@ export { messagesApi } from './modules/messages';
 export type {
   ChatAttachment,
   ChatMessageLabel,
+  ChatRunState,
   ChatReplyPreview,
   UserMessageRequest,
   MessageData,

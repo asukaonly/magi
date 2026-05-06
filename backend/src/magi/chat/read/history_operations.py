@@ -35,7 +35,11 @@ def _collapse_rhythm_segments_for_prompt(
         existing_index = rhythm_index_by_turn.get(turn_id)
         if existing_index is not None:
             existing = collapsed_messages[existing_index]
-            parts = [part for part in (existing.content.strip(), message.content.strip()) if part]
+            parts = [
+                part
+                for part in (existing.content.strip(), message.content.strip())
+                if part
+            ]
             existing.content = "\n\n".join(parts)
             if message.attachments:
                 existing.attachments = message.attachments
@@ -49,6 +53,23 @@ def _collapse_rhythm_segments_for_prompt(
             )
         )
     return collapsed_messages
+
+
+def _build_turn_run_state(turn: sqlite3.Row) -> dict[str, object] | None:
+    status = str(turn["status"] or "").strip()
+    run_id = str(turn["run_id"] or "").strip()
+    if not status and not run_id:
+        return None
+    return {
+        "state": status or "unknown",
+        "run_id": run_id or None,
+        "run_revision": int(turn["run_revision"] or 0),
+        "run_disposition": turn["run_disposition"],
+        "can_cancel": bool(run_id) and status in {"running", "cancelling"},
+        "can_detach": bool(run_id) and status == "running",
+        "error_text": turn["error_text"],
+        "completed_at_ms": turn["completed_at_ms"],
+    }
 
 
 def _get_chat_trace_read_service() -> Any:
@@ -73,9 +94,13 @@ class _ChatHistoryOperationsHost(Protocol):
         exclude_replaced: bool,
     ) -> list[sqlite3.Row]: ...
 
-    def _query_turn_rows(self, *, user_id: str, session_id: str) -> list[sqlite3.Row]: ...
+    def _query_turn_rows(
+        self, *, user_id: str, session_id: str
+    ) -> list[sqlite3.Row]: ...
 
-    def _row_to_display_message(self, row: sqlite3.Row) -> ChatDisplayMessage | None: ...
+    def _row_to_display_message(
+        self, row: sqlite3.Row
+    ) -> ChatDisplayMessage | None: ...
 
     def _attach_reply_previews(
         self,
@@ -84,7 +109,9 @@ class _ChatHistoryOperationsHost(Protocol):
         messages: list[ChatDisplayMessage],
     ) -> None: ...
 
-    def _parse_turn_ux_preferences(self, raw_ux_plan_json: str | None) -> dict[str, Any]: ...
+    def _parse_turn_ux_preferences(
+        self, raw_ux_plan_json: str | None
+    ) -> dict[str, Any]: ...
 
     def _apply_turn_ux_preferences(
         self,
@@ -112,7 +139,11 @@ class ChatHistoryOperationsMixin:
             rows = host._query_chat_message_rows(
                 user_id=user_id,
                 session_id=session_id,
-                message_kinds=("user_text", "assistant_final", "assistant_rhythm_segment"),
+                message_kinds=(
+                    "user_text",
+                    "assistant_final",
+                    "assistant_rhythm_segment",
+                ),
                 visible_only=True,
                 exclude_replaced=True,
             )
@@ -177,16 +208,24 @@ class ChatHistoryOperationsMixin:
         if replaced_interim_rows:
             message_rows = sorted(
                 [*message_rows, *replaced_interim_rows],
-                key=lambda row: (int(row["created_at_ms"] or 0), int(row["sequence_no"] or 0)),
+                key=lambda row: (
+                    int(row["created_at_ms"] or 0),
+                    int(row["sequence_no"] or 0),
+                ),
             )
 
         trace_service = _get_chat_trace_read_service()
-        trace_activity = trace_service.get_turn_activity_map(user_id=user_id, session_id=session_id)
+        trace_activity = trace_service.get_turn_activity_map(
+            user_id=user_id, session_id=session_id
+        )
         messages_by_turn: dict[str, list[ChatDisplayMessage]] = {}
         legacy_messages: list[ChatDisplayMessage] = []
         turn_ux_preferences = {
             str(row["turn_id"]): host._parse_turn_ux_preferences(row["ux_plan_json"])
             for row in turn_rows
+        }
+        run_state_by_turn = {
+            str(row["turn_id"]): _build_turn_run_state(row) for row in turn_rows
         }
 
         display_rows: list[sqlite3.Row] = []
@@ -201,11 +240,20 @@ class ChatHistoryOperationsMixin:
             if not turn_id:
                 legacy_messages.append(display_message)
                 continue
-            host._apply_turn_ux_preferences(display_message, turn_ux_preferences.get(turn_id))
+            host._apply_turn_ux_preferences(
+                display_message, turn_ux_preferences.get(turn_id)
+            )
+            display_message.run_state = run_state_by_turn.get(turn_id)
             if display_message.kind == "assistant":
-                summary = trace_service.get_trace_summary(user_id=user_id, session_id=session_id, turn_id=turn_id)
+                summary = trace_service.get_trace_summary(
+                    user_id=user_id, session_id=session_id, turn_id=turn_id
+                )
                 display_message.trace_summary = summary or trace_activity.get(turn_id)
-                display_message.trace_available = bool((summary or trace_activity.get(turn_id) or {}).get("trace_available"))
+                display_message.trace_available = bool(
+                    (summary or trace_activity.get(turn_id) or {}).get(
+                        "trace_available"
+                    )
+                )
             messages_by_turn.setdefault(turn_id, []).append(display_message)
 
         messages: list[ChatDisplayMessage] = []
@@ -214,7 +262,9 @@ class ChatHistoryOperationsMixin:
             turn_messages = messages_by_turn.get(turn_id, [])
             for item in turn_messages:
                 messages.append(item)
-            has_assistant_message = any(item.kind == "assistant" for item in turn_messages)
+            has_assistant_message = any(
+                item.kind == "assistant" for item in turn_messages
+            )
             if has_assistant_message:
                 continue
             summary = trace_activity.get(turn_id) or trace_service.get_trace_summary(
@@ -224,7 +274,9 @@ class ChatHistoryOperationsMixin:
             )
             if summary is not None:
                 timestamp = int(turn["updated_at_ms"] or turn["created_at_ms"] or 0)
-                user_message = next((item for item in turn_messages if item.kind == "user"), None)
+                user_message = next(
+                    (item for item in turn_messages if item.kind == "user"), None
+                )
                 if user_message is not None:
                     timestamp = user_message.timestamp
                 messages.append(
@@ -234,12 +286,19 @@ class ChatHistoryOperationsMixin:
                         content=str((summary or {}).get("headline") or "Thinking"),
                         timestamp=timestamp,
                         turn_id=turn_id,
-                        trace_display_mode=turn_ux_preferences.get(turn_id, {}).get("trace_display_mode"),
+                        trace_display_mode=turn_ux_preferences.get(turn_id, {}).get(
+                            "trace_display_mode"
+                        ),
                         allow_trace_collapse=bool(
-                            turn_ux_preferences.get(turn_id, {}).get("allow_trace_collapse", False)
+                            turn_ux_preferences.get(turn_id, {}).get(
+                                "allow_trace_collapse", False
+                            )
                         ),
                         trace_summary=summary,
-                        trace_available=bool(summary and summary.get("trace_available")),
+                        trace_available=bool(
+                            summary and summary.get("trace_available")
+                        ),
+                        run_state=run_state_by_turn.get(turn_id),
                     )
                 )
         messages.extend(legacy_messages)
@@ -262,8 +321,10 @@ class ChatHistoryOperationsMixin:
         if not normalized_session_id or not normalized_message_id:
             return None
         try:
-            row = host._get_conn().execute(
-                f"""
+            row = (
+                host._get_conn()
+                .execute(
+                    f"""
                 SELECT message_id, session_id, turn_id, user_id, role, message_kind,
                        content_text, payload_json, is_final, is_visible, created_at_ms,
                       sequence_no, replaces_message_id, replaced_by_message_id, persona_id,
@@ -274,8 +335,10 @@ class ChatHistoryOperationsMixin:
                   AND is_visible = 1
                 LIMIT 1
                 """,
-                (normalized_session_id, normalized_message_id),
-            ).fetchone()
+                    (normalized_session_id, normalized_message_id),
+                )
+                .fetchone()
+            )
         except Exception as exc:
             logger.exception(f"Failed to query display message: {exc}")
             return None
@@ -298,13 +361,19 @@ class ChatHistoryOperationsMixin:
         normalized_user_id = str(user_id).strip()
         normalized_session_id = str(session_id).strip()
         normalized_attachment_id = str(attachment_id).strip()
-        if not normalized_user_id or not normalized_session_id or not normalized_attachment_id:
+        if (
+            not normalized_user_id
+            or not normalized_session_id
+            or not normalized_attachment_id
+        ):
             raise ValueError("User ID, session ID, and attachment ID are required")
         if not host._chat_db_path.exists():
             return None
 
-        row = host._get_conn().execute(
-            f"""
+        row = (
+            host._get_conn()
+            .execute(
+                f"""
             SELECT a.attachment_id, a.kind, a.original_name, a.mime_type,
                    a.size_bytes, a.storage_rel_path, a.sha256
             FROM {CHAT_ATTACHMENTS_TABLE} a
@@ -315,8 +384,10 @@ class ChatHistoryOperationsMixin:
               AND m.is_visible = 1
             LIMIT 1
             """,
-            (normalized_user_id, normalized_session_id, normalized_attachment_id),
-        ).fetchone()
+                (normalized_user_id, normalized_session_id, normalized_attachment_id),
+            )
+            .fetchone()
+        )
         if row is None:
             return None
         storage_rel_path = str(row["storage_rel_path"] or "").strip()
@@ -327,7 +398,8 @@ class ChatHistoryOperationsMixin:
             "attachment_id": str(row["attachment_id"] or "").strip(),
             "kind": str(row["kind"] or "file").strip() or "file",
             "original_name": str(row["original_name"] or "").strip(),
-            "mime_type": str(row["mime_type"] or "application/octet-stream").strip() or "application/octet-stream",
+            "mime_type": str(row["mime_type"] or "application/octet-stream").strip()
+            or "application/octet-stream",
             "size_bytes": int(row["size_bytes"] or 0),
             "storage_rel_path": storage_rel_path,
             "storage_path": str(storage_path),

@@ -145,7 +145,9 @@ class WorkerAgentManager(
                 llm_adapter=self._llm_adapter,
                 tool_registry=self._tool_registry,
                 skill_runner=None,
-                tool_result_callback=lambda payload: self._handle_tool_result(run_state, payload),
+                tool_result_callback=lambda payload: self._handle_tool_result(
+                    run_state, payload
+                ),
                 loop_event_callback=lambda payload: self._handle_worker_loop_event(
                     run_state, payload
                 ),
@@ -168,21 +170,36 @@ class WorkerAgentManager(
                     turn_id=run_state.turn_id,
                     conversation_history=[],
                     max_iterations=max_iterations,
-                    thinking_depth=ThinkingDepth.HIGH
-                    if run_state.subagent_type == self.TYPE_PLAN
-                    else ThinkingDepth.NONE,
+                    thinking_depth=(
+                        ThinkingDepth.HIGH
+                        if run_state.subagent_type == self.TYPE_PLAN
+                        else ThinkingDepth.NONE
+                    ),
                     intent=f"worker_{run_state.subagent_type.lower()}",
                     execution_agent_id=run_state.worker_id,
                     execution_workspace=execution_workspace,
-                    llm_timeout_seconds=180.0
-                    if run_state.subagent_type == self.TYPE_PLAN
-                    else None,
+                    llm_timeout_seconds=(
+                        180.0 if run_state.subagent_type == self.TYPE_PLAN else None
+                    ),
                     final_response_json_mode=True,
+                    cancel_token=run_state.cancel_token,
                 )
             run_state.completed_at = time.time()
             run_state.updated_at = run_state.completed_at
             run_state.failure_reason = outcome.failure_reason
             validated_result: Optional[WorkerResult] = None
+            if outcome.status == "cancelled":
+                run_state.status = "cancelled"
+                run_state.failure_reason = "CANCELLED"
+                run_state.error = "Worker cancelled"
+                await self._emit_worker_cancelled_trace(run_state)
+                await self._publish_worker_fact(
+                    run_state=run_state,
+                    event_type=WORKER_AGENT_FAILED,
+                    internal_payload={"stage": "cancelled", "error": run_state.error},
+                    public_payload={"stage": "cancelled", "error": run_state.error},
+                )
+                return
             if outcome.succeeded:
                 try:
                     validated_result = self._validate_worker_result(
@@ -268,6 +285,19 @@ class WorkerAgentManager(
                     "result_preview": run_state.result_preview,
                 },
             )
+        except asyncio.CancelledError:
+            run_state.status = "cancelled"
+            run_state.error = "Worker cancelled"
+            run_state.failure_reason = "CANCELLED"
+            run_state.completed_at = time.time()
+            run_state.updated_at = run_state.completed_at
+            await self._emit_worker_cancelled_trace(run_state)
+            await self._publish_worker_fact(
+                run_state=run_state,
+                event_type=WORKER_AGENT_FAILED,
+                internal_payload={"stage": "cancelled", "error": run_state.error},
+                public_payload={"stage": "cancelled", "error": run_state.error},
+            )
         except Exception as exc:
             run_state.status = "failed"
             run_state.error = str(exc)
@@ -293,7 +323,46 @@ class WorkerAgentManager(
                 },
             )
 
-    async def _handle_tool_result(self, run_state: WorkerRunState, payload: Dict[str, Any]) -> None:
+    async def cancel_run_workers(
+        self,
+        *,
+        session_id: str,
+        run_id: str,
+        run_revision: int,
+        reason: str = "run_cancelled",
+    ) -> list[str]:
+        """Request cancellation for every live worker attached to one session run."""
+        async with self._lock:
+            matching_states = [
+                run_state
+                for run_state in self._runs.values()
+                if run_state.session_id == session_id
+                and run_state.run_id == run_id
+                and int(run_state.run_revision) == int(run_revision)
+                and run_state.status == "running"
+            ]
+
+        cancelled_worker_ids: list[str] = []
+        for run_state in matching_states:
+            if run_state.cancel_token is not None:
+                run_state.cancel_token.cancel(reason)
+            cancelled_worker_ids.append(run_state.worker_id)
+        live_tasks = [
+            run_state.task
+            for run_state in matching_states
+            if run_state.task is not None and not run_state.task.done()
+        ]
+        if live_tasks:
+            _, pending = await asyncio.wait(live_tasks, timeout=2.0)
+            for task in pending:
+                task.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+        return cancelled_worker_ids
+
+    async def _handle_tool_result(
+        self, run_state: WorkerRunState, payload: Dict[str, Any]
+    ) -> None:
         result_preview = self._compact_value(payload.get("data"))
         await self._emit_worker_tool_trace(
             run_state=run_state,

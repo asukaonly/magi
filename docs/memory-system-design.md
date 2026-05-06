@@ -592,6 +592,14 @@ It answers:
 
 `L4` does not recount historical facts; it distills future execution guidelines.
 
+Tool success/failure rates are not L4 truth. Exact tool attempts,
+provider challenges, errors, latency, and success counts live in
+`runtime_trace.trace_tools`; any success-rate value shown to routing,
+advisory, or UI surfaces must be derived from that runtime trace table.
+L4 may retain circuit-breaker state, strategy hints, context affinity,
+and other procedural guidance, but those fields are advisory overlays on
+top of trace-derived execution facts.
+
 `L4` vector index uses `skill` as the parent object and `chunk` as the retrieval unit.
 
 `L1` / `L2` / `L3` / `L4` vector write pipelines share a common embedding pipeline; each layer defines only its own text builder, chunk strategy, parent-table status writeback, and retrieval collapse logic.

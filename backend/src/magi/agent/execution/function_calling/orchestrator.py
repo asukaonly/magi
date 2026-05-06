@@ -123,7 +123,9 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
                 return object.__getattribute__(operations, name)
             except AttributeError:
                 pass
-        raise AttributeError(f"{type(self).__name__!s} object has no attribute {name!r}")
+        raise AttributeError(
+            f"{type(self).__name__!s} object has no attribute {name!r}"
+        )
 
     def build_step_state(
         self,
@@ -187,7 +189,9 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
                 self.llm = llm
                 self.provider_bridge = LLMProviderBridge(llm)
         if self.llm is None or self.provider_bridge is None:
-            raise ValueError("FunctionCallingOrchestrator requires an LLM adapter or llm_pool")
+            raise ValueError(
+                "FunctionCallingOrchestrator requires an LLM adapter or llm_pool"
+            )
         return self.llm
 
     async def execute_with_tools(
@@ -307,6 +311,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
                 execution_workspace=execution_workspace,
                 orchestration_strategy=orchestration_strategy,
                 llm_timeout_seconds=llm_timeout_seconds,
+                cancel_token=token,
             )
             if step_outcome.status == "continue":
                 if get_stream_sink() is not None:
@@ -317,6 +322,13 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
                 return ExecutionOutcome(
                     status="completed",
                     content=step_outcome.content,
+                    tool_failures=list(state.tool_failures),
+                    iterations=step_outcome.iteration,
+                )
+            if step_outcome.status == "cancelled":
+                return ExecutionOutcome(
+                    status="cancelled",
+                    content="",
                     tool_failures=list(state.tool_failures),
                     iterations=step_outcome.iteration,
                 )
@@ -428,7 +440,13 @@ class _FunctionCallingOperations(
         self._host = host
 
     def __getattribute__(self, name: str) -> Any:
-        if name not in {"_host", "__dict__", "__class__", "__getattribute__", "__getattr__"}:
+        if name not in {
+            "_host",
+            "__dict__",
+            "__class__",
+            "__getattribute__",
+            "__getattr__",
+        }:
             host = object.__getattribute__(self, "_host")
             override = host.__dict__.get(name)
             if override is not None:

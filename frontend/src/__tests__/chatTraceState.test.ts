@@ -391,6 +391,42 @@ describe('chat trace state helpers', () => {
     });
   });
 
+  it('uses restored backend run state to suppress execution controls', () => {
+    const cancelledMessage: ChatTimelineMessage = {
+      id: 'msg-cancelled',
+      role: 'assistant',
+      kind: 'status',
+      content: 'Run cancelled',
+      timestamp: 1000,
+      turnId: 'turn-cancelled',
+      runState: {
+        state: 'cancelled',
+        run_id: 'run-1',
+        run_revision: 0,
+        can_cancel: false,
+        can_detach: false,
+      },
+    };
+
+    expect(getExecutionActionState(cancelledMessage, {
+      executionControlByTurnId: {
+        'turn-cancelled': {
+          state: 'running',
+          label: 'Running tool chain',
+        },
+      },
+      cancellingTurnIds: [],
+      detachingTurnIds: [],
+    })).toMatchObject({
+      turnId: 'turn-cancelled',
+      executionState: 'cancelled',
+      isCancelling: false,
+      isDetaching: false,
+      showCancelButton: false,
+      showDetachButton: false,
+    });
+  });
+
   it('projects execution progress descriptor including trace-entry state', () => {
     const runningMessage: ChatTimelineMessage = {
       id: 'msg-running-panel',
@@ -597,7 +633,7 @@ describe('chat trace state helpers', () => {
 
     expect(projectControlStatusCardPresentation({
       id: 'bg-pending:msg-1',
-      role: 'system',
+      role: 'assistant',
       kind: 'status',
       messageKind: 'background_task_pending',
       content: '[Background task] /deep-scan\n(running…)',
