@@ -21,7 +21,7 @@ def _classify_file_write(arguments: dict[str, Any]) -> ClassificationResult:
             level=RiskLevel.DESTRUCTIVE, signals=signals, preview=path[:200]
         )
     return ClassificationResult(
-        level=RiskLevel.HIGH,
+        level=RiskLevel.MEDIUM,
         signals=signals,
         preview=str(path)[:200] if path else None,
     )
@@ -38,7 +38,7 @@ def _classify_file_edit(arguments: dict[str, Any]) -> ClassificationResult:
             level=RiskLevel.DESTRUCTIVE, signals=signals, preview=path[:200]
         )
     return ClassificationResult(
-        level=RiskLevel.HIGH,
+        level=RiskLevel.MEDIUM,
         signals=signals,
         preview=str(path)[:200] if path else None,
     )

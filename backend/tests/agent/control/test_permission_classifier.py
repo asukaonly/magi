@@ -33,8 +33,8 @@ def classifier() -> RiskClassifier:
         ("bash", {"command": "git push origin main"}, RiskLevel.HIGH),
         ("bash", {"command": "sed -i 's/a/b/' file.txt"}, RiskLevel.HIGH),
         # File tools.
-        ("file_write", {"path": "/tmp/note.md"}, RiskLevel.HIGH),
-        ("file_edit", {"path": "src/app.py"}, RiskLevel.HIGH),
+        ("file_write", {"path": "/tmp/note.md"}, RiskLevel.MEDIUM),
+        ("file_edit", {"path": "src/app.py"}, RiskLevel.MEDIUM),
         (
             "file_write",
             {"path": "/Users/alice/.ssh/authorized_keys"},
