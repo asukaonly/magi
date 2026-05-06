@@ -28,7 +28,8 @@ export function useDelegationHydration(
 
   useEffect(() => {
     if (!sessionId || !delegationId || !workspace) return;
-    if (card?.result || card?.hydrating) return;
+    // Only skip if we already have diff_text OR we're already hydrating
+    if (card?.diffText || card?.hydrating) return;
 
     let cancelled = false;
     setHydrating(sessionId, delegationId, true);
@@ -70,7 +71,7 @@ export function useDelegationHydration(
     sessionId,
     delegationId,
     workspace,
-    card?.result,
+    card?.diffText,
     card?.hydrating,
     setHydrating,
     setResult,

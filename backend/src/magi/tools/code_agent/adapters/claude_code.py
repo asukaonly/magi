@@ -90,6 +90,9 @@ class ClaudeCodeAdapter:
                 if not isinstance(obj, dict):
                     continue
                 event_type = str(obj.get("type") or "")
+                # Skip stream_event noise (content_block_delta, etc.)
+                if event_type == "stream_event":
+                    continue
                 if event_type == "assistant":
                     text = self._extract_assistant_text(obj)
                     if text:

@@ -195,3 +195,47 @@ async def test_claude_adapter_surfaces_stderr_in_error(tmp_path: Path) -> None:
     error_events = [e for e in events if e.kind == "error"]
     assert error_events, "expected an error RunEvent"
     assert "Invalid session ID" in error_events[-1].payload.get("message", "")
+
+
+@pytest.mark.asyncio
+async def test_claude_adapter_filters_stream_events(tmp_path: Path) -> None:
+    """Verify adapter drops noisy stream_event (content_block_delta) records."""
+    # Simulate claude-code output with many stream_events plus a real assistant message
+    transcript = "\n".join([
+        json.dumps({"type": "stream_event", "event": {"type": "content_block_delta", "delta": {"text": "H"}}}),
+        json.dumps({"type": "stream_event", "event": {"type": "content_block_delta", "delta": {"text": "i"}}}),
+        json.dumps({"type": "assistant", "message": {"content": [
+            {"type": "text", "text": "Actual useful message"}]}}),
+        json.dumps({"type": "result", "subtype": "success",
+                    "total_cost_usd": 0.05,
+                    "usage": {"input_tokens": 500, "output_tokens": 100}}),
+    ]) + "\n"
+    bin_dir = tmp_path / "bin"
+    fake = _make_fake_claude(bin_dir, transcript)
+
+    events: list[RunEvent] = []
+
+    async def on_event(ev: RunEvent) -> None:
+        events.append(ev)
+
+    adapter = ClaudeCodeAdapter()
+    outcome = await adapter.run(
+        _request(tmp_path),
+        cwd=tmp_path,
+        bundle_dir=tmp_path,
+        stdout_path=tmp_path / "stdout.log",
+        stderr_path=tmp_path / "stderr.log",
+        on_event=on_event,
+        cancel_token=CancelToken(),
+        binary_path=str(fake),
+    )
+    assert outcome.exit_code == 0
+    # Should have assistant_text but no stream_event status entries
+    event_kinds = [e.kind for e in events]
+    assert "assistant_text" in event_kinds
+    # Count status events with stream_event payload
+    stream_event_statuses = [
+        e for e in events
+        if e.kind == "status" and e.payload.get("event") == "stream_event"
+    ]
+    assert len(stream_event_statuses) == 0, "stream_event noise should be filtered"

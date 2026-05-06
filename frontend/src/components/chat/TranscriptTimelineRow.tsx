@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ProjectedChatTimelineMessage } from '@/domain/chat/presentation';
 import { formatChatClockTime } from '@/domain/chat/timestamps';
@@ -90,9 +91,30 @@ export const TranscriptTimelineRow = ({
   const workspacePath = useConversationStore((state) =>
     sessionId ? state.sessionsById[sessionId]?.workspace_path ?? null : null,
   );
-  const delegationIds = showDelegationCards && delegationCards
-    ? Object.keys(delegationCards)
-    : [];
+  const delegationIds = useMemo(() => {
+    if (!showDelegationCards || !delegationCards) return [];
+    const allIds = Object.keys(delegationCards);
+    // Filter out discarded cards entirely
+    const activeIds = allIds.filter((did) => {
+      const card = delegationCards[did];
+      return card?.lifecycle !== 'discarded';
+    });
+    // For finished cards, only show the most recent one
+    const finishedIds = activeIds.filter((did) => {
+      const card = delegationCards[did];
+      return card?.lifecycle === 'finished' || card?.lifecycle === 'applied';
+    });
+    const runningIds = activeIds.filter((did) => {
+      const card = delegationCards[did];
+      return card?.lifecycle === 'started' || card?.lifecycle === 'running' || card?.lifecycle === 'cancelled' || card?.lifecycle === 'failed';
+    });
+    // If there are multiple finished cards, only keep the most recent (by timestamp in events or creation order)
+    if (finishedIds.length > 1) {
+      // For now, just keep the last one in the list (Object.keys order is insertion order)
+      finishedIds.splice(0, finishedIds.length - 1);
+    }
+    return [...runningIds, ...finishedIds];
+  }, [showDelegationCards, delegationCards]);
 
   return (
     <TranscriptTimelineMessage
