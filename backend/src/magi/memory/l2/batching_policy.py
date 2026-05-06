@@ -29,6 +29,12 @@ class BatchingPolicy:
     max_events: int = DEFAULT_L2_MAX_EVENTS_PER_BATCH
     max_estimated_tokens: int = DEFAULT_L2_MAX_ESTIMATED_TOKENS_PER_BATCH
     max_wait_seconds: float = DEFAULT_L2_BATCH_FLUSH_INTERVAL_SECONDS
+    min_ready_events: int | None = None
+    """Lower-than-max trigger threshold. None means trigger == max_events.
+
+    The projection-claim path uses this to flush a partially-full bucket once
+    enough events accumulate, without waiting all the way to max_events.
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,7 +57,9 @@ def decide_flush(
     """
     if state.event_count <= 0:
         return None
-    if state.event_count >= policy.max_events:
+    trigger = policy.min_ready_events if policy.min_ready_events is not None else policy.max_events
+    trigger = max(1, min(int(trigger), policy.max_events))
+    if state.event_count >= trigger:
         return FlushReason.MAX_EVENTS
     if state.estimated_tokens >= policy.max_estimated_tokens:
         return FlushReason.TOKEN_CAP

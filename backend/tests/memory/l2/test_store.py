@@ -1512,6 +1512,60 @@ async def test_claim_ready_projection_jobs_merges_low_frequency_owners_in_catch_
     assert all(item["effective_batch_owner"] == "chrome_history:Default:catchup:2" for item in claimed)
 
 
+@pytest.mark.asyncio
+async def test_claim_ready_projection_jobs_drains_null_owner_jobs_immediately(tmp_path):
+    """Pending jobs without a batch_owner go through the unbatched fast path.
+
+    This is the legitimate use case (synthesized events without a session
+    or owner hint). After the chat-batching fix, ordinary chat messages no
+    longer land here — they always carry a chat:<session> owner.
+    """
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    await store.enqueue_projection_job(
+        event_id="evt-null-owner-1",
+        source="synthetic",
+        event_type="UserMessage",
+    )
+
+    claimed = await store.claim_ready_projection_jobs(
+        consumer_name="runtime_worker",
+        limit=10,
+    )
+
+    assert [item["event_id"] for item in claimed] == ["evt-null-owner-1"]
+
+
+@pytest.mark.asyncio
+async def test_claim_ready_projection_jobs_holds_session_owner_jobs_for_batching(tmp_path):
+    """Session-bound chat events (non-empty batch_owner with default policy)
+    must NOT be claimed on the first event — they should wait for the bucket
+    to fill or for max_wait_seconds to elapse."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    await store.enqueue_projection_job(
+        event_id="evt-chat-1",
+        source="chat",
+        event_type="UserMessage",
+        batch_owner="chat:session-abc",
+        max_events=12,
+        max_wait_seconds=60.0,
+    )
+
+    claimed = await store.claim_ready_projection_jobs(
+        consumer_name="runtime_worker",
+        limit=10,
+    )
+
+    assert claimed == []
+
+
 # ── T1: Same (S,O) write interception ──
 
 

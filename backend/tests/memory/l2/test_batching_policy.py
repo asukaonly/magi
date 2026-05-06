@@ -88,3 +88,28 @@ def test_negative_oldest_age_is_treated_as_zero():
     policy = BatchingPolicy(max_events=12, max_estimated_tokens=2400, max_wait_seconds=60.0)
     state = _state(event_count=1, estimated_tokens=10, oldest_age_seconds=-5.0)
     assert decide_flush(state, policy, batching_enabled=True) is None
+
+
+def test_min_ready_events_lowers_the_event_count_trigger():
+    """When the policy specifies min_ready_events, the bucket should flush as soon
+    as that lower threshold is reached, even before max_events. This is what
+    enables steady-state batching in the projection-claim path.
+    """
+    policy = BatchingPolicy(max_events=20, max_estimated_tokens=999_999, max_wait_seconds=999.0, min_ready_events=8)
+    state = _state(event_count=8, estimated_tokens=10, oldest_age_seconds=0.0)
+    assert decide_flush(state, policy, batching_enabled=True) is FlushReason.MAX_EVENTS
+
+
+def test_min_ready_events_below_threshold_holds():
+    policy = BatchingPolicy(max_events=20, max_estimated_tokens=999_999, max_wait_seconds=999.0, min_ready_events=8)
+    state = _state(event_count=7, estimated_tokens=10, oldest_age_seconds=0.0)
+    assert decide_flush(state, policy, batching_enabled=True) is None
+
+
+def test_min_ready_events_defaults_to_max_events():
+    """Omitting min_ready_events should keep prior behavior (threshold == max_events)."""
+    policy = BatchingPolicy(max_events=12, max_estimated_tokens=999_999, max_wait_seconds=999.0)
+    state = _state(event_count=11, estimated_tokens=10, oldest_age_seconds=0.0)
+    assert decide_flush(state, policy, batching_enabled=True) is None
+    state = _state(event_count=12, estimated_tokens=10, oldest_age_seconds=0.0)
+    assert decide_flush(state, policy, batching_enabled=True) is FlushReason.MAX_EVENTS

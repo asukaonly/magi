@@ -8,6 +8,7 @@ from typing import Any, Dict, Protocol, cast
 import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
+from ..batching_policy import BatchingPolicy, BucketState, decide_flush
 
 
 class _ProjectionQueueClaimingHostProtocol(Protocol):
@@ -22,6 +23,41 @@ def _projection_queue_module() -> Any:
     from . import queue as projection_queue_module
 
     return projection_queue_module
+
+
+def _build_owner_policy(
+    *,
+    max_events: int,
+    min_ready_events: int,
+    max_wait_seconds: float | None,
+    claim_mode: str,
+    steady_state_max_wait_cap: float,
+) -> tuple[BatchingPolicy, bool]:
+    """Translate raw SQL aggregation values into a BatchingPolicy for one owner.
+
+    Returns the policy plus a flag indicating whether the interval-elapsed
+    branch is reachable. Catch-up mode with no explicit max_wait_seconds keeps
+    the prior behavior of never triggering on age alone.
+    """
+    if claim_mode == "catch_up":
+        effective_min_ready = max_events
+        effective_wait = max_wait_seconds
+        wait_reachable = max_wait_seconds is not None
+    else:
+        effective_min_ready = max(1, min(min_ready_events, max_events))
+        effective_wait = (
+            min(max_wait_seconds, steady_state_max_wait_cap)
+            if max_wait_seconds is not None
+            else steady_state_max_wait_cap
+        )
+        wait_reachable = True
+    policy = BatchingPolicy(
+        max_events=max_events,
+        max_estimated_tokens=10**9,  # token cap is not tracked in the durable queue
+        max_wait_seconds=float(effective_wait if effective_wait is not None else 0.0),
+        min_ready_events=effective_min_ready,
+    )
+    return policy, wait_reachable
 
 
 class ProjectionQueueClaimingMixin:
@@ -98,39 +134,43 @@ class ProjectionQueueClaimingMixin:
                     pending_count = int(owner_row["pending_count"] or 0)
                     if pending_count <= 0:
                         continue
-                    max_events_value = owner_row["bucket_max_events"]
-                    max_events = int(max_events_value or 1)
-                    min_ready_value = owner_row["bucket_min_ready_events"]
-                    min_ready_events = int(min_ready_value or max_events)
+                    max_events = int(owner_row["bucket_max_events"] or 1)
+                    min_ready_events = int(owner_row["bucket_min_ready_events"] or max_events)
                     max_wait_value = owner_row["bucket_max_wait_seconds"]
                     catch_up_owner = str(owner_row["bucket_catch_up_owner"] or "").strip()
                     oldest_created_at = float(owner_row["oldest_created_at"] or now)
                     oldest_age_seconds = max(0.0, now - oldest_created_at)
 
-                    effective_ready_events = max_events
-                    effective_wait_seconds = (
-                        float(max_wait_value) if max_wait_value is not None else None
+                    policy, wait_reachable = _build_owner_policy(
+                        max_events=max_events,
+                        min_ready_events=min_ready_events,
+                        max_wait_seconds=(
+                            float(max_wait_value) if max_wait_value is not None else None
+                        ),
+                        claim_mode=claim_mode,
+                        steady_state_max_wait_cap=float(
+                            projection_queue_module.DEFAULT_L2_STEADY_STATE_MAX_WAIT_SECONDS
+                        ),
                     )
-                    if claim_mode != "catch_up":
-                        effective_ready_events = max(1, min(min_ready_events, max_events))
-                        if effective_wait_seconds is not None:
-                            effective_wait_seconds = min(
-                                effective_wait_seconds,
-                                projection_queue_module.DEFAULT_L2_STEADY_STATE_MAX_WAIT_SECONDS,
-                            )
+                    state = BucketState(
+                        event_count=pending_count,
+                        estimated_tokens=0,
+                        oldest_age_seconds=oldest_age_seconds,
+                    )
+                    flush_reason = decide_flush(state, policy, batching_enabled=wait_reachable)
+                    effective_ready_events = policy.min_ready_events or policy.max_events
 
                     claim_count = 0
-                    if pending_count >= effective_ready_events:
-                        claim_count = min(
-                            (pending_count // effective_ready_events) * effective_ready_events,
-                            remaining,
-                        )
-                        claim_count -= claim_count % effective_ready_events
-                    elif (
-                        effective_wait_seconds is not None
-                        and oldest_age_seconds >= effective_wait_seconds
-                    ):
-                        claim_count = min(pending_count, remaining)
+                    if flush_reason is not None:
+                        if pending_count >= effective_ready_events:
+                            claim_count = min(
+                                (pending_count // effective_ready_events) * effective_ready_events,
+                                remaining,
+                            )
+                            claim_count -= claim_count % effective_ready_events
+                        else:
+                            # interval_elapsed on an underfilled bucket — claim what we have
+                            claim_count = min(pending_count, remaining)
 
                     if (
                         claim_count <= 0
@@ -199,15 +239,32 @@ class ProjectionQueueClaimingMixin:
                             min(max_wait_candidates) if max_wait_candidates else None
                         )
 
+                        tail_policy = BatchingPolicy(
+                            max_events=max_events,
+                            max_estimated_tokens=10**9,
+                            max_wait_seconds=float(effective_wait_seconds or 0.0),
+                            min_ready_events=max_events,
+                        )
+                        tail_state = BucketState(
+                            event_count=pending_count,
+                            estimated_tokens=0,
+                            oldest_age_seconds=oldest_age_seconds,
+                        )
+                        tail_flush = decide_flush(
+                            tail_state,
+                            tail_policy,
+                            batching_enabled=effective_wait_seconds is not None,
+                        )
+
                         claim_count = 0
-                        if pending_count >= max_events:
-                            claim_count = min((pending_count // max_events) * max_events, remaining)
-                            claim_count -= claim_count % max_events
-                        elif (
-                            effective_wait_seconds is not None
-                            and oldest_age_seconds >= effective_wait_seconds
-                        ):
-                            claim_count = min(pending_count, remaining)
+                        if tail_flush is not None:
+                            if pending_count >= max_events:
+                                claim_count = min(
+                                    (pending_count // max_events) * max_events, remaining
+                                )
+                                claim_count -= claim_count % max_events
+                            else:
+                                claim_count = min(pending_count, remaining)
 
                         if claim_count <= 0:
                             continue
