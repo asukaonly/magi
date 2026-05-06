@@ -183,8 +183,9 @@ class CodexAdapter:
         bundle_hint = (
             "Read TASK.md and CONSTRAINTS.md from the directory I added before "
             "starting; treat them as authoritative.\n"
-            "IMPORTANT: Respond in the same language as the user's request. "
-            "If the user wrote in Chinese, respond in Chinese. If in English, respond in English, etc."
+            "IMPORTANT: Your summary and final response MUST be in Chinese (简体中文). "
+            "Code comments and variable names can remain in English, but explanations "
+            "and summaries should be in Chinese."
         )
         constraints = self._render_constraints(req)
         return f"{bundle_hint}\n\n{constraints}\n\n{req.prompt}\n"
