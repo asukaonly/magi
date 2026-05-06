@@ -6,6 +6,7 @@ import sys
 import tempfile
 from typing import Dict, Any, List, Tuple
 from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType, ToolErrorCode
+from ._read_constraint import require_prior_read
 
 _IS_WINDOWS = sys.platform == "win32"
 
@@ -44,7 +45,7 @@ class FileEditTool(Tool):
         """Initialize schema"""
         self.schema = ToolSchema(
             name="file_edit",
-            description="Edit file by replacing specific text. Use this for making targeted changes to files.",
+            description="Edit file by replacing specific text. Use this for making targeted changes to files. The file must have been read with file_read in this session before editing.",
             category="file",
             version="1.1.0",
             author="Magi Team",
@@ -144,6 +145,14 @@ class FileEditTool(Tool):
                 success=False,
                 error="old_string cannot be empty",
                 error_code=ToolErrorCode.INVALID_PARAMETERS.value
+            )
+
+        block_msg = require_prior_read(context, file_path)
+        if block_msg is not None:
+            return ToolResult(
+                success=False,
+                error=block_msg,
+                error_code=ToolErrorCode.INVALID_PARAMETERS.value,
             )
 
         try:
