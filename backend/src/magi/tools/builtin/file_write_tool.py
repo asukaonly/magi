@@ -4,6 +4,7 @@ File write tool
 import os
 from typing import Dict, Any
 from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType, ToolErrorCode
+from ._edit_journal import record_edit_after, snapshot_before_edit
 from ._read_constraint import require_prior_read
 
 
@@ -114,6 +115,10 @@ class FileWriteTool(Tool):
                     error_code=ToolErrorCode.INVALID_PARAMETERS.value,
                 )
 
+        snapshot_ctx = None
+        if mode == "overwrite" and os.path.exists(file_path):
+            snapshot_ctx = snapshot_before_edit(context, file_path)
+
         try:
             # Check and create directory
             directory = os.path.dirname(file_path)
@@ -126,6 +131,9 @@ class FileWriteTool(Tool):
             # Write file
             with open(file_path, file_mode, encoding=encoding) as f:
                 bytes_written = f.write(content)
+
+            if snapshot_ctx is not None:
+                record_edit_after(context, file_path, snapshot_ctx, op="write")
 
             # Get file info
             file_size = os.path.getsize(file_path)
