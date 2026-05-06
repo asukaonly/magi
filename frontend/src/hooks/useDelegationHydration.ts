@@ -68,7 +68,8 @@ export function useDelegationHydration(
           setDiffText(sessionId, delegationId, diff_text);
         }
       })
-      .catch(() => {
+      .catch((err) => {
+        console.error('[useDelegationHydration] Failed', err);
         // Hydration is best-effort. The card stays in its current shape.
       })
       .finally(() => {
