@@ -8,8 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
 
-from .atomic_io import append_jsonl
-from .contracts import EditOp, EditRecord, ReadRecord
+from .atomic_io import append_jsonl, atomic_write_text
+from .contracts import EditOp, EditRecord, ReadRecord, TodoState
 from .errors import SessionCacheCorruptError
 from .root import WorkspaceCacheRoot
 
@@ -152,3 +152,16 @@ class SessionCache:
                         f"edits.jsonl line {line_no} is not valid JSON"
                     ) from exc
                 yield EditRecord.model_validate(payload)
+
+    @property
+    def todo_path(self) -> Path:
+        return self.session_dir / "todo.json"
+
+    def read_todo(self) -> TodoState:
+        if not self.todo_path.exists():
+            return TodoState()
+        payload = json.loads(self.todo_path.read_text(encoding="utf-8"))
+        return TodoState.model_validate(payload)
+
+    def write_todo(self, state: TodoState) -> None:
+        atomic_write_text(self.todo_path, state.model_dump_json())
