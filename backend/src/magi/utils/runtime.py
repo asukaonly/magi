@@ -302,18 +302,6 @@ class RuntimePaths:
         """
         return self.personalities_dir / f"{name}.json"
 
-    def get_personality_path(self, name: str = "default") -> str:
-        """
-        Get personality configuration file path (string format, for compatibility).
-
-        Args:
-            name: Personality name.
-
-        Returns:
-            Personality directory path string.
-        """
-        return str(self.personalities_dir)
-
     def initialize_default_personality(self) -> None:
         """Ensure the personalities directory exists.
 
@@ -323,10 +311,6 @@ class RuntimePaths:
         """
         self.personalities_dir.mkdir(parents=True, exist_ok=True)
 
-    @property
-    def current_personality_file(self) -> Path:
-        """Legacy helper — returns the path but the file is no longer written."""
-        return self.personalities_dir / "current"
 
 
 # Global instance
