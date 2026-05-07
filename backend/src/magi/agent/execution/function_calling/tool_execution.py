@@ -35,7 +35,6 @@ class _FunctionCallingToolExecutionHostProtocol(Protocol):
         tool_name: str,
         arguments: dict[str, Any],
         execution_workspace: str | None,
-        user_message: str | None,
     ) -> tuple[dict[str, Any], str | None]: ...
 
     def _classify_guardrail_error_code(self, *, tool_name: str, error_text: str) -> str: ...
@@ -137,7 +136,6 @@ class FunctionCallingToolExecutionMixin:
                 tool_name=tool_name,
                 arguments=arguments,
                 execution_workspace=execution_workspace,
-                user_message=user_message,
             )
             if guardrail_error:
                 guardrail_error_code = host._classify_guardrail_error_code(

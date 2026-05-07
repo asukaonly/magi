@@ -319,48 +319,6 @@ def test_chat_guardrail_outside_workspace_allowed_flag_unblocks_and_strips(tmp_p
     assert guarded_args["path"] == str(outside)
 
 
-def test_chat_guardrail_allows_explicit_user_targeted_path(tmp_path) -> None:
-    executor = _executor()
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    outside = tmp_path / "outside"
-    outside.mkdir()
-
-    guarded_args, error = executor._apply_worker_explore_guardrails(
-        intent="chat",
-        tool_name="glob",
-        arguments={"pattern": "**/*.json", "path": str(outside)},
-        execution_workspace=str(workspace),
-        user_message=f"去 {outside} 下面查一下 json 文件",
-    )
-
-    assert error is None
-    assert guarded_args == {"pattern": "**/*.json", "path": str(outside)}
-
-
-@pytest.mark.asyncio
-async def test_execute_tool_call_allows_explicit_user_targeted_external_scan(tmp_path) -> None:
-    executor = _executor()
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    outside = tmp_path / "outside"
-    outside.mkdir()
-
-    result = await executor._execute_tool_call(
-        tool_call=ToolCall(id="call-1", name="glob", arguments={"pattern": "**/*.json", "path": str(outside)}),
-        user_message=f"请去 {outside} 看看里面有哪些 json",
-        user_id="u",
-        session_id="s",
-        turn_id="t",
-        intent="chat",
-        execution_agent_id="a",
-        execution_workspace=str(workspace),
-        orchestration_strategy=None,
-    )
-
-    assert result.success is True
-
-
 @pytest.mark.asyncio
 async def test_execute_tool_call_marks_ambiguous_scope_for_workspace_escape(tmp_path) -> None:
     executor = _executor()

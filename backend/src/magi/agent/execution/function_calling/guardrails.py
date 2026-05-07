@@ -60,7 +60,6 @@ class FunctionCallingGuardrailsMixin:
         tool_name: str,
         arguments: dict[str, Any],
         execution_workspace: str | None = None,
-        user_message: str | None = None,
     ) -> tuple[dict[str, Any], str | None]:
         """Apply strict guardrails for bounded scan-oriented workers."""
         safe_args = dict(arguments)
@@ -74,11 +73,6 @@ class FunctionCallingGuardrailsMixin:
                 intent not in {"worker_explore", "worker_plan"}
                 and not self._path_within_root(scan_root, workspace_root)
                 and not outside_workspace_allowed
-                and not self._user_explicitly_targets_scan_path(
-                    user_message=user_message,
-                    path_value=safe_args.get("path"),
-                    execution_workspace=execution_workspace,
-                )
             ):
                 return {}, (
                     "File scan guardrail: glob and grep must stay within the active workspace. "
@@ -162,37 +156,6 @@ class FunctionCallingGuardrailsMixin:
             return os.path.commonpath([candidate_path, root_path]) == root_path
         except ValueError:
             return False
-
-    def _user_explicitly_targets_scan_path(
-        self,
-        *,
-        user_message: str | None,
-        path_value: Any,
-        execution_workspace: str | None,
-    ) -> bool:
-        """Substring fallback for the workspace guardrail.
-
-        Preferred path is the explicit ``outside_workspace_allowed`` tool
-        argument set by the LLM when the user authorizes an external scan.
-        This substring check stays as a backstop so legacy prompts without
-        the hint still work, but it is fragile (it cannot recognize "上级
-        目录"/"the sibling repo"/symlinked paths) and should be retired
-        once all routing prompts emit the explicit flag.
-        """
-        normalized_message = str(user_message or "").strip()
-        raw_path = str(path_value or "").strip()
-        if not normalized_message or raw_path in {"", ".", "./"}:
-            return False
-
-        candidates = {
-            raw_path,
-            raw_path.rstrip("/"),
-            os.path.expandvars(os.path.expanduser(raw_path)),
-            os.path.expandvars(os.path.expanduser(raw_path)).rstrip("/"),
-            self._resolve_scan_root_path(raw_path, execution_workspace),
-            self._resolve_scan_root_path(raw_path, execution_workspace).rstrip("/"),
-        }
-        return any(candidate and candidate in normalized_message for candidate in candidates)
 
     def _resolve_execution_workspace(self, execution_workspace: str | None) -> str:
         raw_workspace = (

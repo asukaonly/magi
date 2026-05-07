@@ -55,16 +55,6 @@ class ProviderBridgeOptionsMixin:
         """
         return isinstance(self.llm, AnthropicAdapter)
 
-    def is_glm(self) -> bool:
-        """Return True when the adapter targets a GLM-toggle dialect provider.
-
-        Kept as a public facade method for callers that historically asked
-        "is this GLM?" to decide payload shape. New code should call
-        ``_resolve_reasoning_dialect()`` and compare against
-        ``ReasoningDialect.GLM_TOGGLE`` instead.
-        """
-        return self._resolve_reasoning_dialect() == ReasoningDialect.GLM_TOGGLE
-
     def _model_supports_reasoning(self) -> bool:
         """Check if the current model advertises reasoning capability."""
         model_meta = find_chat_model_meta(

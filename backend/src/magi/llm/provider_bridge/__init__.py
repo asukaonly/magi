@@ -113,9 +113,6 @@ class LLMProviderBridge:
     def is_anthropic(self) -> bool:
         return self._operations.is_anthropic()
 
-    def is_glm(self) -> bool:
-        return self._operations.is_glm()
-
     def normalize_content_response(self, content: Any) -> ProviderResponse:
         return self._operations.normalize_content_response(content)
 
@@ -394,9 +391,3 @@ class _ProviderBridgeOperations(
         if override is not None:
             return bool(override())
         return super().is_anthropic()
-
-    def is_glm(self) -> bool:
-        override = self._host.__dict__.get("is_glm")
-        if override is not None:
-            return bool(override())
-        return super().is_glm()
