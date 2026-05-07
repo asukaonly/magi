@@ -17,7 +17,6 @@ from .contracts import (
     TriggerType,
 )
 from .execution_repository import SchedulerExecutionRepositoryMixin
-from .schema import ensure_scheduler_schema
 from .sensor_jobs import SensorSyncJobRepositoryMixin
 from .target_state_repository import SchedulerTargetStateRepositoryMixin
 
@@ -42,7 +41,6 @@ class ScheduleRepository(
 
     async def initialize(self) -> None:
         async with self._connect() as db:
-            await ensure_scheduler_schema(db)
             await db.commit()
 
     async def reset_running_flags(self) -> None:
