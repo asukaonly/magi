@@ -13,6 +13,14 @@ from dataclasses import dataclass
 from enum import Enum
 
 
+# L2 extraction is a single LLM call per batch; the limits below balance
+# extraction throughput against per-call cost and latency:
+# - 12 events keeps the prompt small enough that even smaller models can
+#   reliably emit complete structured assertions for every event.
+# - 2400 tokens roughly tracks the empirical assertion-output budget; past
+#   that the model starts truncating and we lose tail events.
+# - 60s ensures a long-tail user session still flushes within ~1 minute
+#   even if neither the event count nor the token cap triggers first.
 DEFAULT_L2_MAX_EVENTS_PER_BATCH = 12
 DEFAULT_L2_MAX_ESTIMATED_TOKENS_PER_BATCH = 2400
 DEFAULT_L2_BATCH_FLUSH_INTERVAL_SECONDS = 60.0

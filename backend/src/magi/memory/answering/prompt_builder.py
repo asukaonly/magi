@@ -9,7 +9,12 @@ from datetime import datetime, timezone
 from typing import Any
 
 
-# Sentence-based truncation parameters for assistant replies.
+# Sentence-based truncation parameters for assistant replies. Replies feed
+# back into memory-answering prompts as context, so we cap them aggressively:
+# 60 sentences covers a thorough multi-paragraph answer, and the 4k-character
+# hard ceiling protects against pathologically long single sentences (e.g.
+# code blocks or tables emitted as one "sentence") blowing past the prompt
+# budget.
 _ASSISTANT_MAX_SENTENCES = 60
 _ASSISTANT_HARD_MAX = 4000
 

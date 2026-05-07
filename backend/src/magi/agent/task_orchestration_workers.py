@@ -20,6 +20,14 @@ from .orchestration import (
 
 logger = get_logger(__name__)
 
+# Worker-side LLM rate-limit retry policy. The exact ceiling is empirical:
+# in practice a transient 429 burst from the upstream LLM clears within a
+# handful of attempts, but we want enough budget to ride out a longer
+# throttling window without aborting an in-flight orchestration. Backoff
+# starts at 1s and caps at 60s — anything larger and the user perceives
+# the orchestration as hung. If you change these, also revisit the
+# error-classifier retry policy used by the function-calling path so the
+# two stay roughly aligned.
 LLM_RATE_LIMIT_RETRY_BUDGET = 10
 LLM_RATE_LIMIT_BACKOFF_BASE_SECONDS = 1.0
 LLM_RATE_LIMIT_BACKOFF_MAX_SECONDS = 60.0

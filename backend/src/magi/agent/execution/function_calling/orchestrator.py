@@ -55,7 +55,12 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
     """
 
     MAX_ITERATIONS = 30
+    # Tool history we feed back into the LLM verbatim. Anything older than the
+    # last few rounds is summarized; raw payloads stay full-fidelity for recent
+    # turns where the LLM is most likely to reference them.
     _RAW_TOOL_HISTORY_LIMIT = 4
+    # How many failed iterations we tolerate before forcing a re-plan. Two
+    # gives the LLM one opportunity to self-correct without loop-thrashing.
     _FAILED_ITERATION_REPLAN_LIMIT = 2
     _RATE_LIMIT_BACKOFF_SECONDS = (1.0, 2.0, 4.0, 8.0)
     _NON_REPLAN_ERROR_CODES = {
@@ -71,6 +76,10 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         "ROLE_NOT_ALLOWED",
     }
     _SLOW_SCAN_WARNING_SECONDS = 5.0
+    # Parent-context budget passed down to spawned sub-tasks. 20 messages /
+    # 12k chars is a UX-driven cap: it keeps prompts well under the smallest
+    # supported model context while preserving enough conversational ground
+    # truth for the worker to disambiguate references.
     _PARENT_CONTEXT_MAX_MESSAGES = 20
     _PARENT_CONTEXT_MAX_CHARS = 12_000
 
