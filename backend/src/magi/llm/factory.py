@@ -5,10 +5,10 @@ from __future__ import annotations
 import logging
 
 from ..config import AppConfig
+from ..config.models import LLMProvider
 from .anthropic import AnthropicAdapter
 from .base import LLMAdapter
 from .openai import OpenAIAdapter
-from .reasoning_dialect import DEFAULT_PROVIDER_DIALECTS
 from .scenario_pool import LLMScenario, ScenarioLLMPool
 
 logger = logging.getLogger(__name__)
@@ -16,19 +16,17 @@ logger = logging.getLogger(__name__)
 
 # Provider names that require the dedicated AnthropicAdapter (Anthropic
 # Messages API). Anything else maps onto the OpenAI-compatible adapter:
-# the *transport* shape is OpenAI Chat Completions and dialect-level
-# differences (reasoning/thinking payloads, etc.) are resolved later by
-# ``ReasoningDialect`` at request time.
-_ANTHROPIC_ADAPTER_PROVIDERS = frozenset({"anthropic"})
+# the *transport* shape is OpenAI Chat Completions and vendor-level
+# differences (reasoning/thinking payloads, tool-calling format, ...)
+# are resolved later via ``ModelVendor`` at request time.
+_ANTHROPIC_ADAPTER_PROVIDERS = frozenset({LLMProvider.ANTHROPIC.value})
 
-# Names accepted by the OpenAI-compatible adapter. We pre-validate the
-# enum-style names sourced from ``LLMProvider`` plus the runtime-detected
-# dialect names that ``ScenarioLLMPool`` resolves for custom providers.
-# Anything outside the union is rejected explicitly so configuration
-# typos surface early instead of silently flowing into OpenAIAdapter.
+# All known providers that flow through the OpenAI-compatible adapter.
+# Custom providers are accepted because their transport is OpenAI-shape
+# regardless of which vendor's models they proxy.
 _OPENAI_COMPATIBLE_PROVIDERS = frozenset(
-    name for name in DEFAULT_PROVIDER_DIALECTS if name != "anthropic"
-).union({"custom"})
+    member.value for member in LLMProvider if member.value not in _ANTHROPIC_ADAPTER_PROVIDERS
+)
 
 
 def create_llm_adapter(

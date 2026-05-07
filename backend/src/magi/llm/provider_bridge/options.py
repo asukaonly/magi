@@ -21,7 +21,9 @@ from ...config.llm_registry import (
     find_chat_model_meta,
     load_llm_provider_registry,
 )
-from ...config.models import ThinkingDepth
+from ...config.llm_registry_model_resolution import _BUILTIN_PROVIDER_VENDOR
+from ...config.models import ModelVendor, ThinkingDepth
+from ...config.vendor_detection import detect_vendor_from_hints
 
 DEFAULT_CHAT_CONCURRENCY_FALLBACK = 4
 T = TypeVar("T")
@@ -48,10 +50,8 @@ class ProviderBridgeOptionsMixin:
     def is_anthropic(self) -> bool:
         """Return True when the adapter speaks the Anthropic Messages API.
 
-        This is a transport-level check used by the Anthropic-specific
-        request paths. Reasoning/thinking parameter construction now goes
-        through ``ReasoningDialect`` instead — do not gate payload shape
-        on this method.
+        Transport-level check; reasoning payload shape goes through
+        ``ReasoningDialect`` instead.
         """
         return isinstance(self.llm, AnthropicAdapter)
 
@@ -66,24 +66,68 @@ class ProviderBridgeOptionsMixin:
             return bool(model_meta.capabilities.reasoning)
         return False
 
-    def _resolve_reasoning_dialect(self) -> ReasoningDialect:
-        """Resolve which reasoning dialect this provider uses.
+    def _resolve_model_vendor(self) -> ModelVendor:
+        """Resolve the active model's vendor.
 
-        Capability (`model_meta.capabilities.reasoning`) decides *whether*
-        we may inject a reasoning param at all; dialect decides *how* to
-        spell it. Anthropic is special-cased on adapter type because the
-        Anthropic API has no provider_name string at the adapter layer.
+        Lookup order:
+        1. User config override (``LLMModelMetadataOverrideSettings.vendor``)
+           — already merged into runtime model metadata when a resolved
+           catalog is available.
+        2. Packaged registry: ``LLMModelMetaModel.vendor`` if set,
+           otherwise the per-provider builtin default.
+        3. Heuristic detection from model id + base url. Only fires for
+           custom-gateway models that have no override and no packaged
+           entry.
+        """
+        provider_name = self._provider_name()
+        model_name = str(getattr(self.llm, "model_name", "unknown"))
+
+        # 1+2: user override merged into resolved catalog
+        config = get_config()
+        provider_settings = (
+            config.llm.providers.get(provider_name)
+            if hasattr(config, "llm") and hasattr(config.llm, "providers")
+            else None
+        )
+        if provider_settings is not None:
+            override = (provider_settings.model_metadata_overrides or {}).get(model_name)
+            if override is not None and override.vendor is not None:
+                return override.vendor
+
+        # 2: packaged registry
+        model_meta = find_chat_model_meta(
+            _load_provider_registry(), provider_name, model_name
+        )
+        if model_meta is not None and model_meta.vendor is not None:
+            return model_meta.vendor
+        builtin_default = _BUILTIN_PROVIDER_VENDOR.get(provider_name)
+        if builtin_default is not None:
+            return builtin_default
+
+        # 3: detect from model id / base url for custom-gateway models
+        return detect_vendor_from_hints(
+            model_id=model_name,
+            base_url=getattr(self.llm, "base_url", None),
+        )
+
+    def _resolve_reasoning_dialect(self) -> ReasoningDialect:
+        """Resolve which reasoning dialect this model uses.
+
+        Anthropic transport short-circuits to ``ANTHROPIC_BUDGET`` because
+        the AnthropicAdapter never exposes a vendor-tagged model meta on
+        its own; everything else looks up vendor via
+        :meth:`_resolve_model_vendor` and then maps to a dialect.
         """
         if self.is_anthropic():
             return ReasoningDialect.ANTHROPIC_BUDGET
-        return resolve_dialect(self._provider_name())
+        return resolve_dialect(self._resolve_model_vendor())
 
     def _apply_provider_options(
         self,
         kwargs: Dict[str, Any],
         thinking_depth: ThinkingDepth,
     ) -> Dict[str, Any]:
-        """Inject provider-specific reasoning parameters into LLM request kwargs."""
+        """Inject vendor-specific reasoning parameters into LLM request kwargs."""
         dialect = self._resolve_reasoning_dialect()
 
         # OpenAI-effort dialects only fire when the model itself advertises

@@ -1,25 +1,25 @@
 """Reasoning / thinking parameter dialect table.
 
-Different providers express the "how much reasoning to spend" knob in
-incompatible payload shapes:
+Different model vendors express the "how much reasoning to spend" knob
+in incompatible payload shapes:
 
-- OpenAI / Grok / DeepSeek / local OpenAI-compatible gateways use
+- OpenAI / DeepSeek / OpenAI-compatible gateways use
   ``reasoning_effort: "low" | "medium" | "high"`` as a top-level kwarg.
 - Anthropic uses ``thinking: {type: "enabled", budget_tokens: N}`` as a
   top-level kwarg with provider-specific token budgets per depth.
-- Alibaba DashScope / Bailian uses ``extra_body.enable_thinking: bool``.
-- Zhipu GLM uses ``extra_body.thinking: {type: "disabled"}`` and only
-  supports an on/off toggle; everything except ``NONE`` keeps the
-  default-on behavior.
-- Some providers (Gemini, Kimi, MiniMax, …) currently expose no public
-  reasoning/thinking knob at all. They map to ``none``.
+- Alibaba DashScope / Bailian (vendor=DASHSCOPE) uses
+  ``extra_body.enable_thinking: bool``.
+- Zhipu GLM (vendor=GLM) uses ``extra_body.thinking: {type: "disabled"}``
+  and only supports an on/off toggle.
+- Grok / Gemini / Kimi / MiniMax (vendor=GROK / GENERIC) currently expose
+  no public reasoning/thinking knob; they map to ``NONE``.
 
-Historically these branches lived as a hand-rolled ``if provider == ...``
-chain in ``provider_bridge/options.py`` whose comments admitted things
-like "DashScope/Bailian must precede GLM" and ``provider != "grok"`` —
-both classic whack-a-mole rule-table smells. This module replaces that
-chain with a small enum + builder table so adding a new provider is a
-data-only change and order is no longer significant.
+Historically the dialect was looked up by ``provider_name``. That broke
+on OneAPI / NewAPI gateways where a single ``provider`` entry proxies
+models from multiple vendors (``glm-4-plus`` + ``qwen-max`` + ``claude-*``
+under one URL): provider was no longer the right key. Dialect is now
+keyed off ``ModelVendor`` declared on the model itself, so the lookup
+is correct regardless of who hosts the endpoint.
 """
 
 from __future__ import annotations
@@ -27,11 +27,11 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Callable, Dict
 
-from ..config.models import ThinkingDepth
+from ..config.models import ModelVendor, ThinkingDepth
 
 
 class ReasoningDialect(str, Enum):
-    """How a provider expresses LLM reasoning/thinking control."""
+    """How a vendor expresses LLM reasoning/thinking control."""
 
     NONE = "none"
     OPENAI_EFFORT = "openai_effort"
@@ -40,34 +40,34 @@ class ReasoningDialect(str, Enum):
     GLM_TOGGLE = "glm_toggle"
 
 
-# Default dialect per known provider. ``CUSTOM`` is intentionally absent —
-# custom providers fall back via the OpenAI-compatible runtime detection
-# in ``ScenarioLLMPool``, which already returns one of the names below.
-DEFAULT_PROVIDER_DIALECTS: Dict[str, ReasoningDialect] = {
-    "openai": ReasoningDialect.OPENAI_EFFORT,
-    "grok": ReasoningDialect.NONE,  # grok currently has no public effort knob
-    "deepseek": ReasoningDialect.OPENAI_EFFORT,
-    "local": ReasoningDialect.OPENAI_EFFORT,
-    "anthropic": ReasoningDialect.ANTHROPIC_BUDGET,
-    "dashscope": ReasoningDialect.DASHSCOPE_ENABLE,
-    "glm": ReasoningDialect.GLM_TOGGLE,
-    "glm_codeplan": ReasoningDialect.GLM_TOGGLE,
-    "gemini": ReasoningDialect.NONE,
-    "kimi": ReasoningDialect.NONE,
-    "minimax": ReasoningDialect.NONE,
+# vendor → dialect. ``GENERIC`` and ``GROK`` map to ``NONE`` because
+# neither has a public reasoning-control payload at the moment; if they
+# add one in the future, add the dialect here without touching call
+# sites. DeepSeek is intentionally not its own vendor — its hosted API is
+# OpenAI-compatible and uses ``reasoning_effort``, so ``ModelVendor.OPENAI``
+# is the correct classification.
+_VENDOR_TO_DIALECT: Dict[ModelVendor, "ReasoningDialect"] = {
+    ModelVendor.OPENAI: ReasoningDialect.OPENAI_EFFORT,
+    ModelVendor.ANTHROPIC: ReasoningDialect.ANTHROPIC_BUDGET,
+    ModelVendor.DASHSCOPE: ReasoningDialect.DASHSCOPE_ENABLE,
+    ModelVendor.GLM: ReasoningDialect.GLM_TOGGLE,
+    ModelVendor.GROK: ReasoningDialect.NONE,
+    ModelVendor.GENERIC: ReasoningDialect.NONE,
 }
 
 
-def resolve_dialect(provider_name: str) -> ReasoningDialect:
-    """Look up the reasoning dialect for ``provider_name``.
+def resolve_dialect(vendor: ModelVendor | None) -> ReasoningDialect:
+    """Look up the reasoning dialect for ``vendor``.
 
-    Unknown providers default to ``NONE`` rather than guessing — this is
-    safer than the previous behaviour where unmatched providers silently
-    received OpenAI ``reasoning_effort``.
+    Unknown / missing vendors map to ``NONE`` rather than guessing a
+    provider — the safer default. Calling code is expected to pass the
+    vendor declared on the resolved model meta; if that's missing, the
+    caller should leave reasoning alone rather than inject parameters
+    blindly.
     """
-    return DEFAULT_PROVIDER_DIALECTS.get(
-        str(provider_name or "").strip().lower(), ReasoningDialect.NONE
-    )
+    if vendor is None:
+        return ReasoningDialect.NONE
+    return _VENDOR_TO_DIALECT.get(vendor, ReasoningDialect.NONE)
 
 
 # ---------------------------------------------------------------------------
@@ -77,8 +77,6 @@ def resolve_dialect(provider_name: str) -> ReasoningDialect:
 # the LLM call kwargs. Builders return either:
 #   {"_kwargs": {...}}     to spread top-level kwargs (Anthropic, OpenAI)
 #   {"_extra_body": {...}} to spread into extra_body (DashScope, GLM)
-# This wrapper indirection keeps the apply step trivial and the builders
-# pure / unit-testable.
 # ---------------------------------------------------------------------------
 
 
@@ -122,8 +120,6 @@ def _dashscope_enable_builder(depth: ThinkingDepth) -> Dict[str, Any]:
 def _glm_toggle_builder(depth: ThinkingDepth) -> Dict[str, Any]:
     if depth == ThinkingDepth.NONE:
         return {"_extra_body": {"thinking": {"type": "disabled"}}}
-    # Default-on; GLM has no positive toggle, so we leave the request
-    # untouched for any non-NONE depth.
     return {}
 
 
@@ -142,12 +138,8 @@ def build_reasoning_payload(
     """Return the dialect-specific payload fragment.
 
     The returned dict has at most two keys:
-
-    - ``_kwargs``      → merge-into top-level call kwargs
-    - ``_extra_body``  → merge-into the ``extra_body`` sub-dict
-
-    Either may be missing or empty if the dialect / depth combination
-    requires no parameters.
+    - ``_kwargs``      → merge into top-level call kwargs
+    - ``_extra_body``  → merge into the ``extra_body`` sub-dict
     """
     builder = _BUILDERS.get(dialect, _none_builder)
     return builder(depth)
@@ -166,7 +158,6 @@ def merge_payload(kwargs: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, 
 
 
 __all__ = [
-    "DEFAULT_PROVIDER_DIALECTS",
     "ReasoningDialect",
     "build_reasoning_payload",
     "merge_payload",

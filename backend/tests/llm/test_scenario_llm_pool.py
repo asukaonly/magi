@@ -209,6 +209,11 @@ def test_scenario_llm_pool_passes_embedding_dimension_for_embedding_scenario():
 
 
 def test_scenario_llm_pool_maps_custom_provider_to_runtime_api_format():
+    """Custom OpenAI-compatible providers route through the OpenAI adapter,
+    keeping ``custom`` as the adapter-level provider name. Vendor (and
+    therefore reasoning dialect) is resolved later from
+    ``ModelVendor`` declared on the resolved model meta — not from URL
+    or display name during adapter construction."""
     from magi.llm.scenario_pool import LLMScenario, ScenarioLLMPool
 
     created: list[dict[str, object]] = []
@@ -231,10 +236,10 @@ def test_scenario_llm_pool_maps_custom_provider_to_runtime_api_format():
 
     core_llm = pool.get(LLMScenario.CORE)
 
-    assert core_llm.provider_name == "openai"
+    assert core_llm.provider_name == "custom"
     assert created == [
         {
-            "provider_type": "openai",
+            "provider_type": "custom",
             "api_key": "sk-custom",
             "model": "gpt-4.1-mini",
             "base_url": "https://llm.example.com/v1",
@@ -245,7 +250,11 @@ def test_scenario_llm_pool_maps_custom_provider_to_runtime_api_format():
     ]
 
 
-def test_scenario_llm_pool_detects_glm_compatible_custom_provider() -> None:
+def test_scenario_llm_pool_keeps_custom_label_for_glm_compatible_gateway() -> None:
+    """A custom gateway hosting GLM models still surfaces ``custom`` as the
+    adapter provider name. The GLM dialect comes through later via the
+    model's ``ModelVendor.GLM`` declaration / detection — not by renaming
+    the provider here."""
     from magi.llm.scenario_pool import LLMScenario, ScenarioLLMPool
 
     created: list[dict[str, object]] = []
@@ -268,10 +277,10 @@ def test_scenario_llm_pool_detects_glm_compatible_custom_provider() -> None:
 
     core_llm = pool.get(LLMScenario.CORE)
 
-    assert core_llm.provider_name == "glm"
+    assert core_llm.provider_name == "custom"
     assert created == [
         {
-            "provider_type": "glm",
+            "provider_type": "custom",
             "api_key": "sk-custom-glm",
             "model": "glm-5",
             "base_url": "https://open.bigmodel.cn/api/coding/paas/v4",
@@ -282,7 +291,8 @@ def test_scenario_llm_pool_detects_glm_compatible_custom_provider() -> None:
     ]
 
 
-def test_scenario_llm_pool_detects_dashscope_custom_provider() -> None:
+def test_scenario_llm_pool_keeps_custom_label_for_dashscope_gateway() -> None:
+    """Same as the GLM-compatible case for DashScope/Bailian gateways."""
     from magi.llm.scenario_pool import LLMScenario, ScenarioLLMPool
 
     created: list[dict[str, object]] = []
@@ -305,10 +315,10 @@ def test_scenario_llm_pool_detects_dashscope_custom_provider() -> None:
 
     core_llm = pool.get(LLMScenario.CORE)
 
-    assert core_llm.provider_name == "dashscope"
+    assert core_llm.provider_name == "custom"
     assert created == [
         {
-            "provider_type": "dashscope",
+            "provider_type": "custom",
             "api_key": "sk-custom-dashscope",
             "model": "qwen-plus",
             "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
@@ -319,8 +329,10 @@ def test_scenario_llm_pool_detects_dashscope_custom_provider() -> None:
     ]
 
 
-def test_dashscope_provider_takes_priority_over_glm_model_name() -> None:
-    """When Bailian proxies a GLM model, platform URL wins over model-name hint."""
+def test_custom_gateway_glm_model_keeps_custom_label() -> None:
+    """A custom Bailian-hosted GLM model still surfaces ``custom`` as the
+    adapter provider name. Vendor decision (DashScope vs GLM) lives in
+    ProviderBridgeOptionsMixin and is exercised in test_provider_bridge."""
     from magi.llm.scenario_pool import LLMScenario, ScenarioLLMPool
 
     created: list[dict[str, object]] = []
@@ -343,4 +355,4 @@ def test_dashscope_provider_takes_priority_over_glm_model_name() -> None:
 
     core_llm = pool.get(LLMScenario.CORE)
 
-    assert core_llm.provider_name == "dashscope"
+    assert core_llm.provider_name == "custom"

@@ -28,6 +28,32 @@ class LLMProvider(str, Enum):
     CUSTOM = "custom"
 
 
+class ModelVendor(str, Enum):
+    """The behavioral vendor a model belongs to.
+
+    ``provider`` is *who hosts the endpoint* (which can be an OneAPI-style
+    gateway). ``vendor`` is *who built the model* and therefore decides
+    payload shape: how reasoning is expressed, how tool-calling is
+    serialized, where system prompts live, etc.
+
+    A single OneAPI gateway may proxy ``glm-4-plus`` (vendor=GLM),
+    ``qwen-max`` (vendor=DASHSCOPE), and ``claude-sonnet-4-6``
+    (vendor=ANTHROPIC) under the same ``provider``. Routing dialects off
+    provider name would misroute each of these; routing off vendor is
+    correct.
+
+    ``GENERIC`` means "OpenAI-compatible transport, no vendor-specific
+    extensions"; reasoning / thinking knobs are not injected.
+    """
+
+    OPENAI = "openai"
+    ANTHROPIC = "anthropic"
+    GLM = "glm"
+    DASHSCOPE = "dashscope"
+    GROK = "grok"
+    GENERIC = "generic"
+
+
 class LLMCapabilitiesSettings(BaseModel):
     """Declared capability flags for the active LLM."""
 
@@ -83,6 +109,14 @@ class LLMModelMetadataOverrideSettings(BaseModel):
     label: Optional[str] = Field(default=None)
     description: Optional[str] = Field(default=None)
     icon: Optional[str] = Field(default=None)
+    vendor: Optional[ModelVendor] = Field(
+        default=None,
+        description=(
+            "Behavioral vendor override. Set this on custom-gateway models "
+            "(OneAPI etc.) so the runtime picks the correct reasoning / "
+            "tool-calling payload shape rather than guessing from URL."
+        ),
+    )
     capabilities: LLMCapabilityOverridesSettings = Field(
         default_factory=LLMCapabilityOverridesSettings
     )

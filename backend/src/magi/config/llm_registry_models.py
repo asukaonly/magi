@@ -6,7 +6,7 @@ from typing import Any, Dict, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
-from .models import LLMCapabilitiesSettings, LLMLimitsSettings, LLMModelCostModel
+from .models import LLMCapabilitiesSettings, LLMLimitsSettings, LLMModelCostModel, ModelVendor
 
 
 def _default_chat_capabilities() -> "LLMChatCapabilitiesModel":
@@ -30,6 +30,13 @@ class LLMModelMetaModel(BaseModel):
 
     id: str
     label: Optional[str] = Field(default=None)
+    vendor: Optional[ModelVendor] = Field(
+        default=None,
+        description=(
+            "Behavioral vendor (decides reasoning payload, tool-calling "
+            "format, etc.). Defaults via provider-level inference if not set."
+        ),
+    )
     capabilities: "LLMChatCapabilitiesModel" = Field(
         default_factory=_default_chat_capabilities
     )
@@ -54,6 +61,7 @@ class LLMResolvedModelMetaModel(BaseModel):
     source: str = Field(default="builtin")
     hidden: bool = Field(default=False)
     preferred: bool = Field(default=False)
+    vendor: ModelVendor = Field(default=ModelVendor.GENERIC)
     capabilities: LLMCapabilitiesSettings = Field(
         default_factory=LLMCapabilitiesSettings
     )
