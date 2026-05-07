@@ -86,18 +86,8 @@ class ToolHintRankingMixin:
         if callable(registry_lookup):
             info = registry_lookup(tool_name)
             if isinstance(info, dict) and (info.get("metadata") or info.get("description") or info.get("parameters")):
-                if not isinstance(info.get("metadata"), dict) and tool_name in self._DEFAULT_TOOL_METADATA:  # type: ignore[attr-defined]
-                    info = {**info, "metadata": dict(self._DEFAULT_TOOL_METADATA[tool_name])}  # type: ignore[attr-defined]
                 return info
-        fallback_metadata = self._DEFAULT_TOOL_METADATA.get(tool_name)  # type: ignore[attr-defined]
-        if fallback_metadata is None:
-            return {}
-        return {
-            "name": tool_name,
-            "description": "",
-            "metadata": dict(fallback_metadata),
-            "parameters": [],
-        }
+        return {}
 
     @staticmethod
     def _normalize_string_list(value: Any) -> list[str]:
