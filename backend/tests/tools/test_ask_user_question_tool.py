@@ -7,6 +7,7 @@ import pytest
 from magi.agent.cancel import EventCancelToken
 from magi.tools.builtin import ask_user_question_tool as ask_module
 from magi.tools.builtin.ask_user_question_tool import AskUserQuestionTool
+from magi.tools.registry import ToolRegistry
 from magi.tools.schema import ToolExecutionContext
 
 
@@ -81,3 +82,11 @@ async def test_ask_user_question_closes_when_run_cancelled(monkeypatch: pytest.M
     assert result.success is False
     assert result.error_code == "CANCELLED"
     assert store.closed == ("session-1", None, "cancelled")
+
+
+def test_tool_registry_resolves_ask_alias() -> None:
+    registry = ToolRegistry()
+    registry.register(AskUserQuestionTool)
+
+    assert isinstance(registry.get_tool("ask"), AskUserQuestionTool)
+    assert registry.get_tool_info("ask") is not None

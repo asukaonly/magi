@@ -9,6 +9,17 @@ use crate::db;
 
 use super::query::{clamp_limit, clamp_offset};
 
+#[derive(Clone, Default)]
+struct ChatSessionSummary {
+    title: String,
+    last_message_preview: String,
+    last_user_message_preview: String,
+    workspace_path: Option<String>,
+    message_count: i64,
+    title_overridden: bool,
+    history_version: i64,
+}
+
 // ---------------------------------------------------------------------------
 // L0 Sessions (from checkpoint tables)
 // ---------------------------------------------------------------------------
@@ -99,7 +110,7 @@ fn build_l0_sessions(params: &L0SessionsQuery) -> Value {
         })
         .collect();
 
-    let title_map = build_chat_title_map(&session_ids);
+    let summary_map = build_chat_summary_map(&session_ids);
 
     let mut items = Vec::with_capacity(sessions.len());
     let mut total_goals: i64 = 0;
@@ -121,18 +132,24 @@ fn build_l0_sessions(params: &L0SessionsQuery) -> Value {
         }
 
         let short_id = short_session_id(sid);
-        let chat_title = title_map.get(sid).cloned().unwrap_or_default();
-        let display_title = if !chat_title.is_empty() && !is_generic_chat_title(&chat_title) {
-            chat_title
-        } else {
-            short_id.clone()
-        };
+        let summary = summary_map.get(sid).cloned().unwrap_or_default();
+        let (display_title, display_subtitle) = derive_session_display(
+            sid,
+            &short_id,
+            &summary,
+        );
 
         let mut item = s.clone();
         if let Some(obj) = item.as_object_mut() {
             obj.insert("short_session_id".into(), json!(short_id));
             obj.insert("display_title".into(), json!(display_title));
-            obj.insert("display_subtitle".into(), Value::Null);
+            obj.insert("display_subtitle".into(), display_subtitle.map(Value::String).unwrap_or(Value::Null));
+            obj.insert("workspace_path".into(), summary.workspace_path.map(Value::String).unwrap_or(Value::Null));
+            obj.insert("message_count".into(), json!(summary.message_count));
+            obj.insert("last_message_preview".into(), json!(summary.last_message_preview));
+            obj.insert("last_user_message_preview".into(), json!(summary.last_user_message_preview));
+            obj.insert("title_overridden".into(), json!(summary.title_overridden));
+            obj.insert("history_version".into(), json!(summary.history_version));
         }
         items.push(item);
     }
@@ -151,8 +168,7 @@ fn build_l0_sessions(params: &L0SessionsQuery) -> Value {
     })
 }
 
-/// Batch-fetch chat session titles from chat.db.
-fn build_chat_title_map(session_ids: &[String]) -> HashMap<String, String> {
+fn build_chat_summary_map(session_ids: &[String]) -> HashMap<String, ChatSessionSummary> {
     let mut map = HashMap::new();
     if session_ids.is_empty() {
         return map;
@@ -167,7 +183,7 @@ fn build_chat_title_map(session_ids: &[String]) -> HashMap<String, String> {
         .collect::<Vec<_>>()
         .join(",");
     let sql = format!(
-        "SELECT session_id, title FROM chat_sessions WHERE session_id IN ({})",
+        "SELECT session_id, title, last_message_preview, last_user_message_preview, workspace_path, message_count, title_overridden, history_version FROM chat_sessions WHERE session_id IN ({})",
         placeholders
     );
     let bind_vals: Vec<rusqlite::types::Value> = session_ids
@@ -180,14 +196,66 @@ fn build_chat_title_map(session_ids: &[String]) -> HashMap<String, String> {
         .collect();
     let rows = db::query_to_json_array(&conn, &sql, &refs);
     for row in &rows {
-        if let (Some(sid), Some(title)) = (
-            row.get("session_id").and_then(|v| v.as_str()),
-            row.get("title").and_then(|v| v.as_str()),
-        ) {
-            map.insert(sid.to_string(), title.to_string());
+        if let Some(sid) = row.get("session_id").and_then(|v| v.as_str()) {
+            map.insert(
+                sid.to_string(),
+                ChatSessionSummary {
+                    title: row.get("title").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+                    last_message_preview: row.get("last_message_preview").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+                    last_user_message_preview: row.get("last_user_message_preview").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+                    workspace_path: row.get("workspace_path").and_then(|v| v.as_str()).map(str::to_string),
+                    message_count: row.get("message_count").and_then(|v| v.as_i64()).unwrap_or(0),
+                    title_overridden: row.get("title_overridden").and_then(|v| v.as_bool()).unwrap_or(false),
+                    history_version: row.get("history_version").and_then(|v| v.as_i64()).unwrap_or(0),
+                },
+            );
         }
     }
     map
+}
+
+fn truncate_session_preview(value: &str, limit: usize) -> String {
+    let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if normalized.chars().count() <= limit {
+        return normalized;
+    }
+    normalized.chars().take(limit.saturating_sub(1)).collect::<String>().trim_end().to_string() + "..."
+}
+
+fn derive_session_display(
+    session_id: &str,
+    short_id: &str,
+    summary: &ChatSessionSummary,
+) -> (String, Option<String>) {
+    let chat_title = truncate_session_preview(&summary.title, 72);
+    let user_preview = truncate_session_preview(&summary.last_user_message_preview, 72);
+    let last_preview = truncate_session_preview(&summary.last_message_preview, 72);
+    let workspace_name = summary
+        .workspace_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .and_then(|value| value.rsplit('/').next())
+        .map(str::to_string)
+        .unwrap_or_default();
+
+    let display_title = if !chat_title.is_empty() && !is_generic_chat_title(&chat_title) {
+        chat_title
+    } else if !user_preview.is_empty() {
+        user_preview.clone()
+    } else if !last_preview.is_empty() {
+        last_preview.clone()
+    } else if !short_id.is_empty() {
+        short_id.to_string()
+    } else {
+        session_id.to_string()
+    };
+
+    let display_subtitle = [user_preview, last_preview, workspace_name]
+        .into_iter()
+        .find(|candidate| !candidate.is_empty() && candidate != &display_title);
+
+    (display_title, display_subtitle)
 }
 
 fn short_session_id(id: &str) -> String {
@@ -200,7 +268,7 @@ fn short_session_id(id: &str) -> String {
 
 fn is_generic_chat_title(title: &str) -> bool {
     let t = title.trim().to_lowercase();
-    t.is_empty() || t == "new chat" || t == "新对话"
+    t.is_empty() || t == "new chat" || t == "new session" || t == "新对话" || t == "新会话"
 }
 
 // ---------------------------------------------------------------------------
@@ -247,8 +315,8 @@ fn build_l0_workbench(session_id: &str) -> Option<Value> {
 
     Some(json!({
         "session": session,
-        "goals": goals,
-        "entities": entities,
-        "tactics": tactics,
+        "goal_stack": goals,
+        "active_entities": entities,
+        "temporary_tactics": tactics,
     }))
 }

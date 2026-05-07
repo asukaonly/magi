@@ -11,6 +11,7 @@ from ...agent.workspace_cache.atomic_io import append_jsonl, atomic_write_text
 from .adapters.base import AdapterRunOutcome, CancelToken, CodeAgentAdapter, OnEvent
 from .adapters.claude_code import ClaudeCodeAdapter
 from .adapters.codex import CodexAdapter
+from .apply_diff import apply_delegation
 from .context_bundle import ContextBundle
 from .contracts import (
     AdapterName,
@@ -22,6 +23,7 @@ from .contracts import (
 from .diff_collector import collect_diff
 from .errors import NotAGitRepoError
 from .probe import probe_all
+from .settings import load_settings
 from .workspace import create_worktree, remove_worktree
 
 
@@ -238,6 +240,29 @@ class CodeAgentService:
             cost=outcome.cost,
         )
         atomic_write_text(delegation_dir / "result.json", json.dumps(result.model_dump()))
+
+        # Auto-apply if enabled and delegation succeeded
+        if success and snapshot.unified_diff.strip():
+            try:
+                settings = load_settings(workspace_root=Path(req.workspace_root))
+                if settings.auto_apply:
+                    apply_outcome = apply_delegation(
+                        workspace_root=Path(req.workspace_root),
+                        session_id=req.session_id,
+                        delegation_id=req.delegation_id,
+                    )
+                    if apply_outcome.applied:
+                        result.applied_at = apply_outcome.to_dict().get("applied_at")
+                        result.applied_files = apply_outcome.files_applied
+                        # Re-write result.json with apply info
+                        atomic_write_text(
+                            delegation_dir / "result.json",
+                            json.dumps(result.model_dump()),
+                        )
+            except Exception:
+                # Silently ignore auto-apply failures to not break the delegation
+                pass
+
         if self.cleanup_worktree:
             remove_worktree(workspace_root=Path(req.workspace_root), worktree_path=worktree)
         return await _finalize(result)

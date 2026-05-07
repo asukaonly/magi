@@ -387,4 +387,64 @@ describe('AskDialog', () => {
     const messages = useConversationStore.getState().messagesBySession['sid-1'] || [];
     expect(messages.some((message) => message.messageKind === 'ask_request')).toBe(true);
   });
+
+  it('preserves existing ask transcript messages when no ask is currently pending', async () => {
+    const controlApi = await import('@/api/modules/control');
+    vi.mocked(controlApi.getAskState).mockResolvedValue(null);
+
+    useConversationStore.getState().upsertMessage('sid-1', {
+      id: 'ask:historic-ask',
+      messageId: 'ask:historic-ask',
+      role: 'assistant',
+      kind: 'assistant',
+      messageKind: 'ask_request',
+      content: 'Historic question',
+      timestamp: Date.now() - 5_000,
+      payload: {
+        ask_request_id: 'historic-ask',
+        status: 'pending',
+        question: 'Historic question',
+      },
+    });
+
+    render(<AskDialog sessionId="sid-1" intervalMs={0} />);
+
+    await waitFor(() => {
+      expect(vi.mocked(controlApi.getAskState)).toHaveBeenCalled();
+    });
+
+    const messages = useConversationStore.getState().messagesBySession['sid-1'] || [];
+    expect(messages.some((message) => message.messageId === 'ask:historic-ask')).toBe(true);
+  });
+
+  it('does not delete older ask transcript messages when a new ask becomes pending', async () => {
+    const controlApi = await import('@/api/modules/control');
+    vi.mocked(controlApi.getAskState).mockResolvedValue(baseAsk);
+
+    useConversationStore.getState().upsertMessage('sid-1', {
+      id: 'ask:historic-answered',
+      messageId: 'ask:historic-answered',
+      role: 'assistant',
+      kind: 'assistant',
+      messageKind: 'ask_request',
+      content: 'Earlier question',
+      timestamp: Date.now() - 10_000,
+      payload: {
+        ask_request_id: 'historic-answered',
+        status: 'answered',
+        question: 'Earlier question',
+        answer: 'Earlier answer',
+      },
+    });
+
+    render(<AskDialog sessionId="sid-1" intervalMs={0} />);
+
+    await waitFor(() => {
+      const messages = useConversationStore.getState().messagesBySession['sid-1'] || [];
+      expect(messages.some((message) => message.messageId === 'ask:ask-1')).toBe(true);
+    });
+
+    const messages = useConversationStore.getState().messagesBySession['sid-1'] || [];
+    expect(messages.some((message) => message.messageId === 'ask:historic-answered')).toBe(true);
+  });
 });

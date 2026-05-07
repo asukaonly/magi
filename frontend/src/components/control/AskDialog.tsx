@@ -24,7 +24,6 @@ export function AskDialog({
   background = false,
 }: AskDialogProps) {
   const upsertMessage = useConversationStore((state) => state.upsertMessage);
-  const removeMessage = useConversationStore((state) => state.removeMessage);
   const [ask, setAsk] = useState<AskStateDTO | null>(null);
 
   const pull = useCallback(async () => {
@@ -96,55 +95,13 @@ export function AskDialog({
   }, [pull]);
 
   useEffect(() => {
-    if (!sessionId) {
+    if (!sessionId || !ask) {
       return;
     }
-    const state = useConversationStore.getState();
-    if (!state.sessionsById[sessionId]) {
-      return;
-    }
-    const currentMessages = state.messagesBySession[sessionId] || [];
-    const askMessages = currentMessages.filter((message) => message.messageKind === 'ask_request');
-    const answeredAskRequestIds = new Set(
-      currentMessages
-        .filter((message) => message.messageKind === 'ask_response')
-        .map((message) => {
-          const payload = message.payload && typeof message.payload === 'object'
-            ? message.payload as Record<string, unknown>
-            : {};
-          return String(payload.ask_request_id || '').trim();
-        })
-        .filter(Boolean),
-    );
-
-    if (!ask) {
-      askMessages.forEach((message) => {
-        const payload = message.payload && typeof message.payload === 'object'
-          ? message.payload as Record<string, unknown>
-          : {};
-        const requestId = String(payload.ask_request_id || '').trim();
-        if (String(payload.status || '').trim().toLowerCase() === 'answered' || answeredAskRequestIds.has(requestId)) {
-          return;
-        }
-        const messageId = String(message.messageId || '').trim();
-        if (messageId) {
-          removeMessage(sessionId, messageId);
-        }
-      });
-      return;
-    }
-
-    const activeMessageId = `ask:${ask.request_id}`;
-    askMessages.forEach((message) => {
-      const messageId = String(message.messageId || '').trim();
-      if (messageId && messageId !== activeMessageId) {
-        removeMessage(sessionId, messageId);
-      }
-    });
 
     upsertMessage(sessionId, {
-      id: activeMessageId,
-      messageId: activeMessageId,
+      id: `ask:${ask.request_id}`,
+      messageId: `ask:${ask.request_id}`,
       role: 'assistant',
       kind: 'assistant',
       messageKind: 'ask_request',
@@ -162,7 +119,7 @@ export function AskDialog({
         background,
       },
     });
-  }, [ask, background, removeMessage, sessionId, upsertMessage]);
+  }, [ask, background, sessionId, upsertMessage]);
 
   return null;
 }

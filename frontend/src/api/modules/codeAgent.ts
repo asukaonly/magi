@@ -50,6 +50,7 @@ export interface CodeAgentSettings {
   claude_code: ClaudeCodeSettings;
   codex: CodexSettings;
   constraints: ConstraintsSettings;
+  auto_apply: boolean;
 }
 
 export interface ProbeResponse {

@@ -202,7 +202,7 @@ const SensorSelection: React.FC<SensorSelectionProps> = ({ scenario }) => {
         <p className="mb-3 text-sm text-muted-foreground">{t('sensorSelection.description')}</p>
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className="grid auto-rows-fr gap-2 sm:grid-cols-2">
         {sensors.map((sensor) => {
           const isRecommended = recommended.includes(sensor.pluginId);
           const isSelected = selected.has(sensor.pluginId);
@@ -211,6 +211,7 @@ const SensorSelection: React.FC<SensorSelectionProps> = ({ scenario }) => {
           return (
             <motion.div
               key={sensor.pluginId}
+              className="h-full"
               whileHover={shouldReduceMotion ? undefined : { y: -1 }}
               transition={{ duration: shouldReduceMotion ? 0 : 0.12 }}
             >
@@ -220,7 +221,7 @@ const SensorSelection: React.FC<SensorSelectionProps> = ({ scenario }) => {
                 disabled={state === 'installing'}
                 aria-pressed={isSelected}
                 className={cn(
-                  'flex w-full items-start gap-3 rounded-lg border bg-background px-4 py-3 text-left transition',
+                  'flex h-full w-full items-start gap-3 rounded-lg border bg-background px-4 py-3 text-left transition',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
                   isSelected
                     ? 'border-primary bg-primary/5'

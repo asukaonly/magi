@@ -65,6 +65,7 @@ class CodeAgentSettings(_Frozen):
     claude_code: ClaudeCodeSettings = Field(default_factory=ClaudeCodeSettings)
     codex: CodexSettings = Field(default_factory=CodexSettings)
     constraints: ConstraintsSettings = Field(default_factory=ConstraintsSettings)
+    auto_apply: bool = False  # Automatically apply delegation changes without manual confirmation
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:

@@ -37,6 +37,9 @@ class ToolRegistry(
     def __init__(self, skill_indexer=None):
         self._tools: dict[str, type[Tool]] = {}
         self._tool_instances: dict[str, Tool] = {}
+        self._tool_aliases: dict[str, str] = {
+            "ask": "ask_user_question",
+        }
         self._category_index: dict[str, list[str]] = defaultdict(list)
         self._tag_index: dict[str, list[str]] = defaultdict(list)
         self._stats: dict[str, ToolExecutionStats] = defaultdict(ToolExecutionStats)

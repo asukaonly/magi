@@ -23,7 +23,7 @@ def truncate_session_preview(value: str, *, limit: int = 72) -> str:
 
 def is_generic_chat_title(value: str) -> bool:
     normalized = str(value or "").strip().lower()
-    return normalized in {"", "new chat", "新对话"}
+    return normalized in {"", "new chat", "new session", "新对话", "新会话"}
 
 
 def derive_l0_session_display(

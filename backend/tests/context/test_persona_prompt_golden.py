@@ -78,6 +78,8 @@ async def test_seven_prompt_keeps_ordinary_chat_low_intensity() -> None:
     assert "* Persona: 七号" in prompt
     assert "* Register: chat" in prompt
     assert "* Persona Intensity: 1/3" in prompt
+    assert "默认 1-3 句" in prompt
+    assert "你喜欢吃什么" not in prompt
     assert "## Active Persona Triggers" not in prompt
     assert "所有阴阳怪气消失" not in prompt
 
@@ -104,6 +106,24 @@ async def test_seven_prompt_adds_emotional_quiet_clamp_for_low_mood() -> None:
     assert "* Condition: emotional_support" in prompt
     assert "sarcasm: none_to_light" in prompt
     assert "* Persona Intensity: 1/3" in prompt
+
+
+@pytest.mark.asyncio
+async def test_seven_prompt_adds_emotional_quiet_clamp_for_fatigue_language() -> None:
+    prompt = await _render_seven_prompt(user_message="我靠咖啡续命啊")
+
+    assert "* Register: emotional" in prompt
+    assert "* Condition: emotional_support" in prompt
+    assert "第几杯了" in prompt
+    assert "你喜欢吃什么" not in prompt
+
+
+@pytest.mark.asyncio
+async def test_seven_prompt_does_not_treat_generic_difficulty_as_fatigue() -> None:
+    prompt = await _render_seven_prompt(user_message="这个问题有点困难，随便聊聊")
+
+    assert "* Register: chat" in prompt
+    assert "* Register: emotional" not in prompt
 
 
 @pytest.mark.asyncio

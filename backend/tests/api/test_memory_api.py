@@ -446,6 +446,50 @@ def test_l0_sessions_api_prefers_chat_summary_titles_and_short_ids(monkeypatch):
     assert body["total"] == 1
 
 
+def test_l0_sessions_api_treats_new_session_title_as_generic(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    fake_memory = SimpleNamespace(l0=SimpleNamespace())
+    fake_memory.l0._sessions = {
+        "379f666d-aee9-48fb-ab88-50690496297b": {
+            "session_id": "379f666d-aee9-48fb-ab88-50690496297b",
+            "user_id": "local_user",
+            "status": "active",
+            "started_at": 1710000000.0,
+            "last_active_at": 1710000300.0,
+            "metadata": {},
+        }
+    }
+    fake_memory.l0._goal_stack = {"379f666d-aee9-48fb-ab88-50690496297b": []}
+    fake_memory.l0._active_entities = {"379f666d-aee9-48fb-ab88-50690496297b": {}}
+    fake_memory.l0._temporary_tactics = {"379f666d-aee9-48fb-ab88-50690496297b": {}}
+
+    class _FakeChatReadService:
+        async def aget_session_summaries_batch(self, user_id: str, session_ids: list):
+            assert user_id == "local_user"
+            assert "379f666d-aee9-48fb-ab88-50690496297b" in session_ids
+            return {
+                "379f666d-aee9-48fb-ab88-50690496297b": SimpleNamespace(
+                    title="New Session",
+                    last_user_message_preview="把工作台记忆页改得更像产品页",
+                    last_message_preview="把工作台记忆页改得更像产品页",
+                    workspace_path="/Users/asuka/code/magi",
+                ),
+            }
+
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: fake_memory)
+    monkeypatch.setattr("magi.api.routers.memory.get_chat_read_service", lambda: _FakeChatReadService())
+
+    client = TestClient(app)
+    response = client.get("/api/memory/l0/sessions")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["items"][0]["display_title"] == "把工作台记忆页改得更像产品页"
+    assert body["items"][0]["display_subtitle"] == "magi"
+
+
 def test_memory_procedures_api_lists_skills(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")

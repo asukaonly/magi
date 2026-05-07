@@ -20,6 +20,7 @@ class ToolRegistryExecutionMixin:
     _stats: dict[str, ToolExecutionStats]
 
     def get_tool(self, tool_name: str) -> Tool | None: ...
+    def resolve_tool_name(self, tool_name: str) -> str: ...
 
     async def execute(
         self,
@@ -43,16 +44,18 @@ class ToolRegistryExecutionMixin:
             Calling tool_registry.execute() directly bypasses ToolInvocationCompleted
             publication and breaks L4 / runtime_trace pipelines.
         """
-        tool = self.get_tool(tool_name)
+        requested_tool_name = str(tool_name or "").strip()
+        canonical_tool_name = self.resolve_tool_name(requested_tool_name)
+        tool = self.get_tool(canonical_tool_name)
         if not tool:
             return ToolResult(
                 success=False,
-                error=f"Tool {tool_name} not found",
+                error=f"Tool {requested_tool_name} not found",
                 error_code=ToolErrorCode.TOOL_NOT_FOUND.value
             )
 
         schema = tool.get_schema()
-        stats = self._stats[tool_name]
+        stats = self._stats[canonical_tool_name]
 
         if schema.dangerous and "dangerous_tools" not in context.permissions:
             logger.warning(f"Tool {tool_name} requires dangerous_tools permission")

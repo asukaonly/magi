@@ -135,6 +135,14 @@ export function CodeAgentSection(): JSX.Element {
         onCheckedChange={(checked) => persistUserPatch({ enabled: checked })}
       />
 
+      <SettingsSwitchRow
+        title={t('settings.codeAgent.autoApply')}
+        description={t('settings.codeAgent.autoApplyDesc')}
+        ariaLabel={t('settings.codeAgent.autoApply')}
+        checked={settings.auto_apply}
+        onCheckedChange={(checked) => persistUserPatch({ auto_apply: checked })}
+      />
+
       <SettingsGroup
         title={t('settings.codeAgent.defaultAdapter')}
         description={t('settings.codeAgent.defaultAdapterDesc')}

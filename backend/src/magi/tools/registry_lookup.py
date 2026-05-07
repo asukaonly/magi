@@ -16,10 +16,18 @@ class ToolRegistryLookupMixin:
 
     _tools: dict[str, type[Tool]]
     _tool_instances: dict[str, Tool]
+    _tool_aliases: dict[str, str]
     _category_index: dict[str, list[str]]
     _tag_index: dict[str, list[str]]
     _stats: dict[str, ToolExecutionStats]
     _skills: dict[str, "SkillMetadata"]
+
+    def resolve_tool_name(self, tool_name: str) -> str:
+        """Return the canonical tool name for direct names and supported aliases."""
+        normalized_name = str(tool_name or "").strip()
+        if not normalized_name:
+            return ""
+        return self._tool_aliases.get(normalized_name, normalized_name)
 
     def get_tool(self, tool_name: str) -> Optional[Tool]:
         """
@@ -31,7 +39,7 @@ class ToolRegistryLookupMixin:
         Returns:
             Tool instance or None.
         """
-        return self._tool_instances.get(tool_name)
+        return self._tool_instances.get(self.resolve_tool_name(tool_name))
 
     def list_tools(
         self,
@@ -80,12 +88,13 @@ class ToolRegistryLookupMixin:
         Returns:
             Tool info dict or None.
         """
-        tool = self.get_tool(tool_name)
+        canonical_name = self.resolve_tool_name(tool_name)
+        tool = self.get_tool(canonical_name)
         if not tool:
             return None
 
         info = tool.get_info()
-        info["stats"] = self._stats[tool_name].get_stats()
+        info["stats"] = self._stats[canonical_name].get_stats()
 
         return info
 
@@ -145,9 +154,10 @@ class ToolRegistryLookupMixin:
             Statistics dictionary.
         """
         if tool_name:
-            if tool_name in self._stats:
+            canonical_name = self.resolve_tool_name(tool_name)
+            if canonical_name in self._stats:
                 return {
-                    tool_name: self._stats[tool_name].get_stats()
+                    canonical_name: self._stats[canonical_name].get_stats()
                 }
             return {}
         else:
