@@ -50,12 +50,6 @@ def _candidate_output_encodings() -> list[str]:
     return unique_encodings
 
 
-def _decode_process_output(output: bytes) -> str:
-    """Decode subprocess output by trying candidate encodings (legacy helper)."""
-    text, _ = _decode_process_output_with_encoding(output)
-    return text
-
-
 def _decode_process_output_with_encoding(output: bytes) -> tuple[str, str]:
     """Decode subprocess output and return the encoding that succeeded.
 

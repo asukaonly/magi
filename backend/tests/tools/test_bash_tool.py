@@ -4,7 +4,6 @@ import os
 
 from magi.tools.builtin.bash_tool import (
     _build_subprocess_env,
-    _decode_process_output,
     _decode_process_output_with_encoding,
 )
 
@@ -17,7 +16,8 @@ def test_decode_process_output_prefers_utf8(monkeypatch):
 
     text = "path: Z:\\测试目录"
 
-    assert _decode_process_output(text.encode("utf-8")) == text
+    decoded, _ = _decode_process_output_with_encoding(text.encode("utf-8"))
+    assert decoded == text
 
 
 def test_decode_process_output_falls_back_to_windows_code_page(monkeypatch):
@@ -28,7 +28,8 @@ def test_decode_process_output_falls_back_to_windows_code_page(monkeypatch):
 
     text = "'ls' 不是内部或外部命令"
 
-    assert _decode_process_output(text.encode("cp936")) == text
+    decoded, _ = _decode_process_output_with_encoding(text.encode("cp936"))
+    assert decoded == text
 
 
 def test_decode_with_encoding_reports_winning_codec(monkeypatch):
