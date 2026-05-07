@@ -8,7 +8,6 @@ from .context_routing import (
     ContextDecision,
     MemoryGuidance,
     apply_memory_guidance,
-    apply_research_guardrail,
     default_orchestration_strategy,
     evaluate_memory_need,
     is_complex_research_request,
@@ -21,21 +20,6 @@ class ContextDeciderGuidanceMixin:
     """Apply routing guardrails, memory guidance, and strategy normalization."""
 
     max_tools: int
-
-    def _apply_research_guardrail(
-        self,
-        *,
-        user_message: str,
-        decision: ContextDecision,
-        available_tools: list[dict[str, Any]],
-    ) -> ContextDecision:
-        return apply_research_guardrail(
-            user_message=user_message,
-            decision=decision,
-            available_tools=available_tools,
-            max_tools=self.max_tools,
-            strategy_factory=self._default_orchestration_strategy,
-        )
 
     def _apply_memory_guidance(
         self,

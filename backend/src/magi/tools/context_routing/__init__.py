@@ -4,7 +4,6 @@ from .memory_guidance import MEMORY_RETRIEVAL_TRIGGERS, apply_memory_guidance, e
 from .models import ContextDecision, MemoryGuidance
 from .orchestration import default_orchestration_strategy, normalize_orchestration_strategy
 from .research_guardrail import (
-    apply_research_guardrail,
     is_complex_research_request,
     needs_fetch_for_request,
 )
@@ -14,7 +13,6 @@ __all__ = [
     "MemoryGuidance",
     "MEMORY_RETRIEVAL_TRIGGERS",
     "apply_memory_guidance",
-    "apply_research_guardrail",
     "default_orchestration_strategy",
     "evaluate_memory_need",
     "is_complex_research_request",
