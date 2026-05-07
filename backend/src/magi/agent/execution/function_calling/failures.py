@@ -7,7 +7,25 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from ....llm.error_classifier import (
+    ClassifiedError,
+    LLMErrorKind,
+    classify_exception,
+    is_rate_limit_exception,
+)
+
 logger = logging.getLogger(__name__)
+
+
+# Mapping from the structured ``LLMErrorKind`` produced by
+# ``classify_exception`` to the trace bucket strings consumed by
+# function-calling execution traces. Anything unmapped falls back to
+# ``EXECUTION_ERROR``.
+_KIND_TO_TRACE_BUCKET: dict[LLMErrorKind, str] = {
+    LLMErrorKind.RATE_LIMIT: "LLM_RATE_LIMIT",
+    LLMErrorKind.TIMEOUT: "WORKER_TIMEOUT",
+    LLMErrorKind.CONTENT_INSPECTION_FAILED: "CONTENT_INSPECTION_FAILED",
+}
 
 
 class FunctionCallingFailureMixin:
@@ -16,14 +34,8 @@ class FunctionCallingFailureMixin:
     _RATE_LIMIT_BACKOFF_SECONDS: tuple[float, ...]
 
     def _classify_exception_failure(self, exc: Exception) -> str:
-        message = str(exc).lower()
-        if "datainspectionfailed" in message or "data_inspection_failed" in message:
-            return "CONTENT_INSPECTION_FAILED"
-        if "429" in message or "rate limit" in message.lower() or "速率限制" in message:
-            return "LLM_RATE_LIMIT"
-        if "timeout" in message:
-            return "WORKER_TIMEOUT"
-        return "EXECUTION_ERROR"
+        classified: ClassifiedError = classify_exception(exc)
+        return _KIND_TO_TRACE_BUCKET.get(classified.kind, "EXECUTION_ERROR")
 
     def _format_exception_trace_text(self, exc: Exception, *, max_length: int = 600) -> str:
         """Compose trace-visible error text that keeps the raw upstream message."""
@@ -35,24 +47,10 @@ class FunctionCallingFailureMixin:
             raw = raw[: max_length - 1] + "..."
         return f"{bucket}: {raw}"
 
-    @classmethod
-    def _is_rate_limit_exception(cls, exc: Exception) -> bool:
+    @staticmethod
+    def _is_rate_limit_exception(exc: Exception) -> bool:
         """Shared detector for upstream 429 / rate-limit errors."""
-        status_code = getattr(exc, "status_code", None)
-        if status_code == 429:
-            return True
-        response = getattr(exc, "response", None)
-        if getattr(response, "status_code", None) == 429:
-            return True
-        message = str(exc)
-        lowered = message.lower()
-        return (
-            "429" in message
-            or "rate limit" in lowered
-            or "ratelimit" in lowered
-            or "rate_limit" in lowered
-            or "速率限制" in message
-        )
+        return is_rate_limit_exception(exc)
 
     async def _invoke_with_rate_limit_backoff(
         self,
