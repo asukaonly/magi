@@ -202,7 +202,18 @@ async def test_cancelled_task_message_carries_cancel_reason(chat_store: ChatStor
 
 
 @pytest.mark.asyncio
-async def test_summary_is_truncated_when_over_max_chars(chat_store: ChatStore) -> None:
+async def test_summary_is_not_truncated_by_default(chat_store: ChatStore) -> None:
+    service = _make_service(chat_store)
+    task = _make_task(summary="A" * 5000)
+
+    record = await service.deliver_background_task_completion(task)
+
+    assert record is not None
+    assert record.content_text == "A" * 5000
+
+
+@pytest.mark.asyncio
+async def test_summary_is_truncated_when_explicit_max_chars_is_set(chat_store: ChatStore) -> None:
     service = _make_service(chat_store)
     task = _make_task(summary="A" * 5000)
 

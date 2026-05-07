@@ -18,11 +18,17 @@ class _BackgroundPostprocessHostProtocol(Protocol):
 class ChatPostprocessBackgroundMixin:
     """Persist chat-visible completion messages for background tasks."""
 
+    @staticmethod
+    def _truncate_body(body: str, summary_max_chars: int | None) -> str:
+        if summary_max_chars is None or len(body) <= summary_max_chars:
+            return body
+        return body[:summary_max_chars].rstrip() + "..."
+
     async def deliver_background_task_completion(
         self,
         task: BackgroundTask,
         *,
-        summary_max_chars: int = 1000,
+        summary_max_chars: int | None = None,
     ) -> ChatMessageRecord | None:
         """Persist the chat-visible outcome of a background task."""
         host = cast(_BackgroundPostprocessHostProtocol, self)
@@ -56,8 +62,7 @@ class ChatPostprocessBackgroundMixin:
             body = f"Background task cancelled: {reason}"
         else:
             body = (task.summary or "").strip() or "(no summary)"
-        if len(body) > summary_max_chars:
-            body = body[:summary_max_chars].rstrip() + "..."
+        body = self._truncate_body(body, summary_max_chars)
         content_text = f"[Background task] {title}\n{body}"
 
         payload = {
@@ -102,13 +107,12 @@ class ChatPostprocessBackgroundMixin:
         session_id: str,
         user_id: str,
         body: str,
-        summary_max_chars: int,
+        summary_max_chars: int | None,
         pending_message_id: str | None = None,
     ) -> ChatMessageRecord | None:
         host = cast(_BackgroundPostprocessHostProtocol, self)
         title = (task.spec.title or "").strip() or "Background task"
-        if len(body) > summary_max_chars:
-            body = body[:summary_max_chars].rstrip() + "..."
+        body = self._truncate_body(body, summary_max_chars)
         payload = {
             "background_task_id": task.task_id,
             "background_task_status": task.status.value,
