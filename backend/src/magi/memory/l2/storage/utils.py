@@ -27,8 +27,6 @@ def normalize_event_ids(items: Iterable[object] | None) -> list[str]:
     return out
 
 
-STRESS_KEYWORDS = ("stress", "stressed", "anxious", "anxiety", "pressure")
-CALM_KEYWORDS = ("calm", "relaxed", "relief", "peaceful")
 MOMENTARY_TRAITS = {"annoyance", "irritation", "frustration"}
 SNAPSHOT_HISTORY_LIMIT = 5
 MOOD_TRAJECTORY_FAMILIES = {"mood", "stress", "engagement"}
