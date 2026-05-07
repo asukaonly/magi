@@ -70,7 +70,20 @@ _NATURAL_DOUBLE_CONSONANTS = frozenset("lsf")
 
 
 def _normalize_query_token(token: str) -> str:
-    """Apply lightweight normalization so simple inflections still match."""
+    """Apply lightweight normalization so simple inflections still match.
+
+    NOTE: this stemmer intentionally re-attaches a silent ``e`` for stems
+    ending in ``c/g/s/z/v`` (placed → place, changed → change). That makes
+    it suitable for *token-equality* reranking where we compare against the
+    indexed surface form. ``fts_utils._stem_english_token`` does the same
+    suffix stripping but stops there because FTS5 prefix wildcards
+    (``plac*``) handle the silent-``e`` case at query time.
+
+    The two stemmers must stay behaviorally close on the suffix-stripping
+    side; if you change one, audit the other or you will see retrieval
+    recall and rerank scoring drift apart (this is exactly the regression
+    that motivated the M3 finding).
+    """
     normalized = str(token or "").strip().lower()
     if len(normalized) <= 3:
         return normalized
