@@ -104,6 +104,7 @@ export const buildProviderWorkbenchModels = (
   });
 };
 
+
 export const cloneModelOverride = (value?: LLMModelMetadataOverride): LLMModelMetadataOverride => ({
   ...(value || {}),
   capabilities: { ...(value?.capabilities || {}) },
@@ -118,6 +119,7 @@ export const cloneModelOverride = (value?: LLMModelMetadataOverride): LLMModelMe
       : value?.provider_options_example
         ? { ...value.provider_options_example }
         : undefined,
+  cost: value?.cost === null ? null : value?.cost ? { ...value.cost } : undefined,
   dimensions:
     value?.dimensions === null ? null : value?.dimensions ? [...value.dimensions] : undefined,
 });
@@ -132,6 +134,7 @@ export const isModelOverrideEmpty = (value: LLMModelMetadataOverride): boolean =
     (value.input_modalities === undefined || value.input_modalities === null) &&
     (value.output_modalities === undefined || value.output_modalities === null) &&
     (value.provider_options_example === undefined || value.provider_options_example === null) &&
+    (value.cost === undefined || value.cost === null) &&
     (value.dimensions === undefined || value.dimensions === null) &&
     !value.source_note;
 };

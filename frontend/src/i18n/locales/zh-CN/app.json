@@ -471,6 +471,7 @@
     "waitingForReply": "等待回复中…",
     "tip": "💡 提示：按 Enter 发送消息，Shift + Enter 换行",
     "emptyInput": "请输入消息内容",
+    "askAttachmentsUnsupported": "回答这个问题前请先移除附件。",
     "sessionRequired": "请先选择或创建一个会话",
     "wsNotConnected": "尚未连接服务器，请等待连接建立",
     "reply": {
@@ -606,7 +607,7 @@
       "empty": "暂无调用链路详情",
       "execution": {
         "runningTitle": "执行中",
-        "runningBody": "Magi 正在按当前计划执行，完成后会把最终结果显示在这里。",
+        "runningBody": "我正在处理，完成后会在这里回复你。",
         "detachingTitle": "正在转到后台",
         "detachingBody": "这次运行会转入后台继续执行，完成后再把结果带回对话。",
         "cancellingTitle": "正在取消",

@@ -7,6 +7,7 @@ from typing import Optional
 from magi.events.events import Event, EventTypes
 from magi.events.domain_payloads import SpanCompleted
 from magi.events.payload_helpers import expect_payload, PayloadTypeError
+from magi.llm.pricing import calculate_chat_cost_usd
 from magi.llm.usage_store import LLMUsageStore
 
 logger = logging.getLogger(__name__)
@@ -54,18 +55,31 @@ class LLMUsageSubscriber:
     async def _safe_record(self, event: Event, payload: SpanCompleted) -> None:
         try:
             attrs = payload.attributes or {}
+            prompt_tokens = int(attrs.get("prompt_tokens", 0))
+            completion_tokens = int(attrs.get("completion_tokens", 0))
+            explicit_cost = attrs.get("cost_usd")
+            calculated_cost = None
+            if explicit_cost is None:
+                calculated_cost = calculate_chat_cost_usd(
+                    provider=str(attrs.get("provider") or ""),
+                    model=str(attrs.get("model") or payload.name),
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    cache_read_tokens=int(attrs.get("cache_read_tokens", 0)),
+                    cache_write_tokens=int(attrs.get("cache_write_tokens", 0)),
+                )
             usage_payload = {
                 "request_id": str(attrs.get("request_id") or payload.span_id),
                 "provider": str(attrs.get("provider") or ""),
                 "model": str(attrs.get("model") or payload.name),
                 "request_kind": str(attrs.get("request_kind") or "unknown"),
-                "prompt_tokens": int(attrs.get("prompt_tokens", 0)),
-                "completion_tokens": int(attrs.get("completion_tokens", 0)),
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
                 "total_tokens": int(attrs.get("total_tokens", 0)),
                 "usage_available": bool(attrs.get("usage_available", False)),
                 "latency_ms": int(payload.duration_ms),
                 "ttft_ms": int(attrs.get("ttft_ms", 0)),
-                "cost_usd": float(attrs.get("cost_usd", 0.0)),
+                "cost_usd": float(explicit_cost if explicit_cost is not None else calculated_cost or 0.0),
                 "success": (payload.status == "ok"),
                 "error": payload.error.message if payload.error else None,
                 "correlation_id": event.correlation_id or attrs.get("correlation_id"),

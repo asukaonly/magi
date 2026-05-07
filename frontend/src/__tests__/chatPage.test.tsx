@@ -7,7 +7,7 @@ import { useConversationStore } from '@/stores/conversation-store';
 import { useChatTraceStore } from '@/stores';
 import { normalizeHistoryMessages, shouldShowTraceEntry } from '@/domain/chat/state';
 import { messagesApi } from '@/api';
-import { getPlanState, getTodos, updateSessionSettings } from '@/api/modules/control';
+import { getPlanState, getTodos, respondAsk, respondPermission, updateSessionSettings } from '@/api/modules/control';
 import { configApi, DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
 import { personasApi } from '@/api/modules/personas';
 import { applyRealtimeStoreProjection } from '@/realtime/store-projection';
@@ -92,6 +92,8 @@ vi.mock('@/api/modules/control', () => ({
     exited_at_ms: null,
   }),
   getTodos: vi.fn().mockResolvedValue([]),
+  respondAsk: vi.fn().mockResolvedValue(undefined),
+  respondPermission: vi.fn().mockResolvedValue(undefined),
   deletePermissionRule: vi.fn(),
   clearSessionPermissionRules: vi.fn(),
 }));
@@ -211,6 +213,8 @@ describe('ChatPage', () => {
     vi.mocked(messagesApi.rememberWorkspace).mockReset().mockResolvedValue({ paths: [] } as any);
     vi.mocked(messagesApi.labelMessage).mockReset();
     vi.mocked(messagesApi.deleteMessage).mockReset();
+    vi.mocked(respondAsk).mockClear();
+    vi.mocked(respondPermission).mockClear();
     vi.mocked(updateSessionSettings).mockClear();
     vi.mocked(getPlanState).mockReset().mockResolvedValue({
       active: false,
@@ -409,12 +413,23 @@ describe('ChatPage', () => {
 
     render(<ChatPage />);
 
-    expect(await screen.findByText('control:permission.card.waiting')).toBeInTheDocument();
+    expect(await screen.findByText('permission.card.waiting')).toBeInTheDocument();
     expect(screen.getByText('git_push')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'control:permission.card.review' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'permission.card.review' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'permission.card.allow_once' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'permission.card.deny_once' })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'permission.card.allow_once' }));
+
+    await waitFor(() => {
+      expect(respondPermission).toHaveBeenCalledWith('req-1', {
+        outcome: 'allow',
+        scope: 'one_shot',
+      });
+    });
   });
 
-  it('renders an ask request as a chat status card', async () => {
+  it('renders an ask request as an assistant bubble with composer quick replies', async () => {
     useConversationStore.getState().hydrateSessions([
       {
         session_id: 'session-1',
@@ -431,7 +446,7 @@ describe('ChatPage', () => {
       id: 'ask:ask-1',
       messageId: 'ask:ask-1',
       role: 'assistant',
-      kind: 'status',
+      kind: 'assistant',
       messageKind: 'ask_request',
       content: 'Which branch should I use?',
       timestamp: Date.now(),
@@ -440,16 +455,188 @@ describe('ChatPage', () => {
         question: 'Which branch should I use?',
         options: ['main', 'develop'],
         allow_free_text: true,
+        expires_at_ms: Date.now() + 300_000,
         background: false,
+      },
+    });
+    vi.mocked(messagesApi.sendMessage).mockResolvedValueOnce({
+      success: true,
+      message: 'ok',
+      data: {
+        user_id: 'local_user',
+        session_id: 'session-1',
+        handled_as: 'ask_response',
+        ask_request_id: 'ask-1',
+        message_length: 4,
+        timestamp: Date.now() / 1000,
       },
     });
 
     render(<ChatPage />);
 
-    expect(await screen.findByText('control:ask.card.waiting')).toBeInTheDocument();
-    expect(screen.getByText('Which branch should I use?')).toBeInTheDocument();
+    expect(await screen.findByText('Which branch should I use?')).toBeInTheDocument();
+    expect(screen.queryByText('ask.card.waiting')).not.toBeInTheDocument();
+    expect(screen.getByTestId('ask-composer-quick-replies')).toBeInTheDocument();
     expect(screen.getByText('main')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'control:ask.card.answer' })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId('ask-composer-option-main'));
+    expect(screen.getByPlaceholderText('chat.inputPlaceholder')).toHaveValue('main');
+    await userEvent.click(screen.getByRole('button', { name: 'chat.send' }));
+
+    await waitFor(() => {
+      expect(messagesApi.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+        user_id: 'local_user',
+        session_id: 'session-1',
+        message: 'main',
+      }));
+    });
+    await waitFor(() => {
+      expect(screen.queryByTestId('ask-composer-quick-replies')).not.toBeInTheDocument();
+    });
+    expect(screen.getAllByText('Which branch should I use?').length).toBeGreaterThan(0);
+    expect(screen.getByText('ask.answered')).toBeInTheDocument();
+    expect(screen.queryByText('ask.expires_in')).not.toBeInTheDocument();
+    expect(screen.getAllByText('main').length).toBeGreaterThan(0);
+    const storedMessages = useConversationStore.getState().messagesBySession['session-1'] || [];
+    expect(storedMessages.some((message) => message.messageKind === 'ask_response' && message.content === 'main')).toBe(true);
+    expect(storedMessages.some((message) => message.messageKind === 'ask_request' && message.payload?.status === 'answered')).toBe(true);
+    expect(respondAsk).not.toHaveBeenCalled();
+    expect(messagesApi.sendMessage).not.toHaveBeenCalledWith(expect.objectContaining({
+      client_turn_id: expect.any(String),
+    }));
+  });
+
+  it('restores the ask bubble if it is cleared while the answer is sending', async () => {
+    useConversationStore.getState().hydrateSessions([
+      {
+        session_id: 'session-1',
+        title: 'New Chat',
+        last_message_preview: '',
+        last_user_message_preview: '',
+        title_overridden: false,
+        last_timestamp: 0,
+        message_count: 0,
+        workspace_path: null,
+      },
+    ], 'session-1');
+    useConversationStore.getState().upsertMessage('session-1', {
+      id: 'ask:ask-cleared',
+      messageId: 'ask:ask-cleared',
+      role: 'assistant',
+      kind: 'assistant',
+      messageKind: 'ask_request',
+      content: 'Which branch should I use?',
+      timestamp: Date.now(),
+      payload: {
+        ask_request_id: 'ask-cleared',
+        question: 'Which branch should I use?',
+        options: ['main'],
+        allow_free_text: true,
+        expires_at_ms: Date.now() + 300_000,
+        background: false,
+      },
+    });
+    let resolveSendMessage: ((value: Awaited<ReturnType<typeof messagesApi.sendMessage>>) => void) | null = null;
+    vi.mocked(messagesApi.sendMessage).mockReturnValueOnce(new Promise((resolve) => {
+      resolveSendMessage = resolve;
+    }));
+
+    render(<ChatPage />);
+
+    await userEvent.click(await screen.findByTestId('ask-composer-option-main'));
+    await userEvent.click(screen.getByRole('button', { name: 'chat.send' }));
+    await waitFor(() => {
+      expect(messagesApi.sendMessage).toHaveBeenCalled();
+    });
+
+    act(() => {
+      useConversationStore.getState().removeMessage('session-1', 'ask:ask-cleared');
+      resolveSendMessage?.({
+        success: true,
+        message: 'ok',
+        data: {
+          user_id: 'local_user',
+          session_id: 'session-1',
+          handled_as: 'ask_response',
+          ask_request_id: 'ask-cleared',
+          message_length: 4,
+          timestamp: Date.now() / 1000,
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Which branch should I use?').length).toBeGreaterThan(0);
+    });
+    const storedMessages = useConversationStore.getState().messagesBySession['session-1'] || [];
+    expect(storedMessages.some((message) => message.messageKind === 'ask_request' && message.payload?.status === 'answered')).toBe(true);
+    expect(storedMessages.some((message) => message.messageKind === 'ask_response' && message.content === 'main')).toBe(true);
+  });
+
+  it('renders the active execution card after later in-run transcript messages', async () => {
+    useConversationStore.getState().hydrateSessions([
+      {
+        session_id: 'session-1',
+        title: 'New Chat',
+        last_message_preview: '',
+        last_user_message_preview: '',
+        title_overridden: false,
+        last_timestamp: 0,
+        message_count: 0,
+        workspace_path: null,
+      },
+    ], 'session-1');
+
+    render(<ChatPage />);
+
+    act(() => {
+      realtimeListener?.({
+        event: 'execution_trace_update',
+        data: {
+          session_id: 'session-1',
+          turn_id: 'turn-tail-placeholder',
+          trace_summary: {
+            turn_id: 'turn-tail-placeholder',
+            mode: 'orchestration',
+            status: 'running',
+            headline: '正在分析项目',
+            active_steps: 1,
+            completed_steps: 0,
+            failed_steps: 0,
+            duration_seconds: 0.8,
+            trace_available: true,
+          },
+        },
+      });
+    });
+
+    act(() => {
+      realtimeListener?.({
+        event: 'chat_message_upserted',
+        data: {
+          session_id: 'session-1',
+          message: {
+            message_id: 'ask:tail-order',
+            message_kind: 'ask_request',
+            role: 'assistant',
+            kind: 'assistant',
+            content: 'Should I continue?',
+            timestamp: Date.now() / 1000 + 1,
+            payload: {
+              ask_request_id: 'tail-order',
+              question: 'Should I continue?',
+              options: ['yes'],
+              allow_free_text: true,
+              expires_at_ms: Date.now() + 300_000,
+            },
+          },
+        },
+      });
+    });
+
+    const askText = await screen.findByText('Should I continue?');
+    const executionCard = await screen.findByTestId('chat-trace-status-card-turn-tail-placeholder');
+    expect(Boolean(askText.compareDocumentPosition(executionCard) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
   });
 
   it('renders plan and todo state as chat status cards', async () => {

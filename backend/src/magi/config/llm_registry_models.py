@@ -6,7 +6,7 @@ from typing import Any, Dict, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
-from .models import LLMCapabilitiesSettings, LLMLimitsSettings
+from .models import LLMCapabilitiesSettings, LLMLimitsSettings, LLMModelCostModel
 
 
 def _default_chat_capabilities() -> "LLMChatCapabilitiesModel":
@@ -34,6 +34,7 @@ class LLMModelMetaModel(BaseModel):
         default_factory=_default_chat_capabilities
     )
     limits: LLMLimitsSettings = Field(default_factory=LLMLimitsSettings)
+    cost: Optional[LLMModelCostModel] = Field(default=None)
     provider_options_example: Dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -57,6 +58,7 @@ class LLMResolvedModelMetaModel(BaseModel):
         default_factory=LLMCapabilitiesSettings
     )
     limits: LLMLimitsSettings = Field(default_factory=LLMLimitsSettings)
+    cost: Optional[LLMModelCostModel] = Field(default=None)
     input_modalities: list[str] = Field(default_factory=list)
     output_modalities: list[str] = Field(default_factory=list)
     provider_options_example: Dict[str, Any] = Field(default_factory=dict)
@@ -89,6 +91,7 @@ class LLMResolvedEmbeddingModelMetaModel(BaseModel):
     )
     dimensions: list[int] = Field(default_factory=list)
     limits: LLMLimitsSettings = Field(default_factory=LLMLimitsSettings)
+    cost: Optional[LLMModelCostModel] = Field(default=None)
     input_modalities: list[str] = Field(default_factory=list)
     output_modalities: list[str] = Field(default_factory=list)
     provider_options_example: Dict[str, Any] = Field(default_factory=dict)
@@ -239,6 +242,7 @@ class LLMEmbeddingModelMetaModel(BaseModel):
     label: Optional[str] = Field(default=None)
     dimensions: list[int] = Field(default_factory=list)
     limits: LLMLimitsSettings = Field(default_factory=LLMLimitsSettings)
+    cost: Optional[LLMModelCostModel] = Field(default=None)
     provider_options_example: Dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -271,6 +275,7 @@ class LLMImageGenerationModelMetaModel(BaseModel):
         "replicate",
         "custom",
     ] = Field(default="custom")
+    cost: Optional[LLMModelCostModel] = Field(default=None)
     provider_options_example: Dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -285,6 +290,7 @@ class LLMAudioGenerationModelMetaModel(BaseModel):
 
     id: str
     label: Optional[str] = Field(default=None)
+    cost: Optional[LLMModelCostModel] = Field(default=None)
     provider_options_example: Dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")

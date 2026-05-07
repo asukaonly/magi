@@ -54,6 +54,41 @@ describe('conversation store', () => {
     expect(useConversationStore.getState().historyVersionBySession).toEqual({});
   });
 
+  it('keeps local ask transcript messages across history refreshes', () => {
+    const store = useConversationStore.getState();
+
+    store.upsertMessage('session-a', {
+      id: 'ask:ask-1',
+      messageId: 'ask:ask-1',
+      role: 'assistant',
+      kind: 'assistant',
+      content: 'Which branch should I use?',
+      timestamp: 1000,
+      messageKind: 'ask_request',
+      payload: {
+        ask_request_id: 'ask-1',
+        status: 'answered',
+      },
+    });
+    store.upsertMessage('session-a', {
+      id: 'ask-response:ask-1',
+      messageId: 'ask-response:ask-1',
+      role: 'user',
+      kind: 'user',
+      content: 'main',
+      timestamp: 1001,
+      messageKind: 'ask_response',
+      payload: {
+        ask_request_id: 'ask-1',
+      },
+    });
+
+    store.receiveHistory('session-a', [], 4);
+
+    const messages = useConversationStore.getState().messagesBySession['session-a'] || [];
+    expect(messages.map((message) => message.messageKind)).toEqual(['ask_request', 'ask_response']);
+  });
+
   it('stores persona identity from realtime agent responses', () => {
     applyRealtimeStoreProjection({
       event: 'agent_response',

@@ -11,7 +11,9 @@ class ToolContextFormatterRegistry:
     def __init__(self) -> None:
         self._formatters: dict[str, Callable[[Dict[str, Any]], Dict[str, Any]]] = {}
 
-    def register(self, tool_name: str, formatter: Callable[[Dict[str, Any]], Dict[str, Any]]) -> None:
+    def register(
+        self, tool_name: str, formatter: Callable[[Dict[str, Any]], Dict[str, Any]]
+    ) -> None:
         self._formatters[str(tool_name)] = formatter
 
     def get(self, tool_name: str) -> Callable[[Dict[str, Any]], Dict[str, Any]] | None:
@@ -27,9 +29,17 @@ class ToolContextFormatterRegistry:
     ) -> "ToolContextFormatterRegistry":
         registry = cls()
         registry.register("glob", lambda data: compact_glob_tool_data(data, max_items=max_items))
-        registry.register("bash", lambda data: compact_bash_tool_data(data, max_text_chars=max_text_chars))
+        registry.register(
+            "bash", lambda data: compact_bash_tool_data(data, max_text_chars=max_text_chars)
+        )
         registry.register("grep", lambda data: compact_grep_tool_data(data, max_items=max_items))
-        registry.register("file_read", lambda data: compact_file_read_tool_data(data, max_text_chars=max_text_chars))
+        registry.register(
+            "file_list", lambda data: compact_file_list_tool_data(data, max_items=max_items)
+        )
+        registry.register(
+            "file_read",
+            lambda data: compact_file_read_tool_data(data, max_text_chars=max_text_chars),
+        )
         registry.register("agent", lambda data: compact_agent_tool_data(data, max_items=max_items))
         registry.register("memory_query", memory_formatter)
         registry.register("prepare_chat_attachments", compact_prepare_chat_attachments_tool_data)
@@ -113,6 +123,37 @@ def compact_grep_tool_data(data: Dict[str, Any], *, max_items: int) -> Dict[str,
     }
 
 
+def compact_file_list_tool_data(data: Dict[str, Any], *, max_items: int) -> Dict[str, Any]:
+    entries = data.get("entries")
+    if not isinstance(entries, list):
+        return data
+
+    compact_entries = []
+    for item in entries[:max_items]:
+        if not isinstance(item, dict):
+            continue
+        compact_entries.append(
+            {
+                "name": item.get("name"),
+                "relative_path": item.get("relative_path"),
+                "kind": item.get("kind"),
+                "is_dir": item.get("is_dir"),
+                "size": item.get("size"),
+                "depth": item.get("depth"),
+            }
+        )
+
+    omitted = max(0, len(entries) - len(compact_entries))
+    return {
+        "path": data.get("path"),
+        "recursive": data.get("recursive"),
+        "count": data.get("count", len(entries)),
+        "truncated": bool(data.get("truncated")) or omitted > 0,
+        "omitted_entries": omitted,
+        "entries": compact_entries,
+    }
+
+
 def compact_file_read_tool_data(data: Dict[str, Any], *, max_text_chars: int) -> Dict[str, Any]:
     content = str(data.get("content", ""))
     return {
@@ -176,7 +217,9 @@ def compact_agent_tool_data(data: Dict[str, Any], *, max_items: int) -> Dict[str
 
 
 def compact_prepare_chat_attachments_tool_data(data: Dict[str, Any]) -> Dict[str, Any]:
-    attachments = data.get("chat_attachments") if isinstance(data.get("chat_attachments"), list) else []
+    attachments = (
+        data.get("chat_attachments") if isinstance(data.get("chat_attachments"), list) else []
+    )
     return {
         "prepared_count": len(attachments),
         "attachments": [
@@ -194,7 +237,9 @@ def compact_prepare_chat_attachments_tool_data(data: Dict[str, Any]) -> Dict[str
 
 
 def compact_image_generation_tool_data(data: Dict[str, Any]) -> Dict[str, Any]:
-    attachments = data.get("chat_attachments") if isinstance(data.get("chat_attachments"), list) else []
+    attachments = (
+        data.get("chat_attachments") if isinstance(data.get("chat_attachments"), list) else []
+    )
     artifacts = data.get("artifacts") if isinstance(data.get("artifacts"), list) else []
     paths = data.get("paths") if isinstance(data.get("paths"), list) else []
     generated_count = len(artifacts) or len(attachments) or len(paths)

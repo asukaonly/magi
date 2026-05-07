@@ -32,6 +32,8 @@ RUNTIME_COMMAND_QUEUE_ENQUEUE_FAILED = "RUNTIME_COMMAND_QUEUE_ENQUEUE_FAILED"
 SESSION_ID_REQUIRED = "SESSION_ID_REQUIRED"
 EMPTY_TURN = "EMPTY_TURN"
 MALFORMED_ATTACHMENTS = "MALFORMED_ATTACHMENTS"
+ASK_RESPONSE_RESOLVE_FAILED = "ASK_RESPONSE_RESOLVE_FAILED"
+ASK_RESPONSE_ATTACHMENTS_UNSUPPORTED = "ASK_RESPONSE_ATTACHMENTS_UNSUPPORTED"
 
 
 @dataclass(slots=True)
@@ -41,6 +43,8 @@ class MessageDispatchOutcome:
     session_id: str | None = None
     turn_id: str | None = None
     message_id: str | None = None
+    handled_as: str | None = None
+    ask_request_id: str | None = None
     error_code: str | None = None
     error_message: str | None = None
     queue_size: int | None = None
@@ -52,6 +56,22 @@ def get_chat_read_service():
     from ...chat.read_service import get_chat_read_service as _get_chat_read_service
 
     return _get_chat_read_service()
+
+
+def resolve_control_session_store():
+    """Resolve the control session store lazily to avoid API startup cycles."""
+
+    from ...agent.control.provider import resolve_control_session_store as _resolve_control_session_store
+
+    return _resolve_control_session_store()
+
+
+def resolve_control_interaction_broker():
+    """Resolve the control interaction broker lazily to avoid API startup cycles."""
+
+    from ...agent.control.provider import resolve_control_interaction_broker as _resolve_control_interaction_broker
+
+    return _resolve_control_interaction_broker()
 
 
 def _extract_chat_projection_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
@@ -126,6 +146,14 @@ async def dispatch_user_message(
             error_code=EMPTY_TURN,
             error_message=t("chat.dispatch.errors.empty_turn", fallback="Message text or attachments are required."),
         )
+    ask_outcome = await _resolve_pending_ask_response(
+        user_id=user_id,
+        session_id=resolved_session_id,
+        answer=normalized_message.strip(),
+        has_attachments=bool(normalized_attachments),
+    )
+    if ask_outcome is not None:
+        return ask_outcome
     normalized_workspace_path = str(workspace_path or "").strip() or None
     if normalized_workspace_path is None:
         try:
@@ -221,6 +249,87 @@ async def dispatch_user_message(
         turn_id=turn_id,
         message_id=created_turn.message_id,
         queue_size=int(queue_size) if isinstance(queue_size, int) else None,
+    )
+
+
+async def _resolve_pending_ask_response(
+    *,
+    user_id: str,
+    session_id: str,
+    answer: str,
+    has_attachments: bool = False,
+) -> MessageDispatchOutcome | None:
+    if not answer:
+        return None
+    try:
+        store = resolve_control_session_store()
+        ask_state = store.ask_state(session_id)
+    except RuntimeError:
+        return None
+    except Exception:
+        logger.debug("message_dispatch.ask_state_lookup_failed", session_id=session_id, exc_info=True)
+        return None
+
+    if ask_state is None or ask_state.status != "pending":
+        return None
+    if ask_state.expires_at is not None and ask_state.expires_at <= time.time():
+        return None
+
+    if has_attachments:
+        return MessageDispatchOutcome(
+            success=False,
+            user_id=user_id,
+            session_id=session_id,
+            handled_as="ask_response",
+            ask_request_id=ask_state.request_id,
+            error_code=ASK_RESPONSE_ATTACHMENTS_UNSUPPORTED,
+            error_message=t(
+                "chat.dispatch.errors.ask_response_attachments_unsupported",
+                fallback="Attachments cannot be used as an answer to this question. Please send a text answer only.",
+            ),
+        )
+
+    try:
+        broker = resolve_control_interaction_broker()
+    except RuntimeError:
+        return MessageDispatchOutcome(
+            success=False,
+            user_id=user_id,
+            session_id=session_id,
+            handled_as="ask_response",
+            ask_request_id=ask_state.request_id,
+            error_code=ASK_RESPONSE_RESOLVE_FAILED,
+            error_message=t(
+                "chat.dispatch.errors.ask_response_resolve_failed",
+                fallback="The question is no longer waiting for an answer.",
+            ),
+        )
+
+    resolved = await broker.resolve(
+        interaction_id=ask_state.request_id,
+        kind="ask",
+        response=answer,
+    )
+    if not resolved:
+        return MessageDispatchOutcome(
+            success=False,
+            user_id=user_id,
+            session_id=session_id,
+            handled_as="ask_response",
+            ask_request_id=ask_state.request_id,
+            error_code=ASK_RESPONSE_RESOLVE_FAILED,
+            error_message=t(
+                "chat.dispatch.errors.ask_response_resolve_failed",
+                fallback="The question is no longer waiting for an answer.",
+            ),
+        )
+
+    return MessageDispatchOutcome(
+        success=True,
+        user_id=user_id,
+        session_id=session_id,
+        handled_as="ask_response",
+        ask_request_id=ask_state.request_id,
     )
 
 

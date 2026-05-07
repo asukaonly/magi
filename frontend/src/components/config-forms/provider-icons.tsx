@@ -2,6 +2,7 @@ import anthropicIcon from '@/assets/provider-icons/anthropic.svg?raw';
 import bailianIcon from '@/assets/provider-icons/bailian-color.svg?raw';
 import deepseekIcon from '@/assets/provider-icons/deepseek-color.svg?raw';
 import geminiIcon from '@/assets/provider-icons/gemini-color.svg?raw';
+import grokIcon from '@/assets/provider-icons/grok.svg?raw';
 import kimiIcon from '@/assets/provider-icons/kimi.svg?raw';
 import minimaxIcon from '@/assets/provider-icons/minimax-color.svg?raw';
 import openaiIcon from '@/assets/provider-icons/openai.svg?raw';
@@ -36,6 +37,7 @@ const ICON_SVGS: Record<string, string> = {
   glm_codeplan: zaiIcon,
   zai: zaiIcon,
   gemini: geminiIcon,
+  grok: grokIcon,
   deepseek: deepseekIcon,
   dashscope: bailianIcon,
   bailian: bailianIcon,

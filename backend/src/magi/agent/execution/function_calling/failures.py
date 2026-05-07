@@ -17,6 +17,8 @@ class FunctionCallingFailureMixin:
 
     def _classify_exception_failure(self, exc: Exception) -> str:
         message = str(exc).lower()
+        if "datainspectionfailed" in message or "data_inspection_failed" in message:
+            return "CONTENT_INSPECTION_FAILED"
         if "429" in message or "rate limit" in message.lower() or "速率限制" in message:
             return "LLM_RATE_LIMIT"
         if "timeout" in message:

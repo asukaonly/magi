@@ -38,7 +38,7 @@ def create_llm_adapter(
             proxy_url=proxy_url,
         )
 
-    if provider in {"openai", "glm", "glm_codeplan", "gemini", "deepseek", "dashscope", "kimi", "minimax", "local"}:
+    if provider in {"openai", "glm", "glm_codeplan", "gemini", "grok", "deepseek", "dashscope", "kimi", "minimax", "local"}:
         return OpenAIAdapter(
             api_key=api_key,
             model=model,

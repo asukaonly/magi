@@ -25,11 +25,11 @@ def _resolve_user_id(user_id: str | None) -> str:
 
 def _coerce_created_at_ms(value: Any) -> int | None:
     try:
-                if value is None or value == "":
-                        return None
-                numeric = float(value)
+        if value is None or value == "":
+            return None
+        numeric = float(value)
     except (TypeError, ValueError):
-                return None
+        return None
     if numeric <= 0:
         return None
     if numeric < 10_000_000_000:
@@ -115,6 +115,175 @@ async def persist_todo_state_message(
     )
 
 
+def _ask_request_message_id(request_id: str) -> str:
+    return f"ask:{request_id}"
+
+
+def _ask_response_message_id(request_id: str) -> str:
+    return f"ask-response:{request_id}"
+
+
+def _ask_state_payload(
+    *,
+    session_id: str,
+    ask: Any,
+    background: bool,
+) -> dict[str, Any]:
+    asked_at_ms = _coerce_created_at_ms(getattr(ask, "asked_at", None))
+    answered_at_ms = _coerce_created_at_ms(getattr(ask, "answered_at", None))
+    expires_at_ms = _coerce_created_at_ms(getattr(ask, "expires_at", None))
+    return {
+        "ask_request_id": str(getattr(ask, "request_id", "") or "").strip(),
+        "session_id": session_id,
+        "status": str(getattr(ask, "status", "pending") or "pending").strip() or "pending",
+        "question": str(getattr(ask, "question", "") or "").strip(),
+        "options": [str(item).strip() for item in getattr(ask, "options", ()) if str(item).strip()],
+        "allow_free_text": bool(getattr(ask, "allow_free_text", True)),
+        "timeout_seconds": getattr(ask, "timeout_seconds", None),
+        "created_at_ms": asked_at_ms,
+        "expires_at_ms": expires_at_ms,
+        "answered_at_ms": answered_at_ms,
+        "answer": getattr(ask, "answer", None),
+        "resolution": getattr(ask, "resolution", None),
+        "background": bool(background),
+    }
+
+
+async def persist_ask_request_message(
+    *,
+    session_id: str,
+    user_id: str | None,
+    turn_id: str | None,
+    ask: Any,
+    background: bool = False,
+) -> str | None:
+    normalized_session_id = str(session_id or "").strip()
+    request_id = str(getattr(ask, "request_id", "") or "").strip()
+    question = str(getattr(ask, "question", "") or "").strip()
+    if not normalized_session_id or not request_id or not question:
+        return None
+
+    try:
+        chat_store = get_chat_store()
+    except RuntimeError:
+        return None
+
+    message_id = _ask_request_message_id(request_id)
+    previous_message = await chat_store.get_message(message_id)
+    created_at_ms = _coerce_created_at_ms(getattr(ask, "asked_at", None)) or _now_ms()
+    sequence_no = (
+        previous_message.sequence_no
+        if previous_message is not None
+        else await chat_store.next_sequence_no(session_id=normalized_session_id)
+    )
+    payload = _ask_state_payload(session_id=normalized_session_id, ask=ask, background=background)
+
+    next_message = ChatMessageRecord(
+        message_id=message_id,
+        session_id=normalized_session_id,
+        turn_id=str(turn_id or "").strip() or None,
+        user_id=_resolve_user_id(user_id),
+        role="assistant",
+        message_kind="ask_request",
+        content_text=question,
+        payload_json=json.dumps(payload, ensure_ascii=False),
+        is_final=True,
+        is_visible=True,
+        created_at_ms=previous_message.created_at_ms if previous_message is not None else created_at_ms,
+        sequence_no=sequence_no,
+        replaces_message_id=None,
+        replaced_by_message_id=None,
+        reply_to_message_id=None,
+        persona_id=previous_message.persona_id if previous_message is not None else None,
+    )
+    await chat_store.append_message(next_message)
+    await chat_store.bump_history_version(normalized_session_id)
+    try:
+        await broadcast_chat_message_upsert(
+            user_id=next_message.user_id,
+            session_id=normalized_session_id,
+            message_id=next_message.message_id,
+        )
+    except Exception:
+        logger.debug("ask_request_message.broadcast_failed", exc_info=True)
+    return next_message.message_id
+
+
+async def persist_ask_response_message(
+    *,
+    session_id: str,
+    user_id: str | None,
+    turn_id: str | None,
+    ask: Any,
+    answer: str,
+    background: bool = False,
+) -> str | None:
+    normalized_session_id = str(session_id or "").strip()
+    request_id = str(getattr(ask, "request_id", "") or "").strip()
+    answer_text = str(answer or "").strip()
+    if not normalized_session_id or not request_id or not answer_text:
+        return None
+
+    ask_message_id = await persist_ask_request_message(
+        session_id=normalized_session_id,
+        user_id=user_id,
+        turn_id=turn_id,
+        ask=ask,
+        background=background,
+    )
+    if ask_message_id is None:
+        ask_message_id = _ask_request_message_id(request_id)
+
+    try:
+        chat_store = get_chat_store()
+    except RuntimeError:
+        return None
+
+    message_id = _ask_response_message_id(request_id)
+    previous_message = await chat_store.get_message(message_id)
+    created_at_ms = _coerce_created_at_ms(getattr(ask, "answered_at", None)) or _now_ms()
+    sequence_no = (
+        previous_message.sequence_no
+        if previous_message is not None
+        else await chat_store.next_sequence_no(session_id=normalized_session_id)
+    )
+    payload = {
+        "ask_request_id": request_id,
+        "session_id": normalized_session_id,
+        "answer": answer_text,
+        "answered_at_ms": _coerce_created_at_ms(getattr(ask, "answered_at", None)),
+    }
+    next_message = ChatMessageRecord(
+        message_id=message_id,
+        session_id=normalized_session_id,
+        turn_id=str(turn_id or "").strip() or None,
+        user_id=_resolve_user_id(user_id),
+        role="user",
+        message_kind="ask_response",
+        content_text=answer_text,
+        payload_json=json.dumps(payload, ensure_ascii=False),
+        is_final=True,
+        is_visible=True,
+        created_at_ms=previous_message.created_at_ms if previous_message is not None else created_at_ms,
+        sequence_no=sequence_no,
+        replaces_message_id=None,
+        replaced_by_message_id=None,
+        reply_to_message_id=ask_message_id,
+        persona_id=None,
+    )
+    await chat_store.append_message(next_message)
+    await chat_store.bump_history_version(normalized_session_id)
+    try:
+        await broadcast_chat_message_upsert(
+            user_id=next_message.user_id,
+            session_id=normalized_session_id,
+            message_id=next_message.message_id,
+        )
+    except Exception:
+        logger.debug("ask_response_message.broadcast_failed", exc_info=True)
+    return next_message.message_id
+
+
 async def _persist_status_message(
     *,
     session_id: str,
@@ -142,7 +311,9 @@ async def _persist_status_message(
             message_kind=message_kind,
         )
     if previous_message is not None and previous_message.is_visible:
-        if _payload_json_matches(previous_message.payload_json, payload) and _normalize_optional_text(previous_message.content_text) == _normalize_optional_text(content_text):
+        if _payload_json_matches(previous_message.payload_json, payload) and _normalize_optional_text(
+            previous_message.content_text
+        ) == _normalize_optional_text(content_text):
             return previous_message.message_id
 
     next_message = ChatMessageRecord(
@@ -251,6 +422,8 @@ def _normalize_optional_text(value: str | None) -> str | None:
 
 
 __all__ = [
+    "persist_ask_request_message",
+    "persist_ask_response_message",
     "persist_plan_state_message",
     "persist_todo_state_message",
 ]

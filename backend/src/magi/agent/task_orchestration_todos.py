@@ -22,6 +22,8 @@ class TaskOrchestrationTodosMixin:
         "failed": "completed",
         "cancelled": "not_started",
     }
+    _TERMINAL_SUBTASK_STATUSES = {"completed", "failed", "cancelled"}
+    _TERMINAL_ORCHESTRATION_STATUSES = {"completed", "failed", "cancelled"}
 
     async def _publish_session_todos(self, state: TaskOrchestrationState) -> None:
         """Mirror orchestration subtasks onto the session's todo list.
@@ -42,23 +44,31 @@ class TaskOrchestrationTodosMixin:
         except Exception:
             return
 
+        should_clear = str(
+            state.status or ""
+        ).strip() in self._TERMINAL_ORCHESTRATION_STATUSES or all(
+            str(subtask.status or "").strip() in self._TERMINAL_SUBTASK_STATUSES
+            for subtask in state.subtasks
+        )
+
         items: list[dict[str, Any]] = []
-        running_seen = False
-        for subtask in state.subtasks:
-            mapped = self._SUBTASK_TO_TODO_STATUS.get(subtask.status, "not_started")
-            if mapped == "in_progress":
-                if running_seen:
-                    mapped = "not_started"
-                else:
-                    running_seen = True
-            title = (subtask.description or "").strip() or subtask.subtask_id
-            items.append(
-                {
-                    "id": subtask.subtask_id,
-                    "content": title,
-                    "status": mapped,
-                }
-            )
+        if not should_clear:
+            running_seen = False
+            for subtask in state.subtasks:
+                mapped = self._SUBTASK_TO_TODO_STATUS.get(subtask.status, "not_started")
+                if mapped == "in_progress":
+                    if running_seen:
+                        mapped = "not_started"
+                    else:
+                        running_seen = True
+                title = (subtask.description or "").strip() or subtask.subtask_id
+                items.append(
+                    {
+                        "id": subtask.subtask_id,
+                        "content": title,
+                        "status": mapped,
+                    }
+                )
 
         try:
             await store.replace_todos(session_id, items)

@@ -1,30 +1,12 @@
-/**
- * Dialog surfaced when an ``ask_user_question`` tool call is awaiting
- * a reply. Fetches the current ask state for the session and posts
- * the user's answer via ``respondAsk``.
- */
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useTranslation } from 'react-i18next';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Textarea } from '@/components/ui/textarea';
+import { useCallback, useEffect, useState } from 'react';
 import {
   AskStateDTO,
   getAskState,
-  respondAsk,
 } from '@/api/modules/control';
 import { useControlEvents } from '@/realtime/useControlEvents';
 import { useConversationStore } from '@/stores';
 import { OPEN_ASK_REQUEST_EVENT } from './ui-events';
-import { isInteractionExpired, remainingInteractionSeconds } from './interaction-expiry';
+import { isInteractionExpired } from './interaction-expiry';
 
 export interface AskDialogProps {
   sessionId: string | null | undefined;
@@ -38,19 +20,12 @@ export interface AskDialogProps {
 
 export function AskDialog({
   sessionId,
-  intervalMs = 5000,
-  onAnswered,
+  intervalMs = 0,
   background = false,
 }: AskDialogProps) {
-  const { t } = useTranslation('control');
   const upsertMessage = useConversationStore((state) => state.upsertMessage);
   const removeMessage = useConversationStore((state) => state.removeMessage);
   const [ask, setAsk] = useState<AskStateDTO | null>(null);
-  const [answer, setAnswer] = useState('');
-  const [selection, setSelection] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [nowMs, setNowMs] = useState(() => Date.now());
 
   const pull = useCallback(async () => {
     if (!sessionId) {
@@ -92,18 +67,12 @@ export function AskDialog({
 
   useEffect(() => {
     if (!ask?.expires_at_ms) return () => undefined;
-    setNowMs(Date.now());
-    const tick = window.setInterval(() => {
-      setNowMs(Date.now());
-    }, 1000);
     const deadlineDelay = Math.max(0, ask.expires_at_ms - Date.now() + 50);
     const deadline = window.setTimeout(() => {
-      setNowMs(Date.now());
       setAsk((prev) => (prev?.request_id === ask.request_id ? null : prev));
       void pull();
     }, deadlineDelay);
     return () => {
-      window.clearInterval(tick);
       window.clearTimeout(deadline);
     };
   }, [ask?.request_id, ask?.expires_at_ms, pull]);
@@ -136,9 +105,27 @@ export function AskDialog({
     }
     const currentMessages = state.messagesBySession[sessionId] || [];
     const askMessages = currentMessages.filter((message) => message.messageKind === 'ask_request');
+    const answeredAskRequestIds = new Set(
+      currentMessages
+        .filter((message) => message.messageKind === 'ask_response')
+        .map((message) => {
+          const payload = message.payload && typeof message.payload === 'object'
+            ? message.payload as Record<string, unknown>
+            : {};
+          return String(payload.ask_request_id || '').trim();
+        })
+        .filter(Boolean),
+    );
 
     if (!ask) {
       askMessages.forEach((message) => {
+        const payload = message.payload && typeof message.payload === 'object'
+          ? message.payload as Record<string, unknown>
+          : {};
+        const requestId = String(payload.ask_request_id || '').trim();
+        if (String(payload.status || '').trim().toLowerCase() === 'answered' || answeredAskRequestIds.has(requestId)) {
+          return;
+        }
         const messageId = String(message.messageId || '').trim();
         if (messageId) {
           removeMessage(sessionId, messageId);
@@ -159,12 +146,14 @@ export function AskDialog({
       id: activeMessageId,
       messageId: activeMessageId,
       role: 'assistant',
-      kind: 'status',
+      kind: 'assistant',
       messageKind: 'ask_request',
       content: ask.question,
       timestamp: Number(ask.created_at_ms || Date.now()),
       payload: {
         ask_request_id: ask.request_id,
+        session_id: sessionId,
+        status: 'pending',
         question: ask.question,
         options: ask.options,
         allow_free_text: ask.allow_free_text,
@@ -175,126 +164,5 @@ export function AskDialog({
     });
   }, [ask, background, removeMessage, sessionId, upsertMessage]);
 
-  const expired = useMemo(
-    () => isInteractionExpired(ask?.expires_at_ms, nowMs),
-    [ask?.expires_at_ms, nowMs],
-  );
-
-  const remainingSeconds = useMemo(
-    () => remainingInteractionSeconds(ask?.expires_at_ms, nowMs),
-    [ask?.expires_at_ms, nowMs],
-  );
-
-  const canSubmit = useMemo(() => {
-    if (!ask) return false;
-    if (expired) return false;
-    if (selection) return true;
-    if (ask.allow_free_text) return answer.trim().length > 0;
-    return false;
-  }, [ask, selection, answer, expired]);
-
-  const submit = async () => {
-    if (!ask) return;
-    if (isInteractionExpired(ask.expires_at_ms)) {
-      setAsk(null);
-      setError(t('ask.expired'));
-      return;
-    }
-    const payload = selection ?? answer.trim();
-    if (!payload) return;
-    setSubmitting(true);
-    setError(null);
-    try {
-      await respondAsk(ask.request_id, payload);
-      onAnswered?.(ask.request_id, payload);
-      setAsk(null);
-      setAnswer('');
-      setSelection(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <Dialog
-      open={ask !== null}
-      onOpenChange={(open) => {
-        if (!open) setAsk(null);
-      }}
-    >
-      <DialogContent className="max-w-lg" data-testid="ask-dialog">
-        <DialogHeader>
-          <DialogTitle>{t('ask.title')}</DialogTitle>
-          {background && (
-            <Badge variant="secondary" className="self-start">
-              {t('ask.background_badge')}
-            </Badge>
-          )}
-          <DialogDescription>
-            {ask?.question}
-          </DialogDescription>
-          {remainingSeconds !== null ? (
-            <div className="text-xs text-muted-foreground">
-              {expired
-                ? t('ask.expired')
-                : t('ask.expires_in', { seconds: remainingSeconds })}
-            </div>
-          ) : null}
-        </DialogHeader>
-        <div className="space-y-3 text-sm">
-          {ask?.options?.length ? (
-            <div className="space-y-2">
-              <div className="text-muted-foreground">{t('ask.options')}</div>
-              <div className="flex flex-wrap gap-2">
-                {ask.options.map((opt) => (
-                  <Button
-                    key={opt}
-                    size="sm"
-                    variant={selection === opt ? 'default' : 'outline'}
-                    onClick={() =>
-                      setSelection((prev) => (prev === opt ? null : opt))
-                    }
-                    data-testid={`ask-option-${opt}`}
-                  >
-                    {opt}
-                  </Button>
-                ))}
-              </div>
-            </div>
-          ) : null}
-          {ask?.allow_free_text && (
-            <Textarea
-              rows={3}
-              value={answer}
-              onChange={(e) => {
-                setAnswer(e.target.value);
-                setSelection(null);
-              }}
-              placeholder={t('ask.answer_placeholder') ?? ''}
-              data-testid="ask-textarea"
-            />
-          )}
-          {!ask?.allow_free_text && !ask?.options?.length && (
-            <div className="text-sm text-muted-foreground">
-              {t('ask.free_text_disabled')}
-            </div>
-          )}
-          {error && <div className="text-sm text-destructive">{error}</div>}
-        </div>
-        <DialogFooter>
-          <Button
-            onClick={() => {
-              void submit();
-            }}
-            disabled={!canSubmit || submitting}
-            data-testid="ask-submit"
-          >
-            {t('ask.submit')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
+  return null;
 }

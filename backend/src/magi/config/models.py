@@ -19,6 +19,7 @@ class LLMProvider(str, Enum):
     GLM = "glm"
     GLM_CODEPLAN = "glm_codeplan"
     GEMINI = "gemini"
+    GROK = "grok"
     DEEPSEEK = "deepseek"
     DASHSCOPE = "dashscope"
     KIMI = "kimi"
@@ -63,6 +64,19 @@ class LLMLimitsOverrideSettings(BaseModel):
     max_concurrency: Optional[int] = Field(default=None, ge=1)
 
 
+class LLMModelCostModel(BaseModel):
+    """Provider-published pricing metadata for a model."""
+
+    currency: str = Field(default="USD")
+    input_per_million_tokens: Optional[float] = Field(default=None, ge=0)
+    cached_input_per_million_tokens: Optional[float] = Field(default=None, ge=0)
+    cache_write_per_million_tokens: Optional[float] = Field(default=None, ge=0)
+    output_per_million_tokens: Optional[float] = Field(default=None, ge=0)
+    per_image: Optional[float] = Field(default=None, ge=0)
+    source: Optional[str] = Field(default=None)
+    source_note: Optional[str] = Field(default=None)
+
+
 class LLMModelMetadataOverrideSettings(BaseModel):
     """User-defined metadata override for any provider model."""
 
@@ -76,6 +90,7 @@ class LLMModelMetadataOverrideSettings(BaseModel):
     input_modalities: Optional[List[str]] = Field(default=None)
     output_modalities: Optional[List[str]] = Field(default=None)
     provider_options_example: Optional[Dict[str, Any]] = Field(default=None)
+    cost: Optional[LLMModelCostModel] = Field(default=None)
     hidden: Optional[bool] = Field(default=None)
     preferred: Optional[bool] = Field(default=None)
     source_note: Optional[str] = Field(default=None)

@@ -85,7 +85,7 @@ async def test_records_llm_call_with_full_payload(fake_bus, fake_store):
     assert written["usage_available"] is True
     assert written["latency_ms"] == 1500
     assert written["ttft_ms"] == 0       # not tracked today
-    assert written["cost_usd"] == 0.0    # not tracked today
+    assert written["cost_usd"] == 0.0    # unknown model pricing
     assert written["success"] is True
     assert written["error"] is None
     assert written["correlation_id"] == "corr-1"
@@ -105,6 +105,28 @@ async def test_request_id_falls_back_to_span_id(fake_bus, fake_store):
     await sub.drain()
     written = fake_store.record_call.await_args.args[0]
     assert written["request_id"] == "span-1"
+
+
+@pytest.mark.asyncio
+async def test_calculates_cost_from_registry_pricing(fake_bus, fake_store):
+    sub = LLMUsageSubscriber(event_bus=fake_bus, llm_usage_store=fake_store)
+    await sub.start()
+    payload = _payload(
+        attrs={
+            "provider": "openai",
+            "model": "gpt-5",
+            "request_kind": "chat",
+            "prompt_tokens": 1000,
+            "completion_tokens": 500,
+            "total_tokens": 1500,
+            "cache_read_tokens": 200,
+            "usage_available": True,
+        },
+    )
+    await sub._on_event(Event(type=EventTypes.SPAN_COMPLETED, data=payload))
+    await sub.drain()
+    written = fake_store.record_call.await_args.args[0]
+    assert written["cost_usd"] == pytest.approx(0.006025)
 
 
 @pytest.mark.asyncio

@@ -90,6 +90,7 @@ vi.mock('@/realtime/tauri-bridge', () => ({
 
 afterEach(() => {
   bridgeListener = null;
+  vi.useRealTimers();
   vi.clearAllMocks();
 });
 
@@ -241,6 +242,19 @@ describe('PermissionModalHost', () => {
     );
 
     await waitFor(() => {
+      const messages = useConversationStore.getState().messagesBySession['sid-1'] || [];
+      expect(messages.some((message) => message.messageKind === 'permission_request')).toBe(true);
+    });
+
+    expect(screen.queryByTestId('permission-modal')).not.toBeInTheDocument();
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent('magi-open-permission-request', {
+        detail: { requestId: 'req-1' },
+      }));
+    });
+
+    await waitFor(() => {
       expect(screen.getByTestId('permission-modal')).toBeInTheDocument();
     });
 
@@ -276,7 +290,7 @@ describe('AskDialog', () => {
     ], 'sid-1');
   });
 
-  it('projects pending asks into chat status messages', async () => {
+  it('projects pending asks into assistant chat messages', async () => {
     const controlApi = await import('@/api/modules/control');
     vi.mocked(controlApi.getAskState).mockResolvedValue(baseAsk);
 
@@ -284,9 +298,29 @@ describe('AskDialog', () => {
 
     await waitFor(() => {
       const messages = useConversationStore.getState().messagesBySession['sid-1'] || [];
-      expect(messages.some((message) => message.messageKind === 'ask_request')).toBe(true);
+      expect(messages.some((message) => message.messageKind === 'ask_request' && message.kind === 'assistant')).toBe(true);
     });
-    expect(screen.getByTestId('ask-dialog')).toBeInTheDocument();
+    expect(screen.queryByTestId('ask-dialog')).not.toBeInTheDocument();
+  });
+
+  it('does not continuously poll ask state when polling is disabled', async () => {
+    const controlApi = await import('@/api/modules/control');
+    vi.useFakeTimers();
+    vi.mocked(controlApi.getAskState).mockResolvedValue(null);
+
+    render(<AskDialog sessionId="sid-1" intervalMs={0} />);
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(vi.mocked(controlApi.getAskState)).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+
+    expect(vi.mocked(controlApi.getAskState)).toHaveBeenCalledTimes(1);
   });
 
   it('recovers a pending ask through polling when the realtime wake-up is missed', async () => {
@@ -304,8 +338,6 @@ describe('AskDialog', () => {
       });
 
       expect(vi.mocked(controlApi.getAskState)).toHaveBeenCalledTimes(2);
-      expect(screen.getByTestId('ask-dialog')).toBeInTheDocument();
-
       const messages = useConversationStore.getState().messagesBySession['sid-1'] || [];
       expect(messages.some((message) => message.messageKind === 'ask_request')).toBe(true);
     } finally {
@@ -350,7 +382,6 @@ describe('AskDialog', () => {
 
     await waitFor(() => {
       expect(vi.mocked(controlApi.getAskState)).toHaveBeenCalledTimes(2);
-      expect(screen.getByTestId('ask-dialog')).toBeInTheDocument();
     });
 
     const messages = useConversationStore.getState().messagesBySession['sid-1'] || [];

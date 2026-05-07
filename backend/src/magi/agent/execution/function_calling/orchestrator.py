@@ -61,11 +61,13 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
     _NON_REPLAN_ERROR_CODES = {
         "ACCESS_DENIED",
         "AUTH_REQUIRED",
+        "CONTENT_INSPECTION_FAILED",
         "NO_PROVIDERS_CONFIGURED",
         "PERMISSION_DENIED",
         "POLICY_BLOCKED",
         "PROVIDER_NOT_CONFIGURED",
         "READ_ONLY",
+        "REPEATED_FAILED_TOOL_CALL",
         "ROLE_NOT_ALLOWED",
     }
     _SLOW_SCAN_WARNING_SECONDS = 5.0
@@ -123,9 +125,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
                 return object.__getattribute__(operations, name)
             except AttributeError:
                 pass
-        raise AttributeError(
-            f"{type(self).__name__!s} object has no attribute {name!r}"
-        )
+        raise AttributeError(f"{type(self).__name__!s} object has no attribute {name!r}")
 
     def build_step_state(
         self,
@@ -189,9 +189,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
                 self.llm = llm
                 self.provider_bridge = LLMProviderBridge(llm)
         if self.llm is None or self.provider_bridge is None:
-            raise ValueError(
-                "FunctionCallingOrchestrator requires an LLM adapter or llm_pool"
-            )
+            raise ValueError("FunctionCallingOrchestrator requires an LLM adapter or llm_pool")
         return self.llm
 
     async def execute_with_tools(
@@ -336,6 +334,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
                 status="failed",
                 content="",
                 failure_reason=step_outcome.failure_reason,
+                error_text=step_outcome.error_text,
                 tool_failures=list(state.tool_failures),
                 iterations=step_outcome.iteration,
             )

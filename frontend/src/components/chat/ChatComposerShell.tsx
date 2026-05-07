@@ -47,6 +47,8 @@ export type ChatComposerShellProps = {
   sessionId: string | null;
   sendingMessage: boolean;
   onPrimaryAction: () => void;
+  /** Inline controls rendered directly above the textarea. */
+  askAnswerSlot?: ReactNode;
   /** Picker(s) rendered absolute-positioned above the input area. */
   pickerSlot?: ReactNode;
 };
@@ -73,6 +75,7 @@ export const ChatComposerShell = ({
   sessionId,
   sendingMessage,
   onPrimaryAction,
+  askAnswerSlot,
   pickerSlot,
 }: ChatComposerShellProps) => {
   const { t } = useTranslation();
@@ -98,6 +101,7 @@ export const ChatComposerShell = ({
         data-testid="chat-composer-input"
         className={`relative ${attachments.length > 0 ? 'px-5 pb-0 pt-2.5' : 'px-5 pb-0 pt-3'}`}
       >
+        {askAnswerSlot}
         {pickerSlot}
         <AutoResizeTextarea
           ref={textareaRef}

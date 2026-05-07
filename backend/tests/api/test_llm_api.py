@@ -63,6 +63,7 @@ def test_llm_provider_catalog_returns_builtin_and_saved_custom_providers() -> No
 
     assert openai_provider["source"] == "builtin"
     assert openai_provider["provider_type"] == "openai"
+    assert any(provider["id"] == "grok" for provider in providers)
     assert custom_provider["source"] == "custom"
     assert custom_provider["provider_type"] == "custom"
     assert custom_provider["api_format"] == "openai"
@@ -71,6 +72,16 @@ def test_llm_provider_catalog_returns_builtin_and_saved_custom_providers() -> No
     foo_vision = next(model for model in custom_provider["resolved_chat_models"] if model["id"] == "foo-vision")
     assert foo_vision["label"] == "Foo Vision"
     assert foo_vision["capabilities"]["vision"] is True
+
+    gpt_52 = next(model for model in openai_provider["resolved_chat_models"] if model["id"] == "gpt-5.2")
+    assert gpt_52["cost"]["currency"] == "USD"
+    assert gpt_52["cost"]["input_per_million_tokens"] == 1.75
+    assert gpt_52["cost"]["output_per_million_tokens"] == 14.0
+
+    grok_provider = next(provider for provider in providers if provider["id"] == "grok")
+    grok_43 = next(model for model in grok_provider["resolved_chat_models"] if model["id"] == "grok-4.3")
+    assert grok_provider["default_base_url"] == "https://api.x.ai/v1"
+    assert grok_43["cost"]["input_per_million_tokens"] == 1.25
 
 
 def test_llm_provider_catalog_preview_resolves_draft_provider_overrides() -> None:
@@ -113,6 +124,10 @@ def test_llm_provider_catalog_preview_resolves_draft_provider_overrides() -> Non
                         "model_metadata_overrides": {
                             "acme-vision-embed": {
                                 "label": "Acme Vision Embed",
+                                "cost": {
+                                    "currency": "USD",
+                                    "input_per_million_tokens": 0.42,
+                                },
                                 "capabilities": {
                                     "vision": True,
                                     "embedding": True,
@@ -137,7 +152,9 @@ def test_llm_provider_catalog_preview_resolves_draft_provider_overrides() -> Non
 
     assert chat_model["source"] == "manual"
     assert chat_model["capabilities"]["vision"] is True
+    assert chat_model["cost"]["input_per_million_tokens"] == 0.42
     assert embedding_model["capabilities"]["embedding"] is True
+    assert embedding_model["cost"]["input_per_million_tokens"] == 0.42
 
 
 def test_llm_custom_provider_template_returns_template_defaults() -> None:

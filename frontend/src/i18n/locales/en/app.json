@@ -471,6 +471,7 @@
     "waitingForReply": "Waiting for reply…",
     "tip": "Tip: Enter to send, Shift+Enter for newline",
     "emptyInput": "Please enter a message",
+    "askAttachmentsUnsupported": "Remove attachments before answering this question.",
     "sessionRequired": "Please choose or create a session first",
     "wsNotConnected": "Not connected to server yet",
     "reply": {
@@ -607,7 +608,7 @@
       "empty": "No call trace details yet",
       "execution": {
         "runningTitle": "Running",
-        "runningBody": "Magi is working through the current plan and will stream the final answer here.",
+        "runningBody": "I'm working on it and will reply here when it's ready.",
         "detachingTitle": "Moving to background",
         "detachingBody": "This run will continue in the background and report back when it finishes.",
         "cancellingTitle": "Cancelling run",

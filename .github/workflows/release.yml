@@ -116,6 +116,16 @@ jobs:
           pip install -e ".[dev]" pyinstaller
           pip install -e ../sdk
 
+      - name: Install ripgrep (macOS)
+        if: matrix.os_family == 'macos'
+        shell: bash
+        run: brew list ripgrep >/dev/null 2>&1 || brew install ripgrep
+
+      - name: Install ripgrep (Windows)
+        if: matrix.os_family == 'windows'
+        shell: pwsh
+        run: choco install ripgrep -y
+
       - name: Build Python sidecar (Unix)
         if: matrix.os_family != 'windows'
         shell: bash

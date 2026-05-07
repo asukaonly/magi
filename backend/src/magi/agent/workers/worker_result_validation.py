@@ -20,10 +20,7 @@ class WorkerResultValidationMixin:
             raise ValueError("Worker returned an empty response")
         if subagent_type == self.TYPE_CODING:
             return WorkerResult(summary=stripped, result_status="success")
-        try:
-            parsed = json.loads(stripped)
-        except json.JSONDecodeError as exc:
-            raise ValueError("Worker did not return valid JSON") from exc
+        parsed = self._parse_worker_json(stripped)
         if not isinstance(parsed, dict):
             raise ValueError("Worker result must be a JSON object")
         required_keys = {"result_status", "summary", "findings", "evidence", "gaps", "next_steps"}
@@ -31,7 +28,9 @@ class WorkerResultValidationMixin:
             raise ValueError("Worker result is missing required fields")
         result_status = str(parsed.get("result_status", "")).strip()
         if result_status not in {"success", "partial", "failed"}:
-            raise ValueError("Worker result field 'result_status' must be success, partial, or failed")
+            raise ValueError(
+                "Worker result field 'result_status' must be success, partial, or failed"
+            )
         for field_name in ("findings", "evidence", "gaps", "next_steps"):
             if not isinstance(parsed.get(field_name), list):
                 raise ValueError(f"Worker result field '{field_name}' must be a list")
@@ -51,8 +50,29 @@ class WorkerResultValidationMixin:
             if not isinstance(subtasks, list) or not subtasks:
                 raise ValueError("Plan worker result must include non-empty subtasks")
             if not worker_result.subtasks:
-                raise ValueError("Plan worker subtasks require description, subagent_type, and prompt")
+                raise ValueError(
+                    "Plan worker subtasks require description, subagent_type, and prompt"
+                )
         return worker_result
+
+    @staticmethod
+    def _parse_worker_json(content: str) -> Any:
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            pass
+
+        decoder = json.JSONDecoder()
+        for index, char in enumerate(content):
+            if char != "{":
+                continue
+            try:
+                parsed, _ = decoder.raw_decode(content[index:])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
+                return parsed
+        raise ValueError("Worker did not return valid JSON")
 
     def _validate_findings(self, findings: list[WorkerFinding], subagent_type: str) -> None:
         for item in findings:

@@ -52,21 +52,26 @@
     "waiting_since": "Waiting since {{time}}",
     "card": {
       "waiting": "Execution is paused until you review this request.",
-      "review": "Review request"
+      "review": "More options",
+      "allow_once": "Allow once",
+      "deny_once": "Deny once"
     }
   },
   "ask": {
-    "title": "Question from the agent",
+    "title": "Quick question",
     "question": "Question",
     "options": "Options",
     "answer_placeholder": "Type your answer...",
     "submit": "Answer",
+    "answered": "Answered",
     "expires_in": "Expires in {{seconds}}s",
     "expired": "Expired",
     "background_badge": "Background task suspended",
     "free_text_disabled": "Please select one of the options.",
+    "quick": {
+      "no_options": "No preset answers this time. Type your reply directly."
+    },
     "card": {
-      "waiting": "The agent is paused until you answer this question.",
       "answer": "Answer now",
       "free_text": "You can type a custom answer."
     }

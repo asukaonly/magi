@@ -129,6 +129,7 @@ class ScenarioLLMPool:
             ("dashscope", ("dashscope.aliyuncs.com", "dashscope-intl.aliyuncs.com")),
             ("glm_codeplan", ("codeplan",)),
             ("glm", ("bigmodel.cn", "z.ai", "glm-", " glm")),
+            ("grok", ("api.x.ai", "x.ai", "grok")),
             ("deepseek", ("deepseek",)),
             ("kimi", ("moonshot", "kimi")),
             ("minimax", ("minimax",)),

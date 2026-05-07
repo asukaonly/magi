@@ -1,18 +1,21 @@
 import { motion } from 'framer-motion';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { Loader2 } from 'lucide-react';
+import { Check, Loader2, ShieldCheck, SlidersHorizontal, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { backgroundTasksApi } from '@/api';
+import { respondPermission } from '@/api/modules/control';
 import { Button } from '@/components/ui/button';
 import { MarkdownBlock } from '@/components/ui/markdown-block';
-import { OPEN_ASK_REQUEST_EVENT, OPEN_PERMISSION_REQUEST_EVENT } from '@/components/control/ui-events';
+import { OPEN_PERMISSION_REQUEST_EVENT } from '@/components/control/ui-events';
+import { isInteractionExpired, remainingInteractionSeconds } from '@/components/control/interaction-expiry';
 import {
   isControlStatusMessage as isControlStatusTimelineMessage,
   projectControlStatusCardPresentation,
 } from '@/domain/chat/presentation';
 import type { ChatTimelineMessage } from '@/domain/chat/state';
+import { useConversationStore } from '@/stores';
 
 type ControlStatusCardProps = {
   message: ChatTimelineMessage;
@@ -40,6 +43,39 @@ type BackgroundTaskPendingPresentation = Extract<
   ReturnType<typeof projectControlStatusCardPresentation>,
   { kind: 'background_task_pending' }
 >;
+
+type PermissionRequestPresentation = Extract<
+  ReturnType<typeof projectControlStatusCardPresentation>,
+  { kind: 'permission_request' }
+>;
+
+const resolveMessageIdentity = (
+  message: ChatTimelineMessage,
+  payloadSessionId: string | null | undefined,
+  currentSessionId: string | null,
+) => ({
+  sessionId: payloadSessionId || currentSessionId,
+  messageId: String(message.messageId || message.id || '').trim(),
+});
+
+const useInteractionNow = (expiresAtMs: number | null | undefined): number => {
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!expiresAtMs) {
+      return () => undefined;
+    }
+    setNowMs(Date.now());
+    const handle = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+    return () => {
+      window.clearInterval(handle);
+    };
+  }, [expiresAtMs]);
+
+  return nowMs;
+};
 
 const BackgroundTaskPendingCard = ({
   message,
@@ -128,6 +164,128 @@ const BackgroundTaskPendingCard = ({
   );
 };
 
+const PermissionRequestCard = ({
+  message,
+  presentation,
+  shouldReduceMotion,
+}: {
+  message: ChatTimelineMessage;
+  presentation: PermissionRequestPresentation;
+  shouldReduceMotion: boolean;
+}) => {
+  const { t } = useTranslation(['control']);
+  const currentSessionId = useConversationStore((state) => state.currentSessionId);
+  const removeMessage = useConversationStore((state) => state.removeMessage);
+  const [submitting, setSubmitting] = useState<'allow' | 'deny' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const nowMs = useInteractionNow(presentation.expiresAtMs);
+  const expired = isInteractionExpired(presentation.expiresAtMs, nowMs);
+  const remainingSeconds = remainingInteractionSeconds(presentation.expiresAtMs, nowMs);
+  const riskLabel = t(`permission.risk_${presentation.riskLevel}`, {
+    defaultValue: presentation.riskLevel || 'pending',
+  });
+  const { sessionId, messageId } = resolveMessageIdentity(
+    message,
+    presentation.sessionId,
+    currentSessionId,
+  );
+
+  const finish = () => {
+    if (sessionId && messageId) {
+      removeMessage(sessionId, messageId);
+    }
+  };
+
+  const submit = async (outcome: 'allow' | 'deny') => {
+    if (!presentation.requestId || expired) return;
+    setSubmitting(outcome);
+    setError(null);
+    try {
+      await respondPermission(presentation.requestId, {
+        outcome,
+        scope: 'one_shot',
+      });
+      finish();
+    } catch (exc: any) {
+      setError(exc?.message ?? String(exc));
+    } finally {
+      setSubmitting(null);
+    }
+  };
+
+  return (
+    <motion.div {...cardMotionProps(shouldReduceMotion)} key={message.id} className="mb-5 flex justify-center">
+      <div className="flex w-[92%] max-w-2xl flex-col gap-3 rounded-lg border border-border/50 bg-background/80 px-4 py-3 shadow-sm">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            {t('permission.title')}
+          </span>
+          <span className={`ml-auto inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${toneClassNameByTone[presentation.riskTone]}`}>
+            {riskLabel}
+          </span>
+        </div>
+        <div className="space-y-1">
+          <div className="break-words text-sm font-semibold text-foreground">{presentation.tool}</div>
+          <p className="m-0 text-sm text-muted-foreground">
+            {expired ? t('permission.expired') : t('permission.card.waiting')}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          {presentation.origin ? <span>{t('permission.origin')}: {presentation.origin}</span> : null}
+          {remainingSeconds !== null ? (
+            <span>{expired ? t('permission.expired') : t('permission.expires_in', { seconds: remainingSeconds })}</span>
+          ) : null}
+        </div>
+        {presentation.argsPreview ? (
+          <pre className="max-h-40 overflow-auto rounded-md bg-muted/50 p-2 text-xs text-muted-foreground">{presentation.argsPreview}</pre>
+        ) : null}
+        {error ? <div className="text-sm text-destructive">{error}</div> : null}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-8 px-2.5 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+            onClick={() => void submit('deny')}
+            disabled={Boolean(submitting) || expired || !presentation.requestId}
+            data-testid="permission-card-deny"
+          >
+            {submitting === 'deny' ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <X className="mr-1.5 h-3 w-3" />}
+            {t('permission.card.deny_once')}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-8 px-2.5 text-xs"
+            onClick={() => {
+              window.dispatchEvent(new CustomEvent(OPEN_PERMISSION_REQUEST_EVENT, {
+                detail: { requestId: presentation.requestId || '' },
+              }));
+            }}
+            disabled={expired || !presentation.requestId}
+          >
+            <SlidersHorizontal className="mr-1.5 h-3 w-3" aria-hidden="true" />
+            {t('permission.card.review')}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            className="h-8 px-2.5 text-xs"
+            onClick={() => void submit('allow')}
+            disabled={Boolean(submitting) || expired || !presentation.requestId}
+            data-testid="permission-card-allow"
+          >
+            {submitting === 'allow' ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <Check className="mr-1.5 h-3 w-3" />}
+            {t('permission.card.allow_once')}
+          </Button>
+        </div>
+      </div>
+    </motion.div>
+  );
+};
+
 export const ControlStatusCard = ({ message, shouldReduceMotion }: ControlStatusCardProps) => {
   const { t } = useTranslation(['app', 'control']);
   const navigate = useNavigate();
@@ -191,95 +349,16 @@ export const ControlStatusCard = ({ message, shouldReduceMotion }: ControlStatus
       );
     }
     case 'permission_request': {
-      const riskLabel = t(`control:permission.risk_${presentation.riskLevel}`, {
-        defaultValue: presentation.riskLevel || 'pending',
-      });
-
       return (
-        <motion.div {...cardMotionProps(shouldReduceMotion)} key={message.id} className="mb-5 flex justify-center">
-          <div className="flex w-full max-w-[75%] flex-col gap-3 rounded-xl border border-border/40 bg-background/60 px-4 py-3 shadow-sm">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                {t('control:permission.title')}
-              </span>
-              <span className={`ml-auto inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${toneClassNameByTone[presentation.riskTone]}`}>
-                {riskLabel}
-              </span>
-            </div>
-            <div className="space-y-1">
-              <div className="text-sm font-semibold text-foreground">{presentation.tool}</div>
-              <p className="m-0 text-sm text-muted-foreground">{t('control:permission.card.waiting')}</p>
-            </div>
-            {presentation.origin ? <div className="text-xs text-muted-foreground">{t('control:permission.origin')}: {presentation.origin}</div> : null}
-            {presentation.argsPreview ? (
-              <pre className="max-h-40 overflow-auto rounded-lg bg-muted/55 p-2 text-xs text-muted-foreground">{presentation.argsPreview}</pre>
-            ) : null}
-            <div className="flex justify-end">
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className="h-7 px-2 text-xs"
-                onClick={() => {
-                  window.dispatchEvent(new CustomEvent(OPEN_PERMISSION_REQUEST_EVENT, {
-                    detail: { requestId: presentation.requestId || '' },
-                  }));
-                }}
-              >
-                {t('control:permission.card.review')}
-              </Button>
-            </div>
-          </div>
-        </motion.div>
+        <PermissionRequestCard
+          message={message}
+          presentation={presentation}
+          shouldReduceMotion={shouldReduceMotion}
+        />
       );
     }
     case 'ask_request': {
-      return (
-        <motion.div {...cardMotionProps(shouldReduceMotion)} key={message.id} className="mb-5 flex justify-center">
-          <div className="flex w-full max-w-[75%] flex-col gap-3 rounded-xl border border-border/40 bg-background/60 px-4 py-3 shadow-sm">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                {t('control:ask.title')}
-              </span>
-              {presentation.isBackground ? (
-                <span className="ml-auto inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                  {t('control:ask.background_badge')}
-                </span>
-              ) : null}
-            </div>
-            <div className="space-y-1">
-              <div className="text-sm font-semibold text-foreground">{presentation.question}</div>
-              <p className="m-0 text-sm text-muted-foreground">{t('control:ask.card.waiting')}</p>
-            </div>
-            {presentation.options.length ? (
-              <div className="flex flex-wrap gap-2">
-                {presentation.options.map((option) => (
-                  <span
-                    key={option}
-                    className="inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-xs text-muted-foreground"
-                  >
-                    {option}
-                  </span>
-                ))}
-              </div>
-            ) : null}
-            <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-              <span>{presentation.allowFreeText ? t('control:ask.card.free_text') : t('control:ask.free_text_disabled')}</span>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className="h-7 px-2 text-xs"
-                onClick={() => {
-                  window.dispatchEvent(new Event(OPEN_ASK_REQUEST_EVENT));
-                }}
-              >
-                {t('control:ask.card.answer')}
-              </Button>
-            </div>
-          </div>
-        </motion.div>
-      );
+      return null;
     }
     case 'plan_state': {
       return (

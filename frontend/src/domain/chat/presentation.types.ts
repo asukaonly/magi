@@ -120,18 +120,23 @@ export type ProjectedControlStatusCardPresentation =
   | {
     kind: 'permission_request';
     requestId: string | null;
+    sessionId: string | null;
     tool: string;
     riskLevel: string;
     riskTone: ControlStatusTone;
     origin: string | null;
     argsPreview: string | null;
+    expiresAtMs: number | null;
   }
   | {
     kind: 'ask_request';
+    requestId: string | null;
+    sessionId: string | null;
     question: string;
     options: string[];
     allowFreeText: boolean;
     isBackground: boolean;
+    expiresAtMs: number | null;
   }
   | {
     kind: 'plan_state';

@@ -12,12 +12,17 @@ block on a human prompt by default.
 from __future__ import annotations
 
 import asyncio
+import uuid
 from contextlib import suppress
 from typing import Any, Dict
 
 from ...agent.control.provider import (
     resolve_control_interaction_broker,
     resolve_control_session_store,
+)
+from ...agent.control.chat_state_persister import (
+    persist_ask_request_message,
+    persist_ask_response_message,
 )
 from ...core.logger import get_logger
 from ...agent.control.common import InteractionTimeoutError
@@ -135,6 +140,7 @@ class AskUserQuestionTool(Tool):
                 error="ask_user_question requires an active session",
             )
 
+        user_id = str(context.env_vars.get("user_id") or "").strip() or None
         intent = str(context.env_vars.get("intent") or "").strip()
         turn_id = str(context.env_vars.get("turn_id") or "").strip() or None
         # Background and scheduled tasks don't have a human waiting on
@@ -196,14 +202,69 @@ class AskUserQuestionTool(Tool):
                 error_code="CANCELLED",
             )
 
-        ask = await store.open_ask(
-            sid,
-            question=question,
-            options=options,
-            allow_free_text=allow_free_text,
-            timeout_seconds=timeout_seconds,
+        request_id = uuid.uuid4().hex
+        answer_task = asyncio.create_task(
+            broker.wait(
+                interaction_id=request_id,
+                kind="ask",
+                timeout_seconds=timeout_seconds,
+            ),
+            name=f"ask-user-question-{request_id}",
         )
+        cancel_task: asyncio.Task[None] | None = None
+        if cancellation is not None:
+            cancel_task = asyncio.create_task(
+                cancellation.wait(),
+                name=f"ask-user-question-cancel-{request_id}",
+            )
+        # Let the waiter enter the broker before the ask becomes externally visible.
+        await asyncio.sleep(0)
+        if cancellation is not None and await cancellation.is_cancelled():
+            answer_task.cancel()
+            if cancel_task is not None:
+                cancel_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await answer_task
+            if cancel_task is not None:
+                with suppress(asyncio.CancelledError):
+                    await cancel_task
+            return ToolResult(
+                success=False,
+                error="run cancelled before answer",
+                error_code="CANCELLED",
+            )
+
+        try:
+            ask = await store.open_ask(
+                sid,
+                question=question,
+                options=options,
+                allow_free_text=allow_free_text,
+                timeout_seconds=timeout_seconds,
+                request_id=request_id,
+            )
+        except Exception:
+            answer_task.cancel()
+            if cancel_task is not None:
+                cancel_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await answer_task
+            if cancel_task is not None:
+                with suppress(asyncio.CancelledError):
+                    await cancel_task
+            raise
+
         is_background = intent.startswith("background")
+        try:
+            await persist_ask_request_message(
+                session_id=sid,
+                user_id=user_id,
+                turn_id=turn_id,
+                ask=ask,
+                background=is_background,
+            )
+        except Exception:
+            logger.debug("ask_user_question.persist_request_failed", exc_info=True)
         # Resolve the owning background task id from the execution
         # agent id when this call originates from BackgroundTaskManager
         # (``execute_with_tools`` sets ``execution_agent_id =
@@ -269,21 +330,6 @@ class AskUserQuestionTool(Tool):
         except Exception:  # pragma: no cover - defensive
             logger.debug("ask_user_question.event_failed", exc_info=True)
 
-        answer_task = asyncio.create_task(
-            broker.wait(
-                interaction_id=ask.request_id,
-                kind="ask",
-                timeout_seconds=timeout_seconds,
-            ),
-            name=f"ask-user-question-{ask.request_id}",
-        )
-        cancel_task: asyncio.Task[None] | None = None
-        if cancellation is not None:
-            cancel_task = asyncio.create_task(
-                cancellation.wait(),
-                name=f"ask-user-question-cancel-{ask.request_id}",
-            )
-
         pending_tasks: set[asyncio.Task[Any]] = {answer_task}
         if cancel_task is not None:
             pending_tasks.add(cancel_task)
@@ -301,7 +347,18 @@ class AskUserQuestionTool(Tool):
                 answer_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await answer_task
-                await store.close_ask(sid, answer=None, resolution="cancelled")
+                closed_ask = await store.close_ask(sid, answer=None, resolution="cancelled")
+                if closed_ask is not None:
+                    try:
+                        await persist_ask_request_message(
+                            session_id=sid,
+                            user_id=user_id,
+                            turn_id=turn_id,
+                            ask=closed_ask,
+                            background=is_background,
+                        )
+                    except Exception:
+                        logger.debug("ask_user_question.persist_cancelled_failed", exc_info=True)
                 if bg_task_id is not None:
                     try:
                         from ...agent.background.provider import (
@@ -333,7 +390,18 @@ class AskUserQuestionTool(Tool):
                     await task
             answer = await answer_task
         except InteractionTimeoutError:
-            await store.close_ask(sid, answer=None, resolution="timeout")
+            closed_ask = await store.close_ask(sid, answer=None, resolution="timeout")
+            if closed_ask is not None:
+                try:
+                    await persist_ask_request_message(
+                        session_id=sid,
+                        user_id=user_id,
+                        turn_id=turn_id,
+                        ask=closed_ask,
+                        background=is_background,
+                    )
+                except Exception:
+                    logger.debug("ask_user_question.persist_timeout_failed", exc_info=True)
             if bg_task_id is not None:
                 try:
                     from ...agent.background.provider import (
@@ -353,7 +421,19 @@ class AskUserQuestionTool(Tool):
             )
 
         answer_text = str(answer) if answer is not None else ""
-        await store.close_ask(sid, answer=answer_text, resolution="user")
+        closed_ask = await store.close_ask(sid, answer=answer_text, resolution="user")
+        if closed_ask is not None:
+            try:
+                await persist_ask_response_message(
+                    session_id=sid,
+                    user_id=user_id,
+                    turn_id=turn_id,
+                    ask=closed_ask,
+                    answer=answer_text,
+                    background=is_background,
+                )
+            except Exception:
+                logger.debug("ask_user_question.persist_response_failed", exc_info=True)
         if bg_task_id is not None:
             try:
                 from ...agent.background.provider import resolve_background_task_manager
