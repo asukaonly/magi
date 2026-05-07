@@ -8,22 +8,14 @@ from typing import Any, Optional
 from ....core.logger import get_logger
 from ....utils.runtime import get_runtime_paths
 from .constants import (
-    AI_RESPONSE_EVENT_TYPES,
     TRACE_NODE_EVENT_TYPES,
-    USER_EVENT_TYPES,
 )
 from .models import (
     ExecutionTraceNode,
 )
 from .runtime_rows import TraceRuntimeRowsMixin
 from .snapshot_builder import TraceSnapshotBuilderMixin
-from .builders.legacy import (
-    build_function_root,
-    build_orchestration_root,
-    build_worker_tool_node,
-)
 from .builders.normalized import (
-    build_normalized_trace_root,
     build_trace_span_node,
     collapse_trace_spans,
     merge_trace_payload,
@@ -230,56 +222,6 @@ class ChatTraceReadService(TraceSnapshotBuilderMixin, TraceRuntimeRowsMixin):
     def _parse_json_value(raw_value: Any) -> Any:
         return parse_json_value(raw_value)
 
-    def _build_orchestration_root(
-        self,
-        *,
-        turn_id: str,
-        events: list[dict[str, Any]],
-        orchestration_id: Optional[str],
-        orchestration_state: Optional[dict[str, Any]],
-        started_at: float,
-        ended_at: float,
-    ) -> Optional[ExecutionTraceNode]:
-        return build_orchestration_root(
-            turn_id=turn_id,
-            events=events,
-            orchestration_id=orchestration_id,
-            orchestration_state=orchestration_state,
-            started_at=started_at,
-            ended_at=ended_at,
-        )
-
-    def _build_function_root(
-        self,
-        *,
-        turn_id: str,
-        events: list[dict[str, Any]],
-        started_at: float,
-        ended_at: float,
-    ) -> Optional[ExecutionTraceNode]:
-        return build_function_root(
-            turn_id=turn_id,
-            events=events,
-            started_at=started_at,
-            ended_at=ended_at,
-        )
-
-    def _build_normalized_trace_root(
-        self,
-        *,
-        turn_id: str,
-        events: list[dict[str, Any]],
-        started_at: float,
-        ended_at: float,
-    ) -> Optional[ExecutionTraceNode]:
-        return build_normalized_trace_root(
-            turn_id=turn_id,
-            events=events,
-            started_at=started_at,
-            ended_at=ended_at,
-            trace_node_event_types=TRACE_NODE_EVENT_TYPES,
-        )
-
     def _collapse_trace_spans(self, events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         return collapse_trace_spans(events, trace_node_event_types=TRACE_NODE_EVENT_TYPES)
 
@@ -312,15 +254,6 @@ class ChatTraceReadService(TraceSnapshotBuilderMixin, TraceRuntimeRowsMixin):
 
     def _tool_event_arguments(self, payload: dict[str, Any]) -> dict[str, Any]:
         return tool_event_arguments(payload)
-
-    def _build_worker_tool_node(
-        self,
-        item: dict[str, Any],
-        *,
-        index: int,
-        turn_id: str,
-    ) -> ExecutionTraceNode:
-        return build_worker_tool_node(item, index=index, turn_id=turn_id)
 
     def _status_from_worker_event(self, event_type: str, payload: dict[str, Any]) -> str:
         return status_from_worker_event(event_type, payload)
