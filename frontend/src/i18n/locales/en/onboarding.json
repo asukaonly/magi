@@ -296,6 +296,19 @@
       "contextWindow": "Context Window",
       "maxOutputTokens": "Max Output",
       "maxConcurrency": "Max Concurrency",
+      "vendor": "Model Vendor",
+      "vendorHint": {
+        "default": "Decides how reasoning / thinking params are sent. Set this explicitly for OneAPI/NewAPI relay models.",
+        "overridden": "Manually overridden. Re-check this if you swap the underlying model."
+      },
+      "vendorOptions": {
+        "generic": "Generic OpenAI-compatible (no vendor extensions)",
+        "openai": "OpenAI / DeepSeek (reasoning_effort)",
+        "anthropic": "Anthropic (thinking budget_tokens)",
+        "glm": "Zhipu GLM (thinking toggle)",
+        "dashscope": "Alibaba DashScope / Bailian (enable_thinking)",
+        "grok": "xAI Grok (no reasoning param)"
+      },
       "dimensions": "Dimensions",
       "dimensionsPlaceholder": "e.g. 1536, 1024",
       "dimensionsHint": "Supported output dimensions, comma-separated. Leave empty to use the model defaults.",

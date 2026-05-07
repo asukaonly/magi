@@ -3,12 +3,14 @@ import {
   type LLMModelMetadataOverride,
   type LLMProviderConfig,
   type LLMProviderRegistry,
+  type ModelVendor,
 } from '@/api/modules/config';
 
 export interface ProviderWorkbenchModelItem {
   id: string;
   label: string;
   source: 'builtin' | 'manual';
+  vendor?: ModelVendor;
   capabilities: {
     vision: boolean;
     image_output: boolean;
@@ -42,6 +44,7 @@ export const buildProviderWorkbenchModels = (
       id: model.id,
       label: model.label || model.id,
       source: model.source,
+      vendor: model.vendor,
       capabilities: {
         vision: model.capabilities.vision,
         image_output: model.capabilities.image_output,

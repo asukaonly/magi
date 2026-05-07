@@ -297,6 +297,19 @@
       "contextWindow": "上下文窗口",
       "maxOutputTokens": "最大输出",
       "maxConcurrency": "最大并发",
+      "vendor": "模型厂商",
+      "vendorHint": {
+        "default": "用于决定 reasoning/thinking 等参数怎么发。中转网关（OneAPI/NewAPI）通常需要按实际模型显式指定。",
+        "overridden": "已手动覆盖。如果换了模型记得回来调整。"
+      },
+      "vendorOptions": {
+        "generic": "通用 OpenAI 兼容（无厂商扩展）",
+        "openai": "OpenAI / DeepSeek（reasoning_effort）",
+        "anthropic": "Anthropic（thinking budget_tokens）",
+        "glm": "智谱 GLM（thinking 开关）",
+        "dashscope": "阿里 DashScope / 百炼（enable_thinking）",
+        "grok": "xAI Grok（无 reasoning 参数）"
+      },
       "dimensions": "向量维度",
       "dimensionsPlaceholder": "例如：1536, 1024",
       "dimensionsHint": "支持的输出维度，用逗号分隔。空值表示使用模型默认维度。",

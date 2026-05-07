@@ -167,10 +167,19 @@ export interface LLMModelCost {
   source_note?: string | null;
 }
 
+export type ModelVendor =
+  | 'openai'
+  | 'anthropic'
+  | 'glm'
+  | 'dashscope'
+  | 'grok'
+  | 'generic';
+
 export interface LLMModelMetadataOverride {
   label?: string | null;
   description?: string | null;
   icon?: string | null;
+  vendor?: ModelVendor | null;
   capabilities?: LLMCapabilityOverrides;
   limits?: LLMLimitsOverride;
   input_modalities?: string[] | null;
@@ -236,6 +245,7 @@ export interface LLMChatCapabilities {
 export interface LLMChatModelMeta {
   id: string;
   label?: string;
+  vendor?: ModelVendor;
   capabilities: LLMChatCapabilities;
   limits: LLMRuntimeLimits;
   cost?: LLMModelCost | null;
