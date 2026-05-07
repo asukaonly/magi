@@ -15,7 +15,6 @@ from ..core.logger import get_logger
 from ..core.sqlite import sqlite_connection_async
 from .plugin_ingress import PluginIngressPersistenceMixin
 from .runtime_status import RuntimeStatusPersistenceMixin
-from .schema import ensure_runtime_trace_schema
 from .trace_records import TraceRecordPersistenceMixin
 
 T = TypeVar("T")
@@ -49,7 +48,6 @@ class RuntimeTraceStore(
 
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
-            await ensure_runtime_trace_schema(db)
             await db.commit()
         self._initialized = True
 
