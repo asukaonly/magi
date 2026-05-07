@@ -40,39 +40,35 @@ class ToolRecommender:
         """
         self.registry = tool_registry
 
-        # Scenario keyword mapping
+        # Scenario keyword mapping. These keywords are intentionally minimal
+        # and act as a coarse pre-filter; fine-grained scoring relies on
+        # ToolSchema metadata (task_intents/domains/operations) declared by
+        # each tool itself.
         self.scenario_keywords = {
             ScenarioType.FILE_OPERATION: [
-                "file", "file", "读取", "read", "写入", "write", "save", "save",
-                "delete", "delete", "list", "list", "directory", "directory", "folder"
+                "file", "read", "write", "save", "delete", "list",
+                "directory", "folder", "读取", "写入",
             ],
             ScenarioType.SYSTEM_COMMAND: [
-                "command", "command", "Execute", "execute", "shell", "bash", "终端",
-                "terminal", "run", "run", "script", "script"
+                "command", "execute", "shell", "bash", "terminal",
+                "run", "script", "终端",
             ],
             ScenarioType.DATA_ANALYSIS: [
-                "analysis", "analyze", "statistics", "statistics", "calculate", "calculate",
-                "data", "data", "process", "process"
+                "analysis", "analyze", "statistics", "calculate",
+                "data", "process",
             ],
             ScenarioType.NETWORK: [
-                "network", "network", "request", "request", "http", "api", "下载",
-                "download", "上传", "upload", "url", "访问", "fetch"
+                "network", "request", "http", "api", "download",
+                "upload", "url", "fetch", "下载", "上传", "访问",
             ],
             ScenarioType.DATABASE: [
-                "database", "database", "query", "query", "sql", "storage", "store",
-                "insert", "insert", "update", "update"
+                "database", "query", "sql", "storage", "store",
+                "insert", "update",
             ],
             ScenarioType.TEXT_PROCESSING: [
-                "文本", "text", "string", "string", "replace", "replace", "匹配",
-                "match", "search", "search", "parse", "parse"
+                "text", "string", "replace", "match", "search",
+                "parse", "文本", "匹配",
             ],
-        }
-
-        # Tool capability mapping
-        self.tool_capabilities = {
-            "file_read": ["读取file", "查看fileContent", "file读取", "read file"],
-            "file_write": ["写入file", "savefile", "createfile", "write file", "save file"],
-            "bash": ["Executecommand", "runscript", "shellcommand", "execute command"],
         }
 
     def classify_scenario(self, intent: str) -> ScenarioType:
@@ -208,13 +204,6 @@ class ToolRecommender:
                 score += 0.05
             elif cost == "high":
                 score -= 0.05
-
-            # 4. Check tool capability mapping
-            if tool_name in self.tool_capabilities:
-                for capability in self.tool_capabilities[tool_name]:
-                    if capability.lower() in intent_lower:
-                        score += 0.3
-                        break
 
             if score > 0:
                 scores.append((tool_name, score))
