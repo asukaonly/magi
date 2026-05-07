@@ -8,7 +8,6 @@ from typing import Any
 
 from ...config.models import EmbeddingBackend
 from ...core.sqlite import sqlite_connection_async
-from .storage.schema import ensure_procedural_memory_schema
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +32,6 @@ class L4ProceduralLifecycleMixin:
 
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         async with sqlite_connection_async(self.db_path) as db:
-            await ensure_procedural_memory_schema(db)
             if self._vector_index is not None:
                 await self._vector_index.initialize()
             await db.commit()
