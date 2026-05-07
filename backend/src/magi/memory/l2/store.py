@@ -74,9 +74,7 @@ class L2CognitionStore(
 
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         async with sqlite_connection_async(self.db_path) as db:
-            await self._seed_default_graph_conflict_rules(db)
             await self._reload_graph_conflict_rules(db)
-            await db.commit()
         self._initialized = True
 
     async def list_graph_conflict_rules(self) -> List[Dict[str, Any]]:

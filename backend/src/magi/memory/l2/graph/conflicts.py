@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import time
 from typing import Any, Mapping
 
 import aiosqlite
@@ -13,7 +11,6 @@ from ..graph_conflicts import (
     DEFAULT_GRAPH_CONFLICT_RULES,
     GraphConflictRule,
     build_exclusive_group_index,
-    build_graph_conflict_matrix,
     iter_opposite_predicates,
 )
 
@@ -125,29 +122,6 @@ class L2StoreGraphConflictMixin:
         if action == "mark_conflicted":
             return "conflicted"
         return "deprecated"
-
-    async def _seed_default_graph_conflict_rules(self, db: aiosqlite.Connection) -> None:
-        now = time.time()
-        seed_rules = build_graph_conflict_matrix(self._seed_graph_conflict_rules)
-        for predicate, rule in seed_rules.items():
-            await db.execute(
-                """
-                INSERT OR IGNORE INTO graph_conflict_rules(
-                    predicate, opposite_predicates, opposite_resolution, exclusive_group,
-                    exclusive_scope, exclusive_resolution, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    predicate,
-                    json.dumps(list(rule.opposite_predicates), ensure_ascii=False),
-                    rule.opposite_resolution,
-                    rule.exclusive_group,
-                    rule.exclusive_scope,
-                    rule.exclusive_resolution,
-                    now,
-                    now,
-                ),
-            )
 
     async def _reload_graph_conflict_rules(self, db: aiosqlite.Connection) -> None:
         db.row_factory = aiosqlite.Row
