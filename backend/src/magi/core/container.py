@@ -22,7 +22,6 @@ if TYPE_CHECKING:
     from ..memory import UnifiedMemoryStore
     from ..memory.hybrid_retrieval import HybridRetrievalService
     from ..scheduler.service import SchedulerService
-    from ..awareness.sensors import UserMessageSensor
     from ..plugins import PluginManager, SensorRegistry
     from ..runtime_trace import RuntimeTraceStore
     from ..awareness.scheduler_contrib import SensorSchedulerContrib
@@ -38,12 +37,6 @@ def _create_chat_trace_read_service():
     """Factory function for ChatTraceReadService."""
     from ..api.services.chat_trace.read_service import ChatTraceReadService
     return ChatTraceReadService()
-
-
-def _create_user_message_sensor():
-    """Factory function for UserMessageSensor."""
-    from ..awareness.sensors import UserMessageSensor
-    return UserMessageSensor()
 
 
 class Container(containers.DeclarativeContainer):
@@ -97,7 +90,6 @@ class Container(containers.DeclarativeContainer):
     chat_trace_read_service: providers.Singleton[ChatTraceReadService] = providers.Singleton(
         _create_chat_trace_read_service
     )
-    user_message_sensor = providers.Singleton(_create_user_message_sensor)
 
 
 # Global container instance
