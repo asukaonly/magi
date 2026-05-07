@@ -10,6 +10,7 @@ from ...context_bundle import ResolvedContextRef
 from ...extraction_profiles import ExtractionProfile
 from ...models import L2AssertionCandidate
 from ...ontology import is_leaf_fact_duplicate, validate_assertion_candidate
+from ...storage.utils import normalize_event_ids
 
 _TOPOLOGY_ONLY_TRAIT_FAMILIES = {"public_sentiment", "group_atmosphere", "relationship_shift"}
 _SEMANTIC_TEMPORAL_SCOPES = {"persistent", "stable", ""}
@@ -82,6 +83,7 @@ class L2AssertionValidationMixin:
                 trait_value = json.dumps(trait_value, ensure_ascii=False, sort_keys=True)
             elif trait_value is None:
                 trait_value = ""
+            trait_value = str(trait_value)[:40]
 
             inference_depth = (
                 host._non_empty_text(getattr(assertion, "inference_depth", ""))
@@ -101,9 +103,9 @@ class L2AssertionValidationMixin:
                     "entity_type": str(getattr(assertion, "entity_type", "user") or "user"),
                     "trait_family": trait_family,
                     "trait_name": str(getattr(assertion, "trait_name", "") or ""),
-                    "trait_value": str(trait_value),
+                    "trait_value": trait_value,
                     "confidence_score": float(getattr(assertion, "confidence", 0.0) or 0.0),
-                    "evidence_events": list(
+                    "evidence_events": normalize_event_ids(
                         getattr(assertion, "supporting_event_ids", None) or default_event_ids
                     ),
                     "volatility_index": volatility_index,
@@ -121,6 +123,7 @@ class L2AssertionValidationMixin:
                     "context_ref_id": "",
                     "expires_at": expires_at,
                     "memory_subdomain": classify_memory_subdomain(temporal_scope, decay_policy),
+                    "natural_summary": str(getattr(assertion, "natural_summary", "") or "")[:500],
                 }
             )
         return prepared, rejected_count
@@ -208,6 +211,7 @@ class L2AssertionValidationMixin:
             trait_value = json.dumps(trait_value, ensure_ascii=False, sort_keys=True)
         elif trait_value is None:
             trait_value = ""
+        trait_value = str(trait_value)[:40]
         self_entity_id = host._resolve_self_entity_id(event)
         entity_ref = host._non_empty_text(candidate.entity_ref)
         if entity_ref and entity_ref.startswith("user:") and self_entity_id:
@@ -226,9 +230,9 @@ class L2AssertionValidationMixin:
             "entity_type": candidate.entity_type or "user",
             "trait_family": candidate.trait_family.casefold(),
             "trait_name": candidate.trait_name,
-            "trait_value": str(trait_value),
+            "trait_value": trait_value,
             "confidence_score": candidate.confidence,
-            "evidence_events": list(
+            "evidence_events": normalize_event_ids(
                 candidate.supporting_event_ids or default_event_ids or [event.event_id]
             ),
             "volatility_index": candidate.volatility_index,
@@ -246,6 +250,7 @@ class L2AssertionValidationMixin:
             "context_ref_id": context_ref_id or "",
             "expires_at": expires_at,
             "memory_subdomain": classify_memory_subdomain(temporal_scope, decay_policy),
+            "natural_summary": str(getattr(candidate, "natural_summary", "") or "")[:500],
         }
 
     def _resolve_assertion_target(

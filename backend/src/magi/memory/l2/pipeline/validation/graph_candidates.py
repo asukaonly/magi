@@ -14,6 +14,7 @@ from ...ontology import (
     is_valid_open_predicate,
     validate_graph_candidate,
 )
+from ...storage.utils import normalize_event_ids
 
 
 class L2GraphCandidateValidationMixin:
@@ -47,8 +48,8 @@ class L2GraphCandidateValidationMixin:
                     else dict(existing)
                 )
                 preferred["evidence_event_ids"] = sorted(
-                    set(existing.get("evidence_event_ids") or []).union(
-                        candidate.get("evidence_event_ids") or []
+                    set(normalize_event_ids(existing.get("evidence_event_ids") or [])).union(
+                        normalize_event_ids(candidate.get("evidence_event_ids") or [])
                     )
                 )
                 preferred["confidence"] = max(
@@ -137,7 +138,9 @@ class L2GraphCandidateValidationMixin:
                     "predicate": predicate,
                     "object_id": object_id,
                     "object_type": object_type,
-                    "evidence_event_ids": list(evidence_event_ids or [event.event_id]),
+                    "evidence_event_ids": normalize_event_ids(
+                        evidence_event_ids or [event.event_id]
+                    ),
                     "confidence": (
                         raw_candidate.confidence * OPEN_PREDICATE_CONFIDENCE_PENALTY
                         if predicate not in PREDICATE_REGISTRY

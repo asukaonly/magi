@@ -158,7 +158,8 @@ Return JSON only:
       "entity_type": "enum",
       "trait_family": "enum from allowed families",
       "trait_name": "string",
-      "trait_value": "string",
+      "trait_value": "short snake_case slug or controlled value, max 40 chars (e.g. 'prefers_chinese_response', 'high', 'engaged')",
+      "natural_summary": "free-form description in user's language, max 500 chars",
       "inference_depth": "topology_only|defensive_psychology",
       "volatility_index": 0.0,
       "confidence": 0.0,
@@ -220,7 +221,7 @@ def render_phase1_extract_prompt(
     for event in event_window.events:
         role = str(event.author_type or "user").upper()
         ts = _format_ts(event.timestamp)
-        parts.append(f"### [{role}] (event: {event.event_id}, {ts})")
+        parts.append(f"### [{role}] [#{event.event_id}] {ts}")
         parts.append(str(event.content).strip())
         parts.append("")
 
@@ -368,7 +369,7 @@ def render_phase2_integrate_prompt(
     parts.append("## Original Messages (for evidence verification)")
     for event in event_window.events:
         role = str(event.author_type or "user").upper()
-        parts.append(f"- [{role}] (event: {event.event_id}) {str(event.content).strip()}")
+        parts.append(f"- [{role}] [#{event.event_id}] {str(event.content).strip()}")
     parts.append("")
 
     return "\n".join(parts)

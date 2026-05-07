@@ -8,6 +8,7 @@ from ....event_contracts import MemoryEvent
 from ...extraction_profiles import ExtractionProfile
 from ...models import StructuredGraphHint
 from ...ontology import validate_graph_candidate
+from ...storage.utils import normalize_event_ids
 from .structured_hint_common import (
     L2StructuredHintHostMixin,
     _STRUCTURED_GRAPH_HINT_DIRECT_FACT_KINDS,
@@ -107,7 +108,9 @@ class L2StructuredGraphHintMixin(L2StructuredHintHostMixin):
                     "object_id": object_id,
                     "object_type": object_type,
                     "fact_kind": fact_kind,
-                    "evidence_event_ids": list(evidence_event_ids or [event.event_id]),
+                    "evidence_event_ids": normalize_event_ids(
+                        evidence_event_ids or [event.event_id]
+                    ),
                     "confidence": float(hint.confidence if hint.confidence is not None else 1.0),
                     "observed_at": event.timestamp,
                     "source_type": event.source,

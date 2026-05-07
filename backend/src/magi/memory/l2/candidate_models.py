@@ -74,6 +74,7 @@ class L2AssertionCandidate:
     trait_family: str = ""
     trait_name: str = ""
     trait_value: Any = ""
+    natural_summary: str = ""
     target_ref: str = ""
     target_entity_id: str = ""
     target_entity_type: str = ""
@@ -95,6 +96,7 @@ class L2AssertionCandidate:
             trait_family=payload.get("trait_family", ""),
             trait_name=payload.get("trait_name", ""),
             trait_value=payload.get("trait_value", ""),
+            natural_summary=str(payload.get("natural_summary", "") or "")[:500],
             target_ref=payload.get("target_ref", ""),
             target_entity_id=payload.get("target_entity_id", ""),
             target_entity_type=payload.get("target_entity_type", ""),

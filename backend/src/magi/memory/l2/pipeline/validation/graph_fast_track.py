@@ -8,6 +8,7 @@ from ....event_contracts import MemoryEvent
 from ...extraction_profiles import ExtractionProfile
 from ...models import L2Phase1Result, ResolvedEntityMention
 from ...ontology import PREDICATE_REGISTRY, validate_graph_candidate
+from ...storage.utils import normalize_event_ids
 
 
 class L2GraphFastTrackMixin:
@@ -111,7 +112,9 @@ class L2GraphFastTrackMixin:
                     "object_id": object_id,
                     "object_type": object_type,
                     "fact_kind": self._non_empty_text(claim.fact_kind) or "explicit_fact",  # type: ignore[attr-defined]
-                    "evidence_event_ids": list(claim.supporting_event_ids or evidence_event_ids),
+                    "evidence_event_ids": normalize_event_ids(
+                        claim.supporting_event_ids or evidence_event_ids
+                    ),
                     "confidence": claim.confidence,
                     "observed_at": event.timestamp,
                     "source_type": event.source,

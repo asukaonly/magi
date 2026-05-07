@@ -6,6 +6,10 @@ import time
 from typing import Any, Dict, Optional
 
 from ..storage.utils import MOMENTARY_TRAITS as _MOMENTARY_TRAITS
+from .state_machine import (
+    _TEMPORARY_STATE_TRAITS,
+    derive_validation_state as _derive_validation_state,
+)
 
 
 class L2ReconcileStateMixin:
@@ -64,7 +68,7 @@ class L2ReconcileStateMixin:
         current_time = float(now if now is not None else time.time())
         return float(expires_at) <= current_time
 
-    _TEMPORARY_STATE_TRAITS = frozenset({"stress_level", "mood", "engagement"})
+    _TEMPORARY_STATE_TRAITS = _TEMPORARY_STATE_TRAITS
 
     def _derive_reconcile_state(
         self,
@@ -76,32 +80,14 @@ class L2ReconcileStateMixin:
         trait_name: str,
         user_feedback: Optional[str] = None,
     ) -> tuple[str, float, str]:
-        is_temporary = trait_name in self._TEMPORARY_STATE_TRAITS
-
-        if user_feedback == "rejected":
-            return ("user_rejected", 0.10, "volatile_pattern")
-
-        if user_feedback == "confirmed":
-            stability_kind = "temporary_state" if is_temporary else "stable_trait"
-            return ("stable", max(current_confidence, 0.85), stability_kind)
-
-        if current_state == "contradicted":
-            return ("contradicted", min(current_confidence, 0.35), "volatile_pattern")
-
-        if is_temporary:
-            if evidence_count >= 3 and time_span_hours >= 24.0:
-                return ("stable", max(current_confidence, 0.82), "temporary_state")
-            if evidence_count >= 1:
-                return ("corroborated", max(current_confidence, 0.50), "temporary_state")
-
-        if evidence_count >= 3 and time_span_hours >= 24.0:
-            stability_kind = "stable_trait"
-            return ("stable", max(current_confidence, 0.82), stability_kind)
-
-        if evidence_count >= 2:
-            return ("corroborated", max(current_confidence, 0.58), "volatile_pattern")
-
-        return ("tentative", min(current_confidence, 0.3), "volatile_pattern")
+        return _derive_validation_state(
+            current_state=current_state,
+            current_confidence=current_confidence,
+            evidence_count=evidence_count,
+            time_span_hours=time_span_hours,
+            trait_name=trait_name,
+            user_feedback=user_feedback,
+        )
 
     def _recommend_snapshot_field(self, *, trait_name: str, status: str) -> str:
         if status not in {"stable", "corroborated"}:

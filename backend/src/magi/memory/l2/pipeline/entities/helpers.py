@@ -186,7 +186,14 @@ class L2EntityResolutionHelperMixin:
 
     def _resolve_self_entity_id(self, event: MemoryEvent) -> str | None:
         if event.user_id:
-            return f"user:{event.user_id}"
+            raw = str(event.user_id).strip()
+            if not raw:
+                return None
+            # Channel-scoped author ids (e.g. "channel_weixin_xxx") collapse to the
+            # canonical local user so snapshots/assertions don't fragment per channel.
+            if raw == "self" or raw.startswith("channel_"):
+                return "user:local_user"
+            return f"user:{raw}"
         return None
 
     def _entity_helper_host(self) -> _EntityResolutionHelperHostProtocol:

@@ -18,6 +18,7 @@ from ...ontology import (
     is_valid_open_predicate,
     validate_graph_candidate,
 )
+from ...storage.utils import normalize_event_ids
 
 
 class L2Phase2GraphValidationMixin:
@@ -46,7 +47,9 @@ class L2Phase2GraphValidationMixin:
                 corroborate_targets.append(
                     {
                         "triple_id": edge.related_existing_triple_id,
-                        "evidence_event_ids": list(edge.supporting_event_ids or evidence_event_ids),
+                        "evidence_event_ids": normalize_event_ids(
+                            edge.supporting_event_ids or evidence_event_ids
+                        ),
                         "new_confidence": edge.confidence,
                         "observed_at": event.timestamp,
                         "evidence_text": edge.evidence_text or "",
@@ -103,7 +106,9 @@ class L2Phase2GraphValidationMixin:
                     "object_id": object_id,
                     "object_type": object_type,
                     "fact_kind": self._non_empty_text(edge.fact_kind) or "explicit_fact",  # type: ignore[attr-defined]
-                    "evidence_event_ids": list(edge.supporting_event_ids or evidence_event_ids),
+                    "evidence_event_ids": normalize_event_ids(
+                        edge.supporting_event_ids or evidence_event_ids
+                    ),
                     "confidence": (
                         edge.confidence * OPEN_PREDICATE_CONFIDENCE_PENALTY
                         if predicate not in PREDICATE_REGISTRY

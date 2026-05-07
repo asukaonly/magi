@@ -2,9 +2,29 @@
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Iterable, cast
 
 from ..ontology import coerce_unknown_entity_type
+
+
+_EVENT_ID_PREFIXES = ("event:", "event :", "#")
+
+
+def normalize_event_ids(items: Iterable[object] | None) -> list[str]:
+    """Strip ``event:``/``#`` decoration that LLMs sometimes copy from prompts."""
+    if not items:
+        return []
+    out: list[str] = []
+    for raw in items:
+        s = str(raw).strip()
+        lowered = s.lower()
+        for prefix in _EVENT_ID_PREFIXES:
+            if lowered.startswith(prefix):
+                s = s[len(prefix):].strip()
+                break
+        if s:
+            out.append(s)
+    return out
 
 
 STRESS_KEYWORDS = ("stress", "stressed", "anxious", "anxiety", "pressure")

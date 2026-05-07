@@ -6,6 +6,7 @@ from typing import Any
 
 from ....event_contracts import MemoryEvent
 from ...models import StructuredGraphHint
+from ...storage.utils import normalize_event_ids
 from .structured_hint_common import (
     L2StructuredHintHostMixin,
     _STRUCTURED_GRAPH_HINT_DIRECT_ORIGIN_MODES,
@@ -56,7 +57,9 @@ class L2StructuredFacetHintMixin(L2StructuredHintHostMixin):
                         "entity_type": subject_type,
                         "facet_name": facet_name,
                         "facet_value": facet_value,
-                        "evidence_event_ids": list(evidence_event_ids or [event.event_id]),
+                        "evidence_event_ids": normalize_event_ids(
+                            evidence_event_ids or [event.event_id]
+                        ),
                         "confidence": float(
                             hint.confidence if hint.confidence is not None else 1.0
                         ),

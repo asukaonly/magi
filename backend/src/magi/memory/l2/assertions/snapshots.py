@@ -9,13 +9,11 @@ import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
 from .snapshot_assembly import L2SnapshotAssemblyMixin
-from .snapshot_materialization import L2SnapshotMaterializationMixin
 from .snapshot_persistence import L2SnapshotPersistenceMixin
 from .snapshot_protocols import _SnapshotHostProtocol
 
 
 class L2StoreSnapshotMixin(
-    L2SnapshotMaterializationMixin,
     L2SnapshotAssemblyMixin,
     L2SnapshotPersistenceMixin,
 ):
@@ -95,7 +93,6 @@ class L2StoreSnapshotMixin(
 
 __all__ = [
     "L2StoreSnapshotMixin",
-    "L2SnapshotMaterializationMixin",
     "L2SnapshotAssemblyMixin",
     "L2SnapshotPersistenceMixin",
     "_SnapshotHostProtocol",

@@ -9,6 +9,7 @@ from ...event_contracts import MemoryEvent
 from ..evidence_classifier import classify_event_evidence
 from ..evidence_policy import resolve_l2_policy
 from ..extraction_profiles import resolve_extraction_profile
+from ..storage.utils import normalize_event_ids
 from ..models import (
     L2BatchJob,
     L2ConflictArbitrationResult,
@@ -91,7 +92,9 @@ class L2PipelineExtractionMixin:
             }
 
         stored_event, classification, policy = eligible_events[-1]
-        batch_event_ids = [item.event_id for item, _, _ in eligible_events]
+        batch_event_ids = normalize_event_ids(
+            [item.event_id for item, _, _ in eligible_events]
+        )
         if not policy.allow_graph_write and not policy.allow_assertion_write:
             if policy.skip_reason:
                 self._increment_bucket(self._stats.skip_by_reason, policy.skip_reason)

@@ -95,11 +95,15 @@ L2_COGNITION_SCHEMA_SQL = """
                     superseded_at REAL,
                     privacy_scope TEXT NOT NULL DEFAULT 'private',
                     memory_subdomain TEXT NOT NULL DEFAULT 'state',
+                    natural_summary TEXT NOT NULL DEFAULT '',
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_tom_assertions_entity_updated
                     ON tom_trait_assertions(entity_id, entity_type, updated_at DESC);
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_tom_assertions_active_unique
+                    ON tom_trait_assertions(entity_id, entity_type, trait_name, target_entity_id)
+                    WHERE status NOT IN ('superseded', 'archived', 'expired', 'user_rejected');
 
                 CREATE TABLE IF NOT EXISTS tom_snapshots (
                     snapshot_id TEXT PRIMARY KEY,

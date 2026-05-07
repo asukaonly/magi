@@ -91,6 +91,7 @@ class L2Phase2AssertionCandidate:
     trait_family: str = ""
     trait_name: str = ""
     trait_value: str = ""
+    natural_summary: str = ""
     inference_depth: str = "topology_only"
     volatility_index: float = 0.5
     confidence: float = 0.0
@@ -104,7 +105,8 @@ class L2Phase2AssertionCandidate:
             entity_type=payload.get("entity_type", "user"),
             trait_family=payload.get("trait_family", ""),
             trait_name=payload.get("trait_name", ""),
-            trait_value=str(payload.get("trait_value", "")),
+            trait_value=str(payload.get("trait_value", ""))[:40],
+            natural_summary=str(payload.get("natural_summary", "") or "")[:500],
             inference_depth=payload.get("inference_depth", "topology_only"),
             volatility_index=payload.get("volatility_index", 0.5),
             confidence=payload.get("confidence", 0.0),

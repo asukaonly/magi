@@ -14,6 +14,7 @@ from ...models import (
     ResolvedEntityMention,
 )
 from .id_resolution import L2EntityIdResolutionMixin
+from ...storage.utils import normalize_event_ids
 
 if TYPE_CHECKING:
     from ...entities.catalog import L2EntityCatalog
@@ -272,7 +273,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
                 mention_text=mention_text,
                 normalized_surface=normalized_surface,
                 entity_type=entity_type,
-                evidence_event_ids=list(evidence_event_ids),
+                evidence_event_ids=normalize_event_ids(evidence_event_ids),
                 evidence_text=mention_text,
                 resolved_entity_id=resolved_entity_id,
                 confidence=resolved_confidence,
@@ -323,7 +324,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
                 mention_text=mention_text,
                 normalized_surface=normalized_surface,
                 entity_type=entity_type,
-                evidence_event_ids=list(evidence_event_ids or [event.event_id]),
+                evidence_event_ids=normalize_event_ids(evidence_event_ids or [event.event_id]),
                 evidence_text=evidence_text,
                 resolved_entity_id=resolved_entity_id,
                 confidence=resolved_confidence,

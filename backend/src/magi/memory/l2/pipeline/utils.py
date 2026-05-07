@@ -7,6 +7,7 @@ import uuid
 from typing import Any, Optional, cast
 
 from ..ontology import coerce_unknown_entity_type
+from ..ontology_aliases import canonicalize_predicate
 
 _GENERIC_PREFERENCE_OBJECT_SUFFIXES = {
     "weather",
@@ -33,7 +34,9 @@ class L2PipelineUtilityMixin:
 
     def _normalize_predicate(self, raw_value: Any) -> Optional[str]:
         text = self._non_empty_text(raw_value)
-        return text.upper() if text else None
+        if not text:
+            return None
+        return canonicalize_predicate(text)
 
     def _normalize_structured_graph_hint_origin_mode(self, raw_value: Any) -> str:
         return str(self._non_empty_text(raw_value) or "source_structured").casefold()
