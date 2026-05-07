@@ -24,7 +24,6 @@ from .growth_models import (
     RelationshipProfile,
 )
 from .growth_relationships import GrowthRelationshipMixin
-from .growth_schema import ensure_growth_memory_schema
 
 logger = logging.getLogger(__name__)
 
@@ -60,9 +59,6 @@ class GrowthMemoryEngine(GrowthRelationshipMixin):
     async def init(self):
         """initializedatabase"""
         Path(self._expanded_db_path).parent.mkdir(parents=True, exist_ok=True)
-
-        async with sqlite_connection_async(self._expanded_db_path) as db:
-            await ensure_growth_memory_schema(db)
 
     # Internal note.
 
