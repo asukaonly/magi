@@ -286,6 +286,9 @@ CREATE INDEX IF NOT EXISTS idx_l2_projection_jobs_status_created
 CREATE INDEX IF NOT EXISTS idx_l2_projection_jobs_owner_status_created
     ON l2_projection_jobs(batch_owner, status, created_at ASC);
 
+CREATE INDEX IF NOT EXISTS idx_l2_projection_jobs_catch_up_owner_status_created
+    ON l2_projection_jobs(catch_up_owner, status, created_at ASC);
+
 CREATE TABLE IF NOT EXISTS episodes (
     episode_id TEXT PRIMARY KEY,
     episode_type TEXT NOT NULL DEFAULT 'activity',
@@ -501,9 +504,62 @@ CREATE INDEX IF NOT EXISTS idx_l4_traces_skill
     ON l4_execution_traces(skill_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_l4_traces_turn
     ON l4_execution_traces(turn_id, created_at ASC);
+
+-- L2 Entity Catalog
+CREATE TABLE IF NOT EXISTS entity_catalog (
+    entity_id TEXT PRIMARY KEY,
+    canonical_name TEXT NOT NULL,
+    entity_type TEXT NOT NULL,
+    embedding_status TEXT NOT NULL DEFAULT 'disabled',
+    embedding_profile_id TEXT,
+    last_embedded_at REAL,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_entity_catalog_type ON entity_catalog(entity_type);
+
+CREATE TABLE IF NOT EXISTS entity_aliases (
+    alias_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity_id TEXT NOT NULL,
+    alias_text TEXT NOT NULL,
+    normalized_alias TEXT NOT NULL,
+    confidence REAL NOT NULL DEFAULT 1.0,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    UNIQUE(entity_id, normalized_alias),
+    FOREIGN KEY(entity_id) REFERENCES entity_catalog(entity_id)
+);
+CREATE INDEX IF NOT EXISTS idx_entity_aliases_lookup ON entity_aliases(normalized_alias, confidence DESC);
+
+CREATE TABLE IF NOT EXISTS entity_mentions (
+    mention_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    mention_text TEXT NOT NULL,
+    normalized_surface TEXT NOT NULL,
+    entity_type TEXT,
+    evidence_event_ids TEXT NOT NULL,
+    evidence_text TEXT,
+    resolved_entity_id TEXT,
+    confidence REAL,
+    created_at REAL NOT NULL,
+    FOREIGN KEY(resolved_entity_id) REFERENCES entity_catalog(entity_id)
+);
+CREATE INDEX IF NOT EXISTS idx_entity_mentions_entity ON entity_mentions(resolved_entity_id);
+
+-- L2 episodes FTS5 (text search over episode label/summary)
+CREATE VIRTUAL TABLE IF NOT EXISTS episodes_fts USING fts5(
+    episode_id,
+    summary,
+    label,
+    user_label
+);
 """
 
 DROP_SQL = """
+-- L2 Entity Catalog
+DROP TABLE IF EXISTS entity_mentions;
+DROP TABLE IF EXISTS entity_aliases;
+DROP TABLE IF EXISTS entity_catalog;
+DROP TABLE IF EXISTS episodes_fts;
 -- L4
 DROP TABLE IF EXISTS l4_execution_traces;
 DROP TABLE IF EXISTS l4_skills_fts;

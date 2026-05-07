@@ -24,42 +24,8 @@ class LLMUsageStore:
         self._db_path = Path(db_path or runtime_paths.llm_usage_db_path)
 
     async def initialize(self) -> None:
-        """Ensure the usage table exists."""
+        """Ensure parent directory exists; schema is alembic-managed."""
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        async with sqlite_connection_async(str(self._db_path), profile="mixed") as db:
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS llm_usage (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    request_id TEXT NOT NULL,
-                    provider TEXT NOT NULL,
-                    model TEXT NOT NULL,
-                    request_kind TEXT NOT NULL,
-                    prompt_tokens INTEGER NOT NULL DEFAULT 0,
-                    completion_tokens INTEGER NOT NULL DEFAULT 0,
-                    total_tokens INTEGER NOT NULL DEFAULT 0,
-                    usage_available INTEGER NOT NULL DEFAULT 0,
-                    latency_ms INTEGER NOT NULL DEFAULT 0,
-                    ttft_ms INTEGER NOT NULL DEFAULT 0,
-                    cost_usd REAL NOT NULL DEFAULT 0,
-                    success INTEGER NOT NULL DEFAULT 1,
-                    error TEXT,
-                    correlation_id TEXT,
-                    session_id TEXT,
-                    turn_id TEXT,
-                    agent_id TEXT,
-                    created_at REAL NOT NULL
-                )
-            """)
-            await db.execute(
-                "CREATE INDEX IF NOT EXISTS idx_llm_usage_created_at ON llm_usage(created_at)"
-            )
-            await db.execute(
-                "CREATE INDEX IF NOT EXISTS idx_llm_usage_provider_model ON llm_usage(provider, model)"
-            )
-            await db.execute(
-                "CREATE INDEX IF NOT EXISTS idx_llm_usage_request_kind ON llm_usage(request_kind)"
-            )
-            await db.commit()
 
     async def start(self) -> None:
         """Initialize storage. Subscription is wired by LLMUsageSubscriberModule."""

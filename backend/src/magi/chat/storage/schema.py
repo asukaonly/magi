@@ -124,4 +124,5 @@ CREATE INDEX IF NOT EXISTS idx_chat_context_summaries_frontier
 
 
 async def ensure_chat_store_schema(db: aiosqlite.Connection) -> None:
-    await db.executescript(CHAT_STORE_SCHEMA_SQL)
+    """No-op kept for compatibility — schema is alembic-managed."""
+    return None

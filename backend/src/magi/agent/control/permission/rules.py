@@ -58,25 +58,6 @@ class PermissionRuleStore:
             return
         if self._db_path:
             Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
-            async with sqlite_connection_async(
-                self._db_path, profile="hot_write"
-            ) as db:
-                await db.executescript(
-                    """
-                    CREATE TABLE IF NOT EXISTS permission_rules (
-                        rule_id TEXT PRIMARY KEY,
-                        tool_name TEXT NOT NULL,
-                        scope TEXT NOT NULL,
-                        matcher_json TEXT NOT NULL,
-                        allow INTEGER NOT NULL,
-                        note TEXT,
-                        created_at REAL NOT NULL
-                    );
-                    CREATE INDEX IF NOT EXISTS idx_perm_rules_tool
-                        ON permission_rules(tool_name);
-                    """
-                )
-                await db.commit()
             await self._reload_persistent()
         self._initialized = True
 

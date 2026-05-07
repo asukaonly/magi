@@ -63,9 +63,8 @@ class SqliteSensorStateStore:
     async def _ensure_schema(self) -> None:
         if self._initialized:
             return
-        async with sqlite_connection_async(self._db_path) as db:
-            await db.executescript(_SCHEMA_SQL)
-            await db.commit()
+        # Schema is alembic-managed (magi.db.migrations.sensor_state).
+        self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._initialized = True
 
     async def get_cursor(self, sensor_id: str) -> str | None:

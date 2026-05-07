@@ -165,4 +165,5 @@ CREATE INDEX IF NOT EXISTS idx_plugin_ingress_events_target_type_status
 
 
 async def ensure_runtime_trace_schema(db: aiosqlite.Connection) -> None:
-    await db.executescript(RUNTIME_TRACE_SCHEMA_SQL)
+    """No-op kept for compatibility — schema is alembic-managed."""
+    return None

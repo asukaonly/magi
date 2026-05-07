@@ -31,7 +31,6 @@ from .graph.writes import L2StoreGraphWriteMixin
 from .projection.jobs import L2ProjectionJobStoreMixin
 from .retrieval.queries import L2StoreQueryMixin
 from .storage.rows import L2StoreRowMappingMixin
-from .storage.schema import L2_COGNITION_SCHEMA_SQL
 
 logger = get_logger(__name__)
 
@@ -69,26 +68,12 @@ class L2CognitionStore(
         self._exclusive_group_index = build_exclusive_group_index(self._graph_conflict_rules)
 
     async def initialize(self) -> None:
-        """Create the cognition schema."""
+        """Verify cognition schema (alembic-managed) is reachable."""
         if self._initialized:
             return
 
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         async with sqlite_connection_async(self.db_path) as db:
-            await db.executescript(L2_COGNITION_SCHEMA_SQL)
-            # FTS for episode text search — stores its own content copy.
-            await db.execute(
-                """
-                CREATE VIRTUAL TABLE IF NOT EXISTS episodes_fts
-                USING fts5(episode_id, summary, label, user_label)
-                """
-            )
-            await db.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_l2_projection_jobs_catch_up_owner_status_created
-                    ON l2_projection_jobs(catch_up_owner, status, created_at ASC)
-                """
-            )
             await self._seed_default_graph_conflict_rules(db)
             await self._reload_graph_conflict_rules(db)
             await db.commit()

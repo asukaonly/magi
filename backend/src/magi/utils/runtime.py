@@ -228,6 +228,16 @@ class RuntimePaths:
         return self.runtime_dir / "background_tasks.db"
 
     @property
+    def permission_rules_db_path(self) -> Path:
+        """Permission rules database path."""
+        return self.runtime_dir / "permission_rules.db"
+
+    @property
+    def channels_db_path(self) -> Path:
+        """Channel session mapping database path."""
+        return self.data_dir / "channels" / "channels.db"
+
+    @property
     def task_orchestrations_path(self) -> Path:
         """Task-orchestration recovery store path."""
         return self.runtime_dir / "task_orchestrations.json"

@@ -9,15 +9,11 @@ from pathlib import Path
 from typing import Any
 
 from ...config.models import EmbeddingBackend
-from ...core.sqlite import sqlite_connection_async
 from ..embedding.embedding_service import MemoryEmbeddingService
 from ..embedding.sqlite_vec_index import SqliteVecIndex
 from ..event_contracts import MemoryEvent
-from .chat_sessions import ensure_chat_sessions_schema_async
 from .embeddings.common import (
-    EMBEDDING_PROFILES_TABLE,
     EMBEDDING_TEXT_BUILDER_VERSION,
-    EVENT_CHUNKS_TABLE,
 )
 
 EMBEDDING_QUEUE_MAXSIZE = 512
@@ -41,119 +37,13 @@ class L1EventLifecycleMixin:
     _vector_index: SqliteVecIndex | None
 
     async def initialize(self) -> None:
-        """Create the canonical L1 schema."""
+        """Verify L1 schema (alembic-managed) and start embedding workers."""
         if self._initialized:
             return
 
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
-            await db.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS fact_events (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    event_id TEXT NOT NULL UNIQUE,
-                    correlation_id TEXT NOT NULL,
-                    timestamp REAL NOT NULL,
-                    created_at REAL NOT NULL,
-                    event_type TEXT NOT NULL,
-                    source TEXT NOT NULL,
-                    source_item_id TEXT,
-                    idempotency_key TEXT,
-                    memory_domain INTEGER NOT NULL,
-                    ingest_target INTEGER NOT NULL,
-                    cognition_eligible INTEGER NOT NULL DEFAULT 0,
-                    tom_depth INTEGER NOT NULL DEFAULT 1,
-                    retention_class INTEGER NOT NULL DEFAULT 2,
-                    session_id TEXT,
-                    turn_id TEXT,
-                    user_id TEXT,
-                    task_id TEXT,
-                    content TEXT NOT NULL,
-                    author_type TEXT NOT NULL,
-                    content_type TEXT NOT NULL,
-                    importance_score REAL NOT NULL DEFAULT 0.5,
-                    level INTEGER NOT NULL DEFAULT 1,
-                    media_path TEXT,
-                    metadata_json TEXT,
-                    embedding_status TEXT NOT NULL DEFAULT 'disabled',
-                    embedding_profile_id TEXT,
-                    embedding_chunk_count INTEGER NOT NULL DEFAULT 0,
-                    last_embedded_at REAL,
-                    causation_id TEXT,
-                    trace_id TEXT,
-                    span_id TEXT,
-                    parent_span_id TEXT,
-                    deleted_at REAL
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_fact_events_timestamp ON fact_events(timestamp);
-                CREATE INDEX IF NOT EXISTS idx_fact_events_type ON fact_events(event_type);
-                CREATE INDEX IF NOT EXISTS idx_fact_events_source ON fact_events(source);
-                CREATE INDEX IF NOT EXISTS idx_fact_events_idempotency_key ON fact_events(idempotency_key);
-                CREATE INDEX IF NOT EXISTS idx_fact_events_domain ON fact_events(memory_domain);
-                CREATE INDEX IF NOT EXISTS idx_fact_events_session ON fact_events(session_id);
-                CREATE INDEX IF NOT EXISTS idx_fact_events_turn ON fact_events(turn_id);
-                CREATE INDEX IF NOT EXISTS idx_fact_events_user ON fact_events(user_id);
-                CREATE INDEX IF NOT EXISTS idx_fact_events_importance ON fact_events(importance_score DESC);
-                CREATE INDEX IF NOT EXISTS idx_fact_events_retention ON fact_events(retention_class);
-                CREATE INDEX IF NOT EXISTS idx_fact_events_trace ON fact_events(trace_id);
-                CREATE INDEX IF NOT EXISTS idx_fact_events_causation ON fact_events(causation_id);
-                CREATE INDEX IF NOT EXISTS idx_fact_events_embedding_status ON fact_events(embedding_status);
-                CREATE INDEX IF NOT EXISTS idx_fact_events_embedding_profile ON fact_events(embedding_profile_id);
-                CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_events_business_idempotency
-                    ON fact_events(source, event_type, idempotency_key);
-                CREATE TABLE IF NOT EXISTS embedding_profiles (
-                    profile_id TEXT PRIMARY KEY,
-                    provider_name TEXT NOT NULL,
-                    model_name TEXT NOT NULL,
-                    embedding_dim INTEGER,
-                    text_builder_version TEXT NOT NULL,
-                    created_at REAL NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS l1_event_chunks (
-                    chunk_id TEXT PRIMARY KEY,
-                    event_id TEXT NOT NULL,
-                    chunk_index INTEGER NOT NULL,
-                    chunk_text TEXT NOT NULL,
-                    char_start INTEGER NOT NULL,
-                    char_end INTEGER NOT NULL,
-                    token_estimate INTEGER NOT NULL,
-                    embedding_profile_id TEXT,
-                    created_at REAL NOT NULL,
-                    updated_at REAL NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_l1_event_chunks_event ON l1_event_chunks(event_id, chunk_index);
-
-                CREATE VIRTUAL TABLE IF NOT EXISTS l1_events_fts USING fts5(
-                    event_id UNINDEXED,
-                    content,
-                    tokenize='unicode61'
-                );
-                """
-            )
-            await db.execute(
-                """CREATE TABLE IF NOT EXISTS l1_event_entities (
-                    event_id TEXT NOT NULL,
-                    entity_id TEXT NOT NULL,
-                    entity_type TEXT,
-                    confidence REAL,
-                    created_at REAL NOT NULL,
-                    UNIQUE(event_id, entity_id)
-                )"""
-            )
-            await db.execute(
-                "CREATE INDEX IF NOT EXISTS idx_l1_event_entities_event"
-                " ON l1_event_entities(event_id)"
-            )
-            await db.execute(
-                "CREATE INDEX IF NOT EXISTS idx_l1_event_entities_entity"
-                " ON l1_event_entities(entity_id)"
-            )
-            await ensure_chat_sessions_schema_async(db)
-            if self._vector_index is not None:
-                await self._vector_index.initialize()
-            await db.commit()
+        if self._vector_index is not None:
+            await self._vector_index.initialize()
 
         if self._embedding_queue is not None and not self._embedding_workers:
             self._embedding_workers = [

@@ -10,31 +10,6 @@ import aiosqlite
 
 CHAT_SESSIONS_TABLE = "chat_sessions"
 
-CHAT_SESSIONS_SCHEMA_SQL = f"""
-CREATE TABLE IF NOT EXISTS {CHAT_SESSIONS_TABLE} (
-    session_id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    title TEXT NOT NULL,
-    title_overridden INTEGER NOT NULL DEFAULT 0,
-    summary TEXT NOT NULL DEFAULT '',
-    created_at REAL NOT NULL,
-    updated_at REAL NOT NULL,
-    last_message_at REAL,
-    last_user_message_at REAL,
-    last_message_preview TEXT NOT NULL DEFAULT '',
-    last_user_message_preview TEXT NOT NULL DEFAULT '',
-    message_count INTEGER NOT NULL DEFAULT 0,
-    workspace_path TEXT,
-    archived_at REAL,
-    deleted_at REAL
-);
-
-CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_updated
-    ON {CHAT_SESSIONS_TABLE}(user_id, deleted_at, archived_at, updated_at DESC);
-CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_last_message
-    ON {CHAT_SESSIONS_TABLE}(user_id, last_message_at DESC);
-"""
-
 
 @dataclass(slots=True)
 class ChatSessionRecord:
@@ -55,12 +30,6 @@ class ChatSessionRecord:
     archived_at: float | None
     deleted_at: float | None
     workspace_path: str | None = None
-
-
-async def ensure_chat_sessions_schema_async(db: aiosqlite.Connection) -> None:
-    """Create the canonical chat session schema for an async connection."""
-
-    await db.executescript(CHAT_SESSIONS_SCHEMA_SQL)
 
 
 def create_chat_session_record(

@@ -1,0 +1,74 @@
+"""background_tasks baseline schema
+
+Revision ID: 0001_initial
+Revises:
+Create Date: 2026-05-07
+"""
+from __future__ import annotations
+
+from alembic import op
+
+
+revision = "0001_initial"
+down_revision = None
+branch_labels = None
+depends_on = None
+
+
+SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS background_tasks (
+    task_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    origin_turn_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    goal TEXT NOT NULL,
+    status TEXT NOT NULL,
+    attempt_index INTEGER NOT NULL DEFAULT 0,
+    spec_json TEXT NOT NULL,
+    orchestration_id TEXT,
+    user_task_id TEXT,
+    summary TEXT,
+    result_payload_json TEXT NOT NULL DEFAULT '{}',
+    error TEXT,
+    cancel_reason TEXT,
+    created_at REAL NOT NULL,
+    started_at REAL,
+    finished_at REAL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_bg_tasks_user_status
+    ON background_tasks(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_bg_tasks_session
+    ON background_tasks(session_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_bg_tasks_status_created
+    ON background_tasks(status, created_at);
+
+CREATE TABLE IF NOT EXISTS background_task_events (
+    event_id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    attempt_index INTEGER NOT NULL,
+    event_type TEXT NOT NULL,
+    from_status TEXT,
+    to_status TEXT,
+    message TEXT NOT NULL DEFAULT '',
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    created_at REAL NOT NULL,
+    FOREIGN KEY (task_id) REFERENCES background_tasks(task_id)
+);
+CREATE INDEX IF NOT EXISTS idx_bg_events_task_created
+    ON background_task_events(task_id, created_at);
+"""
+
+
+def upgrade() -> None:
+    op.get_bind().connection.executescript(SCHEMA_SQL)
+
+
+def downgrade() -> None:
+    op.get_bind().connection.executescript(
+        """
+        DROP TABLE IF EXISTS background_task_events;
+        DROP TABLE IF EXISTS background_tasks;
+        """
+    )

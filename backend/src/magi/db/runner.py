@@ -55,6 +55,24 @@ MIGRATION_TARGETS: tuple[MigrationTarget, ...] = (
         name="persona_registry",
         db_path=lambda rp: rp.persona_registry_db_path,
     ),
+    MigrationTarget(name="behavior_evolution", db_path=lambda rp: rp.behavior_db_path),
+    MigrationTarget(name="emotional", db_path=lambda rp: rp.emotional_db_path),
+    MigrationTarget(name="growth_memory", db_path=lambda rp: rp.growth_db_path),
+    MigrationTarget(name="scheduler", db_path=lambda rp: rp.scheduler_db_path),
+    MigrationTarget(name="sensor_state", db_path=lambda rp: rp.sensor_state_db_path),
+    MigrationTarget(
+        name="background_tasks",
+        db_path=lambda rp: rp.background_tasks_db_path,
+    ),
+    MigrationTarget(
+        name="message_queue",
+        db_path=lambda rp: rp.message_queue_db_path,
+    ),
+    MigrationTarget(
+        name="permission_rules",
+        db_path=lambda rp: rp.permission_rules_db_path,
+    ),
+    MigrationTarget(name="channels", db_path=lambda rp: rp.channels_db_path),
 )
 
 

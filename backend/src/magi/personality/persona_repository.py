@@ -100,10 +100,8 @@ class PersonaRepository:
     # ---- lifecycle ----
 
     async def init(self) -> None:
-        """Create tables if they do not exist."""
-        async with sqlite_connection_async(self._db_path) as db:
-            await db.executescript(_CREATE_SCHEMA)
-            await db.commit()
+        """No-op kept for compatibility — schema is alembic-managed."""
+        return None
 
     # ---- create ----
 

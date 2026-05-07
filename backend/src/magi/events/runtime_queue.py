@@ -208,29 +208,6 @@ class SQLiteRuntimeCommandQueue:
 
     async def _initialize(self) -> None:
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-        async with sqlite_connection_async(self.db_path) as db:
-            await db.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS runtime_commands (
-                    command_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    command_type TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    correlation_id TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    retry_count INTEGER NOT NULL DEFAULT 0,
-                    claimed_by TEXT,
-                    claimed_at REAL,
-                    last_error TEXT,
-                    created_at REAL NOT NULL,
-                    updated_at REAL NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_runtime_commands_status_created
-                    ON runtime_commands(status, created_at ASC);
-                CREATE INDEX IF NOT EXISTS idx_runtime_commands_type_status_created
-                    ON runtime_commands(command_type, status, created_at ASC);
-                """
-            )
-            await db.commit()
 
     async def _update_status(self, *, command_id: int, status: str, clear_claim: bool) -> None:
         await self._initialize()

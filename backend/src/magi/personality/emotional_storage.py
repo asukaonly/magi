@@ -29,44 +29,8 @@ class EmotionalStateStorageMixin:
         return str(Path(self.db_path).expanduser())
 
     async def init(self) -> None:
-        """Initialize the emotional state database."""
+        """Initialize the emotional state database (alembic-managed schema)."""
         Path(self._expanded_db_path).parent.mkdir(parents=True, exist_ok=True)
-
-        async with sqlite_connection_async(self._expanded_db_path) as db:
-            await db.execute("""
-                create table IF NOT EXISTS emotional_state (
-                    key TEXT primary key,
-                    value TEXT NOT NULL,
-                    updated_at real NOT NULL
-                )
-            """)
-
-            await db.execute("""
-                create table IF NOT EXISTS emotional_events (
-                    id intEGER primary key AUTOINCREMENT,
-                    timestamp real NOT NULL,
-                    event_type TEXT NOT NULL,
-                    previous_mood TEXT NOT NULL,
-                    new_mood TEXT NOT NULL,
-                    mood_delta real NOT NULL,
-                    energy_delta real NOT NULL,
-                    stress_delta real NOT NULL,
-                    cause TEXT NOT NULL,
-                    persona_id TEXT NOT NULL DEFAULT ''
-                )
-            """)
-
-            await db.execute("""
-                create index IF NOT EXISTS idx_emotional_events_timestamp
-                ON emotional_events(timestamp DESC)
-            """)
-            await db.execute("""
-                create index IF NOT EXISTS idx_emotional_events_persona
-                ON emotional_events(persona_id, timestamp DESC)
-            """)
-
-            await db.commit()
-
         await self._load_current_state()
 
     async def get_current_state(self) -> EmotionalState:

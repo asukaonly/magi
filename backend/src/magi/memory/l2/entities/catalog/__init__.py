@@ -98,50 +98,6 @@ class L2EntityCatalog(L2EntityCatalogQueryMixin, L2EntityCatalogEmbeddingMixin):
             return
 
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-        async with sqlite_connection_async(self.db_path) as db:
-            await db.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS entity_catalog (
-                    entity_id TEXT PRIMARY KEY,
-                    canonical_name TEXT NOT NULL,
-                    entity_type TEXT NOT NULL,
-                    embedding_status TEXT NOT NULL DEFAULT 'disabled',
-                    embedding_profile_id TEXT,
-                    last_embedded_at REAL,
-                    created_at REAL NOT NULL,
-                    updated_at REAL NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_entity_catalog_type ON entity_catalog(entity_type);
-
-                CREATE TABLE IF NOT EXISTS entity_aliases (
-                    alias_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    entity_id TEXT NOT NULL,
-                    alias_text TEXT NOT NULL,
-                    normalized_alias TEXT NOT NULL,
-                    confidence REAL NOT NULL DEFAULT 1.0,
-                    created_at REAL NOT NULL,
-                    updated_at REAL NOT NULL,
-                    UNIQUE(entity_id, normalized_alias),
-                    FOREIGN KEY(entity_id) REFERENCES entity_catalog(entity_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_entity_aliases_lookup ON entity_aliases(normalized_alias, confidence DESC);
-
-                CREATE TABLE IF NOT EXISTS entity_mentions (
-                    mention_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    mention_text TEXT NOT NULL,
-                    normalized_surface TEXT NOT NULL,
-                    entity_type TEXT,
-                    evidence_event_ids TEXT NOT NULL,
-                    evidence_text TEXT,
-                    resolved_entity_id TEXT,
-                    confidence REAL,
-                    created_at REAL NOT NULL,
-                    FOREIGN KEY(resolved_entity_id) REFERENCES entity_catalog(entity_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_entity_mentions_entity ON entity_mentions(resolved_entity_id);
-                """
-            )
-            await db.commit()
         self._initialized = True
 
     async def close(self) -> None:

@@ -15,37 +15,6 @@ from .contracts import ChannelSessionMapping
 
 logger = get_logger(__name__)
 
-_SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS channel_session_mappings (
-    id                INTEGER PRIMARY KEY AUTOINCREMENT,
-    channel_type      TEXT    NOT NULL,
-    external_chat_id  TEXT    NOT NULL,
-    magi_session_id   TEXT    NOT NULL,
-    magi_user_id      TEXT    NOT NULL,
-    is_group          INTEGER NOT NULL DEFAULT 0,
-    created_at_ms     INTEGER NOT NULL,
-    last_active_at_ms INTEGER NOT NULL,
-    metadata_json     TEXT    NOT NULL DEFAULT '{}',
-    UNIQUE(channel_type, external_chat_id)
-);
-CREATE INDEX IF NOT EXISTS idx_csm_session
-    ON channel_session_mappings(magi_session_id);
-
-CREATE TABLE IF NOT EXISTS channel_notification_cursors (
-    channel_type      TEXT    NOT NULL,
-    external_chat_id  TEXT    NOT NULL,
-    last_notification_id INTEGER NOT NULL DEFAULT 0,
-    updated_at_ms     INTEGER NOT NULL,
-    PRIMARY KEY (channel_type, external_chat_id)
-);
-
-CREATE TABLE IF NOT EXISTS channel_relay_state (
-    state_key       TEXT    PRIMARY KEY,
-    value_integer   INTEGER NOT NULL DEFAULT 0,
-    updated_at_ms   INTEGER NOT NULL
-);
-"""
-
 
 class ChannelSessionMapper:
     """Maps (channel_type, external_chat_id) ↔ Magi session_id."""
@@ -56,9 +25,8 @@ class ChannelSessionMapper:
         self._initialized = False
 
     async def initialize(self) -> None:
-        async with aiosqlite.connect(self._db_path) as db:
-            await db.executescript(_SCHEMA_SQL)
-            await db.commit()
+        # Schema is alembic-managed (magi.db.migrations.channels).
+        Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
         self._initialized = True
 
     async def resolve_or_create(
