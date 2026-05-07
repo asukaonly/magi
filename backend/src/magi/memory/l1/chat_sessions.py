@@ -8,6 +8,8 @@ from dataclasses import dataclass
 
 import aiosqlite
 
+from ...events.events import EventTypes
+
 CHAT_SESSIONS_TABLE = "chat_sessions"
 
 
@@ -108,7 +110,7 @@ async def project_chat_event_to_session(
             None,
         ),
     )
-    if event_type == "UserMessage":
+    if event_type == EventTypes.USER_MESSAGE:
         await db.execute(
             f"""
             UPDATE {CHAT_SESSIONS_TABLE}
@@ -135,7 +137,7 @@ async def project_chat_event_to_session(
         )
         return
 
-    if event_type == "AIResponse":
+    if event_type == EventTypes.AI_RESPONSE:
         await db.execute(
             f"""
             UPDATE {CHAT_SESSIONS_TABLE}
