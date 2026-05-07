@@ -9,7 +9,6 @@ from ...core.sqlite import sqlite_connection_async
 from .working.checkpoint import L0CheckpointMixin
 from .working.execution import L0ExecutionStateMixin
 from .working.goals import L0GoalStackMixin
-from .working.schema import ensure_l0_checkpoint_schema
 from .working.sessions import L0SessionLifecycleMixin
 from .working.workbench import L0WorkbenchMixin
 
@@ -57,7 +56,6 @@ class L0WorkingMemoryStore(
 
         Path(self.checkpoint_db_path).parent.mkdir(parents=True, exist_ok=True)
         async with sqlite_connection_async(self.checkpoint_db_path) as db:
-            await ensure_l0_checkpoint_schema(db)
             await db.commit()
 
         if self.restore_on_restart:
