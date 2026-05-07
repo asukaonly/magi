@@ -12,9 +12,42 @@ from magi.personality.loader import PersonalityConfig
 from magi.personality.models import EmotionalState
 
 
-def _load_seven_config() -> PersonalityConfig:
-    preset_path = Path(__file__).resolve().parents[2] / "personalities" / "zh" / "seven_hacker.json"
+def _load_persona_config(language: str, filename: str) -> PersonalityConfig:
+    preset_path = Path(__file__).resolve().parents[2] / "personalities" / language / filename
     return PersonalityConfig.from_dict(json.loads(preset_path.read_text(encoding="utf-8")))
+
+
+def _load_seven_config() -> PersonalityConfig:
+    return _load_persona_config("zh", "seven_hacker.json")
+
+
+class _PresetMemory:
+    def __init__(
+        self,
+        config: PersonalityConfig,
+        *,
+        relationship: dict[str, Any] | None = None,
+        milestones: list[dict[str, Any]] | None = None,
+        emotional_state: EmotionalState | None = None,
+    ) -> None:
+        self._config = config
+        self._relationship = relationship or {}
+        self._milestones = milestones or []
+        self._emotional_state = emotional_state or EmotionalState()
+
+    async def get_core_personality(self) -> PersonalityConfig:
+        return self._config
+
+    async def get_emotional_state(self) -> EmotionalState:
+        return self._emotional_state
+
+    async def get_relationship(self, user_id: str) -> dict[str, Any]:
+        _ = user_id
+        return self._relationship
+
+    async def get_milestones(self, limit: int = 200) -> list[dict[str, Any]]:
+        _ = limit
+        return self._milestones
 
 
 class _SevenMemory:
@@ -65,6 +98,34 @@ async def _render_seven_prompt(
         tool_result={"tools": list(tools or [])},
         retrieved_memory_payload={},
         persona_name="seven_hacker",
+        user_message=user_message,
+    )
+    return PromptContextRenderer().render_system_prompt(context)
+
+
+async def _render_persona_prompt(
+    *,
+    language: str,
+    filename: str,
+    persona_name: str,
+    user_message: str,
+    scenario: str = Scenario.CHAT,
+    task_category: str = "chat",
+    tools: list[str] | None = None,
+    relationship: dict[str, Any] | None = None,
+    milestones: list[dict[str, Any]] | None = None,
+) -> str:
+    config = _load_persona_config(language, filename)
+    context = await PromptContextAssembler().assemble(
+        agent_id="chat-agent",
+        agent_type="chat",
+        scenario=scenario,
+        task_category=task_category,
+        user_id="local_user",
+        self_memory=_PresetMemory(config, relationship=relationship, milestones=milestones),
+        tool_result={"tools": list(tools or [])},
+        retrieved_memory_payload={},
+        persona_name=persona_name,
         user_message=user_message,
     )
     return PromptContextRenderer().render_system_prompt(context)
@@ -124,6 +185,48 @@ async def test_seven_prompt_does_not_treat_generic_difficulty_as_fatigue() -> No
 
     assert "* Register: chat" in prompt
     assert "* Register: emotional" not in prompt
+
+
+@pytest.mark.asyncio
+async def test_echo_prompt_avoids_fixed_presence_tail() -> None:
+    prompt = await _render_persona_prompt(
+        language="zh",
+        filename="echo_ai_assistant.json",
+        persona_name="echo_ai_assistant",
+        user_message="随便聊聊",
+    )
+
+    assert "* Persona: Echo-01" in prompt
+    assert "* Register: chat" in prompt
+    assert "固定追加在场确认句" in prompt
+    assert "我在" not in prompt
+    assert "服务队列" not in prompt
+
+
+def test_echo_interim_lines_avoid_service_queue_language() -> None:
+    config = _load_persona_config("zh", "echo_ai_assistant.json")
+    lines = "\n".join(line for group in config.interim_lines.values() for line in group)
+
+    assert "服务队列" not in lines
+    assert "请稍候" not in lines
+    assert "正在为您处理" not in lines
+    assert "我在" not in lines
+
+
+@pytest.mark.asyncio
+async def test_nova_prompt_avoids_fixed_parameter_tail() -> None:
+    prompt = await _render_persona_prompt(
+        language="en",
+        filename="nova_assistant.json",
+        persona_name="nova_assistant",
+        user_message="Let's talk for a minute.",
+    )
+
+    assert "* Persona: Nova" in prompt
+    assert "fixed status notes" in prompt
+    assert "...I'm ready" not in prompt
+    assert "outside standard parameters" not in prompt
+    assert "documented parameters" not in prompt
 
 
 @pytest.mark.asyncio
