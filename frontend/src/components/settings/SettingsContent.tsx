@@ -23,6 +23,7 @@ import { SettingsPersonalityRuntimeSection } from '@/components/settings/Setting
 import { SettingsPreferencesSection } from '@/components/settings/SettingsPreferencesSection';
 import { SettingsToolsSection } from '@/components/settings/SettingsToolsSection';
 import { MCPServersSection } from '@/components/settings/MCPServersSection';
+import { CodeAgentSection } from '@/components/settings/CodeAgentSection';
 import TimelineSourcesSection from '@/components/settings/TimelineSourcesSection';
 import PersonalityModern from '@/pages/PersonalityModern';
 import { Button } from '@/components/ui/button';
@@ -261,6 +262,9 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
 
       case 'mcpServers':
         return <MCPServersSection />;
+
+      case 'codeAgent':
+        return <CodeAgentSection />;
 
       case 'toolsBuiltin':
       case 'toolsPlugins':
