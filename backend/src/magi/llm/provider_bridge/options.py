@@ -8,6 +8,12 @@ from typing import Any, Awaitable, Callable, Dict, TypeVar, cast
 from ..anthropic import AnthropicAdapter
 from ..base import LLMAdapter
 from ..concurrency_limiter import LLMConcurrencyLimiter
+from ..reasoning_dialect import (
+    ReasoningDialect,
+    build_reasoning_payload,
+    merge_payload,
+    resolve_dialect,
+)
 from ...config import get_config
 from ...config.loader import get_llm_provider_registry_file
 from ...config.llm_registry import (
@@ -40,58 +46,24 @@ class ProviderBridgeOptionsMixin:
         return str(getattr(self.llm, "provider_name", "") or "").lower()
 
     def is_anthropic(self) -> bool:
+        """Return True when the adapter speaks the Anthropic Messages API.
+
+        This is a transport-level check used by the Anthropic-specific
+        request paths. Reasoning/thinking parameter construction now goes
+        through ``ReasoningDialect`` instead — do not gate payload shape
+        on this method.
+        """
         return isinstance(self.llm, AnthropicAdapter)
 
     def is_glm(self) -> bool:
-        """Check if using GLM provider (including CodePlan)."""
-        return self._provider_name() in ("glm", "glm_codeplan")
+        """Return True when the adapter targets a GLM-toggle dialect provider.
 
-    @staticmethod
-    def _build_glm_thinking_params(depth: ThinkingDepth) -> Dict[str, Any] | None:
-        """Build GLM extra_body payload for the requested thinking depth.
-
-        GLM only supports a binary toggle: thinking enabled or disabled.
+        Kept as a public facade method for callers that historically asked
+        "is this GLM?" to decide payload shape. New code should call
+        ``_resolve_reasoning_dialect()`` and compare against
+        ``ReasoningDialect.GLM_TOGGLE`` instead.
         """
-        if depth == ThinkingDepth.NONE:
-            return {"thinking": {"type": "disabled"}}
-        return None
-
-    @staticmethod
-    def _build_dashscope_thinking_params(depth: ThinkingDepth) -> Dict[str, Any]:
-        """Build DashScope/Bailian extra_body payload for thinking control.
-
-        DashScope uses ``enable_thinking`` boolean in extra_body.
-        """
-        if depth == ThinkingDepth.NONE:
-            return {"enable_thinking": False}
-        return {"enable_thinking": True}
-
-    @staticmethod
-    def _build_openai_reasoning_params(depth: ThinkingDepth) -> Dict[str, Any]:
-        """Build OpenAI-compatible extra kwargs for reasoning effort."""
-        mapping = {
-            ThinkingDepth.NONE: "none",
-            ThinkingDepth.LOW: "low",
-            ThinkingDepth.MEDIUM: "medium",
-            ThinkingDepth.HIGH: "high",
-            ThinkingDepth.MAX: "high",
-        }
-        return {"reasoning_effort": mapping.get(depth, "medium")}
-
-    @staticmethod
-    def _build_anthropic_thinking_params(depth: ThinkingDepth) -> Dict[str, Any] | None:
-        """Map ThinkingDepth to Anthropic extended thinking budget."""
-        budget_map = {
-            ThinkingDepth.NONE: None,
-            ThinkingDepth.LOW: 2048,
-            ThinkingDepth.MEDIUM: 8192,
-            ThinkingDepth.HIGH: 16384,
-            ThinkingDepth.MAX: 32768,
-        }
-        tokens = budget_map.get(depth)
-        if tokens is None:
-            return None
-        return {"thinking": {"type": "enabled", "budget_tokens": tokens}}
+        return self._resolve_reasoning_dialect() == ReasoningDialect.GLM_TOGGLE
 
     def _model_supports_reasoning(self) -> bool:
         """Check if the current model advertises reasoning capability."""
@@ -104,34 +76,35 @@ class ProviderBridgeOptionsMixin:
             return bool(model_meta.capabilities.reasoning)
         return False
 
+    def _resolve_reasoning_dialect(self) -> ReasoningDialect:
+        """Resolve which reasoning dialect this provider uses.
+
+        Capability (`model_meta.capabilities.reasoning`) decides *whether*
+        we may inject a reasoning param at all; dialect decides *how* to
+        spell it. Anthropic is special-cased on adapter type because the
+        Anthropic API has no provider_name string at the adapter layer.
+        """
+        if self.is_anthropic():
+            return ReasoningDialect.ANTHROPIC_BUDGET
+        return resolve_dialect(self._provider_name())
+
     def _apply_provider_options(
         self,
         kwargs: Dict[str, Any],
         thinking_depth: ThinkingDepth,
     ) -> Dict[str, Any]:
-        """Inject provider-specific parameters into LLM request kwargs."""
-        provider = self._provider_name()
+        """Inject provider-specific reasoning parameters into LLM request kwargs."""
+        dialect = self._resolve_reasoning_dialect()
 
-        if provider == "dashscope":
-            dashscope_extra_body = self._build_dashscope_thinking_params(thinking_depth)
-            existing = kwargs.get("extra_body", {})
-            kwargs["extra_body"] = {**existing, **dashscope_extra_body}
+        # OpenAI-effort dialects only fire when the model itself advertises
+        # reasoning capability. Other dialects (Anthropic budget, DashScope
+        # toggle, GLM toggle) are always meaningful when the user asks for
+        # a thinking depth, so we don't gate them on capability.
+        if dialect == ReasoningDialect.OPENAI_EFFORT and not self._model_supports_reasoning():
+            return kwargs
 
-        elif provider in ("glm", "glm_codeplan"):
-            glm_extra_body = self._build_glm_thinking_params(thinking_depth)
-            if glm_extra_body:
-                existing = kwargs.get("extra_body", {})
-                kwargs["extra_body"] = {**existing, **glm_extra_body}
-
-        elif self.is_anthropic():
-            budget = self._build_anthropic_thinking_params(thinking_depth)
-            if budget:
-                kwargs.update(budget)
-
-        elif provider != "grok" and self._model_supports_reasoning():
-            kwargs.update(self._build_openai_reasoning_params(thinking_depth))
-
-        return kwargs
+        payload = build_reasoning_payload(dialect, thinking_depth)
+        return merge_payload(kwargs, payload)
 
     def _build_concurrency_key(self, request_family: str) -> str:
         base_url = getattr(self.llm, "base_url", None)

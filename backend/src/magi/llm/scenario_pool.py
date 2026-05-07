@@ -110,7 +110,29 @@ class ScenarioLLMPool:
 
     @staticmethod
     def _detect_openai_compatible_runtime_provider(provider: object, selected_model: str | None = None) -> str:
-        """Infer the concrete OpenAI-compatible provider for custom gateways."""
+        """Infer the concrete OpenAI-compatible provider for custom gateways.
+
+        This is a *one-time* dialect hint for custom providers that lack an
+        explicit ``reasoning_dialect`` field. The hot path
+        (``ProviderBridgeOptionsMixin._apply_provider_options``) consumes
+        only the resulting dialect — the URL/name substring matching here
+        merely picks which dialect bucket the custom provider falls into.
+
+        Order is significant by design:
+
+        1. DashScope/Bailian must precede GLM. Bailian can proxy GLM
+           models, but the platform URL determines the thinking-param
+           protocol — once on Bailian you must speak DashScope dialect.
+        2. ``glm_codeplan`` precedes plain ``glm`` because the CodePlan
+           gateway uses a stricter URL pattern.
+        3. Generic vendor names come last so accidental brand overlaps
+           (e.g. a deepseek-hosted GLM clone) bias toward the more
+           specific gateway.
+
+        For non-custom providers we never reach this code path; their
+        dialect is keyed off ``provider_type`` directly via
+        ``DEFAULT_PROVIDER_DIALECTS``.
+        """
         hint_values = [
             getattr(provider, "display_name", None),
             getattr(getattr(getattr(provider, "services", None), "chat", None), "base_url", None),
@@ -124,8 +146,6 @@ class ScenarioLLMPool:
         )
 
         runtime_provider_hints = (
-            # DashScope/Bailian must precede GLM: when Bailian proxies a GLM
-            # model the platform URL determines the thinking-param protocol.
             ("dashscope", ("dashscope.aliyuncs.com", "dashscope-intl.aliyuncs.com")),
             ("glm_codeplan", ("codeplan",)),
             ("glm", ("bigmodel.cn", "z.ai", "glm-", " glm")),

@@ -8,9 +8,27 @@ from ..config import AppConfig
 from .anthropic import AnthropicAdapter
 from .base import LLMAdapter
 from .openai import OpenAIAdapter
+from .reasoning_dialect import DEFAULT_PROVIDER_DIALECTS
 from .scenario_pool import LLMScenario, ScenarioLLMPool
 
 logger = logging.getLogger(__name__)
+
+
+# Provider names that require the dedicated AnthropicAdapter (Anthropic
+# Messages API). Anything else maps onto the OpenAI-compatible adapter:
+# the *transport* shape is OpenAI Chat Completions and dialect-level
+# differences (reasoning/thinking payloads, etc.) are resolved later by
+# ``ReasoningDialect`` at request time.
+_ANTHROPIC_ADAPTER_PROVIDERS = frozenset({"anthropic"})
+
+# Names accepted by the OpenAI-compatible adapter. We pre-validate the
+# enum-style names sourced from ``LLMProvider`` plus the runtime-detected
+# dialect names that ``ScenarioLLMPool`` resolves for custom providers.
+# Anything outside the union is rejected explicitly so configuration
+# typos surface early instead of silently flowing into OpenAIAdapter.
+_OPENAI_COMPATIBLE_PROVIDERS = frozenset(
+    name for name in DEFAULT_PROVIDER_DIALECTS if name != "anthropic"
+).union({"custom"})
 
 
 def create_llm_adapter(
@@ -29,7 +47,7 @@ def create_llm_adapter(
     if not api_key:
         raise ValueError("LLM API key not configured")
 
-    if provider == "anthropic":
+    if provider in _ANTHROPIC_ADAPTER_PROVIDERS:
         return AnthropicAdapter(
             api_key=api_key,
             model=model,
@@ -38,7 +56,7 @@ def create_llm_adapter(
             proxy_url=proxy_url,
         )
 
-    if provider in {"openai", "glm", "glm_codeplan", "gemini", "grok", "deepseek", "dashscope", "kimi", "minimax", "local"}:
+    if provider in _OPENAI_COMPATIBLE_PROVIDERS:
         return OpenAIAdapter(
             api_key=api_key,
             model=model,
