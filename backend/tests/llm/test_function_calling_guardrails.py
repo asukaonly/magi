@@ -268,7 +268,9 @@ def test_chat_guardrail_blocks_scan_outside_active_workspace(tmp_path) -> None:
     assert error == (
         "File scan guardrail: glob and grep must stay within the active workspace. "
         f"Requested path resolves to {outside.resolve()} while workspace is {workspace.resolve()}. "
-        "Ask the user for an explicit path or use web-search first if the target may live outside the workspace."
+        "If the user explicitly asked to scan an external path, retry with "
+        "outside_workspace_allowed=true; otherwise ask the user for an explicit "
+        "path or use web-search first."
     )
 
 
@@ -291,6 +293,30 @@ def test_chat_guardrail_allows_scan_within_active_workspace(tmp_path) -> None:
         "path": str(nested),
         "glob": "*.py",
     }
+
+
+def test_chat_guardrail_outside_workspace_allowed_flag_unblocks_and_strips(tmp_path) -> None:
+    executor = _executor()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+
+    guarded_args, error = executor._apply_worker_explore_guardrails(
+        intent="chat",
+        tool_name="glob",
+        arguments={
+            "pattern": "**/*.py",
+            "path": str(outside),
+            "outside_workspace_allowed": True,
+        },
+        execution_workspace=str(workspace),
+    )
+
+    assert error is None
+    # Hint must be consumed by the guardrail and not forwarded to the tool.
+    assert "outside_workspace_allowed" not in guarded_args
+    assert guarded_args["path"] == str(outside)
 
 
 def test_chat_guardrail_allows_explicit_user_targeted_path(tmp_path) -> None:

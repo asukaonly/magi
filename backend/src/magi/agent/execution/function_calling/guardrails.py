@@ -64,12 +64,16 @@ class FunctionCallingGuardrailsMixin:
     ) -> tuple[dict[str, Any], str | None]:
         """Apply strict guardrails for bounded scan-oriented workers."""
         safe_args = dict(arguments)
+        # ``outside_workspace_allowed`` is a routing hint consumed by this
+        # guardrail only; never forward it to the underlying tool execute().
+        outside_workspace_allowed = bool(safe_args.pop("outside_workspace_allowed", False))
         if tool_name in self._FILE_SCAN_TOOLS:
             workspace_root = self._resolve_execution_workspace(execution_workspace)
             scan_root = self._resolve_scan_root_path(safe_args.get("path"), execution_workspace)
             if (
                 intent not in {"worker_explore", "worker_plan"}
                 and not self._path_within_root(scan_root, workspace_root)
+                and not outside_workspace_allowed
                 and not self._user_explicitly_targets_scan_path(
                     user_message=user_message,
                     path_value=safe_args.get("path"),
@@ -79,7 +83,9 @@ class FunctionCallingGuardrailsMixin:
                 return {}, (
                     "File scan guardrail: glob and grep must stay within the active workspace. "
                     f"Requested path resolves to {scan_root} while workspace is {workspace_root}. "
-                    "Ask the user for an explicit path or use web-search first if the target may live outside the workspace."
+                    "If the user explicitly asked to scan an external path, retry with "
+                    "outside_workspace_allowed=true; otherwise ask the user for an explicit "
+                    "path or use web-search first."
                 )
 
         if intent not in {"worker_explore", "worker_plan"}:
@@ -164,7 +170,15 @@ class FunctionCallingGuardrailsMixin:
         path_value: Any,
         execution_workspace: str | None,
     ) -> bool:
-        """Return True when the user explicitly named the requested scan path."""
+        """Substring fallback for the workspace guardrail.
+
+        Preferred path is the explicit ``outside_workspace_allowed`` tool
+        argument set by the LLM when the user authorizes an external scan.
+        This substring check stays as a backstop so legacy prompts without
+        the hint still work, but it is fragile (it cannot recognize "上级
+        目录"/"the sibling repo"/symlinked paths) and should be retired
+        once all routing prompts emit the explicit flag.
+        """
         normalized_message = str(user_message or "").strip()
         raw_path = str(path_value or "").strip()
         if not normalized_message or raw_path in {"", ".", "./"}:

@@ -88,6 +88,19 @@ class GlobTool(Tool):
                     min_value=1,
                     max_value=10000,
                 ),
+                ToolParameter(
+                    name="outside_workspace_allowed",
+                    type=ParameterType.BOOLEAN,
+                    description=(
+                        "Set to true ONLY when the user has explicitly asked to scan a "
+                        "path outside the active workspace (e.g. another repository, "
+                        "an absolute system path, or a sibling directory). Defaults to "
+                        "false; the worker guardrail will reject out-of-workspace scans "
+                        "without this flag."
+                    ),
+                    required=False,
+                    default=False,
+                ),
             ],
             examples=[
                 {
