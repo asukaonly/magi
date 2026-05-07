@@ -125,6 +125,7 @@ It should provide a stable place where users can revisit and update:
 - conversation settings
 - personality settings
 - memory settings
+- code agent settings
 - timeline settings
 - plugin settings
 - tool settings
@@ -173,6 +174,19 @@ Current product expectations:
 - clearing the saved default workspace should fall back to the managed local workspace behavior instead of breaking new conversations
 - clearing the default chat workspace should fall back to provider-independent runtime defaults
 - per-conversation workspace changes should not overwrite the saved global default
+- automatic long-task background routing should default to off; when enabled, Magi may use rule and model classification to move likely long-running chat turns to background execution
+- when automatic long-task background routing is off, users should still be able to move an active task to the background manually from the chat surface
+
+## Code Agent Settings
+
+The code agent settings area controls whether Magi may hand larger code changes to installed external coding CLIs.
+
+Expected behavior:
+
+- users can disable external code tooling from settings
+- users can choose a preferred tool or let Magi automatically pick an installed tool
+- detected executable paths should be visible and editable without exposing internal tool names
+- global constraints such as blocked paths, git commit/push guidance, and default timeout should use the same form styling as the rest of settings
 
 ## LLM Configuration
 

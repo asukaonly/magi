@@ -811,6 +811,35 @@ describe('settings page draft saving', () => {
     );
   });
 
+  it('saves the automatic long-task background switch in conversation settings', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.conversation' }));
+    const autoBackgroundSwitch = await screen.findByRole('switch', {
+      name: 'settings.fields.autoBackgroundLongTasks',
+    });
+    expect(autoBackgroundSwitch).toHaveAttribute('data-state', 'unchecked');
+
+    await user.click(autoBackgroundSwitch);
+    expect(autoBackgroundSwitch).toHaveAttribute('data-state', 'checked');
+    expect(screen.getByText('settings.pendingChanges')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+
+    await waitFor(() =>
+      expect(configApi.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agent: expect.objectContaining({
+            background_tasks: expect.objectContaining({
+              auto_detect_long_task: true,
+            }),
+          }),
+        })
+      )
+    );
+  });
+
   it('disables media grounding when the current core model lacks vision support', async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);

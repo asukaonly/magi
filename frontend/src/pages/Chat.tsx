@@ -260,9 +260,11 @@ export const ChatPage: React.FC = () => {
   }, [upsertMessage]);
 
   const {
+    recentWorkspaces,
     updatingWorkspace,
     persistSessionWorkspace,
     handlePickWorkspace,
+    handleSelectRecentWorkspace,
   } = useChatWorkspaceActions({
     currentSessionId,
     currentWorkspacePath: currentSession?.workspace_path,
@@ -631,10 +633,15 @@ export const ChatPage: React.FC = () => {
         visible={Boolean(currentSessionId)}
         messageCount={visibleMessageCount}
         workspaceDisplayPath={workspaceDisplayPath}
+        currentWorkspacePath={currentSession?.workspace_path ?? null}
+        recentWorkspaces={recentWorkspaces}
         hasSessionWorkspaceOverride={hasSessionWorkspaceOverride}
         updatingWorkspace={updatingWorkspace}
         onChangeWorkspace={() => {
           void handlePickWorkspace();
+        }}
+        onSelectWorkspace={(workspacePath) => {
+          void handleSelectRecentWorkspace(workspacePath);
         }}
         onClearWorkspace={() => {
           void persistSessionWorkspace(null);

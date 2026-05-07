@@ -163,6 +163,14 @@ def _make_handler(
 # ----------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _enable_auto_background_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "magi.agent.task_agents.chat.runtime_control._auto_background_dispatch_enabled",
+        lambda: True,
+    )
+
+
 @pytest.mark.asyncio
 async def test_background_branch_returns_launch_service_result_on_background_verdict() -> None:
     ack = ExecutionResult(
@@ -245,6 +253,32 @@ async def test_background_branch_returns_none_when_dispatcher_not_wired() -> Non
     result = await handler._maybe_dispatch_to_background(_make_request())
 
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_background_branch_skips_when_auto_dispatch_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "magi.agent.task_agents.chat.runtime_control._auto_background_dispatch_enabled",
+        lambda: False,
+    )
+    dispatcher = _FakeDispatcher(
+        BackgroundDecision(
+            disposition=BackgroundDisposition.BACKGROUND,
+            source=BackgroundDecisionSource.RULE,
+        )
+    )
+    launch = _FakeLaunchService(
+        ExecutionResult(mode=ExecutionMode.FUNCTION_CALLING, orchestration_id="bg_x")
+    )
+    handler = _make_handler(dispatcher=dispatcher, launch_service=launch)
+
+    result = await handler._maybe_dispatch_to_background(_make_request())
+
+    assert result is None
+    assert dispatcher.calls == []
+    assert launch.calls == []
 
 
 @pytest.mark.asyncio

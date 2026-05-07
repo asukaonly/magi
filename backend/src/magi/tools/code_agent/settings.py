@@ -8,12 +8,15 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from .contracts import AdapterName
 from ._user_paths import code_agent_settings_path
+
+
+DefaultAdapterName = Literal["auto", "claude_code", "codex"]
 
 
 def _load_toml(text: str) -> dict[str, Any]:
@@ -58,7 +61,7 @@ class ConstraintsSettings(_Frozen):
 
 class CodeAgentSettings(_Frozen):
     enabled: bool = True
-    default_adapter: AdapterName = "claude_code"
+    default_adapter: DefaultAdapterName = "claude_code"
     claude_code: ClaudeCodeSettings = Field(default_factory=ClaudeCodeSettings)
     codex: CodexSettings = Field(default_factory=CodexSettings)
     constraints: ConstraintsSettings = Field(default_factory=ConstraintsSettings)
@@ -89,7 +92,7 @@ def load_settings(*, workspace_root: Path | str | None = None) -> CodeAgentSetti
     merged = _deep_merge(user_data, project_data)
 
     raw_default = str(merged.get("default_adapter", "")).strip()
-    if raw_default not in ("claude_code", "codex"):
+    if raw_default not in ("auto", "claude_code", "codex"):
         merged["default_adapter"] = "claude_code"
 
     return CodeAgentSettings.model_validate(merged)
@@ -100,5 +103,6 @@ __all__ = [
     "ClaudeCodeSettings",
     "CodexSettings",
     "ConstraintsSettings",
+    "DefaultAdapterName",
     "load_settings",
 ]

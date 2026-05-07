@@ -55,6 +55,11 @@ pub fn build_router(state: ApiState) -> Router {
             axum::routing::patch(messages::update_session_workspace),
         )
         .route(
+            "/api/messages/workspaces/recent",
+            axum::routing::get(messages::list_recent_workspaces)
+                .post(messages::remember_workspace),
+        )
+        .route(
             "/api/messages/session/{session_id}/message/{message_id}/label",
             axum::routing::post(messages::set_message_label),
         )

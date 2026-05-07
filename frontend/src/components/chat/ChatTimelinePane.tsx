@@ -111,6 +111,14 @@ export const ChatTimelinePane = ({
     onRequestRunCancel,
     onRequestRunDetach,
   };
+  const lastAssistantId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i].role === 'assistant') {
+        return messages[i].id;
+      }
+    }
+    return null;
+  }, [messages]);
   const finalizedTurnIds = useMemo(() => {
     const ids = new Set<string>();
     for (const message of messages) {
@@ -200,6 +208,7 @@ export const ChatTimelinePane = ({
             shouldReduceMotion={shouldReduceMotion}
             execution={execution}
             interactions={transcriptInteractions}
+            isLastAssistant={projectedMessage.message.id === lastAssistantId}
           />
         );
       })}

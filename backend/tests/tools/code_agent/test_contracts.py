@@ -106,6 +106,7 @@ def test_delegate_result_round_trip(tmp_path):
         events_path=str(tmp_path / "events.jsonl"),
         error=None,
         cost=None,
+        adapter="claude_code",
     )
     assert DelegateResult.model_validate(res.model_dump()) == res
 

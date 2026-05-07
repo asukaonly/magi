@@ -34,6 +34,7 @@ export const NAV_ITEMS: NavItem[] = [
   { id: 'preferences', icon: Settings2 },
   { id: 'llm', icon: Brain, children: [{ id: 'llmProviders' }, { id: 'llmModels' }] },
   { id: 'conversation', icon: MessageSquare },
+  { id: 'codeAgent', icon: Code2 },
   { id: 'personality', icon: User, children: [{ id: 'personalitySelection' }, { id: 'personalitySettings' }] },
   {
     id: 'memory',
@@ -49,7 +50,6 @@ export const NAV_ITEMS: NavItem[] = [
   },
   { id: 'plugins', icon: PlugZap, children: [{ id: 'pluginsInstalled' }, { id: 'pluginsMarketplace' }] },
   { id: 'mcpServers', icon: Network },
-  { id: 'codeAgent', icon: Code2 },
   { id: 'timeline', icon: ScrollText },
   { id: 'channels', icon: Radio },
   {

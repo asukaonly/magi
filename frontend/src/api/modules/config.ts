@@ -53,6 +53,16 @@ export interface UserPreferences {
   allow_ask_in_background: boolean;
 }
 
+export interface AgentBackgroundTasksConfig {
+  auto_detect_long_task: boolean;
+}
+
+export interface AgentConfig {
+  name: string;
+  description?: string;
+  background_tasks: AgentBackgroundTasksConfig;
+}
+
 export type ProxyType = 'http' | 'socks5';
 
 export interface NetworkProxyConfig {
@@ -482,10 +492,7 @@ export interface TimelineConfig {
 }
 
 export interface SystemConfig {
-  agent: {
-    name: string;
-    description?: string;
-  };
+  agent: AgentConfig;
   llm: LLMConfig;
   memory: MemoryConfig;
   preferences: UserPreferences;
@@ -548,7 +555,13 @@ export const resolveProviderModels = (
 const unwrapConfigResponse = <T>(response: GatewayResponse<T>): T => unwrapGatewayPayload<T>(response);
 
 export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
-  agent: { name: 'magi-agent', description: 'Magi AI Agent Framework' },
+  agent: {
+    name: 'magi-agent',
+    description: 'Magi AI Agent Framework',
+    background_tasks: {
+      auto_detect_long_task: false,
+    },
+  },
   llm: {
     providers: {},
     selections: {

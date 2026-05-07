@@ -17,11 +17,25 @@ from ....agent.run_control import (
     SteerInbox,
     SteerMessage,
 )
+from ....config.loader import get_config
 from ....core.logger import get_logger
 from ..common import ExecutionResult, FunctionCallingExecutionResult, FunctionCallingRequest
 from .handler_helpers import serialize_ux_plan as _serialize_ux_plan
 
 logger = get_logger(__name__)
+
+
+def _auto_background_dispatch_enabled() -> bool:
+    """Return whether chat turns may be auto-routed to background."""
+    try:
+        return bool(get_config().agent.background_tasks.auto_detect_long_task)
+    except Exception as exc:  # noqa: BLE001 - config failure should keep the turn foreground
+        logger.warning(
+            "background auto-dispatch config unavailable; staying on foreground | error=%s",
+            exc,
+        )
+        return False
+
 
 _BACKGROUND_TRIGGER_SOURCE_BY_DECISION: dict[
     BackgroundDecisionSource, BackgroundTaskTriggerSource
@@ -81,6 +95,8 @@ class FunctionCallingRuntimeControlMixin:
         self, request: FunctionCallingRequest
     ) -> ExecutionResult | None:
         """Delegate to the background runtime when the dispatcher agrees."""
+        if not _auto_background_dispatch_enabled():
+            return None
         dispatcher = self._deps.background_dispatcher
         launch_service = self._deps.background_launch_service
         if dispatcher is None or launch_service is None:

@@ -4,10 +4,13 @@ use axum::Json;
 use rusqlite::Connection;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::fs;
 
 use crate::db;
 
 use super::common::DEFAULT_USER_ID;
+
+const RECENT_WORKSPACES_LIMIT: usize = 5;
 
 fn open_chat_db_rw() -> Option<Connection> {
     db::open_readwrite(&db::chat_db_path())
@@ -120,6 +123,84 @@ pub struct UpdateWorkspaceBody {
     pub workspace_path: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub struct RememberWorkspaceBody {
+    pub path: String,
+}
+
+fn recent_workspaces_path() -> std::path::PathBuf {
+    db::magi_base_dir()
+        .join("config")
+        .join("recent_chat_workspaces.json")
+}
+
+fn load_recent_workspaces() -> Vec<String> {
+    let path = recent_workspaces_path();
+    let content = match fs::read_to_string(path) {
+        Ok(value) => value,
+        Err(_) => return Vec::new(),
+    };
+    let parsed = serde_json::from_str::<Value>(&content).ok();
+    let mut seen = std::collections::HashSet::new();
+    parsed
+        .and_then(|value| value.get("paths").and_then(Value::as_array).cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|value| value.as_str().map(str::trim).map(str::to_string))
+        .filter(|value| !value.is_empty())
+        .filter(|value| seen.insert(value.clone()))
+        .take(RECENT_WORKSPACES_LIMIT)
+        .collect()
+}
+
+fn store_recent_workspaces(paths: &[String]) -> Result<(), std::io::Error> {
+    let path = recent_workspaces_path();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let payload = json!({ "paths": paths });
+    let content = serde_json::to_vec_pretty(&payload)?;
+    fs::write(path, content)
+}
+
+fn remember_recent_workspace(path: &str) -> Vec<String> {
+    let normalized = path.trim();
+    if normalized.is_empty() {
+        return load_recent_workspaces();
+    }
+
+    let mut paths = load_recent_workspaces();
+    paths.retain(|existing| existing != normalized);
+    paths.insert(0, normalized.to_string());
+    paths.truncate(RECENT_WORKSPACES_LIMIT);
+    let _ = store_recent_workspaces(&paths);
+    paths
+}
+
+pub async fn list_recent_workspaces() -> (StatusCode, Json<Value>) {
+    let result = tokio::task::spawn_blocking(load_recent_workspaces)
+        .await
+        .unwrap_or_default();
+    (StatusCode::OK, Json(json!({ "paths": result })))
+}
+
+pub async fn remember_workspace(
+    Json(body): Json<RememberWorkspaceBody>,
+) -> (StatusCode, Json<Value>) {
+    let normalized = body.path.trim().to_string();
+    if normalized.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "detail": "Path is required" })),
+        );
+    }
+
+    let result = tokio::task::spawn_blocking(move || remember_recent_workspace(&normalized))
+        .await
+        .unwrap_or_default();
+    (StatusCode::OK, Json(json!({ "paths": result })))
+}
+
 /// PATCH /api/messages/session/:session_id/workspace — update session workspace.
 pub async fn update_session_workspace(
     Path(session_id): Path<String>,
@@ -173,6 +254,48 @@ fn do_update_workspace(
             "workspace_path": workspace_path,
         }
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{load_recent_workspaces, remember_recent_workspace, recent_workspaces_path};
+    use crate::db;
+
+    #[test]
+    fn remember_recent_workspace_deduplicates_and_caps_results() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "magi-gateway-recent-workspaces-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&temp_root).expect("create temp root");
+        let previous = db::set_magi_base_dir_override_for_tests(Some(temp_root.clone()));
+
+        let _ = remember_recent_workspace("/one");
+        let _ = remember_recent_workspace("/two");
+        let _ = remember_recent_workspace("/three");
+        let _ = remember_recent_workspace("/four");
+        let _ = remember_recent_workspace("/five");
+        let paths = {
+            let _ = remember_recent_workspace("/two");
+            let _ = remember_recent_workspace("/six");
+            load_recent_workspaces()
+        };
+
+        assert_eq!(
+            paths,
+            vec![
+                "/six".to_string(),
+                "/two".to_string(),
+                "/five".to_string(),
+                "/four".to_string(),
+                "/three".to_string(),
+            ]
+        );
+        assert!(recent_workspaces_path().exists());
+
+        db::set_magi_base_dir_override_for_tests(previous);
+        let _ = std::fs::remove_dir_all(temp_root);
+    }
 }
 
 #[derive(Deserialize)]

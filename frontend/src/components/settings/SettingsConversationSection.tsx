@@ -33,6 +33,9 @@ export function SettingsConversationSection({
   const defaultChatWorkspacePath = draftConfig.preferences.default_chat_workspace_path;
   const effectiveDefaultChatWorkspacePath = defaultChatWorkspacePath ?? defaultChatWorkspaceFallback ?? '';
   const canRestoreDefaultChatWorkspace = defaultChatWorkspacePath !== defaultChatWorkspaceFallback;
+  const autoBackgroundLongTasksEnabled = Boolean(
+    draftConfig.agent.background_tasks?.auto_detect_long_task
+  );
   const rhythmMode = draftConfig.preferences.conversation_rhythm_mode ?? 'off';
   const conversationRhythmEnabled = Boolean(draftConfig.preferences.conversation_rhythm_enabled)
     || rhythmMode === 'natural'
@@ -150,6 +153,19 @@ export function SettingsConversationSection({
         checked={draftConfig.preferences.allow_interjection}
         onCheckedChange={(checked) => patchDraftConfig((draft) => {
           draft.preferences.allow_interjection = checked;
+        })}
+      />
+
+      <SettingsSwitchRow
+        title={t('settings.autoBackgroundLongTasksLabel')}
+        description={t('settings.autoBackgroundLongTasksDesc')}
+        ariaLabel={t('settings.fields.autoBackgroundLongTasks')}
+        checked={autoBackgroundLongTasksEnabled}
+        onCheckedChange={(checked) => patchDraftConfig((draft) => {
+          if (!draft.agent.background_tasks) {
+            draft.agent.background_tasks = { auto_detect_long_task: false };
+          }
+          draft.agent.background_tasks.auto_detect_long_task = checked;
         })}
       />
 

@@ -127,11 +127,22 @@ class CodexAdapter:
         summary = self._read_last_message(last_message_path)
 
         if exit_code != 0:
+            stderr_tail = _stderr_tail(stderr_buf)
+            error_message = (
+                f"adapter exited with code {exit_code}: {stderr_tail}"
+                if stderr_tail
+                else f"adapter exited with code {exit_code}"
+            )
+            await on_event(RunEvent(
+                kind="error",
+                ts_ms=int(time.time() * 1000),
+                payload={"message": error_message, "stderr_tail": stderr_tail},
+            ))
             return AdapterRunOutcome(
                 exit_code=exit_code,
                 summary=summary,
                 cost=None,
-                error=f"adapter exited with code {exit_code}",
+                error=error_message,
             )
         return AdapterRunOutcome(
             exit_code=exit_code,
@@ -171,7 +182,10 @@ class CodexAdapter:
     def _compose_stdin(self, req: DelegateRequest) -> str:
         bundle_hint = (
             "Read TASK.md and CONSTRAINTS.md from the directory I added before "
-            "starting; treat them as authoritative."
+            "starting; treat them as authoritative.\n"
+            "IMPORTANT: Your summary and final response MUST be in Chinese (简体中文). "
+            "Code comments and variable names can remain in English, but explanations "
+            "and summaries should be in Chinese."
         )
         constraints = self._render_constraints(req)
         return f"{bundle_hint}\n\n{constraints}\n\n{req.prompt}\n"
@@ -221,3 +235,15 @@ class CodexAdapter:
 
 
 __all__ = ["CodexAdapter"]
+
+
+def _stderr_tail(chunks: list[bytes], max_chars: int = 200) -> str:
+    if not chunks:
+        return ""
+    text = b"".join(chunks).decode("utf-8", errors="replace").strip()
+    if not text:
+        return ""
+    last = text.splitlines()[-1].strip()
+    if len(last) > max_chars:
+        last = last[:max_chars] + "…"
+    return last

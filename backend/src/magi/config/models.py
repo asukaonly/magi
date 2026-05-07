@@ -542,8 +542,8 @@ class BackgroundTasksSettings(BaseModel):
         description="Queue tasks when at cap; when false, falls back to foreground.",
     )
     auto_detect_long_task: bool = Field(
-        default=True,
-        description="Enable the dispatcher's LLM classifier fallback.",
+        default=False,
+        description="Automatically route likely long-running chat tasks to background.",
     )
     auto_detect_threshold: float = Field(
         default=0.7,

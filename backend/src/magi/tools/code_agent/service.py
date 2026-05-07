@@ -5,7 +5,7 @@ import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, ClassVar, Optional
 
 from ...agent.workspace_cache.atomic_io import append_jsonl, atomic_write_text
 from .adapters.base import AdapterRunOutcome, CancelToken, CodeAgentAdapter, OnEvent
@@ -48,12 +48,28 @@ class CodeAgentService:
     binary_paths: Optional[dict[AdapterName, Optional[str]]] = None
     cleanup_worktree: bool = False
 
+    _ACTIVE_CANCEL_TOKENS: ClassVar[dict[str, CancelToken]] = {}
+
+    @classmethod
+    def cancel(cls, delegation_id: str) -> bool:
+        """Signal an active delegation to cancel cooperatively.
+
+        Returns ``True`` when the delegation_id was active and the token has
+        been flipped, ``False`` when no active delegation matches.
+        """
+        token = cls._ACTIVE_CANCEL_TOKENS.get(delegation_id)
+        if token is None:
+            return False
+        token.cancel()
+        return True
+
     async def delegate(
         self,
         req: DelegateRequest,
         *,
         dry_run: bool = False,
         on_event: Optional[OnEvent] = None,
+        user_id: Optional[str] = None,
     ) -> DelegateResult:
         start = time.monotonic()
         delegation_dir = self._delegation_dir(req)
@@ -61,13 +77,55 @@ class CodeAgentService:
         events_path = delegation_dir / "events.jsonl"
         atomic_write_text(delegation_dir / "request.json", json.dumps(req.model_dump()))
 
+        broadcaster_user_id = (user_id or "").strip()
+        broadcast_enabled = bool(broadcaster_user_id)
+
+        async def _broadcast_event_safely(ev: RunEvent) -> None:
+            if not broadcast_enabled:
+                return
+            try:
+                from ...transport.code_agent_events import broadcast_delegation_event
+                await broadcast_delegation_event(
+                    user_id=broadcaster_user_id,
+                    session_id=req.session_id,
+                    delegation_id=req.delegation_id,
+                    event=ev,
+                )
+            except Exception:
+                pass
+
+        async def _broadcast_state_safely(state: str, summary: dict | None = None) -> None:
+            if not broadcast_enabled:
+                return
+            try:
+                from ...transport.code_agent_events import broadcast_delegation_state
+                await broadcast_delegation_state(
+                    user_id=broadcaster_user_id,
+                    session_id=req.session_id,
+                    delegation_id=req.delegation_id,
+                    state=state,  # type: ignore[arg-type]
+                    summary=summary or {},
+                )
+            except Exception:
+                pass
+
         async def _emit(ev: RunEvent) -> None:
             try:
                 append_jsonl(events_path, ev.model_dump())
             except Exception:
                 pass
+            await _broadcast_event_safely(ev)
             if on_event is not None:
                 await on_event(ev)
+
+        await _broadcast_state_safely("started")
+
+        async def _finalize(result: DelegateResult) -> DelegateResult:
+            if result.error and not result.success:
+                await _broadcast_state_safely("failed", result.model_dump())
+            else:
+                await _broadcast_state_safely("finished", result.model_dump())
+            return result
 
         try:
             worktree = create_worktree(
@@ -76,9 +134,11 @@ class CodeAgentService:
                 delegation_id=req.delegation_id,
             )
         except NotAGitRepoError as exc:
-            return self._fail(req, delegation_dir, start, str(exc))
+            return await _finalize(self._fail(req, delegation_dir, start, str(exc)))
         except Exception as exc:
-            return self._fail(req, delegation_dir, start, f"worktree creation failed: {exc}")
+            return await _finalize(
+                self._fail(req, delegation_dir, start, f"worktree creation failed: {exc}")
+            )
 
         bundle_dir = delegation_dir / "_bundle"
         ContextBundle(
@@ -97,6 +157,7 @@ class CodeAgentService:
                 success=True,
                 exit_code=0,
                 duration_ms=duration_ms,
+                adapter=req.adapter,
                 diff_path=str(patch_path),
                 diff_stats=DiffStats(),
                 files_changed=[],
@@ -109,17 +170,17 @@ class CodeAgentService:
             atomic_write_text(delegation_dir / "result.json", json.dumps(result.model_dump()))
             if self.cleanup_worktree:
                 remove_worktree(workspace_root=Path(req.workspace_root), worktree_path=worktree)
-            return result
+            return await _finalize(result)
 
         adapters = self.adapters_factory()
         adapter = adapters.get(req.adapter)
         if adapter is None:
             if self.cleanup_worktree:
                 remove_worktree(workspace_root=Path(req.workspace_root), worktree_path=worktree)
-            return self._fail(
+            return await _finalize(self._fail(
                 req, delegation_dir, start,
                 f"adapter not configured: {req.adapter}",
-            )
+            ))
 
         binary_paths = (
             self.binary_paths if self.binary_paths is not None else _default_binary_paths()
@@ -128,12 +189,13 @@ class CodeAgentService:
         if not binary_path:
             if self.cleanup_worktree:
                 remove_worktree(workspace_root=Path(req.workspace_root), worktree_path=worktree)
-            return self._fail(
+            return await _finalize(self._fail(
                 req, delegation_dir, start,
                 f"adapter binary not found: {req.adapter}",
-            )
+            ))
 
         cancel_token = CancelToken()
+        CodeAgentService._ACTIVE_CANCEL_TOKENS[req.delegation_id] = cancel_token
         outcome: AdapterRunOutcome
         try:
             outcome = await adapter.run(
@@ -151,6 +213,8 @@ class CodeAgentService:
                 exit_code=-1, summary=None, cost=None,
                 error=f"adapter raised: {exc}",
             )
+        finally:
+            CodeAgentService._ACTIVE_CANCEL_TOKENS.pop(req.delegation_id, None)
 
         snapshot = collect_diff(worktree)
         patch_path = delegation_dir / "changes.patch"
@@ -163,6 +227,7 @@ class CodeAgentService:
             success=success,
             exit_code=outcome.exit_code,
             duration_ms=duration_ms,
+            adapter=req.adapter,
             diff_path=str(patch_path),
             diff_stats=snapshot.stats,
             files_changed=list(snapshot.files_changed),
@@ -175,7 +240,7 @@ class CodeAgentService:
         atomic_write_text(delegation_dir / "result.json", json.dumps(result.model_dump()))
         if self.cleanup_worktree:
             remove_worktree(workspace_root=Path(req.workspace_root), worktree_path=worktree)
-        return result
+        return await _finalize(result)
 
     def _delegation_dir(self, req: DelegateRequest) -> Path:
         return (
@@ -197,6 +262,7 @@ class CodeAgentService:
             success=False,
             exit_code=-1,
             duration_ms=duration_ms,
+            adapter=req.adapter,
             diff_path=None,
             diff_stats=DiffStats(),
             files_changed=[],

@@ -195,3 +195,139 @@ async def test_service_cleans_worktree_after_run(
     await service.delegate(req)
     wt = repo / ".magi" / "sessions" / "s1" / "worktrees" / req.delegation_id
     assert not wt.exists()
+
+
+@pytest.mark.asyncio
+async def test_service_broadcasts_state_when_user_id_present(
+    isolated_magi_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When user_id is supplied, the service must broadcast started + finished."""
+    repo = _make_repo(tmp_path / "repo")
+
+    broadcast_calls: list[tuple[str, str]] = []
+
+    async def _record_state(*, user_id, session_id, delegation_id, state, summary=None):
+        broadcast_calls.append((delegation_id, state))
+
+    async def _record_event(*, user_id, session_id, delegation_id, event):
+        broadcast_calls.append((delegation_id, "event"))
+
+    from magi.transport import code_agent_events as events_module
+    monkeypatch.setattr(events_module, "broadcast_delegation_state", _record_state)
+    monkeypatch.setattr(events_module, "broadcast_delegation_event", _record_event)
+
+    service = CodeAgentService(
+        adapters_factory=lambda: {"claude_code": _FakeAdapter(name="claude_code")},
+        binary_paths={"claude_code": "/unused", "codex": "/unused"},
+    )
+    req = _request(repo)
+    await service.delegate(req, user_id="local_user")
+
+    states = [c[1] for c in broadcast_calls if c[1] != "event"]
+    assert states[0] == "started"
+    assert states[-1] == "finished"
+
+
+@pytest.mark.asyncio
+async def test_service_broadcasts_failed_on_unknown_adapter(
+    isolated_magi_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = _make_repo(tmp_path / "repo")
+    states: list[str] = []
+
+    async def _record_state(*, user_id, session_id, delegation_id, state, summary=None):
+        states.append(state)
+
+    from magi.transport import code_agent_events as events_module
+    monkeypatch.setattr(events_module, "broadcast_delegation_state", _record_state)
+    monkeypatch.setattr(events_module, "broadcast_delegation_event", lambda **kw: None)
+
+    service = CodeAgentService(
+        adapters_factory=lambda: {"claude_code": _FakeAdapter(name="claude_code")},
+        binary_paths={"claude_code": "/unused", "codex": "/unused"},
+    )
+    req = DelegateRequest(
+        delegation_id="f" * 32, session_id="s1", adapter="codex",
+        prompt="x", files_hint=[], workspace_root=str(repo),
+        constraints=DelegateConstraints(), timeout_s=30, model=None,
+    )
+    await service.delegate(req, user_id="local_user")
+    assert "started" in states
+    assert "failed" in states
+
+
+@pytest.mark.asyncio
+async def test_service_does_not_broadcast_when_user_id_missing(
+    isolated_magi_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = _make_repo(tmp_path / "repo")
+    state_calls: list[str] = []
+
+    async def _record_state(*, user_id, session_id, delegation_id, state, summary=None):
+        state_calls.append(state)
+
+    from magi.transport import code_agent_events as events_module
+    monkeypatch.setattr(events_module, "broadcast_delegation_state", _record_state)
+    monkeypatch.setattr(events_module, "broadcast_delegation_event", lambda **kw: None)
+
+    service = CodeAgentService(
+        adapters_factory=lambda: {"claude_code": _FakeAdapter(name="claude_code")},
+        binary_paths={"claude_code": "/unused", "codex": "/unused"},
+    )
+    await service.delegate(_request(repo))  # no user_id
+    assert state_calls == []
+
+
+@pytest.mark.asyncio
+async def test_service_cancel_returns_false_for_unknown_id() -> None:
+    assert CodeAgentService.cancel("does-not-exist") is False
+
+
+@pytest.mark.asyncio
+async def test_service_cancel_signals_active_delegation(
+    isolated_magi_home: Path, tmp_path: Path,
+) -> None:
+    """A running delegation should expose its cancel token via the registry."""
+    import asyncio
+
+    repo = _make_repo(tmp_path / "repo")
+    seen_cancelled: list[bool] = []
+
+    class _SlowAdapter:
+        name = "claude_code"
+        display_name = "Slow"
+
+        @classmethod
+        async def detect(cls):
+            raise NotImplementedError
+
+        async def run(self, req, *, cwd, bundle_dir, stdout_path, stderr_path,
+                      on_event, cancel_token, binary_path):
+            stdout_path.parent.mkdir(parents=True, exist_ok=True)
+            stdout_path.write_text("")
+            stderr_path.write_text("")
+            for _ in range(40):
+                if cancel_token.cancelled:
+                    seen_cancelled.append(True)
+                    return AdapterRunOutcome(
+                        exit_code=-1, summary=None, cost=None,
+                        error="cancelled by user",
+                    )
+                await asyncio.sleep(0.05)
+            return AdapterRunOutcome(
+                exit_code=0, summary="not cancelled", cost=None, error=None,
+            )
+
+    service = CodeAgentService(
+        adapters_factory=lambda: {"claude_code": _SlowAdapter()},
+        binary_paths={"claude_code": "/unused", "codex": "/unused"},
+    )
+    req = _request(repo)
+    delegate_task = asyncio.create_task(service.delegate(req))
+    await asyncio.sleep(0.15)
+    assert CodeAgentService.cancel(req.delegation_id) is True
+    result = await delegate_task
+    assert seen_cancelled == [True]
+    assert result.success is False
+    assert req.delegation_id not in CodeAgentService._ACTIVE_CANCEL_TOKENS
+
