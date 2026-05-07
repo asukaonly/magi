@@ -1,15 +1,12 @@
 from __future__ import annotations
 import pytest
-from dependency_injector import providers
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from magi.agent.execution.tool_invocation_service import (
-    get_tool_invocation_service,
     InvocationContext,
     ToolCall,
     ToolInvocationService,
 )
-from magi.core.container import Container, init_container
 from magi.events.events import Event, EventTypes
 from magi.events.domain_payloads import SpanCompleted, TaskContext
 from magi.events.tracing import drain_pending
@@ -36,24 +33,12 @@ def ctx():
     )
 
 
-def test_tool_invocation_service_factory_uses_global_container_instance(fake_bus, fake_registry):
-    container = init_container()
-    container.message_bus.override(providers.Object(fake_bus))
-
-    try:
-        assert Container.message_bus() is not fake_bus
-        service = get_tool_invocation_service(fake_registry)
-        assert service._event_bus is fake_bus
-    finally:
-        container.message_bus.reset_override()
-
-
 @pytest.mark.asyncio
 async def test_publishes_span_completed_on_success(fake_bus, fake_registry, ctx):
     fake_result = MagicMock(success=True, error=None, error_code=None, data="ok")
     fake_registry.execute = AsyncMock(return_value=fake_result)
 
-    svc = ToolInvocationService(fake_registry, fake_bus)
+    svc = ToolInvocationService(fake_registry)
     with patch("magi.events.tracing._resolve_event_bus", return_value=fake_bus):
         result = await svc.invoke(ToolCall(name="shell", args={"cmd": "ls"}), ctx)
         await drain_pending()
@@ -80,7 +65,7 @@ async def test_publishes_failure_status_when_result_failed(fake_bus, fake_regist
     fake_result = MagicMock(success=False, error="boom", error_code="E1", data=None)
     fake_registry.execute = AsyncMock(return_value=fake_result)
 
-    svc = ToolInvocationService(fake_registry, fake_bus)
+    svc = ToolInvocationService(fake_registry)
     with patch("magi.events.tracing._resolve_event_bus", return_value=fake_bus):
         await svc.invoke(ToolCall(name="x", args={}), ctx)
         await drain_pending()
@@ -96,7 +81,7 @@ async def test_publishes_failure_status_when_result_failed(fake_bus, fake_regist
 async def test_publishes_and_reraises_when_execute_throws(fake_bus, fake_registry, ctx):
     fake_registry.execute = AsyncMock(side_effect=ValueError("kaboom"))
 
-    svc = ToolInvocationService(fake_registry, fake_bus)
+    svc = ToolInvocationService(fake_registry)
     with patch("magi.events.tracing._resolve_event_bus", return_value=fake_bus):
         with pytest.raises(ValueError):
             await svc.invoke(ToolCall(name="x", args={}), ctx)
@@ -113,7 +98,7 @@ async def test_publish_failure_does_not_break_caller(fake_bus, fake_registry, ct
     fake_registry.execute = AsyncMock(return_value=MagicMock(success=True, error=None))
     fake_bus.publish = AsyncMock(side_effect=RuntimeError("bus dead"))
 
-    svc = ToolInvocationService(fake_registry, fake_bus)
+    svc = ToolInvocationService(fake_registry)
     with patch("magi.events.tracing._resolve_event_bus", return_value=fake_bus):
         # must not raise — publish failure is swallowed
         await svc.invoke(ToolCall(name="x", args={}), ctx)

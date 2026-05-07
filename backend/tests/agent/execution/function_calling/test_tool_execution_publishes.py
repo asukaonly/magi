@@ -22,7 +22,7 @@ async def test_function_calling_path_publishes_via_service():
     fake_result = MagicMock(success=True, error=None, error_code=None, data="ok")
     registry.execute = AsyncMock(return_value=fake_result)
 
-    svc = ToolInvocationService(registry, bus)
+    svc = ToolInvocationService(registry)
     ctx = InvocationContext(
         tool_category="external_tool",
         task_context=TaskContext("s", "t", None, "u"),

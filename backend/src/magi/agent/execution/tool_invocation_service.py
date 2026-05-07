@@ -58,12 +58,8 @@ class InvocationContext:
 
 
 class ToolInvocationService:
-    def __init__(self, tool_registry, event_bus=None):
+    def __init__(self, tool_registry):
         self._tool_registry = tool_registry
-        # ``event_bus`` is accepted for backward-compatible construction but
-        # SpanCompleted is published exclusively via ``container.message_bus``
-        # inside ``start_async_span``.
-        self._event_bus = event_bus
 
     async def invoke(self, call: ToolCall, ctx: InvocationContext):
         started_at = time.time()
@@ -162,27 +158,5 @@ class ToolInvocationService:
 
 
 def get_tool_invocation_service(tool_registry) -> ToolInvocationService:
-    """Build a ToolInvocationService using the global container's message bus.
-
-    Falls back to a no-op bus if the container hasn't been wired yet (e.g. unit tests
-    that only construct a host and don't expect events to flow). The no-op bus has
-    an async publish() that returns False — span publishing also tolerates an
-    unresolved bus.
-    """
-    from magi.core.container import get_container
-
-    bus = None
-    try:
-        bus = get_container().message_bus()
-    except Exception:
-        bus = None
-
-    if bus is None or type(bus).__name__ == "object":
-
-        class _NoopBus:
-            async def publish(self, event):
-                return False
-
-        bus = _NoopBus()
-
-    return ToolInvocationService(tool_registry, bus)
+    """Build a ToolInvocationService backed by the global tool registry."""
+    return ToolInvocationService(tool_registry)

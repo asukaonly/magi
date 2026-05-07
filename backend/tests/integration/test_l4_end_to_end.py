@@ -45,7 +45,7 @@ async def test_tool_invocation_lands_in_l4():
         return ToolResult(success=True, data="hello", execution_time=0.01)
     fake_registry.execute = fake_execute
 
-    service = ToolInvocationService(fake_registry, bus)
+    service = ToolInvocationService(fake_registry)
 
     await service.invoke(
         ToolCall(name="shell", args={"cmd": "echo hi"}),
@@ -105,7 +105,7 @@ async def test_failed_tool_invocation_also_lands_with_failure_flag():
         return ToolResult(success=False, error="kaboom", error_code="X1", execution_time=0.001)
     fake_registry.execute = fake_execute_fail
 
-    service = ToolInvocationService(fake_registry, bus)
+    service = ToolInvocationService(fake_registry)
 
     await service.invoke(
         ToolCall(name="bad_tool", args={}),
