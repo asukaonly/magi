@@ -104,6 +104,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "magi.i18n" = ["locales/*.json"]
+"magi.agent.task_agents.chat" = ["*.yaml"]
 "magi.db.migrations.chat" = ["script.py.mako"]
 "magi.db.migrations.l1" = ["script.py.mako"]
 "magi.db.migrations.memory_shared" = ["script.py.mako"]

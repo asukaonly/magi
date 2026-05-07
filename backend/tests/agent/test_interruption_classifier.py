@@ -10,92 +10,76 @@ from magi.agent.task_agents.chat.interruption_classifier import (
 )
 
 
-def test_explicit_stop_or_change_goal_text_interrupts_when_step_is_idle() -> None:
-    classifier = InterruptionClassifier()
+class TestSyncClassify:
+    """The synchronous classifier is intentionally narrow.
 
-    disposition = classifier.classify(
-        InterruptionContext(
-            user_text="Please stop and change the goal to fixing the login flow.",
+    AUGMENT/STEER and non-strict INTERRUPT decisions belong to the LLM
+    path; the sync classifier only makes calls it can be confident
+    about.
+    """
+
+    def test_strict_cancel_is_interrupt(self) -> None:
+        classifier = InterruptionClassifier()
+        assert (
+            classifier.classify(InterruptionContext(user_text="stop"))
+            == InterruptionDisposition.INTERRUPT
         )
-    )
 
-    assert disposition == InterruptionDisposition.INTERRUPT
-
-
-def test_additive_context_text_steer_when_step_is_idle() -> None:
-    classifier = InterruptionClassifier()
-
-    disposition = classifier.classify(
-        InterruptionContext(
-            user_text="Also, the API error only happens on mobile.",
+    def test_strict_cancel_chinese(self) -> None:
+        classifier = InterruptionClassifier()
+        assert (
+            classifier.classify(InterruptionContext(user_text="不用做了"))
+            == InterruptionDisposition.INTERRUPT
         )
-    )
 
-    assert disposition == InterruptionDisposition.STEER
-
-
-def test_additive_context_with_causal_detail_steer_when_step_is_idle() -> None:
-    classifier = InterruptionClassifier()
-
-    disposition = classifier.classify(
-        InterruptionContext(
-            user_text="The error only happens after refresh.",
+    def test_long_message_with_passing_cancel_keyword_defers(self) -> None:
+        # The previous classifier would classify this as INTERRUPT because
+        # "stop" appeared anywhere; the new design defers and lets the LLM
+        # decide, which matches the strict-fast-path documented behaviour.
+        classifier = InterruptionClassifier()
+        disposition = classifier.classify(
+            InterruptionContext(
+                user_text="Please stop and change the goal to fixing the login flow.",
+            )
         )
-    )
+        assert disposition == InterruptionDisposition.DEFER
 
-    assert disposition == InterruptionDisposition.STEER
+    def test_additive_context_defers_without_llm(self) -> None:
+        # No more substring AUGMENT/STEER detection — these should defer.
+        classifier = InterruptionClassifier()
+        for text in (
+            "Also, the API error only happens on mobile.",
+            "The error only happens after refresh.",
+            "Use the staging endpoint.",
+            "Also, return JSON instead of YAML.",
+        ):
+            assert classifier.classify(InterruptionContext(user_text=text)) == (
+                InterruptionDisposition.DEFER
+            )
 
-
-def test_additive_context_with_targeting_detail_steer_when_step_is_idle() -> None:
-    classifier = InterruptionClassifier()
-
-    disposition = classifier.classify(
-        InterruptionContext(
-            user_text="Use the staging endpoint.",
+    def test_atomic_step_state_defers_strict_cancel(self) -> None:
+        classifier = InterruptionClassifier()
+        assert (
+            classifier.classify(
+                InterruptionContext(
+                    user_text="stop",
+                    step_state=StepState(atomic=True),
+                )
+            )
+            == InterruptionDisposition.DEFER
         )
-    )
 
-    assert disposition == InterruptionDisposition.STEER
-
-
-def test_additive_refinement_with_instead_falls_back_to_augment() -> None:
-    classifier = InterruptionClassifier()
-
-    disposition = classifier.classify(
-        InterruptionContext(
-            user_text="Also, return JSON instead of YAML.",
+    def test_side_effecting_step_state_defers_strict_cancel(self) -> None:
+        classifier = InterruptionClassifier()
+        assert (
+            classifier.classify(
+                InterruptionContext(
+                    user_text="stop",
+                    step_state=StepState(side_effecting=True),
+                )
+            )
+            == InterruptionDisposition.DEFER
         )
-    )
-
-    # 'instead of' signals a re-scope even when the sentence begins with
-    # an additive cue, so AUGMENT wins over STEER.
-    assert disposition == InterruptionDisposition.AUGMENT
-
-
-def test_atomic_or_side_effecting_step_state_defers_interrupting_text() -> None:
-    classifier = InterruptionClassifier()
-
-    disposition = classifier.classify(
-        InterruptionContext(
-            user_text="Stop and change the goal to a different task.",
-            step_state=StepState(atomic=True),
-        )
-    )
-
-    assert disposition == InterruptionDisposition.DEFER
-
-
-def test_side_effecting_step_state_defers_interrupting_text() -> None:
-    classifier = InterruptionClassifier()
-
-    disposition = classifier.classify(
-        InterruptionContext(
-            user_text="Please stop and change the goal to a different task.",
-            step_state=StepState(side_effecting=True),
-        )
-    )
-
-    assert disposition == InterruptionDisposition.DEFER
 
 
 @pytest.mark.asyncio
@@ -127,6 +111,30 @@ async def test_async_classifier_uses_fast_model_for_chinese_interrupt(monkeypatc
     )
 
     assert disposition == InterruptionDisposition.INTERRUPT
+
+
+@pytest.mark.asyncio
+async def test_async_classifier_falls_back_to_sync_on_llm_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    classifier = InterruptionClassifier(llm_pool=object())
+
+    async def _failing_call(**_kwargs):  # type: ignore[no-untyped-def]
+        raise RuntimeError("upstream timeout")
+
+    monkeypatch.setattr(classifier, "_can_use_model_classifier", lambda: True)
+    monkeypatch.setattr(classifier._llm_service, "call", _failing_call)
+
+    # Strict cancel still triggers via sync fallback.
+    assert (
+        await classifier.aclassify(InterruptionContext(user_text="cancel"))
+        == InterruptionDisposition.INTERRUPT
+    )
+    # Ambiguous text falls through to DEFER instead of guessing AUGMENT/STEER.
+    assert (
+        await classifier.aclassify(
+            InterruptionContext(user_text="Also, return JSON instead of YAML.")
+        )
+        == InterruptionDisposition.DEFER
+    )
 
 
 @pytest.mark.parametrize(
@@ -181,3 +189,17 @@ def test_strict_interrupt_rejects_non_cancel_messages(user_text: str) -> None:
     classifier = InterruptionClassifier()
 
     assert classifier.looks_like_strict_interrupt(user_text) is False
+
+
+def test_strict_interrupt_phrases_loaded_from_yaml() -> None:
+    """The cancel phrase set is sourced from interruption_phrases.yaml."""
+    from magi.agent.task_agents.chat.interruption_classifier import (
+        _load_strict_interrupt_phrases,
+    )
+
+    phrases = _load_strict_interrupt_phrases()
+    # Sanity check both en and zh buckets contributed entries.
+    assert "stop" in phrases
+    assert "取消" in phrases
+    # Anything we add later via YAML should automatically reach the set.
+    assert isinstance(phrases, frozenset)
