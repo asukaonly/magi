@@ -12,7 +12,6 @@ from .constants import (
     TRACE_NODE_EVENT_TYPES,
     USER_EVENT_TYPES,
 )
-from .legacy_events import LegacyTraceEventsMixin
 from .models import (
     ExecutionTraceNode,
 )
@@ -61,7 +60,7 @@ from .utils import (
 logger = get_logger(__name__)
 
 
-class ChatTraceReadService(TraceSnapshotBuilderMixin, LegacyTraceEventsMixin, TraceRuntimeRowsMixin):
+class ChatTraceReadService(TraceSnapshotBuilderMixin, TraceRuntimeRowsMixin):
     """Build per-turn execution snapshots from persisted events and orchestration state."""
 
     def __init__(self) -> None:
