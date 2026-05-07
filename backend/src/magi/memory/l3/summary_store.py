@@ -24,7 +24,6 @@ from .validator import validate_candidate
 from .embeddings.operations import L3SummaryEmbeddingMixin
 from .retrieval.operations import L3SummarySearchMixin
 from .storage.operations import L3SummaryPersistenceMixin
-from .storage.schema import ensure_summary_store_schema
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +110,6 @@ class L3SummaryStore(L3SummaryEmbeddingMixin, L3SummarySearchMixin, L3SummaryPer
 
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         async with sqlite_connection_async(self.db_path) as db:
-            await ensure_summary_store_schema(db)
             if self._vector_index is not None:
                 await self._vector_index.initialize()
             await db.commit()
