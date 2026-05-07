@@ -10,7 +10,6 @@ import aiosqlite
 from ..core.sqlite import sqlite_connection_async
 from .contracts import ChatMessageRecord, ChatSessionRecord
 from .storage.context_summaries import ChatContextSummaryPersistenceMixin
-from .storage.schema import ensure_chat_store_schema
 from .storage.attachments import ChatAttachmentPersistenceMixin
 from .storage.messages import ChatMessagePersistenceMixin
 from .storage.serialization import build_user_message_payload_json
@@ -38,7 +37,6 @@ class ChatStore(
 
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            await ensure_chat_store_schema(db)
             await db.commit()
         self._initialized = True
 

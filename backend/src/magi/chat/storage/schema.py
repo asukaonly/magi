@@ -1,8 +1,6 @@
 """SQLite schema helpers for the chat write store."""
 from __future__ import annotations
 
-import aiosqlite
-
 CHAT_STORE_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS chat_sessions (
     session_id TEXT PRIMARY KEY,
@@ -121,8 +119,3 @@ CREATE INDEX IF NOT EXISTS idx_chat_context_summaries_session_status
 CREATE INDEX IF NOT EXISTS idx_chat_context_summaries_frontier
     ON chat_context_summaries(session_id, summary_kind, persona_scope, covered_to_sequence_no DESC);
 """
-
-
-async def ensure_chat_store_schema(db: aiosqlite.Connection) -> None:
-    """No-op kept for compatibility — schema is alembic-managed."""
-    return None

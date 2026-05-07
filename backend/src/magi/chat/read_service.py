@@ -22,7 +22,6 @@ from .read.session_operations import ChatSessionOperationsMixin
 from .read.schema import (
     CHAT_MESSAGES_TABLE,
     CHAT_TURNS_TABLE,
-    ensure_chat_store_schema,
 )
 from .read.serialization import (
     apply_turn_ux_preferences,
@@ -59,7 +58,6 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
         if self._conn is None:
             self._chat_db_path.parent.mkdir(parents=True, exist_ok=True)
             self._conn = connect_sqlite(self._chat_db_path, profile="mixed")
-            self._ensure_chat_store_schema(self._conn)
         return self._conn
 
     def close(self) -> None:
@@ -308,9 +306,6 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
             """,
             (user_id, session_id),
         ).fetchall()
-
-    def _ensure_chat_store_schema(self, conn: sqlite3.Connection) -> None:
-        ensure_chat_store_schema(conn)
 
     @staticmethod
     def _parse_turn_ux_preferences(raw_ux_plan_json: str | None) -> dict[str, Any]:
