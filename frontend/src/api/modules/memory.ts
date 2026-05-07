@@ -16,6 +16,12 @@ export interface L0Session {
   display_title?: string;
   display_subtitle?: string | null;
   user_id?: string;
+  workspace_path?: string | null;
+  message_count?: number | null;
+  last_message_preview?: string | null;
+  last_user_message_preview?: string | null;
+  title_overridden?: boolean | null;
+  history_version?: number | null;
   status: string;
   started_at: number;
   last_active_at: number;

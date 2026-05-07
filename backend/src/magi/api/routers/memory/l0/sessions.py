@@ -106,10 +106,11 @@ def build_l0_session_list_items(
         goals = goals_by_session.get(session_id, [])
         entities = entities_by_session.get(session_id, {})
         tactics = tactics_by_session.get(session_id, {})
+        chat_summary = summary_map.get(session_id)
         display = derive_l0_session_display(
             session_id=session_id,
             goals=goals,
-            chat_summary=summary_map.get(session_id),
+            chat_summary=chat_summary,
         )
         total_goals += len(goals)
         total_entities += len(entities)
@@ -125,6 +126,12 @@ def build_l0_session_list_items(
                 "goal_count": len(goals),
                 "entity_count": len(entities),
                 "tactic_count": len(tactics),
+                "workspace_path": getattr(chat_summary, "workspace_path", None),
+                "message_count": getattr(chat_summary, "message_count", None),
+                "last_message_preview": getattr(chat_summary, "last_message_preview", None),
+                "last_user_message_preview": getattr(chat_summary, "last_user_message_preview", None),
+                "title_overridden": getattr(chat_summary, "title_overridden", None),
+                "history_version": getattr(chat_summary, "history_version", None),
                 **display,
             }
         )

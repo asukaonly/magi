@@ -417,8 +417,12 @@ def test_l0_sessions_api_prefers_chat_summary_titles_and_short_ids(monkeypatch):
             return {
                 "379f666d-aee9-48fb-ab88-50690496297b": SimpleNamespace(
                     title="记忆设置整理",
+                    last_message_preview="把列表和工作台做成可展开的单列结构",
                     last_user_message_preview="把通用记忆设置里的 UUID 展示优化掉",
                     workspace_path="/Users/asuka/code/magi",
+                    message_count=12,
+                    title_overridden=True,
+                    history_version=3,
                 ),
             }
 
@@ -433,6 +437,12 @@ def test_l0_sessions_api_prefers_chat_summary_titles_and_short_ids(monkeypatch):
     assert body["items"][0]["display_title"] == "记忆设置整理"
     assert body["items"][0]["display_subtitle"] == "把通用记忆设置里的 UUID 展示优化掉"
     assert body["items"][0]["short_session_id"] == "379f666d"
+    assert body["items"][0]["workspace_path"] == "/Users/asuka/code/magi"
+    assert body["items"][0]["message_count"] == 12
+    assert body["items"][0]["last_message_preview"] == "把列表和工作台做成可展开的单列结构"
+    assert body["items"][0]["last_user_message_preview"] == "把通用记忆设置里的 UUID 展示优化掉"
+    assert body["items"][0]["title_overridden"] is True
+    assert body["items"][0]["history_version"] == 3
     assert body["total"] == 1
 
 
