@@ -78,9 +78,6 @@ class ExploreTaskAgent(TaskAgent[ExploreRuntimeContext, ExploreIntentDecision, T
             self._handler_registry.register(handler)
         self._coordinator = ExploreExecutionCoordinator()
 
-        # Keep alias for existing tests/introspection.
-        self._request_history = self._session_service._request_history
-
     async def handle_fact(self, fact: FactRecord) -> None:
         _ = fact
 
