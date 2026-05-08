@@ -14,12 +14,59 @@ evolution is a new revision file.
 
 from __future__ import annotations
 
+import json
+import time
+
 from alembic import op
 
 revision = "0001_initial"
 down_revision = None
 branch_labels = None
 depends_on = None
+
+
+_DEFAULT_GRAPH_CONFLICT_RULES: tuple[dict[str, object], ...] = (
+    {
+        "predicate": "LIKES",
+        "opposite_predicates": ["DISLIKES"],
+        "opposite_resolution": "mark_deprecated",
+        "exclusive_group": None,
+        "exclusive_scope": "same_subject",
+        "exclusive_resolution": "mark_deprecated",
+    },
+    {
+        "predicate": "DISLIKES",
+        "opposite_predicates": ["LIKES"],
+        "opposite_resolution": "mark_deprecated",
+        "exclusive_group": None,
+        "exclusive_scope": "same_subject",
+        "exclusive_resolution": "mark_deprecated",
+    },
+    {
+        "predicate": "CURRENT_WORKS_AT",
+        "opposite_predicates": [],
+        "opposite_resolution": "mark_deprecated",
+        "exclusive_group": "current_work",
+        "exclusive_scope": "same_subject",
+        "exclusive_resolution": "mark_deprecated",
+    },
+    {
+        "predicate": "CURRENT_LIVES_IN",
+        "opposite_predicates": [],
+        "opposite_resolution": "mark_deprecated",
+        "exclusive_group": "current_residence",
+        "exclusive_scope": "same_subject",
+        "exclusive_resolution": "mark_deprecated",
+    },
+    {
+        "predicate": "CURRENT_RELATIONSHIP_WITH",
+        "opposite_predicates": [],
+        "opposite_resolution": "mark_deprecated",
+        "exclusive_group": "current_relationship",
+        "exclusive_scope": "same_subject",
+        "exclusive_resolution": "mark_deprecated",
+    },
+)
 
 
 SCHEMA_SQL = """
@@ -169,8 +216,6 @@ CREATE TABLE IF NOT EXISTS entity_facets (
     updated_at REAL NOT NULL,
     UNIQUE(entity_id, facet_name, facet_value)
 );
-CREATE INDEX IF NOT EXISTS idx_entity_facets_entity_name
-    ON entity_facets(entity_id, facet_name);
 CREATE INDEX IF NOT EXISTS idx_entity_facets_name_value
     ON entity_facets(facet_name, facet_value);
 
@@ -387,8 +432,6 @@ CREATE TABLE IF NOT EXISTS summary_event_links (
     created_at REAL NOT NULL,
     UNIQUE(summary_id, event_id, link_role)
 );
-CREATE INDEX IF NOT EXISTS idx_summary_event_links_summary
-    ON summary_event_links(summary_id);
 CREATE INDEX IF NOT EXISTS idx_summary_event_links_event
     ON summary_event_links(event_id);
 
@@ -400,8 +443,6 @@ CREATE TABLE IF NOT EXISTS summary_task_links (
     created_at REAL NOT NULL,
     UNIQUE(summary_id, task_id, link_role)
 );
-CREATE INDEX IF NOT EXISTS idx_summary_task_links_summary
-    ON summary_task_links(summary_id);
 CREATE INDEX IF NOT EXISTS idx_summary_task_links_task
     ON summary_task_links(task_id);
 
@@ -416,8 +457,6 @@ CREATE TABLE IF NOT EXISTS l3_summary_chunks (
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_l3_summary_chunks_summary
-    ON l3_summary_chunks(summary_id);
 CREATE INDEX IF NOT EXISTS idx_l3_summary_chunks_index
     ON l3_summary_chunks(summary_id, chunk_index);
 
@@ -466,8 +505,6 @@ CREATE TABLE IF NOT EXISTS procedural_skills (
     updated_at REAL NOT NULL,
     UNIQUE(skill_name, skill_category)
 );
-CREATE INDEX IF NOT EXISTS idx_procedural_skill_name
-    ON procedural_skills(skill_name, skill_category);
 
 CREATE TABLE IF NOT EXISTS l4_skill_chunks (
     chunk_id TEXT PRIMARY KEY,
@@ -480,8 +517,6 @@ CREATE TABLE IF NOT EXISTS l4_skill_chunks (
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_l4_skill_chunks_skill
-    ON l4_skill_chunks(skill_id);
 CREATE INDEX IF NOT EXISTS idx_l4_skill_chunks_index
     ON l4_skill_chunks(skill_id, chunk_index);
 
@@ -635,7 +670,30 @@ DROP TABLE IF EXISTS l0_sessions;
 
 
 def upgrade() -> None:
-    op.get_bind().connection.executescript(SCHEMA_SQL)
+    bind = op.get_bind().connection
+    bind.executescript(SCHEMA_SQL)
+
+    now = time.time()
+    for rule in _DEFAULT_GRAPH_CONFLICT_RULES:
+        bind.execute(
+            """
+            INSERT OR IGNORE INTO graph_conflict_rules(
+                predicate, opposite_predicates, opposite_resolution,
+                exclusive_group, exclusive_scope, exclusive_resolution,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                rule["predicate"],
+                json.dumps(rule["opposite_predicates"], ensure_ascii=False),
+                rule["opposite_resolution"],
+                rule["exclusive_group"],
+                rule["exclusive_scope"],
+                rule["exclusive_resolution"],
+                now,
+                now,
+            ),
+        )
 
 
 def downgrade() -> None:
