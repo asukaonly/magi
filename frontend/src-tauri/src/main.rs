@@ -968,6 +968,13 @@ fn cancel_exit_request() -> Result<(), String> {
     Ok(())
 }
 
+fn stop_backend_for_app_exit(app: &AppHandle) {
+    let state: State<'_, BackendState> = app.state();
+    if let Err(err) = stop_backend_inner(&state) {
+        log::warn!("Failed to stop backend during app exit: {err}");
+    }
+}
+
 fn main() {
     let log_dir = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
@@ -976,7 +983,7 @@ fn main() {
         .join(".magi")
         .join("logs");
 
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(
             tauri_plugin_log::Builder::new()
                 .target(tauri_plugin_log::Target::new(
@@ -1057,8 +1064,15 @@ fn main() {
             confirm_exit_app,
             cancel_exit_request
         ])
-        .run(tauri::generate_context!())
-        .expect("failed to run Magi desktop application");
+        .build(tauri::generate_context!())
+        .expect("failed to build Magi desktop application");
+
+    app.run(|app_handle, event| match event {
+        tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => {
+            stop_backend_for_app_exit(app_handle);
+        }
+        _ => {}
+    });
 }
 
 #[cfg(test)]
