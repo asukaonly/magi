@@ -157,6 +157,9 @@ The durable design is documented in [Persona Runtime Architecture](./persona-run
 - `~/.magi/runtime/message_queue.db`
   Runtime command-queue persistence only
 
+- `~/.magi/runtime/sensor_state.db`
+  Sensor sync cursors, source-item fingerprints, and sensor sync statistics. The awareness layer owns this database; high-volume fingerprint writes flow through a bounded batch queue so sensor catch-up runs apply backpressure instead of opening one SQLite write per emitted event.
+
 - `~/.magi/data/chat/chat.db`
   Chat-domain source of truth for `chat_sessions`, `chat_turns`, `chat_messages`, and indexed `chat_attachments`
 
@@ -213,6 +216,7 @@ When adding a new SQLite write path, update this matrix, `contracts/sqlite/gatew
 | `message_queue.db` | `runtime_commands` | Durable runtime command queue | No direct writes except through IPC-facing command enqueue flows if explicitly implemented | Owns queue schema, claiming, retry, ack, and recovery semantics | Python runtime command queue |
 | `tasks.db` | `tasks` | User-facing task records | Reads task views; writes product task CRUD fields through `crates/magi-gateway/src/api/tasks/write.rs` | May write runtime-linked task rows and orchestration linkage through task-domain services | Shared task-domain schema; native route mutations must stay field-scoped |
 | `scheduler.db` | `schedules`, `target_state`, execution history | Unified scheduler configuration and execution bookkeeping | Reads schedules/executions; writes product schedule CRUD, target-state reset fields, and cancellation markers through `crates/magi-gateway/src/api/schedules/write.rs` | Owns scheduler execution, job registration, run history, and recovery | Python scheduler repository schema; Rust route tests cover native mutation fields |
+| `sensor_state.db` | `sensor_cursors`, `sensor_fingerprints`, `sensor_stats` | Sensor sync bookkeeping and source-item dedupe state | No direct native writes currently; product commands request state flushes through IPC/runtime command queue | Owns cursor/stat updates and fingerprint dedupe writes; high-volume fingerprint writes must use the awareness-owned bounded batch writer | Python sensor_state schema |
 | `llm_usage.db` | `llm_usage` | LLM usage metrics | Reads usage dashboards; may insert gateway-originated metric rows when no Python runtime call owns the event | Writes provider/runtime usage records for Python LLM execution | Python LLM usage store schema; Rust metrics tests cover read/write shape |
 | `l1_events.db` | `fact_events`, L1 vector/index tables | Canonical lossy memory projection | Read-only for native memory list/stat endpoints; startup may create idempotent performance indexes | Owns all semantic writes, retention, archival, projection, and vector writes | Python memory L1 store schema; Rust may only add documented idempotent indexes |
 | `memory.db` | L0/L2/L3/L4 tables, graph, assertions, summaries, procedures | Lifecycle memory state beyond L1 | Reads native memory inspection endpoints, writes explicit user L2 assertion feedback/corrections through `crates/magi-gateway/src/api/memory/l2.rs`, and may create idempotent performance indexes at startup | Owns cognition, reflection, procedural extraction, conflict resolution, vector writes, and memory writes not explicitly initiated by user correction flows | Python memory stores/schema; Rust may only add documented user-feedback writes and idempotent indexes |

@@ -17,7 +17,7 @@ from .sensor_output import (
     SensorOutput,
     SensorOutputMetadata,
 )
-from .sensor_state import SensorStateStore, SqliteSensorStateStore
+from .sensor_state import SensorStateStore, SensorStateWriteQueue, SqliteSensorStateStore
 from .sensor_sync import PluginRuntimePaths, PullSyncSensor, SensorSyncContext, SensorSyncResult
 from .ingestion_gateway import SensorIngestionGateway, SensorIngestionResult
 
@@ -39,6 +39,7 @@ __all__ = [
     "SensorOutput",
     "SensorOutputMetadata",
     "SensorStateStore",
+    "SensorStateWriteQueue",
     "SensorSyncContext",
     "SensorSyncResult",
     "SqliteSensorStateStore",

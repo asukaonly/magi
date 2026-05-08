@@ -10,7 +10,7 @@ from ..config import get_config
 from ..core.logger import get_logger
 from ..timeline.adapter import TimelineAdapter
 from .ingestion_gateway import SensorIngestionGateway
-from .sensor_state import SqliteSensorStateStore
+from .sensor_state import SensorStateWriteQueue, SqliteSensorStateStore
 from .sensor_hub import SensorHub
 from .event_emitter import RuntimeEventEmitter
 from .scheduler_contrib import SensorSchedulerContrib
@@ -198,7 +198,8 @@ class SensorStateUpdateSubscriberModule(LifecycleModule):
         bus = require_initialized(self._context.message_bus.message_bus, "message bus")
         runtime_paths = require_initialized(self._context.core.runtime_paths, "runtime paths")
         store = SqliteSensorStateStore(runtime_paths.sensor_state_db_path)
-        self._subscriber = SensorStateUpdateSubscriber(event_bus=bus, sensor_state_store=store)
+        writer = SensorStateWriteQueue(sensor_state_store=store)
+        self._subscriber = SensorStateUpdateSubscriber(event_bus=bus, sensor_state_writer=writer)
         await self._subscriber.start()
         logger.info("SensorStateUpdateSubscriber started")
 
