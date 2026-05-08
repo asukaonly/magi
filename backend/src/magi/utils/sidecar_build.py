@@ -118,6 +118,10 @@ def build_packaged_data_entries(
         if source_path.exists():
             entries.append((source_path, destination_name))
 
+    migrations_path = resolved_backend_root / "src" / "magi" / "db" / "migrations"
+    if migrations_path.exists():
+        entries.append((migrations_path, "magi/db/migrations"))
+
     # Include only core plugins as individual directories.
     plugins_root = resolved_repo_root / "plugins"
     for plugin_id in CORE_PLUGIN_IDS:

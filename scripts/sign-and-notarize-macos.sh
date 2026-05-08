@@ -299,12 +299,20 @@ echo "==> Re-creating DMG ..."
 OLD_DMG=$(find "${DMG_DIR}" -name "*.dmg" -type f 2>/dev/null | head -1)
 if [[ -n "$OLD_DMG" ]]; then
   DMG_NAME=$(basename "$OLD_DMG")
+  DMG_STAGING="$(mktemp -d "${RUNNER_TEMP:-/tmp}/magi-dmg-staging.XXXXXX")"
+  trap 'rm -rf "${DMG_STAGING:-}"' EXIT
+
   rm -f "$OLD_DMG"
+  cp -a "${APP_PATH}" "${DMG_STAGING}/"
+  ln -s /Applications "${DMG_STAGING}/Applications"
 
   hdiutil create -volname "${APP_NAME}" \
-    -srcfolder "${APP_PATH}" \
+    -srcfolder "${DMG_STAGING}" \
     -ov -format UDZO \
     "${DMG_DIR}/${DMG_NAME}"
+
+  rm -rf "${DMG_STAGING}"
+  trap - EXIT
 
   codesign --force --sign "${APPLE_SIGNING_IDENTITY}" \
     --timestamp "${DMG_DIR}/${DMG_NAME}"

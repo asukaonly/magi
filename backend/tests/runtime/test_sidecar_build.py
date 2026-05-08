@@ -15,6 +15,7 @@ def test_build_pyinstaller_command_includes_required_hidden_imports(tmp_path: Pa
     repo_root = tmp_path / "repo"
     (backend_root / "configs").mkdir(parents=True)
     (backend_root / "personalities").mkdir(parents=True)
+    (backend_root / "src" / "magi" / "db" / "migrations" / "chat").mkdir(parents=True)
     (repo_root / "plugins" / "core-tools").mkdir(parents=True)
     (repo_root / "skills").mkdir(parents=True)
 
@@ -54,6 +55,7 @@ def test_build_pyinstaller_command_includes_required_hidden_imports(tmp_path: Pa
     ]
     assert any(value.endswith(f"{os.pathsep}configs") for value in add_data_values)
     assert any(value.endswith(f"{os.pathsep}personalities") for value in add_data_values)
+    assert any(value.endswith(f"{os.pathsep}magi/db/migrations") for value in add_data_values)
     assert any(value.endswith(f"{os.pathsep}plugins/core-tools") for value in add_data_values)
     assert any(value.endswith(f"{os.pathsep}skills") for value in add_data_values)
     assert command[-1] == "run_server.py"
@@ -64,6 +66,7 @@ def test_build_packaged_data_entries_uses_repo_and_backend_roots(tmp_path: Path)
     repo_root = tmp_path / "repo"
     (backend_root / "configs").mkdir(parents=True)
     (backend_root / "personalities").mkdir(parents=True)
+    (backend_root / "src" / "magi" / "db" / "migrations").mkdir(parents=True)
     (repo_root / "plugins" / "core-tools").mkdir(parents=True)
     (repo_root / "skills").mkdir(parents=True)
 
@@ -74,6 +77,7 @@ def test_build_packaged_data_entries_uses_repo_and_backend_roots(tmp_path: Path)
 
     assert (backend_root / "configs", "configs") in entries
     assert (backend_root / "personalities", "personalities") in entries
+    assert (backend_root / "src" / "magi" / "db" / "migrations", "magi/db/migrations") in entries
     assert (repo_root / "plugins" / "core-tools", "plugins/core-tools") in entries
     assert (repo_root / "skills", "skills") in entries
 
