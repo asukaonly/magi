@@ -22,6 +22,7 @@ def test_register_api_routes_keeps_only_supported_public_surfaces() -> None:
     assert "/api/messages/session/{session_id}/message/{message_id}/label" in paths
     assert "/api/messages/session/{session_id}/message/{message_id}" in paths
     assert "/api/config/" in paths
+    assert "/api/config/embedding-preflight" in paths
     assert "/api/llm/providers/catalog" in paths
     assert "/api/llm/providers/custom-template" in paths
     assert "/api/personality/generate" in paths
@@ -51,6 +52,10 @@ def test_register_api_routes_keeps_only_supported_public_surfaces() -> None:
     assert "/api/memory/eval/query" in paths
     assert "/api/memory/eval/finalize-replay" in paths
     assert "/api/memory/background/pending" in paths
+    assert "/api/memory/embeddings/status" in paths
+    assert "/api/memory/embeddings/rebuild" in paths
+    assert "/api/memory/embeddings/rebuild/{job_id}" in paths
+    assert "/api/memory/embeddings/rebuild/{job_id}/cancel" in paths
     assert "/api/control/sessions/{session_id}/permissions" in paths
 
 
