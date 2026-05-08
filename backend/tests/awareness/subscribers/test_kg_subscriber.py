@@ -102,3 +102,37 @@ async def test_supports_sync_upsert(fake_bus):
     await sub._on_event(Event(type=EventTypes.SENSOR_EVENT_EMITTED, data=payload, event_id="e"))
     await sub.drain()
     memory.upsert_user_graph_edge.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_limits_concurrent_relation_processing(fake_bus, fake_memory):
+    active = 0
+    max_seen = 0
+
+    async def upsert_user_graph_edge(**kwargs):
+        nonlocal active, max_seen
+        _ = kwargs
+        active += 1
+        max_seen = max(max_seen, active)
+        await asyncio.sleep(0.01)
+        active -= 1
+
+    fake_memory.upsert_user_graph_edge.side_effect = upsert_user_graph_edge
+    sub = KGSubscriber(event_bus=fake_bus, unified_memory=fake_memory, max_concurrency=2)
+    await sub.start()
+
+    for index in range(10):
+        payload = _make_payload_with_relations(
+            [{"predicate": "VIEWED", "object_id": f"site:{index}"}],
+            ["VIEWED"],
+        )
+        await sub._on_event(
+            Event(
+                type=EventTypes.SENSOR_EVENT_EMITTED,
+                data=payload,
+                event_id=f"evt-{index}",
+            )
+        )
+    await sub.drain()
+
+    assert max_seen <= 2

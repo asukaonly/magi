@@ -13,11 +13,12 @@ logger = logging.getLogger(__name__)
 
 
 class KGSubscriber:
-    def __init__(self, *, event_bus, unified_memory) -> None:
+    def __init__(self, *, event_bus, unified_memory, max_concurrency: int = 8) -> None:
         self._bus = event_bus
         self._memory = unified_memory
         self._sub_id: Optional[str] = None
         self._inflight: set[asyncio.Task] = set()
+        self._semaphore = asyncio.Semaphore(max(1, int(max_concurrency)))
 
     async def start(self) -> None:
         self._sub_id = await self._bus.subscribe(
@@ -89,22 +90,23 @@ class KGSubscriber:
                 observed_at = float(candidate.get("observed_at", default_occurred_at))
                 source_type = str(candidate.get("source_type", default_source_type))
 
-                maybe_awaitable = self._memory.upsert_user_graph_edge(
-                    subject_id=subject_id,
-                    subject_type=subject_type,
-                    predicate=predicate,
-                    object_id=object_id,
-                    object_type=object_type,
-                    fact_kind=str(candidate.get("fact_kind", "")).strip() or None,
-                    evidence_event_ids=[event_id],
-                    confidence=confidence,
-                    observed_at=observed_at,
-                    source_type=source_type,
-                    subject_attributes=dict(candidate.get("subject_attributes", {})),
-                    object_attributes=dict(candidate.get("object_attributes", {})),
-                )
-                if inspect.isawaitable(maybe_awaitable):
-                    await maybe_awaitable
+                async with self._semaphore:
+                    maybe_awaitable = self._memory.upsert_user_graph_edge(
+                        subject_id=subject_id,
+                        subject_type=subject_type,
+                        predicate=predicate,
+                        object_id=object_id,
+                        object_type=object_type,
+                        fact_kind=str(candidate.get("fact_kind", "")).strip() or None,
+                        evidence_event_ids=[event_id],
+                        confidence=confidence,
+                        observed_at=observed_at,
+                        source_type=source_type,
+                        subject_attributes=dict(candidate.get("subject_attributes", {})),
+                        object_attributes=dict(candidate.get("object_attributes", {})),
+                    )
+                    if inspect.isawaitable(maybe_awaitable):
+                        await maybe_awaitable
             except Exception:
                 logger.exception(
                     "kg upsert_user_graph_edge failed (event_id=%s candidate=%s)",

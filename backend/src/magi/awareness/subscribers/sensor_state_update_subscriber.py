@@ -12,11 +12,12 @@ logger = logging.getLogger(__name__)
 
 
 class SensorStateUpdateSubscriber:
-    def __init__(self, *, event_bus, sensor_state_store) -> None:
+    def __init__(self, *, event_bus, sensor_state_store, max_concurrency: int = 8) -> None:
         self._bus = event_bus
         self._state_store = sensor_state_store
         self._sub_id: Optional[str] = None
         self._inflight: set[asyncio.Task] = set()
+        self._semaphore = asyncio.Semaphore(max(1, int(max_concurrency)))
 
     async def start(self) -> None:
         self._sub_id = await self._bus.subscribe(
@@ -50,7 +51,8 @@ class SensorStateUpdateSubscriber:
 
     async def _safe_persist(self, sensor_id: str, fingerprint: str) -> None:
         try:
-            await self._state_store.add_fingerprints(sensor_id, {fingerprint})
+            async with self._semaphore:
+                await self._state_store.add_fingerprints(sensor_id, {fingerprint})
         except Exception:
             logger.exception(
                 "sensor_state add_fingerprints failed (sensor=%s)", sensor_id,

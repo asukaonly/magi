@@ -1,5 +1,6 @@
 """Phase 7 of C: SensorStateUpdateSubscriber persists fingerprints."""
 from __future__ import annotations
+import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
@@ -59,3 +60,37 @@ async def test_handler_failure_swallowed(fake_bus, fake_store):
         Event(type=EventTypes.SENSOR_EVENT_EMITTED, data=_payload(fingerprint="fp"), event_id="e")
     )
     await sub.drain()  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_limits_concurrent_persistence(fake_bus, fake_store):
+    active = 0
+    max_seen = 0
+
+    async def add_fingerprints(sensor_id, fingerprints):
+        nonlocal active, max_seen
+        _ = sensor_id, fingerprints
+        active += 1
+        max_seen = max(max_seen, active)
+        await asyncio.sleep(0.01)
+        active -= 1
+
+    fake_store.add_fingerprints.side_effect = add_fingerprints
+    sub = SensorStateUpdateSubscriber(
+        event_bus=fake_bus,
+        sensor_state_store=fake_store,
+        max_concurrency=2,
+    )
+    await sub.start()
+
+    for index in range(10):
+        await sub._on_event(
+            Event(
+                type=EventTypes.SENSOR_EVENT_EMITTED,
+                data=_payload(fingerprint=f"fp-{index}"),
+                event_id=f"e-{index}",
+            )
+        )
+    await sub.drain()
+
+    assert max_seen <= 2
