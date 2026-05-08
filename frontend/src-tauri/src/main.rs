@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod desktop_presence;
+mod dmg_cleanup;
 mod frontmost_app_monitor;
 
 use magi_gateway::{api, ipc, notification_bridge};
@@ -987,6 +988,9 @@ fn main() {
         .manage(BackendState::default())
         .manage(desktop_presence::DesktopPresenceState::default())
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            dmg_cleanup::detach_installer_volume_after_launch();
+
             if let Err(err) = desktop_presence::setup(app.handle()) {
                 eprintln!(
                     "Optional desktop presence setup is unavailable; continuing without tray integration: {err}"
