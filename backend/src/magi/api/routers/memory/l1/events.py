@@ -8,6 +8,7 @@ from ..helpers import parse_day_boundary, serialize_l1_event_list_item
 
 def build_l1_event_query_args(
     *,
+    event_id: str | None,
     session_id: str | None,
     user_id: str | None,
     event_type: str | None,
@@ -19,6 +20,7 @@ def build_l1_event_query_args(
     end_date: str | None,
 ) -> dict[str, Any]:
     return {
+        "event_id": _clean_optional(event_id),
         "session_id": session_id,
         "user_id": user_id,
         "event_type": event_type,

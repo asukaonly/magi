@@ -258,7 +258,7 @@ fn do_update_workspace(
 
 #[cfg(test)]
 mod tests {
-    use super::{load_recent_workspaces, remember_recent_workspace, recent_workspaces_path};
+    use super::{load_recent_workspaces, recent_workspaces_path, remember_recent_workspace};
     use crate::db;
 
     #[test]

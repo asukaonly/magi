@@ -6,8 +6,11 @@ interface MemoryPageFrameProps {
   description: string;
   filters?: ReactNode;
   actions?: ReactNode;
+  headerMeta?: ReactNode;
   children: ReactNode;
   className?: string;
+  contentClassName?: string;
+  scrollable?: boolean;
 }
 
 export const MemoryPageFrame = ({
@@ -15,12 +18,19 @@ export const MemoryPageFrame = ({
   description,
   filters,
   actions,
+  headerMeta,
   children,
   className,
+  contentClassName,
+  scrollable = true,
 }: MemoryPageFrameProps) => (
   <div
     data-testid="memory-theme-root"
-    className={cn('memory-theme-surface mx-auto flex h-full max-w-[1380px] flex-col gap-4 overflow-y-auto px-6 py-6', className)}
+    className={cn(
+      'memory-theme-surface mx-auto flex h-full max-w-[1380px] flex-col gap-4 px-6 py-6',
+      scrollable ? 'overflow-y-auto' : 'overflow-hidden',
+      className
+    )}
   >
     <section
       data-testid="memory-page-header"
@@ -31,7 +41,12 @@ export const MemoryPageFrame = ({
           <h1 className="text-[1.85rem] font-semibold tracking-[-0.03em] text-[hsl(var(--memory-title))]">{title}</h1>
           <p className="max-w-3xl text-sm leading-6 text-[hsl(var(--memory-body))]">{description}</p>
         </div>
-        {actions ? <div className="flex flex-wrap items-center gap-2 lg:justify-end">{actions}</div> : null}
+        {actions || headerMeta ? (
+          <div className="flex flex-col gap-2 lg:min-w-fit lg:self-stretch lg:items-end lg:justify-between">
+            {actions ? <div className="flex flex-wrap items-center gap-2 lg:justify-end">{actions}</div> : null}
+            {headerMeta ? <div className="max-w-full">{headerMeta}</div> : null}
+          </div>
+        ) : null}
       </div>
 
       {filters ? (
@@ -44,7 +59,7 @@ export const MemoryPageFrame = ({
       ) : null}
     </section>
 
-    <div className="pb-5">{children}</div>
+    <div className={cn('pb-5', contentClassName)}>{children}</div>
   </div>
 );
 

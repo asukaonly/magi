@@ -16,6 +16,7 @@ class L1EventFilterMixin:
         session_id: Optional[str] = None,
         user_id: Optional[str] = None,
         memory_domain: Optional[str] = None,
+        event_id: Optional[str] = None,
         event_type: Optional[str] = None,
         query: Optional[str] = None,
         source_filters: Optional[List[str]] = None,
@@ -39,6 +40,9 @@ class L1EventFilterMixin:
         if memory_domain:
             parts.append("memory_domain = ?")
             args.append(int(MemoryDomain.from_value(memory_domain)))
+        if event_id:
+            parts.append("event_id = ?")
+            args.append(event_id)
         if event_type:
             parts.append("event_type = ?")
             args.append(event_type)

@@ -10,22 +10,8 @@ import { buildMemorySourceOptions, getMemorySourceLabel } from '@/utils/memory-s
 import MemoryPageFrame, {
   MEMORY_ACTION_BUTTON_CLASS,
   MEMORY_FILTER_INPUT_CLASS,
-  MemoryWorkspacePanel,
 } from './MemoryPageFrame';
 import { MemoryPagination, PAGE_SIZE } from './MemoryPagination';
-
-const SUMMARY_PREVIEW_LIMIT = 6;
-
-const buildSummaryText = (items: Array<[string, number]>, emptyLabel: string) => {
-  if (items.length === 0) {
-    return { full: emptyLabel, preview: emptyLabel };
-  }
-  const segments = items.map(([label, count]) => `${label} · ${count}`);
-  return {
-    full: segments.join(' / '),
-    preview: [...segments.slice(0, SUMMARY_PREVIEW_LIMIT), ...(segments.length > SUMMARY_PREVIEW_LIMIT ? ['...'] : [])].join(' / '),
-  };
-};
 
 const COMPACT_DATE_INPUT_CLASS =
   'h-9 min-w-0 rounded-none border-0 bg-transparent px-0 text-sm text-[hsl(var(--memory-title))] shadow-none focus-visible:ring-0 focus-visible:ring-offset-0';
@@ -45,7 +31,7 @@ const normalizeDateRange = (startDate: string, endDate: string) => {
 
 export const MemoryEventsPage = () => {
   const { t } = useTranslation('app');
-  const { loading, l1Events, l1Total, queryL1Events } = useMemory({ initialLoadScope: 'l1' });
+  const { loading, stats, l1Events, l1Total, queryL1Events } = useMemory({ initialLoadScope: 'l1' });
   const [contentQuery, setContentQuery] = useState('');
   const [sourceFilter, setSourceFilter] = useState('all');
   const [startDate, setStartDate] = useState('');
@@ -61,25 +47,9 @@ export const MemoryEventsPage = () => {
   );
 
   const formatSourceLabel = (source: string) => getMemorySourceLabel(t, source);
-
-  const domainCounts = Array.from(
-    l1Events.reduce((map, event) => {
-      const key = event.memory_domain || 'general';
-      map.set(key, (map.get(key) ?? 0) + 1);
-      return map;
-    }, new Map<string, number>())
-  ).sort((left, right) => right[1] - left[1]);
-  const sourceCounts = Array.from(
-    l1Events.reduce((map, event) => {
-      const key = event.source || 'unknown';
-      map.set(key, (map.get(key) ?? 0) + 1);
-      return map;
-    }, new Map<string, number>())
-  ).sort((left, right) => right[1] - left[1]);
-  const localizedSourceCounts = sourceCounts.map(([source, count]) => [formatSourceLabel(source), count] as [string, number]);
-  const sourceSummary = buildSummaryText(localizedSourceCounts, t('memory.filters.all'));
-  const domainSummary = buildSummaryText(domainCounts, t('memory.filters.all'));
   const sourceOptions = useMemo(() => buildMemorySourceOptions(t, sources), [sources, t]);
+  const globalEventCount = stats.l1.event_count || l1Total || l1Events.length;
+  const matchingEventCount = l1Total ?? l1Events.length;
 
   const buildSearchFilters = () => {
     const { start, end } = normalizeDateRange(startDate, endDate);
@@ -129,6 +99,20 @@ export const MemoryEventsPage = () => {
           {t('memory.refresh')}
         </Button>
       }
+      headerMeta={(
+        <dl className="flex flex-wrap items-center justify-start gap-x-4 gap-y-1 text-xs lg:justify-end">
+          <div className="flex items-center gap-1.5 whitespace-nowrap">
+            <dt className="text-[hsl(var(--memory-muted))]">{t('memory.l1.totalEvents')}</dt>
+            <dd className="font-semibold text-[hsl(var(--memory-title))]">{globalEventCount}</dd>
+          </div>
+          <div className="flex items-center gap-1.5 whitespace-nowrap">
+            <dt className="text-[hsl(var(--memory-muted))]">{t('memory.pages.events.matchedEventsLabel')}</dt>
+            <dd className="font-semibold text-[hsl(var(--memory-title))]">{matchingEventCount}</dd>
+          </div>
+        </dl>
+      )}
+      scrollable={false}
+      contentClassName="flex min-h-0 flex-1 flex-col pb-0"
       filters={(
         <form
           className="grid gap-x-3 gap-y-2.5 text-sm lg:grid-cols-[minmax(0,1.52fr)_minmax(340px,1fr)_minmax(140px,0.44fr)_auto] lg:items-end"
@@ -223,40 +207,21 @@ export const MemoryEventsPage = () => {
         </form>
       )}
     >
-      {loading ? <LoadingSpinner /> : (
-        <div className="space-y-4">
-          <div className="grid gap-4 xl:grid-cols-2">
-            <MemoryWorkspacePanel
-              testId="memory-events-source-summary"
-              title={t('memory.pages.events.sourceSummaryTitle')}
-            >
-              <p
-                className="min-h-[3.5rem] text-sm leading-7 text-[hsl(var(--memory-body))] line-clamp-2"
-                title={sourceSummary.full}
-              >
-                {sourceSummary.preview}
-              </p>
-            </MemoryWorkspacePanel>
-
-            <MemoryWorkspacePanel
-              title={t('memory.pages.events.domainSummaryTitle')}
-            >
-              <p
-                className="min-h-[3.5rem] text-sm leading-7 text-[hsl(var(--memory-body))] line-clamp-2"
-                title={domainSummary.full}
-              >
-                {domainSummary.preview}
-              </p>
-            </MemoryWorkspacePanel>
+      {loading ? (
+        <div className="flex min-h-0 flex-1 items-center justify-center">
+          <LoadingSpinner />
+        </div>
+      ) : (
+        <div className="flex min-h-0 flex-1 flex-col gap-3">
+          <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+            <L1Tab
+              stats={{ event_count: l1Events.length }}
+              events={l1Events}
+              showStats={false}
+              showHeader={false}
+              formatSourceLabel={formatSourceLabel}
+            />
           </div>
-
-          <L1Tab
-            stats={{ event_count: l1Events.length }}
-            events={l1Events}
-            showStats={false}
-            formatSourceLabel={formatSourceLabel}
-          />
-
           <MemoryPagination
             total={l1Total}
             offset={offset}

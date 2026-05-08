@@ -56,8 +56,7 @@ pub fn build_router(state: ApiState) -> Router {
         )
         .route(
             "/api/messages/workspaces/recent",
-            axum::routing::get(messages::list_recent_workspaces)
-                .post(messages::remember_workspace),
+            axum::routing::get(messages::list_recent_workspaces).post(messages::remember_workspace),
         )
         .route(
             "/api/messages/session/{session_id}/message/{message_id}/label",
@@ -151,6 +150,14 @@ pub fn build_router(state: ApiState) -> Router {
         .route(
             "/api/memory/l2/assertions",
             axum::routing::get(memory::list_l2_assertions),
+        )
+        .route(
+            "/api/memory/l2/assertions/{assertion_id}/feedback",
+            axum::routing::patch(memory::submit_l2_assertion_feedback),
+        )
+        .route(
+            "/api/memory/l2/assertions/{assertion_id}/correct",
+            axum::routing::post(memory::correct_l2_assertion),
         )
         .route(
             "/api/memory/l2/entities",

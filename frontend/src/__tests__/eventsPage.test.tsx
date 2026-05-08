@@ -158,7 +158,7 @@ describe('events page', () => {
     });
   });
 
-  it('renders event cards with proper structure', async () => {
+  it('renders expandable event rows with audit details', async () => {
     const user = userEvent.setup();
     render(<EventsPage />);
 
@@ -166,8 +166,12 @@ describe('events page', () => {
 
     await screen.findByText('AI_RESPONSE');
     expect(screen.getByText('hello')).toBeInTheDocument();
+
+    await user.click(screen.getByText('hello'));
+
+    expect(screen.getByText('memory.l1.technicalIdentifiers')).toBeInTheDocument();
     expect(screen.getByText('local_user')).toBeInTheDocument();
-    expect(screen.getByText(/#101/)).toBeInTheDocument();
+    expect(screen.queryByText('#101')).not.toBeInTheDocument();
     expect(screen.getByText(/chat_msg:turn-1:user/)).toBeInTheDocument();
   });
 

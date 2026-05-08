@@ -133,21 +133,32 @@ fn build_l0_sessions(params: &L0SessionsQuery) -> Value {
 
         let short_id = short_session_id(sid);
         let summary = summary_map.get(sid).cloned().unwrap_or_default();
-        let (display_title, display_subtitle) = derive_session_display(
-            sid,
-            &short_id,
-            &summary,
-        );
+        let (display_title, display_subtitle) = derive_session_display(sid, &short_id, &summary);
 
         let mut item = s.clone();
         if let Some(obj) = item.as_object_mut() {
             obj.insert("short_session_id".into(), json!(short_id));
             obj.insert("display_title".into(), json!(display_title));
-            obj.insert("display_subtitle".into(), display_subtitle.map(Value::String).unwrap_or(Value::Null));
-            obj.insert("workspace_path".into(), summary.workspace_path.map(Value::String).unwrap_or(Value::Null));
+            obj.insert(
+                "display_subtitle".into(),
+                display_subtitle.map(Value::String).unwrap_or(Value::Null),
+            );
+            obj.insert(
+                "workspace_path".into(),
+                summary
+                    .workspace_path
+                    .map(Value::String)
+                    .unwrap_or(Value::Null),
+            );
             obj.insert("message_count".into(), json!(summary.message_count));
-            obj.insert("last_message_preview".into(), json!(summary.last_message_preview));
-            obj.insert("last_user_message_preview".into(), json!(summary.last_user_message_preview));
+            obj.insert(
+                "last_message_preview".into(),
+                json!(summary.last_message_preview),
+            );
+            obj.insert(
+                "last_user_message_preview".into(),
+                json!(summary.last_user_message_preview),
+            );
             obj.insert("title_overridden".into(), json!(summary.title_overridden));
             obj.insert("history_version".into(), json!(summary.history_version));
         }
@@ -200,13 +211,37 @@ fn build_chat_summary_map(session_ids: &[String]) -> HashMap<String, ChatSession
             map.insert(
                 sid.to_string(),
                 ChatSessionSummary {
-                    title: row.get("title").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-                    last_message_preview: row.get("last_message_preview").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-                    last_user_message_preview: row.get("last_user_message_preview").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-                    workspace_path: row.get("workspace_path").and_then(|v| v.as_str()).map(str::to_string),
-                    message_count: row.get("message_count").and_then(|v| v.as_i64()).unwrap_or(0),
-                    title_overridden: row.get("title_overridden").and_then(|v| v.as_bool()).unwrap_or(false),
-                    history_version: row.get("history_version").and_then(|v| v.as_i64()).unwrap_or(0),
+                    title: row
+                        .get("title")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                    last_message_preview: row
+                        .get("last_message_preview")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                    last_user_message_preview: row
+                        .get("last_user_message_preview")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                    workspace_path: row
+                        .get("workspace_path")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string),
+                    message_count: row
+                        .get("message_count")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(0),
+                    title_overridden: row
+                        .get("title_overridden")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
+                    history_version: row
+                        .get("history_version")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(0),
                 },
             );
         }
@@ -219,7 +254,13 @@ fn truncate_session_preview(value: &str, limit: usize) -> String {
     if normalized.chars().count() <= limit {
         return normalized;
     }
-    normalized.chars().take(limit.saturating_sub(1)).collect::<String>().trim_end().to_string() + "..."
+    normalized
+        .chars()
+        .take(limit.saturating_sub(1))
+        .collect::<String>()
+        .trim_end()
+        .to_string()
+        + "..."
 }
 
 fn derive_session_display(

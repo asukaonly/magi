@@ -2384,12 +2384,12 @@
         "focusTitle": "事件观察",
         "focusHeadline": "从来源和内容去看记忆流入的密度",
         "focusBody": "这一层更像时间沉淀后的底稿，适合先按来源缩小范围，再逐步查看事件内容。",
-        "sourceSummaryTitle": "来源分布",
-        "domainSummaryTitle": "事件域感知"
+        "matchedEventsLabel": "命中事件",
+        "visibleEventsLabel": "当前页"
       },
       "knowledge": {
         "eyebrow": "L2 知识花园",
-        "subtitle": "查看知识图谱、心智断言和相关实验台能力，并按实体维度筛选。",
+        "subtitle": "查看已经整理出的稳定知识、待确认理解和相关证据。",
         "actions": {
           "flushMicrobatches": "立即生成 L2"
         },
@@ -2404,6 +2404,8 @@
         "identitySummary": "当前筛选下共有 {{count}} 条身份映射线索",
         "tabs": {
           "overview": "总览",
+          "knowledgeBase": "知识库",
+          "advanced": "高级",
           "knowledgeGraph": "知识图谱",
           "theoryOfMind": "心智理论",
           "mindSnapshots": "心智快照",
@@ -2413,6 +2415,19 @@
           "conflictRules": "冲突规则"
         },
         "sections": {
+          "knowledgeBase": "知识条目",
+          "knowledgeDirectory": "知识目录",
+          "reviewQueue": "待确认与冲突",
+          "recentKnowledge": "最近知识",
+          "entityOverview": "实体概览",
+          "stableKnowledge": "稳定知识",
+          "pendingSignals": "待确认线索",
+          "relations": "关系",
+          "deprecatedKnowledge": "旧知识",
+          "maintenance": "维护工具",
+          "diagnostics": "诊断统计",
+          "technicalDetails": "技术详情",
+          "evidenceEvents": "证据事件",
           "structureOverview": "结构概览",
           "identitySummary": "身份映射",
           "evidenceClasses": "证据类别",
@@ -2423,6 +2438,120 @@
           "snapshotTraits": "核心特征条目",
           "recentEventContext": "相关事件语境"
         },
+        "metrics": {
+          "knowledgeItems": "知识条目",
+          "needsReview": "需确认"
+        },
+        "groups": {
+          "all": "全部知识",
+          "aboutSelf": "关于你",
+          "preferences": "偏好",
+          "relationships": "人物与关系",
+          "workProjects": "工作与项目",
+          "interests": "兴趣内容",
+          "other": "其他"
+        },
+        "groupCounts": {
+          "stable": "稳定 {{count}}",
+          "review": "待确认 {{count}}",
+          "relations": "关系 {{count}}",
+          "deprecated": "旧 {{count}}"
+        },
+        "knowledgeBaseSummary": "共 {{total}} 条；稳定 {{stable}}，待确认 {{review}}，关系 {{relations}}，旧知识 {{deprecated}}。",
+        "overview": {
+          "summary": "已围绕 {{entities}} 个实体整理出 {{total}} 条稳定知识，其中 {{review}} 条理解需要你确认。",
+          "guidance": "有待确认理解时先从那里处理；实体行先展示画像摘要，展开后再看对应的判断和关系。"
+        },
+        "entitySummaryFallback": "已整理 {{stable}} 条稳定知识、{{relations}} 条关系和 {{assertions}} 条判断。",
+        "entityMetrics": {
+          "stableKnowledge": "稳定 {{count}}",
+          "pendingSignals": "待确认 {{count}}",
+          "relations": "关系 {{count}}",
+          "assertions": "判断 {{count}}"
+        },
+        "visibleItemCount": "前 {{shown}} / 共 {{total}}",
+        "totalItemCount": "共 {{total}} 条",
+        "kind": {
+          "relation": "关系",
+          "assertion": "理解",
+          "entity": "实体",
+          "mention": "提及",
+          "snapshot": "快照"
+        },
+        "statusOptions": {
+          "all": "全部状态",
+          "active": "生效中",
+          "needsReview": "待确认",
+          "conflicted": "冲突中",
+          "deprecated": "已废弃"
+        },
+        "entities": {
+          "self": "你"
+        },
+        "entityTypes": {
+          "user": "用户",
+          "media": "媒体",
+          "group": "组织",
+          "concept": "概念",
+          "person": "人物",
+          "food": "食物",
+          "hardware": "硬件",
+          "topic": "主题",
+          "place": "地点"
+        },
+        "traitLabels": {
+          "preference_address_real_name": "真实姓名",
+          "preference_identity_self_label": "自我称呼",
+          "preference_address_preferred": "常用地址偏好",
+          "preference_music": "音乐偏好",
+          "coffee_roast_preference": "咖啡烘焙偏好",
+          "music_artist_preference": "喜欢的音乐人"
+        },
+        "predicateLabels": {
+          "listened": "听过",
+          "viewed": "看过",
+          "uses": "使用过",
+          "interested_in": "可能感兴趣于",
+          "works_with": "曾一起工作于",
+          "likes": "喜欢",
+          "endorses": "认可"
+        },
+        "readable": {
+          "assertion": "{{entity}}的{{attribute}}可能是“{{value}}”。",
+          "relation": "{{subject}}{{predicate}}“{{object}}”。",
+          "entity": "已识别出{{type}}“{{entity}}”。",
+          "resolvedMention": "“{{mention}}” 已归到{{entity}}。",
+          "unresolvedMention": "“{{mention}}” 还没有匹配到具体实体。",
+          "snapshot": "{{entity}}的画像已更新。",
+          "evidenceSummary": "{{count}} 条证据",
+          "confidenceSummary": "可信度 {{confidence}}"
+        },
+        "fields": {
+          "subject": "主体",
+          "predicate": "关系",
+          "object": "对象",
+          "entity": "实体",
+          "type": "类型",
+          "sourceDomain": "来源域",
+          "inferenceDepth": "推断深度",
+          "aliases": "别名",
+          "technicalId": "技术 ID",
+          "technicalType": "内部类型",
+          "updatedAt": "更新时间",
+          "currentMood": "当前情绪",
+          "evidenceIds": "证据事件",
+          "evidenceCount": "证据 {{count}}"
+        },
+        "entityTypeAll": "全部类型",
+        "emptyReviewQueue": "当前没有需要确认或处理冲突的知识。",
+        "emptyEntityOverview": "还没有可展示的实体画像。",
+        "emptyStableKnowledge": "这个实体还没有稳定知识。",
+        "emptyPendingSignals": "这个实体暂无待确认线索。",
+        "emptySnapshotSummary": "还没有可用的画像摘要。",
+        "emptyKnowledge": "当前筛选下没有知识条目。",
+        "evidenceLoading": "正在加载证据事件...",
+        "evidenceMissing": "没有找到这条证据事件的内容。",
+        "advancedHint": "这里保留 L2 生成、重放、实体维护和冲突规则等操作，日常阅读知识时可以忽略。",
         "graphFilters": {
           "status": "关系状态筛选",
           "entity": "实体筛选",
@@ -2530,6 +2659,13 @@
       "l3": "L3",
       "l4": "L4"
     },
+    "eventTypes": {
+      "sensor_event": "传感器事件",
+      "user_message": "用户消息",
+      "ai_response": "助手回复",
+      "assistant_final": "助手回复",
+      "user_text": "用户文本"
+    },
     "l0": {
       "activeSessions": "活跃会话",
       "totalGoals": "目标总数",
@@ -2552,9 +2688,116 @@
       "externalActivity": "外部活动",
       "events": "事件流",
       "noEvents": "暂无事件记录",
-      "internalId": "内部",
-      "sourceItemId": "来源项",
-      "idempotencyKey": "幂等键"
+      "internalId": "内部行号",
+      "sourceItemId": "来源侧 ID",
+      "idempotencyKey": "去重键",
+      "toggleEventDetails": "展开事件详情",
+      "content": "事件内容",
+      "eventId": "事件 ID",
+      "source": "来源",
+      "memoryDomain": "记忆域",
+      "authorType": "作者类型",
+      "contentType": "内容类型",
+      "sessionId": "会话 ID",
+      "turnId": "轮次 ID",
+      "userId": "用户 ID",
+      "taskId": "任务 ID",
+      "correlationId": "链路关联 ID",
+      "ingestTarget": "写入目标",
+      "tomDepth": "ToM 深度",
+      "embeddingStatus": "向量化",
+      "embeddingProfile": "向量配置",
+      "embeddingChunks": "向量分块",
+      "lastEmbeddedAt": "向量化时间",
+      "mediaPath": "媒体路径",
+      "metadata": "Metadata",
+      "sourceMetadata": "来源详情",
+      "rawMetadata": "原始 Metadata JSON",
+      "metadataTechnicalOnly": "这条 metadata 没有可直接展示的来源字段，完整内容保留在原始 JSON 中。",
+      "technicalIdentifiers": "调试信息",
+      "timelineTitle": "时间线标题",
+      "timelineSummary": "时间线摘要",
+      "sourceApp": "来源应用",
+      "sourceType": "来源类型",
+      "memoryOwner": "记忆归属",
+      "entityHints": "实体线索数",
+      "graphHints": "关系线索数",
+      "l2BatchOwner": "L2 批处理归属",
+      "retentionClass": "保留策略",
+      "importanceScore": "重要度",
+      "cognitionEligible": "进入认知",
+      "createdAt": "创建时间",
+      "occurredAt": "发生时间",
+      "yes": "是",
+      "no": "否",
+      "metadataUnits": {
+        "seconds": " 秒",
+        "minutes": " 分钟"
+      },
+      "metadataLabels": {
+        "trackName": "歌曲",
+        "artistName": "歌手",
+        "albumName": "专辑",
+        "playDuration": "播放时长",
+        "trackDuration": "歌曲时长",
+        "liked": "已喜欢",
+        "trackAlias": "别名",
+        "playSource": "播放来源",
+        "neteaseUrl": "网易云链接",
+        "title": "标题",
+        "pageTitle": "页面标题",
+        "url": "链接",
+        "appName": "应用",
+        "windowTitle": "窗口标题",
+        "repository": "仓库",
+        "branch": "分支",
+        "commitMessage": "提交说明",
+        "filePath": "文件路径",
+        "sourceType": "来源类型",
+        "sourceApp": "来源应用"
+      },
+      "domains": {
+        "user_authored": "用户写入",
+        "external_activity": "外部活动",
+        "runtime_telemetry": "运行遥测",
+        "system_control": "系统控制",
+        "interaction": "交互记录"
+      },
+      "retentionClasses": {
+        "disposable": "临时",
+        "compressible": "可压缩",
+        "permanent": "长期保留"
+      },
+      "ingestTargets": {
+        "l0_only": "仅 L0",
+        "l1_only": "仅 L1",
+        "l0_and_l1": "L0 + L1"
+      },
+      "tomDepths": {
+        "none": "无",
+        "topology_only": "拓扑关系",
+        "defensive_psychology": "防御性心理"
+      },
+      "embeddingStatuses": {
+        "ready": "已完成",
+        "pending": "待处理",
+        "failed": "失败",
+        "skipped": "已跳过",
+        "disabled": "未启用",
+        "stale": "需更新"
+      },
+      "authorTypes": {
+        "user": "用户",
+        "assistant": "助手",
+        "external": "外部来源",
+        "system": "系统"
+      },
+      "contentTypes": {
+        "text": "文本",
+        "observation": "观察记录",
+        "action": "动作",
+        "summary": "摘要"
+      }
     },
     "identity": {
       "title": "身份映射",
@@ -2573,11 +2816,17 @@
       "assertions": "心智理论",
       "noAssertions": "暂无断言记录",
       "confirmAssertion": "确认此断言",
+      "correctAssertion": "修改",
+      "correctionValue": "正确内容",
+      "correctionPlaceholder": "输入正确内容",
+      "saveCorrection": "保存修改",
+      "cancelCorrection": "取消",
       "rejectAssertion": "否认此断言",
       "confirmed": "已确认",
       "rejected": "已否认",
       "feedbackConfirmed": "断言已确认",
       "feedbackRejected": "断言已否认",
+      "feedbackCorrected": "修正已保存",
       "lab": {
         "title": "L2 实验台",
         "skippedCount": "策略拦截数",
@@ -2774,7 +3023,6 @@
       "exitBehavior": "退出行为",
       "quietHourCondition": "收敛条件",
       "clamps": "约束（key: value）",
-      "layerModifiers": "层级修饰（key: value）",
       "occupation": "职业",
       "innerNarrative": "内在叙事",
       "languageFingerprint": "语言指纹",

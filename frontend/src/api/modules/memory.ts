@@ -89,6 +89,11 @@ export interface L1Event {
   cognition_eligible: boolean;
   level?: string | null;
   media_path?: string | null;
+  metadata_json?: Record<string, unknown> | null;
+  embedding_status?: string | null;
+  embedding_profile_id?: string | null;
+  embedding_chunk_count?: number | null;
+  last_embedded_at?: number | null;
   deleted_at?: number | null;
 }
 
@@ -107,6 +112,7 @@ export interface PaginationParams {
 export interface L1EventQueryParams {
   limit?: number;
   offset?: number;
+  event_id?: string;
   event_type?: string;
   user_id?: string;
   session_id?: string;
@@ -130,6 +136,9 @@ export interface L2Relation {
   evidence_event_ids: string[];
   observation_count: number;
   status: string;
+  first_observed_at?: number;
+  last_observed_at?: number;
+  updated_at?: number;
 }
 
 export interface L2Assertion {
@@ -148,6 +157,9 @@ export interface L2Assertion {
   last_validated_at: number;
   user_feedback: string | null;
   user_feedback_at: number | null;
+  status?: string | null;
+  superseded_by?: string | null;
+  superseded_at?: number | null;
 }
 
 export interface L2Entity {
@@ -175,9 +187,14 @@ export interface L2Snapshot {
   core_traits: Record<string, unknown>;
   preferences: Record<string, unknown>;
   relationship_topology?: Record<string, unknown>;
+  current_context?: Record<string, unknown>;
   current_stress_level?: number;
   current_mood?: string | null;
   current_engagement?: number;
+  interaction_count?: number;
+  last_interaction_at?: number | null;
+  last_updated_at?: number;
+  emerging_signals?: Array<Record<string, unknown>>;
 }
 
 export interface L2Episode {

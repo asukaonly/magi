@@ -10,6 +10,34 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
+vi.mock('@/api/modules/memory', () => ({
+  memoryApi: {
+    getL1Events: vi.fn().mockResolvedValue({
+      items: [
+        {
+          event_id: 'evt-2',
+          timestamp: 1710000000,
+          created_at: 1710000000,
+          event_type: 'user_message',
+          source: 'chat',
+          memory_domain: 'user_authored',
+          ingest_target: 'l1_only',
+          cognition_eligible: true,
+          tom_depth: 'topology_only',
+          retention_class: 'permanent',
+          content: 'I like jazz.',
+          author_type: 'user',
+          content_type: 'text',
+          importance_score: 0.7,
+        },
+      ],
+      total: 1,
+      limit: 1,
+      offset: 0,
+    }),
+  },
+}));
+
 describe('L2Tab lab', () => {
   it('queues a manual event from the lab composer', async () => {
     const user = userEvent.setup();
@@ -194,7 +222,7 @@ describe('L2Tab lab', () => {
     });
   });
 
-  it('renders evidence class and skip reason breakdowns', () => {
+  it('renders a user-focused overview without diagnostics', () => {
     render(
       <L2Tab
         section="overview"
@@ -214,7 +242,25 @@ describe('L2Tab lab', () => {
           },
         }}
         relations={[]}
-        assertions={[]}
+        assertions={[
+          {
+            assertion_id: 'assert-stable-overview',
+            entity_id: 'user:u1',
+            entity_type: 'user',
+            trait_name: 'preference.music',
+            trait_value: 'jazz',
+            confidence_score: 0.92,
+            evidence_events: ['evt-2'],
+            validation_state: 'stable',
+            volatility_index: 0.1,
+            source_domain: 'chat',
+            inference_depth: 'explicit',
+            first_inferred_at: 1710000000,
+            last_validated_at: 1710000000,
+            user_feedback: 'confirmed',
+            user_feedback_at: 1710000000,
+          },
+        ]}
         identityLinks={[
           {
             namespace: 'web',
@@ -223,9 +269,32 @@ describe('L2Tab lab', () => {
             link_type: 'runtime_account',
           },
         ]}
-        entities={[]}
+        entities={[
+          {
+            entity_id: 'user:u1',
+            canonical_name: 'User U1',
+            entity_type: 'user',
+            aliases: ['me'],
+          },
+        ]}
         mentions={[]}
-        snapshots={[]}
+        snapshots={[
+          {
+            snapshot_id: 'snapshot-overview',
+            entity_id: 'user:u1',
+            entity_type: 'user',
+            core_traits: { 'preference.music': 'jazz' },
+            preferences: {},
+            relationship_topology: { outgoing_count: 0, incoming_count: 0 },
+            current_context: { active_assertion_count: 1, relation_count: 0 },
+            current_mood: null,
+            current_stress_level: 0,
+            current_engagement: 0.5,
+            interaction_count: 1,
+            last_interaction_at: 1710000000,
+            last_updated_at: 1710000000,
+          },
+        ]}
         conflictRules={[]}
         events={[]}
         actionLoading={false}
@@ -237,13 +306,120 @@ describe('L2Tab lab', () => {
       />
     );
 
-    expect(screen.getByText('memory.pages.knowledge.sections.identitySummary')).toBeInTheDocument();
-    expect(screen.getByText('memory.identity.runtimeLinks')).toBeInTheDocument();
-    expect(screen.getAllByText('user:self').length).toBeGreaterThan(0);
-    expect(screen.getByText('local_user')).toBeInTheDocument();
-    expect(screen.getByText('memory.l2.lab.evidenceBreakdown')).toBeInTheDocument();
-    expect(screen.getByText('memory.l2.lab.skipReasonBreakdown')).toBeInTheDocument();
-    expect(screen.getByText('user_self_report')).toBeInTheDocument();
-    expect(screen.getByText('assistant_tool_grounded')).toBeInTheDocument();
+    expect(screen.getByText('memory.pages.knowledge.overview.summary')).toBeInTheDocument();
+    expect(screen.queryByText('memory.pages.knowledge.sections.reviewQueue')).not.toBeInTheDocument();
+    expect(screen.getByText('memory.pages.knowledge.sections.entityOverview')).toBeInTheDocument();
+    expect(screen.getAllByText('User U1').length).toBeGreaterThan(0);
+    expect(screen.getByText('memory.pages.knowledge.entitySummaryFallback')).toBeInTheDocument();
+    expect(screen.queryByText('memory.pages.knowledge.sections.recentKnowledge')).not.toBeInTheDocument();
+    expect(screen.queryByText('memory.pages.knowledge.metrics.knowledgeItems')).not.toBeInTheDocument();
+    expect(screen.queryByText('memory.l2.lab.evidenceBreakdown')).not.toBeInTheDocument();
+    expect(screen.queryByText('memory.l2.lab.skipReasonBreakdown')).not.toBeInTheDocument();
+    expect(screen.queryByText('user_self_report')).not.toBeInTheDocument();
+  });
+
+  it('renders a filtered grouped knowledge-base browser', async () => {
+    const user = userEvent.setup();
+    const onSubmitAssertionFeedback = vi.fn().mockResolvedValue(undefined);
+    const onCorrectAssertion = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <L2Tab
+        section="knowledgeBase"
+        stats={{ relation_count: 1, assertion_count: 1 }}
+        relations={[
+          {
+            triple_id: 'rel-1',
+            subject_id: 'user:u1',
+            subject_type: 'user',
+            predicate: 'LIKES',
+            object_id: 'music:jazz',
+            object_type: 'topic',
+            confidence: 0.82,
+            evidence_event_ids: ['evt-1'],
+            observation_count: 1,
+            status: 'active',
+          },
+        ]}
+        assertions={[
+          {
+            assertion_id: 'assert-1',
+            entity_id: 'user:u1',
+            entity_type: 'user',
+            trait_name: 'preference.music',
+            trait_value: 'jazz',
+            confidence_score: 0.7,
+            evidence_events: ['evt-2'],
+            validation_state: 'tentative',
+            volatility_index: 0.2,
+            source_domain: 'chat',
+            inference_depth: 'explicit',
+            first_inferred_at: 1710000000,
+            last_validated_at: 1710000000,
+            user_feedback: null,
+            user_feedback_at: null,
+          },
+        ]}
+        identityLinks={[]}
+        entities={[
+          {
+            entity_id: 'user:u1',
+            canonical_name: 'User U1',
+            entity_type: 'user',
+            aliases: ['me'],
+          },
+        ]}
+        mentions={[]}
+        snapshots={[
+          {
+            snapshot_id: 'snapshot-1',
+            entity_id: 'user:u1',
+            entity_type: 'user',
+            core_traits: { 'preference.music': 'jazz' },
+            preferences: {},
+            current_mood: 'focused',
+          },
+        ]}
+        conflictRules={[]}
+        events={[]}
+        knowledgeStatusFilter="needsReview"
+        actionLoading={false}
+        onSubmitManualEvent={vi.fn().mockResolvedValue(undefined)}
+        onReplayExtraction={vi.fn().mockResolvedValue(undefined)}
+        onRunReconcile={vi.fn().mockResolvedValue(undefined)}
+        onRunSnapshotRefresh={vi.fn().mockResolvedValue(undefined)}
+        onUpsertGraphConflictRule={vi.fn().mockResolvedValue(undefined)}
+        onSubmitAssertionFeedback={onSubmitAssertionFeedback}
+        onCorrectAssertion={onCorrectAssertion}
+      />
+    );
+
+  expect(screen.getByText('memory.pages.knowledge.sections.knowledgeDirectory')).toBeInTheDocument();
+  expect(screen.getAllByText('memory.pages.knowledge.groups.all').length).toBeGreaterThan(0);
+  expect(screen.getByText('memory.pages.knowledge.groups.preferences')).toBeInTheDocument();
+  expect(screen.getByText('memory.pages.knowledge.sections.pendingSignals')).toBeInTheDocument();
+  expect(screen.queryByText('memory.pages.knowledge.sections.relations')).not.toBeInTheDocument();
+  expect(screen.getByText('User U1\'s preference music may be "jazz".')).toBeInTheDocument();
+    expect(screen.queryByText('User U1 likes jazz.')).not.toBeInTheDocument();
+    expect(screen.queryByText('User U1 profile was updated.')).not.toBeInTheDocument();
+
+  await user.click(screen.getByText('memory.pages.knowledge.groups.preferences'));
+  expect(screen.getByText('User U1\'s preference music may be "jazz".')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'memory.l2.confirmAssertion' }));
+
+    expect(onSubmitAssertionFeedback).toHaveBeenCalledWith('assert-1', 'confirmed');
+
+    await user.click(screen.getByRole('button', { name: 'memory.l2.correctAssertion' }));
+    const correctionInput = screen.getByLabelText('memory.l2.correctionValue');
+    expect(correctionInput).toHaveValue('jazz');
+    await user.clear(correctionInput);
+    await user.type(correctionInput, 'blues');
+    await user.click(screen.getByRole('button', { name: 'memory.l2.saveCorrection' }));
+
+    expect(onCorrectAssertion).toHaveBeenCalledWith('assert-1', 'blues');
+
+    expect(await screen.findByText('I like jazz.')).toBeInTheDocument();
+    expect(screen.getByText('memory.pages.knowledge.sections.technicalDetails')).toBeInTheDocument();
   });
 });
