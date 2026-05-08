@@ -452,20 +452,37 @@ fn resolve_sidecar_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(sidecar_path)
 }
 
-fn plugin_python_path_from_resource_dir(resource_dir: &Path) -> PathBuf {
+fn plugin_python_candidates_from_resource_dir(resource_dir: &Path) -> Vec<PathBuf> {
     #[cfg(windows)]
-    let python_path = resource_dir
-        .join("plugin-python")
-        .join("Scripts")
-        .join("python.exe");
+    let candidates = vec![
+        resource_dir.join("plugin-python").join("python.exe"),
+        resource_dir
+            .join("plugin-python")
+            .join("Scripts")
+            .join("python.exe"),
+    ];
 
     #[cfg(not(windows))]
-    let python_path = resource_dir
-        .join("plugin-python")
-        .join("bin")
-        .join("python");
+    let candidates = vec![
+        resource_dir
+            .join("plugin-python")
+            .join("bin")
+            .join("python"),
+        resource_dir
+            .join("plugin-python")
+            .join("bin")
+            .join("python3"),
+    ];
 
-    python_path
+    candidates
+}
+
+#[cfg(test)]
+fn plugin_python_path_from_resource_dir(resource_dir: &Path) -> PathBuf {
+    plugin_python_candidates_from_resource_dir(resource_dir)
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| resource_dir.join("plugin-python"))
 }
 
 fn resolve_plugin_python_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -473,14 +490,20 @@ fn resolve_plugin_python_path(app: &AppHandle) -> Result<PathBuf, String> {
         .path()
         .resource_dir()
         .map_err(|e| format!("Failed to resolve resource directory: {e}"))?;
-    let python_path = plugin_python_path_from_resource_dir(&resource_dir);
-    if !python_path.exists() {
-        return Err(format!(
-            "Plugin Python runtime not found at: {}",
-            python_path.display()
-        ));
+    let candidates = plugin_python_candidates_from_resource_dir(&resource_dir);
+    for candidate in &candidates {
+        if candidate.exists() {
+            return Ok(candidate.clone());
+        }
     }
-    Ok(python_path)
+    let checked = candidates
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(format!(
+        "Plugin Python runtime not found. Checked: {checked}"
+    ))
 }
 
 fn open_sidecar_log_stdio() -> Result<(Stdio, Stdio), String> {
@@ -1224,6 +1247,8 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
+    use super::plugin_python_candidates_from_resource_dir;
     use super::{
         first_existing_dir, ordered_builtin_avatar_dirs, plugin_python_path_from_resource_dir,
     };
@@ -1284,11 +1309,17 @@ mod tests {
         #[cfg(windows)]
         assert_eq!(
             plugin_python,
-            resource_dir
+            resource_dir.join("plugin-python").join("python.exe")
+        );
+        #[cfg(windows)]
+        let candidates = plugin_python_candidates_from_resource_dir(resource_dir);
+        #[cfg(windows)]
+        assert!(candidates.contains(
+            &resource_dir
                 .join("plugin-python")
                 .join("Scripts")
                 .join("python.exe")
-        );
+        ));
 
         #[cfg(not(windows))]
         assert_eq!(

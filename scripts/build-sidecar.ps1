@@ -33,17 +33,27 @@ function Stage-PluginPython {
     if (-not (Test-Path $env:MAGI_PLUGIN_PYTHON_SOURCE)) {
       throw "MAGI_PLUGIN_PYTHON_SOURCE does not exist: $env:MAGI_PLUGIN_PYTHON_SOURCE"
     }
+    $SourceRoot = $env:MAGI_PLUGIN_PYTHON_SOURCE
+    $NestedInstall = Join-Path $SourceRoot "python/install"
+    if (Test-Path $NestedInstall) { $SourceRoot = $NestedInstall }
     New-Item -ItemType Directory -Force -Path $PluginPythonStaging | Out-Null
-    Copy-Item -Recurse -Force (Join-Path $env:MAGI_PLUGIN_PYTHON_SOURCE "*") $PluginPythonStaging
+    Copy-Item -Recurse -Force (Join-Path $SourceRoot "*") $PluginPythonStaging
   } else {
+    if (($env:GITHUB_ACTIONS -eq "true") -or ($env:MAGI_REQUIRE_RELOCATABLE_PLUGIN_PYTHON -eq "1")) {
+      throw "MAGI_PLUGIN_PYTHON_SOURCE is required for CI/release builds. Use scripts/prepare-plugin-python-runtime.py to provide a relocatable Python runtime."
+    }
     Write-Host "MAGI_PLUGIN_PYTHON_SOURCE not set; creating development plugin-python venv from build Python."
     Write-Host "For release builds, provide a relocatable Python runtime via MAGI_PLUGIN_PYTHON_SOURCE."
     & $PythonExe -m venv --copies $PluginPythonStaging
     if ($LASTEXITCODE -ne 0) { throw "Failed to create plugin-python venv." }
   }
 
-  $PluginPython = Join-Path $PluginPythonStaging "Scripts/python.exe"
-  if (-not (Test-Path $PluginPython)) {
+  $PluginPythonCandidates = @(
+    (Join-Path $PluginPythonStaging "python.exe"),
+    (Join-Path $PluginPythonStaging "Scripts/python.exe")
+  )
+  $PluginPython = $PluginPythonCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+  if (-not $PluginPython) {
     throw "Plugin Python executable not found at $PluginPython"
   }
   & $PluginPython -m pip --version *> $null

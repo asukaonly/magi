@@ -16,6 +16,8 @@ jobs:
     environment: release
     permissions:
       contents: write
+    env:
+      MAGI_PLUGIN_PYTHON_VERSION: "3.13"
 
     strategy:
       fail-fast: false
@@ -152,6 +154,26 @@ jobs:
         if: matrix.os_family == 'windows'
         shell: pwsh
         run: choco install ripgrep -y
+
+      - name: Prepare plugin Python runtime (Unix)
+        if: matrix.os_family != 'windows'
+        shell: bash
+        run: |
+          python scripts/prepare-plugin-python-runtime.py \
+            --target "${{ matrix.target }}" \
+            --python-version "${MAGI_PLUGIN_PYTHON_VERSION}" \
+            --output "${RUNNER_TEMP}/magi-plugin-python" \
+            --github-env "${GITHUB_ENV}"
+
+      - name: Prepare plugin Python runtime (Windows)
+        if: matrix.os_family == 'windows'
+        shell: pwsh
+        run: |
+          python scripts/prepare-plugin-python-runtime.py `
+            --target "${{ matrix.target }}" `
+            --python-version "$env:MAGI_PLUGIN_PYTHON_VERSION" `
+            --output "$env:RUNNER_TEMP/magi-plugin-python" `
+            --github-env "$env:GITHUB_ENV"
 
       - name: Build Python sidecar (Unix)
         if: matrix.os_family != 'windows'

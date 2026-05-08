@@ -126,7 +126,7 @@ exit /b 0
 }
 
 function Ensure-PluginPythonPlaceholder {
-  $pluginPython = Join-Path $PluginPythonDir "Scripts\python.exe"
+  $pluginPython = Join-Path $PluginPythonDir "python.exe"
   if (Test-Path $pluginPython) { return }
 
   New-Item -ItemType Directory -Force -Path (Split-Path -Parent $pluginPython) | Out-Null

@@ -29,17 +29,30 @@ stage_plugin_python() {
       echo "MAGI_PLUGIN_PYTHON_SOURCE does not exist or is not a directory: ${MAGI_PLUGIN_PYTHON_SOURCE}"
       exit 1
     fi
+    local source_root="${MAGI_PLUGIN_PYTHON_SOURCE}"
+    if [[ -d "${source_root}/python/install" ]]; then
+      source_root="${source_root}/python/install"
+    fi
     mkdir -p "${PLUGIN_PYTHON_STAGING}"
-    cp -a "${MAGI_PLUGIN_PYTHON_SOURCE}/." "${PLUGIN_PYTHON_STAGING}/"
+    cp -a "${source_root}/." "${PLUGIN_PYTHON_STAGING}/"
   else
+    if [[ "${GITHUB_ACTIONS:-}" == "true" || "${MAGI_REQUIRE_RELOCATABLE_PLUGIN_PYTHON:-}" == "1" ]]; then
+      echo "MAGI_PLUGIN_PYTHON_SOURCE is required for CI/release builds."
+      echo "Use scripts/prepare-plugin-python-runtime.py to provide a relocatable Python runtime."
+      exit 1
+    fi
     echo "MAGI_PLUGIN_PYTHON_SOURCE not set; creating development plugin-python venv from build Python."
     echo "For release builds, provide a relocatable Python runtime via MAGI_PLUGIN_PYTHON_SOURCE."
     python -m venv --copies "${PLUGIN_PYTHON_STAGING}"
   fi
 
   local plugin_python="${PLUGIN_PYTHON_STAGING}/bin/python"
-  if [[ ! -x "${plugin_python}" && -x "${PLUGIN_PYTHON_STAGING}/bin/python3" ]]; then
-    ln -s "python3" "${plugin_python}"
+  if [[ ! -x "${plugin_python}" ]]; then
+    for candidate in "${PLUGIN_PYTHON_STAGING}/bin/python3" "${PLUGIN_PYTHON_STAGING}"/bin/python3.*; do
+      [[ -x "${candidate}" ]] || continue
+      ln -s "$(basename "${candidate}")" "${plugin_python}"
+      break
+    done
   fi
   if [[ ! -x "${plugin_python}" ]]; then
     echo "Plugin Python executable not found at ${plugin_python}"
