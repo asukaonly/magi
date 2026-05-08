@@ -217,6 +217,10 @@ async def synthesize_eval_answer(
         temperature=0.0,
         thinking_depth=ThinkingDepth.MEDIUM,
         timeout_seconds=EVAL_ANSWER_TIMEOUT,
+        event_context={
+            "request_kind": "eval:memory_answering",
+            "agent_id": "memory_eval",
+        },
     )
     raw_answer = str(raw_answer or "")
     normalized_answer = normalize_eval_answer(raw_answer)

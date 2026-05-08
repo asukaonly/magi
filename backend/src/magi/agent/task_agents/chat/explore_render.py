@@ -154,6 +154,12 @@ class ExploreRenderHandler(BaseExecutionHandler):
                 system_prompt=system_prompt,
                 messages=messages,
                 thinking_depth=ThinkingDepth.NONE,
+                event_context={
+                    "request_kind": "task_agent:explore_render",
+                    "agent_id": "explore_render",
+                    "session_id": request.context.session_id,
+                    "turn_id": getattr(request.context.latest_payload, "turn_id", None),
+                },
             )
         except Exception as exc:
             logger.warning(

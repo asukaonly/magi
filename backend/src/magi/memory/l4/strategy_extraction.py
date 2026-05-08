@@ -195,7 +195,7 @@ class L4StrategyExtractor:
                 json_mode=True,
                 disable_thinking=True,
                 event_context={
-                    "request_kind": "l4_strategy_extraction",
+                    "request_kind": "memory:l4_strategy_extraction",
                     "agent_id": "memory:l4",
                 },
             )

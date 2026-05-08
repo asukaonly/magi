@@ -12,7 +12,7 @@ from typing import Any, Callable, Dict, Iterable, Optional, Sequence
 
 from ...config.models import LLMScenario, LLMSettings
 from ...core.logger import get_logger
-from ...llm import create_llm_adapter
+from ...llm import LLMProviderBridge, create_llm_adapter
 from ...llm.draft import resolve_adapter_for_scenario
 from ..routers.personality_config_schemas import LayerModifiersModel, PersonalityConfigModel, SUPPORTED_LAYER_MODIFIER_KEYS
 
@@ -705,13 +705,18 @@ async def _run_generation_stage(
       getattr(llm_adapter, "provider_name", "unknown"),
       getattr(llm_adapter, "model_name", "unknown"),
     )
-    response = await llm_adapter.generate(
-      prompt=prompt,
+    bridge = LLMProviderBridge(llm_adapter)
+    response = await bridge.chat(
+      system_prompt=system_prompt,
+      messages=[{"role": "user", "content": prompt}],
       max_tokens=max_tokens,
       temperature=temperature,
-      system_prompt=system_prompt,
       json_mode=True,
       disable_thinking=True,
+      event_context={
+        "request_kind": "personality:generation",
+        "agent_id": "personality_generation",
+      },
     )
   response_text = response.strip()
   logger.info(

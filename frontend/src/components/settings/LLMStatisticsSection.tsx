@@ -20,19 +20,47 @@ const TABLE_TABS = ['models', 'providers', 'requestKinds'] as const;
 
 type TableTab = (typeof TABLE_TABS)[number];
 
-const REQUEST_KIND_TRANSLATION_KEYS: Record<string, string> = {
-  chat: 'settings.statistics.llm.requestKinds.chat',
-  context_decider: 'settings.statistics.llm.requestKinds.contextDecider',
-  'function_calling:tools': 'settings.statistics.llm.requestKinds.functionCallingTools',
-  'function_calling:final_response': 'settings.statistics.llm.requestKinds.functionCallingFinalResponse',
-  'skill_subagent:direct': 'settings.statistics.llm.requestKinds.skillSubagentDirect',
-  'memory:l2_unified_extraction': 'settings.statistics.llm.requestKinds.memoryL2UnifiedExtraction',
-  'memory:l2_entity_resolution': 'settings.statistics.llm.requestKinds.memoryL2EntityResolution',
-  'memory:l2_contradiction_hint': 'settings.statistics.llm.requestKinds.memoryL2ContradictionHint',
-  'memory:l2_conflict_arbitration': 'settings.statistics.llm.requestKinds.memoryL2ConflictArbitration',
-  'memory:l2_entity_reconcile': 'settings.statistics.llm.requestKinds.memoryL2EntityReconcile',
-  'memory:l3_temporal_summary': 'settings.statistics.llm.requestKinds.memoryL3TemporalSummary',
-  'memory:l3_thematic_topic_summary': 'settings.statistics.llm.requestKinds.memoryL3ThematicTopicSummary',
+const REQUEST_KIND_DISPLAY_KEYS: Record<string, { scenario: string; stage: string }> = {
+  chat: { scenario: 'generalChat', stage: 'uncategorizedChat' },
+  context_decider: { scenario: 'contextDecision', stage: 'toolMemorySelection' },
+  'function_calling:tools': { scenario: 'toolConversation', stage: 'toolDecision' },
+  'function_calling:final_response': { scenario: 'toolConversation', stage: 'finalResponse' },
+  'skill_subagent:direct': { scenario: 'skillSubagent', stage: 'direct' },
+  'task_agent:chat': { scenario: 'generalChat', stage: 'legacyChat' },
+  'task_agent:chat_direct': { scenario: 'generalChat', stage: 'directReply' },
+  'task_agent:planner': { scenario: 'taskPlanning', stage: 'taskDecomposition' },
+  'task_agent:aggregator': { scenario: 'taskAggregation', stage: 'multiResultSynthesis' },
+  'task_agent:explore-task': { scenario: 'exploreTask', stage: 'execution' },
+  'task_agent:explore_render': { scenario: 'exploreTask', stage: 'resultRendering' },
+  'task_agent:background_dispatcher': { scenario: 'backgroundTask', stage: 'backgroundDecision' },
+  'task_agent:chat_interrupt': { scenario: 'conversationControl', stage: 'interruptionClassification' },
+  'task_agent:chat_rhythm': { scenario: 'conversationPolish', stage: 'rhythmPlanning' },
+  'memory:context_compact': { scenario: 'sessionSummary', stage: 'contextCompaction' },
+  'memory:chat_transcript_summary': { scenario: 'sessionSummary', stage: 'chatTranscriptSummary' },
+  'memory:persona_boundary_summary': { scenario: 'sessionSummary', stage: 'personaBoundarySummary' },
+  'memory:l2_unified_extraction': { scenario: 'memoryL2', stage: 'legacyUnifiedExtraction' },
+  'memory:l2_phase1_extract': { scenario: 'memoryL2', stage: 'eventExtraction' },
+  'memory:l2_phase2_integrate': { scenario: 'memoryL2', stage: 'graphIntegration' },
+  'memory:l2_entity_resolution': { scenario: 'memoryL2', stage: 'entityResolution' },
+  'memory:l2_contradiction_hint': { scenario: 'memoryL2', stage: 'contradictionHint' },
+  'memory:l2_conflict_arbitration': { scenario: 'memoryL2', stage: 'conflictArbitration' },
+  'memory:l2_entity_reconcile': { scenario: 'memoryL2', stage: 'entityReconcile' },
+  'memory:l3_temporal_summary': { scenario: 'memoryL3', stage: 'temporalSummary' },
+  'memory:l3_thematic_topic_summary': { scenario: 'memoryL3', stage: 'thematicTopicSummary' },
+  l4_strategy_extraction: { scenario: 'memoryL4', stage: 'strategyExtraction' },
+  'memory:l4_strategy_extraction': { scenario: 'memoryL4', stage: 'strategyExtraction' },
+  'memory:hybrid_retrieval_intent': { scenario: 'hybridRetrieval', stage: 'intentRefinement' },
+  'memory:hybrid_query_expansion': { scenario: 'hybridRetrieval', stage: 'queryExpansion' },
+  'memory:hybrid_manifest_selector': { scenario: 'hybridRetrieval', stage: 'manifestSelection' },
+  'personality:interaction_analysis': { scenario: 'personalitySystem', stage: 'interactionAnalysis' },
+  'personality:bootstrap_opening': { scenario: 'personalitySystem', stage: 'bootstrapOpening' },
+  'personality:bootstrap_dialogue': { scenario: 'personalitySystem', stage: 'bootstrapDialogue' },
+  'personality:journal_reflection': { scenario: 'personalitySystem', stage: 'journalReflection' },
+  'personality:generation': { scenario: 'personalitySystem', stage: 'personalityGeneration' },
+  'config:provider_test': { scenario: 'configurationTest', stage: 'providerConnectivity' },
+  'eval:memory_answering': { scenario: 'evaluationTool', stage: 'memoryAnswering' },
+  image_generation: { scenario: 'multimodalGeneration', stage: 'imageGeneration' },
+  embedding: { scenario: 'embeddingModel', stage: 'embedding' },
 };
 
 const formatCompactNumber = (value: number) =>
@@ -57,12 +85,24 @@ const computeSuccessRate = (summary: LLMUsageSummary | null) => {
   return (totals.successful_calls / totals.total_calls) * 100;
 };
 
-const resolveRequestKindLabel = (requestKind: string | undefined, t: (key: string) => string, fallback: string) => {
+const resolveRequestKindDisplay = (requestKind: string | undefined, t: (key: string) => string, fallback: string) => {
   if (!requestKind) {
-    return fallback;
+    return {
+      scenario: fallback,
+      stage: t('settings.statistics.llm.requestKindStages.uncategorized'),
+    };
   }
-  const translationKey = REQUEST_KIND_TRANSLATION_KEYS[requestKind];
-  return translationKey ? t(translationKey) : requestKind;
+  const translationKeys = REQUEST_KIND_DISPLAY_KEYS[requestKind];
+  if (!translationKeys) {
+    return {
+      scenario: requestKind,
+      stage: t('settings.statistics.llm.requestKindStages.uncategorized'),
+    };
+  }
+  return {
+    scenario: t(`settings.statistics.llm.requestKindScenarios.${translationKeys.scenario}`),
+    stage: t(`settings.statistics.llm.requestKindStages.${translationKeys.stage}`),
+  };
 };
 
 const buildBreakdownRowKey = (
@@ -308,12 +348,21 @@ const LLMStatisticsSectionInner: FC = () => {
                 <table className="min-w-full border-collapse text-sm">
                   <thead>
                     <tr className="border-b border-[hsl(var(--settings-subnav-border)/0.56)] text-left">
-                      <TableHeaderCell>{t('settings.statistics.llm.table.columns.key')}</TableHeaderCell>
+                      <TableHeaderCell>
+                        {activeTab === 'requestKinds'
+                          ? t('settings.statistics.llm.table.columns.scenario')
+                          : t('settings.statistics.llm.table.columns.key')}
+                      </TableHeaderCell>
+                      {activeTab === 'requestKinds' && (
+                        <TableHeaderCell>{t('settings.statistics.llm.table.columns.stage')}</TableHeaderCell>
+                      )}
                       <TableHeaderCell>{t('settings.statistics.llm.table.columns.calls')}</TableHeaderCell>
                       <TableHeaderCell>{t('settings.statistics.llm.table.columns.totalTokens')}</TableHeaderCell>
                       <TableHeaderCell>{t('settings.statistics.llm.table.columns.promptTokens')}</TableHeaderCell>
                       <TableHeaderCell>{t('settings.statistics.llm.table.columns.completionTokens')}</TableHeaderCell>
                       <TableHeaderCell>{t('settings.statistics.llm.table.columns.cost')}</TableHeaderCell>
+                      <TableHeaderCell>{t('settings.statistics.llm.table.columns.avgLatency')}</TableHeaderCell>
+                      <TableHeaderCell>{t('settings.statistics.llm.table.columns.avgTTFT')}</TableHeaderCell>
                     </tr>
                   </thead>
                   <tbody>
@@ -324,13 +373,18 @@ const LLMStatisticsSectionInner: FC = () => {
                             ? (item.model || unknownLabel)
                             : activeTab === 'providers'
                               ? (item.provider || unknownLabel)
-                              : resolveRequestKindLabel(item.request_kind, t, unknownLabel)}
+                              : resolveRequestKindDisplay(item.request_kind, t, unknownLabel).scenario}
                         </TableCell>
+                        {activeTab === 'requestKinds' && (
+                          <TableCell>{resolveRequestKindDisplay(item.request_kind, t, unknownLabel).stage}</TableCell>
+                        )}
                         <TableCell>{formatInteger(item.calls)}</TableCell>
                         <TableCell>{formatInteger(item.total_tokens)}</TableCell>
                         <TableCell>{formatInteger(item.prompt_tokens)}</TableCell>
                         <TableCell>{formatInteger(item.completion_tokens)}</TableCell>
                         <TableCell>{formatCurrency(item.cost_usd) || unavailableLabel}</TableCell>
+                        <TableCell>{formatLatency(item.avg_latency_ms) || unavailableLabel}</TableCell>
+                        <TableCell>{formatLatency(item.avg_ttft_ms) || unavailableLabel}</TableCell>
                       </tr>
                     ))}
                   </tbody>

@@ -198,6 +198,10 @@ async def analyze_interaction(
             temperature=0.1,
             json_mode=True,
             disable_thinking=True,
+            event_context={
+                "request_kind": "personality:interaction_analysis",
+                "agent_id": "personality:interaction_analyzer",
+            },
         )
         elapsed_ms = (time.monotonic() - t0) * 1000
         analysis = parse_analysis(raw, stp_rules=stp_rules)

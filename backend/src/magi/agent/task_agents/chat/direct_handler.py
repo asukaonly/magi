@@ -45,6 +45,7 @@ def _image_vision_unsupported_response() -> str:
 def _build_llm_event_context(context: object, turn_id: object) -> dict[str, object]:
     return enrich_event_context_with_turn_trace(
         {
+            "request_kind": "task_agent:chat_direct",
             "session_id": getattr(context, "session_id", None),
             "turn_id": turn_id,
         }

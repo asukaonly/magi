@@ -148,6 +148,11 @@ class ChatPlanningService(ChatPlanningPromptMixin):
                         system_prompt=system_prompt,
                         messages=messages,
                         disable_thinking=False,
+                        event_context={
+                            "request_kind": "task_agent:aggregator",
+                            "agent_id": self._agent_id,
+                            "session_id": state.session_id,
+                        },
                     ):
                         if event.kind == "text_delta" and event.text:
                             chunks.append(event.text)
@@ -157,6 +162,11 @@ class ChatPlanningService(ChatPlanningPromptMixin):
                     system_prompt=system_prompt,
                     messages=messages,
                     disable_thinking=False,
+                    event_context={
+                        "request_kind": "task_agent:aggregator",
+                        "agent_id": self._agent_id,
+                        "session_id": state.session_id,
+                    },
                 )
         except Exception as exc:
             logger.warning(
@@ -273,6 +283,10 @@ class ChatPlanningService(ChatPlanningPromptMixin):
                         disable_thinking=False,
                         json_mode=True,
                         timeout_seconds=STRUCTURED_PLANNING_TIMEOUT_SECONDS,
+                        event_context={
+                            "request_kind": "task_agent:planner",
+                            "agent_id": self._agent_id,
+                        },
                     ):
                         if event.kind == "text_delta" and event.text:
                             chunks.append(event.text)
@@ -284,6 +298,10 @@ class ChatPlanningService(ChatPlanningPromptMixin):
                     disable_thinking=False,
                     json_mode=True,
                     timeout_seconds=STRUCTURED_PLANNING_TIMEOUT_SECONDS,
+                    event_context={
+                        "request_kind": "task_agent:planner",
+                        "agent_id": self._agent_id,
+                    },
                 )
         except Exception as exc:
             logger.warning("Task-agent planning call failed | error=%s", exc)

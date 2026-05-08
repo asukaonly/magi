@@ -122,6 +122,10 @@ class ResponseRhythmPlanner:
                 disable_thinking=True,
                 json_mode=True,
                 timeout_seconds=8.0,
+                event_context={
+                    "request_kind": "task_agent:chat_rhythm",
+                    "agent_id": "chat_rhythm",
+                },
             )
         except Exception as exc:
             logger.debug("Conversation rhythm planner call failed", error=str(exc))

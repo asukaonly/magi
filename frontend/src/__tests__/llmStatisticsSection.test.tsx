@@ -41,8 +41,8 @@ const summaryFixture = {
     { provider: 'anthropic', model: 'claude-sonnet', calls: 50, prompt_tokens: 50000, completion_tokens: 22000, total_tokens: 72000, cost_usd: 3.8, failed_calls: 1, avg_ttft_ms: 640 },
   ],
   request_kinds: [
-    { request_kind: 'chat', calls: 90, prompt_tokens: 90000, completion_tokens: 40000, total_tokens: 130000, cost_usd: 8.9, failed_calls: 4 },
-    { request_kind: 'memory:l2_unified_extraction', calls: 30, prompt_tokens: 30000, completion_tokens: 14000, total_tokens: 44000, cost_usd: 3.2, failed_calls: 2 },
+    { request_kind: 'task_agent:chat_direct', calls: 90, prompt_tokens: 90000, completion_tokens: 40000, total_tokens: 130000, cost_usd: 8.9, failed_calls: 4, avg_latency_ms: 1200, avg_ttft_ms: 320 },
+    { request_kind: 'memory:l2_phase1_extract', calls: 30, prompt_tokens: 30000, completion_tokens: 14000, total_tokens: 44000, cost_usd: 3.2, failed_calls: 2, avg_latency_ms: 2400 },
   ],
 };
 
@@ -101,14 +101,20 @@ describe('LLMStatisticsSection', () => {
     expect(screen.getByText('settings.statistics.llm.table.columns.promptTokens')).toBeInTheDocument();
     expect(screen.getByText('settings.statistics.llm.table.columns.completionTokens')).toBeInTheDocument();
     expect(screen.getByText('settings.statistics.llm.table.columns.cost')).toBeInTheDocument();
+    expect(screen.getByText('settings.statistics.llm.table.columns.avgLatency')).toBeInTheDocument();
+    expect(screen.getByText('settings.statistics.llm.table.columns.avgTTFT')).toBeInTheDocument();
     expect(screen.getAllByText('gpt-5').length).toBeGreaterThan(0);
 
     await user.click(screen.getByRole('tab', { name: 'settings.statistics.llm.tabs.providers' }));
     expect(screen.getAllByText('openai').length).toBeGreaterThan(0);
 
     await user.click(screen.getByRole('tab', { name: 'settings.statistics.llm.tabs.requestKinds' }));
-    expect(screen.getByText('settings.statistics.llm.requestKinds.chat')).toBeInTheDocument();
-    expect(screen.getByText('settings.statistics.llm.requestKinds.memoryL2UnifiedExtraction')).toBeInTheDocument();
+    expect(screen.getByText('settings.statistics.llm.table.columns.scenario')).toBeInTheDocument();
+    expect(screen.getByText('settings.statistics.llm.table.columns.stage')).toBeInTheDocument();
+    expect(screen.getByText('settings.statistics.llm.requestKindScenarios.generalChat')).toBeInTheDocument();
+    expect(screen.getByText('settings.statistics.llm.requestKindStages.directReply')).toBeInTheDocument();
+    expect(screen.getByText('settings.statistics.llm.requestKindScenarios.memoryL2')).toBeInTheDocument();
+    expect(screen.getByText('settings.statistics.llm.requestKindStages.eventExtraction')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'settings.usage.windows.30' }));
 

@@ -136,6 +136,10 @@ class LLMIntentDecider:
                 disable_thinking=True,
                 json_mode=True,
                 timeout_seconds=self._timeout,
+                event_context={
+                    "request_kind": "memory:hybrid_retrieval_intent",
+                    "agent_id": "memory:hybrid_retrieval",
+                },
             )
             elapsed_ms = (time.monotonic() - t0) * 1000
             logger.info(

@@ -43,6 +43,7 @@ from ...llm.image_generation import (
     ImageGenerationRequest,
     create_image_generation_adapter,
 )
+from ...llm.usage_tracing import publish_llm_usage_span
 
 logger = get_logger(__name__, category="TOOLS")
 
@@ -239,6 +240,11 @@ class ImageGenerationTool(Tool):
                         quality=quality,
                         n=1,
                     ),
+                    event_context={
+                        "agent_id": "image_generation_tool",
+                        "session_id": str(context.env_vars.get("session_id") or "").strip() or None,
+                        "turn_id": str(context.env_vars.get("turn_id") or "").strip() or None,
+                    },
                 )
             finally:
                 await self._close_adapter(adapter)
@@ -325,18 +331,65 @@ class ImageGenerationTool(Tool):
         self,
         adapter,
         request: ImageGenerationRequest,
+        *,
+        event_context: dict[str, Any] | None = None,
     ):
+        started_at = time.time()
         last_error: ImageGenProviderError | None = None
-        for attempt in range(TRANSIENT_IMAGE_GENERATION_RETRIES + 1):
-            try:
-                return await adapter.generate(request)
-            except (ImageGenRateLimitError, ImageGenTimeoutError) as exc:
-                last_error = exc
-                if attempt >= TRANSIENT_IMAGE_GENERATION_RETRIES:
-                    raise
-                await asyncio.sleep(1.0 * (attempt + 1))
-        assert last_error is not None
-        raise last_error
+        try:
+            for attempt in range(TRANSIENT_IMAGE_GENERATION_RETRIES + 1):
+                try:
+                    result = await adapter.generate(request)
+                    await self._publish_image_generation_usage(
+                        adapter,
+                        request=request,
+                        started_at=started_at,
+                        success=True,
+                        event_context=event_context,
+                        resolved_model=result.model,
+                    )
+                    return result
+                except (ImageGenRateLimitError, ImageGenTimeoutError) as exc:
+                    last_error = exc
+                    if attempt >= TRANSIENT_IMAGE_GENERATION_RETRIES:
+                        raise
+                    await asyncio.sleep(1.0 * (attempt + 1))
+            assert last_error is not None
+            raise last_error
+        except Exception as exc:
+            await self._publish_image_generation_usage(
+                adapter,
+                request=request,
+                started_at=started_at,
+                success=False,
+                error=str(exc),
+                event_context=event_context,
+            )
+            raise
+
+    async def _publish_image_generation_usage(
+        self,
+        adapter,
+        *,
+        request: ImageGenerationRequest,
+        started_at: float,
+        success: bool,
+        error: str | None = None,
+        event_context: dict[str, Any] | None = None,
+        resolved_model: str | None = None,
+    ) -> None:
+        try:
+            await publish_llm_usage_span(
+                provider=str(getattr(adapter, "provider_id", "unknown") or "unknown"),
+                model=str(resolved_model or request.model or getattr(adapter, "_model", "image_generation")),
+                request_kind="image_generation",
+                success=success,
+                started_at=started_at,
+                error=error,
+                event_context=event_context,
+            )
+        except Exception:
+            logger.debug("Image generation usage publication failed", exc_info=True)
 
     @staticmethod
     def _default_size_for_adapter(adapter: Any) -> str:
