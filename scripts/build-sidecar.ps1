@@ -33,8 +33,12 @@ $BuildScript = @'
 import subprocess
 import sys
 
-from magi.utils.sidecar_build import build_pyinstaller_command
+from magi.utils.sidecar_build import (
+  build_pyinstaller_command,
+  validate_sqlite_vec_runtime_support,
+)
 
+validate_sqlite_vec_runtime_support()
 cmd = build_pyinstaller_command()
 # Use the current venv interpreter instead of the bare "python" string.
 cmd[0] = sys.executable

@@ -358,4 +358,33 @@ describe('OnboardingFlow', () => {
     await waitFor(() => expect(personasApi.setActive).toHaveBeenCalledWith('uuid-jinx'));
     expect(personasApi.seedPreviews).toHaveBeenCalledWith('en');
   });
+
+  it('keeps completion action centered without a footer finish button', async () => {
+    const initialConfig = {
+      ...DEFAULT_SYSTEM_CONFIG,
+      preferences: {
+        ...DEFAULT_SYSTEM_CONFIG.preferences,
+        language: 'en' as const,
+        user_mode: 'quick' as const,
+        scenario: 'knowledge_partner',
+      },
+    };
+    localStorageMock.getItem.mockImplementation((key: string) => {
+      if (key === 'magi_onboarding_state') {
+        return JSON.stringify({
+          phase: 'guided',
+          mode: 'quick',
+          current: 4,
+          scenario: 'knowledge_partner',
+          values: initialConfig,
+        });
+      }
+      return null;
+    });
+
+    render(<OnboardingFlow initialConfig={initialConfig} />);
+
+    expect(await screen.findByRole('button', { name: 'actions.enterApp' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'actions.finish' })).not.toBeInTheDocument();
+  });
 });

@@ -763,7 +763,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
           layoutClassName="h-full"
           sidebarClassName="lg:w-44"
           sidebar={<StepIndicator steps={steps} current={current} />}
-          footer={(
+          footer={isLastStep ? null : (
             <div className="flex items-center justify-between gap-3">
               <Button variant="outline" onClick={handlePrev}>
                 {t('actions.previous')}
@@ -771,9 +771,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
               <Button onClick={handleNext} disabled={saving || sensorStepBlocksNext}>
                 {saving
                   ? (finishingRuntime ? t('actions.startingRuntime') : t('actions.saving'))
-                  : isLastStep
-                    ? t('actions.finish')
-                    : t('actions.next')}
+                  : t('actions.next')}
               </Button>
             </div>
           )}

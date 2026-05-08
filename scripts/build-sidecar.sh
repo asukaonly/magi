@@ -24,8 +24,12 @@ pushd "${BACKEND_DIR}" >/dev/null
 PYTHONPATH="${BACKEND_DIR}/src${PYTHONPATH+:${PYTHONPATH}}" python - <<'PY'
 import subprocess
 
-from magi.utils.sidecar_build import build_pyinstaller_command
+from magi.utils.sidecar_build import (
+  build_pyinstaller_command,
+  validate_sqlite_vec_runtime_support,
+)
 
+validate_sqlite_vec_runtime_support()
 subprocess.run(build_pyinstaller_command(), check=True)
 PY
 popd >/dev/null
