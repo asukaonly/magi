@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 import aiosqlite
 
@@ -51,7 +51,12 @@ class L4SkillEmbeddingMixin:
     def _async_embeddings_enabled(self) -> bool:
         raise NotImplementedError
 
-    async def rebuild_embeddings(self, *, batch_size: int = 100) -> int:
+    async def rebuild_embeddings(
+        self,
+        *,
+        batch_size: int = 100,
+        progress_callback: Callable[[int], Awaitable[None]] | None = None,
+    ) -> int:
         """Rebuild all persisted L4 skill embeddings from parent rows."""
         await self.initialize()
         normalized_batch_size = max(1, int(batch_size))
@@ -101,6 +106,8 @@ class L4SkillEmbeddingMixin:
                 )
             processed += len(rows)
             offset += len(rows)
+            if progress_callback is not None:
+                await progress_callback(processed)
         return processed
 
     def get_statistics(self) -> Dict[str, Any]:

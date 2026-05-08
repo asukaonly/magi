@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any, Awaitable, Callable, cast
 
 import aiosqlite
 
@@ -37,7 +37,12 @@ class L1EventEmbeddingMixin(
 ):
     """Embedding pipeline lifecycle and event embedding state helpers."""
 
-    async def rebuild_embeddings(self, *, batch_size: int = 100) -> int:
+    async def rebuild_embeddings(
+        self,
+        *,
+        batch_size: int = 100,
+        progress_callback: Callable[[int], Awaitable[None]] | None = None,
+    ) -> int:
         """Rebuild all persisted L1 embeddings from the parent event rows."""
         host = cast(L1EventEmbeddingHostProtocol, self)
         await host.initialize()
@@ -85,6 +90,8 @@ class L1EventEmbeddingMixin(
             await self._maybe_upsert_event_embeddings(events)
             processed += len(events)
             offset += len(rows)
+            if progress_callback is not None:
+                await progress_callback(processed)
         return processed
 
     async def _maybe_upsert_event_embedding(self, event: MemoryEvent) -> None:

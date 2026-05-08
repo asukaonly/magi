@@ -8,7 +8,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Awaitable, Callable, Iterable
 
 import aiosqlite
 
@@ -182,6 +182,28 @@ async def collect_vector_ready_counts() -> dict[str, int]:
     }
 
 
+async def collect_vector_rebuild_source_counts() -> dict[str, int]:
+    paths = get_runtime_paths()
+    l1_db_path = str(paths.l1_memory_db_path)
+    memory_db_path = str(paths.memory_db_path)
+    return {
+        "l1": await _safe_count(
+            l1_db_path,
+            "SELECT COUNT(*) FROM fact_events WHERE deleted_at IS NULL",
+        ),
+        "l2_entities": await _safe_count(memory_db_path, "SELECT COUNT(*) FROM entity_catalog"),
+        "l2_edges": await _safe_count(
+            memory_db_path,
+            "SELECT COUNT(*) FROM knowledge_graph WHERE status = 'active'",
+        ),
+        "l3": await _safe_count(memory_db_path, "SELECT COUNT(*) FROM summaries"),
+        "l4": await _safe_count(
+            memory_db_path,
+            "SELECT COUNT(*) FROM procedural_skills WHERE deleted_at IS NULL",
+        ),
+    }
+
+
 class EmbeddingRebuildManager:
     """Runs and persists memory embedding rebuild jobs."""
 
@@ -199,10 +221,10 @@ class EmbeddingRebuildManager:
             active_job = await self._get_active_job()
             if active_job is not None:
                 return active_job
-            ready_counts = await collect_vector_ready_counts()
+            source_counts = await collect_vector_rebuild_source_counts()
             now = time.time()
             job_id = f"embedding-rebuild-{uuid.uuid4().hex}"
-            total_items = sum(int(ready_counts.get(layer, 0)) for layer in requested_layers)
+            total_items = sum(int(source_counts.get(layer, 0)) for layer in requested_layers)
             db_path = str(get_runtime_paths().memory_db_path)
             async with sqlite_connection_async(db_path) as db:
                 await db.execute(
@@ -223,7 +245,7 @@ class EmbeddingRebuildManager:
                     ) VALUES (?, ?, 'pending', ?, 0, 0, 0, NULL, NULL, NULL, ?)
                     """,
                     [
-                        (job_id, layer, int(ready_counts.get(layer, 0)), now)
+                        (job_id, layer, int(source_counts.get(layer, 0)), now)
                         for layer in requested_layers
                     ],
                 )
@@ -298,7 +320,22 @@ class EmbeddingRebuildManager:
                     return
                 await self._start_layer(job_id, layer)
                 try:
-                    processed = await _run_rebuild_layer(unified_memory, layer)
+                    completed_before_layer = processed_total
+
+                    async def report_layer_progress(layer_processed: int) -> None:
+                        await self._update_progress(
+                            job_id=job_id,
+                            layer=layer,
+                            completed_items=completed_before_layer,
+                            layer_processed_items=layer_processed,
+                        )
+
+                    processed = await _run_rebuild_layer(
+                        unified_memory,
+                        layer,
+                        progress_callback=report_layer_progress,
+                    )
+                    await report_layer_progress(processed)
                 except Exception as exc:
                     failed_total += 1
                     await self._finish_layer(job_id, layer, "failed", 0, 0, 1, str(exc))
@@ -441,6 +478,37 @@ class EmbeddingRebuildManager:
             )
             await db.commit()
 
+    async def _update_progress(
+        self,
+        *,
+        job_id: str,
+        layer: str,
+        completed_items: int,
+        layer_processed_items: int,
+    ) -> None:
+        now = time.time()
+        layer_processed = max(0, int(layer_processed_items))
+        total_processed = max(0, int(completed_items)) + layer_processed
+        db_path = str(get_runtime_paths().memory_db_path)
+        async with sqlite_connection_async(db_path) as db:
+            await db.execute(
+                """
+                UPDATE embedding_rebuild_jobs
+                SET processed_items = ?, succeeded_items = ?, updated_at = ?
+                WHERE job_id = ? AND status = 'running'
+                """,
+                (total_processed, total_processed, now, job_id),
+            )
+            await db.execute(
+                """
+                UPDATE embedding_rebuild_job_layers
+                SET processed_items = ?, succeeded_items = ?, updated_at = ?
+                WHERE job_id = ? AND layer = ? AND status = 'running'
+                """,
+                (layer_processed, layer_processed, now, job_id, layer),
+            )
+            await db.commit()
+
     async def _update_job(self, job_id: str, **updates: Any) -> None:
         if not updates:
             return
@@ -481,7 +549,12 @@ class EmbeddingRebuildManager:
 
 
 async def rebuild_l2_edge_embeddings(
-    *, db_path: str, embedding_service: Any, vector_index: Any, batch_size: int = 100
+    *,
+    db_path: str,
+    embedding_service: Any,
+    vector_index: Any,
+    batch_size: int = 100,
+    progress_callback: Callable[[int], Awaitable[None]] | None = None,
 ) -> int:
     """Rebuild active L2 knowledge-graph edge embeddings."""
 
@@ -549,16 +622,23 @@ async def rebuild_l2_edge_embeddings(
                     await db.commit()
         processed += len(rows)
         offset += len(rows)
+        if progress_callback is not None:
+            await progress_callback(processed)
     return processed
 
 
-async def _run_rebuild_layer(unified_memory: Any, layer: str) -> int:
+async def _run_rebuild_layer(
+    unified_memory: Any,
+    layer: str,
+    *,
+    progress_callback: Callable[[int], Awaitable[None]] | None = None,
+) -> int:
     if layer == "l1":
         store = getattr(unified_memory, "l1", None)
-        return int(await store.rebuild_embeddings()) if store is not None else 0
+        return int(await store.rebuild_embeddings(progress_callback=progress_callback)) if store is not None else 0
     if layer == "l2_entities":
         catalog = getattr(unified_memory, "l2_entity_catalog", None)
-        return int(await catalog.rebuild_embeddings()) if catalog is not None else 0
+        return int(await catalog.rebuild_embeddings(progress_callback=progress_callback)) if catalog is not None else 0
     if layer == "l2_edges":
         catalog = getattr(unified_memory, "l2_entity_catalog", None)
         l2_store = getattr(unified_memory, "l2", None)
@@ -569,14 +649,15 @@ async def _run_rebuild_layer(unified_memory: Any, layer: str) -> int:
                 db_path=str(l2_store.db_path),
                 embedding_service=catalog.embedding_service,
                 vector_index=catalog.edge_vector_index,
+                progress_callback=progress_callback,
             )
         )
     if layer == "l3":
         store = getattr(unified_memory, "l3", None)
-        return int(await store.rebuild_embeddings()) if store is not None else 0
+        return int(await store.rebuild_embeddings(progress_callback=progress_callback)) if store is not None else 0
     if layer == "l4":
         store = getattr(unified_memory, "l4", None)
-        return int(await store.rebuild_embeddings()) if store is not None else 0
+        return int(await store.rebuild_embeddings(progress_callback=progress_callback)) if store is not None else 0
     raise ValueError(f"Unsupported embedding rebuild layer: {layer}")
 
 
@@ -907,6 +988,7 @@ __all__ = [
     "build_embedding_config_preflight",
     "build_embedding_vector_status",
     "build_layer_vector_identities",
+    "collect_vector_rebuild_source_counts",
     "collect_vector_ready_counts",
     "rebuild_l2_edge_embeddings",
 ]

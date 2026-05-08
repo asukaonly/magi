@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
 
-from magi.memory.embedding.vector_admin import build_embedding_config_preflight
+from magi.memory.embedding import vector_admin
+from magi.memory.embedding.vector_admin import (
+    EmbeddingRebuildManager,
+    build_embedding_config_preflight,
+)
+from magi.utils.runtime import RuntimePaths
 
 
 async def _ready_counts(**counts: int) -> dict[str, int]:
@@ -128,3 +134,51 @@ async def test_embedding_preflight_ignores_layers_without_ready_vectors(
 
     assert result["severity"] == "none"
     assert result["warnings"] == []
+
+
+@pytest.mark.asyncio
+async def test_embedding_rebuild_job_persists_running_batch_progress(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    runtime_paths = RuntimePaths(tmp_path / "runtime")
+    progress_seen = asyncio.Event()
+    release_rebuild = asyncio.Event()
+
+    async def fake_source_counts() -> dict[str, int]:
+        return {"l1": 5, "l2_entities": 0, "l2_edges": 0, "l3": 0, "l4": 0}
+
+    async def fake_run_rebuild_layer(unified_memory, layer, *, progress_callback=None) -> int:
+        assert layer == "l1"
+        assert unified_memory is not None
+        assert progress_callback is not None
+        await progress_callback(3)
+        progress_seen.set()
+        await release_rebuild.wait()
+        return 5
+
+    monkeypatch.setattr(vector_admin, "get_runtime_paths", lambda: runtime_paths)
+    monkeypatch.setattr(vector_admin, "collect_vector_rebuild_source_counts", fake_source_counts)
+    monkeypatch.setattr(vector_admin, "_run_rebuild_layer", fake_run_rebuild_layer)
+
+    manager = EmbeddingRebuildManager()
+    started_job = await manager.start_rebuild(unified_memory=object(), layers=["l1"])
+    await asyncio.wait_for(progress_seen.wait(), timeout=1)
+
+    running_job = await manager.get_job(started_job["job_id"])
+    assert running_job is not None
+    assert running_job["status"] == "running"
+    assert running_job["total_items"] == 5
+    assert running_job["processed_items"] == 3
+    assert running_job["layers"][0]["processed_items"] == 3
+
+    release_rebuild.set()
+    for _ in range(20):
+        finished_job = await manager.get_job(started_job["job_id"])
+        if finished_job is not None and finished_job["terminal"]:
+            break
+        await asyncio.sleep(0.01)
+
+    assert finished_job is not None
+    assert finished_job["status"] == "succeeded"
+    assert finished_job["processed_items"] == 5

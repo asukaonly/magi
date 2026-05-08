@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any, Dict, List, Optional, Protocol, cast
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Protocol, cast
 
 import aiosqlite
 
@@ -61,7 +61,12 @@ class _L3SummaryEmbeddingHostProtocol(Protocol):
 class L3SummaryEmbeddingMixin:
     """Embedding rebuild, vector upsert, and semantic search helpers."""
 
-    async def rebuild_embeddings(self, *, batch_size: int = 100) -> int:
+    async def rebuild_embeddings(
+        self,
+        *,
+        batch_size: int = 100,
+        progress_callback: Callable[[int], Awaitable[None]] | None = None,
+    ) -> int:
         """Rebuild all persisted L3 summary embeddings from parent rows."""
         host = cast(_L3SummaryEmbeddingHostProtocol, self)
         await host.initialize()
@@ -106,6 +111,8 @@ class L3SummaryEmbeddingMixin:
             await self._maybe_upsert_summary_embeddings(summaries)
             processed += len(summaries)
             offset += len(rows)
+            if progress_callback is not None:
+                await progress_callback(processed)
         return processed
 
     async def _maybe_upsert_summary_embedding(self, summary: Dict[str, Any]) -> None:
