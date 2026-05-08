@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
-# Post-build: sign sidecar resources inside the .app, notarize, and re-package.
+# Post-build: sign sidecar resources inside the .app, optionally notarize, and re-package.
 #
 # Runs AFTER 'tauri build' has assembled the .app bundle.  Tauri's bundler
 # signs only the main binary + .app wrapper, but Apple notarization requires
 # ALL Mach-O binaries to carry valid signatures.  This script fills the gap
 # by signing every Mach-O inside Contents/Resources/sidecar-dist/, then
-# re-signing the .app, notarizing, stapling, and regenerating the DMG and
-# updater archive so tauri-action uploads fully-notarized artifacts.
+# re-signing the .app, notarizing when credentials are available, and
+# regenerating the DMG and updater archive so tauri-action uploads the final
+# artifacts.
 #
 # Usage: ./scripts/sign-and-notarize-macos.sh <target-triple>
 #
-# Required env vars:
+# Optional env vars:
 #   APPLE_SIGNING_IDENTITY
 #   APPLE_CERTIFICATE            (needed if identity not yet in keychain)
 #   APPLE_CERTIFICATE_PASSWORD
@@ -44,12 +45,22 @@ if [[ ! -d "$SIDECAR" ]]; then
   exit 1
 fi
 
+if [[ -z "${APPLE_SIGNING_IDENTITY:-}" ]]; then
+  echo "WARNING: APPLE_SIGNING_IDENTITY is not set; skipping macOS sidecar signing and notarization."
+  exit 0
+fi
+
 # ── Ensure signing identity is available ────────────────────────
 # Tauri already imported the certificate for its own .app signing.
 # Verify it's accessible; if not, import it ourselves.
 if ! security find-identity -v -p codesigning 2>/dev/null \
      | grep -qF "${APPLE_SIGNING_IDENTITY}"; then
   echo "==> Signing identity not in keychain — importing certificate ..."
+  if [[ -z "${APPLE_CERTIFICATE:-}" || -z "${APPLE_CERTIFICATE_PASSWORD:-}" ]]; then
+    echo "ERROR: APPLE_CERTIFICATE and APPLE_CERTIFICATE_PASSWORD are required to import the signing identity."
+    exit 1
+  fi
+
   KEYCHAIN_PATH="${RUNNER_TEMP:-/tmp}/notarize-signing.keychain-db"
   KEYCHAIN_PASSWORD="$(openssl rand -hex 32)"
 
@@ -264,20 +275,24 @@ echo "==> Verifying .app signature ..."
 codesign --verify --deep --strict "${APP_PATH}"
 
 # ── Notarize ────────────────────────────────────────────────────
-echo "==> Creating notarization zip ..."
-NOTARIZE_ZIP="${RUNNER_TEMP:-/tmp}/${APP_NAME}-notarize.zip"
-ditto -c -k --keepParent "${APP_PATH}" "${NOTARIZE_ZIP}"
+if [[ -n "${APPLE_ID:-}" && -n "${APPLE_PASSWORD:-}" && -n "${APPLE_TEAM_ID:-}" ]]; then
+  echo "==> Creating notarization zip ..."
+  NOTARIZE_ZIP="${RUNNER_TEMP:-/tmp}/${APP_NAME}-notarize.zip"
+  ditto -c -k --keepParent "${APP_PATH}" "${NOTARIZE_ZIP}"
 
-echo "==> Submitting to Apple notarization service ..."
-xcrun notarytool submit "${NOTARIZE_ZIP}" \
-  --apple-id "${APPLE_ID}" \
-  --password "${APPLE_PASSWORD}" \
-  --team-id "${APPLE_TEAM_ID}" \
-  --wait --timeout 30m
+  echo "==> Submitting to Apple notarization service ..."
+  xcrun notarytool submit "${NOTARIZE_ZIP}" \
+    --apple-id "${APPLE_ID}" \
+    --password "${APPLE_PASSWORD}" \
+    --team-id "${APPLE_TEAM_ID}" \
+    --wait --timeout 30m
 
-echo "==> Stapling notarization ticket ..."
-xcrun stapler staple "${APP_PATH}"
-rm -f "${NOTARIZE_ZIP}"
+  echo "==> Stapling notarization ticket ..."
+  xcrun stapler staple "${APP_PATH}"
+  rm -f "${NOTARIZE_ZIP}"
+else
+  echo "WARNING: Apple notarization credentials are incomplete; skipping notarization."
+fi
 
 # ── Re-package DMG ──────────────────────────────────────────────
 echo "==> Re-creating DMG ..."

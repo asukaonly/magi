@@ -6,13 +6,19 @@ $RootDir = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $BackendDir = Join-Path $RootDir "backend"
 $SidecarStaging = Join-Path $RootDir "frontend/src-tauri/sidecar-dist"
 
-# Use the project venv Python (3.12) — must match the backend runtime.
+# Prefer the project venv when present, but allow CI to use actions/setup-python.
 $VenvPython = Join-Path $RootDir ".venv/Scripts/python.exe"
-if (-not (Test-Path $VenvPython)) {
-  throw "Project venv not found at $VenvPython. Run 'python -m venv .venv && .venv/Scripts/pip install -e backend[dev]' first."
+if (Test-Path $VenvPython) {
+  $PythonExe = $VenvPython
+  Write-Host "Using venv Python: $PythonExe"
+} else {
+  $PythonCmd = Get-Command python -ErrorAction SilentlyContinue
+  if (-not $PythonCmd) {
+    throw "Python command not found. Install Python or create .venv first."
+  }
+  $PythonExe = $PythonCmd.Source
+  Write-Host "Using Python from PATH: $PythonExe"
 }
-$PythonExe = $VenvPython
-Write-Host "Using venv Python: $PythonExe"
 
 & $PythonExe -m PyInstaller --version *> $null
 if ($LASTEXITCODE -ne 0) {
