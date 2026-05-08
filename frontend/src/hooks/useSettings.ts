@@ -21,7 +21,7 @@ import type {
 import { serialize } from '@/utils/settings-helpers';
 import { useSettingsConfig } from './useSettingsConfig';
 import { useSettingsNavigation } from './useSettingsNavigation';
-import { useSettingsPersistence } from './useSettingsPersistence';
+import { useSettingsPersistence, type EmbeddingPreflightPrompt } from './useSettingsPersistence';
 import { useSettingsPluginsTimeline } from './useSettingsPluginsTimeline';
 import { useSettingsTools } from './useSettingsTools';
 
@@ -100,6 +100,9 @@ export interface UseSettingsReturn {
   // Actions
   handleSaveChanges: () => Promise<void>;
   handleDiscardChanges: () => Promise<void>;
+  embeddingPreflightPrompt: EmbeddingPreflightPrompt | null;
+  confirmEmbeddingPreflight: () => void;
+  cancelEmbeddingPreflight: () => void;
 
   // Ref handle getter
   getHandle: () => SettingsPageHandle;
@@ -194,6 +197,9 @@ export function useSettings(): UseSettingsReturn {
     saving,
     handleSaveChanges,
     handleDiscardChanges,
+    embeddingPreflightPrompt,
+    confirmEmbeddingPreflight,
+    cancelEmbeddingPreflight,
   } = useSettingsPersistence({
     savedConfig,
     setSavedConfig,
@@ -372,6 +378,9 @@ export function useSettings(): UseSettingsReturn {
     // Actions
     handleSaveChanges,
     handleDiscardChanges,
+    embeddingPreflightPrompt,
+    confirmEmbeddingPreflight,
+    cancelEmbeddingPreflight,
 
     // Ref handle
     getHandle,

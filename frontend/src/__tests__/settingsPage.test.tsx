@@ -139,6 +139,7 @@ vi.mock('@/api/modules/config', async () => {
       ...actual.configApi,
       get: vi.fn(),
       update: vi.fn(),
+      embeddingPreflight: vi.fn(),
     },
   };
 });
@@ -515,6 +516,14 @@ describe('settings page draft saving', () => {
       success: true,
       data: structuredClone(nextConfig),
     }) as any);
+    vi.mocked(configApi.embeddingPreflight).mockResolvedValue({
+      severity: 'none',
+      requires_rebuild: false,
+      ready_total: 0,
+      warnings: [],
+      current: null,
+      proposed: null,
+    } as any);
     vi.mocked(sensorsApi.getStatus).mockResolvedValue({
       sources: [chromeTimelineSourceFixture, timelineSourceFixture],
     } as any);
@@ -568,6 +577,48 @@ describe('settings page draft saving', () => {
     expect(screen.getByText('settings.pendingChanges')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+
+    await waitFor(() =>
+      expect(configApi.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          preferences: expect.objectContaining({ language: 'en' }),
+        })
+      )
+    );
+  });
+
+  it('requires an app dialog confirmation for strong embedding preflight warnings', async () => {
+    const user = userEvent.setup();
+    vi.mocked(configApi.embeddingPreflight).mockResolvedValue({
+      severity: 'strong',
+      requires_rebuild: true,
+      ready_total: 42,
+      warnings: [{ layer: 'l1' }],
+      current: null,
+      proposed: null,
+    } as any);
+
+    render(<SettingsPage />);
+
+    await screen.findByRole('button', { name: 'settings.tabs.preferences' });
+    await user.click(screen.getByRole('button', { name: 'settings.fields.language' }));
+    await user.click(await screen.findByRole('button', { name: 'language.en' }));
+
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+
+    expect(await screen.findByText('settings.memory.vector.preflightStrongTitle')).toBeInTheDocument();
+    expect(configApi.update).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'settings.memory.vector.preflightStrongCancel' }));
+
+    await waitFor(() =>
+      expect(screen.queryByText('settings.memory.vector.preflightStrongTitle')).not.toBeInTheDocument()
+    );
+    expect(configApi.update).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+    expect(await screen.findByText('settings.memory.vector.preflightStrongTitle')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'settings.memory.vector.preflightStrongSave' }));
 
     await waitFor(() =>
       expect(configApi.update).toHaveBeenCalledWith(
