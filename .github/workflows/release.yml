@@ -113,8 +113,8 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]" pyinstaller
           pip install -e ../sdk
+          pip install -e ".[dev]" pyinstaller
 
       - name: Install ripgrep (macOS)
         if: matrix.os_family == 'macos'
