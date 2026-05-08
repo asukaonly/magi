@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Clock3, FolderKanban, MessageSquareText, Target } from 'lucide-react';
+import { ChevronDown, ChevronRight, Clock3, FileText, FolderKanban, Gauge, MessageSquareText, Target } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,6 +8,7 @@ import { SelectField } from '@/components/config-forms/fields';
 import { getL0SessionPrimaryLabel, getL0SessionSecondaryLabel } from '@/api/modules/memory';
 import { useMemory } from '@/hooks/useMemory';
 import { cn } from '@/lib/utils';
+import { useContextUsageStore, type ContextUsageSnapshot } from '@/stores/context-usage';
 import MemoryPageFrame, {
   MEMORY_ACTION_BUTTON_CLASS,
   MEMORY_EMPTY_PANEL_CLASS,
@@ -28,8 +29,42 @@ const formatWorkbenchTimestamp = (ts: number): string => {
   }
 
   const date = new Date(ts * 1000);
+  return formatWorkbenchDate(date);
+};
+
+const formatWorkbenchTimestampMs = (value: number | null | undefined): string => {
+  const numericValue = Number(value || 0);
+  if (!numericValue) {
+    return '-';
+  }
+
+  const timestampMs = numericValue > 10_000_000_000 ? numericValue : numericValue * 1000;
+  return formatWorkbenchDate(new Date(timestampMs));
+};
+
+const formatWorkbenchDate = (date: Date): string => {
   const pad = (value: number) => String(value).padStart(2, '0');
   return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+};
+
+const formatTokenCount = (value: number | null | undefined): string => {
+  const count = Number(value || 0);
+  if (count <= 0) {
+    return '-';
+  }
+  return Math.round(count).toLocaleString();
+};
+
+const formatUsagePercent = (usedTokens: number, windowSize: number): string => {
+  if (windowSize <= 0) {
+    return '-';
+  }
+  return `${Math.round(Math.min(usedTokens / windowSize, 1) * 100)}%`;
+};
+
+const getNumberField = (record: Record<string, unknown> | null | undefined, key: string): number => {
+  const value = record?.[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 };
 
 const isGenericSessionTitle = (value: string | null | undefined) =>
@@ -107,6 +142,8 @@ const getSessionWorkbenchState = (sessionId: string, workbench: ReturnType<typeo
       goalStack: [] as Array<Record<string, unknown>>,
       activeEntities: [] as Array<Record<string, unknown>>,
       temporaryTactics: [] as Array<Record<string, unknown>>,
+      activeContextSummary: null,
+      contextUsage: null,
       isLoaded: false,
     };
   }
@@ -114,7 +151,43 @@ const getSessionWorkbenchState = (sessionId: string, workbench: ReturnType<typeo
     goalStack: Array.isArray(workbench.goal_stack) ? workbench.goal_stack : [],
     activeEntities: Array.isArray(workbench.active_entities) ? workbench.active_entities : [],
     temporaryTactics: Array.isArray(workbench.temporary_tactics) ? workbench.temporary_tactics : [],
+    activeContextSummary: workbench.active_context_summary ?? null,
+    contextUsage: workbench.context_usage ?? null,
     isLoaded: true,
+  };
+};
+
+const normalizeContextUsage = (
+  apiUsage: unknown,
+  liveUsage?: ContextUsageSnapshot,
+) => {
+  if (liveUsage && liveUsage.windowSize > 0) {
+    return {
+      usedTokens: liveUsage.usedTokens,
+      windowSize: liveUsage.windowSize,
+      threshold: liveUsage.threshold,
+      updatedAtMs: liveUsage.updatedAt,
+    };
+  }
+
+  const usageRecord = apiUsage && typeof apiUsage === 'object' ? apiUsage as Record<string, unknown> : null;
+  if (!usageRecord) {
+    return null;
+  }
+
+  const usedTokens = getNumberField(usageRecord, 'used_tokens');
+  const windowSize = getNumberField(usageRecord, 'window_size');
+  if (windowSize <= 0) {
+    return null;
+  }
+
+  const timestamp = getNumberField(usageRecord, 'timestamp');
+  const createdAtMs = getNumberField(usageRecord, 'created_at_ms');
+  return {
+    usedTokens,
+    windowSize,
+    threshold: getNumberField(usageRecord, 'threshold'),
+    updatedAtMs: createdAtMs || (timestamp ? timestamp * 1000 : 0),
   };
 };
 
@@ -145,6 +218,9 @@ export const MemoryWorkbenchPage = () => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [offset, setOffset] = useState(0);
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
+  const liveContextUsage = useContextUsageStore((state) => (
+    expandedSessionId ? state.usage[expandedSessionId] : undefined
+  ));
 
   const reloadSessions = useCallback(() => {
     void loadL0Sessions({
@@ -259,7 +335,15 @@ export const MemoryWorkbenchPage = () => {
               <div className="overflow-hidden rounded-2xl border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-elevated)/0.72)]">
                 {l0Sessions.map((session, index) => {
                   const isExpanded = expandedSessionId === session.session_id;
-                  const { goalStack, activeEntities, temporaryTactics, isLoaded } = getSessionWorkbenchState(session.session_id, l0Workbench);
+                  const {
+                    goalStack,
+                    activeEntities,
+                    temporaryTactics,
+                    activeContextSummary,
+                    contextUsage,
+                    isLoaded,
+                  } = getSessionWorkbenchState(session.session_id, l0Workbench);
+                  const normalizedContextUsage = normalizeContextUsage(contextUsage, isExpanded ? liveContextUsage : undefined);
                   const hasWorkbenchContent = goalStack.length > 0 || activeEntities.length > 0 || temporaryTactics.length > 0;
                   const showWorkbenchLoading = isExpanded && selectedSessionId === session.session_id && !isLoaded;
                   const lastUserPreview = String(session.last_user_message_preview || '').trim();
@@ -267,6 +351,15 @@ export const MemoryWorkbenchPage = () => {
                   const workspacePath = String(session.workspace_path || '').trim();
                   const secondaryLabel = getL0SessionSecondaryLabel(session);
                   const sessionTitle = resolveSessionTitle(session, t('memory.pages.workbench.untitledSession'));
+                  const summaryText = String(activeContextSummary?.summary_text || '').trim();
+                  const summaryModel = [
+                    String(activeContextSummary?.model_provider || '').trim(),
+                    String(activeContextSummary?.model_id || '').trim(),
+                  ].filter(Boolean).join(' / ');
+                  const summaryTokenBefore = Number(activeContextSummary?.token_count_before || 0);
+                  const summaryTokenAfter = Number(activeContextSummary?.token_count_after || 0);
+                  const summaryCoveredSequence = Number(activeContextSummary?.covered_to_sequence_no || 0);
+                  const summaryUpdatedAt = Number(activeContextSummary?.updated_at_ms || activeContextSummary?.created_at_ms || 0);
 
                   return (
                     <div key={session.session_id} className={cn(index > 0 && 'border-t border-[hsl(var(--memory-divider)/0.52)]')}>
@@ -357,6 +450,93 @@ export const MemoryWorkbenchPage = () => {
                                     </div>
                                     <div className="mt-2 text-sm leading-6 text-[hsl(var(--memory-title))]">{lastMessagePreview}</div>
                                   </div>
+                                ) : null}
+                              </div>
+                            ) : null}
+
+                            {isLoaded ? (
+                              <div className="grid gap-3 lg:grid-cols-2">
+                                <section className={MEMORY_INFO_PANEL_CLASS}>
+                                  <div className="flex items-center gap-2 text-xs font-medium text-[hsl(var(--memory-muted))]">
+                                    <Gauge className="h-3.5 w-3.5" />
+                                    {t('memory.pages.workbench.contextUsageTitle')}
+                                  </div>
+                                  {normalizedContextUsage ? (
+                                    <>
+                                      <div className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                                        <span className="text-lg font-semibold text-[hsl(var(--memory-title))]">
+                                          {formatUsagePercent(normalizedContextUsage.usedTokens, normalizedContextUsage.windowSize)}
+                                        </span>
+                                        <span className="text-sm text-[hsl(var(--memory-body))]">
+                                          {t('memory.pages.workbench.contextUsageValue', {
+                                            used: formatTokenCount(normalizedContextUsage.usedTokens),
+                                            window: formatTokenCount(normalizedContextUsage.windowSize),
+                                          })}
+                                        </span>
+                                      </div>
+                                      <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-[hsl(var(--memory-muted))]">
+                                        {normalizedContextUsage.threshold > 0 ? (
+                                          <span>
+                                            {t('memory.pages.workbench.contextUsageThreshold', {
+                                              threshold: formatTokenCount(normalizedContextUsage.threshold),
+                                            })}
+                                          </span>
+                                        ) : null}
+                                        {normalizedContextUsage.updatedAtMs > 0 ? (
+                                          <span>
+                                            {t('memory.pages.workbench.contextUsageUpdated', {
+                                              time: formatWorkbenchTimestampMs(normalizedContextUsage.updatedAtMs),
+                                            })}
+                                          </span>
+                                        ) : null}
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <div className="mt-2 text-sm leading-6 text-[hsl(var(--memory-body))]">
+                                      {t('memory.pages.workbench.contextUsageEmpty')}
+                                    </div>
+                                  )}
+                                </section>
+
+                                {summaryText ? (
+                                  <section className={MEMORY_INFO_PANEL_CLASS}>
+                                    <div className="flex items-center gap-2 text-xs font-medium text-[hsl(var(--memory-muted))]">
+                                      <FileText className="h-3.5 w-3.5" />
+                                      {t('memory.pages.workbench.contextSummaryTitle')}
+                                    </div>
+                                    <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-[hsl(var(--memory-muted))]">
+                                      {summaryCoveredSequence > 0 ? (
+                                        <span>
+                                          {t('memory.pages.workbench.contextSummaryCoverage', {
+                                            sequence: summaryCoveredSequence,
+                                          })}
+                                        </span>
+                                      ) : null}
+                                      {summaryTokenBefore > 0 && summaryTokenAfter > 0 ? (
+                                        <span>
+                                          {t('memory.pages.workbench.contextSummaryTokenDelta', {
+                                            before: formatTokenCount(summaryTokenBefore),
+                                            after: formatTokenCount(summaryTokenAfter),
+                                          })}
+                                        </span>
+                                      ) : null}
+                                      {summaryUpdatedAt > 0 ? (
+                                        <span>
+                                          {t('memory.pages.workbench.contextSummaryUpdated', {
+                                            time: formatWorkbenchTimestampMs(summaryUpdatedAt),
+                                          })}
+                                        </span>
+                                      ) : null}
+                                      {summaryModel ? (
+                                        <span>
+                                          {t('memory.pages.workbench.contextSummaryModel', { model: summaryModel })}
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                    <div className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap break-words text-sm leading-6 text-[hsl(var(--memory-title))]">
+                                      {summaryText}
+                                    </div>
+                                  </section>
                                 ) : null}
                               </div>
                             ) : null}
