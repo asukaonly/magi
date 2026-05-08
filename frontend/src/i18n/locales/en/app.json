@@ -1851,6 +1851,10 @@
         "updateSuccess": "Plugin updated successfully",
         "updateFailed": "Failed to update plugin: {{message}}"
       },
+      "installProgress": {
+        "itemTitle": "Installing {{name}}",
+        "uploadTitle": "Installing uploaded plugin"
+      },
       "filter": {
         "all": "All",
         "sensor": "Sensor",
@@ -1863,6 +1867,31 @@
         "tool": "Tool",
         "action": "Action",
         "channel": "Channel"
+      }
+    },
+    "pluginInstallProgress": {
+      "logsTitle": "Install log",
+      "logsEmpty": "Waiting for installer output...",
+      "status": {
+        "queued": "Queued",
+        "running": "Installing",
+        "completed": "Completed",
+        "failed": "Failed"
+      },
+      "stage": {
+        "queued": "Queued",
+        "registry": "Registry",
+        "download": "Download",
+        "upload": "Upload",
+        "extract": "Extract",
+        "validate": "Validate",
+        "stage": "Stage",
+        "install": "Install",
+        "dependencies": "Dependencies",
+        "scan": "Scan",
+        "activate": "Activate",
+        "completed": "Completed",
+        "failed": "Failed"
       }
     },
     "actionsConfig": {

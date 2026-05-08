@@ -5,11 +5,14 @@ from __future__ import annotations
 from collections.abc import Callable
 import logging
 from pathlib import Path
+from queue import Empty, Queue
 import shutil
 import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
+import time
 import uuid
 import zipfile
 
@@ -21,6 +24,17 @@ from ..config import save_config
 from .contracts import PluginManifest, PluginPackageState
 
 logger = logging.getLogger(__name__)
+InstallProgressReporter = Callable[[str, str, float | None], None]
+
+
+def _report_install_progress(
+    reporter: InstallProgressReporter | None,
+    stage: str,
+    message: str,
+    progress_pct: float | None = None,
+) -> None:
+    if reporter is not None:
+        reporter(stage, message, progress_pct)
 
 
 def _filter_installable_dependencies(dependencies: list[str]) -> tuple[list[str], list[str]]:
@@ -127,7 +141,12 @@ class PluginInstallationMixin:
     def unload_plugin(self, plugin_id: str) -> None:
         raise NotImplementedError
 
-    def install_plugin_from_archive(self, archive_path: Path) -> PluginPackageState:
+    def install_plugin_from_archive(
+        self,
+        archive_path: Path,
+        *,
+        progress_reporter: InstallProgressReporter | None = None,
+    ) -> PluginPackageState:
         """Install a plugin from a .tar.gz or .zip archive.
 
         The archive must contain a ``plugin.toml`` at the top level or
@@ -137,6 +156,12 @@ class PluginInstallationMixin:
         user_root = self._user_plugins_root()
         user_root.mkdir(parents=True, exist_ok=True)
         logger.info("Installing plugin from archive", extra={"archive_path": str(archive_path)})
+        _report_install_progress(
+            progress_reporter,
+            "extract",
+            "Extracting plugin archive",
+            18.0,
+        )
 
         with tempfile.TemporaryDirectory(prefix="magi-plugin-install-") as tmp:
             tmp_path = Path(tmp)
@@ -164,9 +189,22 @@ class PluginInstallationMixin:
             )
 
             def prepare_staging_dir(staged_dir: Path) -> None:
+                _report_install_progress(
+                    progress_reporter,
+                    "stage",
+                    "Validating staged plugin package",
+                    48.0,
+                )
                 new_manifest = self._load_manifest(staged_dir / "plugin.toml", source="external")
                 if new_manifest.dependencies:
-                    self._install_dependencies(new_manifest.dependencies, staged_dir)
+                    if progress_reporter is None:
+                        self._install_dependencies(new_manifest.dependencies, staged_dir)
+                    else:
+                        self._install_dependencies(
+                            new_manifest.dependencies,
+                            staged_dir,
+                            progress_reporter=progress_reporter,
+                        )
 
             replace_plugin_directory(
                 source_dir,
@@ -175,13 +213,26 @@ class PluginInstallationMixin:
                 before_swap=(lambda: self.unload_plugin(plugin_id)) if dest_dir.exists() else None,
             )
 
+        _report_install_progress(progress_reporter, "scan", "Refreshing plugin registry", 88.0)
         self.scan(persist_discovery=True)
         state = self._require_package(plugin_id)
         logger.info("Installed plugin from archive", extra={"plugin_id": plugin_id})
+        _report_install_progress(progress_reporter, "completed", "Plugin package installed", 100.0)
         return state
 
-    def install_plugin_from_directory(self, source_dir: Path) -> PluginPackageState:
+    def install_plugin_from_directory(
+        self,
+        source_dir: Path,
+        *,
+        progress_reporter: InstallProgressReporter | None = None,
+    ) -> PluginPackageState:
         """Install a plugin from a local directory containing a plugin.toml."""
+        _report_install_progress(
+            progress_reporter,
+            "validate",
+            "Validating plugin manifest",
+            38.0,
+        )
         manifest_file = self._find_manifest_in_tree(source_dir)
         if manifest_file is None:
             raise ValueError("Directory does not contain a plugin.toml")
@@ -207,9 +258,22 @@ class PluginInstallationMixin:
         )
 
         def prepare_staging_dir(staged_dir: Path) -> None:
+            _report_install_progress(
+                progress_reporter,
+                "stage",
+                "Preparing staged plugin package",
+                48.0,
+            )
             new_manifest = self._load_manifest(staged_dir / "plugin.toml", source="external")
             if new_manifest.dependencies:
-                self._install_dependencies(new_manifest.dependencies, staged_dir)
+                if progress_reporter is None:
+                    self._install_dependencies(new_manifest.dependencies, staged_dir)
+                else:
+                    self._install_dependencies(
+                        new_manifest.dependencies,
+                        staged_dir,
+                        progress_reporter=progress_reporter,
+                    )
 
         replace_plugin_directory(
             plugin_source,
@@ -218,9 +282,12 @@ class PluginInstallationMixin:
             before_swap=(lambda: self.unload_plugin(plugin_id)) if dest_dir.exists() else None,
         )
 
+        _report_install_progress(progress_reporter, "scan", "Refreshing plugin registry", 88.0)
         self.scan(persist_discovery=True)
+        _report_install_progress(progress_reporter, "activate", "Enabling plugin package", 94.0)
         state = self.enable_plugin(plugin_id)
         logger.info("Installed and enabled plugin", extra={"plugin_id": plugin_id})
+        _report_install_progress(progress_reporter, "completed", "Plugin package installed", 100.0)
         return state
 
     def uninstall_plugin(self, plugin_id: str) -> None:
@@ -283,7 +350,12 @@ class PluginInstallationMixin:
         return None
 
     @staticmethod
-    def _install_dependencies(dependencies: list[str], plugin_dir: Path) -> None:
+    def _install_dependencies(
+        dependencies: list[str],
+        plugin_dir: Path,
+        *,
+        progress_reporter: InstallProgressReporter | None = None,
+    ) -> None:
         """Install plugin dependencies into a local .deps/ directory."""
         installable_dependencies, skipped_dependencies = _filter_installable_dependencies(
             dependencies
@@ -293,10 +365,22 @@ class PluginInstallationMixin:
                 "Skipping plugin dependencies for current environment",
                 extra={"deps": skipped_dependencies, "target": str(plugin_dir)},
             )
+            _report_install_progress(
+                progress_reporter,
+                "dependencies",
+                f"Skipping dependencies for current environment: {', '.join(skipped_dependencies)}",
+                56.0,
+            )
         if not installable_dependencies:
             logger.info(
                 "No plugin dependencies need installation for current environment",
                 extra={"target": str(plugin_dir)},
+            )
+            _report_install_progress(
+                progress_reporter,
+                "dependencies",
+                "No plugin dependencies need installation",
+                82.0,
             )
             return
 
@@ -310,15 +394,26 @@ class PluginInstallationMixin:
             "--target",
             str(deps_dir),
             "--no-user",
-            "--quiet",
+            "--disable-pip-version-check",
             *installable_dependencies,
         ]
+        if progress_reporter is None:
+            cmd.insert(-len(installable_dependencies), "--quiet")
         logger.info(
             "Installing plugin dependencies",
             extra={"deps": installable_dependencies, "target": str(deps_dir)},
         )
+        _report_install_progress(
+            progress_reporter,
+            "dependencies",
+            f"Installing plugin dependencies: {', '.join(installable_dependencies)}",
+            56.0,
+        )
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            if progress_reporter is None:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            else:
+                result = _run_dependency_install_with_progress(cmd, progress_reporter)
         except subprocess.TimeoutExpired as exc:
             logger.exception(
                 "Plugin dependency installation timed out",
@@ -344,3 +439,62 @@ class PluginInstallationMixin:
             "Installed plugin dependencies",
             extra={"deps": installable_dependencies, "target": str(deps_dir)},
         )
+        _report_install_progress(
+            progress_reporter,
+            "dependencies",
+            "Installed plugin dependencies",
+            82.0,
+        )
+
+
+def _run_dependency_install_with_progress(
+    cmd: list[str],
+    progress_reporter: InstallProgressReporter,
+) -> subprocess.CompletedProcess[str]:
+    output_lines: list[str] = []
+    output_queue: Queue[str] = Queue()
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+
+    def read_output() -> None:
+        if process.stdout is None:
+            return
+        for line in process.stdout:
+            output_queue.put(line)
+
+    reader = threading.Thread(target=read_output, daemon=True)
+    reader.start()
+    deadline = time.monotonic() + 300
+
+    while process.poll() is None:
+        try:
+            line = output_queue.get(timeout=0.1)
+        except Empty:
+            if time.monotonic() > deadline:
+                process.kill()
+                process.wait(timeout=5)
+                raise subprocess.TimeoutExpired(cmd, 300)
+            continue
+        text = line.strip()
+        if text:
+            output_lines.append(text)
+            _report_install_progress(progress_reporter, "dependencies", text)
+
+    reader.join(timeout=1.0)
+    while True:
+        try:
+            line = output_queue.get_nowait()
+        except Empty:
+            break
+        text = line.strip()
+        if text:
+            output_lines.append(text)
+            _report_install_progress(progress_reporter, "dependencies", text)
+
+    stdout = "\n".join(output_lines)
+    return subprocess.CompletedProcess(cmd, process.returncode or 0, stdout=stdout, stderr=stdout)

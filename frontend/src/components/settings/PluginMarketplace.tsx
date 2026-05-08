@@ -13,12 +13,14 @@ import { toast } from 'sonner';
 
 import {
   pluginsApi,
+  type PluginInstallJobSnapshot,
   type PluginPackageState,
   type PluginRegistryEntry,
 } from '@/api/modules/plugins';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PluginInstallProgressPanel } from '@/components/plugins/PluginInstallProgressPanel';
 
 const CONTRIBUTION_TYPE_FILTERS = ['all', 'sensor', 'tool', 'channel'] as const;
 type ContributionFilter = (typeof CONTRIBUTION_TYPE_FILTERS)[number];
@@ -49,6 +51,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<ContributionFilter>('all');
   const [processingIds, setProcessingIds] = useState<Record<string, string>>({});
+  const [installSnapshots, setInstallSnapshots] = useState<Record<string, PluginInstallJobSnapshot>>({});
 
   const fetchRegistry = useCallback(async () => {
     setLoading(true);
@@ -94,7 +97,9 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
   const handleInstall = async (pluginId: string) => {
     setProcessingIds((prev) => ({ ...prev, [pluginId]: 'installing' }));
     try {
-      await pluginsApi.installFromRegistry(pluginId);
+      await pluginsApi.installFromRegistryWithProgress(pluginId, (snapshot) => {
+        setInstallSnapshots((prev) => ({ ...prev, [pluginId]: snapshot }));
+      });
       await onInstallComplete();
       toast.success(t('settings.marketplace.feedback.installSuccess'));
       await fetchRegistry();
@@ -132,7 +137,9 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
   const handleUpdate = async (pluginId: string) => {
     setProcessingIds((prev) => ({ ...prev, [pluginId]: 'updating' }));
     try {
-      await pluginsApi.updatePlugin(pluginId);
+      await pluginsApi.updatePluginWithProgress(pluginId, (snapshot) => {
+        setInstallSnapshots((prev) => ({ ...prev, [pluginId]: snapshot }));
+      });
       await onInstallComplete();
       toast.success(t('settings.marketplace.feedback.updateSuccess'));
       await fetchRegistry();
@@ -154,7 +161,9 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
 
     setProcessingIds((prev) => ({ ...prev, __upload: 'uploading' }));
     try {
-      await pluginsApi.installFromUpload(file);
+      await pluginsApi.installFromUploadWithProgress(file, (snapshot) => {
+        setInstallSnapshots((prev) => ({ ...prev, __upload: snapshot }));
+      });
       await onInstallComplete();
       toast.success(t('settings.marketplace.feedback.installSuccess'));
       await fetchRegistry();
@@ -236,6 +245,13 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
           </Button>
         ))}
       </div>
+
+      {installSnapshots.__upload ? (
+        <PluginInstallProgressPanel
+          snapshot={installSnapshots.__upload}
+          title={t('settings.marketplace.installProgress.uploadTitle')}
+        />
+      ) : null}
 
       {/* Content */}
       {loading && registryEntries.length === 0 ? (
@@ -372,6 +388,15 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                     )}
                   </div>
                 </div>
+
+                {installSnapshots[entry.plugin_id] ? (
+                  <PluginInstallProgressPanel
+                    snapshot={installSnapshots[entry.plugin_id]}
+                    title={t('settings.marketplace.installProgress.itemTitle', {
+                      name: localized(entry.name, entry.name_i18n, i18n.language),
+                    })}
+                  />
+                ) : null}
               </div>
             );
           })}

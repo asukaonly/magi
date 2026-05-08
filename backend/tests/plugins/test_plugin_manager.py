@@ -9,7 +9,11 @@ import pytest
 from magi.config.models import AppConfig, PluginSettings
 from magi.plugins import Plugin
 from magi.plugins import installation as installation_module
-from magi.plugins.installation import _filter_installable_dependencies, replace_plugin_directory
+from magi.plugins.installation import (
+    _filter_installable_dependencies,
+    _run_dependency_install_with_progress,
+    replace_plugin_directory,
+)
 from magi.plugins.manager import PluginManager, build_plugin_runtime
 from magi.plugins.sensors import SensorRegistry
 from magi.tools.registry import ToolRegistry, tool_registry as shared_tool_registry
@@ -349,6 +353,78 @@ def test_install_plugin_from_directory_keeps_existing_plugin_until_staging_ready
     assert existing_dir.exists()
     assert "old-version" in (existing_dir / "plugin.py").read_text(encoding="utf-8")
     assert "new-version" not in (existing_dir / "plugin.py").read_text(encoding="utf-8")
+
+
+def test_install_plugin_from_directory_reports_progress(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    user_root = tmp_path / "user-plugins"
+    source_root = tmp_path / "incoming"
+    incoming_dir = _write_install_test_plugin(
+        source_root,
+        plugin_id="progress-test",
+        version="1.0.0",
+        marker="installed",
+    )
+
+    config = AppConfig()
+    tool_registry = ToolRegistry()
+
+    monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
+    monkeypatch.setattr(
+        "magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True
+    )
+    monkeypatch.setattr(PluginManager, "_user_plugins_root", staticmethod(lambda: user_root))
+
+    manager = PluginManager(
+        tool_registry=tool_registry,
+        sensor_registry=SensorRegistry(),
+        search_paths=[user_root],
+    )
+    progress_events: list[tuple[str, str, float | None]] = []
+
+    state = manager.install_plugin_from_directory(
+        incoming_dir,
+        progress_reporter=lambda stage, message, progress: progress_events.append(
+            (stage, message, progress)
+        ),
+    )
+
+    assert state.manifest.plugin_id == "progress-test"
+    assert state.enabled is True
+    assert [event[0] for event in progress_events] == [
+        "validate",
+        "stage",
+        "scan",
+        "activate",
+        "completed",
+    ]
+    assert progress_events[-1][2] == 100.0
+
+
+def test_dependency_install_runner_reports_subprocess_output() -> None:
+    progress_events: list[tuple[str, str, float | None]] = []
+
+    result = _run_dependency_install_with_progress(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; "
+                "sys.stdout.write('collecting\\n'); sys.stdout.flush(); "
+                "sys.stderr.write('installing\\n'); sys.stderr.flush()"
+            ),
+        ],
+        lambda stage, message, progress: progress_events.append((stage, message, progress)),
+    )
+
+    assert result.returncode == 0
+    assert result.stdout.splitlines() == ["collecting", "installing"]
+    assert progress_events == [
+        ("dependencies", "collecting", None),
+        ("dependencies", "installing", None),
+    ]
 
 
 def test_replace_plugin_directory_rolls_back_when_promotion_fails(

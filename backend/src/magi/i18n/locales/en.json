@@ -346,6 +346,7 @@
       "not_found_in_registry": "Plugin not found in registry",
       "registry_unreachable": "Unable to reach plugin registry",
       "cannot_update_builtin": "Cannot update builtin plugins",
+      "install_job_not_found": "Plugin installation job not found",
       "settings_resource_not_found": "Plugin settings resource not found",
       "settings_action_not_found": "Plugin settings action not found",
       "settings_action_session_not_found": "Plugin settings action session not found"

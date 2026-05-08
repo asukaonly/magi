@@ -96,6 +96,30 @@ class PluginInstallRequest(BaseModel):
     plugin_id: str
 
 
+class PluginInstallLogEntry(BaseModel):
+    ts_ms: int
+    level: Literal["info", "warning", "error"] = "info"
+    stage: str
+    message: str
+
+
+class PluginInstallJobSnapshot(BaseModel):
+    job_id: str
+    operation: Literal["install", "update", "upload"]
+    plugin_id: str | None = None
+    filename: str | None = None
+    status: Literal["queued", "running", "completed", "failed"]
+    stage: str
+    progress_pct: float = 0.0
+    message: str
+    error: str | None = None
+    logs: list[PluginInstallLogEntry] = Field(default_factory=list)
+    result: PluginPackageResponse | None = None
+    created_at_ms: int
+    updated_at_ms: int
+    finished_at_ms: int | None = None
+
+
 class PluginUpdateCheckResponse(BaseModel):
     plugin_id: str
     current_version: str
@@ -110,6 +134,8 @@ class PluginsListResponse(BaseModel):
 
 __all__ = [
     "PluginContributionResponse",
+    "PluginInstallJobSnapshot",
+    "PluginInstallLogEntry",
     "PluginInstallRequest",
     "PluginManifestResponse",
     "PluginPackageResponse",

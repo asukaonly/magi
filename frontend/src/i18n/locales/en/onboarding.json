@@ -114,6 +114,7 @@
     "installSuccess": "Successfully installed {{count}} sensor(s)",
     "installAllFailed": "{{count}} sensor(s) failed to install, you can retry later in Settings",
     "installPartial": "{{success}} installed, {{fail}} failed",
+    "installProgressTitle": "Installing {{name}}",
     "installBeforeNextHint": "Install the selected sensors before continuing, or deselect them to skip.",
     "installingBlockNext": "Sensors are still installing. Please wait for installation to finish before continuing.",
     "skipHint": "You can skip this step and install sensors later in Settings → Plugins.",

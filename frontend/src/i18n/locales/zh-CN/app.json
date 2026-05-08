@@ -1849,6 +1849,10 @@
         "updateSuccess": "插件更新成功",
         "updateFailed": "插件更新失败：{{message}}"
       },
+      "installProgress": {
+        "itemTitle": "正在安装 {{name}}",
+        "uploadTitle": "正在安装上传的插件"
+      },
       "filter": {
         "all": "全部",
         "sensor": "传感器",
@@ -1861,6 +1865,31 @@
         "tool": "工具",
         "action": "执行器",
         "channel": "消息渠道"
+      }
+    },
+    "pluginInstallProgress": {
+      "logsTitle": "安装日志",
+      "logsEmpty": "等待安装器输出...",
+      "status": {
+        "queued": "已排队",
+        "running": "安装中",
+        "completed": "已完成",
+        "failed": "失败"
+      },
+      "stage": {
+        "queued": "排队",
+        "registry": "插件仓库",
+        "download": "下载",
+        "upload": "上传",
+        "extract": "解压",
+        "validate": "校验",
+        "stage": "暂存",
+        "install": "安装",
+        "dependencies": "依赖",
+        "scan": "扫描",
+        "activate": "启用",
+        "completed": "完成",
+        "failed": "失败"
       }
     },
     "actionsConfig": {
