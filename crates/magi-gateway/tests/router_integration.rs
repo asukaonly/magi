@@ -87,6 +87,7 @@ async fn request_json(
 }
 
 /// Create a test ApiState using a real temporary socket pair.
+#[cfg(unix)]
 async fn test_state() -> api::state::ApiState {
     let n = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
     let sock_path = std::env::temp_dir().join(format!("magi-test-{}-{n}.sock", std::process::id()));
@@ -108,6 +109,36 @@ async fn test_state() -> api::state::ApiState {
     tokio::task::yield_now().await;
 
     let (ipc_client, _event_rx) = ipc::IpcClient::connect(sock_path.to_str().unwrap())
+        .await
+        .expect("Connect to test IPC socket");
+
+    api::state::ApiState {
+        ipc_client: Arc::new(ipc_client),
+        builtin_avatar_dir: None,
+        user_avatar_dir: None,
+    }
+}
+
+/// Create a test ApiState using a real temporary TCP loopback socket.
+#[cfg(not(unix))]
+async fn test_state() -> api::state::ApiState {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    // Spawn a dummy server that accepts but never responds.
+    tokio::spawn(async move {
+        loop {
+            if let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let _ = tokio::io::AsyncReadExt::read(&mut stream, &mut [0u8; 1024]).await;
+                });
+            }
+        }
+    });
+
+    tokio::task::yield_now().await;
+
+    let (ipc_client, _event_rx) = ipc::IpcClient::connect(&addr.to_string())
         .await
         .expect("Connect to test IPC socket");
 
