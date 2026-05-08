@@ -887,15 +887,24 @@ async def _safe_count(db_path: str, sql: str) -> int:
 
 
 def _job_row_to_dict(job_row: aiosqlite.Row, layer_rows: list[aiosqlite.Row]) -> dict[str, Any]:
+    processed_items = int(job_row["processed_items"] or 0)
+    succeeded_items = int(job_row["succeeded_items"] or 0)
+    failed_items = int(job_row["failed_items"] or 0)
+    total_items = _normalized_rebuild_total(
+        total_items=job_row["total_items"],
+        processed_items=processed_items,
+        succeeded_items=succeeded_items,
+        failed_items=failed_items,
+    )
     return {
         "job_id": str(job_row["job_id"]),
         "status": str(job_row["status"]),
         "requested_layers": _json_list(str(job_row["requested_layers_json"] or "[]")),
         "active_layer": job_row["active_layer"],
-        "total_items": int(job_row["total_items"] or 0),
-        "processed_items": int(job_row["processed_items"] or 0),
-        "succeeded_items": int(job_row["succeeded_items"] or 0),
-        "failed_items": int(job_row["failed_items"] or 0),
+        "total_items": total_items,
+        "processed_items": processed_items,
+        "succeeded_items": succeeded_items,
+        "failed_items": failed_items,
         "cancel_requested": bool(job_row["cancel_requested"]),
         "error": job_row["error"],
         "created_at": job_row["created_at"],
@@ -908,18 +917,33 @@ def _job_row_to_dict(job_row: aiosqlite.Row, layer_rows: list[aiosqlite.Row]) ->
 
 
 def _layer_row_to_dict(row: aiosqlite.Row) -> dict[str, Any]:
+    processed_items = int(row["processed_items"] or 0)
+    succeeded_items = int(row["succeeded_items"] or 0)
+    failed_items = int(row["failed_items"] or 0)
+    total_items = _normalized_rebuild_total(
+        total_items=row["total_items"],
+        processed_items=processed_items,
+        succeeded_items=succeeded_items,
+        failed_items=failed_items,
+    )
     return {
         "layer": str(row["layer"]),
         "status": str(row["status"]),
-        "total_items": int(row["total_items"] or 0),
-        "processed_items": int(row["processed_items"] or 0),
-        "succeeded_items": int(row["succeeded_items"] or 0),
-        "failed_items": int(row["failed_items"] or 0),
+        "total_items": total_items,
+        "processed_items": processed_items,
+        "succeeded_items": succeeded_items,
+        "failed_items": failed_items,
         "error": row["error"],
         "started_at": row["started_at"],
         "finished_at": row["finished_at"],
         "updated_at": row["updated_at"],
     }
+
+
+def _normalized_rebuild_total(
+    *, total_items: Any, processed_items: int, succeeded_items: int, failed_items: int
+) -> int:
+    return max(int(total_items or 0), processed_items, succeeded_items + failed_items)
 
 
 def _normalize_layers(layers: Iterable[str] | None) -> list[str]:

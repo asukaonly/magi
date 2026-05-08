@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 from types import SimpleNamespace
 
 import pytest
@@ -182,3 +183,45 @@ async def test_embedding_rebuild_job_persists_running_batch_progress(
     assert finished_job is not None
     assert finished_job["status"] == "succeeded"
     assert finished_job["processed_items"] == 5
+
+
+@pytest.mark.asyncio
+async def test_embedding_rebuild_job_normalizes_legacy_low_totals(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    runtime_paths = RuntimePaths(tmp_path / "runtime")
+    monkeypatch.setattr(vector_admin, "get_runtime_paths", lambda: runtime_paths)
+
+    manager = EmbeddingRebuildManager()
+    await manager._ensure_schema()
+    job_id = "legacy-low-total"
+    with sqlite3.connect(runtime_paths.memory_db_path) as db:
+        db.execute(
+            """
+            INSERT INTO embedding_rebuild_jobs(
+                job_id, status, requested_layers_json, active_layer,
+                total_items, processed_items, succeeded_items, failed_items,
+                cancel_requested, error, created_at, started_at, finished_at, updated_at
+            ) VALUES (?, 'succeeded', ?, NULL, 1, 3, 3, 0, 0, NULL, 1, 1, 2, 2)
+            """,
+            (job_id, '["l2_edges"]'),
+        )
+        db.execute(
+            """
+            INSERT INTO embedding_rebuild_job_layers(
+                job_id, layer, status, total_items, processed_items,
+                succeeded_items, failed_items, error, started_at, finished_at, updated_at
+            ) VALUES (?, 'l2_edges', 'succeeded', 0, 3, 3, 0, NULL, 1, 2, 2)
+            """,
+            (job_id,),
+        )
+        db.commit()
+
+    job = await manager.get_job(job_id)
+
+    assert job is not None
+    assert job["total_items"] == 3
+    assert job["processed_items"] == 3
+    assert job["layers"][0]["total_items"] == 3
+    assert job["layers"][0]["processed_items"] == 3
