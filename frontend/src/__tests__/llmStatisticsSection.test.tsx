@@ -88,7 +88,7 @@ describe('LLMStatisticsSection', () => {
     });
 
     expect(screen.queryByRole('heading', { name: 'settings.tabs.statisticsLlm' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'settings.usage.windows.7' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'settings.usage.windows.7' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'settings.usage.windows.30' })).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'provider-filter' })).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'model-filter' })).toBeInTheDocument();
