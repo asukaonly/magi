@@ -831,7 +831,6 @@ export const MCPServersSection: React.FC = () => {
         await mcpApi.createServer(payload);
       } catch (exc) {
         // Continue importing the rest; user will see what landed via refresh.
-        // eslint-disable-next-line no-console
         console.warn('[mcp] import skipped', d.id, exc);
       }
     }

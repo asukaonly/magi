@@ -454,7 +454,7 @@ describe('timeline page', () => {
     expect(screen.getByText('A steady month of focused work.')).toBeInTheDocument();
     expect(screen.getByText('Focused')).toBeInTheDocument();
     expect(screen.getAllByText('timeline.sources.manual_journal').length).toBeGreaterThan(0);
-    expect(screen.getByText('timeline.sources.chat')).toBeInTheDocument();
+    expect(screen.getByText('Chat')).toBeInTheDocument();
     expect(timelineApi.getViewport).toHaveBeenCalledWith(
       expect.objectContaining({
         scale: 'month',

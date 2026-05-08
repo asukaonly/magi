@@ -50,7 +50,7 @@ class FunctionCallingFailureMixin:
     @staticmethod
     def _is_rate_limit_exception(exc: Exception) -> bool:
         """Shared detector for upstream 429 / rate-limit errors."""
-        return is_rate_limit_exception(exc)
+        return bool(is_rate_limit_exception(exc))
 
     async def _invoke_with_rate_limit_backoff(
         self,

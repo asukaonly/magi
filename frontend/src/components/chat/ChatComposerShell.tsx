@@ -119,7 +119,7 @@ export const ChatComposerShell = ({
       </div>
       <div
         data-testid="chat-composer-toolbar"
-        className="flex items-center justify-between px-2 pb-0 pt-1"
+        className="flex items-end justify-between px-2 pb-2 pt-1"
       >
         <div className="flex items-center gap-1">
           <ComposerAttachmentMenu
@@ -134,12 +134,12 @@ export const ChatComposerShell = ({
           </div>
           <ContextUsageRing sessionId={sessionId} />
         </div>
-        <div data-testid="chat-composer-primary-action" className="self-end pb-2">
+        <div data-testid="chat-composer-primary-action">
           <button
             type="button"
             onClick={onPrimaryAction}
             disabled={sendingMessage}
-            className="flex h-[34px] w-[34px] items-center justify-center rounded-lg bg-foreground/88 text-background transition-colors hover:bg-foreground/96 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
+            className="flex h-[34px] w-[34px] items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
             aria-label={waitingForReply ? t('chat.stop') : t('chat.send')}
             title={waitingForReply ? t('chat.stop') : t('chat.send')}
           >

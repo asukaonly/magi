@@ -942,9 +942,9 @@ describe('ChatPage', () => {
     expect(composerRoot).toHaveClass('rounded-2xl');
     expect(composerRoot).not.toHaveClass('rounded-[28px]');
     expect(toolbar).not.toHaveClass('border-t');
-    expect(toolbar).toHaveClass('px-2', 'pb-0');
-    expect(primaryAction).toHaveClass('pb-2');
-    expect(sendButton).toHaveClass('h-[34px]', 'w-[34px]', 'bg-foreground/88');
+    expect(toolbar).toHaveClass('items-end', 'px-2', 'pb-2');
+    expect(primaryAction).not.toHaveClass('pb-2');
+    expect(sendButton).toHaveClass('h-[34px]', 'w-[34px]', 'bg-primary', 'text-primary-foreground');
     expect(textarea.style.height).toBe('88px');
   });
 

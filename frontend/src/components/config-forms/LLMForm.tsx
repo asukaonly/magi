@@ -571,6 +571,10 @@ const LLMForm: React.FC<LLMFormProps> = ({
   };
 
   const handleDiscoverProviderModels = async (providerId: string, providerOverride?: LLMProviderConfig) => {
+    if (!registry) {
+      return undefined;
+    }
+
     const provider = providerOverride || currentValue.providers[providerId];
     if (!provider) {
       return undefined;
@@ -615,7 +619,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
 
   const handleResolveDraftProviderPreview = useCallback(
     async (providerId: string, provider: LLMProviderConfig): Promise<LLMProviderRegistry | null> => {
-      if (!customProviderTemplate) {
+      if (!customProviderTemplate || !registry) {
         return null;
       }
 
@@ -632,7 +636,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
 
       return buildRegistryFromCatalog(catalog, customProviderTemplate);
     },
-    [currentValue.providers, customProviderTemplate]
+    [currentValue.providers, customProviderTemplate, registry]
   );
 
   const handleTestProviderConnection = async (providerId: string, model: string, providerOverride?: LLMProviderConfig) => {

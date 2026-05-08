@@ -15,12 +15,6 @@
       "purpose": "Update session presentation fields such as title, workspace, and history version."
     },
     {
-      "file": "crates/magi-gateway/src/api/messages/mutations.rs",
-      "operation": "update",
-      "table": "chat_messages",
-      "purpose": "Apply user-facing message labels and soft-delete visibility flags."
-    },
-    {
       "file": "crates/magi-gateway/src/api/schedules/write.rs",
       "operation": "insert",
       "table": "schedules",
@@ -43,6 +37,30 @@
       "operation": "update",
       "table": "target_state",
       "purpose": "Reset scheduler target state after product-facing schedule edits."
+    },
+    {
+      "file": "crates/magi-gateway/src/api/schedules/write.rs",
+      "operation": "update",
+      "table": "schedule_executions",
+      "purpose": "Mark native-cancelled schedule activity rows as cancelled."
+    },
+    {
+      "file": "crates/magi-gateway/src/api/schedules/write.rs",
+      "operation": "update",
+      "table": "sensor_sync_jobs",
+      "purpose": "Mark native-cancelled sensor sync activity rows as cancelled."
+    },
+    {
+      "file": "crates/magi-gateway/src/api/memory/l2.rs",
+      "operation": "insert",
+      "table": "tom_trait_assertions",
+      "purpose": "Store explicit user corrections from native L2 assertion correction routes."
+    },
+    {
+      "file": "crates/magi-gateway/src/api/memory/l2.rs",
+      "operation": "update",
+      "table": "tom_trait_assertions",
+      "purpose": "Apply user feedback and supersession state from native L2 assertion routes."
     },
     {
       "file": "crates/magi-gateway/src/api/tasks/write.rs",

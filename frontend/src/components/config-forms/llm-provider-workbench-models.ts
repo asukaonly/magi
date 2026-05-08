@@ -1,5 +1,6 @@
 import {
   resolveProviderModels,
+  type LLMCapabilities,
   type LLMModelMetadataOverride,
   type LLMProviderConfig,
   type LLMProviderRegistry,
@@ -44,10 +45,16 @@ const DEFAULT_LIMITS: ProviderWorkbenchModelItem['limits'] = {
 const mergeCapabilities = (
   base: ProviderWorkbenchModelItem['capabilities'],
   override?: LLMModelMetadataOverride
-): ProviderWorkbenchModelItem['capabilities'] => ({
-  ...base,
-  ...(override?.capabilities || {}),
-});
+): ProviderWorkbenchModelItem['capabilities'] => {
+  const next = { ...base };
+  for (const key of Object.keys(next) as Array<keyof LLMCapabilities>) {
+    const value = override?.capabilities?.[key];
+    if (typeof value === 'boolean') {
+      next[key] = value;
+    }
+  }
+  return next;
+};
 
 const mergeLimits = (
   base: ProviderWorkbenchModelItem['limits'],

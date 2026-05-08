@@ -181,7 +181,7 @@ impl AssertionWriteError {
         match self {
             AssertionWriteError::InvalidRequest => (
                 StatusCode::BAD_REQUEST,
-                Json(json!({"detail": "Invalid assertion update request"})),
+                Json(json!({"detail": "Invalid assertion feedback request"})),
             ),
             AssertionWriteError::NotFound => (
                 StatusCode::NOT_FOUND,
@@ -193,7 +193,7 @@ impl AssertionWriteError {
             ),
             AssertionWriteError::WriteFailed => (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"detail": "Failed to update assertion"})),
+                Json(json!({"detail": "Failed to save assertion change"})),
             ),
         }
     }

@@ -138,7 +138,7 @@ class ProviderBridgeOptionsMixin:
             return kwargs
 
         payload = build_reasoning_payload(dialect, thinking_depth)
-        return merge_payload(kwargs, payload)
+        return cast(Dict[str, Any], merge_payload(kwargs, payload))
 
     def _build_concurrency_key(self, request_family: str) -> str:
         base_url = getattr(self.llm, "base_url", None)

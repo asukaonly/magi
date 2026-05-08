@@ -49,7 +49,8 @@ TYPE_GATE_FILES=(
   magi/llm/base.py
   magi/llm/concurrency_limiter.py
   magi/llm/streaming_events.py
-  magi/llm/usage_events.py
+  magi/llm/usage_store.py
+  magi/llm/usage_tracing.py
   magi/memory/l2/batch_models.py
   magi/memory/l2/candidate_models.py
   magi/memory/l2/entities/models.py

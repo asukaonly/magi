@@ -36,7 +36,7 @@ class L2PipelineUtilityMixin:
         text = self._non_empty_text(raw_value)
         if not text:
             return None
-        return canonicalize_predicate(text)
+        return cast(str | None, canonicalize_predicate(text))
 
     def _normalize_structured_graph_hint_origin_mode(self, raw_value: Any) -> str:
         return str(self._non_empty_text(raw_value) or "source_structured").casefold()

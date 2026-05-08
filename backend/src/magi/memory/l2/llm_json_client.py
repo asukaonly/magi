@@ -113,10 +113,10 @@ class L2LLMJsonClientMixin:
             invalid_context["response_char_count"] = len(raw or "")
             logger.warning("L2 LLM returned invalid JSON", **invalid_context)
             return {}
-        return parsed if isinstance(parsed, dict) else {}
+        return cast(dict[str, Any], parsed) if isinstance(parsed, dict) else {}
 
     def _is_rate_limit_error(self, exc: Exception) -> bool:
-        return is_rate_limit_exception(exc)
+        return bool(is_rate_limit_exception(exc))
 
     def _get_adapter(self, scenario: LLMScenario = LLMScenario.CONTEXT_DECIDER) -> Optional[Any]:
         host = self._llm_json_client_host()
