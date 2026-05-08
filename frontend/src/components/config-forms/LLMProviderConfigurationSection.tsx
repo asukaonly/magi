@@ -150,7 +150,7 @@ const createProviderFromTemplate = (
         base_url: '',
       },
       image_generation: {
-        enabled: Boolean(template.resolved_image_generation_models?.length),
+        enabled: false,
         api_key: '',
         base_url: '',
         timeout: 180,

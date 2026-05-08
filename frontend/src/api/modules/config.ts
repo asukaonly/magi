@@ -721,7 +721,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     conversation_rhythm_enabled: true,
     conversation_rhythm_mode: 'natural',
     allow_media_grounding_for_conversation: false,
-    allow_interjection: true,
+    allow_interjection: false,
     allow_ask_in_background: false,
   },
   network: {

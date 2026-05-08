@@ -9,6 +9,7 @@ import { STORAGE_KEYS } from '@/constants/app';
 import { configApi } from '../../api/modules/config';
 import type { SystemConfig, EmbeddingConfig, CrossEncoderConfig } from '../../api/modules/config';
 import { personasApi, selectDefaultSeedPreview } from '../../api/modules/personas';
+import type { SeedPreview } from '../../api/modules/personas';
 import LLMForm from '../config-forms/LLMForm';
 import PersonalityForm from '../config-forms/PersonalityForm';
 import MemoryForm from '../config-forms/MemoryForm';
@@ -26,11 +27,50 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 type Mode = 'quick' | 'expert' | null;
 type Phase = 'welcome' | 'guided';
 
+const QUICK_MODE_PERSONALITY_SEEDS: Record<string, Record<'zh' | 'en', string>> = {
+  chat_assistant: {
+    zh: 'echo_ai_assistant',
+    en: 'nova_assistant',
+  },
+  life_monitor: {
+    zh: 'sumen_listener',
+    en: 'ember_listener',
+  },
+  knowledge_partner: {
+    zh: 'seven_hacker',
+    en: 'jinx_hacker',
+  },
+  default: {
+    zh: 'echo_ai_assistant',
+    en: 'nova_assistant',
+  },
+};
+
 const STORAGE_KEY = STORAGE_KEYS.ONBOARDING_STATE;
 const BUILTIN_SCENARIOS = ['context_decider', 'core', 'embedding'] as const;
 const RUNTIME_READY_WAIT_INTERVAL_MS = 500;
 const RUNTIME_READY_WAIT_TIMEOUT_MS = 12_000;
 const toI18nLanguage = (language?: string): 'en' | 'zh-CN' => (language === 'en' ? 'en' : 'zh-CN');
+
+interface QuickScenarioPresetOptions {
+  retentionDays: number;
+  queryExpansionEnabled: boolean;
+  autoBackgroundEnabled: boolean;
+  weatherEnabled: boolean;
+  webSearchEnabled: boolean;
+  webFetchEnabled: boolean;
+  l2Enabled: boolean;
+  l3Enabled: boolean;
+  l4Enabled: boolean;
+}
+
+type DeepPartial<T> = {
+  [K in keyof T]?: T[K] extends Array<infer U>
+    ? Array<U>
+    : T[K] extends Record<string, any>
+      ? DeepPartial<T[K]>
+      : T[K];
+};
 
 interface RuntimeReadyResponse {
   success: boolean;
@@ -74,83 +114,145 @@ async function waitForRuntimeReadyAfterOnboarding() {
   return lastSnapshot;
 }
 
+
+function selectQuickModeSeedSlug(
+  locale: 'zh' | 'en',
+  scenario: string | null | undefined,
+  previews: SeedPreview[]
+): string | undefined {
+  const scenarioKey = scenario && scenario in QUICK_MODE_PERSONALITY_SEEDS ? scenario : 'default';
+  const preferredSeedSlug = QUICK_MODE_PERSONALITY_SEEDS[scenarioKey]?.[locale];
+  if (preferredSeedSlug && previews.some((preview) => preview.seed_slug === preferredSeedSlug)) {
+    return preferredSeedSlug;
+  }
+  return selectDefaultSeedPreview(previews)?.seed_slug;
+}
+
 /** Scenario preset config overrides for quick mode.
  *
- * These only set memory-layer and tool defaults.
+ * These shape conversation, memory, and tool defaults.
  * Sensor / timeline source config is handled by plugin installation
  * in the SensorSelection step.
  */
-const SCENARIO_PRESETS: Record<ScenarioId, Partial<SystemConfig>> = {
-  chat_assistant: {
-    memory: {
-      db_path: '~/.magi/data/memories',
-      retention_days: 90,
-      history_behavior: 'delete',
-      embedding: { mode: 'off', local: { model_source: 'managed', managed_model_id: null, model_dir_path: null, idle_timeout_seconds: 1800 } },
-      reranker: { top_k: 8, cross_encoder: { enabled: false, managed_model_id: null } },
-      query_expansion: { enabled: false },
-      l0: { enabled: true, checkpoint_interval_seconds: 30 },
-      l1: { enabled: true, vectors_enabled: true },
-      l2: { enabled: false, vectors_enabled: false, batch_flush_interval_seconds: 60, auto_extract_relations: false, conflict_arbitration_enabled: false, conflict_arbitration_min_confidence: 0.85 },
-      l3: { enabled: false, vectors_enabled: false, llm_summary_enabled: false, temporal_llm_timeout_seconds: 3.0, temporal_llm_min_event_count: 2, summary_interval_minutes: 60 },
-      l4: { enabled: false, vectors_enabled: false },
-    },
-    tools: {
-      builtIn: {
-        weather: { enabled: true, provider: 'qweather' },
-        webSearch: { enabled: true, provider: 'duckduckgo' },
-        webFetch: { enabled: true, usePlaywright: false },
-      },
-      skills: [],
+const buildQuickScenarioPreset = ({
+  retentionDays,
+  queryExpansionEnabled,
+  autoBackgroundEnabled,
+  weatherEnabled,
+  webSearchEnabled,
+  webFetchEnabled,
+  l2Enabled,
+  l3Enabled,
+  l4Enabled,
+}: QuickScenarioPresetOptions): DeepPartial<SystemConfig> => ({
+  agent: {
+    background_tasks: {
+      auto_detect_long_task: autoBackgroundEnabled,
     },
   },
-  life_monitor: {
-    memory: {
-      db_path: '~/.magi/data/memories',
-      retention_days: 90,
-      history_behavior: 'delete',
-      embedding: { mode: 'off', local: { model_source: 'managed', managed_model_id: null, model_dir_path: null, idle_timeout_seconds: 1800 } },
-      reranker: { top_k: 8, cross_encoder: { enabled: false, managed_model_id: null } },
-      query_expansion: { enabled: false },
-      l0: { enabled: true, checkpoint_interval_seconds: 30 },
-      l1: { enabled: true, vectors_enabled: true },
-      l2: { enabled: true, vectors_enabled: true, batch_flush_interval_seconds: 60, auto_extract_relations: true, conflict_arbitration_enabled: true, conflict_arbitration_min_confidence: 0.85 },
-      l3: { enabled: true, vectors_enabled: true, llm_summary_enabled: true, temporal_llm_timeout_seconds: 3.0, temporal_llm_min_event_count: 2, summary_interval_minutes: 60 },
-      l4: { enabled: false, vectors_enabled: false },
-    },
-    tools: {
-      builtIn: {
-        weather: { enabled: true, provider: 'qweather' },
-        webSearch: { enabled: true, provider: 'duckduckgo' },
-        webFetch: { enabled: true, usePlaywright: false },
+  memory: {
+    db_path: '~/.magi/data/memories',
+    retention_days: retentionDays,
+    history_behavior: 'delete',
+    embedding: {
+      mode: 'off',
+      local: {
+        model_source: 'managed',
+        managed_model_id: null,
+        model_dir_path: null,
+        idle_timeout_seconds: 1800,
       },
-      skills: [],
+    },
+    reranker: {
+      top_k: 8,
+      cross_encoder: {
+        enabled: false,
+        managed_model_id: null,
+      },
+    },
+    query_expansion: { enabled: queryExpansionEnabled },
+    l0: { enabled: true, checkpoint_interval_seconds: 30 },
+    l1: { enabled: true, vectors_enabled: true },
+    l2: {
+      enabled: l2Enabled,
+      vectors_enabled: l2Enabled,
+      batch_flush_interval_seconds: 60,
+      auto_extract_relations: l2Enabled,
+      conflict_arbitration_enabled: l2Enabled,
+      conflict_arbitration_min_confidence: 0.85,
+    },
+    l3: {
+      enabled: l3Enabled,
+      vectors_enabled: l3Enabled,
+      llm_summary_enabled: l3Enabled,
+      temporal_llm_timeout_seconds: 3.0,
+      temporal_llm_min_event_count: 2,
+      summary_interval_minutes: 60,
+    },
+    l4: {
+      enabled: l4Enabled,
+      vectors_enabled: l4Enabled,
     },
   },
-  knowledge_partner: {
-    memory: {
-      db_path: '~/.magi/data/memories',
-      retention_days: 90,
-      history_behavior: 'delete',
-      embedding: { mode: 'off', local: { model_source: 'managed', managed_model_id: null, model_dir_path: null, idle_timeout_seconds: 1800 } },
-      reranker: { top_k: 8, cross_encoder: { enabled: false, managed_model_id: null } },
-      query_expansion: { enabled: false },
-      l0: { enabled: true, checkpoint_interval_seconds: 30 },
-      l1: { enabled: true, vectors_enabled: true },
-      l2: { enabled: true, vectors_enabled: true, batch_flush_interval_seconds: 60, auto_extract_relations: true, conflict_arbitration_enabled: true, conflict_arbitration_min_confidence: 0.85 },
-      l3: { enabled: true, vectors_enabled: true, llm_summary_enabled: true, temporal_llm_timeout_seconds: 3.0, temporal_llm_min_event_count: 2, summary_interval_minutes: 60 },
-      l4: { enabled: true, vectors_enabled: true },
-    },
-    tools: {
-      builtIn: {
-        weather: { enabled: true, provider: 'qweather' },
-        webSearch: { enabled: true, provider: 'duckduckgo' },
-        webFetch: { enabled: true, usePlaywright: false },
-      },
-      skills: [],
-    },
+  preferences: {
+    allow_interjection: false,
+    allow_ask_in_background: false,
   },
-  default: {},
+  tools: {
+    builtIn: {
+      weather: { enabled: weatherEnabled, provider: 'qweather' },
+      webSearch: { enabled: webSearchEnabled, provider: 'duckduckgo' },
+      webFetch: { enabled: webFetchEnabled, usePlaywright: false },
+    },
+    skills: [],
+  },
+});
+
+const SCENARIO_PRESETS: Record<ScenarioId, DeepPartial<SystemConfig>> = {
+  chat_assistant: buildQuickScenarioPreset({
+    retentionDays: 60,
+    queryExpansionEnabled: false,
+    autoBackgroundEnabled: false,
+    weatherEnabled: false,
+    webSearchEnabled: true,
+    webFetchEnabled: true,
+    l2Enabled: false,
+    l3Enabled: false,
+    l4Enabled: false,
+  }),
+  life_monitor: buildQuickScenarioPreset({
+    retentionDays: 180,
+    queryExpansionEnabled: false,
+    autoBackgroundEnabled: false,
+    weatherEnabled: true,
+    webSearchEnabled: true,
+    webFetchEnabled: true,
+    l2Enabled: true,
+    l3Enabled: true,
+    l4Enabled: false,
+  }),
+  knowledge_partner: buildQuickScenarioPreset({
+    retentionDays: 365,
+    queryExpansionEnabled: true,
+    autoBackgroundEnabled: true,
+    weatherEnabled: false,
+    webSearchEnabled: true,
+    webFetchEnabled: true,
+    l2Enabled: true,
+    l3Enabled: true,
+    l4Enabled: true,
+  }),
+  default: buildQuickScenarioPreset({
+    retentionDays: 120,
+    queryExpansionEnabled: false,
+    autoBackgroundEnabled: false,
+    weatherEnabled: false,
+    webSearchEnabled: true,
+    webFetchEnabled: true,
+    l2Enabled: true,
+    l3Enabled: false,
+    l4Enabled: false,
+  }),
 };
 
 interface OnboardingFlowProps {
@@ -331,11 +433,11 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       ]);
       const personas = listResult.data || [];
       const quickDefaultSeedSlug = quickSeedPreviews
-        ? selectDefaultSeedPreview(quickSeedPreviews.data || [])?.seed_slug
+        ? selectQuickModeSeedSlug(locale, values.preferences?.scenario, quickSeedPreviews.data || [])
         : undefined;
 
       // Determine which persona to activate:
-      // - Quick mode: use the locale-aware default seed preview
+      // - Quick mode: use the scenario-mapped seed preview when available
       // - Expert mode with preset: use the seed_slug saved by PersonalityForm
       // - Expert mode with custom: create a new persona entry
       const seedSlug: string | undefined =
@@ -686,7 +788,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
 };
 
 /** Deep merge helper for applying scenario presets. */
-function deepMerge<T extends Record<string, any>>(base: T, patch: Partial<T>): T {
+function deepMerge<T extends Record<string, any>>(base: T, patch: DeepPartial<T>): T {
   const result = { ...base } as Record<string, any>;
   for (const key of Object.keys(patch)) {
     const patchVal = (patch as any)[key];

@@ -103,6 +103,7 @@ It should focus on:
 - language
 - LLM configuration
 - AI personality
+- scenario-specific defaults that clearly distinguish lightweight chat, life logging, research-oriented memory, and a balanced neutral setup
 
 ### Expert Mode
 
@@ -174,6 +175,7 @@ Current product expectations:
 - clearing the saved default workspace should fall back to the managed local workspace behavior instead of breaking new conversations
 - clearing the default chat workspace should fall back to provider-independent runtime defaults
 - per-conversation workspace changes should not overwrite the saved global default
+- assistant interjection should default to off until the user enables it
 - automatic long-task background routing should default to off; when enabled, Magi may use rule and model classification to move likely long-running chat turns to background execution
 - when automatic long-task background routing is off, users should still be able to move an active task to the background manually from the chat surface
 
@@ -185,6 +187,7 @@ Expected behavior:
 
 - users can disable external code tooling from settings
 - users can choose a preferred tool or let Magi automatically pick an installed tool
+- the default preferred tool should be automatic selection
 - detected executable paths should be visible and editable without exposing internal tool names
 - global constraints such as blocked paths, git commit/push guidance, and default timeout should use the same form styling as the rest of settings
 
@@ -197,6 +200,7 @@ Current product expectations:
 - providers are explicit configured instances; a fresh config starts with no providers
 - multiple provider instances can share the same provider type when they represent different accounts, gateways, or service scopes
 - each provider instance stores provider-level default `api_key` and `base_url` values plus service-specific overrides under `services.chat`, `services.embedding`, `services.image_generation`, and future service blocks
+- provider image generation services should remain disabled by default until the user enables them
 - service-specific API credentials and custom Base URLs are optional overrides; blank service fields inherit the provider-level defaults
 - expert-facing configuration can expose more fields than quick mode
 - provider/model metadata should come from the backend registry rather than hardcoded frontend lists

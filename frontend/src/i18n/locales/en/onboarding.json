@@ -74,8 +74,28 @@
     "decideLaterDesc": "Use system defaults and configure in Settings later",
     "featureSummaryTitle": "This scenario enables:",
     "defaultFeatureSummaryTitle": "System defaults will enable:",
+    "personaBadge": "Default persona",
+    "personaSummaryTitle": "Default conversation persona",
     "sensorHint": "You can install data collection sensors in the next step.",
     "defaultHint": "Uses system defaults. All features can be enabled or adjusted in Settings at any time.",
+    "personas": {
+      "chatAssistant": {
+        "name": "Nova",
+        "desc": "A precise, low-friction general assistant that keeps both chat and task help clean and steady."
+      },
+      "lifeMonitor": {
+        "name": "Ember",
+        "desc": "Warmer and better suited for long-running companionship and life logging over time."
+      },
+      "knowledgePartner": {
+        "name": "Jinx",
+        "desc": "Sharper and more skeptical, well suited for breaking down ideas, research, and deeper analysis."
+      },
+      "default": {
+        "name": "Nova",
+        "desc": "A balanced, neutral general assistant that is safe to start with before tuning further."
+      }
+    },
     "features": {
       "conversation": "AI conversation and Q&A",
       "shortTermMemory": "Short-term memory (remembers recent conversations)",

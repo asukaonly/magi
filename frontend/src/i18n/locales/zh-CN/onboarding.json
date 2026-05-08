@@ -75,8 +75,28 @@
     "decideLaterDesc": "使用系统默认配置，之后在设置中调整",
     "featureSummaryTitle": "该场景将开启以下功能：",
     "defaultFeatureSummaryTitle": "系统默认配置将开启以下功能：",
+    "personaBadge": "默认人格",
+    "personaSummaryTitle": "默认对话人格",
     "sensorHint": "下一步可以选择要安装的数据采集传感器。",
     "defaultHint": "使用系统默认配置，所有功能均可在设置页面中随时启用或调整。",
+    "personas": {
+      "chatAssistant": {
+        "name": "Echo-01",
+        "desc": "克制、准确、低摩擦的通用助手，适合把聊天和任务都保持在清爽节奏里。"
+      },
+      "lifeMonitor": {
+        "name": "苏眠",
+        "desc": "更温和、更擅长长期陪伴与生活记录，适合连续观察日常状态和变化。"
+      },
+      "knowledgePartner": {
+        "name": "七号",
+        "desc": "更锋利、擅长拆解问题和深度分析，适合研究、整理和质疑假设。"
+      },
+      "default": {
+        "name": "Echo-01",
+        "desc": "中性稳妥的通用助手，适合先开始使用，之后再慢慢细调方向。"
+      }
+    },
     "features": {
       "conversation": "AI 对话和问答",
       "shortTermMemory": "短期记忆（自动记住近期对话）",

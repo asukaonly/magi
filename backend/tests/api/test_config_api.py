@@ -1263,3 +1263,34 @@ def test_complete_onboarding_quick_mode_uses_english_seed_without_zh_fallback(
 
     assert response.status_code == 200
     assert captured["name"] == "Nova"
+
+
+def test_complete_onboarding_quick_mode_uses_scenario_seed_personality(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    app = FastAPI()
+    app.include_router(config_router, prefix="/config")
+    client = TestClient(app)
+
+    payload = SystemConfigModel()
+    payload.preferences.user_mode = "quick"
+    payload.preferences.language = "en"
+    payload.preferences.scenario = "knowledge_partner"
+    payload.personality.name = "Custom Persona"
+
+    captured: dict[str, str] = {}
+
+    def _capture_update_paths(config: SystemConfigModel) -> dict:
+        captured["name"] = config.personality.name
+        return {}
+
+    monkeypatch.setattr("magi.api.routers.config._build_update_paths", _capture_update_paths)
+    monkeypatch.setattr("magi.api.routers.config.save_config", lambda _: True)
+    monkeypatch.setattr("magi.api.routers.config.reload_config", lambda: get_config())
+    monkeypatch.setattr("magi.api.routers.config.refresh_runtime_llm_config", lambda _: None)
+    monkeypatch.setattr("magi.core.runtime_bindings.require_agent_runtime", lambda: object())
+
+    response = client.post("/config/onboarding-complete", json=payload.model_dump(mode="json"))
+
+    assert response.status_code == 200
+    assert captured["name"] == "Jinx"

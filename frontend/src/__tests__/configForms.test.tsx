@@ -1069,6 +1069,24 @@ describe('config forms', () => {
     expect(within(dialog).queryByText('GPT-5')).not.toBeInTheDocument();
   });
 
+  it('defaults image generation to disabled when adding a template provider', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
+      </Form>
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'llm.providerConfiguration.addProvider' }));
+    const dialog = screen.getByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'OpenAI' }));
+
+    expect(within(dialog).getByRole('switch', { name: 'llm.providerConfiguration.serviceLabels.chat' })).toBeChecked();
+    expect(within(dialog).getByRole('switch', { name: 'llm.providerConfiguration.serviceLabels.embedding' })).toBeChecked();
+    expect(within(dialog).getByRole('switch', { name: 'llm.providerConfiguration.serviceLabels.image_generation' })).not.toBeChecked();
+  });
+
   it('renders fetched draft models immediately after discover succeeds', async () => {
     const user = userEvent.setup();
 

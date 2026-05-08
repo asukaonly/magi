@@ -39,6 +39,15 @@ vi.mock('react-router-dom', () => ({
 }));
 
 describe('OnboardingFlow', () => {
+  const parseLatestOnboardingState = () => {
+    const call = [...localStorageMock.setItem.mock.calls]
+      .reverse()
+      .find(([key]) => key === 'magi_onboarding_state');
+
+    expect(call).toBeTruthy();
+    return JSON.parse(call?.[1] as string);
+  };
+
   afterEach(() => {
     vi.restoreAllMocks();
     localStorageMock.getItem.mockReturnValue(null);
@@ -119,7 +128,69 @@ describe('OnboardingFlow', () => {
     expect(screen.getByRole('button', { name: 'EN' })).toBeInTheDocument();
   });
 
-  it('activates the locale default seed after quick onboarding completes', async () => {
+  it('applies the lightweight chat preset before moving quick onboarding into LLM setup', async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+
+    render(
+      <OnboardingFlow
+        initialConfig={{
+          ...DEFAULT_SYSTEM_CONFIG,
+          preferences: {
+            ...DEFAULT_SYSTEM_CONFIG.preferences,
+            user_mode: 'quick',
+          },
+        }}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'welcome.quickMode welcome.quickModeDesc' }));
+    await user.click(await screen.findByRole('button', { name: /scenario\.chatAssistant/ }));
+    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+
+    const savedState = parseLatestOnboardingState();
+
+    expect(savedState.scenario).toBe('chat_assistant');
+    expect(savedState.values.memory.retention_days).toBe(60);
+    expect(savedState.values.memory.l2.enabled).toBe(false);
+    expect(savedState.values.memory.l3.enabled).toBe(false);
+    expect(savedState.values.memory.l4.enabled).toBe(false);
+    expect(savedState.values.tools.builtIn.weather.enabled).toBe(false);
+    expect(savedState.values.agent.background_tasks.auto_detect_long_task).toBe(false);
+  });
+
+  it('applies the research-oriented preset for knowledge partner quick onboarding', async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+
+    render(
+      <OnboardingFlow
+        initialConfig={{
+          ...DEFAULT_SYSTEM_CONFIG,
+          preferences: {
+            ...DEFAULT_SYSTEM_CONFIG.preferences,
+            user_mode: 'quick',
+          },
+        }}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'welcome.quickMode welcome.quickModeDesc' }));
+    await user.click(await screen.findByRole('button', { name: /scenario\.knowledgePartner/ }));
+    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+
+    const savedState = parseLatestOnboardingState();
+
+    expect(savedState.scenario).toBe('knowledge_partner');
+    expect(savedState.values.memory.retention_days).toBe(365);
+    expect(savedState.values.memory.query_expansion.enabled).toBe(true);
+    expect(savedState.values.memory.l3.enabled).toBe(true);
+    expect(savedState.values.memory.l4.enabled).toBe(true);
+    expect(savedState.values.tools.builtIn.weather.enabled).toBe(false);
+    expect(savedState.values.agent.background_tasks.auto_detect_long_task).toBe(true);
+  });
+
+  it('activates the scenario-mapped seed after quick onboarding completes', async () => {
     const user = userEvent.setup();
     const initialConfig = {
       ...DEFAULT_SYSTEM_CONFIG,
@@ -127,7 +198,7 @@ describe('OnboardingFlow', () => {
         ...DEFAULT_SYSTEM_CONFIG.preferences,
         language: 'en' as const,
         user_mode: 'quick' as const,
-        scenario: 'chat_assistant',
+        scenario: 'knowledge_partner',
       },
     };
     localStorageMock.getItem.mockImplementation((key: string) => {
@@ -135,8 +206,8 @@ describe('OnboardingFlow', () => {
         return JSON.stringify({
           phase: 'guided',
           mode: 'quick',
-          current: 3,
-          scenario: 'chat_assistant',
+          current: 4,
+          scenario: 'knowledge_partner',
           values: initialConfig,
         });
       }
@@ -148,6 +219,14 @@ describe('OnboardingFlow', () => {
       success: true,
       data: [
         {
+          seed_slug: 'jinx_hacker',
+          name: 'Jinx',
+          description: '',
+          avatar: '',
+          group: 'general',
+          order: 2,
+        },
+        {
           seed_slug: 'nova_assistant',
           name: 'Nova',
           description: '',
@@ -155,24 +234,16 @@ describe('OnboardingFlow', () => {
           group: 'general',
           order: 1,
         },
-        {
-          seed_slug: 'echo_ai_assistant',
-          name: 'Echo-01',
-          description: '',
-          avatar: '',
-          group: 'general',
-          order: 2,
-        },
       ],
     } as any);
     vi.spyOn(personasApi, 'list').mockResolvedValue({
       success: true,
       data: [
         {
-          persona_id: 'uuid-echo',
-          name: 'Echo-01',
-          slug: 'echo_ai_assistant',
-          locale: 'zh',
+          persona_id: 'uuid-jinx',
+          name: 'Jinx',
+          slug: 'jinx_hacker',
+          locale: 'en',
           avatar_path: '',
           group_name: 'general',
           sort_order: 2,
@@ -192,7 +263,7 @@ describe('OnboardingFlow', () => {
         },
       ],
     } as any);
-    vi.spyOn(personasApi, 'setActive').mockResolvedValue({ success: true, persona_id: 'uuid-nova' });
+    vi.spyOn(personasApi, 'setActive').mockResolvedValue({ success: true, persona_id: 'uuid-jinx' });
     vi.spyOn(apiClient, 'get').mockResolvedValue({
       data: {
         success: true,
@@ -209,7 +280,7 @@ describe('OnboardingFlow', () => {
 
     await user.click(await screen.findByRole('button', { name: 'actions.enterApp' }));
 
-    await waitFor(() => expect(personasApi.setActive).toHaveBeenCalledWith('uuid-nova'));
+    await waitFor(() => expect(personasApi.setActive).toHaveBeenCalledWith('uuid-jinx'));
     expect(personasApi.seedPreviews).toHaveBeenCalledWith('en');
   });
 });

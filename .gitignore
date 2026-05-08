@@ -82,9 +82,8 @@ sidecar-dist/
 .magi/
 gateway-cli/.magi/
 
-# Claude Code local settings
-.claude/settings.local.json
-.claude/settings.json.local
+# Claude Code local workspace
+.claude/
 
 # Cargo / Tauri build artifacts
 target/
