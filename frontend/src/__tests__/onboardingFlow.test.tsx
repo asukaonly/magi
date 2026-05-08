@@ -15,6 +15,7 @@ const { localStorageMock } = vi.hoisted(() => {
 import { apiClient } from '@/api/client';
 import { configApi, DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
 import { personasApi } from '@/api/modules/personas';
+import { pluginsApi } from '@/api/modules/plugins';
 import OnboardingFlow from '@/components/onboarding/OnboardingFlow';
 
 vi.mock('react-i18next', () => ({
@@ -188,6 +189,80 @@ describe('OnboardingFlow', () => {
     expect(savedState.values.memory.l4.enabled).toBe(true);
     expect(savedState.values.tools.builtIn.weather.enabled).toBe(false);
     expect(savedState.values.agent.background_tasks.auto_detect_long_task).toBe(true);
+  });
+
+  it('blocks quick onboarding while selected sensor plugins are not installed', async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+    vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
+      registry_version: 'test',
+      plugins: [
+        {
+          plugin_id: 'chrome-history',
+          name: 'Chrome History',
+          name_i18n: {},
+          version: '1.0.0',
+          description: 'Chrome visits',
+          description_i18n: {},
+          author: 'Magi',
+          official: true,
+          contribution_types: ['sensor'],
+          platforms: [],
+          min_sdk_version: '0.1.0',
+          homepage: '',
+          repository: '',
+          path: 'chrome-history',
+          installed: false,
+          installed_version: null,
+          update_available: false,
+        },
+        {
+          plugin_id: 'git-activity',
+          name: 'Git Activity',
+          name_i18n: {},
+          version: '1.0.0',
+          description: 'Git commits',
+          description_i18n: {},
+          author: 'Magi',
+          official: true,
+          contribution_types: ['sensor'],
+          platforms: [],
+          min_sdk_version: '0.1.0',
+          homepage: '',
+          repository: '',
+          path: 'git-activity',
+          installed: false,
+          installed_version: null,
+          update_available: false,
+        },
+      ],
+    });
+
+    render(
+      <OnboardingFlow
+        initialConfig={{
+          ...DEFAULT_SYSTEM_CONFIG,
+          preferences: {
+            ...DEFAULT_SYSTEM_CONFIG.preferences,
+            user_mode: 'quick',
+          },
+        }}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'welcome.quickMode welcome.quickModeDesc' }));
+    await user.click(await screen.findByRole('button', { name: /scenario\.knowledgePartner/ }));
+    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+
+    await screen.findByText('Chrome History');
+    const nextButton = screen.getByRole('button', { name: 'actions.next' });
+
+    await waitFor(() => expect(nextButton).toBeDisabled());
+
+    await user.click(screen.getByRole('button', { name: /Chrome History/ }));
+    await user.click(screen.getByRole('button', { name: /Git Activity/ }));
+
+    await waitFor(() => expect(nextButton).toBeEnabled());
   });
 
   it('activates the scenario-mapped seed after quick onboarding completes', async () => {

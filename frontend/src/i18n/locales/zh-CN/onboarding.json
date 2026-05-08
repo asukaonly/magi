@@ -115,6 +115,8 @@
     "installSuccess": "已成功安装 {{count}} 个传感器",
     "installAllFailed": "{{count}} 个传感器安装失败，可稍后在设置中重试",
     "installPartial": "{{success}} 个安装成功，{{fail}} 个失败",
+    "installBeforeNextHint": "安装已选传感器后才能继续，或取消选择后跳过。",
+    "installingBlockNext": "传感器正在安装，请等待安装完成后继续。",
     "skipHint": "不选择任何传感器也可以继续，之后可以在设置 → 插件中安装。",
     "registryUnavailable": "传感器插件仓库暂时不可用。完成引导后，你可以在设置 → 插件中浏览和安装以下传感器：",
     "installLaterHint": "完成引导后可以在设置 → 插件中安装和配置传感器，直接点击下一步继续。"
@@ -561,7 +563,6 @@
       "exitBehavior": "退出行为",
       "quietHourCondition": "收敛条件",
       "clamps": "约束（key: value）",
-      "layerModifiers": "层级修饰（key: value）",
       "occupation": "职业",
       "innerNarrative": "内在叙事",
       "languageFingerprint": "语言指纹",

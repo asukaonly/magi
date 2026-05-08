@@ -20,6 +20,7 @@ import ScenarioSelection from './ScenarioSelection';
 import type { ScenarioId } from './ScenarioSelection';
 import { SCENARIO_NEEDS_SENSORS } from './ScenarioSelection';
 import SensorSelection from './SensorSelection';
+import type { SensorInstallStatus } from './SensorSelection';
 import StepIndicator from './StepIndicator';
 import CompletionScreen from './CompletionScreen';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
@@ -272,6 +273,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   const [current, setCurrent] = useState(0);
   const [saving, setSaving] = useState(false);
   const [finishingRuntime, setFinishingRuntime] = useState(false);
+  const [sensorInstallStatus, setSensorInstallStatus] = useState<SensorInstallStatus>({
+    canContinue: true,
+    isInstalling: false,
+  });
   const [renderLanguage, setRenderLanguage] = useState(i18n.resolvedLanguage || i18n.language);
   const [embeddingConfig, setEmbeddingConfig] = useState<EmbeddingConfig | undefined>(
     () => initialConfig.memory?.embedding
@@ -317,6 +322,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   }, [mode, needsSensors, t, activeLanguage]);
 
   const isLastStep = current === steps.length - 1;
+  const isSensorStep = (isQuickMode && needsSensors && current === 1) || (!isQuickMode && current === 4);
+  const sensorStepBlocksNext = isSensorStep && !sensorInstallStatus.canContinue;
 
   // Restore saved progress
   useEffect(() => {
@@ -585,6 +592,15 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   const getModelStepIndex = (): number => (isQuickMode ? getProviderStepIndex() + 1 : 1);
 
   const handleNext = async () => {
+    if (sensorStepBlocksNext) {
+      toast.warning(
+        sensorInstallStatus.isInstalling
+          ? t('sensorSelection.installingBlockNext')
+          : t('sensorSelection.installBeforeNextHint')
+      );
+      return;
+    }
+
     try {
       setSaving(true);
       await form.validateFields();
@@ -698,7 +714,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
         );
       }
       if (needsSensors && current === 1) {
-        return <SensorSelection scenario={scenario!} />;
+        return <SensorSelection scenario={scenario!} onInstallStatusChange={setSensorInstallStatus} />;
       }
       if (current === providerIdx) return <LLMForm quickMode view="providers" />;
       if (current === modelIdx) return renderLLMModelStep(true);
@@ -709,7 +725,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       if (current === 1) return renderLLMModelStep(false);
       if (current === 2) return <PersonalityForm quickMode={false} language={language} />;
       if (current === 3) return <MemoryForm />;
-      if (current === 4) return <SensorSelection />;
+      if (current === 4) return <SensorSelection onInstallStatusChange={setSensorInstallStatus} />;
       if (current === 5) return <ToolsForm />;
       if (current === 6) return <CompletionScreen onFinish={handleFinish} />;
     }
@@ -752,7 +768,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
               <Button variant="outline" onClick={handlePrev}>
                 {t('actions.previous')}
               </Button>
-              <Button onClick={handleNext} disabled={saving}>
+              <Button onClick={handleNext} disabled={saving || sensorStepBlocksNext}>
                 {saving
                   ? (finishingRuntime ? t('actions.startingRuntime') : t('actions.saving'))
                   : isLastStep

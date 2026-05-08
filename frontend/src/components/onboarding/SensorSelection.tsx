@@ -30,9 +30,15 @@ function getCurrentPlatform(): string {
 
 interface SensorSelectionProps {
   scenario?: ScenarioId;
+  onInstallStatusChange?: (status: SensorInstallStatus) => void;
 }
 
 type InstallState = 'idle' | 'installing' | 'installed' | 'error';
+
+export interface SensorInstallStatus {
+  canContinue: boolean;
+  isInstalling: boolean;
+}
 
 interface SensorItem {
   pluginId: string;
@@ -41,7 +47,7 @@ interface SensorItem {
   alreadyInstalled: boolean;
 }
 
-const SensorSelection: React.FC<SensorSelectionProps> = ({ scenario }) => {
+const SensorSelection: React.FC<SensorSelectionProps> = ({ scenario, onInstallStatusChange }) => {
   const { t, i18n } = useTranslation('onboarding');
   const shouldReduceMotion = useReducedMotion();
   const [loading, setLoading] = useState(true);
@@ -163,6 +169,11 @@ const SensorSelection: React.FC<SensorSelectionProps> = ({ scenario }) => {
     (id) => installStates[id] === 'installed' || sensors.find((s) => s.pluginId === id)?.alreadyInstalled
   );
   const isInstalling = Object.values(installStates).some((s) => s === 'installing');
+  const canContinue = !loading && (!registryAvailable || selected.size === 0 || allSelectedInstalled);
+
+  useEffect(() => {
+    onInstallStatusChange?.({ canContinue, isInstalling });
+  }, [canContinue, isInstalling, onInstallStatusChange]);
 
   if (loading) {
     return (
@@ -262,22 +273,25 @@ const SensorSelection: React.FC<SensorSelectionProps> = ({ scenario }) => {
       </div>
 
       {hasSelection && !allSelectedInstalled && (
-        <button
-          type="button"
-          onClick={handleInstallSelected}
-          disabled={isInstalling}
-          className={cn(
-            'inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition',
-            'hover:bg-primary/90 disabled:opacity-60'
-          )}
-        >
-          {isInstalling ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Download className="h-4 w-4" />
-          )}
-          {t('sensorSelection.installSelected')}
-        </button>
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={handleInstallSelected}
+            disabled={isInstalling}
+            className={cn(
+              'inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition',
+              'hover:bg-primary/90 disabled:opacity-60'
+            )}
+          >
+            {isInstalling ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4" />
+            )}
+            {t('sensorSelection.installSelected')}
+          </button>
+          <p className="text-xs text-muted-foreground">{t('sensorSelection.installBeforeNextHint')}</p>
+        </div>
       )}
 
       <p className="text-xs text-muted-foreground">{t('sensorSelection.skipHint')}</p>

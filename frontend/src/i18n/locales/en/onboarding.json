@@ -114,6 +114,8 @@
     "installSuccess": "Successfully installed {{count}} sensor(s)",
     "installAllFailed": "{{count}} sensor(s) failed to install, you can retry later in Settings",
     "installPartial": "{{success}} installed, {{fail}} failed",
+    "installBeforeNextHint": "Install the selected sensors before continuing, or deselect them to skip.",
+    "installingBlockNext": "Sensors are still installing. Please wait for installation to finish before continuing.",
     "skipHint": "You can skip this step and install sensors later in Settings → Plugins.",
     "registryUnavailable": "The sensor plugin registry is temporarily unavailable. After setup, you can browse and install these sensors in Settings → Plugins:",
     "installLaterHint": "You can install and configure sensors in Settings → Plugins after setup. Click Next to continue."
@@ -560,7 +562,6 @@
       "exitBehavior": "Exit Behavior",
       "quietHourCondition": "Restraint Condition",
       "clamps": "Clamps (key: value)",
-      "layerModifiers": "Layer Modifiers (key: value)",
       "occupation": "Occupation",
       "innerNarrative": "Inner Narrative",
       "languageFingerprint": "Language Fingerprint",
