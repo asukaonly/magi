@@ -36,6 +36,7 @@ def test_build_pyinstaller_command_includes_required_hidden_imports(tmp_path: Pa
         if value == "--hidden-import"
     ]
     assert "dependency_injector.errors" in hidden_import_values
+    assert "magi.db._alembic_env" in hidden_import_values
     collect_submodules_values = [
         command[index + 1]
         for index, value in enumerate(command[:-1])

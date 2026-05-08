@@ -16,6 +16,9 @@ SIDE_EFFECT_HIDDEN_IMPORTS = (
     # ssl._encode_hostname calls codecs.lookup('idna') dynamically; PyInstaller
     # cannot detect this so the codec must be listed explicitly.
     "encodings.idna",
+    # Alembic loads migration env.py files from packaged data at runtime; those
+    # env files import this helper dynamically outside PyInstaller's graph.
+    "magi.db._alembic_env",
     # Local embedding / reranker are behind lazy ``try: import`` guards but are
     # mandatory dependencies — always include them.
     "onnxruntime",
