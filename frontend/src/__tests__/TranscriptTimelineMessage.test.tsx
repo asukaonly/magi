@@ -9,6 +9,32 @@ import { TranscriptTimelineMessage } from '@/components/chat/TranscriptTimelineM
 import type { ChatTimelineMessage } from '@/domain/chat/state';
 
 describe('TranscriptTimelineMessage', () => {
+  it('does not render a standalone streaming caret after markdown content', () => {
+    const message: ChatTimelineMessage = {
+      id: 'msg-streaming-content',
+      role: 'assistant',
+      kind: 'assistant',
+      content: '第一段\n\n第二段',
+      timestamp: 1,
+      streaming: true,
+    };
+
+    const { container } = render(
+      <TranscriptTimelineMessage
+        message={message}
+        assistantName="Magi"
+        userNameLabel="You"
+        timestampLabel="16:20"
+        shouldReduceMotion
+        avatar={null}
+      />,
+    );
+
+    expect(screen.getByText('第一段')).toBeInTheDocument();
+    expect(screen.getByText('第二段')).toBeInTheDocument();
+    expect(container.querySelector('span.inline-block.h-4.w-1\\.5')).toBeNull();
+  });
+
   it('preserves ordered list start numbers from markdown', () => {
     const message: ChatTimelineMessage = {
       id: 'msg-ordered-list',

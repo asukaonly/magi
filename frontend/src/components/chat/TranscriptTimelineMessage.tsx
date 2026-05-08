@@ -106,6 +106,7 @@ export const TranscriptTimelineMessage = ({
   onContextMenu,
 }: TranscriptTimelineMessageProps) => {
   const renderedContent = typeof content === 'string' ? content : message.content;
+  const showStreamingCaret = Boolean(message.streaming && !String(renderedContent || '').trim());
 
   return (
   <motion.div
@@ -138,7 +139,7 @@ export const TranscriptTimelineMessage = ({
               <ReactMarkdown remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
                 {normalizeAssistantMarkdownContent(renderedContent)}
               </ReactMarkdown>
-              {message.streaming && (
+              {showStreamingCaret && (
                 <span className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-current opacity-70" />
               )}
             </div>
