@@ -39,7 +39,7 @@
       "icons/icon.ico"
     ],
     "targets": "all",
-    "resources": ["sidecar-dist/"],
+    "resources": ["sidecar-dist/", "plugin-python/"],
     "macOS": {
       "dmg": {
         "windowSize": {

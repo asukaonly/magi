@@ -739,8 +739,10 @@ The marketplace index is a `registry.json` file at the repository root containin
 4. `RegistryClient.clone_plugin()` downloads the GitHub repository tarball, with short-lived in-memory caching for repeat install requests
 5. The requested plugin subdirectory is extracted from the tarball into a temporary directory
 6. `PluginManager.install_plugin_from_directory()` copies the plugin into `~/.magi/plugins/<plugin_id>/`
-7. Python dependencies declared by the plugin are installed with a resolved Python interpreter's `pip` into the plugin-local `.deps/` directory; pip output is attached to the install job logs. Source/dev runs use the active backend Python. Packaged desktop runs must provide a real Python interpreter with matching major/minor version and `pip` through `MAGI_PLUGIN_PYTHON` (or `MAGI_BACKEND_PYTHON`); the packaged `magi-backend` sidecar is never used as a pip executable.
+7. Python dependencies declared by the plugin are installed with a resolved Python interpreter's `pip` into the plugin-local `.deps/` directory; pip output is attached to the install job logs. Source/dev runs use the active backend Python. Packaged desktop runs pass `Contents/Resources/plugin-python/.../python` through `MAGI_PLUGIN_PYTHON`; the packaged `magi-backend` sidecar is never used as a pip executable.
 8. The plugin is discovered on next scan and can be enabled from the settings UI
+
+Packaged desktop builds stage two generated runtime resources under `frontend/src-tauri/`: `sidecar-dist/` for the backend sidecar and `plugin-python/` for plugin dependency installation. `scripts/build-sidecar.sh` and `scripts/build-sidecar.ps1` create `plugin-python/` from `MAGI_PLUGIN_PYTHON_SOURCE` when provided; this should point at a relocatable Python runtime with matching major/minor version and `pip` for release builds. When the variable is omitted, the scripts create a local venv as a development fallback. macOS signing scripts sign Mach-O files in both runtime resource roots before notarization.
 
 ### Frontend
 

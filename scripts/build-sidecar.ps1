@@ -5,6 +5,7 @@ $ErrorActionPreference = "Stop"
 $RootDir = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $BackendDir = Join-Path $RootDir "backend"
 $SidecarStaging = Join-Path $RootDir "frontend/src-tauri/sidecar-dist"
+$PluginPythonStaging = Join-Path $RootDir "frontend/src-tauri/plugin-python"
 
 # Prefer the project venv when present, but allow CI to use actions/setup-python.
 $VenvPython = Join-Path $RootDir ".venv/Scripts/python.exe"
@@ -23,6 +24,31 @@ if (Test-Path $VenvPython) {
 & $PythonExe -m PyInstaller --version *> $null
 if ($LASTEXITCODE -ne 0) {
   throw "PyInstaller is required. Install with: $PythonExe -m pip install pyinstaller"
+}
+
+function Stage-PluginPython {
+  if (Test-Path $PluginPythonStaging) { Remove-Item -Recurse -Force $PluginPythonStaging }
+
+  if ($env:MAGI_PLUGIN_PYTHON_SOURCE) {
+    if (-not (Test-Path $env:MAGI_PLUGIN_PYTHON_SOURCE)) {
+      throw "MAGI_PLUGIN_PYTHON_SOURCE does not exist: $env:MAGI_PLUGIN_PYTHON_SOURCE"
+    }
+    New-Item -ItemType Directory -Force -Path $PluginPythonStaging | Out-Null
+    Copy-Item -Recurse -Force (Join-Path $env:MAGI_PLUGIN_PYTHON_SOURCE "*") $PluginPythonStaging
+  } else {
+    Write-Host "MAGI_PLUGIN_PYTHON_SOURCE not set; creating development plugin-python venv from build Python."
+    Write-Host "For release builds, provide a relocatable Python runtime via MAGI_PLUGIN_PYTHON_SOURCE."
+    & $PythonExe -m venv --copies $PluginPythonStaging
+    if ($LASTEXITCODE -ne 0) { throw "Failed to create plugin-python venv." }
+  }
+
+  $PluginPython = Join-Path $PluginPythonStaging "Scripts/python.exe"
+  if (-not (Test-Path $PluginPython)) {
+    throw "Plugin Python executable not found at $PluginPython"
+  }
+  & $PluginPython -m pip --version *> $null
+  if ($LASTEXITCODE -ne 0) { throw "Plugin Python pip check failed." }
+  Write-Host "Staged plugin Python runtime: $PluginPythonStaging"
 }
 
 Push-Location $BackendDir
@@ -70,6 +96,7 @@ if (-not (Test-Path $SourceBin)) {
 # Copy entire --onedir output to Tauri resource staging
 if (Test-Path $SidecarStaging) { Remove-Item -Recurse -Force $SidecarStaging }
 Copy-Item -Recurse -Force $SourceDir $SidecarStaging
+Stage-PluginPython
 
 Write-Host "Built sidecar (onedir): $SidecarStaging"
 

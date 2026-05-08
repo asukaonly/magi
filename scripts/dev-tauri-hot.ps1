@@ -17,6 +17,7 @@ $ErrorActionPreference = "Stop"
 $RootDir = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $FrontendDir = Join-Path $RootDir "frontend"
 $TauriBinDir = Join-Path $RootDir "frontend\src-tauri\binaries"
+$PluginPythonDir = Join-Path $RootDir "frontend\src-tauri\plugin-python"
 
 function Stop-ListenersOnPort {
   param([int]$Port)
@@ -124,9 +125,19 @@ exit /b 0
   Write-Host "Created sidecar placeholder for dev: $sidecarPath"
 }
 
+function Ensure-PluginPythonPlaceholder {
+  $pluginPython = Join-Path $PluginPythonDir "Scripts\python.exe"
+  if (Test-Path $pluginPython) { return }
+
+  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $pluginPython) | Out-Null
+  Copy-Item -Path "$env:SystemRoot\System32\cmd.exe" -Destination $pluginPython -Force
+  Write-Host "Created plugin-python placeholder for dev: $PluginPythonDir"
+}
+
 # --- Main ---
 
 Ensure-SidecarPlaceholder
+Ensure-PluginPythonPlaceholder
 Stop-StaleDevBackends
 Stop-ListenersOnPort -Port $FrontendPort
 

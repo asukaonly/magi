@@ -73,6 +73,10 @@ yarn-error.log
 dist/
 build/
 sidecar-dist/
+frontend/src-tauri/plugin-python/*
+!frontend/src-tauri/plugin-python/bin/
+frontend/src-tauri/plugin-python/bin/*
+!frontend/src-tauri/plugin-python/bin/.gitkeep
 
 # Cache
 .cache/

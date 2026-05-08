@@ -452,6 +452,37 @@ fn resolve_sidecar_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(sidecar_path)
 }
 
+fn plugin_python_path_from_resource_dir(resource_dir: &Path) -> PathBuf {
+    #[cfg(windows)]
+    let python_path = resource_dir
+        .join("plugin-python")
+        .join("Scripts")
+        .join("python.exe");
+
+    #[cfg(not(windows))]
+    let python_path = resource_dir
+        .join("plugin-python")
+        .join("bin")
+        .join("python");
+
+    python_path
+}
+
+fn resolve_plugin_python_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("Failed to resolve resource directory: {e}"))?;
+    let python_path = plugin_python_path_from_resource_dir(&resource_dir);
+    if !python_path.exists() {
+        return Err(format!(
+            "Plugin Python runtime not found at: {}",
+            python_path.display()
+        ));
+    }
+    Ok(python_path)
+}
+
 fn open_sidecar_log_stdio() -> Result<(Stdio, Stdio), String> {
     let home = env::var("HOME")
         .or_else(|_| env::var("USERPROFILE"))
@@ -481,6 +512,7 @@ fn spawn_sidecar_role(
     ipc_socket_path: &str,
 ) -> Result<(BackendProcess, Option<u32>), String> {
     let sidecar_path = resolve_sidecar_path(app)?;
+    let plugin_python_path = resolve_plugin_python_path(app)?;
 
     // Ensure executable permission on Unix
     #[cfg(unix)]
@@ -492,6 +524,13 @@ fn spawn_sidecar_role(
         perms.set_mode(0o755);
         fs::set_permissions(&sidecar_path, perms)
             .map_err(|e| format!("Failed to set sidecar executable permission: {e}"))?;
+
+        let mut plugin_python_perms = fs::metadata(&plugin_python_path)
+            .map_err(|e| format!("Failed to read plugin Python metadata: {e}"))?
+            .permissions();
+        plugin_python_perms.set_mode(0o755);
+        fs::set_permissions(&plugin_python_path, plugin_python_perms)
+            .map_err(|e| format!("Failed to set plugin Python executable permission: {e}"))?;
     }
 
     let (stdout, stderr) = open_sidecar_log_stdio()?;
@@ -504,6 +543,7 @@ fn spawn_sidecar_role(
         .env("MAGI_DESKTOP_MODE", "1")
         .env("MAGI_DESKTOP_SESSION_TOKEN", session_token)
         .env("MAGI_IPC_SOCKET", ipc_socket_path)
+        .env("MAGI_PLUGIN_PYTHON", plugin_python_path)
         .stdout(stdout)
         .stderr(stderr);
 
@@ -632,6 +672,8 @@ fn spawn_dev_backend_role(
     let backend_dir = find_backend_dir()?;
     let (stdout, stderr) = open_dev_backend_log_stdio()?;
     let python_command = resolve_dev_python_command(&project_root);
+    let plugin_python = env::var_os("MAGI_PLUGIN_PYTHON")
+        .unwrap_or_else(|| python_command.clone().into_os_string());
     let python_path = build_dev_pythonpath(&project_root)?;
 
     let mut command = Command::new(&python_command);
@@ -643,6 +685,7 @@ fn spawn_dev_backend_role(
         .env("MAGI_DESKTOP_MODE", "1")
         .env("MAGI_DESKTOP_SESSION_TOKEN", session_token)
         .env("MAGI_IPC_SOCKET", ipc_socket_path)
+        .env("MAGI_PLUGIN_PYTHON", plugin_python)
         .env("PYTHONPATH", python_path)
         .current_dir(backend_dir)
         .stdout(stdout)
@@ -1181,7 +1224,9 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{first_existing_dir, ordered_builtin_avatar_dirs};
+    use super::{
+        first_existing_dir, ordered_builtin_avatar_dirs, plugin_python_path_from_resource_dir,
+    };
 
     #[test]
     fn first_existing_dir_returns_first_existing_candidate() {
@@ -1229,6 +1274,30 @@ mod tests {
         } else {
             assert_eq!(candidates.first(), Some(&internal_dir));
         }
+    }
+
+    #[test]
+    fn plugin_python_path_uses_bundled_runtime_resource() {
+        let resource_dir = std::path::Path::new("/tmp/magi-resources");
+        let plugin_python = plugin_python_path_from_resource_dir(resource_dir);
+
+        #[cfg(windows)]
+        assert_eq!(
+            plugin_python,
+            resource_dir
+                .join("plugin-python")
+                .join("Scripts")
+                .join("python.exe")
+        );
+
+        #[cfg(not(windows))]
+        assert_eq!(
+            plugin_python,
+            resource_dir
+                .join("plugin-python")
+                .join("bin")
+                .join("python")
+        );
     }
 
     #[cfg(target_os = "macos")]

@@ -4,7 +4,8 @@
 # Runs AFTER 'tauri build' has assembled the .app bundle.  Tauri's bundler
 # signs only the main binary + .app wrapper, but Apple notarization requires
 # ALL Mach-O binaries to carry valid signatures.  This script fills the gap
-# by signing every Mach-O inside Contents/Resources/sidecar-dist/, then
+# by signing every Mach-O inside Contents/Resources/sidecar-dist/ and
+# Contents/Resources/plugin-python/ when present, then
 # re-signing the .app, notarizing when credentials are available, and
 # regenerating the DMG and updater archive so tauri-action uploads the final
 # artifacts.
@@ -25,6 +26,7 @@ set -euo pipefail
 TARGET="${1:?Usage: $0 <target-triple>}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENTITLEMENTS="${ROOT_DIR}/scripts/sidecar.entitlements.plist"
+RUNTIME_SIGNER="${ROOT_DIR}/scripts/sign-runtime-root-macos.sh"
 
 # ── Locate build artifacts ──────────────────────────────────────
 BUNDLE_DIR="${ROOT_DIR}/target/${TARGET}/release/bundle"
@@ -44,6 +46,7 @@ if [[ ! -d "$SIDECAR" ]]; then
   echo "ERROR: sidecar-dist not found inside .app bundle"
   exit 1
 fi
+PLUGIN_PYTHON="${APP_PATH}/Contents/Resources/plugin-python"
 
 if [[ -z "${APPLE_SIGNING_IDENTITY:-}" ]]; then
   echo "WARNING: APPLE_SIGNING_IDENTITY is not set; skipping macOS sidecar signing and notarization."
@@ -256,6 +259,12 @@ if [[ $FAIL -gt 0 ]]; then
   exit 1
 fi
 echo "    All ${TOTAL} sidecar signatures valid."
+
+if [[ -d "${PLUGIN_PYTHON}" ]]; then
+  bash "${RUNTIME_SIGNER}" "${PLUGIN_PYTHON}" "${ENTITLEMENTS}" "plugin-python"
+else
+  echo "WARNING: plugin-python not found inside .app bundle; skipping plugin Python signing."
+fi
 
 # ── Re-sign .app ────────────────────────────────────────────────
 # We modified resources, so the .app's CodeResources hash is stale.
