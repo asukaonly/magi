@@ -282,20 +282,39 @@ fn parse_external_backend_config() -> Result<Option<ExternalBackendConfig>, Stri
     }))
 }
 
-/// Resolve the builtin avatar directory (repo: backend/personalities/avatar).
-fn resolve_builtin_avatar_dir() -> Option<PathBuf> {
+fn first_existing_dir(candidates: impl IntoIterator<Item = PathBuf>) -> Option<PathBuf> {
+    candidates.into_iter().find(|dir| dir.is_dir())
+}
+
+/// Resolve the builtin avatar directory.
+fn resolve_builtin_avatar_dir(app: &AppHandle) -> Option<PathBuf> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     // CARGO_MANIFEST_DIR = frontend/src-tauri → project root = ../..
     let project_root = manifest_dir.parent()?.parent()?;
-    let dir = project_root
+    let source_tree_avatar_dir = project_root
         .join("backend")
         .join("personalities")
         .join("avatar");
-    if dir.is_dir() {
-        Some(dir)
-    } else {
-        None
+
+    let mut candidates = Vec::new();
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        candidates.push(
+            resource_dir
+                .join("sidecar-dist")
+                .join("_internal")
+                .join("personalities")
+                .join("avatar"),
+        );
+        candidates.push(
+            resource_dir
+                .join("sidecar-dist")
+                .join("personalities")
+                .join("avatar"),
+        );
     }
+    candidates.push(source_tree_avatar_dir);
+
+    first_existing_dir(candidates)
 }
 
 /// Resolve the user avatar directory (~/.magi/personalities/avatar).
@@ -813,7 +832,7 @@ fn poll_backend_startup(
 
     let api_state = api::state::ApiState {
         ipc_client,
-        builtin_avatar_dir: resolve_builtin_avatar_dir(),
+        builtin_avatar_dir: resolve_builtin_avatar_dir(&app),
         user_avatar_dir: resolve_user_avatar_dir(),
     };
     let router = api::build_router(api_state);
@@ -1038,4 +1057,30 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Magi desktop application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::first_existing_dir;
+
+    #[test]
+    fn first_existing_dir_returns_first_existing_candidate() {
+        let base = std::env::temp_dir().join(format!(
+            "magi-first-existing-dir-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&base);
+        let missing = base.join("missing");
+        let first = base.join("first");
+        let second = base.join("second");
+        std::fs::create_dir_all(&first).unwrap();
+        std::fs::create_dir_all(&second).unwrap();
+
+        assert_eq!(
+            first_existing_dir([missing, first.clone(), second]),
+            Some(first)
+        );
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }
