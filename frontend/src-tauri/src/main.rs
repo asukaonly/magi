@@ -8,7 +8,7 @@ mod frontmost_app_monitor;
 use magi_gateway::{api, ipc, notification_bridge};
 
 #[cfg(unix)]
-use libc::{kill, SIGTERM};
+use libc::{kill, SIGKILL, SIGTERM};
 use serde::Serialize;
 use std::env;
 use std::ffi::OsString;
@@ -238,6 +238,93 @@ fn wait_for_process_stop(
     }
     let _ = pid;
     process.wait_for_exit(timeout)
+}
+
+#[cfg(unix)]
+fn send_kill_signal(pid: u32) -> bool {
+    unsafe { kill(pid as i32, SIGKILL) == 0 }
+}
+
+#[cfg(target_os = "macos")]
+fn parse_sidecar_pids_from_ps(output: &str, sidecar_path: &Path, current_pid: u32) -> Vec<u32> {
+    let target = sidecar_path.to_string_lossy();
+    output
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            let separator_index = trimmed.find(char::is_whitespace)?;
+            let pid = trimmed[..separator_index].parse::<u32>().ok()?;
+            if pid == current_pid {
+                return None;
+            }
+            let command_path = trimmed[separator_index..].trim();
+            (command_path == target).then_some(pid)
+        })
+        .collect()
+}
+
+#[cfg(target_os = "macos")]
+fn find_stale_sidecar_pids(sidecar_path: &Path) -> Result<Vec<u32>, String> {
+    let output = Command::new("ps")
+        .args(["-axo", "pid=,comm="])
+        .output()
+        .map_err(|err| format!("Failed to inspect running processes: {err}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "Failed to inspect running processes".to_string()
+        } else {
+            format!("Failed to inspect running processes: {stderr}")
+        });
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(parse_sidecar_pids_from_ps(
+        &stdout,
+        sidecar_path,
+        std::process::id(),
+    ))
+}
+
+#[cfg(target_os = "macos")]
+fn terminate_stale_sidecar_processes(pids: &[u32]) -> Result<(), String> {
+    for pid in pids {
+        let _ = send_termination_signal(*pid);
+    }
+
+    for pid in pids {
+        if wait_for_pid_exit(*pid, SHUTDOWN_TIMEOUT) {
+            continue;
+        }
+        let _ = send_kill_signal(*pid);
+        if !wait_for_pid_exit(*pid, SHUTDOWN_TIMEOUT) {
+            return Err(format!(
+                "Failed to stop stale backend sidecar process {pid}"
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn cleanup_stale_sidecar_processes(app: &AppHandle) -> Result<(), String> {
+    let sidecar_path = resolve_sidecar_path(app)?;
+    let pids = find_stale_sidecar_pids(&sidecar_path)?;
+    if pids.is_empty() {
+        return Ok(());
+    }
+
+    log::warn!(
+        "Stopping stale backend sidecar processes before startup: {:?}",
+        pids
+    );
+    terminate_stale_sidecar_processes(&pids)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn cleanup_stale_sidecar_processes(_app: &AppHandle) -> Result<(), String> {
+    Ok(())
 }
 
 fn generate_session_token() -> String {
@@ -714,6 +801,7 @@ fn start_backend(
     let start = if cfg!(debug_assertions) {
         spawn_dev_backend_pair(&session_token, &ipc_socket_path)?
     } else {
+        cleanup_stale_sidecar_processes(&app)?;
         spawn_sidecar_backend(&app, &session_token, &ipc_socket_path)?
     };
 
@@ -1098,5 +1186,23 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn parse_sidecar_pids_from_ps_matches_exact_executable_path() {
+        let sidecar_path = std::path::Path::new(
+            "/Applications/Magi.app/Contents/Resources/sidecar-dist/magi-backend",
+        );
+        let output = r#"
+            101 /Applications/Magi.app/Contents/Resources/sidecar-dist/magi-backend
+            102 /Applications/Other.app/Contents/Resources/sidecar-dist/magi-backend
+            103 /Applications/Magi.app/Contents/Resources/sidecar-dist/magi-backend-helper
+            104 /Applications/Magi.app/Contents/Resources/sidecar-dist/magi-backend
+        "#;
+
+        let pids = super::parse_sidecar_pids_from_ps(output, sidecar_path, 104);
+
+        assert_eq!(pids, vec![101]);
     }
 }
