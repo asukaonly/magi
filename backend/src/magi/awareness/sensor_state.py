@@ -185,6 +185,20 @@ class _SensorFingerprintWrite:
     fingerprint: str
 
 
+@dataclass(frozen=True, slots=True)
+class SensorStateWriteQueueStats:
+    queue_length: int
+    max_queue_size: int
+    max_batch_size: int
+    running: bool
+    enqueued_count: int
+    flushed_batch_count: int
+    flushed_fingerprint_count: int
+    retry_count: int
+    failed_batch_count: int
+    last_flush_latency_ms: float | None
+
+
 _STOP = object()
 
 
@@ -208,6 +222,12 @@ class SensorStateWriteQueue:
             maxsize=max(1, int(max_queue_size))
         )
         self._worker_task: asyncio.Task | None = None
+        self._enqueued_count = 0
+        self._flushed_batch_count = 0
+        self._flushed_fingerprint_count = 0
+        self._retry_count = 0
+        self._failed_batch_count = 0
+        self._last_flush_latency_ms: float | None = None
 
     async def start(self) -> None:
         if self._worker_task is not None and not self._worker_task.done():
@@ -249,6 +269,22 @@ class SensorStateWriteQueue:
                 sensor_id=normalized_sensor_id,
                 fingerprint=normalized_fingerprint,
             )
+        )
+        self._enqueued_count += 1
+
+    def get_stats(self) -> SensorStateWriteQueueStats:
+        task = self._worker_task
+        return SensorStateWriteQueueStats(
+            queue_length=self._queue.qsize(),
+            max_queue_size=self._queue.maxsize,
+            max_batch_size=self._max_batch_size,
+            running=task is not None and not task.done(),
+            enqueued_count=self._enqueued_count,
+            flushed_batch_count=self._flushed_batch_count,
+            flushed_fingerprint_count=self._flushed_fingerprint_count,
+            retry_count=self._retry_count,
+            failed_batch_count=self._failed_batch_count,
+            last_flush_latency_ms=self._last_flush_latency_ms,
         )
 
     async def _run(self) -> None:
@@ -294,17 +330,23 @@ class SensorStateWriteQueue:
             return
 
         for attempt in range(self._retry_attempts + 1):
+            started_at = time.perf_counter()
             try:
                 await self._state_store.add_fingerprint_groups(groups)
+                self._last_flush_latency_ms = (time.perf_counter() - started_at) * 1000.0
+                self._flushed_batch_count += 1
+                self._flushed_fingerprint_count += sum(len(fingerprints) for fingerprints in groups.values())
                 return
             except Exception:
                 if attempt >= self._retry_attempts:
+                    self._failed_batch_count += 1
                     logger.exception(
                         "sensor_state fingerprint batch failed (items=%s sensors=%s)",
                         sum(len(fingerprints) for fingerprints in groups.values()),
                         len(groups),
                     )
                     return
+                self._retry_count += 1
                 logger.warning(
                     "sensor_state fingerprint batch retrying (attempt=%s)",
                     attempt + 1,

@@ -38,6 +38,12 @@ async def test_batches_fingerprints_by_sensor(fake_store):
         "screen_time": {"fp-3"},
     }
 
+    stats = queue.get_stats()
+    assert stats.enqueued_count == 3
+    assert stats.flushed_batch_count == 1
+    assert stats.flushed_fingerprint_count == 3
+    assert stats.last_flush_latency_ms is not None
+
 
 @pytest.mark.asyncio
 async def test_flushes_when_batch_size_is_reached(fake_store):
@@ -74,6 +80,7 @@ async def test_retries_failed_batches(fake_store):
     await queue.stop()
 
     assert fake_store.add_fingerprint_groups.await_count == 2
+    assert queue.get_stats().retry_count == 1
 
 
 @pytest.mark.asyncio

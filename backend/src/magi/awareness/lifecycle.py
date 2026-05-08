@@ -10,6 +10,7 @@ from ..config import get_config
 from ..core.logger import get_logger
 from ..timeline.adapter import TimelineAdapter
 from .ingestion_gateway import SensorIngestionGateway
+from .kg_write_queue import KnowledgeGraphWriteQueue
 from .sensor_state import SensorStateWriteQueue, SqliteSensorStateStore
 from .sensor_hub import SensorHub
 from .event_emitter import RuntimeEventEmitter
@@ -172,7 +173,8 @@ class KGSubscriberModule(LifecycleModule):
         from .subscribers.kg_subscriber import KGSubscriber
         bus = require_initialized(self._context.message_bus.message_bus, "message bus")
         unified_memory = require_initialized(self._context.memory.unified_memory, "unified memory")
-        self._subscriber = KGSubscriber(event_bus=bus, unified_memory=unified_memory)
+        writer = KnowledgeGraphWriteQueue(unified_memory=unified_memory)
+        self._subscriber = KGSubscriber(event_bus=bus, kg_writer=writer)
         await self._subscriber.start()
         logger.info("KGSubscriber started")
 

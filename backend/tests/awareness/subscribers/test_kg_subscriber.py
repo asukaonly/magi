@@ -1,9 +1,9 @@
 """Phase 6 of C: KGSubscriber processes relation_candidates → unified_memory.upsert_user_graph_edge."""
 from __future__ import annotations
-import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+from magi.awareness.kg_write_queue import KnowledgeGraphEdgeWrite
 from magi.events.events import Event, EventTypes
 from magi.events.domain_payloads import SensorEventEmitted, TaskContext
 from magi.awareness.subscribers.kg_subscriber import KGSubscriber
@@ -29,25 +29,28 @@ def fake_bus():
 
 
 @pytest.fixture
-def fake_memory():
-    m = MagicMock()
-    m.upsert_user_graph_edge = AsyncMock(return_value=None)
-    return m
+def fake_writer():
+    writer = MagicMock()
+    writer.start = AsyncMock()
+    writer.stop = AsyncMock()
+    writer.drain = AsyncMock()
+    writer.add_edge = AsyncMock()
+    return writer
 
 
 @pytest.mark.asyncio
-async def test_skips_when_no_relations(fake_bus, fake_memory):
-    sub = KGSubscriber(event_bus=fake_bus, unified_memory=fake_memory)
+async def test_skips_when_no_relations(fake_bus, fake_writer):
+    sub = KGSubscriber(event_bus=fake_bus, kg_writer=fake_writer)
     await sub.start()
     payload = _make_payload_with_relations([], [])
     await sub._on_event(Event(type=EventTypes.SENSOR_EVENT_EMITTED, data=payload, event_id="evt-1"))
     await sub.drain()
-    fake_memory.upsert_user_graph_edge.assert_not_awaited()
+    fake_writer.add_edge.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_processes_whitelisted_relations(fake_bus, fake_memory):
-    sub = KGSubscriber(event_bus=fake_bus, unified_memory=fake_memory)
+async def test_processes_whitelisted_relations(fake_bus, fake_writer):
+    sub = KGSubscriber(event_bus=fake_bus, kg_writer=fake_writer)
     await sub.start()
     candidates = [
         {"predicate": "VIEWED", "object_id": "tool:chrome", "subject_id": "user:1"},
@@ -57,16 +60,17 @@ async def test_processes_whitelisted_relations(fake_bus, fake_memory):
     payload = _make_payload_with_relations(candidates, ["VIEWED"])
     await sub._on_event(Event(type=EventTypes.SENSOR_EVENT_EMITTED, data=payload, event_id="evt-X"))
     await sub.drain()
-    # Two `uses` candidates persisted; INVALID skipped
-    assert fake_memory.upsert_user_graph_edge.await_count == 2
-    # evidence_event_ids carries envelope id
-    for call in fake_memory.upsert_user_graph_edge.await_args_list:
-        assert call.kwargs["evidence_event_ids"] == ["evt-X"]
+    assert fake_writer.add_edge.await_count == 2
+    for call in fake_writer.add_edge.await_args_list:
+        edge = call.args[0]
+        assert isinstance(edge, KnowledgeGraphEdgeWrite)
+        assert edge.evidence_event_ids == ("evt-X",)
+        assert edge.predicate == "VIEWED"
 
 
 @pytest.mark.asyncio
-async def test_skips_candidate_without_object_id(fake_bus, fake_memory):
-    sub = KGSubscriber(event_bus=fake_bus, unified_memory=fake_memory)
+async def test_skips_candidate_without_object_id(fake_bus, fake_writer):
+    sub = KGSubscriber(event_bus=fake_bus, kg_writer=fake_writer)
     await sub.start()
     payload = _make_payload_with_relations(
         [{"predicate": "VIEWED", "object_id": ""}],
@@ -74,13 +78,13 @@ async def test_skips_candidate_without_object_id(fake_bus, fake_memory):
     )
     await sub._on_event(Event(type=EventTypes.SENSOR_EVENT_EMITTED, data=payload, event_id="e"))
     await sub.drain()
-    fake_memory.upsert_user_graph_edge.assert_not_awaited()
+    fake_writer.add_edge.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_handler_failure_does_not_break_subscriber(fake_bus, fake_memory):
-    fake_memory.upsert_user_graph_edge.side_effect = RuntimeError("DB down")
-    sub = KGSubscriber(event_bus=fake_bus, unified_memory=fake_memory)
+async def test_handler_failure_does_not_break_subscriber(fake_bus, fake_writer):
+    fake_writer.add_edge.side_effect = RuntimeError("queue closed")
+    sub = KGSubscriber(event_bus=fake_bus, kg_writer=fake_writer)
     await sub.start()
     payload = _make_payload_with_relations(
         [{"predicate": "VIEWED", "object_id": "x"}], ["VIEWED"]
@@ -90,49 +94,10 @@ async def test_handler_failure_does_not_break_subscriber(fake_bus, fake_memory):
 
 
 @pytest.mark.asyncio
-async def test_supports_sync_upsert(fake_bus):
-    """If unified_memory.upsert_user_graph_edge returns non-awaitable (sync fn)."""
-    memory = MagicMock()
-    memory.upsert_user_graph_edge = MagicMock(return_value=None)  # NOT AsyncMock
-    sub = KGSubscriber(event_bus=fake_bus, unified_memory=memory)
+async def test_stop_unsubscribes_and_stops_writer(fake_bus, fake_writer):
+    sub = KGSubscriber(event_bus=fake_bus, kg_writer=fake_writer)
     await sub.start()
-    payload = _make_payload_with_relations(
-        [{"predicate": "VIEWED", "object_id": "x"}], ["VIEWED"]
-    )
-    await sub._on_event(Event(type=EventTypes.SENSOR_EVENT_EMITTED, data=payload, event_id="e"))
-    await sub.drain()
-    memory.upsert_user_graph_edge.assert_called_once()
+    await sub.stop()
 
-
-@pytest.mark.asyncio
-async def test_limits_concurrent_relation_processing(fake_bus, fake_memory):
-    active = 0
-    max_seen = 0
-
-    async def upsert_user_graph_edge(**kwargs):
-        nonlocal active, max_seen
-        _ = kwargs
-        active += 1
-        max_seen = max(max_seen, active)
-        await asyncio.sleep(0.01)
-        active -= 1
-
-    fake_memory.upsert_user_graph_edge.side_effect = upsert_user_graph_edge
-    sub = KGSubscriber(event_bus=fake_bus, unified_memory=fake_memory, max_concurrency=2)
-    await sub.start()
-
-    for index in range(10):
-        payload = _make_payload_with_relations(
-            [{"predicate": "VIEWED", "object_id": f"site:{index}"}],
-            ["VIEWED"],
-        )
-        await sub._on_event(
-            Event(
-                type=EventTypes.SENSOR_EVENT_EMITTED,
-                data=payload,
-                event_id=f"evt-{index}",
-            )
-        )
-    await sub.drain()
-
-    assert max_seen <= 2
+    fake_bus.unsubscribe.assert_awaited_once_with("sub-id")
+    fake_writer.stop.assert_awaited_once()

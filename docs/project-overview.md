@@ -172,6 +172,8 @@ The durable design is documented in [Persona Runtime Architecture](./persona-run
 - `~/.magi/data/memory/memory.db`
   Shared L0/L2/L3/L4 storage
 
+  Sensor-derived L2 knowledge graph projection is owned by Python memory, but high-volume event subscribers must enter it through the awareness-owned knowledge graph write queue. The queue batches edge writes into memory facade calls and exposes queue depth, flush, retry, and failure counters for runtime diagnostics.
+
 - `~/.magi/runtime/runtime_trace.db`
   Runtime execution observability only: turn summaries, spans, LLM metrics, tool calls, intent-resolution details, live notifications, and append-only plugin ingress events produced by the desktop shell
 
@@ -207,6 +209,8 @@ Chat ownership is now intentionally separated by domain:
 The Rust gateway is allowed to write SQLite only for product or transport surfaces it owns natively. Python remains the owner for runtime-heavy behavior, memory cognition, plugin execution, and any operation that needs live runtime services.
 
 When adding a new SQLite write path, update this matrix, `contracts/sqlite/gateway_writes.json`, and the gateway ownership test in the same change. A Rust native write is acceptable only when the table and operation are listed here or the write is delegated to Python over IPC.
+
+High-volume Python write paths must have a single owning service or bounded writer queue. Event subscribers, sensors, schedulers, and trace projectors should not create unbounded per-event write tasks against SQLite. Low-frequency CRUD may keep using short-lived repository connections; bursty ingestion paths must apply backpressure, batch related writes, and expose lightweight queue statistics.
 
 | Database | Tables / state | Source of truth | Rust gateway access | Python access | Migration owner |
 |---|---|---|---|---|---|

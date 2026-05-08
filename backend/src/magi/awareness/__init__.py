@@ -17,7 +17,17 @@ from .sensor_output import (
     SensorOutput,
     SensorOutputMetadata,
 )
-from .sensor_state import SensorStateStore, SensorStateWriteQueue, SqliteSensorStateStore
+from .kg_write_queue import (
+    KnowledgeGraphEdgeWrite,
+    KnowledgeGraphWriteQueue,
+    KnowledgeGraphWriteQueueStats,
+)
+from .sensor_state import (
+    SensorStateStore,
+    SensorStateWriteQueue,
+    SensorStateWriteQueueStats,
+    SqliteSensorStateStore,
+)
 from .sensor_sync import PluginRuntimePaths, PullSyncSensor, SensorSyncContext, SensorSyncResult
 from .ingestion_gateway import SensorIngestionGateway, SensorIngestionResult
 
@@ -28,6 +38,9 @@ __all__ = [
     "ActivityFacet",
     "ContentBlock",
     "L2BatchPolicy",
+    "KnowledgeGraphEdgeWrite",
+    "KnowledgeGraphWriteQueue",
+    "KnowledgeGraphWriteQueueStats",
     "PluginRuntimePaths",
     "PullSyncSensor",
     "SensorActivity",
@@ -40,6 +53,7 @@ __all__ = [
     "SensorOutputMetadata",
     "SensorStateStore",
     "SensorStateWriteQueue",
+    "SensorStateWriteQueueStats",
     "SensorSyncContext",
     "SensorSyncResult",
     "SqliteSensorStateStore",

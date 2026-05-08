@@ -229,6 +229,8 @@ L2 holds:
 - Episodes (bounded activity segments formed from L1 events)
 - Durable projection job queue
 
+Sensor-derived relation candidates reach the L2 knowledge graph through the awareness-owned knowledge graph write queue. That queue is the backpressure boundary for bursty sensor catch-up runs: it batches edge writes before calling the unified memory facade, while the memory layer remains the owner of graph schema, conflict resolution, evidence merging, and embedding status updates.
+
 Implementation boundary: `L2CognitionStore` remains the public storage facade
 and transaction coordinator in `memory/l2/store.py`, while its mixins are grouped
 by L2 domain rather than by generic helper status: `storage/`, `graph/`,

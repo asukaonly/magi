@@ -1,7 +1,7 @@
 """Persist sensor source-item fingerprints to dedupe future ingest."""
 from __future__ import annotations
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from magi.events.events import Event, EventTypes
 from magi.events.domain_payloads import SensorEventEmitted
@@ -37,6 +37,9 @@ class SensorStateUpdateSubscriber:
 
     async def drain(self) -> None:
         await self._writer.drain()
+
+    def get_stats(self) -> Any:
+        return self._writer.get_stats()
 
     async def _on_event(self, event: Event) -> None:
         try:
