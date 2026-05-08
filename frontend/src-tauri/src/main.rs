@@ -1007,16 +1007,18 @@ fn main() {
         .manage(BackendState::default())
         .manage(desktop_presence::DesktopPresenceState::default())
         .setup(|app| {
+            log::info!("Magi desktop setup starting");
+
             #[cfg(target_os = "macos")]
             dmg_cleanup::detach_installer_volume_after_launch();
 
             if let Err(err) = desktop_presence::setup(app.handle()) {
-                eprintln!(
+                log::warn!(
                     "Optional desktop presence setup is unavailable; continuing without tray integration: {err}"
                 );
             }
             if let Err(err) = frontmost_app_monitor::setup_monitor() {
-                eprintln!(
+                log::warn!(
                     "Optional frontmost app monitor is unavailable; continuing without activation tracking: {err}"
                 );
             }

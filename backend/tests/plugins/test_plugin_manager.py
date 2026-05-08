@@ -8,7 +8,8 @@ import pytest
 
 from magi.config.models import AppConfig, PluginSettings
 from magi.plugins import Plugin
-from magi.plugins.installation import replace_plugin_directory
+from magi.plugins import installation as installation_module
+from magi.plugins.installation import _filter_installable_dependencies, replace_plugin_directory
 from magi.plugins.manager import PluginManager, build_plugin_runtime
 from magi.plugins.sensors import SensorRegistry
 from magi.tools.registry import ToolRegistry, tool_registry as shared_tool_registry
@@ -121,7 +122,7 @@ def _write_install_test_plugin(
     plugin_dir.mkdir(parents=True, exist_ok=True)
     dependencies_line = ""
     if dependencies:
-        quoted = ", ".join(f'\"{item}\"' for item in dependencies)
+        quoted = ", ".join(f'"{item}"' for item in dependencies)
         dependencies_line = f"\ndependencies = [{quoted}]"
     (plugin_dir / "plugin.toml").write_text(
         f"""
@@ -168,7 +169,9 @@ async def test_plugin_manager_discovers_external_plugins_and_loads_enabled_tools
     tool_registry = ToolRegistry()
 
     monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
-    monkeypatch.setattr("magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True)
+    monkeypatch.setattr(
+        "magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True
+    )
 
     manager = PluginManager(
         tool_registry=tool_registry,
@@ -195,7 +198,9 @@ def test_plugin_manager_persists_newly_discovered_plugins_as_disabled(
     tool_registry = ToolRegistry()
 
     monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
-    monkeypatch.setattr("magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True)
+    monkeypatch.setattr(
+        "magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True
+    )
 
     manager = PluginManager(
         tool_registry=tool_registry,
@@ -225,13 +230,14 @@ def test_core_tools_plugin_registers_memory_query_tool(monkeypatch: pytest.Monke
     tool_registry = ToolRegistry()
 
     monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
-    monkeypatch.setattr("magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True)
+    monkeypatch.setattr(
+        "magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True
+    )
 
     builtin_plugins_root = Path(__file__).resolve().parents[3] / "plugins"
     manager = PluginManager(
         tool_registry=tool_registry,
         sensor_registry=SensorRegistry(),
-
         search_paths=[builtin_plugins_root],
     )
 
@@ -258,7 +264,9 @@ def test_plugin_manager_reload_clears_cached_plugin_submodules(
     tool_registry = ToolRegistry()
 
     monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
-    monkeypatch.setattr("magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True)
+    monkeypatch.setattr(
+        "magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True
+    )
 
     manager = PluginManager(
         tool_registry=tool_registry,
@@ -305,7 +313,9 @@ def test_install_plugin_from_directory_keeps_existing_plugin_until_staging_ready
     tool_registry = ToolRegistry()
 
     monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
-    monkeypatch.setattr("magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True)
+    monkeypatch.setattr(
+        "magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True
+    )
     monkeypatch.setattr(PluginManager, "_user_plugins_root", staticmethod(lambda: user_root))
 
     manager = PluginManager(
@@ -328,7 +338,9 @@ def test_install_plugin_from_directory_keeps_existing_plugin_until_staging_ready
         _ = dependencies, plugin_dir
         raise RuntimeError("dependency install failed")
 
-    monkeypatch.setattr(PluginManager, "_install_dependencies", staticmethod(fail_install_dependencies))
+    monkeypatch.setattr(
+        PluginManager, "_install_dependencies", staticmethod(fail_install_dependencies)
+    )
 
     with pytest.raises(RuntimeError, match="dependency install failed"):
         manager.install_plugin_from_directory(incoming_dir)
@@ -369,6 +381,25 @@ def test_replace_plugin_directory_rolls_back_when_promotion_fails(
     assert len(replace_calls) >= 2
 
 
+def test_filter_installable_dependencies_respects_environment_markers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    environment = installation_module.default_environment()
+    environment["sys_platform"] = "darwin"
+    monkeypatch.setattr(installation_module, "default_environment", lambda: environment)
+
+    installable, skipped = _filter_installable_dependencies(
+        [
+            "requests>=2",
+            "winrt-runtime>=2.0; sys_platform == 'win32'",
+            "not a valid requirement @@@",
+        ]
+    )
+
+    assert installable == ["requests>=2", "not a valid requirement @@@"]
+    assert skipped == ["winrt-runtime>=2.0; sys_platform == 'win32'"]
+
+
 def test_build_plugin_runtime_uses_shared_tool_registry_by_default(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -376,7 +407,9 @@ def test_build_plugin_runtime_uses_shared_tool_registry_by_default(
     config = AppConfig()
 
     monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
-    monkeypatch.setattr("magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True)
+    monkeypatch.setattr(
+        "magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True
+    )
     monkeypatch.setattr("magi.plugins.manager._resolve_search_paths", lambda: [tmp_path])
 
     bindings = build_plugin_runtime(

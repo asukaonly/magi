@@ -13,11 +13,35 @@ import tempfile
 import uuid
 import zipfile
 
+from packaging.markers import default_environment
+from packaging.requirements import InvalidRequirement, Requirement
+
 from ..awareness.scheduler_contrib import request_sensor_schedule_refresh
 from ..config import save_config
 from .contracts import PluginManifest, PluginPackageState
 
 logger = logging.getLogger(__name__)
+
+
+def _filter_installable_dependencies(dependencies: list[str]) -> tuple[list[str], list[str]]:
+    installable: list[str] = []
+    skipped: list[str] = []
+    environment = default_environment()
+
+    for dependency in dependencies:
+        try:
+            requirement = Requirement(dependency)
+        except InvalidRequirement:
+            installable.append(dependency)
+            continue
+
+        if requirement.marker is not None and not requirement.marker.evaluate(environment):
+            skipped.append(dependency)
+            continue
+
+        installable.append(dependency)
+
+    return installable, skipped
 
 
 def replace_plugin_directory(
@@ -42,6 +66,14 @@ def replace_plugin_directory(
     backup_dir = parent_dir / f".{dest_dir.name}-backup-{uuid.uuid4().hex}"
 
     try:
+        logger.info(
+            "Staging plugin directory",
+            extra={
+                "source_dir": str(source_dir),
+                "dest_dir": str(dest_dir),
+                "staging_dir": str(staging_dir),
+            },
+        )
         shutil.rmtree(staging_dir)
         shutil.copytree(source_dir, staging_dir)
 
@@ -52,10 +84,18 @@ def replace_plugin_directory(
             before_swap()
 
         if dest_dir.exists():
+            logger.info(
+                "Backing up existing plugin directory",
+                extra={"dest_dir": str(dest_dir), "backup_dir": str(backup_dir)},
+            )
             dest_dir.replace(backup_dir)
 
         try:
             staging_dir.replace(dest_dir)
+            logger.info(
+                "Promoted staged plugin directory",
+                extra={"dest_dir": str(dest_dir), "staging_dir": str(staging_dir)},
+            )
         except Exception:
             if backup_dir.exists() and not dest_dir.exists():
                 backup_dir.replace(dest_dir)
@@ -96,6 +136,7 @@ class PluginInstallationMixin:
         """
         user_root = self._user_plugins_root()
         user_root.mkdir(parents=True, exist_ok=True)
+        logger.info("Installing plugin from archive", extra={"archive_path": str(archive_path)})
 
         with tempfile.TemporaryDirectory(prefix="magi-plugin-install-") as tmp:
             tmp_path = Path(tmp)
@@ -112,6 +153,15 @@ class PluginInstallationMixin:
 
             dest_dir = user_root / plugin_id
             source_dir = manifest_file.parent
+            logger.info(
+                "Installing external plugin package",
+                extra={
+                    "plugin_id": plugin_id,
+                    "source_dir": str(source_dir),
+                    "dest_dir": str(dest_dir),
+                    "dependency_count": len(manifest.dependencies),
+                },
+            )
 
             def prepare_staging_dir(staged_dir: Path) -> None:
                 new_manifest = self._load_manifest(staged_dir / "plugin.toml", source="external")
@@ -127,6 +177,7 @@ class PluginInstallationMixin:
 
         self.scan(persist_discovery=True)
         state = self._require_package(plugin_id)
+        logger.info("Installed plugin from archive", extra={"plugin_id": plugin_id})
         return state
 
     def install_plugin_from_directory(self, source_dir: Path) -> PluginPackageState:
@@ -145,6 +196,15 @@ class PluginInstallationMixin:
         user_root.mkdir(parents=True, exist_ok=True)
         dest_dir = user_root / plugin_id
         plugin_source = manifest_file.parent
+        logger.info(
+            "Installing plugin from directory",
+            extra={
+                "plugin_id": plugin_id,
+                "source_dir": str(plugin_source),
+                "dest_dir": str(dest_dir),
+                "dependency_count": len(manifest.dependencies),
+            },
+        )
 
         def prepare_staging_dir(staged_dir: Path) -> None:
             new_manifest = self._load_manifest(staged_dir / "plugin.toml", source="external")
@@ -159,7 +219,9 @@ class PluginInstallationMixin:
         )
 
         self.scan(persist_discovery=True)
-        return self.enable_plugin(plugin_id)
+        state = self.enable_plugin(plugin_id)
+        logger.info("Installed and enabled plugin", extra={"plugin_id": plugin_id})
+        return state
 
     def uninstall_plugin(self, plugin_id: str) -> None:
         """Uninstall a user-installed plugin and remove its files."""
@@ -223,6 +285,21 @@ class PluginInstallationMixin:
     @staticmethod
     def _install_dependencies(dependencies: list[str], plugin_dir: Path) -> None:
         """Install plugin dependencies into a local .deps/ directory."""
+        installable_dependencies, skipped_dependencies = _filter_installable_dependencies(
+            dependencies
+        )
+        if skipped_dependencies:
+            logger.info(
+                "Skipping plugin dependencies for current environment",
+                extra={"deps": skipped_dependencies, "target": str(plugin_dir)},
+            )
+        if not installable_dependencies:
+            logger.info(
+                "No plugin dependencies need installation for current environment",
+                extra={"target": str(plugin_dir)},
+            )
+            return
+
         deps_dir = plugin_dir / ".deps"
         deps_dir.mkdir(exist_ok=True)
         cmd = [
@@ -234,9 +311,36 @@ class PluginInstallationMixin:
             str(deps_dir),
             "--no-user",
             "--quiet",
-            *dependencies,
+            *installable_dependencies,
         ]
-        logger.info("Installing plugin dependencies", extra={"deps": dependencies, "target": str(deps_dir)})
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        logger.info(
+            "Installing plugin dependencies",
+            extra={"deps": installable_dependencies, "target": str(deps_dir)},
+        )
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        except subprocess.TimeoutExpired as exc:
+            logger.exception(
+                "Plugin dependency installation timed out",
+                extra={"deps": installable_dependencies, "target": str(deps_dir)},
+            )
+            raise RuntimeError(
+                f"Timed out installing plugin dependencies after {exc.timeout} seconds: "
+                f"{', '.join(installable_dependencies)}"
+            ) from exc
         if result.returncode != 0:
-            raise RuntimeError(f"Failed to install plugin dependencies: {result.stderr.strip()}")
+            stderr = result.stderr.strip()
+            logger.error(
+                "Plugin dependency installation failed",
+                extra={
+                    "deps": installable_dependencies,
+                    "target": str(deps_dir),
+                    "returncode": result.returncode,
+                    "stderr": stderr,
+                },
+            )
+            raise RuntimeError(f"Failed to install plugin dependencies: {stderr}")
+        logger.info(
+            "Installed plugin dependencies",
+            extra={"deps": installable_dependencies, "target": str(deps_dir)},
+        )

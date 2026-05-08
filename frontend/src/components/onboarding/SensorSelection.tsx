@@ -141,7 +141,8 @@ const SensorSelection: React.FC<SensorSelectionProps> = ({ scenario }) => {
         await pluginsApi.installFromRegistry(pluginId);
         setInstallStates((prev) => ({ ...prev, [pluginId]: 'installed' }));
         successCount++;
-      } catch {
+      } catch (error) {
+        console.error('[sensorSelection] failed to install sensor plugin', { pluginId, error });
         setInstallStates((prev) => ({ ...prev, [pluginId]: 'error' }));
         failCount++;
       }

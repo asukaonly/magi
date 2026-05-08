@@ -13,9 +13,11 @@ import type { LanguageCode } from './api/modules/config';
 import { initializeRuntime, resetRuntimeInitialization } from './runtime/config';
 import type { StartupPhase } from './runtime/config';
 import { syncCloseToTrayPreference, syncAutoStartPreference, syncStartMinimizedPreference, applyStartMinimized } from './runtime/desktop';
+import { initializeDesktopLogging } from './runtime/logging';
 import { initializeTheme } from './stores/theme';
 import { persistLanguageSelection, previewLanguageSelection } from './utils/settings-helpers';
 
+initializeDesktopLogging();
 initializeTheme();
 
 const RuntimeBootstrap: React.FC = () => {
