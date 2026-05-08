@@ -74,7 +74,7 @@ def test_graph_fast_track_uses_effective_assertion_permission() -> None:
         )
     ]
     profile = ExtractionProfile(
-        profile_id="timeline.chrome_history",
+        profile_id="source.chrome_history",
         allowed_entity_types=frozenset({"media"}),
         allowed_predicates=frozenset({"VIEWED"}),
         structured_allowed_entity_types=frozenset({"media"}),

@@ -2651,7 +2651,7 @@ async def test_pipeline_logs_profile_and_rejection_counts_for_unified_extraction
             assert any("L2 Phase 1 extraction started" in message for message in messages)
             assert any("L2 Phase 2 candidate validation completed" in message for message in messages)
             assert any("L2 persistence completed" in message for message in messages)
-            assert any("timeline.calendar" in message for message in messages)
+            assert any("source.calendar" in message for message in messages)
             assert any("rejected_graph_candidate_count" in message for message in messages)
             assert any("rejected_assertion_candidate_count" in message for message in messages)
         finally:
@@ -3783,7 +3783,7 @@ async def test_build_structured_graph_candidates_rejects_stable_preference_hints
         ]
     }
 
-    profile = get_extraction_profiles()["timeline.chrome_history"]
+    profile = get_extraction_profiles()["source.chrome_history"]
     policy = resolve_l2_policy(classify_event_evidence(event))
     candidates, rejected = pipeline._build_structured_graph_candidates(
         event=event,
@@ -3823,7 +3823,7 @@ async def test_build_structured_graph_candidates_rejects_heuristic_follows_hints
         ]
     }
 
-    profile = get_extraction_profiles()["timeline.chrome_history"]
+    profile = get_extraction_profiles()["source.chrome_history"]
     policy = resolve_l2_policy(classify_event_evidence(event))
     candidates, rejected = pipeline._build_structured_graph_candidates(
         event=event,
@@ -3863,7 +3863,7 @@ async def test_build_structured_graph_candidates_accepts_structured_follows_prof
         ]
     }
 
-    profile = get_extraction_profiles()["timeline.chrome_history"]
+    profile = get_extraction_profiles()["source.chrome_history"]
     policy = resolve_l2_policy(classify_event_evidence(event))
     candidates, rejected = pipeline._build_structured_graph_candidates(
         event=event,
@@ -3905,7 +3905,7 @@ async def test_build_structured_graph_candidates_accepts_internal_topology_hints
         ]
     }
 
-    profile = get_extraction_profiles()["timeline.chrome_history"]
+    profile = get_extraction_profiles()["source.chrome_history"]
     policy = resolve_l2_policy(classify_event_evidence(event))
     candidates, rejected = pipeline._build_structured_graph_candidates(
         event=event,
@@ -3989,7 +3989,7 @@ class TestExtractionInstructions:
 
     def test_chrome_profile_has_extraction_instructions(self):
         from magi.memory.l2.extraction_profiles import get_extraction_profiles
-        profile = get_extraction_profiles()["timeline.chrome_history"]
+        profile = get_extraction_profiles()["source.chrome_history"]
         assert profile.extraction_instructions is not None
         assert "INTERESTED_IN" in profile.extraction_instructions
         assert "VIEWED" in profile.extraction_instructions
@@ -4037,7 +4037,7 @@ class TestExtractionInstructions:
 
     def test_chrome_instructions_contain_convergence_guidance(self):
         from magi.memory.l2.extraction_profiles import get_extraction_profiles
-        profile = get_extraction_profiles()["timeline.chrome_history"]
+        profile = get_extraction_profiles()["source.chrome_history"]
         assert "SELECTIVE" in profile.extraction_instructions
         assert "MERGE" in profile.extraction_instructions
         assert "virtual_object" in profile.extraction_instructions
@@ -4045,7 +4045,7 @@ class TestExtractionInstructions:
     def test_chrome_profile_keeps_internal_topology_out_of_llm_allowlists(self):
         from magi.memory.l2.extraction_profiles import get_extraction_profiles
 
-        profile = get_extraction_profiles()["timeline.chrome_history"]
+        profile = get_extraction_profiles()["source.chrome_history"]
 
         assert "presence" not in profile.allowed_entity_types
         assert "ON_PLATFORM" not in profile.allowed_predicates

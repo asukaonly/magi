@@ -35,15 +35,12 @@ def test_default_chat_profile_exposes_full_allowlists():
     assert profile.allow_assertion is True
 
 
-def test_timeline_source_uses_calendar_profile_restrictions():
+def test_timeline_source_falls_back_to_chat_profile():
     from magi.memory.l2.extraction_profiles import resolve_extraction_profile
 
     profile = resolve_extraction_profile(_make_event(source="timeline", content="Visited GitHub today"))
 
-    assert profile.profile_id == "timeline.calendar"
-    assert profile.allowed_entity_types == frozenset({"activity", "event", "place", "organization"})
-    assert profile.allowed_predicates == frozenset({"ATTENDED", "PLANS_TO", "VISITED"})
-    assert profile.allow_assertion is False
+    assert profile.profile_id == "chat.user_message"
 
 
 def test_calendar_source_uses_calendar_profile_restrictions():
@@ -51,7 +48,7 @@ def test_calendar_source_uses_calendar_profile_restrictions():
 
     profile = resolve_extraction_profile(_make_event(source="calendar", content="Dinner with Alice tomorrow"))
 
-    assert profile.profile_id == "timeline.calendar"
+    assert profile.profile_id == "source.calendar"
     assert profile.allow_graph is True
     assert profile.allow_assertion is False
 
@@ -63,7 +60,7 @@ def test_chrome_history_source_uses_chrome_history_profile_restrictions():
         _make_event(source="chrome_history", content="Visited GitHub repository page")
     )
 
-    assert profile.profile_id == "timeline.chrome_history"
+    assert profile.profile_id == "source.chrome_history"
     assert profile.allowed_entity_types == frozenset({
         "product", "software", "technology", "media",
         "person", "organization", "topic",
@@ -82,9 +79,9 @@ def test_yaml_profiles_load_chrome_history():
     from magi.memory.l2.extraction_profiles import get_extraction_profiles
 
     profiles = get_extraction_profiles()
-    assert "timeline.chrome_history" in profiles
-    profile = profiles["timeline.chrome_history"]
-    assert profile.profile_id == "timeline.chrome_history"
+    assert "source.chrome_history" in profiles
+    profile = profiles["source.chrome_history"]
+    assert profile.profile_id == "source.chrome_history"
     assert profile.allow_assertion is False
     assert "VISITED" in profile.allowed_predicates
     assert profile.extraction_instructions is not None
@@ -125,7 +122,7 @@ def test_netease_music_source_uses_music_profile():
     profile = resolve_extraction_profile(
         _make_event(source="netease_music", content="Playing a song")
     )
-    assert profile.profile_id == "timeline.netease_music"
+    assert profile.profile_id == "source.netease_music"
     assert profile.allow_graph is True
     assert profile.allow_assertion is True
     assert "LISTENED" in profile.allowed_predicates
@@ -140,7 +137,7 @@ def test_git_activity_source_uses_git_profile():
     profile = resolve_extraction_profile(
         _make_event(source="git_activity", content="commit abc")
     )
-    assert profile.profile_id == "timeline.git_activity"
+    assert profile.profile_id == "source.git_activity"
     assert profile.allow_graph is True
     assert profile.allow_assertion is False
     assert "COMMITTED" in profile.allowed_predicates
@@ -155,7 +152,7 @@ def test_terminal_history_source_uses_terminal_profile():
     profile = resolve_extraction_profile(
         _make_event(source="terminal_history", content="docker ps")
     )
-    assert profile.profile_id == "timeline.terminal_history"
+    assert profile.profile_id == "source.terminal_history"
     assert profile.allow_graph is True
     assert profile.allow_assertion is False
     assert "EXECUTED" in profile.allowed_predicates
@@ -169,7 +166,7 @@ def test_screen_time_source_uses_screen_time_profile():
     profile = resolve_extraction_profile(
         _make_event(source="screen_time", content="App usage")
     )
-    assert profile.profile_id == "timeline.screen_time"
+    assert profile.profile_id == "source.screen_time"
     assert profile.allow_graph is True
     assert profile.allow_assertion is False
     assert "USES" in profile.allowed_predicates
@@ -181,10 +178,10 @@ def test_yaml_profiles_load_all_sensor_profiles():
 
     profiles = get_extraction_profiles()
     expected = {
-        "timeline.netease_music",
-        "timeline.git_activity",
-        "timeline.terminal_history",
-        "timeline.screen_time",
+        "source.netease_music",
+        "source.git_activity",
+        "source.terminal_history",
+        "source.screen_time",
     }
     for pid in expected:
         assert pid in profiles, f"Missing profile: {pid}"
@@ -194,7 +191,7 @@ def test_netease_music_profile_allows_taste_assertions():
     from magi.memory.l2.extraction_profiles import get_extraction_profiles
 
     profiles = get_extraction_profiles()
-    music_profile = profiles["timeline.netease_music"]
+    music_profile = profiles["source.netease_music"]
     assert music_profile.allow_assertion is True
     assert "taste_profile" in music_profile.allowed_assertion_families
     assert "preference_profile" in music_profile.allowed_assertion_families

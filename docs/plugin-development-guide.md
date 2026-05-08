@@ -549,7 +549,7 @@ Relation candidates are persisted as rule-based graph edges without LLM involvem
 
 ### L2 Extraction Profiles
 
-Each event source is mapped to an `ExtractionProfile` that controls L2 cognition behavior. Profiles define:
+Each event source is mapped to an `ExtractionProfile` that controls L2 cognition behavior. Source-specific profile IDs use the `source.*` namespace so they remain distinct from the product Timeline surface. Profiles define:
 
 - `allowed_entity_types`: which entity types LLM may create (e.g., `software`, `media`, `person`)
 - `allowed_predicates`: which predicates LLM may use (e.g., `USES`, `INTERESTED_IN`, `VIEWED`)
@@ -575,7 +575,7 @@ extraction_instructions=(
 )
 ```
 
-Profiles are currently registered in `extraction_profiles.py`. New source types fall back to the unrestricted `chat.user_message` default profile.
+Built-in profiles are currently host-owned in `backend/configs/l2_extraction_profiles.yaml` because the backend owns L2 ontology, prompt assembly, and validation. New source types fall back to the unrestricted `chat.user_message` default profile.
 
 ## Declaring Settings Fields
 

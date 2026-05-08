@@ -44,7 +44,7 @@ profiles:
       - Preserve the user's exact wording when it matters for preference or naming.
       - Skip transient logistics unless they reveal a stable preference or identity fact.
 
-  timeline.chrome_history:
+  source.chrome_history:
     allowed_entity_types:
       - product
       - software
@@ -131,7 +131,7 @@ profiles:
       - Keep entity types consistent: a website/app is always `software`,
         not `activity` or `organization`.
 
-  timeline.calendar:
+  source.calendar:
     allowed_entity_types:
       - activity
       - event
@@ -144,7 +144,7 @@ profiles:
     allow_graph: true
     allow_assertion: false
 
-  timeline.netease_music:
+  source.netease_music:
     allowed_entity_types:
       - media
       - person
@@ -187,7 +187,7 @@ profiles:
       - Only assert preferences when there is genuine frequency signal
         (multiple plays), not from a single listen.
 
-  timeline.git_activity:
+  source.git_activity:
     allowed_entity_types:
       - software
       - technology
@@ -227,7 +227,7 @@ profiles:
       - Do NOT extract individual file paths, function names, or branch names
         as entities.
 
-  timeline.terminal_history:
+  source.terminal_history:
     allowed_entity_types:
       - software
       - technology
@@ -260,7 +260,7 @@ profiles:
       - Be SELECTIVE: skip noise commands and focus on tools that reveal
         the user's technical stack and workflow.
 
-  timeline.screen_time:
+  source.screen_time:
     allowed_entity_types:
       - software
       - media

@@ -419,17 +419,17 @@ Key fields:
 - `allowed_entity_types`: LLM-extracted entities with types outside this set are filtered out before catalog registration.
 - `allowed_predicates`: LLM-extracted graph edges with predicates outside this set are dropped.
 - `allow_assertion`: master switch for Theory of Mind assertion generation (disabled for Chrome history since browsing history does not reveal psychological states reliably).
-- `extraction_instructions`: free-text instructions injected into the LLM Phase 1 prompt under a `## Source-Specific Instructions` section. This is the primary mechanism for plugins to customize LLM extraction behavior per source type.
+- `extraction_instructions`: free-text instructions injected into the LLM Phase 1 prompt under a `## Source-Specific Instructions` section. This is the primary mechanism for host-managed source-specific LLM extraction behavior.
 
-Profile mapping uses `source_type` from the event. New source types fall back to the unrestricted `chat.user_message` default profile.
+Profile mapping uses the normalized event source. Built-in profiles are currently host-owned because the backend owns L2 ontology, prompt assembly, and validation. Profile IDs use the `source.*` namespace for external/source-specific events so they are not confused with the product Timeline surface. New source types fall back to the unrestricted `chat.user_message` default profile.
 
 Current registered profiles include:
 
-- `chat.user_message` �?unrestricted default
-- `chat.agent_response` �?graph-only, no assertions
-- `timeline.chrome_history` �?selective entity types, no assertions, detailed extraction instructions
-- `timeline.git_activity` �?software/project focused
-- `timeline.screen_time` �?software/activity focused
+- `chat.user_message` - unrestricted default
+- `chat.agent_response` - graph-only, no assertions
+- `source.chrome_history` - selective entity types, no assertions, detailed extraction instructions
+- `source.git_activity` - software/project focused
+- `source.screen_time` - software/activity focused
 
 ### Entity Quality Controls in L2 Pipeline
 

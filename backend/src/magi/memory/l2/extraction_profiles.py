@@ -166,14 +166,14 @@ def resolve_extraction_profile(
 def _default_profile_id_for_event(event: MemoryEvent) -> str:
     source = (event.source or "").strip().lower()
     if source == "chrome_history":
-        return "timeline.chrome_history"
-    if source in {"timeline", "calendar"}:
-        return "timeline.calendar"
+        return "source.chrome_history"
+    if source == "calendar":
+        return "source.calendar"
     _sensor_profile_map = {
-        "netease_music": "timeline.netease_music",
-        "git_activity": "timeline.git_activity",
-        "terminal_history": "timeline.terminal_history",
-        "screen_time": "timeline.screen_time",
+        "netease_music": "source.netease_music",
+        "git_activity": "source.git_activity",
+        "terminal_history": "source.terminal_history",
+        "screen_time": "source.screen_time",
     }
     if source in _sensor_profile_map:
         return _sensor_profile_map[source]
