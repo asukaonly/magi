@@ -26,13 +26,10 @@ class L2GraphFastTrackMixin:
         """Return True when Phase 1 output is simple enough to skip Phase 2."""
         if not phase1_result.fact_claims:
             return False
-        if policy.allow_assertion_write:
+        if policy.allow_assertion_write and profile.allow_assertion:
             return False
         for claim in phase1_result.fact_claims:
             if self._normalize_predicate(claim.predicate) not in PREDICATE_REGISTRY:  # type: ignore[attr-defined]
-                return False
-        for entity in phase1_result.entities:
-            if getattr(entity, "is_new", False):
                 return False
         if any(
             claim.fact_kind and "assertion" in claim.fact_kind.lower()

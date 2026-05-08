@@ -110,6 +110,59 @@ class L2EntityCatalogQueryMixin:
             order_by_recency=order_by_recency,
         )
 
+    async def find_resolution_candidates(
+        self,
+        mention_text: str,
+        *,
+        entity_type: str | None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Return candidate entities for LLM disambiguation.
+
+        Candidate recall is ordered by precision first: exact/text and semantic
+        matches for the requested type, then a recency fallback so small or
+        unembedded catalogs still have useful candidates.
+        """
+        host = self._query_host()
+        await host.initialize()
+        query_text = str(mention_text or "").strip()
+        normalized_type = _normalize_catalog_entity_type(entity_type)
+        normalized_limit = max(1, int(limit))
+        if not query_text or not normalized_type:
+            return []
+
+        candidates: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+
+        def _append(items: list[dict[str, Any]]) -> None:
+            for item in items:
+                entity_id = str(item.get("entity_id") or "").strip()
+                if not entity_id or entity_id in seen_ids:
+                    continue
+                if str(item.get("entity_type") or "").strip() != normalized_type:
+                    continue
+                seen_ids.add(entity_id)
+                candidates.append(item)
+                if len(candidates) >= normalized_limit:
+                    break
+
+        text_and_semantic_matches = await self.resolve_query_entities(
+            query_text,
+            limit=normalized_limit,
+            entity_types=[normalized_type],
+        )
+        _append(text_and_semantic_matches)
+
+        if len(candidates) < normalized_limit:
+            recent_fallback = await self.list_entities_by_type(
+                entity_type=normalized_type,
+                limit=normalized_limit,
+                order_by_recency=True,
+            )
+            _append(recent_fallback)
+
+        return candidates[:normalized_limit]
+
     async def find_by_canonical_name(
         self,
         canonical_name: str,

@@ -146,10 +146,10 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
 
             # Needs LLM resolution — collect candidates
             if self._llm_service is not None and entity_type:
-                candidate_entities = await self._entity_catalog.list_entities_by_type(
+                candidate_entities = await self._entity_catalog.find_resolution_candidates(
+                    mention_text,
                     entity_type=entity_type,
                     limit=20,
-                    order_by_recency=True,
                 )
                 if candidate_entities:
                     mention_key = f"{len(llm_batch_items)}"

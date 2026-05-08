@@ -88,6 +88,8 @@ def test_yaml_profiles_load_chrome_history():
     assert profile.allow_assertion is False
     assert "VISITED" in profile.allowed_predicates
     assert profile.extraction_instructions is not None
+    assert "Preserve the source title language/script" in profile.extraction_instructions
+    assert "Do NOT infer the content entity name from URL domains" in profile.extraction_instructions
 
 
 def test_yaml_profiles_always_include_default_chat():

@@ -189,6 +189,79 @@ async def test_find_by_canonical_name_matches_case_insensitively_and_filters_typ
 
 
 @pytest.mark.asyncio
+async def test_find_resolution_candidates_prefers_semantic_hits_before_recent_fallback():
+    from magi.core.sqlite import sqlite_connection_async
+    from magi.memory.l2.entities.catalog import L2EntityCatalog
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        db_path = str(Path(temp_dir) / "memory.db")
+        async with sqlite_connection_async(db_path) as db:
+            await db.executescript(
+                """
+                CREATE TABLE entity_catalog (
+                    entity_id TEXT PRIMARY KEY,
+                    canonical_name TEXT NOT NULL,
+                    entity_type TEXT NOT NULL,
+                    embedding_status TEXT NOT NULL DEFAULT 'disabled',
+                    embedding_profile_id TEXT,
+                    last_embedded_at REAL,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL
+                );
+                CREATE TABLE entity_aliases (
+                    alias_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    entity_id TEXT NOT NULL,
+                    alias_text TEXT NOT NULL,
+                    normalized_alias TEXT NOT NULL,
+                    confidence REAL NOT NULL DEFAULT 1.0,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL,
+                    UNIQUE(entity_id, normalized_alias)
+                );
+                """
+            )
+            await db.commit()
+        catalog = L2EntityCatalog(db_path=db_path)
+        await catalog.initialize()
+
+        await catalog.upsert_entity(
+            canonical_name="Wurm Hunger",
+            entity_type="media",
+            entity_id="media:wurm-hunger",
+        )
+        await catalog.upsert_entity(
+            canonical_name="Recent Show",
+            entity_type="media",
+            entity_id="media:recent-show",
+        )
+        semantic_queries: list[tuple[str, int]] = []
+
+        async def fake_semantic_search(query_text: str, *, limit: int = 10):
+            semantic_queries.append((query_text, limit))
+            return [
+                {
+                    "entity_id": "media:wurm-hunger",
+                    "canonical_name": "Wurm Hunger",
+                    "entity_type": "media",
+                }
+            ]
+
+        catalog.search_entities_semantic = fake_semantic_search  # type: ignore[method-assign]
+
+        candidates = await catalog.find_resolution_candidates(
+            "蠕动的饥饿",
+            entity_type="media",
+            limit=2,
+        )
+
+        assert semantic_queries == [("蠕动的饥饿", 2)]
+        assert [candidate["entity_id"] for candidate in candidates] == [
+            "media:wurm-hunger",
+            "media:recent-show",
+        ]
+
+
+@pytest.mark.asyncio
 async def test_upsert_entity_normalizes_alias_entity_type_before_persistence():
     from magi.memory.l2.entities.catalog import L2EntityCatalog
 

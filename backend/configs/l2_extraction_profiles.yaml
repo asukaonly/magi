@@ -98,6 +98,17 @@ profiles:
       - WORKS_WITH: for professional tools/technologies seen in work context
 
       Entity extraction rules (IMPORTANT):
+      - Preserve the source title language/script for content entities. Do NOT
+        translate Chinese, Japanese, Korean, or other non-Latin names into
+        English, pinyin, romaji, or URL-style slugs. If a known English title or
+        romanization is useful, put it in alias_signals only.
+      - Do NOT infer the content entity name from URL domains or path slugs when
+        the page title contains a readable subject name. Domains such as
+        fandom.com, wiki.gg, wikipedia.org, google.com, and platform hostnames
+        are source/platform context, not the canonical content name.
+      - For Fandom/Wiki-style titles such as '{page} | {work} Wiki | Fandom',
+        extract '{page}' and '{work}' in their original language. Treat Fandom
+        or Wiki as the platform/context, not as part of the content entity name.
       - Be SELECTIVE: only extract entities that reveal user interests,
         habits, or tool usage. Not every page title deserves an entity.
       - SKIP noise: error messages, email addresses, IP addresses,
