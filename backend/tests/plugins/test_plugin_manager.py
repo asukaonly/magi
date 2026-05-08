@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 import sys
 
@@ -10,6 +9,8 @@ from magi.config.models import AppConfig, PluginSettings
 from magi.plugins import Plugin
 from magi.plugins import installation as installation_module
 from magi.plugins.installation import (
+    PLUGIN_DEPENDENCY_PYTHON_ENV,
+    _build_dependency_install_command,
     _filter_installable_dependencies,
     _run_dependency_install_with_progress,
     replace_plugin_directory,
@@ -425,6 +426,42 @@ def test_dependency_install_runner_reports_subprocess_output() -> None:
         ("dependencies", "collecting", None),
         ("dependencies", "installing", None),
     ]
+
+
+def test_dependency_install_command_uses_configured_python_when_frozen(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    current_python = sys.executable
+    monkeypatch.setenv(PLUGIN_DEPENDENCY_PYTHON_ENV, current_python)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(
+        sys,
+        "executable",
+        "/Applications/Magi.app/Contents/Resources/sidecar-dist/magi-backend",
+    )
+
+    cmd = _build_dependency_install_command(["example-package"], tmp_path / ".deps", quiet=False)
+
+    assert cmd[:4] == [current_python, "-m", "pip", "install"]
+
+
+def test_dependency_install_command_rejects_frozen_sidecar_without_python(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv(PLUGIN_DEPENDENCY_PYTHON_ENV, raising=False)
+    monkeypatch.delenv("MAGI_BACKEND_PYTHON", raising=False)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(
+        sys,
+        "executable",
+        "/Applications/Magi.app/Contents/Resources/sidecar-dist/magi-backend",
+    )
+    monkeypatch.setattr(installation_module.shutil, "which", lambda _name: None)
+
+    with pytest.raises(RuntimeError, match=PLUGIN_DEPENDENCY_PYTHON_ENV):
+        _build_dependency_install_command(["example-package"], tmp_path / ".deps", quiet=False)
 
 
 def test_replace_plugin_directory_rolls_back_when_promotion_fails(

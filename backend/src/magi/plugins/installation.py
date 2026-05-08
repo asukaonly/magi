@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import logging
+import os
 from pathlib import Path
 from queue import Empty, Queue
 import shutil
@@ -25,6 +26,8 @@ from .contracts import PluginManifest, PluginPackageState
 
 logger = logging.getLogger(__name__)
 InstallProgressReporter = Callable[[str, str, float | None], None]
+PLUGIN_DEPENDENCY_PYTHON_ENV = "MAGI_PLUGIN_PYTHON"
+BACKEND_PYTHON_ENV = "MAGI_BACKEND_PYTHON"
 
 
 def _report_install_progress(
@@ -56,6 +59,114 @@ def _filter_installable_dependencies(dependencies: list[str]) -> tuple[list[str]
         installable.append(dependency)
 
     return installable, skipped
+
+
+def _is_frozen_runtime() -> bool:
+    return bool(getattr(sys, "frozen", False))
+
+
+def _looks_like_sidecar_executable(executable: str) -> bool:
+    name = Path(executable).name.lower()
+    return name in {"magi-backend", "magi-backend.exe"}
+
+
+def _dependency_python_candidates() -> list[str]:
+    candidates: list[str] = []
+    for env_name in (PLUGIN_DEPENDENCY_PYTHON_ENV, BACKEND_PYTHON_ENV):
+        configured = os.environ.get(env_name)
+        if configured:
+            candidates.append(configured)
+
+    if not _is_frozen_runtime() and sys.executable:
+        candidates.append(sys.executable)
+
+    for executable_name in ("python3", "python"):
+        discovered = shutil.which(executable_name)
+        if discovered:
+            candidates.append(discovered)
+
+    unique_candidates: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        normalized = str(Path(candidate).expanduser())
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        unique_candidates.append(normalized)
+    return unique_candidates
+
+
+def _probe_python_for_pip(executable: str) -> tuple[bool, str]:
+    if _looks_like_sidecar_executable(executable):
+        return False, "candidate is the Magi sidecar executable"
+
+    probe = (
+        "import importlib.util, sys; "
+        "has_pip = importlib.util.find_spec('pip') is not None; "
+        "print(f'{sys.version_info.major}.{sys.version_info.minor} {int(has_pip)}')"
+    )
+    try:
+        result = subprocess.run(
+            [executable, "-c", probe],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return False, str(exc)
+
+    if result.returncode != 0:
+        return False, (result.stderr or result.stdout).strip() or "probe failed"
+
+    output = result.stdout.strip().split()
+    if len(output) != 2:
+        return False, "probe returned an unexpected response"
+
+    expected_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+    if output[0] != expected_version:
+        return False, f"Python {output[0]} does not match runtime Python {expected_version}"
+    if output[1] != "1":
+        return False, "pip is not importable"
+    return True, ""
+
+
+def _resolve_dependency_python_executable() -> str:
+    rejected: list[str] = []
+    for candidate in _dependency_python_candidates():
+        ok, reason = _probe_python_for_pip(candidate)
+        if ok:
+            return candidate
+        rejected.append(f"{candidate}: {reason}")
+
+    expected_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+    details = "; ".join(rejected) if rejected else "no candidate Python executable found"
+    raise RuntimeError(
+        "Cannot install plugin dependencies because no Python interpreter with pip is available. "
+        f"Set {PLUGIN_DEPENDENCY_PYTHON_ENV} to a Python {expected_version} executable with pip. "
+        f"Checked: {details}"
+    )
+
+
+def _build_dependency_install_command(
+    dependencies: list[str],
+    deps_dir: Path,
+    *,
+    quiet: bool,
+) -> list[str]:
+    cmd = [
+        _resolve_dependency_python_executable(),
+        "-m",
+        "pip",
+        "install",
+        "--target",
+        str(deps_dir),
+        "--no-user",
+        "--disable-pip-version-check",
+        *dependencies,
+    ]
+    if quiet:
+        cmd.insert(-len(dependencies), "--quiet")
+    return cmd
 
 
 def replace_plugin_directory(
@@ -386,22 +497,22 @@ class PluginInstallationMixin:
 
         deps_dir = plugin_dir / ".deps"
         deps_dir.mkdir(exist_ok=True)
-        cmd = [
-            sys.executable,
-            "-m",
-            "pip",
-            "install",
-            "--target",
-            str(deps_dir),
-            "--no-user",
-            "--disable-pip-version-check",
-            *installable_dependencies,
-        ]
-        if progress_reporter is None:
-            cmd.insert(-len(installable_dependencies), "--quiet")
+        try:
+            cmd = _build_dependency_install_command(
+                installable_dependencies,
+                deps_dir,
+                quiet=progress_reporter is None,
+            )
+        except RuntimeError as exc:
+            _report_install_progress(progress_reporter, "dependencies", str(exc), 56.0)
+            raise
         logger.info(
             "Installing plugin dependencies",
-            extra={"deps": installable_dependencies, "target": str(deps_dir)},
+            extra={
+                "deps": installable_dependencies,
+                "target": str(deps_dir),
+                "python": cmd[0],
+            },
         )
         _report_install_progress(
             progress_reporter,
