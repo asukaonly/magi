@@ -18,7 +18,9 @@ PRODUCTION_SQL_RE = re.compile(
     r"(CREATE)\s+INDEX(?:\s+IF\s+NOT\s+EXISTS)?\s+([A-Za-z_][A-Za-z0-9_]*)\s+ON\s+([A-Za-z_][A-Za-z0-9_]*))\b",
     re.IGNORECASE,
 )
-TEST_MODULE_RE = re.compile(r"\n\s*#\[cfg\(test\)\]")
+TEST_MODULE_RE = re.compile(
+    r"\n\s*#\[cfg\(test\)\]\s*(?:\n\s*#\[[^\n]+\]\s*)*\n\s*mod\s+[A-Za-z_][A-Za-z0-9_]*\s*\{"
+)
 
 
 @dataclass(frozen=True, order=True)
