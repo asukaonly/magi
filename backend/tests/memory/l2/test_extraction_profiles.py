@@ -4,6 +4,66 @@ import time
 
 from magi.events.events import Event, EventLevel, EventTypes
 from magi.memory.event_contracts import normalize_runtime_event
+from magi_plugin_sdk import ExtractionProfileSpec
+
+
+def _plugin_profile_specs() -> list[ExtractionProfileSpec]:
+    return [
+        ExtractionProfileSpec(
+            profile_id="source.calendar",
+            source_types=["calendar"],
+            allowed_entity_types=["activity", "event", "place", "organization"],
+            allowed_predicates=["ATTENDED", "PLANS_TO", "VISITED"],
+            allow_graph=True,
+            allow_assertion=False,
+        ),
+        ExtractionProfileSpec(
+            profile_id="source.chrome_history",
+            source_types=["chrome_history"],
+            allowed_entity_types=["product", "software", "technology", "media", "person", "organization", "topic"],
+            allowed_predicates=["VISITED", "USES", "INTERESTED_IN", "FOLLOWS", "VIEWED", "WORKS_WITH"],
+            allow_graph=True,
+            allow_assertion=False,
+            extraction_instructions=(
+                "Preserve the source title language/script. "
+                "Do NOT infer the content entity name from URL domains."
+            ),
+        ),
+        ExtractionProfileSpec(
+            profile_id="source.netease_music",
+            source_types=["netease_music"],
+            allowed_entity_types=["media", "person", "group"],
+            allowed_predicates=["LISTENED", "LIKES", "INTERESTED_IN"],
+            allowed_assertion_families=["taste_profile", "preference_profile"],
+            allow_graph=True,
+            allow_assertion=True,
+            extraction_instructions="NetEase Cloud Music listening profile.",
+        ),
+        ExtractionProfileSpec(
+            profile_id="source.git_activity",
+            source_types=["git_activity"],
+            allowed_entity_types=["software", "technology", "topic"],
+            allowed_predicates=["COMMITTED", "CHECKED_OUT", "MERGED", "REBASED", "WORKS_WITH", "USES"],
+            allow_graph=True,
+            allow_assertion=False,
+        ),
+        ExtractionProfileSpec(
+            profile_id="source.terminal_history",
+            source_types=["terminal_history"],
+            allowed_entity_types=["software", "technology"],
+            allowed_predicates=["EXECUTED", "USED", "USES"],
+            allow_graph=True,
+            allow_assertion=False,
+        ),
+        ExtractionProfileSpec(
+            profile_id="source.screen_time",
+            source_types=["screen_time"],
+            allowed_entity_types=["software", "media"],
+            allowed_predicates=["USES", "VIEWED"],
+            allow_graph=True,
+            allow_assertion=False,
+        ),
+    ]
 
 
 def _make_event(*, source: str, content: str = "hello"):
@@ -35,23 +95,23 @@ def test_default_chat_profile_exposes_full_allowlists():
     assert profile.allow_assertion is True
 
 
-def test_timeline_source_uses_calendar_profile_restrictions():
+def test_timeline_source_falls_back_to_chat_profile():
     from magi.memory.l2.extraction_profiles import resolve_extraction_profile
 
     profile = resolve_extraction_profile(_make_event(source="timeline", content="Visited GitHub today"))
 
-    assert profile.profile_id == "timeline.calendar"
-    assert profile.allowed_entity_types == frozenset({"activity", "event", "place", "organization"})
-    assert profile.allowed_predicates == frozenset({"ATTENDED", "PLANS_TO", "VISITED"})
-    assert profile.allow_assertion is False
+    assert profile.profile_id == "chat.user_message"
 
 
 def test_calendar_source_uses_calendar_profile_restrictions():
     from magi.memory.l2.extraction_profiles import resolve_extraction_profile
 
-    profile = resolve_extraction_profile(_make_event(source="calendar", content="Dinner with Alice tomorrow"))
+    profile = resolve_extraction_profile(
+        _make_event(source="calendar", content="Dinner with Alice tomorrow"),
+        plugin_profile_specs=_plugin_profile_specs(),
+    )
 
-    assert profile.profile_id == "timeline.calendar"
+    assert profile.profile_id == "source.calendar"
     assert profile.allow_graph is True
     assert profile.allow_assertion is False
 
@@ -60,10 +120,11 @@ def test_chrome_history_source_uses_chrome_history_profile_restrictions():
     from magi.memory.l2.extraction_profiles import resolve_extraction_profile
 
     profile = resolve_extraction_profile(
-        _make_event(source="chrome_history", content="Visited GitHub repository page")
+        _make_event(source="chrome_history", content="Visited GitHub repository page"),
+        plugin_profile_specs=_plugin_profile_specs(),
     )
 
-    assert profile.profile_id == "timeline.chrome_history"
+    assert profile.profile_id == "source.chrome_history"
     assert profile.allowed_entity_types == frozenset({
         "product", "software", "technology", "media",
         "person", "organization", "topic",
@@ -78,16 +139,18 @@ def test_chrome_history_source_uses_chrome_history_profile_restrictions():
 # ── YAML config loading ──
 
 
-def test_yaml_profiles_load_chrome_history():
-    from magi.memory.l2.extraction_profiles import get_extraction_profiles
+def test_plugin_profiles_load_chrome_history():
+    from magi.memory.l2.extraction_profiles import build_extraction_profile_registry
 
-    profiles = get_extraction_profiles()
-    assert "timeline.chrome_history" in profiles
-    profile = profiles["timeline.chrome_history"]
-    assert profile.profile_id == "timeline.chrome_history"
+    profiles = build_extraction_profile_registry(_plugin_profile_specs())
+    assert "source.chrome_history" in profiles
+    profile = profiles["source.chrome_history"]
+    assert profile.profile_id == "source.chrome_history"
     assert profile.allow_assertion is False
     assert "VISITED" in profile.allowed_predicates
     assert profile.extraction_instructions is not None
+    assert "Preserve the source title language/script" in profile.extraction_instructions
+    assert "Do NOT infer the content entity name from URL domains" in profile.extraction_instructions
 
 
 def test_yaml_profiles_always_include_default_chat():
@@ -121,9 +184,10 @@ def test_netease_music_source_uses_music_profile():
     from magi.memory.l2.extraction_profiles import resolve_extraction_profile
 
     profile = resolve_extraction_profile(
-        _make_event(source="netease_music", content="Playing a song")
+        _make_event(source="netease_music", content="Playing a song"),
+        plugin_profile_specs=_plugin_profile_specs(),
     )
-    assert profile.profile_id == "timeline.netease_music"
+    assert profile.profile_id == "source.netease_music"
     assert profile.allow_graph is True
     assert profile.allow_assertion is True
     assert "LISTENED" in profile.allowed_predicates
@@ -136,9 +200,10 @@ def test_git_activity_source_uses_git_profile():
     from magi.memory.l2.extraction_profiles import resolve_extraction_profile
 
     profile = resolve_extraction_profile(
-        _make_event(source="git_activity", content="commit abc")
+        _make_event(source="git_activity", content="commit abc"),
+        plugin_profile_specs=_plugin_profile_specs(),
     )
-    assert profile.profile_id == "timeline.git_activity"
+    assert profile.profile_id == "source.git_activity"
     assert profile.allow_graph is True
     assert profile.allow_assertion is False
     assert "COMMITTED" in profile.allowed_predicates
@@ -151,9 +216,10 @@ def test_terminal_history_source_uses_terminal_profile():
     from magi.memory.l2.extraction_profiles import resolve_extraction_profile
 
     profile = resolve_extraction_profile(
-        _make_event(source="terminal_history", content="docker ps")
+        _make_event(source="terminal_history", content="docker ps"),
+        plugin_profile_specs=_plugin_profile_specs(),
     )
-    assert profile.profile_id == "timeline.terminal_history"
+    assert profile.profile_id == "source.terminal_history"
     assert profile.allow_graph is True
     assert profile.allow_assertion is False
     assert "EXECUTED" in profile.allowed_predicates
@@ -165,34 +231,35 @@ def test_screen_time_source_uses_screen_time_profile():
     from magi.memory.l2.extraction_profiles import resolve_extraction_profile
 
     profile = resolve_extraction_profile(
-        _make_event(source="screen_time", content="App usage")
+        _make_event(source="screen_time", content="App usage"),
+        plugin_profile_specs=_plugin_profile_specs(),
     )
-    assert profile.profile_id == "timeline.screen_time"
+    assert profile.profile_id == "source.screen_time"
     assert profile.allow_graph is True
     assert profile.allow_assertion is False
     assert "USES" in profile.allowed_predicates
     assert "software" in profile.allowed_entity_types
 
 
-def test_yaml_profiles_load_all_sensor_profiles():
-    from magi.memory.l2.extraction_profiles import get_extraction_profiles
+def test_plugin_profiles_load_all_sensor_profiles():
+    from magi.memory.l2.extraction_profiles import build_extraction_profile_registry
 
-    profiles = get_extraction_profiles()
+    profiles = build_extraction_profile_registry(_plugin_profile_specs())
     expected = {
-        "timeline.netease_music",
-        "timeline.git_activity",
-        "timeline.terminal_history",
-        "timeline.screen_time",
+        "source.netease_music",
+        "source.git_activity",
+        "source.terminal_history",
+        "source.screen_time",
     }
     for pid in expected:
         assert pid in profiles, f"Missing profile: {pid}"
 
 
 def test_netease_music_profile_allows_taste_assertions():
-    from magi.memory.l2.extraction_profiles import get_extraction_profiles
+    from magi.memory.l2.extraction_profiles import build_extraction_profile_registry
 
-    profiles = get_extraction_profiles()
-    music_profile = profiles["timeline.netease_music"]
+    profiles = build_extraction_profile_registry(_plugin_profile_specs())
+    music_profile = profiles["source.netease_music"]
     assert music_profile.allow_assertion is True
     assert "taste_profile" in music_profile.allowed_assertion_families
     assert "preference_profile" in music_profile.allowed_assertion_families
@@ -206,3 +273,33 @@ def test_unknown_source_still_falls_back_to_chat():
         _make_event(source="some_unknown_sensor", content="data")
     )
     assert profile.profile_id == "chat.user_message"
+
+
+def test_invalid_plugin_profile_is_skipped():
+    from magi.memory.l2.extraction_profiles import build_extraction_profile_registry
+
+    profiles = build_extraction_profile_registry([
+        {
+            "profile_id": "source.bad_sensor",
+            "source_types": ["bad_sensor"],
+            "allowed_entity_types": ["not_a_real_entity_type"],
+        }
+    ])
+
+    assert "source.bad_sensor" not in profiles
+    assert "chat.user_message" in profiles
+
+
+def test_plugin_profile_cannot_override_host_chat_profile():
+    from magi.memory.l2.extraction_profiles import build_extraction_profile_registry
+
+    profiles = build_extraction_profile_registry([
+        ExtractionProfileSpec(
+            profile_id="chat.user_message",
+            source_types=["chat"],
+            allowed_entity_types=["software"],
+            allowed_predicates=["USES"],
+        )
+    ])
+
+    assert profiles["chat.user_message"].allowed_entity_types != frozenset({"software"})

@@ -12,7 +12,7 @@ from magi.plugins.installation import replace_plugin_directory
 from magi.plugins.manager import PluginManager, build_plugin_runtime
 from magi.plugins.sensors import SensorRegistry
 from magi.tools.registry import ToolRegistry, tool_registry as shared_tool_registry
-from magi_plugin_sdk import TemporalSummarySourceFeatures
+from magi_plugin_sdk import ExtractionProfileSpec, TemporalSummarySourceFeatures
 
 
 def _apply_updates(config: AppConfig, updates: dict[str, object]) -> None:
@@ -487,6 +487,33 @@ def test_plugin_manager_collects_temporal_summary_features_from_loaded_plugins()
             ],
         }
     }
+
+
+def test_plugin_manager_collects_extraction_profiles_from_loaded_plugins() -> None:
+    class SourceProfilePlugin(Plugin):
+        def get_extraction_profiles(self):  # type: ignore[no-untyped-def]
+            return [
+                ExtractionProfileSpec(
+                    profile_id="source.example",
+                    source_types=["example"],
+                    allowed_entity_types=["software"],
+                    allowed_predicates=["USES"],
+                    allow_assertion=False,
+                )
+            ]
+
+    manager = PluginManager(
+        tool_registry=ToolRegistry(),
+        sensor_registry=SensorRegistry(),
+        search_paths=[],
+    )
+    manager._plugin_instances["source-profile"] = SourceProfilePlugin()
+
+    profiles = manager.iter_extraction_profiles()
+
+    assert len(profiles) == 1
+    assert profiles[0].profile_id == "source.example"
+    assert profiles[0].source_types == ["example"]
 
 
 def test_plugin_manager_passes_temporal_feature_budget_to_new_hooks() -> None:

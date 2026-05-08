@@ -77,8 +77,10 @@ class L2EntityIdResolutionMixin(L2EntityResolutionHelperMixin):
             return alias_result
 
         if self._llm_service is not None and entity_type:
-            candidate_entities = await self._entity_catalog.list_entities_by_type(
-                entity_type=entity_type, limit=20, order_by_recency=True
+            candidate_entities = await self._entity_catalog.find_resolution_candidates(
+                mention_text,
+                entity_type=entity_type,
+                limit=20,
             )
             if candidate_entities:
                 llm_resolution = await self._llm_service.resolve_entity(

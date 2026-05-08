@@ -50,8 +50,26 @@ describe('MemoryEventsPage search interactions', () => {
           retention_class: 'permanent',
           importance_score: 0.8,
           cognition_eligible: true,
+          embedding_status: 'ready',
+          embedding_profile_id: 'profile-a',
+          embedding_chunk_count: 2,
+          last_embedded_at: 1710000010,
+          metadata_json: {
+            timeline: {
+              title: 'West Lake walk notes',
+              source_app: 'Chat',
+              provenance: {
+                track_name: 'Heavenly Me',
+                artist_name: 'AIYUE',
+                album_name: 'Heavenly Me',
+                play_duration_sec: 180,
+              },
+            },
+            l2_batch_owner: 'chat_projector',
+          },
         },
       ],
+      l1Total: 1,
       queryL1Events,
       l2Relations: [],
       l2Assertions: [],
@@ -143,6 +161,44 @@ describe('MemoryEventsPage search interactions', () => {
 
     expect(screen.getByRole('button', { name: 'chat_projector' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'chrome_history' })).toBeInTheDocument();
+  });
+
+  it('shows compact header counts instead of statistic cards', () => {
+    render(
+      <MemoryRouter>
+        <MemoryEventsPage />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText('memory.l1.totalEvents')).toBeInTheDocument();
+    expect(screen.getByText('memory.pages.events.matchedEventsLabel')).toBeInTheDocument();
+    expect(screen.getByText('2')).toBeInTheDocument();
+    expect(screen.getByText('1')).toBeInTheDocument();
+    expect(screen.queryByText('memory.l1.events')).not.toBeInTheDocument();
+    expect(screen.queryByText('memory.pages.events.visibleEventsLabel')).not.toBeInTheDocument();
+    expect(screen.queryByText('memory.pages.events.sourceSummaryTitle')).not.toBeInTheDocument();
+    expect(screen.queryByText('memory.pages.events.domainSummaryTitle')).not.toBeInTheDocument();
+  });
+
+  it('expands a row to reveal event audit details', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <MemoryRouter>
+        <MemoryEventsPage />
+      </MemoryRouter>
+    );
+
+    await user.click(screen.getByRole('button', { name: /memory\.l1\.toggleEventDetails/ }));
+
+    expect(screen.getByText('memory.l1.sourceMetadata')).toBeInTheDocument();
+    expect(screen.getByText('memory.l1.embeddingStatus')).toBeInTheDocument();
+    expect(screen.getByText('ready')).toBeInTheDocument();
+    expect(screen.getByText('Artist Name')).toBeInTheDocument();
+    expect(screen.getByText('AIYUE')).toBeInTheDocument();
+    expect(screen.getByText('Album Name')).toBeInTheDocument();
+    expect(screen.getByText('memory.l1.rawMetadata')).toBeInTheDocument();
+    expect(screen.getByText('memory.l1.technicalIdentifiers')).toBeInTheDocument();
   });
 
   it('passes through a single selected start date without forcing an end date', async () => {

@@ -1,4 +1,5 @@
 """Embedding helper functions for L4 procedural memory."""
+
 from __future__ import annotations
 
 from typing import Any, cast
@@ -24,6 +25,7 @@ def build_embedding_pipeline(
     return MemoryEmbeddingPipeline(
         embedding_service=embedding_service,
         vector_index=vector_index,
+        text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION,
     )
 
 
@@ -33,11 +35,14 @@ def build_skill_embedding_text(
     skill_category: str,
     optimized_prompt: str | None,
 ) -> str:
-    return cast(str, build_l4_embedding_text(
-        skill_name=skill_name,
-        skill_category=skill_category,
-        optimized_prompt=optimized_prompt,
-    ))
+    return cast(
+        str,
+        build_l4_embedding_text(
+            skill_name=skill_name,
+            skill_category=skill_category,
+            optimized_prompt=optimized_prompt,
+        ),
+    )
 
 
 def chunk_id_for_skill(skill_id: str, chunk_index: int) -> str:
@@ -162,7 +167,9 @@ async def update_skill_embedding_state(
         await db.commit()
 
 
-async def fetch_skill_chunk_rows_by_ids(*, db_path: str, chunk_ids: list[str]) -> list[aiosqlite.Row]:
+async def fetch_skill_chunk_rows_by_ids(
+    *, db_path: str, chunk_ids: list[str]
+) -> list[aiosqlite.Row]:
     if not chunk_ids:
         return []
     placeholders = ", ".join("?" for _ in chunk_ids)

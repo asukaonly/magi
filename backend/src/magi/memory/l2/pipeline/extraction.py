@@ -126,7 +126,15 @@ class L2PipelineExtractionMixin:
             or policy.allow_graph_write
             else []
         )
-        extraction_profile = resolve_extraction_profile(stored_event)
+        extraction_profile_specs = (
+            list(self._extraction_profile_provider())
+            if getattr(self, "_extraction_profile_provider", None) is not None
+            else None
+        )
+        extraction_profile = resolve_extraction_profile(
+            stored_event,
+            plugin_profile_specs=extraction_profile_specs,
+        )
         self_entity_id = self._resolve_self_entity_id(stored_event)
 
         event_window = L2EventWindow(

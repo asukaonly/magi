@@ -4,6 +4,7 @@ import pytest
 
 from magi.plugins import Plugin
 from magi_plugin_sdk import (
+    ExtractionProfileSpec,
     PluginI18n,
     PluginSettingsActionResult,
     TemporalSummaryFeatureBudget,
@@ -29,6 +30,7 @@ def test_plugin_base_exposes_host_runtime_hooks() -> None:
         "poll_settings_action",
         "cancel_settings_action",
         "build_temporal_summary_features",
+        "get_extraction_profiles",
         "get_plugin_ingress_registrations",
     ]
 
@@ -53,6 +55,7 @@ def test_plugin_base_host_hooks_have_safe_defaults() -> None:
         period_end=1.0,
         budget=TemporalSummaryFeatureBudget(source_type="example"),
     ) is None
+    assert plugin.get_extraction_profiles() == []
     assert plugin.get_plugin_ingress_registrations(runtime_paths=object()) == []
 
     with pytest.raises(KeyError):
@@ -118,3 +121,19 @@ def test_temporal_summary_feature_contracts_are_public() -> None:
 
     assert budget.selection_policy == "source_aware_compaction_v1"
     assert features.model_dump()["source_type"] == "music"
+
+
+def test_extraction_profile_spec_contract_is_public() -> None:
+    spec = ExtractionProfileSpec(
+        profile_id="source.example",
+        source_types=["example"],
+        allowed_entity_types=["software"],
+        allowed_predicates=["USES"],
+        allow_assertion=False,
+        extraction_instructions="Treat example events as source-owned observations.",
+    )
+
+    dumped = spec.model_dump()
+    assert dumped["profile_id"] == "source.example"
+    assert dumped["source_types"] == ["example"]
+    assert dumped["allowed_predicates"] == ["USES"]

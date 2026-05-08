@@ -16,6 +16,7 @@ from .events import build_l1_event_query_args, build_l1_events_response
 async def get_l1_events(
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
+    event_id: Optional[str] = Query(default=None),
     event_type: Optional[str] = Query(default=None),
     user_id: Optional[str] = Query(default=None),
     session_id: Optional[str] = Query(default=None),
@@ -31,6 +32,7 @@ async def get_l1_events(
         return {"items": [], "total": 0, "limit": limit, "offset": offset}
 
     query_args = build_l1_event_query_args(
+        event_id=event_id,
         session_id=session_id,
         user_id=user_id,
         event_type=event_type,
@@ -47,8 +49,8 @@ async def get_l1_events(
             **query_args,
             limit=limit,
             offset=offset,
-            include_metadata_json=False,
-            include_embedding_fields=False,
+            include_metadata_json=True,
+            include_embedding_fields=True,
         ),
         unified_memory.l1.count_events(
             **query_args,

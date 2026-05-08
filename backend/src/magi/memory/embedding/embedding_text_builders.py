@@ -6,6 +6,8 @@ from typing import Any
 
 from ..event_contracts import MemoryEvent
 
+L2_EDGE_EMBEDDING_TEXT_BUILDER_VERSION = "l2_edge_v1"
+
 
 def build_l1_embedding_text(event: MemoryEvent) -> str:
     """Return the canonical L1 text used for embedding."""
@@ -180,4 +182,5 @@ __all__ = [
     "build_l2_edge_embedding_text",
     "build_l3_embedding_text",
     "build_l4_embedding_text",
+    "L2_EDGE_EMBEDDING_TEXT_BUILDER_VERSION",
 ]

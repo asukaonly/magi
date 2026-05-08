@@ -1,5 +1,6 @@
 import { api, unwrapGatewayPayload } from '../client';
 import type { GatewayResponse } from '../client';
+import type { EmbeddingVectorIdentity, VectorLayerId } from './config';
 
 export interface ModelDownloadStatus {
   model: string;
@@ -125,6 +126,11 @@ export interface L1Event {
   cognition_eligible: boolean;
   level?: string | null;
   media_path?: string | null;
+  metadata_json?: Record<string, unknown> | null;
+  embedding_status?: string | null;
+  embedding_profile_id?: string | null;
+  embedding_chunk_count?: number | null;
+  last_embedded_at?: number | null;
   deleted_at?: number | null;
 }
 
@@ -143,6 +149,7 @@ export interface PaginationParams {
 export interface L1EventQueryParams {
   limit?: number;
   offset?: number;
+  event_id?: string;
   event_type?: string;
   user_id?: string;
   session_id?: string;
@@ -166,6 +173,9 @@ export interface L2Relation {
   evidence_event_ids: string[];
   observation_count: number;
   status: string;
+  first_observed_at?: number;
+  last_observed_at?: number;
+  updated_at?: number;
 }
 
 export interface L2Assertion {
@@ -184,6 +194,9 @@ export interface L2Assertion {
   last_validated_at: number;
   user_feedback: string | null;
   user_feedback_at: number | null;
+  status?: string | null;
+  superseded_by?: string | null;
+  superseded_at?: number | null;
 }
 
 export interface L2Entity {
@@ -211,9 +224,14 @@ export interface L2Snapshot {
   core_traits: Record<string, unknown>;
   preferences: Record<string, unknown>;
   relationship_topology?: Record<string, unknown>;
+  current_context?: Record<string, unknown>;
   current_stress_level?: number;
   current_mood?: string | null;
   current_engagement?: number;
+  interaction_count?: number;
+  last_interaction_at?: number | null;
+  last_updated_at?: number;
+  emerging_signals?: Array<Record<string, unknown>>;
 }
 
 export interface L2Episode {
@@ -383,6 +401,47 @@ export interface ClearMemoryResponse {
   warnings?: string[];
 }
 
+export type EmbeddingRebuildJobStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+
+export interface EmbeddingRebuildJobLayer {
+  layer: VectorLayerId;
+  status: EmbeddingRebuildJobStatus;
+  total_items: number;
+  processed_items: number;
+  succeeded_items: number;
+  failed_items: number;
+  error?: string | null;
+  started_at?: number | null;
+  finished_at?: number | null;
+  updated_at: number;
+}
+
+export interface EmbeddingRebuildJob {
+  job_id: string;
+  status: EmbeddingRebuildJobStatus;
+  requested_layers: VectorLayerId[];
+  active_layer?: VectorLayerId | null;
+  total_items: number;
+  processed_items: number;
+  succeeded_items: number;
+  failed_items: number;
+  cancel_requested: boolean;
+  error?: string | null;
+  created_at: number;
+  started_at?: number | null;
+  finished_at?: number | null;
+  updated_at: number;
+  terminal: boolean;
+  layers: EmbeddingRebuildJobLayer[];
+}
+
+export interface EmbeddingVectorStatus {
+  ready_counts: Record<VectorLayerId, number>;
+  ready_total: number;
+  active_identities: Record<VectorLayerId, EmbeddingVectorIdentity | null>;
+  latest_job?: EmbeddingRebuildJob | null;
+}
+
 export interface MemorySearchResultPayload {
   l0_workbench: Array<Record<string, unknown>>;
   l1_events: Array<Record<string, unknown>>;
@@ -482,6 +541,14 @@ export const memoryApi = {
   // Statistics & Search
   getStatistics: async (): Promise<MemoryStatistics> =>
     unwrapMemoryResponse(await api.get<MemoryStatistics>('/memory/statistics')),
+  getEmbeddingVectorStatus: async (): Promise<EmbeddingVectorStatus> =>
+    unwrapMemoryResponse(await api.get<EmbeddingVectorStatus>('/memory/embeddings/status')),
+  startEmbeddingRebuild: async (layers?: VectorLayerId[]): Promise<EmbeddingRebuildJob> =>
+    unwrapMemoryResponse(await api.post<EmbeddingRebuildJob>('/memory/embeddings/rebuild', { layers })),
+  getEmbeddingRebuildJob: async (jobId: string): Promise<EmbeddingRebuildJob> =>
+    unwrapMemoryResponse(await api.get<EmbeddingRebuildJob>(`/memory/embeddings/rebuild/${jobId}`)),
+  cancelEmbeddingRebuild: async (jobId: string): Promise<EmbeddingRebuildJob> =>
+    unwrapMemoryResponse(await api.post<EmbeddingRebuildJob>(`/memory/embeddings/rebuild/${jobId}/cancel`)),
   search: async (query: string, options?: { limit?: number; query_mode?: MemorySearchQueryMode }): Promise<MemorySearchResultPayload> => {
     const payload: { query: string; limit: number; query_mode?: MemorySearchQueryMode } = {
       query,

@@ -1,4 +1,4 @@
-import { type Dispatch, type SetStateAction, useCallback, useState } from 'react';
+import { type Dispatch, type SetStateAction, useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
@@ -49,6 +49,14 @@ interface UseSettingsPersistenceReturn {
   saving: boolean;
   handleSaveChanges: () => Promise<void>;
   handleDiscardChanges: () => Promise<void>;
+  embeddingPreflightPrompt: EmbeddingPreflightPrompt | null;
+  confirmEmbeddingPreflight: () => void;
+  cancelEmbeddingPreflight: () => void;
+}
+
+export interface EmbeddingPreflightPrompt {
+  readyTotal: number;
+  layers: string;
 }
 
 export function useSettingsPersistence({
@@ -81,6 +89,29 @@ export function useSettingsPersistence({
 }: UseSettingsPersistenceParams): UseSettingsPersistenceReturn {
   const { t } = useTranslation('app');
   const [saving, setSaving] = useState(false);
+  const [embeddingPreflightPrompt, setEmbeddingPreflightPrompt] = useState<EmbeddingPreflightPrompt | null>(null);
+  const embeddingPreflightResolverRef = useRef<((confirmed: boolean) => void) | null>(null);
+
+  const requestEmbeddingPreflightConfirmation = useCallback((prompt: EmbeddingPreflightPrompt) => {
+    return new Promise<boolean>((resolve) => {
+      embeddingPreflightResolverRef.current = resolve;
+      setEmbeddingPreflightPrompt(prompt);
+    });
+  }, []);
+
+  const resolveEmbeddingPreflightConfirmation = useCallback((confirmed: boolean) => {
+    embeddingPreflightResolverRef.current?.(confirmed);
+    embeddingPreflightResolverRef.current = null;
+    setEmbeddingPreflightPrompt(null);
+  }, []);
+
+  const confirmEmbeddingPreflight = useCallback(() => {
+    resolveEmbeddingPreflightConfirmation(true);
+  }, [resolveEmbeddingPreflightConfirmation]);
+
+  const cancelEmbeddingPreflight = useCallback(() => {
+    resolveEmbeddingPreflightConfirmation(false);
+  }, [resolveEmbeddingPreflightConfirmation]);
 
   const handleSaveChanges = useCallback(async () => {
     setSaving(true);
@@ -93,6 +124,25 @@ export function useSettingsPersistence({
       let persistedConfig = structuredClone(draftConfig);
 
       if (configDirty) {
+        const preflight = await configApi.embeddingPreflight(draftConfig);
+        const warningLayers = preflight.warnings.map((warning) =>
+          t(`settings.memory.vector.layers.${warning.layer}`)
+        );
+        const uniqueWarningLayers = Array.from(new Set(warningLayers)).join(', ');
+        if (preflight.severity === 'strong') {
+          const confirmed = await requestEmbeddingPreflightConfirmation({
+            readyTotal: preflight.ready_total,
+            layers: uniqueWarningLayers,
+          });
+          if (!confirmed) {
+            return;
+          }
+        } else if (preflight.severity === 'soft') {
+          toast.warning(t('settings.memory.vector.preflightSoftWarning', {
+            count: preflight.ready_total,
+            layers: uniqueWarningLayers,
+          }));
+        }
         const response = await configApi.update(draftConfig);
         persistedConfig = structuredClone(response.data || draftConfig);
         await syncCloseToTrayPreference(persistedConfig.preferences.close_to_tray_enabled);
@@ -183,6 +233,7 @@ export function useSettingsPersistence({
     fetchTimelineStatuses,
     loadPlugins,
     loadTools,
+    requestEmbeddingPreflightConfirmation,
   ]);
 
   const handleDiscardChanges = useCallback(async () => {
@@ -211,6 +262,9 @@ export function useSettingsPersistence({
     saving,
     handleSaveChanges,
     handleDiscardChanges,
+    embeddingPreflightPrompt,
+    confirmEmbeddingPreflight,
+    cancelEmbeddingPreflight,
   };
 }
 

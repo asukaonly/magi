@@ -18,6 +18,7 @@ import { SettingsConversationSection } from '@/components/settings/SettingsConve
 import { SettingsIntegrationsSection, type SettingsIntegrationsSectionId } from '@/components/settings/SettingsIntegrationsSection';
 import { SettingsLlmSection } from '@/components/settings/SettingsLlmSection';
 import { SettingsMemorySection, type SettingsMemorySectionId } from '@/components/settings/SettingsMemorySection';
+import { EmbeddingPreflightConfirmDialog } from '@/components/settings/EmbeddingPreflightConfirmDialog';
 import { SettingsNavigationSidebar } from '@/components/settings/SettingsNavigationSidebar';
 import { SettingsPersonalityRuntimeSection } from '@/components/settings/SettingsPersonalityRuntimeSection';
 import { SettingsPreferencesSection } from '@/components/settings/SettingsPreferencesSection';
@@ -109,6 +110,9 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     dirty,
     handleSaveChanges,
     handleDiscardChanges,
+    embeddingPreflightPrompt,
+    confirmEmbeddingPreflight,
+    cancelEmbeddingPreflight,
     getHandle,
   } = useSettings();
 
@@ -441,6 +445,12 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
           </div>
         </footer>
       ) : null}
+
+      <EmbeddingPreflightConfirmDialog
+        prompt={embeddingPreflightPrompt}
+        onCancel={cancelEmbeddingPreflight}
+        onConfirm={confirmEmbeddingPreflight}
+      />
     </div>
   );
 });

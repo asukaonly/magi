@@ -305,6 +305,8 @@ Product expectations:
 - general memory settings should expose a global hot-memory retention window and whether aged history is deleted or archived
 - general memory settings should also expose retrieval reranker controls, including whether LLM reranking is enabled, whether it runs locally or remotely, and where managed local reranker models are stored
 - vector writes should always stay on the async sqlite path rather than being user-configurable
+- changing the active embedding model must run a save preflight: model or dimension changes for existing vectors require a strong confirmation and should prompt users to rebuild vectors; remote provider/base URL changes with the same model and dimension may show a softer provenance warning
+- general memory settings should expose vector ready counts and a rebuild action backed by a persisted background job, so users can safely recover semantic search after embedding changes
 - the Knowledge Memory workspace should let operators manually trigger immediate L2 microbatch generation for all currently staged batches
 
 The current settings surface should support at least:
@@ -336,8 +338,9 @@ Current storage implementation notes:
 - `data/memory/l1_events.db` is now a lossy canonical projection target for `user_text` and `assistant_final` only; it is not the transcript source of truth.
 - when history behavior is `archive`, aged-out hot-path events are copied into `data/memory/archive/YYYY-MM-DD.db` before being removed from the active L1 projection.
 - L0/L2/L3/L4 are consolidated into `data/memory/memory.db` (multi-table layout).
-- Layer vectors are stored per layer (`L1/L3/L4` vector tables) instead of a shared `embeddings.db`.
+- Layer vectors are stored per layer (`L1/L2 entity/L2 relation/L3/L4` vector tables) instead of a shared `embeddings.db`.
 - The vector backend is fixed to sqlite and vector writes stay async; Settings no longer exposes backend or scheduling switches.
+- Vector table identity is strict for incompatible embeddings. Remote vectors are keyed by model, dimension, and text-builder version; local vectors are keyed by model file hash, dimension, and text-builder version. Provider provenance changes are surfaced as warnings but do not invalidate the hard identity by themselves.
 - Managed local reranker assets belong under `~/.magi/cache/models/rerank/<managed_model_id>/`; externally referenced local reranker files stay in place and are referenced by path only.
 - Current `local` reranker execution first tries a configured provider instance such as `llm.providers.local.services.chat` that points to a local OpenAI-compatible service.
 - If that local provider path is unavailable and a managed/external local reranker model file is configured, retrieval may fall back to direct `llama-cli` execution against that local model file.

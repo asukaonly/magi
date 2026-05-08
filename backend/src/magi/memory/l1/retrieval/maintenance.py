@@ -72,6 +72,7 @@ class L1EventMaintenanceQueryMixin:
         *,
         session_id: Optional[str] = None,
         user_id: Optional[str] = None,
+        event_id: Optional[str] = None,
         event_type: Optional[str] = None,
         query: Optional[str] = None,
         source_filters: Optional[List[str]] = None,
@@ -86,6 +87,7 @@ class L1EventMaintenanceQueryMixin:
         where_clause, args = host._build_event_filters(
             session_id=session_id,
             user_id=user_id,
+            event_id=event_id,
             event_type=event_type,
             query=query,
             source_filters=source_filters,

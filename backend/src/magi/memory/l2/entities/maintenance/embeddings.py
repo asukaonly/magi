@@ -10,7 +10,10 @@ from .....core.logger import get_logger
 from .....core.sqlite import sqlite_connection_async
 from ....embedding.chunking import ChunkedText
 from ....embedding.embedding_pipeline import EmbeddingPipelineItem
-from ....embedding.embedding_text_builders import build_l2_edge_embedding_text
+from ....embedding.embedding_text_builders import (
+    L2_EDGE_EMBEDDING_TEXT_BUILDER_VERSION,
+    build_l2_edge_embedding_text,
+)
 
 logger = get_logger("magi.memory.l2.entities.maintenance")
 
@@ -39,13 +42,11 @@ class L2EntityEmbeddingMaintenanceMixin:
         if host._edge_vector_index is None:
             return
         async with sqlite_connection_async(host._db_path) as db:
-            async with db.execute(
-                """
+            async with db.execute("""
                 SELECT triple_id FROM knowledge_graph
                 WHERE status != 'active' AND embedding_status = 'ready'
                 LIMIT 500
-                """
-            ) as cur:
+                """) as cur:
                 rows = await cur.fetchall()
         if not rows:
             return
@@ -81,6 +82,7 @@ class L2EntityEmbeddingMaintenanceMixin:
         pipeline = MemoryEmbeddingPipeline(
             embedding_service=host._embedding_service,
             vector_index=host._edge_vector_index,
+            text_builder_version=L2_EDGE_EMBEDDING_TEXT_BUILDER_VERSION,
         )
 
         async with sqlite_connection_async(host._db_path) as db:
@@ -137,17 +139,28 @@ class L2EntityEmbeddingMaintenanceMixin:
 
         try:
             results = await pipeline.upsert_items(items)
-            embedded_ids = [r.parent_id for r in results]
-            if embedded_ids:
-                placeholders = ", ".join("?" for _ in embedded_ids)
+            state_updates: list[tuple[str, str | None, float | None]] = []
+            for result in results:
+                profile = host._embedding_service.profile_from_result(
+                    result.embeddings[0],
+                    text_builder_version=L2_EDGE_EMBEDDING_TEXT_BUILDER_VERSION,
+                )
+                state_updates.append((result.parent_id, profile.profile_id, result.embedded_at))
+            if state_updates:
                 async with sqlite_connection_async(host._db_path) as db:
-                    await db.execute(
-                        f"UPDATE knowledge_graph SET embedding_status = 'ready' "
-                        f"WHERE triple_id IN ({placeholders})",
-                        tuple(embedded_ids),
+                    await db.executemany(
+                        """
+                        UPDATE knowledge_graph
+                        SET embedding_status = 'ready', embedding_profile_id = ?, last_embedded_at = ?
+                        WHERE triple_id = ?
+                        """,
+                        [
+                            (profile_id, embedded_at, triple_id)
+                            for triple_id, profile_id, embedded_at in state_updates
+                        ],
                     )
                     await db.commit()
-                stats.edges_embedded = len(embedded_ids)
+                stats.edges_embedded = len(state_updates)
         except Exception as exc:
             logger.warning("Failed to embed pending edges: %s", exc)
             stats.errors.append(f"edge_embedding: {exc}")

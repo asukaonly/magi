@@ -131,14 +131,14 @@ describe('useMemory initial load scope', () => {
     expect(memoryApi.getL4Skills).not.toHaveBeenCalled();
   });
 
-  it('loads only event-stream dependencies for l1 initialization', async () => {
+  it('loads event-stream dependencies and global stats for l1 initialization', async () => {
     renderHook(() => useMemory({ initialLoadScope: 'l1' }));
 
     await waitFor(() => {
+      expect(memoryApi.getStatistics).toHaveBeenCalledTimes(1);
       expect(memoryApi.getL1Events).toHaveBeenCalledTimes(1);
     });
 
-    expect(memoryApi.getStatistics).not.toHaveBeenCalled();
     expect(memoryApi.getL0Sessions).not.toHaveBeenCalled();
     expect(memoryApi.getL2Statistics).not.toHaveBeenCalled();
     expect(memoryApi.getL3Summaries).not.toHaveBeenCalled();

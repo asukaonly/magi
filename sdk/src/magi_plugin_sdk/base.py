@@ -7,6 +7,7 @@ from typing import Any, Optional
 
 from .channels import Channel
 from .contracts import (
+    ExtractionProfileSpec,
     ExtensionFieldSpec,
     PluginManifest,
     PluginSettingsActionResult,
@@ -185,6 +186,14 @@ class Plugin(ABC):
         Each profile declares a stable summary category, the sensor sources
         that populate it, the time windows the host should schedule, and the
         intent verbs that route activity-summary queries to the category.
+        """
+        return []
+
+    def get_extraction_profiles(self) -> list[ExtractionProfileSpec]:
+        """Return L2 extraction profiles contributed by this plugin.
+
+        The host validates all declared entity types, predicates, assertion
+        families, and prompt instructions before using these profiles.
         """
         return []
 

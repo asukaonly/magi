@@ -7,8 +7,8 @@ import json
 import logging
 import time
 from functools import lru_cache
-from dataclasses import dataclass
-from typing import Awaitable, Callable, Optional, TypeVar
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Awaitable, Callable, Optional, TypeVar
 
 from ...config import get_config
 from ...config.loader import get_llm_provider_registry_file
@@ -22,6 +22,9 @@ from ...llm import LLMScenario, ScenarioLLMPool, get_llm_concurrency_limiter
 from ...llm.usage_tracing import publish_llm_usage_span
 
 T = TypeVar("T")
+
+if TYPE_CHECKING:
+    from .local_embedding_manager import LocalEmbeddingManager
 
 logger = logging.getLogger(__name__)
 DEFAULT_EMBEDDING_CONCURRENCY_FALLBACK = 4
@@ -43,6 +46,8 @@ class EmbeddingResult:
     model_name: str
     dimension: int
     vector: list[float]
+    model_identity: str | None = None
+    index_identity: str | None = None
 
 
 @dataclass(slots=True)
@@ -54,6 +59,9 @@ class EmbeddingProfile:
     model_name: str
     dimension: int | None
     text_builder_version: str
+    identity_kind: str = "remote"
+    identity_key: str = ""
+    provenance: dict[str, str | None] = field(default_factory=dict)
 
     @classmethod
     def build(
@@ -63,17 +71,36 @@ class EmbeddingProfile:
         model_name: str,
         dimension: int | None,
         text_builder_version: str,
+        identity_kind: str = "remote",
+        identity_key: str | None = None,
+        provenance: dict[str, str | None] | None = None,
     ) -> "EmbeddingProfile":
+        normalized_provider_name = str(provider_name).strip() or "unknown"
+        normalized_model_name = str(model_name).strip() or "embedding"
+        normalized_identity_kind = str(identity_kind).strip().lower() or "remote"
+        normalized_identity_key = str(identity_key or normalized_model_name).strip()
+        normalized_text_builder_version = str(text_builder_version).strip() or "v1"
+        normalized_dimension = int(dimension) if dimension is not None else None
         payload = {
-            "provider_name": str(provider_name).strip() or "unknown",
-            "model_name": str(model_name).strip() or "embedding",
-            "dimension": int(dimension) if dimension is not None else None,
-            "text_builder_version": str(text_builder_version).strip() or "v1",
+            "identity_kind": normalized_identity_kind,
+            "identity_key": normalized_identity_key,
+            "model_name": normalized_model_name if normalized_identity_kind == "remote" else None,
+            "dimension": normalized_dimension,
+            "text_builder_version": normalized_text_builder_version,
         }
         digest = hashlib.sha1(
             json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
         ).hexdigest()[:12]
-        return cls(profile_id=digest, **payload)
+        return cls(
+            profile_id=digest,
+            provider_name=normalized_provider_name,
+            model_name=normalized_model_name,
+            dimension=normalized_dimension,
+            text_builder_version=normalized_text_builder_version,
+            identity_kind=normalized_identity_kind,
+            identity_key=normalized_identity_key,
+            provenance=dict(provenance or {}),
+        )
 
 
 class MemoryEmbeddingService:
@@ -98,12 +125,14 @@ class MemoryEmbeddingService:
             # Config changed — shutdown old manager if any
             if self._local_manager is not None:
                 import asyncio
+
                 try:
                     loop = asyncio.get_running_loop()
                     loop.create_task(self._local_manager.shutdown())
                 except RuntimeError:
                     pass
             from .local_embedding_manager import LocalEmbeddingManager
+
             self._local_manager = LocalEmbeddingManager(local_cfg)
             self._local_manager_config_key = cache_key
         return self._local_manager
@@ -125,13 +154,29 @@ class MemoryEmbeddingService:
             manager = self._get_local_manager()
             if manager is None:
                 return None
-            model_name = manager.model_name or "local"
-            dimension = manager.dimension
+            from .local_embedding_identity import compute_local_embedding_model_fingerprint
+
+            config = get_config()
+            fingerprint = compute_local_embedding_model_fingerprint(
+                config.agent.memory.embedding.local
+            )
+            model_name = (
+                fingerprint.model_name if fingerprint is not None else manager.model_name
+            ) or "local"
+            dimension = fingerprint.dimension if fingerprint is not None else manager.dimension
             return EmbeddingProfile.build(
                 provider_name="local",
                 model_name=model_name,
                 dimension=dimension,
                 text_builder_version=text_builder_version,
+                identity_kind="local",
+                identity_key=fingerprint.identity_key if fingerprint is not None else model_name,
+                provenance={
+                    "model_source": str(config.agent.memory.embedding.local.model_source),
+                    "model_dir_path": (
+                        str(fingerprint.model_dir) if fingerprint is not None else None
+                    ),
+                },
             )
 
         adapter = self._get_adapter()
@@ -148,6 +193,12 @@ class MemoryEmbeddingService:
             model_name=model_name,
             dimension=dimension,
             text_builder_version=text_builder_version,
+            identity_kind="remote",
+            identity_key=model_name,
+            provenance={
+                "provider_name": provider_name,
+                "base_url": str(getattr(adapter, "base_url", "") or "") or None,
+            },
         )
 
     def profile_from_result(
@@ -162,14 +213,35 @@ class MemoryEmbeddingService:
                 model_name=result.model_name,
                 dimension=result.dimension,
                 text_builder_version=text_builder_version,
+                identity_kind="local",
+                identity_key=result.model_identity or result.model_name,
             )
         adapter = self._get_adapter()
-        provider_name = str(getattr(adapter, "provider_name", "unknown")) if adapter is not None else "unknown"
+        provider_name = (
+            str(getattr(adapter, "provider_name", "unknown")) if adapter is not None else "unknown"
+        )
         return EmbeddingProfile.build(
             provider_name=provider_name,
             model_name=result.model_name,
             dimension=result.dimension,
             text_builder_version=text_builder_version,
+            identity_kind="remote",
+            identity_key=result.model_name,
+        )
+
+    def result_for_index(
+        self,
+        result: EmbeddingResult,
+        *,
+        text_builder_version: str,
+    ) -> EmbeddingResult:
+        profile = self.profile_from_result(result, text_builder_version=text_builder_version)
+        return EmbeddingResult(
+            model_name=result.model_name,
+            dimension=result.dimension,
+            vector=result.vector,
+            model_identity=result.model_identity,
+            index_identity=profile.profile_id,
         )
 
     async def embed_text(self, text: str) -> Optional[EmbeddingResult]:
@@ -199,6 +271,7 @@ class MemoryEmbeddingService:
             model_name=manager.model_name or "local",
             dimension=len(vector),
             vector=vector,
+            model_identity=manager.model_identity,
         )
 
     async def _embed_texts_local(self, texts: list[str]) -> list[Optional[EmbeddingResult]]:
@@ -216,11 +289,14 @@ class MemoryEmbeddingService:
             if vec is None:
                 results.append(None)
             else:
-                results.append(EmbeddingResult(
-                    model_name=model_name,
-                    dimension=len(vec),
-                    vector=vec,
-                ))
+                results.append(
+                    EmbeddingResult(
+                        model_name=model_name,
+                        dimension=len(vec),
+                        vector=vec,
+                        model_identity=manager.model_identity,
+                    )
+                )
         return results
 
     # ── Remote embedding ────────────────────────────────────────────────
@@ -332,7 +408,9 @@ class MemoryEmbeddingService:
     def _resolve_embedding_concurrency_limit(self, adapter: object) -> int:
         key = self._build_embedding_concurrency_key(adapter)
         runtime_config = get_config()
-        runtime_overrides = getattr(getattr(runtime_config, "llm", None), "model_runtime_overrides", {}) or {}
+        runtime_overrides = (
+            getattr(getattr(runtime_config, "llm", None), "model_runtime_overrides", {}) or {}
+        )
         override = runtime_overrides.get(key)
         if override is not None:
             override_limit = getattr(override, "max_concurrency", None)

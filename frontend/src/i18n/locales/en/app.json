@@ -1168,6 +1168,43 @@
         "description": "Permanently clear all memory data for this instance. This action cannot be undone, and the AI will need to rebuild its memory from scratch.",
         "clearButton": "Clear All Memory"
       },
+      "vector": {
+        "title": "Vector maintenance",
+        "description": "Review indexed memory vectors and rebuild them after changing the embedding model or local model files.",
+        "refresh": "Refresh",
+        "rebuild": "Rebuild Vectors",
+        "cancel": "Cancel",
+        "statusFailed": "Failed to load vector status",
+        "rebuildStarted": "Vector rebuild started",
+        "rebuildFailed": "Failed to start vector rebuild",
+        "cancelRequested": "Cancel requested",
+        "cancelFailed": "Failed to cancel vector rebuild",
+        "preflightStrongConfirm": "This change affects {{count}} existing vectors in {{layers}}. Semantic search may be stale until vectors are rebuilt. Save anyway?",
+        "preflightStrongTitle": "Embedding vectors need rebuild",
+        "preflightStrongDescription": "This save changes the embedding identity for {{count}} existing vectors in {{layers}}.",
+        "preflightStrongBody": "Existing vectors will stay isolated from the new embedding identity, so semantic memory search may be incomplete until you rebuild them.",
+        "preflightRebuildHint": "After saving, open Memory > General > Vector maintenance and click Rebuild Vectors.",
+        "preflightStrongCancel": "Review changes",
+        "preflightStrongSave": "Save anyway",
+        "preflightUnknownLayers": "affected memory layers",
+        "preflightSoftWarning": "Embedding provider details changed for {{layers}}. Existing {{count}} vectors can stay available, but rebuild if retrieval quality looks off.",
+        "activeLayer": "Active layer: {{layer}}",
+        "progress": "{{processed}} / {{total}} · {{percent}}%",
+        "layers": {
+          "l1": "L1 Events",
+          "l2_entities": "L2 Entities",
+          "l2_edges": "L2 Relations",
+          "l3": "L3 Summaries",
+          "l4": "L4 Skills"
+        },
+        "status": {
+          "pending": "Pending",
+          "running": "Running",
+          "succeeded": "Succeeded",
+          "failed": "Failed",
+          "cancelled": "Cancelled"
+        }
+      },
       "fields": {
         "db_path": {
           "label": "Memory data storage location",
@@ -2382,12 +2419,12 @@
         "focusTitle": "Event watch",
         "focusHeadline": "Read the density of memory intake by source and content",
         "focusBody": "This layer behaves like a retained draft of experience. Narrow by source first, then move into the event contents.",
-        "sourceSummaryTitle": "Source distribution",
-        "domainSummaryTitle": "Domain signal"
+        "matchedEventsLabel": "Matching events",
+        "visibleEventsLabel": "This page"
       },
       "knowledge": {
         "eyebrow": "L2 Knowledge Garden",
-        "subtitle": "Inspect the knowledge graph, ToM assertions, and lab controls with entity-aware filtering.",
+        "subtitle": "Review organized stable knowledge, uncertain interpretations, and supporting evidence.",
         "actions": {
           "flushMicrobatches": "Run L2 Now"
         },
@@ -2402,6 +2439,8 @@
         "identitySummary": "{{count}} identity links in the current filtered view",
         "tabs": {
           "overview": "Overview",
+          "knowledgeBase": "Knowledge Base",
+          "advanced": "Advanced",
           "knowledgeGraph": "Knowledge Graph",
           "theoryOfMind": "Theory of Mind",
           "mindSnapshots": "Mind Snapshots",
@@ -2411,6 +2450,19 @@
           "conflictRules": "Conflict Rules"
         },
         "sections": {
+          "knowledgeBase": "Knowledge Items",
+          "knowledgeDirectory": "Knowledge Directory",
+          "reviewQueue": "Needs Review",
+          "recentKnowledge": "Recent Knowledge",
+          "entityOverview": "Entity Overview",
+          "stableKnowledge": "Stable Knowledge",
+          "pendingSignals": "Pending Signals",
+          "relations": "Relations",
+          "deprecatedKnowledge": "Older Knowledge",
+          "maintenance": "Maintenance Tools",
+          "diagnostics": "Diagnostics",
+          "technicalDetails": "Technical Details",
+          "evidenceEvents": "Evidence Events",
           "structureOverview": "Structure Overview",
           "identitySummary": "Identity Links",
           "evidenceClasses": "Evidence Classes",
@@ -2421,6 +2473,120 @@
           "snapshotTraits": "Core Trait Entries",
           "recentEventContext": "Related Event Context"
         },
+        "metrics": {
+          "knowledgeItems": "Knowledge Items",
+          "needsReview": "Needs Review"
+        },
+        "groups": {
+          "all": "All Knowledge",
+          "aboutSelf": "About You",
+          "preferences": "Preferences",
+          "relationships": "People & Relationships",
+          "workProjects": "Work & Projects",
+          "interests": "Interests",
+          "other": "Other"
+        },
+        "groupCounts": {
+          "stable": "Stable {{count}}",
+          "review": "Review {{count}}",
+          "relations": "Relations {{count}}",
+          "deprecated": "Older {{count}}"
+        },
+        "knowledgeBaseSummary": "{{total}} item(s); {{stable}} stable, {{review}} to review, {{relations}} relation(s), {{deprecated}} older.",
+        "overview": {
+          "summary": "{{total}} stable knowledge items are organized across {{entities}} entities, with {{review}} interpretations needing your confirmation.",
+          "guidance": "Start with uncertain interpretations when they appear. Entity rows show a profile summary first, while assertions and relations remain available as expandable knowledge details."
+        },
+        "entitySummaryFallback": "Organized {{stable}} stable item(s), {{relations}} relation(s), and {{assertions}} insight(s).",
+        "entityMetrics": {
+          "stableKnowledge": "Stable {{count}}",
+          "pendingSignals": "Pending {{count}}",
+          "relations": "Relations {{count}}",
+          "assertions": "Insights {{count}}"
+        },
+        "visibleItemCount": "Showing {{shown}} of {{total}}",
+        "totalItemCount": "{{total}} total",
+        "kind": {
+          "relation": "Relation",
+          "assertion": "Interpretation",
+          "entity": "Entity",
+          "mention": "Mention",
+          "snapshot": "Snapshot"
+        },
+        "statusOptions": {
+          "all": "All statuses",
+          "active": "Active",
+          "needsReview": "Needs review",
+          "conflicted": "Conflicted",
+          "deprecated": "Deprecated"
+        },
+        "entities": {
+          "self": "you"
+        },
+        "entityTypes": {
+          "user": "user",
+          "media": "media",
+          "group": "group",
+          "concept": "concept",
+          "person": "person",
+          "food": "food",
+          "hardware": "hardware",
+          "topic": "topic",
+          "place": "place"
+        },
+        "traitLabels": {
+          "preference_address_real_name": "real name",
+          "preference_identity_self_label": "self label",
+          "preference_address_preferred": "address preference",
+          "preference_music": "music preference",
+          "coffee_roast_preference": "coffee roast preference",
+          "music_artist_preference": "favorite music artist"
+        },
+        "predicateLabels": {
+          "listened": "listened to",
+          "viewed": "viewed",
+          "uses": "uses",
+          "interested_in": "may be interested in",
+          "works_with": "worked with",
+          "likes": "likes",
+          "endorses": "endorses"
+        },
+        "readable": {
+          "assertion": "{{entity}}'s {{attribute}} may be \"{{value}}\".",
+          "relation": "{{subject}} {{predicate}} {{object}}.",
+          "entity": "Recognized {{type}} \"{{entity}}\".",
+          "resolvedMention": "\"{{mention}}\" was linked to {{entity}}.",
+          "unresolvedMention": "\"{{mention}}\" still needs an entity match.",
+          "snapshot": "{{entity}} profile was updated.",
+          "evidenceSummary": "{{count}} evidence item(s)",
+          "confidenceSummary": "{{confidence}} confidence"
+        },
+        "fields": {
+          "subject": "Subject",
+          "predicate": "Relation",
+          "object": "Object",
+          "entity": "Entity",
+          "type": "Type",
+          "sourceDomain": "Source domain",
+          "inferenceDepth": "Inference depth",
+          "aliases": "Aliases",
+          "technicalId": "Technical ID",
+          "technicalType": "Internal type",
+          "updatedAt": "Updated",
+          "currentMood": "Current mood",
+          "evidenceIds": "Evidence events",
+          "evidenceCount": "Evidence {{count}}"
+        },
+        "entityTypeAll": "All types",
+        "emptyReviewQueue": "No knowledge currently needs confirmation or conflict review.",
+        "emptyEntityOverview": "No entity profiles are ready yet.",
+        "emptyStableKnowledge": "No stable knowledge is attached to this entity yet.",
+        "emptyPendingSignals": "No tentative signals need review for this entity.",
+        "emptySnapshotSummary": "No profile summary is available yet.",
+        "emptyKnowledge": "No knowledge items match the current filters.",
+        "evidenceLoading": "Loading evidence event...",
+        "evidenceMissing": "This evidence event could not be found.",
+        "advancedHint": "L2 generation, replay, entity maintenance, and conflict-rule tools live here for occasional maintenance.",
         "graphFilters": {
           "status": "Relation Status",
           "entity": "Entity Filter",
@@ -2528,6 +2694,13 @@
       "l3": "L3",
       "l4": "L4"
     },
+    "eventTypes": {
+      "sensor_event": "Sensor event",
+      "user_message": "User message",
+      "ai_response": "Assistant reply",
+      "assistant_final": "Assistant reply",
+      "user_text": "User text"
+    },
     "l0": {
       "activeSessions": "Active Sessions",
       "totalGoals": "Total Goals",
@@ -2550,9 +2723,116 @@
       "externalActivity": "External Activity",
       "events": "Event Stream",
       "noEvents": "No events recorded",
-      "internalId": "Internal",
-      "sourceItemId": "Source",
-      "idempotencyKey": "Key"
+      "internalId": "Internal row",
+      "sourceItemId": "Source-side ID",
+      "idempotencyKey": "Dedup key",
+      "toggleEventDetails": "Toggle event details",
+      "content": "Event content",
+      "eventId": "Event ID",
+      "source": "Source",
+      "memoryDomain": "Memory domain",
+      "authorType": "Author type",
+      "contentType": "Content type",
+      "sessionId": "Session ID",
+      "turnId": "Turn ID",
+      "userId": "User ID",
+      "taskId": "Task ID",
+      "correlationId": "Trace correlation ID",
+      "ingestTarget": "Ingest target",
+      "tomDepth": "ToM depth",
+      "embeddingStatus": "Vectorization",
+      "embeddingProfile": "Embedding profile",
+      "embeddingChunks": "Embedding chunks",
+      "lastEmbeddedAt": "Embedded at",
+      "mediaPath": "Media path",
+      "metadata": "Metadata",
+      "sourceMetadata": "Source details",
+      "rawMetadata": "Raw metadata JSON",
+      "metadataTechnicalOnly": "This metadata has no readable source fields; the full payload remains available in raw JSON.",
+      "technicalIdentifiers": "Debug details",
+      "timelineTitle": "Timeline title",
+      "timelineSummary": "Timeline summary",
+      "sourceApp": "Source app",
+      "sourceType": "Source type",
+      "memoryOwner": "Memory owner",
+      "entityHints": "Entity hints",
+      "graphHints": "Relation hints",
+      "l2BatchOwner": "L2 batch owner",
+      "retentionClass": "Retention",
+      "importanceScore": "Importance",
+      "cognitionEligible": "Cognition eligible",
+      "createdAt": "Created",
+      "occurredAt": "Occurred",
+      "yes": "Yes",
+      "no": "No",
+      "metadataUnits": {
+        "seconds": " sec",
+        "minutes": " min"
+      },
+      "metadataLabels": {
+        "trackName": "Track",
+        "artistName": "Artist",
+        "albumName": "Album",
+        "playDuration": "Play duration",
+        "trackDuration": "Track duration",
+        "liked": "Liked",
+        "trackAlias": "Alias",
+        "playSource": "Play source",
+        "neteaseUrl": "NetEase link",
+        "title": "Title",
+        "pageTitle": "Page title",
+        "url": "URL",
+        "appName": "App",
+        "windowTitle": "Window title",
+        "repository": "Repository",
+        "branch": "Branch",
+        "commitMessage": "Commit message",
+        "filePath": "File path",
+        "sourceType": "Source type",
+        "sourceApp": "Source app"
+      },
+      "domains": {
+        "user_authored": "User-authored",
+        "external_activity": "External activity",
+        "runtime_telemetry": "Runtime telemetry",
+        "system_control": "System control",
+        "interaction": "Interaction"
+      },
+      "retentionClasses": {
+        "disposable": "Temporary",
+        "compressible": "Compressible",
+        "permanent": "Permanent"
+      },
+      "ingestTargets": {
+        "l0_only": "L0 only",
+        "l1_only": "L1 only",
+        "l0_and_l1": "L0 + L1"
+      },
+      "tomDepths": {
+        "none": "None",
+        "topology_only": "Topology only",
+        "defensive_psychology": "Defensive psychology"
+      },
+      "embeddingStatuses": {
+        "ready": "Complete",
+        "pending": "Pending",
+        "failed": "Failed",
+        "skipped": "Skipped",
+        "disabled": "Disabled",
+        "stale": "Needs update"
+      },
+      "authorTypes": {
+        "user": "User",
+        "assistant": "Assistant",
+        "external": "External source",
+        "system": "System"
+      },
+      "contentTypes": {
+        "text": "Text",
+        "observation": "Observation",
+        "action": "Action",
+        "summary": "Summary"
+      }
     },
     "identity": {
       "title": "Identity Mapping",
@@ -2571,11 +2851,17 @@
       "assertions": "Theory of Mind",
       "noAssertions": "No assertions found",
       "confirmAssertion": "Confirm this assertion",
+      "correctAssertion": "Edit",
+      "correctionValue": "Correct value",
+      "correctionPlaceholder": "Enter the correct value",
+      "saveCorrection": "Save edit",
+      "cancelCorrection": "Cancel",
       "rejectAssertion": "Reject this assertion",
       "confirmed": "Confirmed",
       "rejected": "Rejected",
       "feedbackConfirmed": "Assertion confirmed",
       "feedbackRejected": "Assertion rejected",
+      "feedbackCorrected": "Correction saved",
       "lab": {
         "title": "L2 Lab",
         "skippedCount": "Skipped By Policy",

@@ -36,6 +36,7 @@ from .ingress import (
 from .contracts import (
     ActivationFlowSpec,
     ContributionType,
+    ExtractionProfileSpec,
     ExtensionFieldOption,
     ExtensionFieldSpec,
     PluginContribution,
@@ -133,6 +134,7 @@ __all__ = [
     "PluginSettingsResourcePayload",
     # Manifest and registry
     "ContributionType",
+    "ExtractionProfileSpec",
     "PluginContribution",
     "PluginManifest",
     "PluginPackageState",

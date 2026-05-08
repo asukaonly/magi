@@ -22,9 +22,7 @@ class BackgroundTasksConfigModel(BaseModel):
 class AgentConfigModel(BaseModel):
     name: str = Field(default="magi-agent")
     description: Optional[str] = Field(default="Magi AI Agent Framework")
-    background_tasks: BackgroundTasksConfigModel = Field(
-        default_factory=BackgroundTasksConfigModel
-    )
+    background_tasks: BackgroundTasksConfigModel = Field(default_factory=BackgroundTasksConfigModel)
 
 
 class LLMProviderConnectionConfigModel(BaseModel):
@@ -47,9 +45,7 @@ class LLMProviderTTSConfigModel(LLMProviderConnectionConfigModel):
 
 
 class LLMProviderServicesConfigModel(BaseModel):
-    chat: LLMProviderConnectionConfigModel = Field(
-        default_factory=LLMProviderConnectionConfigModel
-    )
+    chat: LLMProviderConnectionConfigModel = Field(default_factory=LLMProviderConnectionConfigModel)
     embedding: LLMProviderConnectionConfigModel = Field(
         default_factory=LLMProviderConnectionConfigModel
     )
@@ -65,9 +61,7 @@ class LLMProviderConfigModel(BaseModel):
     display_name: str = Field(default="OpenAI")
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
-    services: LLMProviderServicesConfigModel = Field(
-        default_factory=LLMProviderServicesConfigModel
-    )
+    services: LLMProviderServicesConfigModel = Field(default_factory=LLMProviderServicesConfigModel)
     api_format: Optional[str] = Field(default=None)
     custom_models: List[str] = Field(default_factory=list)
     custom_default_model: Optional[str] = Field(default=None)
@@ -128,6 +122,7 @@ class MemoryL1ConfigModel(BaseModel):
 
 class MemoryL2ConfigModel(BaseModel):
     enabled: bool = Field(default=True)
+    vectors_enabled: bool = Field(default=True)
     batch_flush_interval_seconds: int = Field(default=60, ge=30)
     auto_extract_relations: bool = Field(default=True)
     conflict_arbitration_enabled: bool = Field(default=True)

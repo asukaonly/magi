@@ -2,8 +2,8 @@
  * L2Tab - L2 cognition workspace rendered as focused in-page sections.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
-import { Brain, Check, DatabaseZap, GitMerge, Network, Orbit, RefreshCcw, X } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Brain, Check, DatabaseZap, GitMerge, Network, Orbit, Pencil, RefreshCcw, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -11,22 +11,27 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { DEFAULT_USER_ID } from '@/constants';
-import type {
-  L1Event,
-  L2Assertion,
-  L2Entity,
-  L2GraphConflictRule,
-  MemoryIdentityLink,
-  L2GraphConflictRulePayload,
-  L2Mention,
-  L2Relation,
-  L2Snapshot,
-  L2Statistics,
-  ManualL2EventPayload,
+import {
+  memoryApi,
+  type L1Event,
+  type L2Assertion,
+  type L2Entity,
+  type L2GraphConflictRule,
+  type MemoryIdentityLink,
+  type L2GraphConflictRulePayload,
+  type L2Mention,
+  type L2Relation,
+  type L2Snapshot,
+  type L2Statistics,
+  type ManualL2EventPayload,
 } from '@/api/modules/memory';
+
+type KnowledgeDetailRow = { label: string; value: string | number | null | undefined };
 
 export type L2KnowledgeSection =
   | 'overview'
+  | 'knowledgeBase'
+  | 'advanced'
   | 'knowledgeGraph'
   | 'theoryOfMind'
   | 'mindSnapshots'
@@ -47,13 +52,18 @@ interface L2TabProps {
   conflictRules: L2GraphConflictRule[];
   events: L1Event[];
   dominantPredicates?: Array<[string, number]>;
+  knowledgeQuery?: string;
+  knowledgeStatusFilter?: string;
+  knowledgeEntityTypeFilter?: string;
   actionLoading: boolean;
+  onFlushMicrobatches?: () => Promise<void>;
   onSubmitManualEvent: (payload: ManualL2EventPayload) => Promise<void>;
   onReplayExtraction: (eventId: string) => Promise<void>;
   onRunReconcile: (entityIds: string[]) => Promise<void>;
   onRunSnapshotRefresh: (entityIds: string[]) => Promise<void>;
   onUpsertGraphConflictRule: (payload: L2GraphConflictRulePayload) => Promise<void>;
   onSubmitAssertionFeedback?: (assertionId: string, feedback: 'confirmed' | 'rejected') => Promise<void>;
+  onCorrectAssertion?: (assertionId: string, newValue: string) => Promise<void>;
 }
 
 const defaultManualState: ManualL2EventPayload = {
@@ -74,37 +84,358 @@ const defaultRuleState: L2GraphConflictRulePayload = {
 };
 
 const PANEL_CARD_CLASS =
-  'rounded-[1.35rem] border-[hsl(var(--memory-border))] bg-[hsl(var(--memory-panel-elevated)/0.95)] shadow-[0_12px_24px_-24px_hsl(var(--memory-shadow)/0.28)]';
+  'rounded-sm border-[hsl(var(--memory-border)/0.64)] bg-[hsl(var(--memory-panel-elevated)/0.74)] shadow-none';
 
 const SOFT_PANEL_CLASS =
-  'rounded-[1.15rem] border border-[hsl(var(--memory-border))] bg-[hsl(var(--memory-panel)/0.96)] px-4 py-3 text-sm text-[hsl(var(--memory-body))]';
+  'rounded-sm border border-[hsl(var(--memory-border)/0.64)] bg-[hsl(var(--memory-panel)/0.72)] px-4 py-3 text-sm text-[hsl(var(--memory-body))]';
+
+const ENTITY_KNOWLEDGE_PREVIEW_LIMIT = 20;
+
+type KnowledgeStatusGroup = 'active' | 'needsReview' | 'conflicted' | 'deprecated';
+type KnowledgeBaseGroupId = 'all' | 'aboutSelf' | 'preferences' | 'relationships' | 'workProjects' | 'interests' | 'other';
+type MemoryTranslateFn = (key: string, options?: Record<string, unknown>) => string;
+
+const KNOWLEDGE_BASE_GROUP_IDS: Exclude<KnowledgeBaseGroupId, 'all'>[] = [
+  'aboutSelf',
+  'preferences',
+  'relationships',
+  'workProjects',
+  'interests',
+  'other',
+];
+
+const EMPTY_KNOWLEDGE_GROUP_COUNTS = {
+  stable: 0,
+  review: 0,
+  relations: 0,
+  deprecated: 0,
+};
+
+interface KnowledgeItem {
+  id: string;
+  kind: 'relation' | 'assertion';
+  groupId: KnowledgeBaseGroupId;
+  kindLabel: string;
+  title: string;
+  body?: string | null;
+  entityType?: string | null;
+  entityIds: string[];
+  statusGroup: KnowledgeStatusGroup;
+  statusLabel: string;
+  confidence?: number | null;
+  evidenceCount?: number | null;
+  evidenceIds?: string[];
+  updatedAt?: number | null;
+  detailRows: KnowledgeDetailRow[];
+  technicalRows?: KnowledgeDetailRow[];
+  searchableText: string;
+  assertionId?: string;
+  correctionValue?: string;
+  userFeedback?: string | null;
+}
+
+interface KnowledgeBaseGroup {
+  id: KnowledgeBaseGroupId;
+  label: string;
+  items: KnowledgeItem[];
+  counts: {
+    stable: number;
+    review: number;
+    relations: number;
+    deprecated: number;
+  };
+  totalCount: number;
+}
+
+interface EntityOverviewItem {
+  id: string;
+  name: string;
+  typeLabel: string | null;
+  snapshot?: L2Snapshot;
+  summary: string[];
+  activeItems: KnowledgeItem[];
+  reviewItems: KnowledgeItem[];
+  relationCount: number;
+  assertionCount: number;
+  knowledgeCount: number;
+  reviewCount: number;
+  lastUpdatedAt?: number | null;
+  score: number;
+  searchableText: string;
+}
+
+const normalizeSearchText = (value: unknown) => String(value ?? '').trim().toLowerCase();
+
+const normalizeLabelKey = (value: string) => value
+  .trim()
+  .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+  .replace(/[^a-zA-Z0-9]+/g, '_')
+  .replace(/^_+|_+$/g, '')
+  .toLowerCase();
+
+const humanizeToken = (value: string) => {
+  const text = value.split(':').pop() || value;
+  return text
+    .replace(/[._-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+const textIncludesAny = (value: string, terms: string[]) => terms.some((term) => value.includes(term));
+
+const getAssertionKnowledgeGroupId = (assertion: L2Assertion): KnowledgeBaseGroupId => {
+  const trait = normalizeLabelKey(assertion.trait_name);
+  const entityType = normalizeLabelKey(assertion.entity_type || '');
+  const sourceDomain = normalizeLabelKey(assertion.source_domain || '');
+  const text = `${trait} ${entityType} ${sourceDomain}`;
+
+  if (textIncludesAny(trait, ['identity', 'self', 'name', 'address', 'profile', 'personal', 'birthday', 'timezone', 'language'])) {
+    return 'aboutSelf';
+  }
+  if (textIncludesAny(trait, ['preference', 'prefers', 'favorite', 'favourite', 'like', 'dislike', 'coffee', 'music', 'artist', 'food', 'taste', 'style', 'habit'])) {
+    return 'preferences';
+  }
+  if (textIncludesAny(text, ['work', 'project', 'task', 'job', 'company', 'team', 'role', 'repo', 'code'])) {
+    return 'workProjects';
+  }
+  if (textIncludesAny(text, ['relationship', 'contact', 'friend', 'family', 'colleague', 'person', 'people', 'group', 'organization', 'organisation'])) {
+    return 'relationships';
+  }
+  if (textIncludesAny(text, ['interest', 'hobby', 'music', 'media', 'book', 'movie', 'game', 'topic', 'food', 'coffee', 'travel'])) {
+    return 'interests';
+  }
+  return 'other';
+};
+
+const getRelationKnowledgeGroupId = (relation: L2Relation): KnowledgeBaseGroupId => {
+  const predicate = normalizeLabelKey(relation.predicate);
+  const subjectType = normalizeLabelKey(relation.subject_type || '');
+  const objectType = normalizeLabelKey(relation.object_type || '');
+  const text = `${predicate} ${subjectType} ${objectType}`;
+
+  if (textIncludesAny(text, ['work', 'project', 'task', 'job', 'company', 'team', 'uses', 'tool', 'technology', 'hardware', 'software', 'repo', 'code'])) {
+    return 'workProjects';
+  }
+  if (textIncludesAny(text, ['person', 'people', 'user', 'group', 'organization', 'organisation', 'friend', 'family', 'colleague', 'knows', 'works_with'])) {
+    return 'relationships';
+  }
+  if (textIncludesAny(text, ['like', 'interest', 'listen', 'view', 'read', 'watch', 'play', 'music', 'media', 'book', 'movie', 'game', 'topic', 'food', 'coffee', 'artist'])) {
+    return 'interests';
+  }
+  return 'relationships';
+};
+
+const interpolateFallback = (template: string, options: Record<string, unknown> = {}) => template.replace(
+  /\{\{\s*(\w+)\s*\}\}/g,
+  (_match, key: string) => String(options[key] ?? '')
+);
+
+const translateWithFallback = (
+  t: MemoryTranslateFn,
+  key: string,
+  fallback: string,
+  options: Record<string, unknown> = {}
+) => {
+  const translated = t(key, options);
+  return translated === key ? interpolateFallback(fallback, options) : translated;
+};
+
+const translateOptional = (t: MemoryTranslateFn, key: string) => {
+  const translated = t(key);
+  return translated === key ? null : translated;
+};
+
+const getReadableEntityType = (t: MemoryTranslateFn, entityType: string | null | undefined) => {
+  if (!entityType) {
+    return null;
+  }
+  return translateOptional(t, `memory.pages.knowledge.entityTypes.${normalizeLabelKey(entityType)}`) || humanizeToken(entityType);
+};
+
+const getReadableEntityName = (t: MemoryTranslateFn, entityId: string, entity?: L2Entity) => {
+  const canonicalName = entity?.canonical_name?.trim();
+  const normalizedId = entityId.toLowerCase();
+  const normalizedName = canonicalName?.toLowerCase();
+  if (
+    normalizedId === 'user:local_user' ||
+    normalizedId === 'user:self' ||
+    normalizedName === 'local_user'
+  ) {
+    return t('memory.pages.knowledge.entities.self');
+  }
+  return canonicalName || humanizeToken(entityId);
+};
+
+const isSelfEntity = (entityId: string, entity?: L2Entity) => {
+  const normalizedId = entityId.trim().toLowerCase();
+  const normalizedName = entity?.canonical_name?.trim().toLowerCase();
+  return normalizedId === 'user:self' || normalizedId === 'user:local_user' || normalizedName === 'local_user';
+};
+
+const getEntityOverviewKey = (entityId: string, entity?: L2Entity) => (
+  isSelfEntity(entityId, entity) ? 'user:self' : entityId
+);
+
+const getReadableTraitLabel = (t: MemoryTranslateFn, traitName: string) => (
+  translateOptional(t, `memory.pages.knowledge.traitLabels.${normalizeLabelKey(traitName)}`) || humanizeToken(traitName)
+);
+
+const getCuratedTraitLabel = (t: MemoryTranslateFn, traitName: string) => (
+  translateOptional(t, `memory.pages.knowledge.traitLabels.${normalizeLabelKey(traitName)}`)
+);
+
+const getReadablePredicateLabel = (t: MemoryTranslateFn, predicate: string) => (
+  translateOptional(t, `memory.pages.knowledge.predicateLabels.${normalizeLabelKey(predicate)}`) || humanizeToken(predicate).toLowerCase()
+);
+
+const getEvidenceSummary = (
+  t: MemoryTranslateFn,
+  evidenceCount: number | null | undefined,
+  confidence: number | null | undefined
+) => {
+  const parts: string[] = [];
+  if (typeof evidenceCount === 'number') {
+    parts.push(translateWithFallback(
+      t,
+      'memory.pages.knowledge.readable.evidenceSummary',
+      '{{count}} evidence item(s)',
+      { count: evidenceCount }
+    ));
+  }
+  const confidenceLabel = formatConfidence(confidence);
+  if (confidenceLabel) {
+    parts.push(translateWithFallback(
+      t,
+      'memory.pages.knowledge.readable.confidenceSummary',
+      '{{confidence}} confidence',
+      { confidence: confidenceLabel }
+    ));
+  }
+  return parts.join(' · ');
+};
+
+const formatConfidence = (value: number | null | undefined) => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null;
+  }
+  return `${Math.round(value * 100)}%`;
+};
+
+const formatEventTime = (timestamp: number | null | undefined) => {
+  if (typeof timestamp !== 'number' || !Number.isFinite(timestamp)) {
+    return null;
+  }
+  return new Date(timestamp * 1000).toLocaleString();
+};
+
+const isRecordValue = (value: unknown): value is Record<string, unknown> => (
+  Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+);
+
+const toFiniteNumber = (value: unknown) => {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? numericValue : null;
+};
+
+const getRecordNumber = (value: Record<string, unknown> | undefined, key: string) => (
+  value ? toFiniteNumber(value[key]) : null
+);
+
+const stringifyKnowledgeValue = (value: unknown): string => {
+  if (isRecordValue(value) && 'value' in value) {
+    return stringifyKnowledgeValue(value.value);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => stringifyKnowledgeValue(item)).filter(Boolean).join(' / ');
+  }
+  if (isRecordValue(value)) {
+    return Object.entries(value)
+      .slice(0, 3)
+      .map(([key, entryValue]) => `${humanizeToken(key)}: ${stringifyKnowledgeValue(entryValue)}`)
+      .join(' / ');
+  }
+  return String(value ?? '').trim();
+};
+
+const buildCuratedProfileSummary = (
+  t: MemoryTranslateFn,
+  snapshot: L2Snapshot | undefined
+) => {
+  if (!snapshot) {
+    return [];
+  }
+  const entries = [
+    ...Object.entries(snapshot.core_traits || {}),
+    ...Object.entries(snapshot.preferences || {}),
+  ];
+  const summary: string[] = [];
+  if (snapshot.current_mood) {
+    summary.push(`${t('memory.pages.knowledge.fields.currentMood')}: ${snapshot.current_mood}`);
+  }
+  entries.forEach(([trait, value]) => {
+    const label = getCuratedTraitLabel(t, trait);
+    const readableValue = stringifyKnowledgeValue(value);
+    if (!label || !readableValue || summary.length >= 4) {
+      return;
+    }
+    summary.push(`${label}: ${readableValue}`);
+  });
+  return summary;
+};
+
+const getAssertionStatusGroup = (assertion: L2Assertion): KnowledgeStatusGroup => {
+  const feedback = normalizeSearchText(assertion.user_feedback);
+  const validationState = normalizeSearchText(assertion.validation_state);
+  const status = normalizeSearchText(assertion.status);
+  if (
+    feedback === 'rejected' ||
+    ['user_rejected', 'rejected', 'superseded', 'expired', 'archived'].includes(validationState) ||
+    ['user_rejected', 'rejected', 'superseded', 'expired', 'archived'].includes(status)
+  ) {
+    return 'deprecated';
+  }
+  if (['conflicted', 'contradicted'].includes(validationState) || ['conflicted', 'contradicted'].includes(status)) {
+    return 'conflicted';
+  }
+  if (feedback === 'confirmed' || ['stable', 'corroborated'].includes(validationState) || status === 'stable') {
+    return 'active';
+  }
+  return 'needsReview';
+};
 
 export const L2Tab: React.FC<L2TabProps> = ({
   section = 'lab',
   stats,
   relations,
   assertions,
-  identityLinks,
   entities,
   mentions,
   snapshots,
   conflictRules,
   events,
   dominantPredicates = [],
+  knowledgeQuery = '',
+  knowledgeStatusFilter = 'all',
+  knowledgeEntityTypeFilter = 'all',
   actionLoading,
+  onFlushMicrobatches,
   onSubmitManualEvent,
   onReplayExtraction,
   onRunReconcile,
   onRunSnapshotRefresh,
   onUpsertGraphConflictRule,
   onSubmitAssertionFeedback,
+  onCorrectAssertion,
 }) => {
   const { t } = useTranslation('app');
   const [manualEvent, setManualEvent] = useState<ManualL2EventPayload>(defaultManualState);
   const [selectedEntityId, setSelectedEntityId] = useState('');
   const [selectedEventId, setSelectedEventId] = useState('');
+  const [selectedKnowledgeGroupId, setSelectedKnowledgeGroupId] = useState<KnowledgeBaseGroupId>('aboutSelf');
   const [ruleForm, setRuleForm] = useState<L2GraphConflictRulePayload>(defaultRuleState);
   const [ruleOppositesText, setRuleOppositesText] = useState('');
+  const [fetchedEvidenceEvents, setFetchedEvidenceEvents] = useState<Record<string, L1Event | null>>({});
+  const [loadingEvidenceIds, setLoadingEvidenceIds] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (!selectedEntityId && entities.length > 0) {
@@ -121,6 +452,76 @@ export const L2Tab: React.FC<L2TabProps> = ({
   const selectedEntity = useMemo(
     () => entities.find((entity) => entity.entity_id === selectedEntityId) ?? null,
     [entities, selectedEntityId]
+  );
+
+  const entityById = useMemo(
+    () => new Map(entities.map((entity) => [entity.entity_id, entity] as const)),
+    [entities]
+  );
+
+  const visibleEventById = useMemo(
+    () => new Map(events.map((event) => [event.event_id, event] as const)),
+    [events]
+  );
+
+  const evidenceEventsById = useMemo(() => {
+    const merged = new Map<string, L1Event | null>(fetchedEvidenceEvents ? Object.entries(fetchedEvidenceEvents) : []);
+    visibleEventById.forEach((event, eventId) => merged.set(eventId, event));
+    return merged;
+  }, [fetchedEvidenceEvents, visibleEventById]);
+
+  const loadEvidenceEvents = useCallback(
+    async (eventIds: string[]) => {
+      const missingIds = eventIds
+        .filter((eventId) => eventId && !evidenceEventsById.has(eventId) && !loadingEvidenceIds[eventId])
+        .slice(0, 8);
+      if (missingIds.length === 0) {
+        return;
+      }
+
+      setLoadingEvidenceIds((current) => ({
+        ...current,
+        ...Object.fromEntries(missingIds.map((eventId) => [eventId, true])),
+      }));
+
+      try {
+        const results = await Promise.all(
+          missingIds.map(async (eventId) => {
+            const response = await memoryApi.getL1Events({ event_id: eventId, limit: 1 });
+            return [eventId, response.items?.[0] ?? null] as const;
+          })
+        );
+        setFetchedEvidenceEvents((current) => ({
+          ...current,
+          ...Object.fromEntries(results),
+        }));
+      } catch (error) {
+        console.error('Failed to load L1 evidence events:', error);
+      } finally {
+        setLoadingEvidenceIds((current) => {
+          const next = { ...current };
+          missingIds.forEach((eventId) => {
+            delete next[eventId];
+          });
+          return next;
+        });
+      }
+    },
+    [evidenceEventsById, loadingEvidenceIds]
+  );
+
+  const getEntityName = useCallback((entityId: string) => {
+    const entity = entityById.get(entityId);
+    return getReadableEntityName(t, entityId, entity);
+  }, [entityById, t]);
+
+  const getEntityType = useCallback(
+    (entityId: string, fallback?: string | null) => entityById.get(entityId)?.entity_type || fallback || null,
+    [entityById]
+  );
+  const getEntityTypeLabel = useCallback(
+    (entityType: string | null | undefined) => getReadableEntityType(t, entityType) || entityType || null,
+    [t]
   );
 
   const evidenceBreakdownEntries = useMemo(
@@ -154,6 +555,259 @@ export const L2Tab: React.FC<L2TabProps> = ({
       ).sort((left, right) => right[1] - left[1]),
     [assertions]
   );
+
+  const knowledgeItems = useMemo<KnowledgeItem[]>(() => {
+    const relationItems = relations.map((relation): KnowledgeItem => {
+      const subjectName = getEntityName(relation.subject_id);
+      const objectName = getEntityName(relation.object_id);
+      const predicateLabel = getReadablePredicateLabel(t, relation.predicate);
+      const entityType = getEntityType(relation.subject_id, relation.subject_type);
+      const evidenceCount = relation.observation_count || relation.evidence_event_ids.length;
+      const statusGroup: KnowledgeStatusGroup = relation.status === 'conflicted'
+        ? 'conflicted'
+        : relation.status === 'deprecated'
+          ? 'deprecated'
+          : 'active';
+      return {
+        id: `relation:${relation.triple_id}`,
+        kind: 'relation',
+        groupId: getRelationKnowledgeGroupId(relation),
+        kindLabel: t('memory.pages.knowledge.kind.relation'),
+        title: translateWithFallback(
+          t,
+          'memory.pages.knowledge.readable.relation',
+          '{{subject}} {{predicate}} {{object}}.',
+          { subject: subjectName, predicate: predicateLabel, object: objectName }
+        ),
+        body: getEvidenceSummary(t, evidenceCount, relation.confidence),
+        entityType,
+        entityIds: Array.from(new Set([relation.subject_id, relation.object_id].filter(Boolean))),
+        statusGroup,
+        statusLabel: t(`memory.pages.knowledge.statusOptions.${statusGroup}`),
+        confidence: relation.confidence,
+        evidenceCount,
+        evidenceIds: relation.evidence_event_ids,
+        updatedAt: relation.last_observed_at || relation.updated_at || relation.first_observed_at,
+        detailRows: [
+          { label: t('memory.pages.knowledge.fields.subject'), value: subjectName },
+          { label: t('memory.pages.knowledge.fields.predicate'), value: predicateLabel },
+          { label: t('memory.pages.knowledge.fields.object'), value: objectName },
+        ],
+        technicalRows: [
+          { label: t('memory.pages.knowledge.fields.technicalType'), value: `${getEntityTypeLabel(relation.subject_type)} -> ${getEntityTypeLabel(relation.object_type)}` },
+          { label: t('memory.pages.knowledge.fields.technicalId'), value: relation.triple_id },
+        ],
+        searchableText: [subjectName, objectName, relation.subject_id, relation.object_id, predicateLabel, relation.predicate, relation.status, relation.triple_id].join(' '),
+      };
+    });
+
+    const assertionItems = assertions.map((assertion): KnowledgeItem => {
+      const entityName = getEntityName(assertion.entity_id);
+      const traitLabel = getReadableTraitLabel(t, assertion.trait_name);
+      const evidenceCount = assertion.evidence_events.length;
+      const statusGroup = getAssertionStatusGroup(assertion);
+      return {
+        id: `assertion:${assertion.assertion_id}`,
+        kind: 'assertion',
+        groupId: getAssertionKnowledgeGroupId(assertion),
+        kindLabel: t('memory.pages.knowledge.kind.assertion'),
+        title: translateWithFallback(
+          t,
+          'memory.pages.knowledge.readable.assertion',
+          '{{entity}}\'s {{attribute}} may be "{{value}}".',
+          { entity: entityName, attribute: traitLabel, value: assertion.trait_value }
+        ),
+        body: getEvidenceSummary(t, evidenceCount, assertion.confidence_score),
+        entityType: assertion.entity_type,
+        entityIds: [assertion.entity_id].filter(Boolean),
+        statusGroup,
+        statusLabel: t(`memory.pages.knowledge.statusOptions.${statusGroup}`),
+        confidence: assertion.confidence_score,
+        evidenceCount,
+        evidenceIds: assertion.evidence_events,
+        updatedAt: assertion.last_validated_at || assertion.user_feedback_at || assertion.first_inferred_at,
+        detailRows: [
+          { label: t('memory.pages.knowledge.fields.entity'), value: entityName },
+          { label: t('memory.pages.knowledge.fields.predicate'), value: traitLabel },
+          { label: t('memory.pages.knowledge.fields.object'), value: assertion.trait_value },
+        ],
+        technicalRows: [
+          { label: t('memory.pages.knowledge.fields.technicalType'), value: getEntityTypeLabel(assertion.entity_type) },
+          { label: t('memory.pages.knowledge.fields.sourceDomain'), value: assertion.source_domain },
+          { label: t('memory.pages.knowledge.fields.inferenceDepth'), value: assertion.inference_depth },
+          { label: t('memory.pages.knowledge.fields.technicalId'), value: assertion.assertion_id },
+        ],
+        searchableText: [entityName, assertion.entity_id, assertion.entity_type, traitLabel, assertion.trait_name, assertion.trait_value, assertion.validation_state, assertion.source_domain].join(' '),
+        assertionId: assertion.assertion_id,
+        correctionValue: assertion.trait_value,
+        userFeedback: assertion.user_feedback,
+      };
+    });
+
+    return [...assertionItems, ...relationItems];
+  }, [assertions, getEntityName, getEntityType, getEntityTypeLabel, relations, t]);
+
+  const filteredKnowledgeItems = useMemo(() => {
+    const query = normalizeSearchText(knowledgeQuery);
+    return knowledgeItems.filter((item) => {
+      const matchesQuery = !query || normalizeSearchText(item.searchableText).includes(query);
+      const matchesStatus = knowledgeStatusFilter === 'all' || item.statusGroup === knowledgeStatusFilter;
+      const matchesType = knowledgeEntityTypeFilter === 'all' || item.entityType === knowledgeEntityTypeFilter;
+      return matchesQuery && matchesStatus && matchesType;
+    });
+  }, [knowledgeEntityTypeFilter, knowledgeItems, knowledgeQuery, knowledgeStatusFilter]);
+
+  const knowledgeBaseGroups = useMemo<KnowledgeBaseGroup[]>(() => {
+    const buildCounts = (items: KnowledgeItem[]) => ({
+      stable: items.filter((item) => item.statusGroup === 'active' && item.kind === 'assertion').length,
+      review: items.filter((item) => item.statusGroup === 'needsReview' || item.statusGroup === 'conflicted').length,
+      relations: items.filter((item) => item.kind === 'relation' && item.statusGroup === 'active').length,
+      deprecated: items.filter((item) => item.statusGroup === 'deprecated').length,
+    });
+    const groupsById = new Map<KnowledgeBaseGroupId, KnowledgeItem[]>();
+    KNOWLEDGE_BASE_GROUP_IDS.forEach((groupId) => groupsById.set(groupId, []));
+    filteredKnowledgeItems.forEach((item) => {
+      groupsById.get(item.groupId)?.push(item);
+    });
+
+    const topicGroups = KNOWLEDGE_BASE_GROUP_IDS
+      .map((groupId): KnowledgeBaseGroup => {
+        const items = groupsById.get(groupId) ?? [];
+        return {
+          id: groupId,
+          label: t(`memory.pages.knowledge.groups.${groupId}`),
+          items,
+          counts: buildCounts(items),
+          totalCount: items.length,
+        };
+      })
+      .filter((group) => group.totalCount > 0);
+
+    return [
+      {
+        id: 'all',
+        label: t('memory.pages.knowledge.groups.all'),
+        items: filteredKnowledgeItems,
+        counts: filteredKnowledgeItems.length > 0 ? buildCounts(filteredKnowledgeItems) : EMPTY_KNOWLEDGE_GROUP_COUNTS,
+        totalCount: filteredKnowledgeItems.length,
+      },
+      ...topicGroups,
+    ];
+  }, [filteredKnowledgeItems, t]);
+
+  const selectedKnowledgeGroup = knowledgeBaseGroups.find((group) => group.id === selectedKnowledgeGroupId) ?? knowledgeBaseGroups[0];
+  const selectedKnowledgeGroupItems = selectedKnowledgeGroup?.items ?? [];
+  const selectedKnowledgeReviewItems = selectedKnowledgeGroupItems.filter((item) => item.statusGroup === 'needsReview' || item.statusGroup === 'conflicted');
+  const selectedKnowledgeStableItems = selectedKnowledgeGroupItems.filter((item) => item.statusGroup === 'active' && item.kind === 'assertion');
+  const selectedKnowledgeRelationItems = selectedKnowledgeGroupItems.filter((item) => item.statusGroup === 'active' && item.kind === 'relation');
+  const selectedKnowledgeDeprecatedItems = selectedKnowledgeGroupItems.filter((item) => item.statusGroup === 'deprecated');
+
+  const activeKnowledgeItems = knowledgeItems.filter((item) => item.statusGroup === 'active');
+  const reviewKnowledgeItems = knowledgeItems.filter((item) => item.statusGroup === 'needsReview' || item.statusGroup === 'conflicted');
+  const entityOverviewItems = useMemo<EntityOverviewItem[]>(() => {
+    type EntityDraft = {
+      entityId: string;
+      sourceEntityIds: Set<string>;
+      entityType: string | null;
+      snapshot?: L2Snapshot;
+      items: KnowledgeItem[];
+      relationIds: Set<string>;
+      assertionIds: Set<string>;
+    };
+
+    const drafts = new Map<string, EntityDraft>();
+    const ensureDraft = (entityId: string, entityType?: string | null) => {
+      const entity = entityById.get(entityId);
+      const overviewKey = getEntityOverviewKey(entityId, entity);
+      const snapshot = snapshots.find((item) => getEntityOverviewKey(item.entity_id, entityById.get(item.entity_id)) === overviewKey);
+      const existing = drafts.get(overviewKey);
+      if (existing) {
+        existing.sourceEntityIds.add(entityId);
+        existing.entityType = existing.entityType || entity?.entity_type || snapshot?.entity_type || entityType || null;
+        existing.snapshot = existing.snapshot || snapshot;
+        return existing;
+      }
+      const draft: EntityDraft = {
+        entityId: overviewKey,
+        sourceEntityIds: new Set([entityId]),
+        entityType: entity?.entity_type || snapshot?.entity_type || entityType || null,
+        snapshot,
+        items: [],
+        relationIds: new Set<string>(),
+        assertionIds: new Set<string>(),
+      };
+      drafts.set(overviewKey, draft);
+      return draft;
+    };
+
+    entities.forEach((entity) => ensureDraft(entity.entity_id, entity.entity_type));
+    snapshots.forEach((snapshot) => ensureDraft(snapshot.entity_id, snapshot.entity_type));
+    knowledgeItems.forEach((item) => {
+      item.entityIds.forEach((entityId) => {
+        const draft = ensureDraft(entityId, item.entityType);
+        draft.items.push(item);
+        if (item.kind === 'relation') {
+          draft.relationIds.add(item.id);
+        } else {
+          draft.assertionIds.add(item.id);
+        }
+      });
+    });
+
+    return Array.from(drafts.values())
+      .map((draft): EntityOverviewItem => {
+        const snapshot = draft.snapshot;
+        const currentContext = snapshot?.current_context;
+        const relationshipTopology = snapshot?.relationship_topology;
+        const activeItems = draft.items.filter((item) => item.statusGroup === 'active');
+        const reviewItems = draft.items.filter((item) => item.statusGroup === 'needsReview' || item.statusGroup === 'conflicted');
+        const summary = buildCuratedProfileSummary(t, snapshot);
+        const relationCount = Math.max(
+          draft.relationIds.size,
+          getRecordNumber(currentContext, 'relation_count') ?? 0,
+          (getRecordNumber(relationshipTopology, 'outgoing_count') ?? 0) + (getRecordNumber(relationshipTopology, 'incoming_count') ?? 0)
+        );
+        const assertionCount = Math.max(
+          draft.assertionIds.size,
+          getRecordNumber(currentContext, 'active_assertion_count') ?? 0
+        );
+        const lastUpdatedAt = snapshot?.last_interaction_at || snapshot?.last_updated_at || Math.max(
+          0,
+          ...draft.items.map((item) => item.updatedAt || 0)
+        );
+        const interactionCount = snapshot?.interaction_count ?? getRecordNumber(currentContext, 'interaction_count') ?? 0;
+        const score = reviewItems.length * 6 + activeItems.length * 3 + relationCount + assertionCount + interactionCount * 0.1 + (lastUpdatedAt ? lastUpdatedAt / 1_000_000_000 : 0);
+        const name = getEntityName(draft.entityId);
+        const typeLabel = getEntityTypeLabel(draft.entityType);
+        return {
+          id: draft.entityId,
+          name,
+          typeLabel,
+          snapshot,
+          summary,
+          activeItems,
+          reviewItems,
+          relationCount,
+          assertionCount,
+          knowledgeCount: activeItems.length,
+          reviewCount: reviewItems.length,
+          lastUpdatedAt,
+          score,
+          searchableText: [
+            draft.entityId,
+            ...draft.sourceEntityIds,
+            name,
+            draft.entityType,
+            typeLabel,
+            ...summary,
+            ...draft.items.map((item) => item.searchableText),
+          ].join(' '),
+        };
+      })
+      .sort((left, right) => right.score - left.score || left.name.localeCompare(right.name));
+  }, [entities, entityById, getEntityName, getEntityTypeLabel, knowledgeItems, snapshots, t]);
+  const reviewItems = reviewKnowledgeItems.slice(0, 6);
+  const overviewEntities = entityOverviewItems.slice(0, 8);
 
   const handleManualSubmit = async () => {
     if (!manualEvent.text.trim() || !manualEvent.user_id.trim()) {
@@ -190,90 +844,140 @@ export const L2Tab: React.FC<L2TabProps> = ({
 
   const renderOverview = () => (
     <div className="space-y-4">
-      <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-4">
-        <MetricCard label={t('memory.l2.relationCount')} value={stats.relation_count} />
-        <MetricCard label={t('memory.l2.assertionCount')} value={stats.assertion_count} />
-        <MetricCard label={t('memory.l2.lab.entityCount')} value={entities.length} />
-        <MetricCard label={t('memory.l2.lab.snapshotCount')} value={snapshots.length} />
-      </div>
+      <section className="border-b border-[hsl(var(--memory-divider)/0.58)] pb-4">
+        <p className="text-base font-medium leading-7 text-[hsl(var(--memory-title))]">
+          {t('memory.pages.knowledge.overview.summary', {
+            total: activeKnowledgeItems.length,
+            review: reviewKnowledgeItems.length,
+            entities: entityOverviewItems.length,
+          })}
+        </p>
+        <p className="mt-1 max-w-3xl text-sm leading-6 text-[hsl(var(--memory-body))]">
+          {t('memory.pages.knowledge.overview.guidance')}
+        </p>
+      </section>
 
-      <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
-        <Card className={PANEL_CARD_CLASS}>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base text-[hsl(var(--memory-title))]">
-              {t('memory.pages.knowledge.sections.structureOverview')}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex flex-wrap gap-2">
-              {dominantPredicates.slice(0, 6).map(([predicate, count]) => (
-                <SummaryPill key={predicate}>
-                  {predicate} · {count}
-                </SummaryPill>
-              ))}
-              {dominantPredicates.length === 0 ? (
-                <SummaryPill>{t('memory.l2.noRelations')}</SummaryPill>
-              ) : null}
-            </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              <StatLine
-                label={t('memory.pages.knowledge.sections.identitySummary')}
-                value={String(identityLinks.length)}
-              />
-              <StatLine
-                label={t('memory.pages.knowledge.sections.evidenceClasses')}
-                value={String(evidenceBreakdownEntries.length)}
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className={PANEL_CARD_CLASS}>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base text-[hsl(var(--memory-title))]">
-              {t('memory.pages.knowledge.sections.entityTypes')}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {entityTypeBreakdown.length === 0 ? (
-              <EmptyState copy={t('memory.pages.knowledge.focusAll')} />
-            ) : (
-              entityTypeBreakdown.map(([entityType, count]) => (
-                <div key={entityType} className={`${SOFT_PANEL_CLASS} flex items-center justify-between`}>
-                  <span>{entityType}</span>
-                  <span className="font-medium text-[hsl(var(--memory-title))]">{count}</span>
-                </div>
-              ))
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-3">
-        <InfoCard
-          icon={<RefreshCcw className="h-5 w-5" />}
-          title={t('memory.identity.runtimeLinks')}
-          emptyText={t('memory.identity.noLinks')}
-        >
-          {identityLinks.map((link) => (
-            <div key={`${link.namespace}:${link.runtime_user_id}`} className={SOFT_PANEL_CLASS}>
-              <div className="font-medium text-[hsl(var(--memory-title))]">{link.namespace}</div>
-              <div className="mt-1 text-[hsl(var(--memory-body))]">{link.runtime_user_id}</div>
-              <div className="mt-1 font-mono text-xs text-[hsl(var(--memory-muted))]">{link.memory_owner_id}</div>
-            </div>
-          ))}
-        </InfoCard>
-        <BreakdownCard
-          title={t('memory.l2.lab.evidenceBreakdown')}
-          emptyText={t('memory.l2.lab.noEvidenceBreakdown')}
-          entries={evidenceBreakdownEntries}
+      {reviewItems.length > 0 ? (
+        <KnowledgeListPanel
+          title={t('memory.pages.knowledge.sections.reviewQueue')}
+          emptyText={t('memory.pages.knowledge.emptyReviewQueue')}
+          items={reviewItems}
+          count={reviewKnowledgeItems.length}
+          actionLoading={actionLoading}
+          evidenceEventsById={evidenceEventsById}
+          loadingEvidenceIds={loadingEvidenceIds}
+          onLoadEvidenceEvents={loadEvidenceEvents}
+          onSubmitAssertionFeedback={onSubmitAssertionFeedback}
+          onCorrectAssertion={onCorrectAssertion}
+          t={t}
         />
-        <BreakdownCard
-          title={t('memory.l2.lab.skipReasonBreakdown')}
-          emptyText={t('memory.l2.lab.noSkipReasons')}
-          entries={skipReasonEntries}
-        />
-      </div>
+      ) : null}
+      <EntityOverviewPanel
+        title={t('memory.pages.knowledge.sections.entityOverview')}
+        emptyText={t('memory.pages.knowledge.emptyEntityOverview')}
+        items={overviewEntities}
+        count={entityOverviewItems.length}
+        actionLoading={actionLoading}
+        evidenceEventsById={evidenceEventsById}
+        loadingEvidenceIds={loadingEvidenceIds}
+        onLoadEvidenceEvents={loadEvidenceEvents}
+        onSubmitAssertionFeedback={onSubmitAssertionFeedback}
+        onCorrectAssertion={onCorrectAssertion}
+        t={t}
+      />
+    </div>
+  );
+
+  const renderKnowledgeBase = () => (
+    <div className="space-y-4">
+      <KnowledgeBaseBrowser
+        groups={knowledgeBaseGroups}
+        selectedGroupId={selectedKnowledgeGroup?.id ?? 'all'}
+        selectedGroup={selectedKnowledgeGroup}
+        reviewItems={selectedKnowledgeReviewItems}
+        stableItems={selectedKnowledgeStableItems}
+        relationItems={selectedKnowledgeRelationItems}
+        deprecatedItems={selectedKnowledgeDeprecatedItems}
+        emptyText={t('memory.pages.knowledge.emptyKnowledge')}
+        actionLoading={actionLoading}
+        evidenceEventsById={evidenceEventsById}
+        loadingEvidenceIds={loadingEvidenceIds}
+        onLoadEvidenceEvents={loadEvidenceEvents}
+        onSubmitAssertionFeedback={onSubmitAssertionFeedback}
+        onCorrectAssertion={onCorrectAssertion}
+        onSelectGroup={setSelectedKnowledgeGroupId}
+        t={t}
+      />
+    </div>
+  );
+
+  const renderAdvanced = () => (
+    <div className="space-y-4">
+      <section className="rounded-sm border border-[hsl(var(--memory-border)/0.64)] bg-[hsl(var(--memory-panel-elevated)/0.78)] px-4 py-3">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-[hsl(var(--memory-title))]">{t('memory.pages.knowledge.sections.maintenance')}</h2>
+            <p className="mt-1 text-sm leading-6 text-[hsl(var(--memory-body))]">{t('memory.pages.knowledge.advancedHint')}</p>
+          </div>
+          {onFlushMicrobatches ? (
+            <Button
+              variant="outline"
+              className="h-9 rounded-sm border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))] px-3 text-sm text-[hsl(var(--memory-title))]"
+              onClick={() => void onFlushMicrobatches()}
+              disabled={actionLoading}
+            >
+              {actionLoading ? <RefreshCcw className="mr-2 h-4 w-4 animate-spin" /> : <DatabaseZap className="mr-2 h-4 w-4" />}
+              {t('memory.pages.knowledge.actions.flushMicrobatches')}
+            </Button>
+          ) : null}
+        </div>
+      </section>
+
+      <details className="rounded-sm border border-[hsl(var(--memory-border)/0.64)] bg-[hsl(var(--memory-panel-elevated)/0.62)] px-4 py-3" open>
+        <summary className="cursor-pointer text-sm font-semibold text-[hsl(var(--memory-title))]">{t('memory.l2.lab.title')}</summary>
+        <div className="mt-4">{renderLab()}</div>
+      </details>
+
+      <details className="rounded-sm border border-[hsl(var(--memory-border)/0.64)] bg-[hsl(var(--memory-panel-elevated)/0.62)] px-4 py-3">
+        <summary className="cursor-pointer text-sm font-semibold text-[hsl(var(--memory-title))]">{t('memory.l2.lab.entities')}</summary>
+        <div className="mt-4">{renderCanonicalEntities()}</div>
+      </details>
+
+      <details className="rounded-sm border border-[hsl(var(--memory-border)/0.64)] bg-[hsl(var(--memory-panel-elevated)/0.62)] px-4 py-3">
+        <summary className="cursor-pointer text-sm font-semibold text-[hsl(var(--memory-title))]">{t('memory.l2.lab.mentions')}</summary>
+        <div className="mt-4">{renderRecentMentions()}</div>
+      </details>
+
+      <details className="rounded-sm border border-[hsl(var(--memory-border)/0.64)] bg-[hsl(var(--memory-panel-elevated)/0.62)] px-4 py-3">
+        <summary className="cursor-pointer text-sm font-semibold text-[hsl(var(--memory-title))]">{t('memory.l2.lab.conflictRules')}</summary>
+        <div className="mt-4">{renderConflictRules()}</div>
+      </details>
+
+      <details className="rounded-sm border border-[hsl(var(--memory-border)/0.64)] bg-[hsl(var(--memory-panel-elevated)/0.62)] px-4 py-3">
+        <summary className="cursor-pointer text-sm font-semibold text-[hsl(var(--memory-title))]">{t('memory.pages.knowledge.sections.diagnostics')}</summary>
+        <div className="mt-4 grid gap-4 xl:grid-cols-2">
+          <BreakdownCard
+            title={t('memory.pages.knowledge.sections.entityTypes')}
+            emptyText={t('memory.pages.knowledge.focusAll')}
+            entries={entityTypeBreakdown}
+          />
+          <BreakdownCard
+            title={t('memory.pages.knowledge.sections.structureOverview')}
+            emptyText={t('memory.l2.noRelations')}
+            entries={dominantPredicates.slice(0, 8)}
+          />
+          <BreakdownCard
+            title={t('memory.l2.lab.evidenceBreakdown')}
+            emptyText={t('memory.l2.lab.noEvidenceBreakdown')}
+            entries={evidenceBreakdownEntries}
+          />
+          <BreakdownCard
+            title={t('memory.l2.lab.skipReasonBreakdown')}
+            emptyText={t('memory.l2.lab.noSkipReasons')}
+            entries={skipReasonEntries}
+          />
+        </div>
+      </details>
     </div>
   );
 
@@ -727,6 +1431,10 @@ export const L2Tab: React.FC<L2TabProps> = ({
   switch (section) {
     case 'overview':
       return renderOverview();
+    case 'knowledgeBase':
+      return renderKnowledgeBase();
+    case 'advanced':
+      return renderAdvanced();
     case 'knowledgeGraph':
       return renderKnowledgeGraph();
     case 'theoryOfMind':
@@ -744,6 +1452,680 @@ export const L2Tab: React.FC<L2TabProps> = ({
     default:
       return null;
   }
+};
+
+const KnowledgeListPanel: React.FC<{
+  title: string;
+  emptyText: string;
+  items: KnowledgeItem[];
+  count?: number;
+  actionLoading: boolean;
+  evidenceEventsById: Map<string, L1Event | null>;
+  loadingEvidenceIds: Record<string, boolean>;
+  onLoadEvidenceEvents: (eventIds: string[]) => Promise<void>;
+  onSubmitAssertionFeedback?: (assertionId: string, feedback: 'confirmed' | 'rejected') => Promise<void>;
+  onCorrectAssertion?: (assertionId: string, newValue: string) => Promise<void>;
+  t: (key: string, options?: Record<string, unknown>) => string;
+}> = ({ title, emptyText, items, count, actionLoading, evidenceEventsById, loadingEvidenceIds, onLoadEvidenceEvents, onSubmitAssertionFeedback, onCorrectAssertion, t }) => (
+  <section className="overflow-hidden rounded-sm border border-[hsl(var(--memory-border)/0.58)] bg-[hsl(var(--memory-panel-elevated)/0.64)]">
+    <div className="flex items-center justify-between gap-3 border-b border-[hsl(var(--memory-divider)/0.5)] px-4 py-3">
+      <h2 className="text-sm font-semibold text-[hsl(var(--memory-title))]">{title}</h2>
+      <span className="text-xs text-[hsl(var(--memory-muted))]">{count ?? items.length}</span>
+    </div>
+    {items.length === 0 ? (
+      <div className="px-4 py-4">
+        <EmptyState copy={emptyText} />
+      </div>
+    ) : (
+      <div className="divide-y divide-[hsl(var(--memory-divider)/0.52)]">
+        {items.map((item) => (
+          <KnowledgeItemRow
+            key={item.id}
+            item={item}
+            actionLoading={actionLoading}
+            evidenceEventsById={evidenceEventsById}
+            loadingEvidenceIds={loadingEvidenceIds}
+            onLoadEvidenceEvents={onLoadEvidenceEvents}
+            onSubmitAssertionFeedback={onSubmitAssertionFeedback}
+            onCorrectAssertion={onCorrectAssertion}
+            t={t}
+          />
+        ))}
+      </div>
+    )}
+  </section>
+);
+
+const KnowledgeBaseBrowser: React.FC<{
+  groups: KnowledgeBaseGroup[];
+  selectedGroupId: KnowledgeBaseGroupId;
+  selectedGroup: KnowledgeBaseGroup | undefined;
+  reviewItems: KnowledgeItem[];
+  stableItems: KnowledgeItem[];
+  relationItems: KnowledgeItem[];
+  deprecatedItems: KnowledgeItem[];
+  emptyText: string;
+  actionLoading: boolean;
+  evidenceEventsById: Map<string, L1Event | null>;
+  loadingEvidenceIds: Record<string, boolean>;
+  onLoadEvidenceEvents: (eventIds: string[]) => Promise<void>;
+  onSubmitAssertionFeedback?: (assertionId: string, feedback: 'confirmed' | 'rejected') => Promise<void>;
+  onCorrectAssertion?: (assertionId: string, newValue: string) => Promise<void>;
+  onSelectGroup: (groupId: KnowledgeBaseGroupId) => void;
+  t: MemoryTranslateFn;
+}> = ({
+  groups,
+  selectedGroupId,
+  selectedGroup,
+  reviewItems,
+  stableItems,
+  relationItems,
+  deprecatedItems,
+  emptyText,
+  actionLoading,
+  evidenceEventsById,
+  loadingEvidenceIds,
+  onLoadEvidenceEvents,
+  onSubmitAssertionFeedback,
+  onCorrectAssertion,
+  onSelectGroup,
+  t,
+}) => {
+  const hasItems = Boolean(selectedGroup && selectedGroup.totalCount > 0);
+
+  return (
+    <section className="grid gap-4 lg:grid-cols-[17rem_minmax(0,1fr)]">
+      <aside className="min-w-0 rounded-sm border border-[hsl(var(--memory-border)/0.58)] bg-[hsl(var(--memory-panel-elevated)/0.72)]">
+        <div className="border-b border-[hsl(var(--memory-divider)/0.5)] px-4 py-3">
+          <h2 className="text-sm font-semibold text-[hsl(var(--memory-title))]">{t('memory.pages.knowledge.sections.knowledgeDirectory')}</h2>
+        </div>
+        <div className="space-y-1 p-2">
+          {groups.map((group) => {
+            const isSelected = group.id === selectedGroupId;
+            return (
+              <button
+                key={group.id}
+                type="button"
+                className={`w-full rounded-sm border px-3 py-2 text-left transition-colors ${isSelected
+                  ? 'border-[hsl(var(--memory-border))] bg-[hsl(var(--memory-panel))] text-[hsl(var(--memory-title))]'
+                  : 'border-transparent text-[hsl(var(--memory-body))] hover:border-[hsl(var(--memory-border)/0.5)] hover:bg-[hsl(var(--memory-panel-subtle)/0.38)]'}`}
+                onClick={() => onSelectGroup(group.id)}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-sm font-medium">{group.label}</span>
+                  <span className="shrink-0 text-xs text-[hsl(var(--memory-muted))]">{group.totalCount}</span>
+                </div>
+                <div className="mt-1 grid grid-cols-2 gap-x-2 gap-y-0.5 text-[11px] leading-5 text-[hsl(var(--memory-muted))]">
+                  <span>{t('memory.pages.knowledge.groupCounts.stable', { count: group.counts.stable })}</span>
+                  <span>{t('memory.pages.knowledge.groupCounts.review', { count: group.counts.review })}</span>
+                  <span>{t('memory.pages.knowledge.groupCounts.relations', { count: group.counts.relations })}</span>
+                  <span>{t('memory.pages.knowledge.groupCounts.deprecated', { count: group.counts.deprecated })}</span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </aside>
+
+      <section className="min-w-0 overflow-hidden rounded-sm border border-[hsl(var(--memory-border)/0.58)] bg-[hsl(var(--memory-panel-elevated)/0.64)]">
+        <div className="border-b border-[hsl(var(--memory-divider)/0.5)] px-4 py-3">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <h2 className="text-sm font-semibold text-[hsl(var(--memory-title))]">{selectedGroup?.label ?? t('memory.pages.knowledge.groups.all')}</h2>
+            {selectedGroup ? (
+              <span className="text-xs text-[hsl(var(--memory-muted))]">
+                {t('memory.pages.knowledge.knowledgeBaseSummary', {
+                  total: selectedGroup.totalCount,
+                  stable: selectedGroup.counts.stable,
+                  review: selectedGroup.counts.review,
+                  relations: selectedGroup.counts.relations,
+                  deprecated: selectedGroup.counts.deprecated,
+                })}
+              </span>
+            ) : null}
+          </div>
+        </div>
+
+        {!hasItems ? (
+          <div className="px-4 py-4">
+            <EmptyState copy={emptyText} />
+          </div>
+        ) : (
+          <div className="space-y-3 p-3">
+            {reviewItems.length > 0 ? (
+              <KnowledgeGroupItemSection
+                title={t('memory.pages.knowledge.sections.pendingSignals')}
+                items={reviewItems}
+                actionLoading={actionLoading}
+                evidenceEventsById={evidenceEventsById}
+                loadingEvidenceIds={loadingEvidenceIds}
+                onLoadEvidenceEvents={onLoadEvidenceEvents}
+                onSubmitAssertionFeedback={onSubmitAssertionFeedback}
+                onCorrectAssertion={onCorrectAssertion}
+                t={t}
+              />
+            ) : null}
+            {stableItems.length > 0 ? (
+              <KnowledgeGroupItemSection
+                title={t('memory.pages.knowledge.sections.stableKnowledge')}
+                items={stableItems}
+                actionLoading={actionLoading}
+                evidenceEventsById={evidenceEventsById}
+                loadingEvidenceIds={loadingEvidenceIds}
+                onLoadEvidenceEvents={onLoadEvidenceEvents}
+                onSubmitAssertionFeedback={onSubmitAssertionFeedback}
+                onCorrectAssertion={onCorrectAssertion}
+                t={t}
+              />
+            ) : null}
+            {relationItems.length > 0 ? (
+              <KnowledgeGroupItemSection
+                title={t('memory.pages.knowledge.sections.relations')}
+                items={relationItems}
+                actionLoading={actionLoading}
+                evidenceEventsById={evidenceEventsById}
+                loadingEvidenceIds={loadingEvidenceIds}
+                onLoadEvidenceEvents={onLoadEvidenceEvents}
+                onSubmitAssertionFeedback={onSubmitAssertionFeedback}
+                onCorrectAssertion={onCorrectAssertion}
+                t={t}
+              />
+            ) : null}
+            {deprecatedItems.length > 0 ? (
+              <KnowledgeGroupItemSection
+                title={t('memory.pages.knowledge.sections.deprecatedKnowledge')}
+                items={deprecatedItems}
+                actionLoading={actionLoading}
+                evidenceEventsById={evidenceEventsById}
+                loadingEvidenceIds={loadingEvidenceIds}
+                onLoadEvidenceEvents={onLoadEvidenceEvents}
+                onSubmitAssertionFeedback={onSubmitAssertionFeedback}
+                onCorrectAssertion={onCorrectAssertion}
+                t={t}
+              />
+            ) : null}
+          </div>
+        )}
+      </section>
+    </section>
+  );
+};
+
+const KnowledgeGroupItemSection: React.FC<{
+  title: string;
+  items: KnowledgeItem[];
+  actionLoading: boolean;
+  evidenceEventsById: Map<string, L1Event | null>;
+  loadingEvidenceIds: Record<string, boolean>;
+  onLoadEvidenceEvents: (eventIds: string[]) => Promise<void>;
+  onSubmitAssertionFeedback?: (assertionId: string, feedback: 'confirmed' | 'rejected') => Promise<void>;
+  onCorrectAssertion?: (assertionId: string, newValue: string) => Promise<void>;
+  t: MemoryTranslateFn;
+}> = ({ title, items, actionLoading, evidenceEventsById, loadingEvidenceIds, onLoadEvidenceEvents, onSubmitAssertionFeedback, onCorrectAssertion, t }) => (
+  <section className="min-w-0 overflow-hidden rounded-sm border border-[hsl(var(--memory-border)/0.48)] bg-[hsl(var(--memory-panel)/0.58)]">
+    <div className="flex items-center justify-between gap-3 border-b border-[hsl(var(--memory-divider)/0.46)] px-3 py-2 text-xs font-medium text-[hsl(var(--memory-muted))]">
+      <span>{title}</span>
+      <span className="shrink-0">{t('memory.pages.knowledge.totalItemCount', { total: items.length })}</span>
+    </div>
+    <div className="max-h-[42rem] divide-y divide-[hsl(var(--memory-divider)/0.46)] overflow-y-auto overscroll-contain">
+      {items.map((item) => (
+        <KnowledgeItemRow
+          key={`${title}-${item.id}`}
+          item={item}
+          actionLoading={actionLoading}
+          evidenceEventsById={evidenceEventsById}
+          loadingEvidenceIds={loadingEvidenceIds}
+          onLoadEvidenceEvents={onLoadEvidenceEvents}
+          onSubmitAssertionFeedback={onSubmitAssertionFeedback}
+          onCorrectAssertion={onCorrectAssertion}
+          t={t}
+        />
+      ))}
+    </div>
+  </section>
+);
+
+const EntityOverviewPanel: React.FC<{
+  title: string;
+  emptyText: string;
+  items: EntityOverviewItem[];
+  count?: number;
+  actionLoading: boolean;
+  evidenceEventsById: Map<string, L1Event | null>;
+  loadingEvidenceIds: Record<string, boolean>;
+  onLoadEvidenceEvents: (eventIds: string[]) => Promise<void>;
+  onSubmitAssertionFeedback?: (assertionId: string, feedback: 'confirmed' | 'rejected') => Promise<void>;
+  onCorrectAssertion?: (assertionId: string, newValue: string) => Promise<void>;
+  t: MemoryTranslateFn;
+}> = ({ title, emptyText, items, count, actionLoading, evidenceEventsById, loadingEvidenceIds, onLoadEvidenceEvents, onSubmitAssertionFeedback, onCorrectAssertion, t }) => (
+  <section className="overflow-hidden rounded-sm border border-[hsl(var(--memory-border)/0.58)] bg-[hsl(var(--memory-panel-elevated)/0.64)]">
+    <div className="flex items-center justify-between gap-3 border-b border-[hsl(var(--memory-divider)/0.5)] px-4 py-3">
+      <h2 className="text-sm font-semibold text-[hsl(var(--memory-title))]">{title}</h2>
+      <span className="text-xs text-[hsl(var(--memory-muted))]">{count ?? items.length}</span>
+    </div>
+    {items.length === 0 ? (
+      <div className="px-4 py-4">
+        <EmptyState copy={emptyText} />
+      </div>
+    ) : (
+      <div className="divide-y divide-[hsl(var(--memory-divider)/0.52)]">
+        {items.map((item) => (
+          <EntityOverviewRow
+            key={item.id}
+            item={item}
+            actionLoading={actionLoading}
+            evidenceEventsById={evidenceEventsById}
+            loadingEvidenceIds={loadingEvidenceIds}
+            onLoadEvidenceEvents={onLoadEvidenceEvents}
+            onSubmitAssertionFeedback={onSubmitAssertionFeedback}
+            onCorrectAssertion={onCorrectAssertion}
+            t={t}
+          />
+        ))}
+      </div>
+    )}
+  </section>
+);
+
+const EntityOverviewRow: React.FC<{
+  item: EntityOverviewItem;
+  actionLoading: boolean;
+  evidenceEventsById: Map<string, L1Event | null>;
+  loadingEvidenceIds: Record<string, boolean>;
+  onLoadEvidenceEvents: (eventIds: string[]) => Promise<void>;
+  onSubmitAssertionFeedback?: (assertionId: string, feedback: 'confirmed' | 'rejected') => Promise<void>;
+  onCorrectAssertion?: (assertionId: string, newValue: string) => Promise<void>;
+  t: MemoryTranslateFn;
+}> = ({ item, actionLoading, evidenceEventsById, loadingEvidenceIds, onLoadEvidenceEvents, onSubmitAssertionFeedback, onCorrectAssertion, t }) => {
+  const metrics = [
+    t('memory.pages.knowledge.entityMetrics.stableKnowledge', { count: item.knowledgeCount }),
+    t('memory.pages.knowledge.entityMetrics.pendingSignals', { count: item.reviewCount }),
+    t('memory.pages.knowledge.entityMetrics.relations', { count: item.relationCount }),
+    t('memory.pages.knowledge.entityMetrics.assertions', { count: item.assertionCount }),
+  ];
+  const summary = item.summary.length > 0
+    ? item.summary.slice(0, 4).join(' · ')
+    : t('memory.pages.knowledge.entitySummaryFallback', {
+      stable: item.knowledgeCount,
+      relations: item.relationCount,
+      assertions: item.assertionCount,
+    });
+  const lastUpdated = formatEventTime(item.lastUpdatedAt);
+
+  return (
+    <details className="group">
+      <summary className="cursor-pointer list-none px-4 py-3 transition-colors hover:bg-[hsl(var(--memory-panel-subtle)/0.38)] [&::-webkit-details-marker]:hidden">
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+          <div className="min-w-0">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <span className="text-sm font-semibold leading-6 text-[hsl(var(--memory-title))]">{item.name}</span>
+            </div>
+            <div className="mt-1 line-clamp-2 text-sm leading-6 text-[hsl(var(--memory-body))]">{summary}</div>
+            {lastUpdated ? (
+              <div className="mt-1 text-xs text-[hsl(var(--memory-muted))]">
+                {t('memory.pages.knowledge.fields.updatedAt')}: {lastUpdated}
+              </div>
+            ) : null}
+          </div>
+          <div className="flex flex-wrap justify-start gap-1.5 md:justify-end">
+            {metrics.map((metric) => (
+              <SummaryPill key={`${item.id}-${metric}`}>{metric}</SummaryPill>
+            ))}
+          </div>
+        </div>
+      </summary>
+      <div className="border-t border-[hsl(var(--memory-divider)/0.52)] bg-[hsl(var(--memory-panel-subtle)/0.36)] px-4 py-3">
+        <div className="space-y-3">
+          <EntityKnowledgeMiniList
+            title={t('memory.pages.knowledge.sections.stableKnowledge')}
+            emptyText={t('memory.pages.knowledge.emptyStableKnowledge')}
+            items={item.activeItems.slice(0, ENTITY_KNOWLEDGE_PREVIEW_LIMIT)}
+            totalCount={item.activeItems.length}
+            actionLoading={actionLoading}
+            evidenceEventsById={evidenceEventsById}
+            loadingEvidenceIds={loadingEvidenceIds}
+            onLoadEvidenceEvents={onLoadEvidenceEvents}
+            onSubmitAssertionFeedback={onSubmitAssertionFeedback}
+            onCorrectAssertion={onCorrectAssertion}
+            t={t}
+          />
+          <EntityKnowledgeMiniList
+            title={t('memory.pages.knowledge.sections.pendingSignals')}
+            emptyText={t('memory.pages.knowledge.emptyPendingSignals')}
+            items={item.reviewItems.slice(0, ENTITY_KNOWLEDGE_PREVIEW_LIMIT)}
+            totalCount={item.reviewItems.length}
+            actionLoading={actionLoading}
+            evidenceEventsById={evidenceEventsById}
+            loadingEvidenceIds={loadingEvidenceIds}
+            onLoadEvidenceEvents={onLoadEvidenceEvents}
+            onSubmitAssertionFeedback={onSubmitAssertionFeedback}
+            onCorrectAssertion={onCorrectAssertion}
+            t={t}
+          />
+        </div>
+      </div>
+    </details>
+  );
+};
+
+const EntityKnowledgeMiniList: React.FC<{
+  title: string;
+  emptyText: string;
+  items: KnowledgeItem[];
+  totalCount: number;
+  actionLoading: boolean;
+  evidenceEventsById: Map<string, L1Event | null>;
+  loadingEvidenceIds: Record<string, boolean>;
+  onLoadEvidenceEvents: (eventIds: string[]) => Promise<void>;
+  onSubmitAssertionFeedback?: (assertionId: string, feedback: 'confirmed' | 'rejected') => Promise<void>;
+  onCorrectAssertion?: (assertionId: string, newValue: string) => Promise<void>;
+  t: MemoryTranslateFn;
+}> = ({ title, emptyText, items, totalCount, actionLoading, evidenceEventsById, loadingEvidenceIds, onLoadEvidenceEvents, onSubmitAssertionFeedback, onCorrectAssertion, t }) => (
+  <section className="min-w-0 overflow-hidden rounded-sm border border-[hsl(var(--memory-border)/0.48)] bg-[hsl(var(--memory-panel)/0.58)]">
+    <div className="flex items-center justify-between gap-3 border-b border-[hsl(var(--memory-divider)/0.46)] px-3 py-2 text-xs font-medium text-[hsl(var(--memory-muted))]">
+      <span>{title}</span>
+      <span className="shrink-0">
+        {items.length < totalCount
+          ? t('memory.pages.knowledge.visibleItemCount', { shown: items.length, total: totalCount })
+          : t('memory.pages.knowledge.totalItemCount', { total: totalCount })}
+      </span>
+    </div>
+    {items.length === 0 ? (
+      <div className="px-3 py-3 text-sm leading-6 text-[hsl(var(--memory-muted))]">{emptyText}</div>
+    ) : (
+      <div className="max-h-[32rem] divide-y divide-[hsl(var(--memory-divider)/0.46)] overflow-y-auto overscroll-contain">
+        {items.map((knowledgeItem) => (
+          <KnowledgeItemRow
+            key={`${title}-${knowledgeItem.id}`}
+            item={knowledgeItem}
+            actionLoading={actionLoading}
+            evidenceEventsById={evidenceEventsById}
+            loadingEvidenceIds={loadingEvidenceIds}
+            onLoadEvidenceEvents={onLoadEvidenceEvents}
+            onSubmitAssertionFeedback={onSubmitAssertionFeedback}
+            onCorrectAssertion={onCorrectAssertion}
+            t={t}
+          />
+        ))}
+      </div>
+    )}
+  </section>
+);
+
+const KnowledgeItemRow: React.FC<{
+  item: KnowledgeItem;
+  actionLoading: boolean;
+  evidenceEventsById: Map<string, L1Event | null>;
+  loadingEvidenceIds: Record<string, boolean>;
+  onLoadEvidenceEvents: (eventIds: string[]) => Promise<void>;
+  onSubmitAssertionFeedback?: (assertionId: string, feedback: 'confirmed' | 'rejected') => Promise<void>;
+  onCorrectAssertion?: (assertionId: string, newValue: string) => Promise<void>;
+  t: (key: string, options?: Record<string, unknown>) => string;
+}> = ({ item, actionLoading, evidenceEventsById, loadingEvidenceIds, onLoadEvidenceEvents, onSubmitAssertionFeedback, onCorrectAssertion, t }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [correctionDraft, setCorrectionDraft] = useState(item.correctionValue ?? '');
+  const confidence = formatConfidence(item.confidence);
+  const metaItems = [
+    item.kindLabel,
+    item.statusGroup === 'active' ? null : item.statusLabel,
+    confidence ? translateWithFallback(
+      t,
+      'memory.pages.knowledge.readable.confidenceSummary',
+      '{{confidence}} confidence',
+      { confidence }
+    ) : null,
+    typeof item.evidenceCount === 'number' ? translateWithFallback(
+      t,
+      'memory.pages.knowledge.readable.evidenceSummary',
+      '{{count}} evidence item(s)',
+      { count: item.evidenceCount }
+    ) : null,
+  ].filter(Boolean).join(' · ');
+  const evidenceIds = item.evidenceIds?.slice(0, 8) ?? [];
+  const trimmedCorrectionDraft = correctionDraft.trim();
+  const currentCorrectionValue = item.correctionValue?.trim() ?? '';
+  const canReview = Boolean(
+    item.assertionId &&
+    onSubmitAssertionFeedback &&
+    (item.statusGroup === 'needsReview' || item.statusGroup === 'conflicted')
+  );
+  const canCorrect = Boolean(canReview && onCorrectAssertion && item.correctionValue !== undefined);
+  const isDetailsOpen = isOpen || isEditing;
+  const technicalRows = [
+    ...(item.technicalRows ?? []),
+    item.updatedAt ? { label: t('memory.pages.knowledge.fields.updatedAt'), value: formatEventTime(item.updatedAt) } : null,
+  ].filter((row): row is KnowledgeDetailRow => Boolean(row));
+  const handleFeedback = (
+    event: React.MouseEvent<HTMLButtonElement>,
+    feedback: 'confirmed' | 'rejected'
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (item.assertionId && onSubmitAssertionFeedback) {
+      void onSubmitAssertionFeedback(item.assertionId, feedback);
+    }
+  };
+  const handleStartCorrection = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setCorrectionDraft(item.correctionValue ?? '');
+    setIsEditing(true);
+    setIsOpen(true);
+  };
+  const handleCancelCorrection = () => {
+    setCorrectionDraft(item.correctionValue ?? '');
+    setIsEditing(false);
+  };
+  const handleSaveCorrection = async () => {
+    if (!item.assertionId || !onCorrectAssertion || !trimmedCorrectionDraft || trimmedCorrectionDraft === currentCorrectionValue) {
+      return;
+    }
+    try {
+      await onCorrectAssertion(item.assertionId, trimmedCorrectionDraft);
+      setIsEditing(false);
+    } catch {
+      return;
+    }
+  };
+
+  useEffect(() => {
+    if (!isEditing) {
+      setCorrectionDraft(item.correctionValue ?? '');
+    }
+  }, [isEditing, item.correctionValue]);
+
+  return (
+    <details
+      className="group"
+      open={isDetailsOpen}
+      onToggle={(event) => {
+        const nextOpen = event.currentTarget.open;
+        setIsOpen(nextOpen);
+        if (!nextOpen) {
+          setIsEditing(false);
+        }
+        if (nextOpen && evidenceIds.length > 0) {
+          void onLoadEvidenceEvents(evidenceIds);
+        }
+      }}
+    >
+      <summary className="cursor-pointer list-none px-4 py-3 transition-colors hover:bg-[hsl(var(--memory-panel-subtle)/0.38)] [&::-webkit-details-marker]:hidden">
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+          <div className="min-w-0">
+            <div className="text-xs leading-5 text-[hsl(var(--memory-muted))]">{metaItems}</div>
+            <div className="mt-1 break-words text-sm font-medium leading-6 text-[hsl(var(--memory-title))]">{item.title}</div>
+            {item.body ? <div className="mt-1 line-clamp-2 text-sm leading-6 text-[hsl(var(--memory-body))]">{item.body}</div> : null}
+          </div>
+          {canReview ? (
+            <div className="flex shrink-0 justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 rounded-sm"
+                disabled={actionLoading || item.userFeedback === 'confirmed'}
+                onClick={(event) => handleFeedback(event, 'confirmed')}
+              >
+                <Check className="mr-2 h-4 w-4" />
+                {t('memory.l2.confirmAssertion')}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 rounded-sm"
+                disabled={actionLoading || item.userFeedback === 'rejected'}
+                onClick={(event) => handleFeedback(event, 'rejected')}
+              >
+                <X className="mr-2 h-4 w-4" />
+                {t('memory.l2.rejectAssertion')}
+              </Button>
+              {canCorrect ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 rounded-sm"
+                  disabled={actionLoading}
+                  onClick={handleStartCorrection}
+                >
+                  <Pencil className="mr-2 h-4 w-4" />
+                  {t('memory.l2.correctAssertion')}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </summary>
+      <div className="border-t border-[hsl(var(--memory-divider)/0.52)] bg-[hsl(var(--memory-panel-subtle)/0.36)] px-4 py-3">
+        {isEditing ? (
+          <div className="mb-3 rounded-sm border border-[hsl(var(--memory-border)/0.5)] bg-[hsl(var(--memory-panel)/0.68)] px-3 py-3">
+            <label className="text-xs font-medium text-[hsl(var(--memory-muted))]" htmlFor={`${item.id}-correction-input`}>
+              {t('memory.l2.correctionValue')}
+            </label>
+            <div className="mt-2 grid gap-2 md:grid-cols-[minmax(0,1fr)_auto_auto]">
+              <Input
+                id={`${item.id}-correction-input`}
+                value={correctionDraft}
+                placeholder={t('memory.l2.correctionPlaceholder')}
+                onChange={(event) => setCorrectionDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    void handleSaveCorrection();
+                  }
+                  if (event.key === 'Escape') {
+                    event.preventDefault();
+                    handleCancelCorrection();
+                  }
+                }}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 rounded-sm"
+                disabled={actionLoading || !trimmedCorrectionDraft || trimmedCorrectionDraft === currentCorrectionValue}
+                onClick={() => void handleSaveCorrection()}
+              >
+                {t('memory.l2.saveCorrection')}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-9 rounded-sm"
+                disabled={actionLoading}
+                onClick={handleCancelCorrection}
+              >
+                {t('memory.l2.cancelCorrection')}
+              </Button>
+            </div>
+          </div>
+        ) : null}
+        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          {item.detailRows.map((row) => (
+            <KnowledgeDetailField key={`${item.id}-${row.label}`} label={row.label} value={row.value} />
+          ))}
+        </div>
+        {evidenceIds.length > 0 ? (
+          <EvidenceEventList
+            itemId={item.id}
+            eventIds={evidenceIds}
+            evidenceEventsById={evidenceEventsById}
+            loadingEvidenceIds={loadingEvidenceIds}
+            t={t}
+          />
+        ) : null}
+        {technicalRows.length > 0 || evidenceIds.length > 0 ? (
+          <details className="mt-3 rounded-sm border border-[hsl(var(--memory-border)/0.48)] bg-[hsl(var(--memory-panel)/0.52)] px-3 py-2">
+            <summary className="cursor-pointer text-xs text-[hsl(var(--memory-muted))]">
+              {t('memory.pages.knowledge.sections.technicalDetails')}
+            </summary>
+            <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+              {technicalRows.map((row) => (
+                <KnowledgeDetailField key={`${item.id}-technical-${row.label}`} label={row.label} value={row.value} />
+              ))}
+            </div>
+            {evidenceIds.length > 0 ? (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {evidenceIds.map((eventId) => (
+                  <span key={`${item.id}-${eventId}`} className="rounded-sm bg-[hsl(var(--memory-panel-subtle)/0.74)] px-2 py-1 font-mono text-[11px] text-[hsl(var(--memory-body))]">
+                    {eventId}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </details>
+        ) : null}
+      </div>
+    </details>
+  );
+};
+
+const EvidenceEventList: React.FC<{
+  itemId: string;
+  eventIds: string[];
+  evidenceEventsById: Map<string, L1Event | null>;
+  loadingEvidenceIds: Record<string, boolean>;
+  t: MemoryTranslateFn;
+}> = ({ itemId, eventIds, evidenceEventsById, loadingEvidenceIds, t }) => (
+  <section className="mt-3 rounded-sm border border-[hsl(var(--memory-border)/0.5)] bg-[hsl(var(--memory-panel)/0.62)] px-3 py-3">
+    <div className="text-xs font-medium text-[hsl(var(--memory-muted))]">{t('memory.pages.knowledge.sections.evidenceEvents')}</div>
+    <div className="mt-2 space-y-2">
+      {eventIds.map((eventId) => {
+        const event = evidenceEventsById.get(eventId);
+        const isLoading = loadingEvidenceIds[eventId];
+        return (
+          <details key={`${itemId}-evidence-${eventId}`} className="rounded-sm border border-[hsl(var(--memory-border)/0.42)] bg-[hsl(var(--memory-panel-elevated)/0.58)] px-3 py-2" open={Boolean(event)}>
+            <summary className="cursor-pointer text-sm font-medium text-[hsl(var(--memory-title))]">
+              {event ? [event.event_type, event.source, formatEventTime(event.timestamp)].filter(Boolean).join(' · ') : eventId}
+            </summary>
+            {event ? (
+              <div className="mt-2 space-y-2">
+                <div className="whitespace-pre-wrap break-words text-sm leading-6 text-[hsl(var(--memory-body))]">{event.content}</div>
+                <div className="text-xs text-[hsl(var(--memory-muted))]">
+                  {[event.author_type, event.content_type, event.memory_domain].filter(Boolean).join(' · ')}
+                </div>
+              </div>
+            ) : (
+              <div className="mt-2 text-sm text-[hsl(var(--memory-muted))]">
+                {isLoading ? t('memory.pages.knowledge.evidenceLoading') : t('memory.pages.knowledge.evidenceMissing')}
+              </div>
+            )}
+          </details>
+        );
+      })}
+    </div>
+  </section>
+);
+
+const KnowledgeDetailField: React.FC<{ label: string; value: string | number | null | undefined }> = ({ label, value }) => {
+  if (value === null || value === undefined || String(value).trim().length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="rounded-sm border border-[hsl(var(--memory-border)/0.48)] bg-[hsl(var(--memory-panel)/0.62)] px-3 py-2">
+      <div className="text-xs text-[hsl(var(--memory-muted))]">{label}</div>
+      <div className="mt-1 break-words text-sm text-[hsl(var(--memory-title))]">{String(value)}</div>
+    </div>
+  );
 };
 
 const MetricCard: React.FC<{ label: string; value: number }> = ({ label, value }) => (
@@ -822,7 +2204,7 @@ const StatLine: React.FC<{ label: string; value: string }> = ({ label, value }) 
 );
 
 const EmptyState: React.FC<{ copy: string }> = ({ copy }) => (
-  <div className="rounded-[1.15rem] border border-dashed border-[hsl(var(--memory-empty-border))] bg-[hsl(var(--memory-empty-bg)/0.88)] px-4 py-6 text-sm text-[hsl(var(--memory-muted))]">
+  <div className="rounded-sm border border-dashed border-[hsl(var(--memory-empty-border))] bg-[hsl(var(--memory-empty-bg)/0.72)] px-4 py-6 text-sm text-[hsl(var(--memory-muted))]">
     {copy}
   </div>
 );

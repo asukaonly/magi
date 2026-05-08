@@ -9,7 +9,12 @@ import aiosqlite
 from ....core.sqlite import sqlite_connection_async
 from ...embedding.sqlite_vec_index import VectorSearchHit
 from ...event_contracts import MemoryDomain
-from .common import FACT_EVENTS_TABLE, L1EventEmbeddingHostProtocol, logger
+from .common import (
+    EMBEDDING_TEXT_BUILDER_VERSION,
+    FACT_EVENTS_TABLE,
+    L1EventEmbeddingHostProtocol,
+    logger,
+)
 
 
 class L1EventEmbeddingSearchMixin:
@@ -43,6 +48,10 @@ class L1EventEmbeddingSearchMixin:
         embedding = await host._embedding_service.embed_text(query)
         if embedding is None:
             return []
+        embedding = host._embedding_service.result_for_index(
+            embedding,
+            text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION,
+        )
         try:
             return cast(
                 list[VectorSearchHit],

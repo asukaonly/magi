@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Optional, Protocol, cast
+from typing import Any, Awaitable, Callable, Optional, Protocol, cast
 
 import aiosqlite
 
@@ -45,7 +45,12 @@ class _EntityCatalogEmbeddingHostProtocol(Protocol):
 class L2EntityCatalogEmbeddingMixin:
     """Embedding maintenance and semantic search behavior for entity catalogs."""
 
-    async def rebuild_embeddings(self, *, batch_size: int = 100) -> int:
+    async def rebuild_embeddings(
+        self,
+        *,
+        batch_size: int = 100,
+        progress_callback: Callable[[int], Awaitable[None]] | None = None,
+    ) -> int:
         """Rebuild all L2 entity vectors from canonical catalog rows."""
         host = self._embedding_host()
         await host.initialize()
@@ -90,6 +95,8 @@ class L2EntityCatalogEmbeddingMixin:
                 await self._maybe_embed_entity(entity_id)
             processed += len(entity_ids)
             offset += len(rows)
+            if progress_callback is not None:
+                await progress_callback(processed)
         return processed
 
     def _vectors_enabled(self) -> bool:
@@ -161,6 +168,7 @@ class L2EntityCatalogEmbeddingMixin:
         return MemoryEmbeddingPipeline(
             embedding_service=host._embedding_service,
             vector_index=host._vector_index,
+            text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION,
         )
 
     async def _build_entity_embedding_text(self, entity_id: str) -> str:
@@ -230,6 +238,10 @@ class L2EntityCatalogEmbeddingMixin:
             embedding = await host._embedding_service.embed_text(query_text)
             if embedding is None:
                 return []
+            embedding = host._embedding_service.result_for_index(
+                embedding,
+                text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION,
+            )
             hits = await host._vector_index.search(embedding=embedding, limit=limit)
         except Exception as exc:
             logger.debug("L2 entity semantic search failed: %s", exc)

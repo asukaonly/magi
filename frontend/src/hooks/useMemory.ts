@@ -81,6 +81,7 @@ export interface UseMemoryReturn {
   runL2SnapshotRefresh: (entityIds: string[]) => Promise<void>;
   upsertL2GraphConflictRule: (payload: L2GraphConflictRulePayload) => Promise<void>;
   submitAssertionFeedback: (assertionId: string, feedback: 'confirmed' | 'rejected') => Promise<void>;
+  correctAssertion: (assertionId: string, newValue: string) => Promise<void>;
   loadL2Relations: (params?: PaginationParams) => Promise<void>;
   loadL2Assertions: (params?: PaginationParams) => Promise<void>;
   loadL2Entities: (params?: PaginationParams) => Promise<void>;
@@ -474,6 +475,26 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
     [refreshL2Lab, t]
   );
 
+  const correctAssertion = useCallback(
+    async (assertionId: string, newValue: string) => {
+      const cleanedValue = newValue.trim();
+      if (!cleanedValue) return;
+      setL2ActionLoading(true);
+      try {
+        await memoryApi.correctAssertion(assertionId, cleanedValue);
+        await refreshL2Lab();
+        toast.success(t('memory.l2.feedbackCorrected'));
+      } catch (error) {
+        console.error('Failed to correct assertion:', error);
+        toast.error(t('memory.l2.lab.actionFailed'));
+        throw error;
+      } finally {
+        setL2ActionLoading(false);
+      }
+    },
+    [refreshL2Lab, t]
+  );
+
   const loadL3Summaries = useCallback(async (params?: PaginationParams) => {
     try {
       const data = await memoryApi.getL3Summaries({ limit: 50, ...params });
@@ -510,6 +531,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
         jobs.push(loadL0Sessions());
         break;
       case 'l1':
+        jobs.push(loadStatistics());
         jobs.push(loadL1Events());
         break;
       case 'l2':
@@ -693,6 +715,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
     runL2SnapshotRefresh,
     upsertL2GraphConflictRule,
     submitAssertionFeedback,
+    correctAssertion,
     loadL2Relations,
     loadL2Assertions,
     loadL2Entities,

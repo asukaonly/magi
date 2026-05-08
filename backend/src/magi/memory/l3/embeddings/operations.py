@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any, Dict, List, Optional, Protocol, cast
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Protocol, cast
 
 import aiosqlite
 
@@ -20,6 +20,7 @@ from ..storage.schema import (
     SUMMARY_CHUNKS_TABLE,
 )
 from .summaries import (
+    EMBEDDING_TEXT_BUILDER_VERSION,
     build_embedding_pipeline,
     build_summary_embedding_chunks,
     fetch_summary_chunk_rows_by_ids,
@@ -60,7 +61,12 @@ class _L3SummaryEmbeddingHostProtocol(Protocol):
 class L3SummaryEmbeddingMixin:
     """Embedding rebuild, vector upsert, and semantic search helpers."""
 
-    async def rebuild_embeddings(self, *, batch_size: int = 100) -> int:
+    async def rebuild_embeddings(
+        self,
+        *,
+        batch_size: int = 100,
+        progress_callback: Callable[[int], Awaitable[None]] | None = None,
+    ) -> int:
         """Rebuild all persisted L3 summary embeddings from parent rows."""
         host = cast(_L3SummaryEmbeddingHostProtocol, self)
         await host.initialize()
@@ -105,6 +111,8 @@ class L3SummaryEmbeddingMixin:
             await self._maybe_upsert_summary_embeddings(summaries)
             processed += len(summaries)
             offset += len(rows)
+            if progress_callback is not None:
+                await progress_callback(processed)
         return processed
 
     async def _maybe_upsert_summary_embedding(self, summary: Dict[str, Any]) -> None:
@@ -184,6 +192,10 @@ class L3SummaryEmbeddingMixin:
         embedding = await host._embedding_service.embed_text(query)
         if embedding is None:
             return []
+        embedding = host._embedding_service.result_for_index(
+            embedding,
+            text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION,
+        )
         try:
             hits = await host._vector_index.search(embedding=embedding, limit=max(limit * 3, 10))
         except Exception as exc:

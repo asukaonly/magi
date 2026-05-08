@@ -21,15 +21,22 @@ from ..services.config_secrets import normalize_masked_secrets
 from ..services.llm_testing_service import get_llm_provider_registry
 from .config_schemas import LLMSelectionConfigModel, SystemConfigModel
 
-
 CHAT_SCENARIOS = {"context_decider", "core", "memory_summarizer"}
 
 
 def _provider_type_value(provider: Any) -> str:
-    return str(
-        getattr(getattr(provider, "provider_type", ""), "value", getattr(provider, "provider_type", ""))
-        or ""
-    ).strip().lower()
+    return (
+        str(
+            getattr(
+                getattr(provider, "provider_type", ""),
+                "value",
+                getattr(provider, "provider_type", ""),
+            )
+            or ""
+        )
+        .strip()
+        .lower()
+    )
 
 
 def _provider_meta_for_selection(
@@ -268,6 +275,7 @@ def build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "agent.memory.l1.enabled": config.memory.l1.enabled,
         "agent.memory.l1.vectors_enabled": config.memory.l1.vectors_enabled,
         "agent.memory.l2.enabled": config.memory.l2.enabled,
+        "agent.memory.l2.vectors_enabled": config.memory.l2.vectors_enabled,
         "agent.memory.l2.batch_flush_interval_seconds": config.memory.l2.batch_flush_interval_seconds,
         "agent.memory.l2.auto_extract_relations": config.memory.l2.auto_extract_relations,
         "agent.memory.l2.conflict_arbitration_enabled": config.memory.l2.conflict_arbitration_enabled,

@@ -60,8 +60,7 @@ class SqliteVecIndex(SqliteVecWriteMixin, SqliteVecSearchMixin):
             self._initialized = False
 
     async def _ensure_registry_schema(self, db: aiosqlite.Connection) -> None:
-        await db.execute(
-            f"""
+        await db.execute(f"""
             CREATE TABLE IF NOT EXISTS {self._registry_table} (
                 vec_rowid INTEGER PRIMARY KEY,
                 {self._entity_column} TEXT NOT NULL,
@@ -73,8 +72,7 @@ class SqliteVecIndex(SqliteVecWriteMixin, SqliteVecSearchMixin):
                 updated_at REAL NOT NULL,
                 UNIQUE({self._entity_column}, embedding_model)
             )
-            """
-        )
+            """)
         await db.execute(
             f"CREATE INDEX IF NOT EXISTS idx_{self._registry_table}_model ON {self._registry_table}(embedding_model)"
         )
@@ -84,7 +82,11 @@ class SqliteVecIndex(SqliteVecWriteMixin, SqliteVecSearchMixin):
     ) -> None:
         if await self._table_exists(db, table_name):
             return
-        pk_clause = f", {self._partition_key_column} text partition key" if self._partition_key_column else ""
+        pk_clause = (
+            f", {self._partition_key_column} text partition key"
+            if self._partition_key_column
+            else ""
+        )
         await db.execute(
             f'CREATE VIRTUAL TABLE "{table_name}" USING vec0(embedding float[{int(dimension)}]{pk_clause})'
         )
@@ -117,6 +119,15 @@ class SqliteVecIndex(SqliteVecWriteMixin, SqliteVecSearchMixin):
     def _vec_table_name(self, embedding_model: str, dimension: int) -> str:
         token = hashlib.sha1(f"{embedding_model}:{dimension}".encode("utf-8")).hexdigest()[:12]
         return f"{self._vec_table_prefix}_{token}"
+
+    def _embedding_model_key(self, embedding: object) -> str:
+        index_identity = getattr(embedding, "index_identity", None)
+        if index_identity:
+            return str(index_identity)
+        identity = getattr(embedding, "model_identity", None)
+        if identity:
+            return str(identity)
+        return str(getattr(embedding, "model_name", "embedding"))
 
     def _sanitize_identifier(self, value: str) -> str:
         return _SAFE_IDENTIFIER.sub("_", value.lower()).strip("_")

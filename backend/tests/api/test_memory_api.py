@@ -45,6 +45,7 @@ class _FakeL1Store:
         *,
         session_id=None,
         user_id=None,
+        event_id=None,
         event_type=None,
         query=None,
         source_filters=None,
@@ -60,6 +61,7 @@ class _FakeL1Store:
         self.last_query_kwargs = {
             "session_id": session_id,
             "user_id": user_id,
+            "event_id": event_id,
             "event_type": event_type,
             "query": query,
             "source_filters": source_filters,
@@ -99,6 +101,8 @@ class _FakeL1Store:
                 level=20,
                 media_path=None,
                 metadata_json={"timeline": {"source_app": "Chrome", "title": "hello"}},
+                embedding_status="ready",
+                embedding_profile_id="profile-a",
             )
         ]
 
@@ -1612,9 +1616,9 @@ def test_memory_l1_events_api_returns_canonical_user_and_content(monkeypatch):
     assert body["items"][0]["retention_class"] == "compressible"
     assert body["items"][0]["id"] == 101
     assert body["items"][0]["idempotency_key"] == "chat:session-1:turn-1"
-    assert "metadata_json" not in body["items"][0]
-    assert "embedding_status" not in body["items"][0]
-    assert "embedding_profile_id" not in body["items"][0]
+    assert body["items"][0]["metadata_json"] == {"timeline": {"source_app": "Chrome", "title": "hello"}}
+    assert body["items"][0]["embedding_status"] == "ready"
+    assert body["items"][0]["embedding_profile_id"] == "profile-a"
     assert body["total"] == 12
 
 
@@ -1642,8 +1646,8 @@ def test_memory_l1_events_api_forwards_search_filters(monkeypatch):
     assert memory.l1.last_query_kwargs["query"] == "lake"
     assert memory.l1.last_query_kwargs["source_filters"] == ["chat_projector"]
     assert memory.l1.last_query_kwargs["limit"] == 50
-    assert memory.l1.last_query_kwargs["include_metadata_json"] is False
-    assert memory.l1.last_query_kwargs["include_embedding_fields"] is False
+    assert memory.l1.last_query_kwargs["include_metadata_json"] is True
+    assert memory.l1.last_query_kwargs["include_embedding_fields"] is True
     assert isinstance(memory.l1.last_query_kwargs["start_time"], float)
     assert isinstance(memory.l1.last_query_kwargs["end_time"], float)
     assert memory.l1.last_query_kwargs["end_time"] > memory.l1.last_query_kwargs["start_time"]

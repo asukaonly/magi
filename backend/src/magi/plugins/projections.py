@@ -8,7 +8,7 @@ import logging
 from typing import Any
 
 from .base import Plugin
-from .contracts import SummaryProfileSpec, TemporalSummaryFeatureBudget
+from .contracts import ExtractionProfileSpec, SummaryProfileSpec, TemporalSummaryFeatureBudget
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +122,46 @@ class PluginProjectionMixin:
                 if not isinstance(spec, SummaryProfileSpec):
                     continue
                 if spec.profile_id in seen:
+                    continue
+                seen.add(spec.profile_id)
+                profiles.append(spec)
+        return profiles
+
+    def iter_extraction_profiles(self) -> list[ExtractionProfileSpec]:
+        """Aggregate ``ExtractionProfileSpec`` entries from all loaded plugins."""
+
+        profiles: list[ExtractionProfileSpec] = []
+        seen: set[str] = set()
+        for plugin in self.iter_loaded_plugins():
+            getter = getattr(plugin, "get_extraction_profiles", None)
+            if not callable(getter):
+                continue
+            try:
+                items = getter() or []
+            except Exception as exc:
+                logger.warning(
+                    "Plugin get_extraction_profiles failed",
+                    extra={"plugin_id": plugin.plugin_id, "error": str(exc)},
+                )
+                continue
+            for raw_spec in items:
+                try:
+                    spec = (
+                        raw_spec
+                        if isinstance(raw_spec, ExtractionProfileSpec)
+                        else ExtractionProfileSpec.model_validate(raw_spec)
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Plugin extraction profile spec invalid",
+                        extra={"plugin_id": plugin.plugin_id, "error": str(exc)},
+                    )
+                    continue
+                if spec.profile_id in seen:
+                    logger.warning(
+                        "Duplicate plugin extraction profile ignored",
+                        extra={"plugin_id": plugin.plugin_id, "profile_id": spec.profile_id},
+                    )
                     continue
                 seen.add(spec.profile_id)
                 profiles.append(spec)

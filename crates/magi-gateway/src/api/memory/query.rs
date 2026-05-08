@@ -11,6 +11,7 @@ const MAX_LIMIT: i64 = 500;
 pub struct L1EventsQuery {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+    pub event_id: Option<String>,
     pub event_type: Option<String>,
     pub user_id: Option<String>,
     pub session_id: Option<String>,

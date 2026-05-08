@@ -65,9 +65,6 @@ def serialize_memory_event(event: MemoryEvent | Dict[str, Any]) -> Dict[str, Any
 
 def serialize_l1_event_list_item(event: MemoryEvent | Dict[str, Any]) -> Dict[str, Any]:
     payload = serialize_memory_event(event)
-    payload.pop("metadata_json", None)
-    payload.pop("embedding_status", None)
-    payload.pop("embedding_profile_id", None)
     return payload
 
 

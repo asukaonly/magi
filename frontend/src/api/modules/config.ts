@@ -513,6 +513,39 @@ export interface SystemConfig {
   timeline: TimelineConfig;
 }
 
+export type VectorLayerId = 'l1' | 'l2_entities' | 'l2_edges' | 'l3' | 'l4';
+export type EmbeddingPreflightSeverity = 'none' | 'soft' | 'strong';
+
+export interface EmbeddingVectorIdentity {
+  layer: VectorLayerId;
+  mode: EmbeddingMode;
+  text_builder_version: string;
+  hard_key: string;
+  label: string;
+  dimension: number | null;
+  identity_known: boolean;
+  provenance: Record<string, string | number | null>;
+}
+
+export interface EmbeddingConfigPreflightWarning {
+  layer: VectorLayerId;
+  severity: 'soft' | 'strong';
+  reason: 'hard_identity_changed' | 'remote_provider_changed' | 'vector_availability_changed' | string;
+  ready_count: number;
+  current: EmbeddingVectorIdentity | null;
+  proposed: EmbeddingVectorIdentity | null;
+}
+
+export interface EmbeddingConfigPreflight {
+  severity: EmbeddingPreflightSeverity;
+  requires_rebuild: boolean;
+  ready_counts: Record<VectorLayerId, number>;
+  ready_total: number;
+  warnings: EmbeddingConfigPreflightWarning[];
+  current_identities: Record<VectorLayerId, EmbeddingVectorIdentity | null>;
+  proposed_identities: Record<VectorLayerId, EmbeddingVectorIdentity | null>;
+}
+
 export type OnboardingStep =
   | 'mode-selection'
   | 'language'
@@ -725,6 +758,8 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
 export const configApi = {
   get: () => api.get<SystemConfig>('/config'),
   update: (config: Partial<SystemConfig>) => api.put<SystemConfig>('/config', config),
+  embeddingPreflight: async (config: Partial<SystemConfig>): Promise<EmbeddingConfigPreflight> =>
+    unwrapConfigResponse(await api.post<EmbeddingConfigPreflight>('/config/embedding-preflight', config)),
   getTemplate: () => api.get<SystemConfig>('/config/template'),
   test: (config: Partial<SystemConfig>) => api.post<SystemConfig>('/config/test', config),
   getLLMProviderCatalog: async (): Promise<LLMProviderCatalog> =>

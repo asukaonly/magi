@@ -72,6 +72,7 @@ class UnifiedMemoryStore(
         temporal_l3_llm_timeout_seconds: float = 3.0,
         temporal_l3_llm_min_event_count: int = 2,
         temporal_summary_features_builder: Callable[..., dict[str, Any]] | None = None,
+        extraction_profile_provider: Callable[[], Any] | None = None,
     ) -> None:
         from ..utils.runtime import get_runtime_paths
 
@@ -151,6 +152,7 @@ class UnifiedMemoryStore(
                 enable_conflict_arbitration=enable_l2_conflict_arbitration,
                 conflict_arbitration_min_confidence=l2_conflict_arbitration_min_confidence,
                 semantic_edge_builder=semantic_edge_builder,
+                extraction_profile_provider=extraction_profile_provider,
             )
         if enable_l3:
             self.l3 = L3SummaryStore(
