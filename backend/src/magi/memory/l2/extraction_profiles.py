@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -29,6 +30,7 @@ class ExtractionProfile:
     """Resolved extraction limits for one event source/profile."""
 
     profile_id: str
+    source_types: frozenset[str] = field(default_factory=frozenset)
     allowed_entity_types: frozenset[str] = field(default_factory=lambda: ENTITY_TYPE_REGISTRY)
     allowed_predicates: frozenset[str] = field(default_factory=lambda: PREDICATE_REGISTRY)
     structured_allowed_entity_types: frozenset[str] | None = None
@@ -53,6 +55,7 @@ class ExtractionProfile:
 DEFAULT_EXTRACTION_PROFILES: dict[str, ExtractionProfile] = {
     "chat.user_message": ExtractionProfile(
         profile_id="chat.user_message",
+        source_types=frozenset({"chat"}),
     ),
 }
 
@@ -92,6 +95,7 @@ def _parse_profile_from_dict(profile_id: str, raw: dict[str, Any]) -> Extraction
 
     return ExtractionProfile(
         profile_id=profile_id,
+        source_types=_parse_source_types(raw.get("source_types"), profile_id=profile_id),
         allowed_entity_types=_parse_entity_types(raw.get("allowed_entity_types")),
         allowed_predicates=_parse_predicates(raw.get("allowed_predicates")),
         structured_allowed_entity_types=_parse_optional_set(
@@ -137,6 +141,86 @@ def _load_profiles_from_yaml(path: Path) -> dict[str, ExtractionProfile]:
     return profiles
 
 
+def _parse_source_types(value: Any, *, profile_id: str) -> frozenset[str]:
+    if isinstance(value, (list, tuple, set, frozenset)):
+        normalized = {str(item).strip().lower() for item in value if str(item).strip()}
+        if normalized:
+            return frozenset(normalized)
+    if profile_id.startswith("source."):
+        source_type = profile_id.removeprefix("source.").strip().lower()
+        return frozenset({source_type}) if source_type else frozenset()
+    if profile_id == "chat.user_message":
+        return frozenset({"chat"})
+    return frozenset()
+
+
+def _coerce_profile_spec_data(raw_spec: Any) -> dict[str, Any]:
+    if isinstance(raw_spec, dict):
+        return dict(raw_spec)
+    model_dump = getattr(raw_spec, "model_dump", None)
+    if callable(model_dump):
+        return dict(model_dump(mode="python"))
+    raise TypeError(f"unsupported extraction profile spec type: {type(raw_spec).__name__}")
+
+
+def _validate_profile(profile: ExtractionProfile) -> None:
+    if not profile.profile_id.startswith("source."):
+        raise ValueError(f"plugin profile {profile.profile_id} must use the source.* namespace")
+    if not profile.source_types:
+        raise ValueError(f"profile {profile.profile_id} must declare at least one source_type")
+    unknown_entity_types = profile.allowed_entity_types - ENTITY_TYPE_REGISTRY
+    if unknown_entity_types:
+        raise ValueError(f"profile {profile.profile_id} declares unknown entity types: {sorted(unknown_entity_types)}")
+    unknown_predicates = profile.allowed_predicates - PREDICATE_REGISTRY
+    if unknown_predicates:
+        raise ValueError(f"profile {profile.profile_id} declares unknown predicates: {sorted(unknown_predicates)}")
+    structured_entity_types = profile.structured_allowed_entity_types
+    if structured_entity_types is not None:
+        unknown_structured_entity_types = structured_entity_types - ENTITY_TYPE_REGISTRY
+        if unknown_structured_entity_types:
+            raise ValueError(
+                f"profile {profile.profile_id} declares unknown structured entity types: "
+                f"{sorted(unknown_structured_entity_types)}"
+            )
+    structured_predicates = profile.structured_allowed_predicates
+    if structured_predicates is not None:
+        unknown_structured_predicates = structured_predicates - PREDICATE_REGISTRY
+        if unknown_structured_predicates:
+            raise ValueError(
+                f"profile {profile.profile_id} declares unknown structured predicates: "
+                f"{sorted(unknown_structured_predicates)}"
+            )
+    unknown_assertion_families = profile.allowed_assertion_families - ASSERTION_FAMILY_ALLOWLIST
+    if unknown_assertion_families:
+        raise ValueError(
+            f"profile {profile.profile_id} declares unknown assertion families: "
+            f"{sorted(unknown_assertion_families)}"
+        )
+
+
+def build_extraction_profile_registry(
+    plugin_profile_specs: Iterable[Any] | None = None,
+    *,
+    base_profiles: dict[str, ExtractionProfile] | None = None,
+) -> dict[str, ExtractionProfile]:
+    """Merge host-owned profiles with plugin-contributed source profiles."""
+
+    profiles = dict(base_profiles or get_extraction_profiles())
+    for raw_spec in plugin_profile_specs or []:
+        try:
+            spec_data = _coerce_profile_spec_data(raw_spec)
+            profile_id = str(spec_data.get("profile_id") or "").strip()
+            if not profile_id:
+                raise ValueError("profile_id is required")
+            profile = _parse_profile_from_dict(profile_id, spec_data)
+            _validate_profile(profile)
+        except Exception as exc:
+            logger.warning("skipping invalid plugin extraction profile: %s", exc)
+            continue
+        profiles[profile.profile_id] = profile
+    return profiles
+
+
 def get_extraction_profiles() -> dict[str, ExtractionProfile]:
     """Return cached extraction profiles, loading from YAML on first call."""
     global _loaded_profiles
@@ -155,28 +239,23 @@ def reload_extraction_profiles() -> dict[str, ExtractionProfile]:
 def resolve_extraction_profile(
     event: MemoryEvent,
     profile_registry: dict[str, ExtractionProfile] | None = None,
+    plugin_profile_specs: Iterable[Any] | None = None,
 ) -> ExtractionProfile:
     """Resolve the extraction profile for a normalized event."""
 
-    registry = profile_registry or get_extraction_profiles()
-    default_profile_id = _default_profile_id_for_event(event)
+    registry = profile_registry or build_extraction_profile_registry(plugin_profile_specs)
+    default_profile_id = _default_profile_id_for_event(event, registry)
     return registry.get(default_profile_id, registry["chat.user_message"])
 
 
-def _default_profile_id_for_event(event: MemoryEvent) -> str:
+def _default_profile_id_for_event(
+    event: MemoryEvent,
+    profile_registry: dict[str, ExtractionProfile] | None = None,
+) -> str:
     source = (event.source or "").strip().lower()
-    if source == "chrome_history":
-        return "source.chrome_history"
-    if source == "calendar":
-        return "source.calendar"
-    _sensor_profile_map = {
-        "netease_music": "source.netease_music",
-        "git_activity": "source.git_activity",
-        "terminal_history": "source.terminal_history",
-        "screen_time": "source.screen_time",
-    }
-    if source in _sensor_profile_map:
-        return _sensor_profile_map[source]
+    for profile_id, profile in (profile_registry or get_extraction_profiles()).items():
+        if source and source in profile.source_types:
+            return profile_id
     return "chat.user_message"
 
 
@@ -187,6 +266,7 @@ def _apply_overrides(profile: ExtractionProfile, overrides: dict[str, Any]) -> E
         extraction_instructions = override_instructions.strip()
     return replace(
         profile,
+        source_types=_coerce_source_type_set(overrides.get("source_types"), fallback=profile.source_types),
         allowed_entity_types=_coerce_set(overrides.get("allowed_entity_types"), fallback=profile.allowed_entity_types),
         allowed_predicates=_coerce_predicate_set(overrides.get("allowed_predicates"), fallback=profile.allowed_predicates),
         structured_allowed_entity_types=_coerce_optional_set(
@@ -259,6 +339,13 @@ def _coerce_assertion_family_set(value: Any, *, fallback: frozenset[str]) -> fro
     return frozenset(allowed)
 
 
+def _coerce_source_type_set(value: Any, *, fallback: frozenset[str]) -> frozenset[str]:
+    if not isinstance(value, (list, tuple, set, frozenset)):
+        return fallback
+    normalized = {str(item).strip().lower() for item in value if str(item).strip()}
+    return frozenset(normalized) if normalized else fallback
+
+
 def _coerce_alias_map(value: Any) -> dict[str, str]:
     if not isinstance(value, dict):
         return {}
@@ -303,6 +390,7 @@ __all__ = [
     "DEFAULT_EXTRACTION_PROFILES",
     "DefaultSubjectPolicy",
     "ExtractionProfile",
+    "build_extraction_profile_registry",
     "get_extraction_profiles",
     "reload_extraction_profiles",
     "resolve_extraction_profile",

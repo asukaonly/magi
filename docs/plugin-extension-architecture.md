@@ -403,6 +403,7 @@ Each event source is mapped to an `ExtractionProfile` that controls what the L2 
 @dataclass(slots=True, frozen=True)
 class ExtractionProfile:
     profile_id: str
+  source_types: frozenset[str]
     allowed_entity_types: frozenset[str]
     allowed_predicates: frozenset[str]
     allowed_assertion_families: frozenset[str]
@@ -419,14 +420,17 @@ Key fields:
 - `allowed_entity_types`: LLM-extracted entities with types outside this set are filtered out before catalog registration.
 - `allowed_predicates`: LLM-extracted graph edges with predicates outside this set are dropped.
 - `allow_assertion`: master switch for Theory of Mind assertion generation (disabled for Chrome history since browsing history does not reveal psychological states reliably).
-- `extraction_instructions`: free-text instructions injected into the LLM Phase 1 prompt under a `## Source-Specific Instructions` section. This is the primary mechanism for host-managed source-specific LLM extraction behavior.
+- `source_types`: normalized event sources routed to this profile.
+- `extraction_instructions`: free-text instructions injected into the LLM Phase 1 prompt under a `## Source-Specific Instructions` section. This is the primary mechanism for source-specific LLM extraction behavior.
 
-Profile mapping uses the normalized event source. Built-in profiles are currently host-owned because the backend owns L2 ontology, prompt assembly, and validation. Profile IDs use the `source.*` namespace for external/source-specific events so they are not confused with the product Timeline surface. New source types fall back to the unrestricted `chat.user_message` default profile.
+Profile mapping uses the normalized event source. Source-specific profiles are contributed by loaded plugins through `Plugin.get_extraction_profiles()` using the SDK `ExtractionProfileSpec` contract. The host owns ontology, schema validation, prompt assembly, and final write guards. Profile IDs use the `source.*` namespace for external/source-specific events so they are not confused with the product Timeline surface. New source types fall back to the unrestricted `chat.user_message` default profile.
 
-Current registered profiles include:
+Current host-owned profiles include:
 
 - `chat.user_message` - unrestricted default
-- `chat.agent_response` - graph-only, no assertions
+
+Plugin-contributed profiles include examples such as:
+
 - `source.chrome_history` - selective entity types, no assertions, detailed extraction instructions
 - `source.git_activity` - software/project focused
 - `source.screen_time` - software/activity focused

@@ -551,6 +551,7 @@ Relation candidates are persisted as rule-based graph edges without LLM involvem
 
 Each event source is mapped to an `ExtractionProfile` that controls L2 cognition behavior. Source-specific profile IDs use the `source.*` namespace so they remain distinct from the product Timeline surface. Profiles define:
 
+- `source_types`: which normalized event source values use this profile
 - `allowed_entity_types`: which entity types LLM may create (e.g., `software`, `media`, `person`)
 - `allowed_predicates`: which predicates LLM may use (e.g., `USES`, `INTERESTED_IN`, `VIEWED`)
 - `allowed_assertion_families`: which ToM assertion families are permitted (empty disables assertions)
@@ -558,6 +559,27 @@ Each event source is mapped to an `ExtractionProfile` that controls L2 cognition
 - `extraction_instructions`: free-text instructions injected into the LLM Phase 1 prompt
 
 The extraction instructions are the primary mechanism for plugins to guide LLM behavior. They tell the LLM how to interpret source-specific content patterns, which entities to extract vs. skip, and how to choose predicates.
+
+Plugins contribute source profiles with `get_extraction_profiles()`:
+
+```python
+from magi_plugin_sdk import ExtractionProfileSpec, Plugin
+
+
+class ChromeHistoryPlugin(Plugin):
+    def get_extraction_profiles(self) -> list[ExtractionProfileSpec]:
+        return [
+            ExtractionProfileSpec(
+                profile_id="source.chrome_history",
+                source_types=["chrome_history"],
+                allowed_entity_types=["software", "media", "person", "topic"],
+                allowed_predicates=["USES", "INTERESTED_IN", "VIEWED"],
+                allow_graph=True,
+                allow_assertion=False,
+                extraction_instructions="Treat browser history as observed page titles, not user-authored text.",
+            )
+        ]
+```
 
 Example (Chrome history):
 
@@ -575,7 +597,7 @@ extraction_instructions=(
 )
 ```
 
-Built-in profiles are currently host-owned in `backend/configs/l2_extraction_profiles.yaml` because the backend owns L2 ontology, prompt assembly, and validation. New source types fall back to the unrestricted `chat.user_message` default profile.
+The host validates plugin-declared entity types, predicates, assertion families, and structured-hint allowlists against the backend L2 ontology before using a profile. Host-owned chat profiles remain in `backend/configs/l2_extraction_profiles.yaml`; source-specific profiles belong with the plugin that owns the source semantics. New source types fall back to the unrestricted `chat.user_message` default profile.
 
 ## Declaring Settings Fields
 

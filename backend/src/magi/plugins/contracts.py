@@ -7,6 +7,7 @@ from ``magi_plugin_sdk`` instead.
 from magi_plugin_sdk.contracts import (  # noqa: F401
     ActivationFlowSpec,
     ContributionType,
+    ExtractionProfileSpec,
     ExtensionFieldOption,
     ExtensionFieldSpec,
     PluginContribution,

@@ -161,6 +161,25 @@ class TemporalSummarySourceFeatures(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class ExtractionProfileSpec(BaseModel):
+    """Declarative L2 extraction profile contributed by a plugin.
+
+    Plugins declare source-local extraction preferences here. The host owns
+    ontology validation, prompt assembly, and final write guards.
+    """
+
+    profile_id: str
+    source_types: list[str] = Field(default_factory=list)
+    allowed_entity_types: list[str] | Literal["all"] = "all"
+    allowed_predicates: list[str] | Literal["all"] = "all"
+    structured_allowed_entity_types: list[str] | Literal["all"] | None = None
+    structured_allowed_predicates: list[str] | Literal["all"] | None = None
+    allowed_assertion_families: list[str] | Literal["all"] = "all"
+    allow_graph: bool = True
+    allow_assertion: bool = True
+    extraction_instructions: str | None = None
+
+
 class PluginManifest(BaseModel):
     """Parsed manifest for a plugin package."""
 

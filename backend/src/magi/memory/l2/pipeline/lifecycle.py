@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Awaitable, Callable, Optional, Protocol
+from typing import Any, Awaitable, Callable, Optional, Protocol
 
 from ....core.logger import get_logger
 from ...event_contracts import MemoryEvent
@@ -76,6 +77,7 @@ class _L2PipelineLifecycleHostProtocol(Protocol):
         Callable[[str, str, list[ReconciledTraitOutcome]], Awaitable[None]] | None
     )
     _active_entity_callback: Callable[[MemoryEvent, list[L2FocalEntityRef]], Awaitable[None]] | None
+    _extraction_profile_provider: Callable[[], Iterable[Any]] | None
     _batch_flush_interval_seconds: int
     _enable_conflict_arbitration: bool
     _conflict_arbitration_min_confidence: float
@@ -124,6 +126,7 @@ class L2PipelineLifecycleMixin:
         | None = None,
         active_entity_callback: Callable[[MemoryEvent, list[L2FocalEntityRef]], Awaitable[None]]
         | None = None,
+        extraction_profile_provider: Callable[[], Iterable[Any]] | None = None,
         batch_flush_interval_seconds: int = DEFAULT_L2_BATCH_FLUSH_INTERVAL_SECONDS,
         enable_conflict_arbitration: bool = DEFAULT_ENABLE_L2_CONFLICT_ARBITRATION,
         conflict_arbitration_min_confidence: float = DEFAULT_L2_CONFLICT_ARBITRATION_MIN_CONFIDENCE,
@@ -141,6 +144,7 @@ class L2PipelineLifecycleMixin:
         host._semantic_edge_builder = semantic_edge_builder
         host._state_change_callback = state_change_callback
         host._active_entity_callback = active_entity_callback
+        host._extraction_profile_provider = extraction_profile_provider
         host._batch_flush_interval_seconds = max(0, int(batch_flush_interval_seconds))
         host._enable_conflict_arbitration = bool(enable_conflict_arbitration)
         host._conflict_arbitration_min_confidence = max(

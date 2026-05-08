@@ -90,6 +90,7 @@ class MemoryStoreModule(LifecycleModule):
             temporal_l3_llm_timeout_seconds=memory_config.l3.temporal_llm_timeout_seconds,
             temporal_l3_llm_min_event_count=memory_config.l3.temporal_llm_min_event_count,
             temporal_summary_features_builder=plugin_manager.build_temporal_summary_features,
+            extraction_profile_provider=getattr(plugin_manager, "iter_extraction_profiles", lambda: []),
             l0_checkpoint_interval_seconds=memory_config.l0.checkpoint_interval_seconds,
             l2_batch_flush_interval_seconds=memory_config.l2.batch_flush_interval_seconds,
             enable_l2_conflict_arbitration=memory_config.l2.conflict_arbitration_enabled,
