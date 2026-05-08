@@ -218,6 +218,27 @@ describe('conversation store', () => {
     }));
   });
 
+  it('trims trailing newlines when a streamed placeholder flushes locally', () => {
+    const store = useConversationStore.getState();
+
+    store.appendStreamTextDelta({
+      sessionId: 'session-a',
+      turnId: 'turn-a',
+      textDelta: 'hello\n\n',
+    });
+    store.appendStreamTextFlush({
+      sessionId: 'session-a',
+      turnId: 'turn-a',
+    });
+
+    const message = useConversationStore.getState().messagesBySession['session-a']?.[0];
+
+    expect(message).toEqual(expect.objectContaining({
+      content: 'hello',
+      streaming: false,
+    }));
+  });
+
   it('clears unread count when a session becomes active', () => {
     const store = useConversationStore.getState();
 
