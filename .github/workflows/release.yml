@@ -55,14 +55,19 @@ jobs:
         with:
           python-version: "3.13.5"
 
-      - name: Use Homebrew Python for macOS sidecar
+      - name: Use Homebrew Python venv on macOS
         if: matrix.os_family == 'macos'
         shell: bash
         run: |
           brew list python@3.13 >/dev/null 2>&1 || brew install python@3.13
           python_prefix="$(brew --prefix python@3.13)"
-          echo "${python_prefix}/libexec/bin" >> "$GITHUB_PATH"
-          "${python_prefix}/libexec/bin/python" - <<'PY'
+          venv_path="${GITHUB_WORKSPACE}/.venv-release"
+          "${python_prefix}/libexec/bin/python" -m venv "${venv_path}"
+          echo "${venv_path}/bin" >> "$GITHUB_PATH"
+          echo "VIRTUAL_ENV=${venv_path}" >> "$GITHUB_ENV"
+          # GitHub's setup-python builds on macOS do not expose SQLite loadable
+          # extension support. sqlite-vec requires it to register vec0 tables.
+          "${venv_path}/bin/python" - <<'PY'
           import sqlite3
           import sys
 
