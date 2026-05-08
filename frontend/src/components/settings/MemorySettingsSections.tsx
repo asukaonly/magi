@@ -1,10 +1,12 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FolderOpen, Trash2 } from 'lucide-react';
+import { FolderOpen, RefreshCw, RotateCcw, Trash2, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
+import type { VectorLayerId } from '@/api/modules/config';
 import type { SystemConfig } from '@/api/modules/config';
 import { DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
+import type { EmbeddingVectorStatus } from '@/api/modules/memory';
 import memoryApi from '@/api/modules/memory';
 import { ClearMemoryDialog } from '@/components/memory/ClearMemoryDialog';
 import { LabeledSelectField, NumberField } from '@/components/settings/form-fields';
@@ -87,6 +89,151 @@ function DependencyNotice({
       <Button type="button" variant="ghost" size="sm" className="mt-2 h-8 px-0 text-sm" onClick={onRestore}>
         {cta}
       </Button>
+    </div>
+  );
+}
+
+function VectorMaintenancePanel() {
+  const { t } = useTranslation('app');
+  const [status, setStatus] = useState<EmbeddingVectorStatus | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [rebuilding, setRebuilding] = useState(false);
+  const latestJob = status?.latest_job ?? null;
+  const jobActive = Boolean(latestJob && !latestJob.terminal);
+  const progressPercent = useMemo(() => {
+    if (!latestJob) {
+      return 0;
+    }
+    if (latestJob.total_items <= 0) {
+      return latestJob.terminal ? 100 : 0;
+    }
+    return Math.min(100, Math.round((latestJob.processed_items / latestJob.total_items) * 100));
+  }, [latestJob]);
+
+  const refreshStatus = useCallback(async (silent = false) => {
+    if (!silent) {
+      setLoading(true);
+    }
+    try {
+      setStatus(await memoryApi.getEmbeddingVectorStatus());
+    } catch {
+      if (!silent) {
+        toast.error(t('settings.memory.vector.statusFailed'));
+      }
+    } finally {
+      if (!silent) {
+        setLoading(false);
+      }
+    }
+  }, [t]);
+
+  useEffect(() => {
+    void refreshStatus(true);
+  }, [refreshStatus]);
+
+  useEffect(() => {
+    if (!jobActive) {
+      return undefined;
+    }
+    const interval = window.setInterval(() => {
+      void refreshStatus(true);
+    }, 2500);
+    return () => window.clearInterval(interval);
+  }, [jobActive, refreshStatus]);
+
+  const handleStartRebuild = async () => {
+    setRebuilding(true);
+    try {
+      const job = await memoryApi.startEmbeddingRebuild();
+      setStatus((current) => current ? { ...current, latest_job: job } : current);
+      await refreshStatus(true);
+      toast.success(t('settings.memory.vector.rebuildStarted'));
+    } catch {
+      toast.error(t('settings.memory.vector.rebuildFailed'));
+    } finally {
+      setRebuilding(false);
+    }
+  };
+
+  const handleCancelRebuild = async () => {
+    if (!latestJob) {
+      return;
+    }
+    try {
+      const job = await memoryApi.cancelEmbeddingRebuild(latestJob.job_id);
+      setStatus((current) => current ? { ...current, latest_job: job } : current);
+      toast.success(t('settings.memory.vector.cancelRequested'));
+    } catch {
+      toast.error(t('settings.memory.vector.cancelFailed'));
+    }
+  };
+
+  const readyEntries = Object.entries(status?.ready_counts ?? {}) as Array<[VectorLayerId, number]>;
+  const activeLabel = latestJob?.active_layer ? t(`settings.memory.vector.layers.${latestJob.active_layer}`) : '';
+
+  return (
+    <div className="py-2">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="space-y-1">
+          <div className="text-sm font-medium text-foreground">{t('settings.memory.vector.title')}</div>
+          <p className="max-w-3xl text-xs leading-6 text-muted-foreground">
+            {t('settings.memory.vector.description')}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void refreshStatus()}
+            disabled={loading}
+          >
+            <RefreshCw className="mr-2 h-4 w-4" />
+            {t('settings.memory.vector.refresh')}
+          </Button>
+          {jobActive ? (
+            <Button type="button" variant="outline" size="sm" onClick={() => void handleCancelRebuild()}>
+              <XCircle className="mr-2 h-4 w-4" />
+              {t('settings.memory.vector.cancel')}
+            </Button>
+          ) : (
+            <Button type="button" variant="outline" size="sm" onClick={() => void handleStartRebuild()} disabled={rebuilding}>
+              <RotateCcw className="mr-2 h-4 w-4" />
+              {t('settings.memory.vector.rebuild')}
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+        {readyEntries.map(([layer, count]) => (
+          <div key={layer} className="rounded-md border border-border/70 px-3 py-2">
+            <div className="text-xs text-muted-foreground">{t(`settings.memory.vector.layers.${layer}`)}</div>
+            <div className="mt-1 text-sm font-semibold text-foreground">{count}</div>
+          </div>
+        ))}
+      </div>
+
+      {latestJob ? (
+        <div className="mt-3 space-y-2 text-xs leading-6 text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span>{t(`settings.memory.vector.status.${latestJob.status}`)}</span>
+            {activeLabel ? <span>{t('settings.memory.vector.activeLayer', { layer: activeLabel })}</span> : null}
+            <span>{t('settings.memory.vector.progress', {
+              processed: latestJob.processed_items,
+              total: latestJob.total_items,
+              percent: progressPercent,
+            })}</span>
+          </div>
+          <div className="h-2 overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-[hsl(var(--settings-nav-active))] transition-all"
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+          {latestJob.error ? <p className="text-destructive">{latestJob.error}</p> : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -253,6 +400,10 @@ export function MemoryGeneralSettingsSection({
             </div>
           ) : null}
         </div>
+      </MemoryGroup>
+
+      <MemoryGroup>
+        <VectorMaintenancePanel />
       </MemoryGroup>
 
       {/* Danger zone — clear all memory */}

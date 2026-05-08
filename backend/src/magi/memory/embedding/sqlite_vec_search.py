@@ -23,7 +23,7 @@ class SqliteVecSearchMixin:
     ) -> list[VectorSearchHit]:
         host = cast(Any, self)
         await host.initialize()
-        vec_table = host._vec_table_name(embedding.model_name, embedding.dimension)
+        vec_table = host._vec_table_name(host._embedding_model_key(embedding), embedding.dimension)
         async with host._db_lock:
             db = host._require_db()
             await host._ensure_registry_schema(db)
@@ -56,7 +56,9 @@ class SqliteVecSearchMixin:
             ) as cursor:
                 registry_rows = await cursor.fetchall()
 
-        entity_by_rowid = {int(row["vec_rowid"]): str(row[host._entity_column]) for row in registry_rows}
+        entity_by_rowid = {
+            int(row["vec_rowid"]): str(row[host._entity_column]) for row in registry_rows
+        }
         hits: list[VectorSearchHit] = []
         for row in vector_rows:
             entity_id = entity_by_rowid.get(int(row["rowid"]))

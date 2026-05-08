@@ -1166,6 +1166,36 @@
         "description": "永久清除当前实例的全部记忆数据。此操作不可撤销，执行后 AI 需要重新积累记忆。",
         "clearButton": "清除全部记忆"
       },
+      "vector": {
+        "title": "向量维护",
+        "description": "查看已索引的记忆向量，并在切换 embedding 模型或本地模型文件后重建。",
+        "refresh": "刷新",
+        "rebuild": "重建向量",
+        "cancel": "取消",
+        "statusFailed": "加载向量状态失败",
+        "rebuildStarted": "已开始重建向量",
+        "rebuildFailed": "启动向量重建失败",
+        "cancelRequested": "已请求取消",
+        "cancelFailed": "取消向量重建失败",
+        "preflightStrongConfirm": "这次改动会影响 {{layers}} 中已有的 {{count}} 条向量。重建完成前语义检索可能不准确。仍要保存吗？",
+        "preflightSoftWarning": "{{layers}} 的 embedding 提供商信息发生变化。已有 {{count}} 条向量仍可继续使用；如果检索质量异常，请重建向量。",
+        "activeLayer": "当前层级：{{layer}}",
+        "progress": "{{processed}} / {{total}} · {{percent}}%",
+        "layers": {
+          "l1": "L1 事件",
+          "l2_entities": "L2 实体",
+          "l2_edges": "L2 关系",
+          "l3": "L3 摘要",
+          "l4": "L4 技能"
+        },
+        "status": {
+          "pending": "等待中",
+          "running": "运行中",
+          "succeeded": "已完成",
+          "failed": "失败",
+          "cancelled": "已取消"
+        }
+      },
       "fields": {
         "db_path": {
           "label": "记忆数据存储位置",

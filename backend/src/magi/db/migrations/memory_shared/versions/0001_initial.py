@@ -11,10 +11,10 @@ their tables in this single file. This revision is the snapshot of
 the schema as it stood the day Alembic took ownership; any further
 evolution is a new revision file.
 """
+
 from __future__ import annotations
 
 from alembic import op
-
 
 revision = "0001_initial"
 down_revision = None
@@ -136,6 +136,8 @@ CREATE TABLE IF NOT EXISTS knowledge_graph (
     source_type TEXT,
     extraction_method TEXT,
     embedding_status TEXT DEFAULT 'pending',
+    embedding_profile_id TEXT,
+    last_embedded_at REAL,
     expires_at REAL,
     valid_from REAL,
     valid_to REAL,
@@ -178,6 +180,8 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_graph_status_object
     ON knowledge_graph(status, object_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_knowledge_graph_status_predicate
     ON knowledge_graph(status, predicate);
+CREATE INDEX IF NOT EXISTS idx_knowledge_graph_embedding_profile
+    ON knowledge_graph(embedding_profile_id);
 
 CREATE TABLE IF NOT EXISTS tom_trait_assertions (
     assertion_id TEXT PRIMARY KEY,
@@ -552,9 +556,48 @@ CREATE VIRTUAL TABLE IF NOT EXISTS episodes_fts USING fts5(
     label,
     user_label
 );
+
+-- Memory embedding rebuild jobs
+CREATE TABLE IF NOT EXISTS embedding_rebuild_jobs (
+    job_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    requested_layers_json TEXT NOT NULL,
+    active_layer TEXT,
+    total_items INTEGER NOT NULL DEFAULT 0,
+    processed_items INTEGER NOT NULL DEFAULT 0,
+    succeeded_items INTEGER NOT NULL DEFAULT 0,
+    failed_items INTEGER NOT NULL DEFAULT 0,
+    cancel_requested INTEGER NOT NULL DEFAULT 0,
+    error TEXT,
+    created_at REAL NOT NULL,
+    started_at REAL,
+    finished_at REAL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_embedding_rebuild_jobs_status_updated
+    ON embedding_rebuild_jobs(status, updated_at);
+
+CREATE TABLE IF NOT EXISTS embedding_rebuild_job_layers (
+    job_id TEXT NOT NULL,
+    layer TEXT NOT NULL,
+    status TEXT NOT NULL,
+    total_items INTEGER NOT NULL DEFAULT 0,
+    processed_items INTEGER NOT NULL DEFAULT 0,
+    succeeded_items INTEGER NOT NULL DEFAULT 0,
+    failed_items INTEGER NOT NULL DEFAULT 0,
+    error TEXT,
+    started_at REAL,
+    finished_at REAL,
+    updated_at REAL NOT NULL,
+    PRIMARY KEY (job_id, layer)
+);
+CREATE INDEX IF NOT EXISTS idx_embedding_rebuild_job_layers_status
+    ON embedding_rebuild_job_layers(status, updated_at);
 """
 
 DROP_SQL = """
+DROP TABLE IF EXISTS embedding_rebuild_job_layers;
+DROP TABLE IF EXISTS embedding_rebuild_jobs;
 -- L2 Entity Catalog
 DROP TABLE IF EXISTS entity_mentions;
 DROP TABLE IF EXISTS entity_aliases;

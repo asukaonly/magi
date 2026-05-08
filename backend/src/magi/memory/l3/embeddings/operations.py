@@ -20,6 +20,7 @@ from ..storage.schema import (
     SUMMARY_CHUNKS_TABLE,
 )
 from .summaries import (
+    EMBEDDING_TEXT_BUILDER_VERSION,
     build_embedding_pipeline,
     build_summary_embedding_chunks,
     fetch_summary_chunk_rows_by_ids,
@@ -184,6 +185,10 @@ class L3SummaryEmbeddingMixin:
         embedding = await host._embedding_service.embed_text(query)
         if embedding is None:
             return []
+        embedding = host._embedding_service.result_for_index(
+            embedding,
+            text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION,
+        )
         try:
             hits = await host._vector_index.search(embedding=embedding, limit=max(limit * 3, 10))
         except Exception as exc:

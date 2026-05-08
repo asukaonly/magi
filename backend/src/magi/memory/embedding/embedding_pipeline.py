@@ -44,11 +44,15 @@ class MemoryEmbeddingPipeline:
         *,
         embedding_service: MemoryEmbeddingService,
         vector_index: SqliteVecIndex,
+        text_builder_version: str | None = None,
     ) -> None:
         self._embedding_service = embedding_service
         self._vector_index = vector_index
+        self._text_builder_version = text_builder_version
 
-    async def upsert_items(self, items: list[EmbeddingPipelineItem]) -> list[EmbeddingPipelineResult]:
+    async def upsert_items(
+        self, items: list[EmbeddingPipelineItem]
+    ) -> list[EmbeddingPipelineResult]:
         """Embed *items* and write all chunk vectors, with single-row fallback."""
         prepared_items = [item for item in items if item.chunks]
         if not prepared_items:
@@ -64,11 +68,17 @@ class MemoryEmbeddingPipeline:
         embedded_at = time.time()
         embedding_index = 0
         for item in prepared_items:
-            chunk_embeddings = embeddings[embedding_index: embedding_index + len(item.chunks)]
+            chunk_embeddings = embeddings[embedding_index : embedding_index + len(item.chunks)]
             embedding_index += len(item.chunks)
-            if len(chunk_embeddings) != len(item.chunks) or any(embedding is None for embedding in chunk_embeddings):
+            if len(chunk_embeddings) != len(item.chunks) or any(
+                embedding is None for embedding in chunk_embeddings
+            ):
                 continue
-            typed_embeddings = [embedding for embedding in chunk_embeddings if embedding is not None]
+            typed_embeddings = [
+                self._result_for_index(embedding)
+                for embedding in chunk_embeddings
+                if embedding is not None
+            ]
             successful_results.append(
                 EmbeddingPipelineResult(
                     parent_id=item.parent_id,
@@ -96,7 +106,10 @@ class MemoryEmbeddingPipeline:
             await self._vector_index.upsert_many(vector_items)
             return successful_results
         except Exception as exc:
-            logger.warning("Failed batch upsert for memory embeddings, falling back to single-row writes: %s", exc)
+            logger.warning(
+                "Failed batch upsert for memory embeddings, falling back to single-row writes: %s",
+                exc,
+            )
 
         persisted_results: list[EmbeddingPipelineResult] = []
         vector_items_by_parent = {
@@ -120,13 +133,25 @@ class MemoryEmbeddingPipeline:
                     )
                 persisted_results.append(result)
             except Exception as item_exc:
-                logger.warning("Failed to upsert memory embedding chunks for %s: %s", result.parent_id, item_exc)
+                logger.warning(
+                    "Failed to upsert memory embedding chunks for %s: %s",
+                    result.parent_id,
+                    item_exc,
+                )
         return persisted_results
 
     async def _embed_texts(self, texts: list[str]) -> list[EmbeddingResult | None]:
         if hasattr(self._embedding_service, "embed_texts"):
             return await self._embedding_service.embed_texts(texts)
         return [await self._embedding_service.embed_text(text) for text in texts]
+
+    def _result_for_index(self, embedding: EmbeddingResult) -> EmbeddingResult:
+        if not self._text_builder_version:
+            return embedding
+        identity_builder = getattr(self._embedding_service, "result_for_index", None)
+        if callable(identity_builder):
+            return identity_builder(embedding, text_builder_version=self._text_builder_version)
+        return embedding
 
     def _vector_entity_id(self, parent_id: str, chunk: ChunkedText) -> str:
         if chunk.chunk_id == parent_id or "::" in chunk.chunk_id:

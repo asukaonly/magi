@@ -161,6 +161,7 @@ class L2EntityCatalogEmbeddingMixin:
         return MemoryEmbeddingPipeline(
             embedding_service=host._embedding_service,
             vector_index=host._vector_index,
+            text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION,
         )
 
     async def _build_entity_embedding_text(self, entity_id: str) -> str:
@@ -230,6 +231,10 @@ class L2EntityCatalogEmbeddingMixin:
             embedding = await host._embedding_service.embed_text(query_text)
             if embedding is None:
                 return []
+            embedding = host._embedding_service.result_for_index(
+                embedding,
+                text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION,
+            )
             hits = await host._vector_index.search(embedding=embedding, limit=limit)
         except Exception as exc:
             logger.debug("L2 entity semantic search failed: %s", exc)

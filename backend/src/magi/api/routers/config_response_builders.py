@@ -93,6 +93,7 @@ def build_memory_config(raw: Dict[str, Any], runtime_config: Any) -> MemoryConfi
         ),
         l2=MemoryL2ConfigModel(
             enabled=memory_cfg.l2.enabled,
+            vectors_enabled=memory_cfg.l2.vectors_enabled,
             batch_flush_interval_seconds=memory_cfg.l2.batch_flush_interval_seconds,
             auto_extract_relations=memory_cfg.l2.auto_extract_relations,
             conflict_arbitration_enabled=memory_cfg.l2.conflict_arbitration_enabled,

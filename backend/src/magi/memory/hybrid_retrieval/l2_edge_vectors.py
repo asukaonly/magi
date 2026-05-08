@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 from .protocols import EmbeddingServiceProtocol, L2StoreProtocol
+from ..embedding.embedding_text_builders import L2_EDGE_EMBEDDING_TEXT_BUILDER_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,12 @@ class L2EdgeVectorSupplementMixin:
             embedding = await self._embedding_service.embed_text(query_text)
             if embedding is None:
                 return []
+            index_identity_builder = getattr(self._embedding_service, "result_for_index", None)
+            if callable(index_identity_builder):
+                embedding = index_identity_builder(
+                    embedding,
+                    text_builder_version=L2_EDGE_EMBEDDING_TEXT_BUILDER_VERSION,
+                )
             candidates = await self._store.search_edges_by_embedding(
                 vector_index=self._edge_vector_index,
                 embedding=embedding,

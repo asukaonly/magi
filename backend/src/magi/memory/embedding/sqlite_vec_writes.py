@@ -40,9 +40,10 @@ class SqliteVecWriteMixin:
             db = host._require_db()
             await host._ensure_registry_schema(db)
             vec_specs = {
-                host._vec_table_name(item["embedding"].model_name, item["embedding"].dimension): item[
-                    "embedding"
-                ].dimension
+                host._vec_table_name(
+                    host._embedding_model_key(item["embedding"]),
+                    item["embedding"].dimension,
+                ): item["embedding"].dimension
                 for item in items
             }
             for vec_table, dimension in vec_specs.items():
@@ -71,7 +72,9 @@ class SqliteVecWriteMixin:
             ) as cursor:
                 rows = await cursor.fetchall()
             for row in rows:
-                await db.execute(f'DELETE FROM "{row["vec_table"]}" WHERE rowid = ?', (int(row["vec_rowid"]),))
+                await db.execute(
+                    f'DELETE FROM "{row["vec_table"]}" WHERE rowid = ?', (int(row["vec_rowid"]),)
+                )
             await db.execute(
                 f"DELETE FROM {host._registry_table} WHERE {host._entity_column} = ?",
                 (entity_id,),
@@ -108,10 +111,11 @@ class SqliteVecWriteMixin:
         now: float,
     ) -> None:
         host = cast(Any, self)
-        vec_table = host._vec_table_name(embedding.model_name, embedding.dimension)
+        embedding_model_key = host._embedding_model_key(embedding)
+        vec_table = host._vec_table_name(embedding_model_key, embedding.dimension)
         async with db.execute(
             f"SELECT vec_rowid, vec_table, created_at FROM {host._registry_table} WHERE {host._entity_column} = ? AND embedding_model = ?",
-            (entity_id, embedding.model_name),
+            (entity_id, embedding_model_key),
         ) as cursor:
             existing = await cursor.fetchone()
 
@@ -125,7 +129,7 @@ class SqliteVecWriteMixin:
                 """,
                 (
                     entity_id,
-                    embedding.model_name,
+                    embedding_model_key,
                     int(embedding.dimension),
                     vec_table,
                     json.dumps(metadata or {}, ensure_ascii=False),

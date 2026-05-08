@@ -7,7 +7,7 @@ import time
 from typing import Any, Optional
 
 from ...config.models import LocalEmbeddingSettings
-from ...utils.runtime import RuntimePaths
+from ...utils.runtime import RuntimePaths, get_runtime_paths
 from .local_embedding_encoding import LocalEmbeddingEncodingMixin
 from .local_embedding_lifecycle import LocalEmbeddingLifecycleMixin
 from .local_embedding_resolution import LocalEmbeddingModelResolutionMixin, _find_onnx_model
@@ -30,7 +30,7 @@ class LocalEmbeddingManager(
         runtime_paths: RuntimePaths | None = None,
     ) -> None:
         self._config = config
-        self._runtime_paths = runtime_paths or RuntimePaths()
+        self._runtime_paths = runtime_paths or get_runtime_paths()
         self._session: Any = None
         self._tokenizer: Any = None
         self._model_config: dict[str, Any] = {}
@@ -38,6 +38,7 @@ class LocalEmbeddingManager(
         self._normalize: bool = True
         self._dimension: int | None = None
         self._model_name: str = ""
+        self._model_identity: str | None = None
         self._last_used: float = 0.0
         self._lock = asyncio.Lock()
         self._unload_task: asyncio.Task[None] | None = None
@@ -56,6 +57,11 @@ class LocalEmbeddingManager(
     def dimension(self) -> int | None:
         """Return the embedding dimension, if known."""
         return self._dimension
+
+    @property
+    def model_identity(self) -> str | None:
+        """Return the content-derived identity key for the loaded model."""
+        return self._model_identity
 
     async def embed(self, text: str) -> Optional[list[float]]:
         """Generate an embedding vector for a single text."""

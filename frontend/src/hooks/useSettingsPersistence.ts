@@ -93,6 +93,25 @@ export function useSettingsPersistence({
       let persistedConfig = structuredClone(draftConfig);
 
       if (configDirty) {
+        const preflight = await configApi.embeddingPreflight(draftConfig);
+        const warningLayers = preflight.warnings.map((warning) =>
+          t(`settings.memory.vector.layers.${warning.layer}`)
+        );
+        const uniqueWarningLayers = Array.from(new Set(warningLayers)).join(', ');
+        if (preflight.severity === 'strong') {
+          const confirmed = window.confirm(t('settings.memory.vector.preflightStrongConfirm', {
+            count: preflight.ready_total,
+            layers: uniqueWarningLayers,
+          }));
+          if (!confirmed) {
+            return;
+          }
+        } else if (preflight.severity === 'soft') {
+          toast.warning(t('settings.memory.vector.preflightSoftWarning', {
+            count: preflight.ready_total,
+            layers: uniqueWarningLayers,
+          }));
+        }
         const response = await configApi.update(draftConfig);
         persistedConfig = structuredClone(response.data || draftConfig);
         await syncCloseToTrayPreference(persistedConfig.preferences.close_to_tray_enabled);

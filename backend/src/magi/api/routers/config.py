@@ -1,4 +1,5 @@
 """System configuration API router."""
+
 from __future__ import annotations
 
 from importlib import import_module
@@ -14,6 +15,7 @@ from ...core.runtime_bindings import require_runtime_command_queue
 from ...events.contracts import RefreshLLMConfigCommand
 from ...core.logger import get_logger
 from ...bootstrap import refresh_runtime_llm_config
+from ...memory.embedding.vector_admin import build_embedding_config_preflight
 from ..services.config_onboarding import (
     build_onboarding_template as _build_onboarding_template_service,
     load_quick_mode_default_personality,
@@ -113,9 +115,7 @@ def _build_system_config(mask_api_key: bool = False) -> SystemConfigModel:
             name=runtime_config.agent.name,
             description=raw.get("agent", {}).get("description", "Magi AI Agent Framework"),
             background_tasks=BackgroundTasksConfigModel(
-                auto_detect_long_task=(
-                    runtime_config.agent.background_tasks.auto_detect_long_task
-                ),
+                auto_detect_long_task=(runtime_config.agent.background_tasks.auto_detect_long_task),
             ),
         ),
         llm=_build_llm_config_model(
@@ -129,9 +129,15 @@ def _build_system_config(mask_api_key: bool = False) -> SystemConfigModel:
         network=NetworkProxyConfigModel(**network_data),
         personality=_load_full_personality(),
         personalitySettings=PersonalitySettingsModel(
-            state_memory_enabled=bool(getattr(runtime_config.agent.personality, "enable_state_memory", True)),
-            state_transition_enabled=bool(getattr(runtime_config.agent.personality, "enable_state_transition", True)),
-            deep_persona_enabled=bool(getattr(runtime_config.agent.personality, "enable_deep_persona", True)),
+            state_memory_enabled=bool(
+                getattr(runtime_config.agent.personality, "enable_state_memory", True)
+            ),
+            state_transition_enabled=bool(
+                getattr(runtime_config.agent.personality, "enable_state_transition", True)
+            ),
+            deep_persona_enabled=bool(
+                getattr(runtime_config.agent.personality, "enable_deep_persona", True)
+            ),
         ).normalized(),
         tools=_build_tools(raw, runtime_config),
         timeline=TimelineConfigModel(
@@ -146,9 +152,7 @@ def _build_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
     current_updates = _build_full_update_paths(_build_system_config(mask_api_key=False))
 
     return {
-        path: value
-        for path, value in target_updates.items()
-        if current_updates.get(path) != value
+        path: value for path, value in target_updates.items() if current_updates.get(path) != value
     }
 
 
@@ -165,7 +169,9 @@ async def _enqueue_runtime_llm_refresh_command(*, reason: str) -> None:
     try:
         queue = require_runtime_command_queue()
     except RuntimeError:
-        logger.info("Runtime command queue unavailable during LLM refresh notification", reason=reason)
+        logger.info(
+            "Runtime command queue unavailable during LLM refresh notification", reason=reason
+        )
         return
 
     await queue.enqueue_refresh_llm_config(
@@ -181,7 +187,9 @@ async def _enqueue_runtime_channels_refresh_command(*, reason: str) -> None:
     try:
         queue = require_runtime_command_queue()
     except RuntimeError:
-        logger.info("Runtime command queue unavailable during channels refresh notification", reason=reason)
+        logger.info(
+            "Runtime command queue unavailable during channels refresh notification", reason=reason
+        )
         return
 
     from ...events.contracts import RefreshChannelsCommand
@@ -210,7 +218,9 @@ def _quick_mode_personality_locale_candidates(language: str) -> List[str]:
     return quick_mode_personality_locale_candidates(language)
 
 
-def _quick_mode_personality_sort_key(preset_file: Path, payload: Dict[str, Any]) -> tuple[int, int, str, str]:
+def _quick_mode_personality_sort_key(
+    preset_file: Path, payload: Dict[str, Any]
+) -> tuple[int, int, str, str]:
     return quick_mode_personality_sort_key(preset_file, payload)
 
 
@@ -253,6 +263,26 @@ async def update_config(request: Request, config: SystemConfigModel):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@config_router.post("/embedding-preflight")
+async def embedding_config_preflight(request: Request, config: SystemConfigModel):
+    try:
+        proposed_config = _normalize_masked_secrets(config)
+        data = await build_embedding_config_preflight(
+            current_config=get_config(),
+            proposed_config=proposed_config,
+        )
+        return {
+            "success": True,
+            "message": _t(
+                request, "config.messages.embedding_preflight", "Embedding configuration checked"
+            ),
+            "data": data,
+        }
+    except Exception as exc:
+        logger.exception("Failed to check embedding config preflight")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @config_router.get("/template", response_model=ConfigResponse)
 async def get_config_template(request: Request):
     return ConfigResponse(
@@ -269,7 +299,9 @@ async def test_config(request: Request, config: SystemConfigModel):
     if not core_selection or not context_selection:
         return ConfigResponse(
             success=False,
-            message=_t(request, "config.validation.llm_selections_required", "LLM selections are required"),
+            message=_t(
+                request, "config.validation.llm_selections_required", "LLM selections are required"
+            ),
             data=None,
         )
     for selection in (core_selection, context_selection):
@@ -307,11 +339,14 @@ async def test_telegram_connection(request: Request, payload: TestTelegramConnec
     if not payload.bot_token or payload.bot_token.endswith("****"):
         raise HTTPException(
             status_code=400,
-            detail=_t(request, "config.telegram.valid_bot_token_required", "A valid bot token is required"),
+            detail=_t(
+                request, "config.telegram.valid_bot_token_required", "A valid bot token is required"
+            ),
         )
 
     try:
         import httpx  # noqa: F401
+
         telegram_module = import_module("telegram")
         telegram_request_module = import_module("telegram.request")
         Bot = telegram_module.Bot
@@ -341,7 +376,12 @@ async def test_telegram_connection(request: Request, payload: TestTelegramConnec
             me = await bot.get_me()
         return TestTelegramConnectionResponse(
             success=True,
-            message=_t(request, "config.telegram.connected", "Connected to @{username}", username=me.username),
+            message=_t(
+                request,
+                "config.telegram.connected",
+                "Connected to @{username}",
+                username=me.username,
+            ),
             bot_username=me.username or "",
             bot_id=me.id,
         )
@@ -356,7 +396,9 @@ async def test_telegram_connection(request: Request, payload: TestTelegramConnec
 async def complete_onboarding(request: Request, config: SystemConfigModel):
     try:
         if config.preferences.user_mode == "quick":
-            quick_mode_personality = _load_quick_mode_default_personality(config.preferences.language)
+            quick_mode_personality = _load_quick_mode_default_personality(
+                config.preferences.language
+            )
             if quick_mode_personality is not None:
                 config.personality = quick_mode_personality
             else:
@@ -382,6 +424,7 @@ async def complete_onboarding(request: Request, config: SystemConfigModel):
         # Try to initialize agent runtime if not already initialized
         from ...bootstrap import initialize_agent_runtime
         from ...core.runtime_bindings import require_agent_runtime
+
         try:
             require_agent_runtime()
             # Already initialized, just refresh LLM config

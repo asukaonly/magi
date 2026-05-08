@@ -166,9 +166,7 @@ def test_build_update_paths_includes_background_auto_dispatch_setting(
         "magi.api.routers.config._build_system_config",
         lambda mask_api_key=False: SystemConfigModel(),
     )
-    config = SystemConfigModel(
-        agent={"background_tasks": {"auto_detect_long_task": True}}
-    )
+    config = SystemConfigModel(agent={"background_tasks": {"auto_detect_long_task": True}})
 
     updates = _build_update_paths(config)
 
@@ -301,6 +299,7 @@ def test_build_update_paths_contains_new_sections():
     config.memory.l0.enabled = not current.memory.l0.enabled
     config.preferences.default_chat_workspace_path = "/Users/asuka/code/magi"
     config.memory.l2.batch_flush_interval_seconds = 90
+    config.memory.l2.vectors_enabled = not current.memory.l2.vectors_enabled
     config.llm.model_runtime_overrides["openai::gpt-5.2::chat"] = LLMConcurrencyOverrideSettings(
         max_concurrency=7
     )
@@ -321,6 +320,7 @@ def test_build_update_paths_contains_new_sections():
     assert "agent.memory.l0.enabled" in updates
     assert updates["agent.memory.l0.enabled"] == config.memory.l0.enabled
     assert updates["agent.memory.l2.batch_flush_interval_seconds"] == 90
+    assert updates["agent.memory.l2.vectors_enabled"] == config.memory.l2.vectors_enabled
     assert updates["llm.model_runtime_overrides"]["openai::gpt-5.2::chat"]["max_concurrency"] == 7
     assert "max_concurrency" not in config.llm.selections["core"].limits.model_dump()
     assert updates["agent.memory.l2.conflict_arbitration_enabled"] is False

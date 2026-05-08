@@ -1,4 +1,5 @@
 """Embedding helper functions for L3 summary storage."""
+
 from __future__ import annotations
 
 from typing import Any, Dict, cast
@@ -26,6 +27,7 @@ def build_embedding_pipeline(
     return MemoryEmbeddingPipeline(
         embedding_service=embedding_service,
         vector_index=vector_index,
+        text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION,
     )
 
 
@@ -147,7 +149,9 @@ async def update_summary_embedding_state(
         await db.commit()
 
 
-async def fetch_summary_chunk_rows_by_ids(*, db_path: str, chunk_ids: list[str]) -> list[aiosqlite.Row]:
+async def fetch_summary_chunk_rows_by_ids(
+    *, db_path: str, chunk_ids: list[str]
+) -> list[aiosqlite.Row]:
     if not chunk_ids:
         return []
     placeholders = ", ".join("?" for _ in chunk_ids)

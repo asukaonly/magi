@@ -1168,6 +1168,36 @@
         "description": "Permanently clear all memory data for this instance. This action cannot be undone, and the AI will need to rebuild its memory from scratch.",
         "clearButton": "Clear All Memory"
       },
+      "vector": {
+        "title": "Vector maintenance",
+        "description": "Review indexed memory vectors and rebuild them after changing the embedding model or local model files.",
+        "refresh": "Refresh",
+        "rebuild": "Rebuild Vectors",
+        "cancel": "Cancel",
+        "statusFailed": "Failed to load vector status",
+        "rebuildStarted": "Vector rebuild started",
+        "rebuildFailed": "Failed to start vector rebuild",
+        "cancelRequested": "Cancel requested",
+        "cancelFailed": "Failed to cancel vector rebuild",
+        "preflightStrongConfirm": "This change affects {{count}} existing vectors in {{layers}}. Semantic search may be stale until vectors are rebuilt. Save anyway?",
+        "preflightSoftWarning": "Embedding provider details changed for {{layers}}. Existing {{count}} vectors can stay available, but rebuild if retrieval quality looks off.",
+        "activeLayer": "Active layer: {{layer}}",
+        "progress": "{{processed}} / {{total}} · {{percent}}%",
+        "layers": {
+          "l1": "L1 Events",
+          "l2_entities": "L2 Entities",
+          "l2_edges": "L2 Relations",
+          "l3": "L3 Summaries",
+          "l4": "L4 Skills"
+        },
+        "status": {
+          "pending": "Pending",
+          "running": "Running",
+          "succeeded": "Succeeded",
+          "failed": "Failed",
+          "cancelled": "Cancelled"
+        }
+      },
       "fields": {
         "db_path": {
           "label": "Memory data storage location",

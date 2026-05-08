@@ -19,6 +19,7 @@ from .common import (
     EMBEDDING_STATUS_PENDING,
     EMBEDDING_STATUS_READY,
     EMBEDDING_STATUS_SKIPPED,
+    EMBEDDING_TEXT_BUILDER_VERSION,
     EVENT_CHUNKS_TABLE,
     FACT_EVENTS_TABLE,
     L1EventEmbeddingHostProtocol,
@@ -169,6 +170,7 @@ class L1EventEmbeddingMixin(
         return MemoryEmbeddingPipeline(
             embedding_service=host._embedding_service,
             vector_index=host._vector_index,
+            text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION,
         )
 
     def _embedding_eligible(self, event: MemoryEvent) -> bool:

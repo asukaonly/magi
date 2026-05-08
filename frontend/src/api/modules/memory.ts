@@ -1,5 +1,6 @@
 import { api, unwrapGatewayPayload } from '../client';
 import type { GatewayResponse } from '../client';
+import type { EmbeddingVectorIdentity, VectorLayerId } from './config';
 
 export interface ModelDownloadStatus {
   model: string;
@@ -364,6 +365,47 @@ export interface ClearMemoryResponse {
   warnings?: string[];
 }
 
+export type EmbeddingRebuildJobStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+
+export interface EmbeddingRebuildJobLayer {
+  layer: VectorLayerId;
+  status: EmbeddingRebuildJobStatus;
+  total_items: number;
+  processed_items: number;
+  succeeded_items: number;
+  failed_items: number;
+  error?: string | null;
+  started_at?: number | null;
+  finished_at?: number | null;
+  updated_at: number;
+}
+
+export interface EmbeddingRebuildJob {
+  job_id: string;
+  status: EmbeddingRebuildJobStatus;
+  requested_layers: VectorLayerId[];
+  active_layer?: VectorLayerId | null;
+  total_items: number;
+  processed_items: number;
+  succeeded_items: number;
+  failed_items: number;
+  cancel_requested: boolean;
+  error?: string | null;
+  created_at: number;
+  started_at?: number | null;
+  finished_at?: number | null;
+  updated_at: number;
+  terminal: boolean;
+  layers: EmbeddingRebuildJobLayer[];
+}
+
+export interface EmbeddingVectorStatus {
+  ready_counts: Record<VectorLayerId, number>;
+  ready_total: number;
+  active_identities: Record<VectorLayerId, EmbeddingVectorIdentity | null>;
+  latest_job?: EmbeddingRebuildJob | null;
+}
+
 export interface MemorySearchResultPayload {
   l0_workbench: Array<Record<string, unknown>>;
   l1_events: Array<Record<string, unknown>>;
@@ -463,6 +505,14 @@ export const memoryApi = {
   // Statistics & Search
   getStatistics: async (): Promise<MemoryStatistics> =>
     unwrapMemoryResponse(await api.get<MemoryStatistics>('/memory/statistics')),
+  getEmbeddingVectorStatus: async (): Promise<EmbeddingVectorStatus> =>
+    unwrapMemoryResponse(await api.get<EmbeddingVectorStatus>('/memory/embeddings/status')),
+  startEmbeddingRebuild: async (layers?: VectorLayerId[]): Promise<EmbeddingRebuildJob> =>
+    unwrapMemoryResponse(await api.post<EmbeddingRebuildJob>('/memory/embeddings/rebuild', { layers })),
+  getEmbeddingRebuildJob: async (jobId: string): Promise<EmbeddingRebuildJob> =>
+    unwrapMemoryResponse(await api.get<EmbeddingRebuildJob>(`/memory/embeddings/rebuild/${jobId}`)),
+  cancelEmbeddingRebuild: async (jobId: string): Promise<EmbeddingRebuildJob> =>
+    unwrapMemoryResponse(await api.post<EmbeddingRebuildJob>(`/memory/embeddings/rebuild/${jobId}/cancel`)),
   search: async (query: string, options?: { limit?: number; query_mode?: MemorySearchQueryMode }): Promise<MemorySearchResultPayload> => {
     const payload: { query: string; limit: number; query_mode?: MemorySearchQueryMode } = {
       query,

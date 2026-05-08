@@ -17,6 +17,7 @@ from .router import memory_router
 from . import overview_routes as _overview_routes
 from . import search_routes as _search_routes
 from .eval import routes as _eval_routes
+from . import embedding_routes as embedding_routes  # noqa: E402,F401
 from .l0 import routes as _l0_routes
 from .l1 import routes as _l1_routes
 from .l2 import episodes_routes as _l2_episodes_routes

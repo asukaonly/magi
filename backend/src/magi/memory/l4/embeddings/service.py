@@ -19,6 +19,7 @@ from ..storage.schema import (
     SKILL_CHUNKS_TABLE,
 )
 from .skills import (
+    EMBEDDING_TEXT_BUILDER_VERSION,
     build_embedding_pipeline,
     build_skill_embedding_chunks,
     build_skill_embedding_text,
@@ -54,7 +55,11 @@ class L4SkillEmbeddingMixin:
         """Rebuild all persisted L4 skill embeddings from parent rows."""
         await self.initialize()
         normalized_batch_size = max(1, int(batch_size))
-        if not self._vectors_enabled() or self._embedding_service is None or self._vector_index is None:
+        if (
+            not self._vectors_enabled()
+            or self._embedding_service is None
+            or self._vector_index is None
+        ):
             return 0
 
         await self._vector_index.clear()
@@ -104,8 +109,12 @@ class L4SkillEmbeddingMixin:
             "db_path": self.db_path,
             "vector_enabled": self._vectors_enabled(),
             "async_embeddings": self._async_embeddings_enabled(),
-            "embedding_queue_size": self._embedding_queue.qsize() if self._embedding_queue is not None else 0,
-            "embedding_worker_running": bool(self._embedding_worker is not None and not self._embedding_worker.done()),
+            "embedding_queue_size": (
+                self._embedding_queue.qsize() if self._embedding_queue is not None else 0
+            ),
+            "embedding_worker_running": bool(
+                self._embedding_worker is not None and not self._embedding_worker.done()
+            ),
         }
 
     async def _maybe_upsert_skill_embedding(
@@ -171,11 +180,20 @@ class L4SkillEmbeddingMixin:
         )
 
     async def _semantic_query_strategies(self, *, query: str, limit: int) -> List[Dict[str, Any]]:
-        if not self._vectors_enabled() or self._embedding_service is None or self._vector_index is None or not query.strip():
+        if (
+            not self._vectors_enabled()
+            or self._embedding_service is None
+            or self._vector_index is None
+            or not query.strip()
+        ):
             return []
         embedding = await self._embedding_service.embed_text(query)
         if embedding is None:
             return []
+        embedding = self._embedding_service.result_for_index(
+            embedding,
+            text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION,
+        )
         try:
             hits = await self._vector_index.search(embedding=embedding, limit=max(limit * 3, 10))
         except Exception as exc:

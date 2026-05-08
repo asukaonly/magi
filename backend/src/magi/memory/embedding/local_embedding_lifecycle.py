@@ -31,8 +31,7 @@ class LocalEmbeddingLifecycleMixin:
         model_dir = self._resolve_model_dir()
         if model_dir is None or not model_dir.exists():
             raise FileNotFoundError(
-                f"Embedding model directory not found. "
-                f"Please download the model first."
+                "Embedding model directory not found. Please download the model first."
             )
 
         from . import local_embedding_manager as facade
@@ -61,6 +60,14 @@ class LocalEmbeddingLifecycleMixin:
             self._dimension = self._model_config.get("hidden_size")
             self._model_name = model_dir.name
 
+        from .local_embedding_identity import compute_local_embedding_model_fingerprint
+
+        fingerprint = compute_local_embedding_model_fingerprint(
+            self._config,
+            runtime_paths=self._runtime_paths,
+        )
+        self._model_identity = fingerprint.identity_key if fingerprint is not None else None
+
         opts = ort.SessionOptions()
         opts.inter_op_num_threads = 1
         opts.intra_op_num_threads = 4
@@ -77,9 +84,7 @@ class LocalEmbeddingLifecycleMixin:
             opts,
             providers=["CPUExecutionProvider"],
         )
-        self._tokenizer = await asyncio.to_thread(
-            Tokenizer.from_file, str(tokenizer_path)
-        )
+        self._tokenizer = await asyncio.to_thread(Tokenizer.from_file, str(tokenizer_path))
         self._last_used = time.monotonic()
         self._schedule_idle_check()
         logger.info(
