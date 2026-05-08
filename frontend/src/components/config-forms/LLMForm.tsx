@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -613,6 +613,28 @@ const LLMForm: React.FC<LLMFormProps> = ({
     }
   };
 
+  const handleResolveDraftProviderPreview = useCallback(
+    async (providerId: string, provider: LLMProviderConfig): Promise<LLMProviderRegistry | null> => {
+      if (!customProviderTemplate) {
+        return null;
+      }
+
+      const catalog = await configApi.resolveLLMProviderCatalog({
+        providers: {
+          ...currentValue.providers,
+          [providerId]: cloneProvider(provider),
+        },
+      });
+
+      if (!catalog) {
+        return null;
+      }
+
+      return buildRegistryFromCatalog(catalog, customProviderTemplate);
+    },
+    [currentValue.providers, customProviderTemplate]
+  );
+
   const handleTestProviderConnection = async (providerId: string, model: string, providerOverride?: LLMProviderConfig) => {
     if (!registry) {
       return;
@@ -715,6 +737,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
           onRemoveProviderModel={handleRemoveProviderModel}
           onProviderDefaultModelChange={handleProviderDefaultModelChange}
           onDiscoverProviderModels={handleDiscoverProviderModels}
+          onResolveDraftProviderPreview={handleResolveDraftProviderPreview}
           providerDiscoveryState={providerDiscoveryState}
           onTestProviderConnection={handleTestProviderConnection}
           providerTestState={providerTestState}

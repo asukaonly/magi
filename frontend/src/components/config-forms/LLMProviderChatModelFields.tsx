@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 
+import { SelectField } from '@/components/config-forms/fields';
 import { Switch } from '@/components/ui/switch';
 import type { LLMModelMetadataOverride, ModelVendor } from '@/api/modules/config';
 import type { ProviderWorkbenchModelItem } from '@/components/config-forms/llm-provider-workbench-models';
@@ -14,6 +15,9 @@ interface LLMProviderChatModelFieldsProps {
 
 const fieldClassName =
   'h-11 w-full rounded-xl bg-background px-3 text-sm ring-1 ring-inset ring-border/55 shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45';
+
+const selectTriggerClassName =
+  'h-11 w-full rounded-xl border border-border/65 bg-background px-3 text-sm shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60';
 
 const VENDOR_OPTIONS: ReadonlyArray<{ value: ModelVendor; labelKey: string }> = [
   { value: 'generic', labelKey: 'llm.modelFields.vendorOptions.generic' },
@@ -39,26 +43,26 @@ export function LLMProviderChatModelFields({
     <>
       <label className="space-y-2">
         <span className="text-sm font-medium">{t('llm.modelFields.vendor')}</span>
-        <select
-          aria-label={t('llm.modelFields.vendor')}
-          className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
+        <SelectField
+          ariaLabel={t('llm.modelFields.vendor')}
+          className="w-full"
+          triggerClassName={cn(selectTriggerClassName, isSettingsSurface && 'rounded-lg')}
           value={effectiveVendor}
-          onChange={(event) =>
+          allowEmpty={false}
+          options={VENDOR_OPTIONS.map((option) => ({
+            label: t(option.labelKey),
+            value: option.value,
+          }))}
+          onChange={(nextValue) =>
             onModelOverrideChange(model.id, (draft) => {
-              const nextValue = event.target.value as ModelVendor;
+              const resolvedVendor = nextValue as ModelVendor;
               // Writing the same value as the underlying model.vendor still
               // marks an override; that's intentional so the API round-trip
               // preserves the user's explicit choice even if defaults change.
-              draft.vendor = nextValue;
+              draft.vendor = resolvedVendor;
             })
           }
-        >
-          {VENDOR_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {t(option.labelKey)}
-            </option>
-          ))}
-        </select>
+        />
         <span className="block text-xs text-muted-foreground">
           {vendorIsOverridden
             ? t('llm.modelFields.vendorHint.overridden')
