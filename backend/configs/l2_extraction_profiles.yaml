@@ -115,9 +115,12 @@ profiles:
         UI element names (Home, Inbox, Schema Panel), authentication pages,
         and generic navigation titles are NOT entities.
       - MERGE related content: multiple pages about the same game, show,
-        or topic should map to ONE entity with a concise canonical name,
-        not one entity per page title. E.g., '燕云十六声射覆答案',
-        '燕云十六声攻略', '燕云十六声金明池' → single entity '燕云十六声'.
+        work, project, or topic should map to ONE entity with a concise
+        canonical name, not one entity per page title. Strip page-specific
+        qualifiers such as guides, answer pages, walkthroughs, episode titles,
+        locations, quests, or wiki subpages when they are clearly about the
+        same core subject. E.g., '{work} guide', '{work} answer page',
+        '{work} location walkthrough' → single entity '{work}'.
       - Keep canonical names SHORT: use the core subject name, not the
         full page title. E.g., 'Joe Pera Talks With You' not
         'Joe Pera Talks With You 豆瓣'.
