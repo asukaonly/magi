@@ -80,6 +80,6 @@ TYPE_GATE_FILES=(
 "$PYTHON_BIN" -m mypy \
   --config-file ../pyproject.toml \
   --follow-imports=skip \
-  --exclude '(^|/)__init__\.py$' \
+  --exclude '(^|[/\\])__init__\.py$' \
   "${TYPE_GATE_DIRS[@]}" \
   "${TYPE_GATE_FILES[@]}"
