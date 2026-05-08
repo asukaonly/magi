@@ -373,6 +373,37 @@ fn first_existing_dir(candidates: impl IntoIterator<Item = PathBuf>) -> Option<P
     candidates.into_iter().find(|dir| dir.is_dir())
 }
 
+fn ordered_builtin_avatar_dirs(
+    resource_dir: Option<PathBuf>,
+    source_tree_avatar_dir: PathBuf,
+) -> Vec<PathBuf> {
+    let mut packaged_dirs = Vec::new();
+    if let Some(resource_dir) = resource_dir {
+        packaged_dirs.push(
+            resource_dir
+                .join("sidecar-dist")
+                .join("_internal")
+                .join("personalities")
+                .join("avatar"),
+        );
+        packaged_dirs.push(
+            resource_dir
+                .join("sidecar-dist")
+                .join("personalities")
+                .join("avatar"),
+        );
+    }
+
+    if cfg!(debug_assertions) {
+        let mut candidates = vec![source_tree_avatar_dir];
+        candidates.extend(packaged_dirs);
+        candidates
+    } else {
+        packaged_dirs.push(source_tree_avatar_dir);
+        packaged_dirs
+    }
+}
+
 /// Resolve the builtin avatar directory.
 fn resolve_builtin_avatar_dir(app: &AppHandle) -> Option<PathBuf> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -383,25 +414,10 @@ fn resolve_builtin_avatar_dir(app: &AppHandle) -> Option<PathBuf> {
         .join("personalities")
         .join("avatar");
 
-    let mut candidates = Vec::new();
-    if let Ok(resource_dir) = app.path().resource_dir() {
-        candidates.push(
-            resource_dir
-                .join("sidecar-dist")
-                .join("_internal")
-                .join("personalities")
-                .join("avatar"),
-        );
-        candidates.push(
-            resource_dir
-                .join("sidecar-dist")
-                .join("personalities")
-                .join("avatar"),
-        );
-    }
-    candidates.push(source_tree_avatar_dir);
-
-    first_existing_dir(candidates)
+    first_existing_dir(ordered_builtin_avatar_dirs(
+        app.path().resource_dir().ok(),
+        source_tree_avatar_dir,
+    ))
 }
 
 /// Resolve the user avatar directory (~/.magi/personalities/avatar).
@@ -1165,7 +1181,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::first_existing_dir;
+    use super::{first_existing_dir, ordered_builtin_avatar_dirs};
 
     #[test]
     fn first_existing_dir_returns_first_existing_candidate() {
@@ -1186,6 +1202,33 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn builtin_avatar_candidates_prefer_source_tree_in_debug_builds() {
+        let base = std::env::temp_dir().join(format!(
+            "magi-avatar-candidates-test-{}",
+            std::process::id()
+        ));
+        let source_dir = base
+            .join("repo")
+            .join("backend")
+            .join("personalities")
+            .join("avatar");
+        let resource_dir = base.join("resource");
+        let internal_dir = resource_dir
+            .join("sidecar-dist")
+            .join("_internal")
+            .join("personalities")
+            .join("avatar");
+
+        let candidates = ordered_builtin_avatar_dirs(Some(resource_dir), source_dir.clone());
+
+        if cfg!(debug_assertions) {
+            assert_eq!(candidates.first(), Some(&source_dir));
+        } else {
+            assert_eq!(candidates.first(), Some(&internal_dir));
+        }
     }
 
     #[cfg(target_os = "macos")]
