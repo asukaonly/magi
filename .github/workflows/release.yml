@@ -55,6 +55,28 @@ jobs:
         with:
           python-version: "3.13.5"
 
+      - name: Use Homebrew Python for macOS sidecar
+        if: matrix.os_family == 'macos'
+        shell: bash
+        run: |
+          brew list python@3.13 >/dev/null 2>&1 || brew install python@3.13
+          python_prefix="$(brew --prefix python@3.13)"
+          echo "${python_prefix}/libexec/bin" >> "$GITHUB_PATH"
+          "${python_prefix}/libexec/bin/python" - <<'PY'
+          import sqlite3
+          import sys
+
+          conn = sqlite3.connect(":memory:")
+          try:
+              if not hasattr(conn, "enable_load_extension"):
+                  raise SystemExit(
+                      "Homebrew Python sqlite3 is missing enable_load_extension"
+                  )
+              print(f"Using {sys.executable} with SQLite {sqlite3.sqlite_version}")
+          finally:
+              conn.close()
+          PY
+
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
