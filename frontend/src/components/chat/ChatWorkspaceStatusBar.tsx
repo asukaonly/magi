@@ -1,6 +1,5 @@
 import { Check, ChevronDown, FolderOpen, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -51,56 +50,43 @@ export const ChatWorkspaceStatusBar = ({
           <span>{t('chat.workspace.messageCount')}</span>
         </div>
         <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            onClick={onChangeWorkspace}
-            disabled={updatingWorkspace}
-            aria-label={t('chat.workspace.change')}
-            title={t('chat.workspace.change')}
-            className="h-8 w-8 rounded-full text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-          >
-            <FolderOpen className="h-4 w-4" />
-          </Button>
-          <div className="flex min-w-0 items-center rounded-full border border-border/70 bg-background/75 pl-3 pr-1 shadow-sm">
-            <span
-              data-testid="chat-workspace-path"
-              aria-label={t('chat.workspace.label')}
-              className="max-w-[min(50vw,32rem)] truncate text-sm text-foreground/75"
-              title={workspaceDisplayPath}
-            >
-              {workspaceDisplayPath}
-            </span>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  disabled={updatingWorkspace}
-                  aria-label={t('chat.workspace.recentMenu')}
-                  title={t('chat.workspace.recentMenu')}
-                  className="ml-1 h-7 w-7 rounded-full text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                data-testid="chat-workspace-trigger"
+                disabled={updatingWorkspace}
+                aria-label={t('chat.workspace.recentMenu')}
+                title={workspaceDisplayPath}
+                className="group flex min-w-0 max-w-[min(58vw,38rem)] items-center gap-2 rounded-full bg-background/96 px-3.5 py-2 text-left text-sm text-foreground/78 transition-colors hover:bg-background hover:text-foreground/92 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 focus-visible:ring-offset-2 focus-visible:ring-offset-background data-[state=open]:bg-background data-[state=open]:text-foreground disabled:pointer-events-none disabled:opacity-60"
+              >
+                <span
+                  data-testid="chat-workspace-path"
+                  aria-label={t('chat.workspace.label')}
+                  className="min-w-0 flex-1 truncate"
+                  title={workspaceDisplayPath}
                 >
-                  <ChevronDown className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-[min(28rem,80vw)] p-1.5">
+                  {workspaceDisplayPath}
+                </span>
+                <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground/72 group-data-[state=open]:text-foreground/72" />
+                <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-all group-hover:text-foreground/72 group-data-[state=open]:rotate-180 group-data-[state=open]:text-foreground/72" />
+              </button>
+            </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-[min(28rem,80vw)] rounded-2xl border-border/70 bg-background/98 p-2 shadow-[0_18px_50px_rgba(15,23,42,0.14)] backdrop-blur">
                 <div className="px-2 py-1 text-xs font-medium text-muted-foreground">
                   {t('chat.workspace.recentTitle')}
                 </div>
-                <DropdownMenuItem onSelect={onChangeWorkspace}>
+                <DropdownMenuItem onSelect={onChangeWorkspace} className="rounded-xl px-3 py-2.5">
                   <FolderOpen className="h-4 w-4" />
                   {t('settings.actions.chooseDirectory')}
                 </DropdownMenuItem>
                 {hasSessionWorkspaceOverride && (
-                  <DropdownMenuItem onSelect={onClearWorkspace}>
+                  <DropdownMenuItem onSelect={onClearWorkspace} className="rounded-xl px-3 py-2.5">
                     <RotateCcw className="h-4 w-4" />
                     {t('settings.actions.restoreDefaultDirectory')}
                   </DropdownMenuItem>
                 )}
-                <DropdownMenuSeparator />
+                <DropdownMenuSeparator className="bg-border/60" />
                 {recentWorkspaces.length > 0 ? recentWorkspaces.map((workspacePath) => {
                   const isCurrent = normalizedCurrentWorkspace.length > 0
                     && workspacePath === normalizedCurrentWorkspace;
@@ -109,7 +95,7 @@ export const ChatWorkspaceStatusBar = ({
                     <DropdownMenuItem
                       key={workspacePath}
                       onSelect={() => onSelectWorkspace(workspacePath)}
-                      className="pr-3"
+                      className="rounded-xl px-3 py-2.5 pr-3"
                     >
                       <Check className={`h-4 w-4 ${isCurrent ? 'opacity-100' : 'opacity-0'}`} />
                       <span className="min-w-0 flex-1 truncate" title={workspacePath}>
@@ -123,8 +109,7 @@ export const ChatWorkspaceStatusBar = ({
                   </div>
                 )}
               </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+          </DropdownMenu>
         </div>
       </div>
     </div>
