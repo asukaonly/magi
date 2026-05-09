@@ -7,6 +7,7 @@ from typing import Any
 from ..event_contracts import MemoryEvent
 
 L2_EDGE_EMBEDDING_TEXT_BUILDER_VERSION = "l2_edge_v1"
+L2_EDGE_EMBEDDING_TEXT_BUILDER_VERSION_V2 = "l2_edge_v2"
 
 
 def build_l1_embedding_text(event: MemoryEvent) -> str:
@@ -175,12 +176,93 @@ def build_l2_edge_embedding_text(
     return "\n".join(parts)
 
 
+def build_l2_edge_embedding_text_v2(
+    *,
+    subject_id: str,
+    predicate: str,
+    object_id: str,
+    evidence_text: str | None = None,
+    natural_summary: str | None = None,
+    subject_name: str | None = None,
+    object_name: str | None = None,
+    object_type: str | None = None,
+    status: str | None = None,
+    first_observed_at: float | None = None,
+) -> str:
+    """V2 edge embedding text with richer structural context.
+
+    Changes from v1:
+    - Includes predicate natural labels and family
+    - Includes object type, status, and coarse time hints
+    - Deduplicates natural_summary and evidence_text
+    - Bounds evidence text length
+    """
+    from ..l2.predicate_catalog import get_natural_label, get_spec
+
+    subj = subject_name or subject_id
+    obj = object_name or object_id
+
+    parts: list[str] = []
+
+    label = get_natural_label(predicate, "en")
+    spec = get_spec(predicate)
+    family = spec.family if spec else None
+    if label:
+        parts.append(f"Subject: {subj}")
+        parts.append(f"Relation: {label} / {predicate}" + (f" / {family}" if family else ""))
+        parts.append(f"Object: {obj}")
+    else:
+        parts.append(f"{subj} {predicate} {obj}")
+
+    if object_type:
+        parts.append(f"Object type: {object_type}")
+    if status:
+        parts.append(f"Status: {status}")
+    if first_observed_at:
+        import time as _time
+
+        age_days = (_time.time() - first_observed_at) / 86400
+        if age_days < 7:
+            parts.append("Observed: recent (within a week)")
+        elif age_days < 30:
+            parts.append("Observed: this month")
+        elif age_days < 90:
+            parts.append("Observed: within 3 months")
+        elif age_days < 365:
+            parts.append("Observed: within a year")
+        else:
+            parts.append("Observed: over a year ago")
+
+    summary = str(natural_summary or "").strip()
+    evidence = str(evidence_text or "").strip()
+
+    if summary and evidence:
+        if summary.lower() == evidence.lower():
+            evidence = ""
+        elif summary.lower() in evidence.lower():
+            summary = ""
+        elif evidence.lower() in summary.lower():
+            evidence = ""
+
+    if summary:
+        parts.append(f"Summary: {summary}")
+    if evidence:
+        max_evidence_len = 500
+        if len(evidence) > max_evidence_len:
+            evidence = evidence[:max_evidence_len].rsplit(" ", 1)[0] + "..."
+        parts.append(f"Evidence: {evidence}")
+
+    return "\n".join(parts)
+
+
 __all__ = [
     "build_l1_embedding_text",
     "build_l1_retrieval_terms_text",
     "build_l2_entity_embedding_text",
     "build_l2_edge_embedding_text",
+    "build_l2_edge_embedding_text_v2",
     "build_l3_embedding_text",
     "build_l4_embedding_text",
     "L2_EDGE_EMBEDDING_TEXT_BUILDER_VERSION",
+    "L2_EDGE_EMBEDDING_TEXT_BUILDER_VERSION_V2",
 ]
