@@ -4,11 +4,13 @@ import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 
 export function SettingsSectionShell({
+  className,
   children,
 }: {
+  className?: string;
   children: ReactNode;
 }) {
-  return <div className="space-y-8">{children}</div>;
+  return <div className={cn('space-y-8', className)}>{children}</div>;
 }
 
 export function SettingsGroup({

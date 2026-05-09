@@ -120,7 +120,7 @@ export function CodeAgentSection(): JSX.Element {
   }
 
   return (
-    <SettingsSectionShell>
+    <SettingsSectionShell className="space-y-0">
       {error && (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {error}
