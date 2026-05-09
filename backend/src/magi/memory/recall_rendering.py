@@ -8,8 +8,13 @@ formatting, text truncation, finding aggregation, and asset manifests.
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, tzinfo
 from typing import Any
+
+
+def _local_tz() -> tzinfo:
+    """Return the system local timezone."""
+    return datetime.now().astimezone().tzinfo  # type: ignore[return-value]
 
 
 # ---------------------------------------------------------------------------
@@ -17,22 +22,22 @@ from typing import Any
 # ---------------------------------------------------------------------------
 
 def format_timestamp(ts: float | None, *, now: float | None = None) -> str:
-    """Unix epoch → ``'2026-05-06 Tue 14:54'``."""
+    """Unix epoch → ``'2026-05-06 Tue 22:54'`` in system local timezone."""
     if ts is None:
         return ""
     try:
-        dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+        dt = datetime.fromtimestamp(ts, tz=_local_tz())
         return dt.strftime("%Y-%m-%d %a %H:%M")
     except (OSError, OverflowError, ValueError):
         return ""
 
 
 def format_date(ts: float | None) -> str:
-    """Unix epoch → ``'2026-05-06'``."""
+    """Unix epoch → ``'2026-05-06'`` in system local timezone."""
     if ts is None:
         return ""
     try:
-        dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+        dt = datetime.fromtimestamp(ts, tz=_local_tz())
         return dt.strftime("%Y-%m-%d")
     except (OSError, OverflowError, ValueError):
         return ""
