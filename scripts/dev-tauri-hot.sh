@@ -76,13 +76,25 @@ cleanup_on_exit() {
 }
 
 ensure_sidecar_placeholder() {
-  # Ensure sidecar-dist placeholder exists for bundle.resources
+  # Ensure generated resource placeholders exist for bundle.resources
   local staging_dir="${ROOT_DIR}/frontend/src-tauri/sidecar-dist"
   if [[ ! -d "${staging_dir}" ]]; then
     mkdir -p "${staging_dir}/_internal"
     touch "${staging_dir}/magi-backend"
     chmod +x "${staging_dir}/magi-backend"
     echo "Created sidecar staging placeholder for dev: ${staging_dir}"
+  fi
+
+  local plugin_python_dir="${ROOT_DIR}/frontend/src-tauri/plugin-python"
+  if [[ ! -d "${plugin_python_dir}" ]]; then
+    mkdir -p "${plugin_python_dir}/bin"
+    cat > "${plugin_python_dir}/bin/python" <<'SH'
+#!/usr/bin/env sh
+echo "Magi plugin-python placeholder for Tauri dev resources." >&2
+exit 1
+SH
+    chmod +x "${plugin_python_dir}/bin/python"
+    echo "Created plugin-python placeholder for dev: ${plugin_python_dir}"
   fi
 }
 

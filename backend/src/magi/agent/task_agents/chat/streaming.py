@@ -4,20 +4,18 @@ from __future__ import annotations
 
 from typing import Any
 
+from ....llm.error_classifier import LLMErrorKind, classify_exception
 from ....llm.streaming_events import LLMStreamEvent
-
-_RATE_LIMIT_CODES = {"429", "1302", "rate_limit_exceeded"}
 
 
 def format_llm_error(exc: Exception) -> str:
     """Return a concise user-facing error string for an LLM call failure."""
-    exc_str = str(exc)
-    status_code = str(getattr(exc, "status_code", "") or "")
-    if status_code == "429" or any(code in exc_str for code in _RATE_LIMIT_CODES):
+    classified = classify_exception(exc)
+    if classified.kind == LLMErrorKind.RATE_LIMIT:
         return "⚠️ The AI service is rate-limited. Please wait a moment and try again."
-    if status_code in ("401", "403"):
+    if classified.kind == LLMErrorKind.AUTH:
         return "⚠️ Authentication failed. Please check your API key configuration."
-    if status_code in ("500", "502", "503"):
+    if classified.kind == LLMErrorKind.SERVICE_UNAVAILABLE:
         return "⚠️ The AI service is temporarily unavailable. Please try again later."
     return f"⚠️ The AI service returned an error. Please try again. ({exc.__class__.__name__})"
 

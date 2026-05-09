@@ -75,8 +75,28 @@
     "decideLaterDesc": "使用系统默认配置，之后在设置中调整",
     "featureSummaryTitle": "该场景将开启以下功能：",
     "defaultFeatureSummaryTitle": "系统默认配置将开启以下功能：",
+    "personaBadge": "默认人格",
+    "personaSummaryTitle": "默认对话人格",
     "sensorHint": "下一步可以选择要安装的数据采集传感器。",
     "defaultHint": "使用系统默认配置，所有功能均可在设置页面中随时启用或调整。",
+    "personas": {
+      "chatAssistant": {
+        "name": "Echo-01",
+        "desc": "克制、准确、低摩擦的通用助手，适合把聊天和任务都保持在清爽节奏里。"
+      },
+      "lifeMonitor": {
+        "name": "苏眠",
+        "desc": "更温和、更擅长长期陪伴与生活记录，适合连续观察日常状态和变化。"
+      },
+      "knowledgePartner": {
+        "name": "七号",
+        "desc": "更锋利、擅长拆解问题和深度分析，适合研究、整理和质疑假设。"
+      },
+      "default": {
+        "name": "Echo-01",
+        "desc": "中性稳妥的通用助手，适合先开始使用，之后再慢慢细调方向。"
+      }
+    },
     "features": {
       "conversation": "AI 对话和问答",
       "shortTermMemory": "短期记忆（自动记住近期对话）",
@@ -95,6 +115,9 @@
     "installSuccess": "已成功安装 {{count}} 个传感器",
     "installAllFailed": "{{count}} 个传感器安装失败，可稍后在设置中重试",
     "installPartial": "{{success}} 个安装成功，{{fail}} 个失败",
+    "installProgressTitle": "正在安装 {{name}}",
+    "installBeforeNextHint": "安装已选传感器后才能继续，或取消选择后跳过。",
+    "installingBlockNext": "传感器正在安装，请等待安装完成后继续。",
     "skipHint": "不选择任何传感器也可以继续，之后可以在设置 → 插件中安装。",
     "registryUnavailable": "传感器插件仓库暂时不可用。完成引导后，你可以在设置 → 插件中浏览和安装以下传感器：",
     "installLaterHint": "完成引导后可以在设置 → 插件中安装和配置传感器，直接点击下一步继续。"
@@ -297,6 +320,19 @@
       "contextWindow": "上下文窗口",
       "maxOutputTokens": "最大输出",
       "maxConcurrency": "最大并发",
+      "vendor": "模型厂商",
+      "vendorHint": {
+        "default": "用于决定 reasoning/thinking 等参数怎么发。中转网关（OneAPI/NewAPI）通常需要按实际模型显式指定。",
+        "overridden": "已手动覆盖。如果换了模型记得回来调整。"
+      },
+      "vendorOptions": {
+        "generic": "通用 OpenAI 兼容（无厂商扩展）",
+        "openai": "OpenAI / DeepSeek（reasoning_effort）",
+        "anthropic": "Anthropic（thinking budget_tokens）",
+        "glm": "智谱 GLM（thinking 开关）",
+        "dashscope": "阿里 DashScope / 百炼（enable_thinking）",
+        "grok": "xAI Grok（无 reasoning 参数）"
+      },
       "dimensions": "向量维度",
       "dimensionsPlaceholder": "例如：1536, 1024",
       "dimensionsHint": "支持的输出维度，用逗号分隔。空值表示使用模型默认维度。",
@@ -528,7 +564,6 @@
       "exitBehavior": "退出行为",
       "quietHourCondition": "收敛条件",
       "clamps": "约束（key: value）",
-      "layerModifiers": "层级修饰（key: value）",
       "occupation": "职业",
       "innerNarrative": "内在叙事",
       "languageFingerprint": "语言指纹",

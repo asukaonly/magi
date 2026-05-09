@@ -35,13 +35,12 @@ def compact_memory_tool_data(
 
     historical_recall = data.get("historical_recall")
     if isinstance(historical_recall, dict):
-        return {
-            "historical_recall": _compact_historical_recall(
-                historical_recall,
-                max_items=max_items,
-                max_text_chars=max_text_chars,
-            ),
-        }
+        rendered = _compact_historical_recall(
+            historical_recall,
+            max_items=max_items,
+            max_text_chars=max_text_chars,
+        )
+        return {"historical_recall": rendered}
 
     results = data.get("results")
     if not isinstance(results, dict):

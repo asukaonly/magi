@@ -150,6 +150,33 @@ export interface PluginPackageState {
   current_settings: Record<string, any>;
 }
 
+export type PluginInstallJobStatus = 'queued' | 'running' | 'completed' | 'failed';
+export type PluginInstallOperation = 'install' | 'update' | 'upload';
+
+export interface PluginInstallLogEntry {
+  ts_ms: number;
+  level: 'info' | 'warning' | 'error';
+  stage: string;
+  message: string;
+}
+
+export interface PluginInstallJobSnapshot {
+  job_id: string;
+  operation: PluginInstallOperation;
+  plugin_id: string | null;
+  filename: string | null;
+  status: PluginInstallJobStatus;
+  stage: string;
+  progress_pct: number;
+  message: string;
+  error?: string | null;
+  logs: PluginInstallLogEntry[];
+  result?: PluginPackageState | null;
+  created_at_ms: number;
+  updated_at_ms: number;
+  finished_at_ms?: number | null;
+}
+
 export interface PluginsListResponse {
   plugins: PluginPackageState[];
   total: number;
@@ -169,6 +196,35 @@ const unwrapPayload = <T>(payload: T | ApiResponse<T>): T => {
     return ((payload as ApiResponse<T>).data ?? payload) as T;
   }
   return payload as T;
+};
+
+const INSTALL_JOB_POLL_MS = 1000;
+const INSTALL_JOB_TIMEOUT_MS = 10 * 60 * 1000;
+
+const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+const waitForInstallJob = async (
+  initialSnapshot: PluginInstallJobSnapshot,
+  onProgress?: (snapshot: PluginInstallJobSnapshot) => void,
+): Promise<PluginPackageState> => {
+  let snapshot = initialSnapshot;
+  const startedAt = Date.now();
+  onProgress?.(snapshot);
+
+  while (snapshot.status === 'queued' || snapshot.status === 'running') {
+    if (Date.now() - startedAt > INSTALL_JOB_TIMEOUT_MS) {
+      throw new Error('Plugin installation timed out');
+    }
+    await wait(INSTALL_JOB_POLL_MS);
+    snapshot = await pluginsApi.getInstallJob(snapshot.job_id);
+    onProgress?.(snapshot);
+  }
+
+  if (snapshot.status === 'completed' && snapshot.result) {
+    return snapshot.result;
+  }
+
+  throw new Error(snapshot.error || snapshot.message || 'Plugin installation failed');
 };
 
 export const getNestedPluginSetting = (
@@ -334,6 +390,26 @@ export const pluginsApi = {
     return unwrapPayload(response as PluginPackageState | ApiResponse<PluginPackageState>);
   },
 
+  startInstallFromRegistry: async (pluginId: string): Promise<PluginInstallJobSnapshot> => {
+    const response = await api.post<PluginInstallJobSnapshot>('/plugins/install/registry/jobs', {
+      plugin_id: pluginId,
+    });
+    return unwrapPayload(response as PluginInstallJobSnapshot | ApiResponse<PluginInstallJobSnapshot>);
+  },
+
+  getInstallJob: async (jobId: string): Promise<PluginInstallJobSnapshot> => {
+    const response = await api.get<PluginInstallJobSnapshot>(`/plugins/install/jobs/${jobId}`);
+    return unwrapPayload(response as PluginInstallJobSnapshot | ApiResponse<PluginInstallJobSnapshot>);
+  },
+
+  installFromRegistryWithProgress: async (
+    pluginId: string,
+    onProgress?: (snapshot: PluginInstallJobSnapshot) => void,
+  ): Promise<PluginPackageState> => {
+    const snapshot = await pluginsApi.startInstallFromRegistry(pluginId);
+    return waitForInstallJob(snapshot, onProgress);
+  },
+
   installFromUpload: async (file: File): Promise<PluginPackageState> => {
     const formData = new FormData();
     formData.append('file', file);
@@ -341,6 +417,24 @@ export const pluginsApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
     return unwrapPayload(response as PluginPackageState | ApiResponse<PluginPackageState>);
+  },
+
+  startInstallFromUpload: async (file: File): Promise<PluginInstallJobSnapshot> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await api.post<PluginInstallJobSnapshot>('/plugins/install/upload/jobs', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000,
+    });
+    return unwrapPayload(response as PluginInstallJobSnapshot | ApiResponse<PluginInstallJobSnapshot>);
+  },
+
+  installFromUploadWithProgress: async (
+    file: File,
+    onProgress?: (snapshot: PluginInstallJobSnapshot) => void,
+  ): Promise<PluginPackageState> => {
+    const snapshot = await pluginsApi.startInstallFromUpload(file);
+    return waitForInstallJob(snapshot, onProgress);
   },
 
   uninstall: async (pluginId: string): Promise<void> => {
@@ -364,6 +458,19 @@ export const pluginsApi = {
   updatePlugin: async (pluginId: string): Promise<PluginPackageState> => {
     const response = await api.post<PluginPackageState>(`/plugins/${pluginId}/update`, {});
     return unwrapPayload(response as PluginPackageState | ApiResponse<PluginPackageState>);
+  },
+
+  startUpdatePlugin: async (pluginId: string): Promise<PluginInstallJobSnapshot> => {
+    const response = await api.post<PluginInstallJobSnapshot>(`/plugins/${pluginId}/update/jobs`, {});
+    return unwrapPayload(response as PluginInstallJobSnapshot | ApiResponse<PluginInstallJobSnapshot>);
+  },
+
+  updatePluginWithProgress: async (
+    pluginId: string,
+    onProgress?: (snapshot: PluginInstallJobSnapshot) => void,
+  ): Promise<PluginPackageState> => {
+    const snapshot = await pluginsApi.startUpdatePlugin(pluginId);
+    return waitForInstallJob(snapshot, onProgress);
   },
 };
 

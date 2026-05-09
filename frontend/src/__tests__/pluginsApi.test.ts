@@ -138,4 +138,69 @@ describe('pluginsApi.getSettingsResource', () => {
     );
     expect(payload.status).toBe('cancelled');
   });
+
+  it('starts and polls registry install jobs with progress callbacks', async () => {
+    const progressSnapshots: string[] = [];
+    vi.mocked(api.post).mockResolvedValue({
+      job_id: 'job-1',
+      operation: 'install',
+      plugin_id: 'calendar',
+      filename: null,
+      status: 'running',
+      stage: 'download',
+      progress_pct: 20,
+      message: 'Downloading plugin source',
+      error: null,
+      logs: [],
+      result: null,
+      created_at_ms: 1,
+      updated_at_ms: 1,
+      finished_at_ms: null,
+    } as any);
+    vi.mocked(api.get).mockResolvedValue({
+      job_id: 'job-1',
+      operation: 'install',
+      plugin_id: 'calendar',
+      filename: null,
+      status: 'completed',
+      stage: 'completed',
+      progress_pct: 100,
+      message: 'Plugin installation completed',
+      error: null,
+      logs: [],
+      result: {
+        manifest: {
+          plugin_id: 'calendar',
+          name: 'Calendar',
+          version: '1.0.0',
+          description: '',
+          author: 'Magi',
+          official: true,
+          contribution_types: ['sensor'],
+          source: 'external',
+          plugin_dir: '/tmp/calendar',
+          manifest_path: '/tmp/calendar/plugin.toml',
+        },
+        enabled: true,
+        trusted: false,
+        loaded: true,
+        healthy: true,
+        last_error: null,
+        contributions: [],
+        current_settings: {},
+      },
+      created_at_ms: 1,
+      updated_at_ms: 2,
+      finished_at_ms: 2,
+    } as any);
+
+    const result = await pluginsApi.installFromRegistryWithProgress('calendar', (snapshot) => {
+      progressSnapshots.push(snapshot.status);
+    });
+
+    expect(api.post).toHaveBeenCalledWith('/plugins/install/registry/jobs', { plugin_id: 'calendar' });
+    expect(api.get).toHaveBeenCalledWith('/plugins/install/jobs/job-1');
+    expect(progressSnapshots).toEqual(['running', 'completed']);
+    expect(result.manifest.plugin_id).toBe('calendar');
+  });
 });

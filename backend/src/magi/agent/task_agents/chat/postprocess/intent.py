@@ -57,6 +57,8 @@ class _IntentPostprocessHostProtocol(Protocol):
         started_at_ms: int,
         user_message: str,
         mode: str,
+        run_id: str | None = None,
+        run_revision: int | None = None,
     ) -> None: ...
 
     async def _persist_turn_ux_plan(

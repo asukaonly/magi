@@ -39,7 +39,23 @@
       "icons/icon.ico"
     ],
     "targets": "all",
-    "resources": ["sidecar-dist/"]
+    "resources": ["sidecar-dist/", "plugin-python/"],
+    "macOS": {
+      "dmg": {
+        "windowSize": {
+          "width": 660,
+          "height": 400
+        },
+        "appPosition": {
+          "x": 180,
+          "y": 170
+        },
+        "applicationFolderPosition": {
+          "x": 480,
+          "y": 170
+        }
+      }
+    }
   },
   "plugins": {
     "updater": {

@@ -229,6 +229,11 @@ class ChatTranscriptSummarizer:
             max_tokens=SUMMARY_OUTPUT_RESERVE,
             temperature=0.2,
             thinking_depth=ThinkingDepth.NONE,
+            event_context={
+                "request_kind": "memory:chat_transcript_summary",
+                "agent_id": "chat_transcript_summarizer",
+                "session_id": summary_input.session_id,
+            },
         )
         return str(response.content or "").strip()
 

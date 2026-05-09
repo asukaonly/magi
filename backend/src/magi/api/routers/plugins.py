@@ -49,15 +49,19 @@ from .plugins_core_routes import (
     update_plugin_settings,
 )
 from .plugins_install_routes import (
+    get_plugin_install_job,
     install_plugin_from_registry,
     install_plugin_from_upload,
     plugins_install_router,
+    start_plugin_registry_install_job,
+    start_plugin_upload_install_job,
     uninstall_plugin,
 )
 from .plugins_registry_routes import (
     check_plugin_updates,
     list_registry_plugins,
     plugins_registry_router,
+    start_plugin_update_job,
     update_plugin,
 )
 from .plugins_schemas import (
@@ -125,6 +129,7 @@ __all__ = [
     "disable_plugin",
     "enable_plugin",
     "get_plugin_settings",
+    "get_plugin_install_job",
     "install_plugin_from_registry",
     "install_plugin_from_upload",
     "list_plugins",
@@ -138,6 +143,9 @@ __all__ = [
     "resolve_plugin_manager",
     "shutil",
     "status",
+    "start_plugin_registry_install_job",
+    "start_plugin_update_job",
+    "start_plugin_upload_install_job",
     "start_plugin_settings_action",
     "tempfile",
     "uninstall_plugin",

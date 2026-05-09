@@ -6,7 +6,9 @@ from fastapi import APIRouter, HTTPException, status
 
 from ... import i18n as core_i18n
 from .plugins_common import legacy_plugins_module
+from .plugins_install_jobs import plugin_install_jobs
 from .plugins_schemas import (
+    PluginInstallJobSnapshot,
     PluginPackageResponse,
     PluginRegistryEntryResponse,
     PluginRegistryResponse,
@@ -136,9 +138,16 @@ async def update_plugin(plugin_id: str):
     return legacy._serialize_package(new_state)
 
 
+@plugins_registry_router.post("/{plugin_id}/update/jobs", response_model=PluginInstallJobSnapshot)
+async def start_plugin_update_job(plugin_id: str):
+    """Start a background plugin update job from the registry."""
+    return plugin_install_jobs.start_registry_update(plugin_id)
+
+
 __all__ = [
     "check_plugin_updates",
     "list_registry_plugins",
     "plugins_registry_router",
+    "start_plugin_update_job",
     "update_plugin",
 ]

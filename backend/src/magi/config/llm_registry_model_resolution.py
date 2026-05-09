@@ -12,7 +12,9 @@ from .models import (
     LLMModelCostModel,
     LLMModelMetadataOverrideSettings,
     LLMProviderSettings,
+    ModelVendor,
 )
+from .vendor_detection import detect_vendor_from_hints
 from .llm_registry_models import (
     LLMEmbeddingModelMetaModel,
     LLMImageGenerationModelMetaModel,
@@ -99,6 +101,7 @@ def _resolve_chat_model(
     cost: Optional[LLMModelCostModel],
     provider_options_example: Dict[str, Any],
     override: Optional[LLMModelMetadataOverrideSettings],
+    base_vendor: Optional[ModelVendor] = None,
 ) -> LLMResolvedModelMetaModel:
     resolved_capabilities = _apply_capability_overrides(
         capabilities,
@@ -111,6 +114,13 @@ def _resolve_chat_model(
     input_modalities, output_modalities = _default_chat_modalities(
         resolved_capabilities
     )
+    # vendor priority: user override > registry-declared base > GENERIC
+    if override is not None and override.vendor is not None:
+        resolved_vendor = override.vendor
+    elif base_vendor is not None:
+        resolved_vendor = base_vendor
+    else:
+        resolved_vendor = ModelVendor.GENERIC
     return LLMResolvedModelMetaModel(
         id=model_id,
         label=(
@@ -131,6 +141,7 @@ def _resolve_chat_model(
             if override is not None and override.preferred is not None
             else False
         ),
+        vendor=resolved_vendor,
         capabilities=resolved_capabilities,
         limits=resolved_limits,
         cost=(
@@ -388,6 +399,60 @@ def resolve_embedding_dimension(
     return preferred_dimension
 
 
+def _infer_custom_vendor(
+    *,
+    model_id: str,
+    provider_settings: Optional[LLMProviderSettings],
+) -> ModelVendor:
+    """Pick a sensible default ``ModelVendor`` for a custom-gateway model.
+
+    Used as the base value when the user has not declared a vendor in
+    ``model_metadata_overrides``. Model id is the primary signal because
+    OneAPI gateways routinely proxy mixed-vendor catalogs under one URL;
+    base_url is consulted only when the model id is inconclusive.
+    """
+    base_url = ""
+    if provider_settings is not None:
+        chat_service = getattr(getattr(provider_settings, "services", None), "chat", None)
+        base_url = (
+            getattr(chat_service, "base_url", None)
+            or getattr(provider_settings, "base_url", None)
+            or ""
+        )
+    return detect_vendor_from_hints(model_id=model_id, base_url=base_url)
+
+
+# provider id → default vendor for packaged models that don't declare one.
+# This keeps the yaml lean: a vanilla OpenAI provider doesn't need to
+# repeat ``vendor: openai`` on every chat model. Custom providers stay
+# out of this map — their dialect is decided per-model.
+_BUILTIN_PROVIDER_VENDOR: dict[str, ModelVendor] = {
+    "openai": ModelVendor.OPENAI,
+    "deepseek": ModelVendor.OPENAI,
+    "local": ModelVendor.OPENAI,
+    "anthropic": ModelVendor.ANTHROPIC,
+    "glm": ModelVendor.GLM,
+    "glm_codeplan": ModelVendor.GLM,
+    "dashscope": ModelVendor.DASHSCOPE,
+    "grok": ModelVendor.GROK,
+    "gemini": ModelVendor.GENERIC,
+    "kimi": ModelVendor.GENERIC,
+    "minimax": ModelVendor.GENERIC,
+}
+
+
+def _builtin_chat_model_vendor(
+    *, model: LLMModelMetaModel, provider_id: str
+) -> Optional[ModelVendor]:
+    """Decide the base vendor for a packaged chat model.
+
+    Order: explicit ``vendor`` on the model > provider-level default > None.
+    """
+    if model.vendor is not None:
+        return model.vendor
+    return _BUILTIN_PROVIDER_VENDOR.get(provider_id.lower().strip())
+
+
 def resolve_provider_model_catalog(
     registry: LLMProviderRegistryModel,
     provider_id: str,
@@ -448,6 +513,10 @@ def resolve_provider_model_catalog(
                 cost=model.cost,
                 provider_options_example=model.provider_options_example,
                 override=overrides.get(model.id),
+                base_vendor=_builtin_chat_model_vendor(
+                    model=model,
+                    provider_id=provider_meta.id,
+                ),
             )
 
         for model in provider_meta.embedding_models:
@@ -507,6 +576,10 @@ def resolve_provider_model_catalog(
                 cost=None,
                 provider_options_example=manual_provider_options,
                 override=overrides.get(model_id),
+                base_vendor=_infer_custom_vendor(
+                    model_id=model_id,
+                    provider_settings=provider_settings,
+                ),
             )
 
     for model_id, override in overrides.items():
@@ -524,6 +597,10 @@ def resolve_provider_model_catalog(
                 cost=None,
                 provider_options_example=manual_provider_options,
                 override=override,
+                base_vendor=_infer_custom_vendor(
+                    model_id=model_id,
+                    provider_settings=provider_settings,
+                ),
             )
 
         if override.capabilities.embedding is True and model_id not in embedding_models:

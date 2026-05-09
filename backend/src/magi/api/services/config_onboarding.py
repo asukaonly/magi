@@ -16,6 +16,25 @@ from ..routers.config_schemas import (
 
 logger = get_logger(__name__)
 
+QUICK_MODE_PERSONALITY_SEEDS: dict[str, dict[str, str]] = {
+    "chat_assistant": {
+        "zh": "echo_ai_assistant",
+        "en": "nova_assistant",
+    },
+    "life_monitor": {
+        "zh": "sumen_listener",
+        "en": "ember_listener",
+    },
+    "knowledge_partner": {
+        "zh": "seven_hacker",
+        "en": "jinx_hacker",
+    },
+    "default": {
+        "zh": "echo_ai_assistant",
+        "en": "nova_assistant",
+    },
+}
+
 
 def build_onboarding_template() -> SystemConfigModel:
     template = SystemConfigModel()
@@ -60,13 +79,41 @@ def quick_mode_personality_sort_key(preset_file: Path, payload: Dict[str, Any]) 
     return (0 if is_default else 1, order, name, preset_file.stem)
 
 
-def load_quick_mode_default_personality(language: str) -> Optional[FullPersonalityConfigModel]:
-    """Load the locale-appropriate quick-mode personality seed."""
+def quick_mode_personality_seed_slug(locale: str, scenario: Optional[str]) -> Optional[str]:
+    scenario_key = scenario if scenario in QUICK_MODE_PERSONALITY_SEEDS else "default"
+    return QUICK_MODE_PERSONALITY_SEEDS.get(scenario_key, {}).get(locale)
+
+
+def load_quick_mode_personality(
+    language: str,
+    scenario: Optional[str] = None,
+) -> Optional[FullPersonalityConfigModel]:
+    """Load the locale-appropriate quick-mode personality seed for a scenario."""
     root = get_backend_root() / "personalities"
     for lang in quick_mode_personality_locale_candidates(language):
         seed_dir = root / lang
         if not seed_dir.is_dir():
             continue
+
+        preferred_seed_slug = quick_mode_personality_seed_slug(lang, scenario)
+        if preferred_seed_slug:
+            preset_file = seed_dir / f"{preferred_seed_slug}.json"
+            if preset_file.is_file():
+                try:
+                    payload = json.loads(preset_file.read_text(encoding="utf-8"))
+                    logger.info(
+                        "Using quick-mode personality preset %s for language %s and scenario %s",
+                        preferred_seed_slug,
+                        lang,
+                        scenario or "default",
+                    )
+                    return FullPersonalityConfigModel.model_validate(payload)
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to load quick-mode personality preset from %s: %s",
+                        preset_file,
+                        exc,
+                    )
 
         candidates: list[tuple[tuple[int, int, str, str], Path, Dict[str, Any]]] = []
         for preset_file in sorted(seed_dir.glob("*.json")):
@@ -89,7 +136,8 @@ def load_quick_mode_default_personality(language: str) -> Optional[FullPersonali
 
 __all__ = [
     "build_onboarding_template",
-    "load_quick_mode_default_personality",
+    "load_quick_mode_personality",
+    "quick_mode_personality_seed_slug",
     "quick_mode_personality_locale_candidates",
     "quick_mode_personality_sort_key",
     "resolve_personality_language_code",

@@ -7,6 +7,7 @@ from urllib.parse import urljoin
 
 import httpx
 
+from ...error_classifier import LLMErrorKind, classify_provider_payload
 from ..errors import (
     ImageGenAuthError,
     ImageGenContentFilteredError,
@@ -15,6 +16,19 @@ from ..errors import (
     ImageGenRateLimitError,
     ImageGenTimeoutError,
 )
+
+
+# Map the generic LLM error taxonomy to the image-generation-specific
+# exception subclasses. ``UNKNOWN`` (and anything else not listed) falls
+# back to the bare ``ImageGenProviderError`` so the caller still gets a
+# typed exception even when classification can't pin a bucket.
+_KIND_TO_IMAGE_GEN_ERROR = {
+    LLMErrorKind.CONTENT_FILTER: ImageGenContentFilteredError,
+    LLMErrorKind.AUTH: ImageGenAuthError,
+    LLMErrorKind.RATE_LIMIT: ImageGenRateLimitError,
+    LLMErrorKind.TIMEOUT: ImageGenTimeoutError,
+    LLMErrorKind.INVALID_PARAMETER: ImageGenInvalidParameterError,
+}
 
 
 def join_url(base_url: str, path: str) -> str:
@@ -105,50 +119,13 @@ def provider_error_from_body(
     """Create a structured provider error from a JSON error payload."""
     code = _extract_error_code(body)
     message = _extract_error_message(body) or fallback_message or "Image generation failed."
-    lowered = f"{code or ''} {message}".lower()
     raw_payload = raw if raw is not None else body
 
-    if any(token in lowered for token in ("safety", "filter", "blocked", "prohibited", "sensitive")):
-        return ImageGenContentFilteredError(
-            message,
-            status_code=status_code,
-            code=code,
-            provider_id=provider_id,
-            raw=raw_payload,
-        )
-    if status_code in (401, 403) or "auth" in lowered or "api key" in lowered:
-        return ImageGenAuthError(
-            message,
-            status_code=status_code,
-            code=code,
-            provider_id=provider_id,
-            raw=raw_payload,
-        )
-    if status_code == 429 or "rate" in lowered or "quota" in lowered:
-        return ImageGenRateLimitError(
-            message,
-            status_code=status_code,
-            code=code,
-            provider_id=provider_id,
-            raw=raw_payload,
-        )
-    if status_code in (408, 504) or "timeout" in lowered:
-        return ImageGenTimeoutError(
-            message,
-            status_code=status_code,
-            code=code,
-            provider_id=provider_id,
-            raw=raw_payload,
-        )
-    if status_code in (400, 422) or "invalid" in lowered or "parameter" in lowered:
-        return ImageGenInvalidParameterError(
-            message,
-            status_code=status_code,
-            code=code,
-            provider_id=provider_id,
-            raw=raw_payload,
-        )
-    return ImageGenProviderError(
+    classified = classify_provider_payload(
+        status_code=status_code, code=code, message=message
+    )
+    error_cls = _KIND_TO_IMAGE_GEN_ERROR.get(classified.kind, ImageGenProviderError)
+    return error_cls(
         message,
         status_code=status_code,
         code=code,

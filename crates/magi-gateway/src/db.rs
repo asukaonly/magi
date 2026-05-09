@@ -1,4 +1,6 @@
 use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::sync::{Mutex, MutexGuard};
 use std::sync::{OnceLock, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -38,6 +40,17 @@ pub fn set_magi_base_dir_override_for_tests(path: Option<PathBuf>) -> Option<Pat
         .write()
         .expect("lock Magi base dir override");
     std::mem::replace(&mut *guard, path)
+}
+
+#[cfg(test)]
+static MAGI_BASE_DIR_OVERRIDE_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+#[cfg(test)]
+pub fn magi_base_dir_override_test_lock() -> MutexGuard<'static, ()> {
+    MAGI_BASE_DIR_OVERRIDE_TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("lock Magi base dir override test mutex")
 }
 
 /// Path to the backend configs directory.

@@ -11,7 +11,9 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SIDECAR_DIR="${ROOT_DIR}/frontend/src-tauri/sidecar-dist"
+PLUGIN_PYTHON_DIR="${ROOT_DIR}/frontend/src-tauri/plugin-python"
 ENTITLEMENTS="${ROOT_DIR}/scripts/sidecar.entitlements.plist"
+RUNTIME_SIGNER="${ROOT_DIR}/scripts/sign-runtime-root-macos.sh"
 
 if [[ -z "${APPLE_SIGNING_IDENTITY:-}" ]]; then
   echo "APPLE_SIGNING_IDENTITY not set; skipping sidecar signing."
@@ -276,4 +278,9 @@ if [[ $FAIL -gt 0 ]]; then
 fi
 
 echo "==> All ${TOTAL} signatures verified."
+if [[ -d "${PLUGIN_PYTHON_DIR}" ]]; then
+  bash "${RUNTIME_SIGNER}" "${PLUGIN_PYTHON_DIR}" "${ENTITLEMENTS}" "plugin-python"
+else
+  echo "WARNING: plugin-python not found at ${PLUGIN_PYTHON_DIR}; skipping plugin Python signing."
+fi
 echo "==> Sidecar signing complete."

@@ -23,6 +23,7 @@ class _ToolRegistryProtocol(Protocol):
 class _FunctionCallingToolExecutionHostProtocol(Protocol):
     skill_runner: Any
     tool_registry: _ToolRegistryProtocol
+    _tool_invocation_service: Any
     _FILE_SCAN_TOOLS: set[str]
     _SLOW_SCAN_WARNING_SECONDS: float
 
@@ -35,7 +36,6 @@ class _FunctionCallingToolExecutionHostProtocol(Protocol):
         tool_name: str,
         arguments: dict[str, Any],
         execution_workspace: str | None,
-        user_message: str | None,
     ) -> tuple[dict[str, Any], str | None]: ...
 
     def _classify_guardrail_error_code(self, *, tool_name: str, error_text: str) -> str: ...
@@ -47,6 +47,8 @@ class _FunctionCallingToolExecutionHostProtocol(Protocol):
     ) -> dict[str, Any]: ...
 
     def _resolve_permission_gateway(self) -> Any: ...
+
+    def _build_tool_span_id(self, turn_id: str, iteration: int, tool_call_id: str) -> str: ...
 
     async def _gate_tool_call(
         self,
@@ -137,7 +139,6 @@ class FunctionCallingToolExecutionMixin:
                 tool_name=tool_name,
                 arguments=arguments,
                 execution_workspace=execution_workspace,
-                user_message=user_message,
             )
             if guardrail_error:
                 guardrail_error_code = host._classify_guardrail_error_code(
@@ -169,7 +170,7 @@ class FunctionCallingToolExecutionMixin:
             normalized_turn_id = str(turn_id or "").strip()
             target_task_agent_id = normalized_session_id or user_id
             trace_parent_span_id = (
-                self._build_tool_span_id(normalized_turn_id, iteration, tool_call.id)
+                host._build_tool_span_id(normalized_turn_id, iteration, tool_call.id)
                 if normalized_turn_id and iteration is not None and iteration > 0
                 else ""
             )

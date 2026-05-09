@@ -78,6 +78,10 @@ class ManifestSelector:
                 json_mode=True,
                 disable_thinking=True,
                 timeout_seconds=self._config.manifest_selector_timeout_seconds,
+                event_context={
+                    "request_kind": "memory:hybrid_manifest_selector",
+                    "agent_id": "memory:hybrid_retrieval",
+                },
             )
             elapsed_ms = (time.monotonic() - t0) * 1000
             selected_indices = self._parse_response(

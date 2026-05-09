@@ -18,8 +18,9 @@ from ...bootstrap import refresh_runtime_llm_config
 from ...memory.embedding.vector_admin import build_embedding_config_preflight
 from ..services.config_onboarding import (
     build_onboarding_template as _build_onboarding_template_service,
-    load_quick_mode_default_personality,
+    load_quick_mode_personality,
     quick_mode_personality_locale_candidates,
+    quick_mode_personality_seed_slug,
     quick_mode_personality_sort_key,
     resolve_personality_language_code,
 )
@@ -224,8 +225,15 @@ def _quick_mode_personality_sort_key(
     return quick_mode_personality_sort_key(preset_file, payload)
 
 
-def _load_quick_mode_default_personality(language: str) -> Optional[FullPersonalityConfigModel]:
-    return load_quick_mode_default_personality(language)
+def _quick_mode_personality_seed_slug(language: str, scenario: Optional[str]) -> Optional[str]:
+    return quick_mode_personality_seed_slug(_resolve_personality_language_code(language), scenario)
+
+
+def _load_quick_mode_personality(
+    language: str,
+    scenario: Optional[str] = None,
+) -> Optional[FullPersonalityConfigModel]:
+    return load_quick_mode_personality(language, scenario)
 
 
 @config_router.get("/", response_model=ConfigResponse)
@@ -396,8 +404,9 @@ async def test_telegram_connection(request: Request, payload: TestTelegramConnec
 async def complete_onboarding(request: Request, config: SystemConfigModel):
     try:
         if config.preferences.user_mode == "quick":
-            quick_mode_personality = _load_quick_mode_default_personality(
-                config.preferences.language
+            quick_mode_personality = _load_quick_mode_personality(
+                config.preferences.language,
+                config.preferences.scenario,
             )
             if quick_mode_personality is not None:
                 config.personality = quick_mode_personality

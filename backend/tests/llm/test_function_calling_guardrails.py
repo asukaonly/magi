@@ -268,7 +268,9 @@ def test_chat_guardrail_blocks_scan_outside_active_workspace(tmp_path) -> None:
     assert error == (
         "File scan guardrail: glob and grep must stay within the active workspace. "
         f"Requested path resolves to {outside.resolve()} while workspace is {workspace.resolve()}. "
-        "Ask the user for an explicit path or use web-search first if the target may live outside the workspace."
+        "If the user explicitly asked to scan an external path, retry with "
+        "outside_workspace_allowed=true; otherwise ask the user for an explicit "
+        "path or use web-search first."
     )
 
 
@@ -293,7 +295,7 @@ def test_chat_guardrail_allows_scan_within_active_workspace(tmp_path) -> None:
     }
 
 
-def test_chat_guardrail_allows_explicit_user_targeted_path(tmp_path) -> None:
+def test_chat_guardrail_outside_workspace_allowed_flag_unblocks_and_strips(tmp_path) -> None:
     executor = _executor()
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -303,36 +305,18 @@ def test_chat_guardrail_allows_explicit_user_targeted_path(tmp_path) -> None:
     guarded_args, error = executor._apply_worker_explore_guardrails(
         intent="chat",
         tool_name="glob",
-        arguments={"pattern": "**/*.json", "path": str(outside)},
+        arguments={
+            "pattern": "**/*.py",
+            "path": str(outside),
+            "outside_workspace_allowed": True,
+        },
         execution_workspace=str(workspace),
-        user_message=f"去 {outside} 下面查一下 json 文件",
     )
 
     assert error is None
-    assert guarded_args == {"pattern": "**/*.json", "path": str(outside)}
-
-
-@pytest.mark.asyncio
-async def test_execute_tool_call_allows_explicit_user_targeted_external_scan(tmp_path) -> None:
-    executor = _executor()
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    outside = tmp_path / "outside"
-    outside.mkdir()
-
-    result = await executor._execute_tool_call(
-        tool_call=ToolCall(id="call-1", name="glob", arguments={"pattern": "**/*.json", "path": str(outside)}),
-        user_message=f"请去 {outside} 看看里面有哪些 json",
-        user_id="u",
-        session_id="s",
-        turn_id="t",
-        intent="chat",
-        execution_agent_id="a",
-        execution_workspace=str(workspace),
-        orchestration_strategy=None,
-    )
-
-    assert result.success is True
+    # Hint must be consumed by the guardrail and not forwarded to the tool.
+    assert "outside_workspace_allowed" not in guarded_args
+    assert guarded_args["path"] == str(outside)
 
 
 @pytest.mark.asyncio

@@ -16,6 +16,8 @@ jobs:
     environment: release
     permissions:
       contents: write
+    env:
+      MAGI_PLUGIN_PYTHON_VERSION: "3.13"
 
     strategy:
       fail-fast: false
@@ -25,12 +27,12 @@ jobs:
             runner: macos-15-intel
             target: x86_64-apple-darwin
             os_family: macos
-            bundles: dmg
+            bundles: app,dmg
           - label: macOS Apple Silicon
             runner: macos-15
             target: aarch64-apple-darwin
             os_family: macos
-            bundles: dmg
+            bundles: app,dmg
           - label: Windows
             runner: windows-latest
             target: x86_64-pc-windows-msvc
@@ -53,7 +55,34 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.11"
+          python-version: "3.13.5"
+
+      - name: Use Homebrew Python venv on macOS
+        if: matrix.os_family == 'macos'
+        shell: bash
+        run: |
+          brew list python@3.13 >/dev/null 2>&1 || brew install python@3.13
+          python_prefix="$(brew --prefix python@3.13)"
+          venv_path="${GITHUB_WORKSPACE}/.venv-release"
+          "${python_prefix}/libexec/bin/python" -m venv "${venv_path}"
+          echo "${venv_path}/bin" >> "$GITHUB_PATH"
+          echo "VIRTUAL_ENV=${venv_path}" >> "$GITHUB_ENV"
+          # GitHub's setup-python builds on macOS do not expose SQLite loadable
+          # extension support. sqlite-vec requires it to register vec0 tables.
+          "${venv_path}/bin/python" - <<'PY'
+          import sqlite3
+          import sys
+
+          conn = sqlite3.connect(":memory:")
+          try:
+              if not hasattr(conn, "enable_load_extension"):
+                  raise SystemExit(
+                      "Homebrew Python sqlite3 is missing enable_load_extension"
+                  )
+              print(f"Using {sys.executable} with SQLite {sqlite3.sqlite_version}")
+          finally:
+              conn.close()
+          PY
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -113,8 +142,8 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]" pyinstaller
           pip install -e ../sdk
+          pip install -e ".[dev]" pyinstaller
 
       - name: Install ripgrep (macOS)
         if: matrix.os_family == 'macos'
@@ -125,6 +154,30 @@ jobs:
         if: matrix.os_family == 'windows'
         shell: pwsh
         run: choco install ripgrep -y
+
+      - name: Prepare plugin Python runtime (Unix)
+        if: matrix.os_family != 'windows'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python scripts/prepare-plugin-python-runtime.py \
+            --target "${{ matrix.target }}" \
+            --python-version "${MAGI_PLUGIN_PYTHON_VERSION}" \
+            --output "${RUNNER_TEMP}/magi-plugin-python" \
+            --github-env "${GITHUB_ENV}"
+
+      - name: Prepare plugin Python runtime (Windows)
+        if: matrix.os_family == 'windows'
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python scripts/prepare-plugin-python-runtime.py `
+            --target "${{ matrix.target }}" `
+            --python-version "$env:MAGI_PLUGIN_PYTHON_VERSION" `
+            --output "$env:RUNNER_TEMP/magi-plugin-python" `
+            --github-env "$env:GITHUB_ENV"
 
       - name: Build Python sidecar (Unix)
         if: matrix.os_family != 'windows'
@@ -202,19 +255,26 @@ jobs:
         run: |
           current_tag="${GITHUB_REF_NAME}"
           previous_tag="$(git tag --sort=-v:refname | grep -Fxv "${current_tag}" | head -n 1 || true)"
+          max_release_note_commits=200
 
           if [ -n "${previous_tag}" ]; then
             compare_url="https://github.com/${GITHUB_REPOSITORY}/compare/${previous_tag}...${current_tag}"
             heading="## Changes since ${previous_tag}"
-            commit_lines="$(git log --no-merges --pretty='- %s (%h)' "${previous_tag}..${current_tag}")"
+            commit_range="${previous_tag}..${current_tag}"
           else
             compare_url=""
             heading="## Initial release"
-            commit_lines="$(git log --no-merges --pretty='- %s (%h)' "${current_tag}")"
+            commit_range="${current_tag}"
           fi
+
+          commit_count="$(git rev-list --no-merges --count "${commit_range}")"
+          commit_lines="$(git log --no-merges --max-count="${max_release_note_commits}" --pretty='- %s (%h)' "${commit_range}")"
 
           if [ -z "${commit_lines}" ]; then
             commit_lines="- No user-facing commits found in this release."
+          elif [ "${commit_count}" -gt "${max_release_note_commits}" ]; then
+            omitted_count=$((commit_count - max_release_note_commits))
+            commit_lines="${commit_lines}"$'\n\n'"_Showing latest ${max_release_note_commits} commits; ${omitted_count} older commits omitted from these notes._"
           fi
 
           {
@@ -224,8 +284,8 @@ jobs:
             echo
             echo "| Platform | File |"
             echo "|----------|------|"
-            echo "| macOS (Apple Silicon) | \`Magi_aarch64.dmg\` |"
-            echo "| macOS (Intel) | \`Magi_x64.dmg\` |"
+            echo "| macOS (Apple Silicon) | \`Magi_${current_tag#v}_aarch64.dmg\` |"
+            echo "| macOS (Intel) | \`Magi_${current_tag#v}_x64.dmg\` |"
             echo "| Windows | \`Magi_${current_tag#v}_x64-setup.exe\` |"
             echo
             echo "> Other assets (\`.app.tar.gz\`, \`.sig\`, \`.json\`) are for the built-in auto-updater. No manual download needed."

@@ -26,8 +26,22 @@ from magi.agent.task_orchestrator import TaskOrchestrator
 from magi.agent.runtime.contracts import FactRecord
 from magi.agent.orchestration import PlannedSubtask, SubtaskPlan
 from magi.agent.workers.worker_manager import WORKER_AGENT_COMPLETED, WorkerAgentManager, WorkerRunState
+from magi.tools.builtin.file_read_tool import FileReadTool
+from magi.tools.builtin.glob_tool import GlobTool
+from magi.tools.builtin.grep_tool import GrepTool
 from magi.tools.registry import ToolRegistry
 from magi.tools.schema import ToolResult
+
+
+def _registry_with_file_tools() -> ToolRegistry:
+    """Build a registry with the file-tool candidates the planning prompt
+    consults. Using ``ToolRegistry()`` directly leaves ToolHintResolver
+    with nothing to look up and the prompt drops the # Tool Guidance /
+    ## Task Hints sections."""
+    registry = ToolRegistry()
+    for tool_class in (GlobTool, GrepTool, FileReadTool):
+        registry.register(tool_class)
+    return registry
 
 
 async def _fake_plan_subtasks(*args, **kwargs):  # type: ignore[no-untyped-def]
@@ -78,8 +92,19 @@ class _RecordingExecuteToolRegistry:
         return self.result
 
     def get_tool_info(self, tool_name: str) -> dict[str, object]:
-        _ = tool_name
-        return {}
+        # Return a minimal but non-empty descriptor for the file/web tool
+        # candidates the planning service consults via ToolHintResolver.
+        # Without this the resolver filters every candidate and the
+        # generated planning prompt loses its "## Task Hints" section.
+        known = {"glob", "grep", "file_read", "file_edit", "file_write", "bash", "web-search", "web-fetch", "agent"}
+        if tool_name not in known:
+            return {}
+        return {
+            "name": tool_name,
+            "description": tool_name,
+            "metadata": {},
+            "parameters": [],
+        }
 
 
 @pytest.mark.asyncio
@@ -287,7 +312,7 @@ def test_chat_planning_service_generic_fallback_and_leaf_prompt_emphasize_anchor
         context_service=SimpleNamespace(),
         prompt_service=SimpleNamespace(),
         history_service=SimpleNamespace(),
-        tool_registry=ToolRegistry(),
+        tool_registry=_registry_with_file_tools(),
         parent_task_agent_type="chat",
     )
 
@@ -337,7 +362,7 @@ async def test_chat_planning_service_mixed_evidence_prompt_preserves_external_le
         context_service=SimpleNamespace(),
         prompt_service=_FakePromptService(),
         history_service=SimpleNamespace(),
-        tool_registry=ToolRegistry(),
+        tool_registry=_registry_with_file_tools(),
         parent_task_agent_type="chat",
     )
 

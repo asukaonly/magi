@@ -1,10 +1,38 @@
-"""Rules-first interruption classification for chat task-agent runs."""
+"""Rules-first interruption classification for chat task-agent runs.
+
+Behaviour by design:
+
+- Step state ``atomic`` or ``side_effecting`` → always DEFER. We never
+  yank the rug out from under a write that is already in flight.
+- ``aclassify`` calls the LLM classifier first (CONTEXT_DECIDER scenario,
+  8s budget). On any failure or unparseable response, falls back to
+  ``classify``.
+- ``classify`` (synchronous) is intentionally narrow:
+    * a strict cancel phrase (full normalized message ∈ phrase list)
+      → INTERRUPT
+    * everything else → DEFER
+
+We deliberately do NOT keep substring tables for AUGMENT / STEER /
+generic INTERRUPT detection. The previous implementation grew those
+into 30+ phrases per bucket, was sensitive to user wording, and required
+constant tuning. AUGMENT / STEER decisions now live in the LLM
+classifier; when the LLM is unavailable, DEFER is the safe default
+(the active run continues, the new message is queued).
+
+The ``_STRICT_INTERRUPT_PHRASES`` set is loaded from the sibling
+``interruption_phrases.yaml`` so QA / language reviewers can add
+canonical cancel phrases without code edits.
+"""
 from __future__ import annotations
 
 import json
 import re
 from dataclasses import dataclass, field
 from enum import Enum
+from functools import lru_cache
+from pathlib import Path
+
+import yaml
 
 from ....config.models import LLMScenario
 from ..common import TaskAgentLLMService
@@ -19,6 +47,25 @@ _STRICT_NORMALIZE_RE = re.compile(
     r"[\s\.,!\?;:\-_\"'`~@#\$%\^&\*\(\)\[\]\{\}<>/\\|"
     "，。！？、；：""''「」『』【】（）《》…—–～]+"
 )
+
+_PHRASES_FILE = Path(__file__).with_name("interruption_phrases.yaml")
+
+
+@lru_cache(maxsize=1)
+def _load_strict_interrupt_phrases() -> frozenset[str]:
+    """Read canonical cancel phrases from the sibling YAML resource."""
+    try:
+        raw = yaml.safe_load(_PHRASES_FILE.read_text(encoding="utf-8")) or {}
+    except FileNotFoundError:
+        return frozenset()
+    phrases: set[str] = set()
+    for bucket in raw.values() if isinstance(raw, dict) else ():
+        if isinstance(bucket, list):
+            for entry in bucket:
+                normalized = str(entry or "").strip()
+                if normalized:
+                    phrases.add(normalized)
+    return frozenset(phrases)
 
 
 class InterruptionDisposition(str, Enum):
@@ -66,79 +113,22 @@ class InterruptionClassifier:
             logger_name="chat_interrupt",
         )
 
-    _INTERRUPT_PATTERNS = (
-        "stop",
-        "cancel",
-        "abort",
-        "change the goal",
-        "change goal",
-        "new goal",
-        "new plan",
-        "switch to",
-        "don't do that",
-        "dont do that",
-        "never mind",
-        "不用做了",
-        "先停",
-        "停一下",
-        "停止",
-        "取消",
-        "搞错了",
-    )
-    _AUGMENT_PATTERNS = (
-        # Re-scope phrases: the user is modifying *what* the agent is doing,
-        # so the existing tool-loop progress may no longer be valid and we
-        # fall back to the safer merge-and-restart path.
-        "instead of",
-        "rather than",
-        "switch to",
-        "replace with",
-        "改用",
-        "换成",
-        "改成",
-    )
-    _STEER_PATTERNS = (
-        # Additive info phrases: the user is *adding* context to the same
-        # task. Preserve in-flight tool results by appending to the running
-        # message history rather than rebuilding the prompt.
-        "also",
-        "additionally",
-        "by the way",
-        "for context",
-        "one more thing",
-        "more context",
-        "more detail",
-        "in addition",
-        "only happens after",
-        "only happens when",
-        "happens after",
-        "happens when",
-        "staging endpoint",
-        "staging environment",
-        "staging env",
-        "另外",
-        "补充",
-        "顺便",
-        "还有",
-    )
-
     def classify(self, context: InterruptionContext) -> InterruptionDisposition:
-        """Return the disposition for the new user turn."""
+        """Synchronous fallback: only strict cancel and atomic-state defer.
+
+        AUGMENT / STEER / non-strict INTERRUPT decisions intentionally
+        require the LLM classifier. When neither path can decide, we
+        return DEFER — the safer default that preserves active-run
+        progress while queueing the new message.
+        """
         if context.step_state.atomic or context.step_state.side_effecting:
             return InterruptionDisposition.DEFER
-        if self._looks_like_interrupt(context.user_text):
+        if self.looks_like_strict_interrupt(context.user_text):
             return InterruptionDisposition.INTERRUPT
-        # Re-scope (AUGMENT) must win over additive (STEER) because the
-        # rescope phrases typically co-occur with additive ones (e.g.
-        # "also, use python instead of js").
-        if self._looks_like_augment(context.user_text):
-            return InterruptionDisposition.AUGMENT
-        if self._looks_like_steer(context.user_text):
-            return InterruptionDisposition.STEER
         return InterruptionDisposition.DEFER
 
     async def aclassify(self, context: InterruptionContext) -> InterruptionDisposition:
-        """Classify using a fast model first, then fall back to rules."""
+        """LLM-first classifier; falls back to ``classify`` on failure."""
         if context.step_state.atomic or context.step_state.side_effecting:
             return InterruptionDisposition.DEFER
         if self._can_use_model_classifier():
@@ -146,49 +136,6 @@ class InterruptionClassifier:
             if disposition is not None:
                 return disposition
         return self.classify(context)
-
-    def _looks_like_interrupt(self, user_text: str) -> bool:
-        normalized_text = user_text.lower()
-        return any(pattern in normalized_text for pattern in self._INTERRUPT_PATTERNS)
-
-    # Canonical cancel phrases (already normalized: lowercased, with all
-    # punctuation/whitespace stripped). Used by the ingress fast path which
-    # needs very low false-positive rate — a long message that merely
-    # mentions "stop" in passing must fall through to the LLM classifier.
-    _STRICT_INTERRUPT_PHRASES = frozenset(
-        {
-            # English short cancels
-            "stop",
-            "cancel",
-            "abort",
-            "nevermind",
-            "nope",
-            "halt",
-            "quit",
-            # English short phrases (punctuation-stripped)
-            "stopit",
-            "stopnow",
-            "cancelit",
-            "cancelthat",
-            "abortit",
-            "dontdothat",
-            "donotdothat",
-            # Chinese short cancels
-            "不用做了",
-            "不用了",
-            "先停",
-            "先停一下",
-            "停一下",
-            "停下",
-            "停止",
-            "取消",
-            "别做了",
-            "算了",
-            "算了吧",
-            "搞错了",
-            "不做了",
-        }
-    )
 
     @classmethod
     def _strict_normalize(cls, user_text: str) -> str:
@@ -198,25 +145,15 @@ class InterruptionClassifier:
     def looks_like_strict_interrupt(self, user_text: str) -> bool:
         """Return True only when the full normalized message equals a cancel phrase.
 
-        This is intentionally stricter than ``_looks_like_interrupt`` (which
-        uses substring matching for the in-loop rules-first classifier). The
-        ingress fast path in ``ChatTaskAgent.add_fact`` uses this stricter
-        check so long messages that merely mention a cancel keyword in
-        passing are routed to the LLM classifier instead of pre-emptively
-        cancelling the active run.
+        Substring matching is intentionally NOT performed: long messages
+        that merely mention a cancel keyword in passing must fall through
+        to the LLM classifier instead of pre-emptively cancelling the
+        active run.
         """
         normalized = self._strict_normalize(user_text)
         if not normalized:
             return False
-        return normalized in self._STRICT_INTERRUPT_PHRASES
-
-    def _looks_like_augment(self, user_text: str) -> bool:
-        normalized_text = user_text.lower()
-        return any(pattern in normalized_text for pattern in self._AUGMENT_PATTERNS)
-
-    def _looks_like_steer(self, user_text: str) -> bool:
-        normalized_text = user_text.lower()
-        return any(pattern in normalized_text for pattern in self._STEER_PATTERNS)
+        return normalized in _load_strict_interrupt_phrases()
 
     def _can_use_model_classifier(self) -> bool:
         if self._llm_pool is not None:

@@ -9,6 +9,7 @@ from typing import Any, Optional, Protocol, cast
 
 from ...core.logger import get_logger
 from ...llm import LLMProviderBridge, LLMScenario, ProviderResponse, ScenarioLLMPool
+from ...llm.error_classifier import is_rate_limit_exception
 
 logger = get_logger("magi.memory.l2.llm_service")
 _RATE_LIMIT_BACKOFF_SECONDS = (1.0, 2.0, 4.0)
@@ -112,25 +113,10 @@ class L2LLMJsonClientMixin:
             invalid_context["response_char_count"] = len(raw or "")
             logger.warning("L2 LLM returned invalid JSON", **invalid_context)
             return {}
-        return parsed if isinstance(parsed, dict) else {}
+        return cast(dict[str, Any], parsed) if isinstance(parsed, dict) else {}
 
     def _is_rate_limit_error(self, exc: Exception) -> bool:
-        status_code = getattr(exc, "status_code", None)
-        if status_code == 429:
-            return True
-        response = getattr(exc, "response", None)
-        if getattr(response, "status_code", None) == 429:
-            return True
-        message = str(exc).lower()
-        return any(
-            marker in message
-            for marker in (
-                "429",
-                "rate limit",
-                "ratelimit",
-                "too many requests",
-            )
-        )
+        return bool(is_rate_limit_exception(exc))
 
     def _get_adapter(self, scenario: LLMScenario = LLMScenario.CONTEXT_DECIDER) -> Optional[Any]:
         host = self._llm_json_client_host()

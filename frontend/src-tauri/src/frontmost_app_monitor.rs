@@ -203,7 +203,7 @@ fn debug_frontmost_monitor_enabled() -> bool {
 
 fn debug_frontmost_monitor_log(message: &str) {
     if debug_frontmost_monitor_enabled() {
-        eprintln!("[frontmost_app_monitor] {message}");
+        log::debug!("[frontmost_app_monitor] {message}");
     }
 }
 
@@ -239,7 +239,7 @@ mod macos {
                 super::debug_frontmost_monitor_log("received activation notification");
                 if let Err(err) = capture_frontmost_app(&store_for_callback, current_time_millis())
                 {
-                    eprintln!("failed to append frontmost-app ingress event: {err}");
+                    log::warn!("failed to append frontmost-app ingress event: {err}");
                 }
             });
 

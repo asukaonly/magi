@@ -46,7 +46,6 @@ def validate_schema(schema: dict[str, Any]) -> None:
     rust_native_only_routes = {
         "/api/metrics/runtime/overview",
         "/api/tasks",
-        "/api/schedules",
     }
     leaked = sorted(rust_native_only_routes & set(paths))
     if leaked:

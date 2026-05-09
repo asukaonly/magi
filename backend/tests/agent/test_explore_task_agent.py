@@ -85,8 +85,19 @@ async def test_explore_planning_service_prefers_llm_plan_for_scoped_request() ->
             )
 
     from magi.agent.task_agents.explore.planning_service import ExplorePlanningService
+    from magi.tools.builtin.file_read_tool import FileReadTool
+    from magi.tools.builtin.glob_tool import GlobTool
+    from magi.tools.builtin.grep_tool import GrepTool
+    from magi.tools.registry import ToolRegistry
+    from magi.tools.tool_hint_resolver import ToolHintResolver
 
-    service = ExplorePlanningService(prompt_service=_FakePromptService())
+    hint_registry = ToolRegistry()
+    for tool_class in (GlobTool, GrepTool, FileReadTool):
+        hint_registry.register(tool_class)
+    service = ExplorePlanningService(
+        prompt_service=_FakePromptService(),
+        tool_hint_resolver=ToolHintResolver(hint_registry),
+    )
     plan = await service.generate_subtask_plan(
         user_message="看下 backend/src/magi/agent 的代码结构和任务编排",
         history=[],

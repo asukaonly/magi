@@ -246,81 +246,22 @@ def test_context_decider_prompt_excludes_latest_user_message_from_recent_convers
     assert "## User Request\n\n你是谁啊" in prompt
 
 
-def test_context_decider_rule_fallback_routes_complex_news_to_generic_decompose() -> None:
+def test_context_decider_rule_fallback_returns_conservative_chat_intent() -> None:
+    """Without retry/trace context, the fallback returns chat with no tools.
+
+    The previous implementation guessed an intent from substring tables
+    (research/files/web/bash/skills); that path was the H1 whack-a-mole
+    finding and has been removed in favor of pushing routing into the
+    LLM classifier.
+    """
     decider = ContextDecider(tool_registry=_ResearchToolRegistry(), llm_adapter=_DummyLLMAdapter())  # type: ignore[arg-type]
 
     decision = decider._rule_based_fallback("搜一下最近7天杭州有什么重要的新闻，给我来10条并附上链接")
 
-    assert decision.intent == "planning"
-    assert decision.tools == ["web-search"]
-    assert decision.thinking_depth not in (ThinkingDepth.NONE, ThinkingDepth.LOW)
-    assert decision.orchestration_strategy["mode"] == "decompose"
-    assert decision.orchestration_strategy["default_leaf_type"] == "general-purpose"
-    assert decision.orchestration_strategy["allow_parallel"] is True
-
-
-@pytest.mark.asyncio
-async def test_context_decider_overrides_llm_direct_news_with_research_guardrail() -> None:
-    decider = ContextDecider(tool_registry=_ResearchToolRegistry(), llm_adapter=_DummyLLMAdapter())  # type: ignore[arg-type]
-
-    async def _fake_chat_response(**kwargs):  # type: ignore[no-untyped-def]
-        _ = kwargs
-        return SimpleNamespace(
-            content=(
-                '{"intent":"realtime_query","tools":["web-search"],"deep_thinking":false,'
-                '"reasoning":"simple search","orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}'
-            ),
-            metadata={},
-        )
-
-    decider.provider_bridge.chat_response = _fake_chat_response  # type: ignore[method-assign]
-
-    decision = await decider.decide(
-        "搜一下最近7天杭州有什么重要的新闻，给我来10条并附上链接",
-        ContextDeciderContext(
-            os_name="Darwin",
-            os_version="25.0.0",
-            current_datetime="2026-03-25T12:00:00+08:00",
-            timezone="Asia/Shanghai",
-        ),
-    )
-
-    assert decision.intent == "planning"
-    assert decision.thinking_depth not in (ThinkingDepth.NONE, ThinkingDepth.LOW)
-    assert decision.orchestration_strategy["mode"] == "decompose"
-    assert decision.orchestration_strategy["default_leaf_type"] == "general-purpose"
-
-
-@pytest.mark.asyncio
-async def test_context_decider_keeps_bounded_purchase_advice_direct() -> None:
-    decider = ContextDecider(tool_registry=_ResearchToolRegistry(), llm_adapter=_DummyLLMAdapter())  # type: ignore[arg-type]
-
-    async def _fake_chat_response(**kwargs):  # type: ignore[no-untyped-def]
-        _ = kwargs
-        return SimpleNamespace(
-            content=(
-                '{"intent":"planning","tools":["web-search"],"deep_thinking":true,'
-                '"reasoning":"decompose purchase advice","orchestration_strategy":{"mode":"decompose","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":true}}'
-            ),
-            metadata={},
-        )
-
-    decider.provider_bridge.chat_response = _fake_chat_response  # type: ignore[method-assign]
-
-    decision = await decider.decide(
-        "我预算 2000 买显示器，帮我对比一下怎么选",
-        ContextDeciderContext(
-            os_name="Darwin",
-            os_version="25.0.0",
-            current_datetime="2026-03-25T12:00:00+08:00",
-            timezone="Asia/Shanghai",
-        ),
-    )
-
     assert decision.intent == "chat"
-    assert decision.tools == ["web-search"]
+    assert decision.tools == []
+    assert decision.thinking_depth == ThinkingDepth.NONE
     assert decision.orchestration_strategy["mode"] == "direct"
-    assert decision.orchestration_strategy["allow_parallel"] is False
 
 
 def test_context_decider_prompt_includes_routing_environment_fields() -> None:

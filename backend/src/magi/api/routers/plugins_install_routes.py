@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import tempfile
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, UploadFile, status
 
 from ... import i18n as core_i18n
 from .plugins_common import legacy_plugins_module
-from .plugins_schemas import PluginInstallRequest, PluginPackageResponse
+from .plugins_install_jobs import plugin_install_jobs, require_plugin_install_job
+from .plugins_schemas import PluginInstallJobSnapshot, PluginInstallRequest, PluginPackageResponse
 
 plugins_install_router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @plugins_install_router.post("/install/upload", response_model=PluginPackageResponse)
@@ -38,15 +41,60 @@ async def install_plugin_from_upload(file: UploadFile):
         archive_path = Path(tmp) / file.filename
         content = await file.read()
         archive_path.write_bytes(content)
+        logger.info(
+            "Plugin upload install requested",
+            extra={
+                "filename": file.filename,
+                "archive_path": str(archive_path),
+                "bytes": len(content),
+            },
+        )
         try:
             state = manager.install_plugin_from_archive(archive_path)
         except ValueError as exc:
+            logger.warning(
+                "Plugin upload install rejected",
+                extra={"filename": file.filename, "error": str(exc)},
+            )
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         except RuntimeError as exc:
+            logger.exception(
+                "Plugin upload install failed",
+                extra={"filename": file.filename, "error": str(exc)},
+            )
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
             ) from exc
     return legacy._serialize_package(state)
+
+
+@plugins_install_router.post("/install/upload/jobs", response_model=PluginInstallJobSnapshot)
+async def start_plugin_upload_install_job(file: UploadFile):
+    """Start a background plugin install job from an uploaded archive."""
+    if not file.filename:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=core_i18n.t("plugins.errors.filename_required", fallback="Filename required"),
+        )
+    name = file.filename.lower()
+    if not (name.endswith(".tar.gz") or name.endswith(".tgz") or name.endswith(".zip")):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=core_i18n.t(
+                "plugins.errors.archive_extension_invalid",
+                fallback="Archive must be .tar.gz, .tgz, or .zip",
+            ),
+        )
+
+    tmp_path = Path(tempfile.mkdtemp(prefix="magi-upload-install-"))
+    archive_path = tmp_path / file.filename
+    content = await file.read()
+    archive_path.write_bytes(content)
+    logger.info(
+        "Plugin upload install job requested",
+        extra={"filename": file.filename, "archive_path": str(archive_path), "bytes": len(content)},
+    )
+    return plugin_install_jobs.start_upload_install(archive_path, file.filename)
 
 
 @plugins_install_router.post("/install/registry", response_model=PluginPackageResponse)
@@ -58,6 +106,7 @@ async def install_plugin_from_registry(request: PluginInstallRequest):
 
     entry = await registry.fetch_entry(request.plugin_id)
     if entry is None:
+        logger.warning("Plugin registry entry not found", extra={"plugin_id": request.plugin_id})
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=core_i18n.t(
@@ -66,19 +115,60 @@ async def install_plugin_from_registry(request: PluginInstallRequest):
         )
 
     try:
+        logger.info(
+            "Plugin registry install requested",
+            extra={"plugin_id": request.plugin_id, "registry_path": entry.path},
+        )
         plugin_dir = await registry.clone_plugin(entry)
+        logger.info(
+            "Plugin registry source ready",
+            extra={"plugin_id": request.plugin_id, "plugin_dir": str(plugin_dir)},
+        )
         if manager is not None:
             state = manager.install_plugin_from_directory(plugin_dir)
+            logger.info("Plugin registry install completed", extra={"plugin_id": request.plugin_id})
             return legacy._serialize_package(state)
 
         state = legacy._lightweight_install(plugin_dir, entry)
+        logger.info(
+            "Plugin registry lightweight install completed",
+            extra={"plugin_id": request.plugin_id},
+        )
         return legacy._serialize_package_lightweight(state)
     except ValueError as exc:
+        logger.warning(
+            "Plugin registry install rejected",
+            extra={"plugin_id": request.plugin_id, "error": str(exc)},
+        )
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
+        logger.exception(
+            "Plugin registry install failed",
+            extra={"plugin_id": request.plugin_id, "error": str(exc)},
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
         ) from exc
+    except Exception as exc:
+        logger.exception(
+            "Plugin registry install failed unexpectedly",
+            extra={"plugin_id": request.plugin_id, "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
+        ) from exc
+
+
+@plugins_install_router.post("/install/registry/jobs", response_model=PluginInstallJobSnapshot)
+async def start_plugin_registry_install_job(request: PluginInstallRequest):
+    """Start a background plugin install job from the remote registry."""
+    return plugin_install_jobs.start_registry_install(request.plugin_id)
+
+
+@plugins_install_router.get("/install/jobs/{job_id}", response_model=PluginInstallJobSnapshot)
+async def get_plugin_install_job(job_id: str):
+    """Return current status, progress, and logs for a plugin install job."""
+    return require_plugin_install_job(job_id)
 
 
 @plugins_install_router.delete("/{plugin_id}", status_code=status.HTTP_200_OK)
@@ -98,6 +188,9 @@ async def uninstall_plugin(plugin_id: str):
 __all__ = [
     "install_plugin_from_registry",
     "install_plugin_from_upload",
+    "get_plugin_install_job",
     "plugins_install_router",
+    "start_plugin_registry_install_job",
+    "start_plugin_upload_install_job",
     "uninstall_plugin",
 ]

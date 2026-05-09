@@ -167,10 +167,19 @@ export interface LLMModelCost {
   source_note?: string | null;
 }
 
+export type ModelVendor =
+  | 'openai'
+  | 'anthropic'
+  | 'glm'
+  | 'dashscope'
+  | 'grok'
+  | 'generic';
+
 export interface LLMModelMetadataOverride {
   label?: string | null;
   description?: string | null;
   icon?: string | null;
+  vendor?: ModelVendor | null;
   capabilities?: LLMCapabilityOverrides;
   limits?: LLMLimitsOverride;
   input_modalities?: string[] | null;
@@ -236,6 +245,7 @@ export interface LLMChatCapabilities {
 export interface LLMChatModelMeta {
   id: string;
   label?: string;
+  vendor?: ModelVendor;
   capabilities: LLMChatCapabilities;
   limits: LLMRuntimeLimits;
   cost?: LLMModelCost | null;
@@ -711,7 +721,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     conversation_rhythm_enabled: true,
     conversation_rhythm_mode: 'natural',
     allow_media_grounding_for_conversation: false,
-    allow_interjection: true,
+    allow_interjection: false,
     allow_ask_in_background: false,
   },
   network: {

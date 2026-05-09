@@ -327,6 +327,8 @@ async def test_llm_provider_connection(
         temperature=0.1,
         disable_thinking=True,
         event_context={
+            "request_kind": "config:provider_test",
+            "agent_id": "config_provider_test",
             "surface": "config_provider_test",
             "provider_id": provider_id,
         },

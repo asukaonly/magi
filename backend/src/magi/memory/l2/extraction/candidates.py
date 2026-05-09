@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from typing import Optional, Protocol, cast
 
-from ...event_contracts import MemoryEvent, TomDepth
+from ...event_contracts import MemoryEvent
 from ..models import L2KnowledgeEdgeWrite, L2TomAssertionWrite
-from ..storage.utils import CALM_KEYWORDS, STRESS_KEYWORDS
 
 
 class _CandidateHostProtocol(Protocol):
@@ -40,45 +39,10 @@ class L2StoreCandidateExtractionMixin:
         ]
 
     def _extract_assertion_candidates(self, event: MemoryEvent) -> list[L2TomAssertionWrite]:
-        subject_id, subject_type = cast(_CandidateHostProtocol, self)._entity_identity(event)
-        if subject_id is None or subject_type is None:
-            return []
-        if not event.cognition_eligible or event.tom_depth != TomDepth.DEFENSIVE_PSYCHOLOGY:
-            return []
-
-        text = event.content.lower()
-        if any(keyword in text for keyword in STRESS_KEYWORDS):
-            return [
-                L2TomAssertionWrite(
-                    entity_id=subject_id,
-                    entity_type=subject_type,
-                    trait_name="stress_level",
-                    trait_value="high",
-                    confidence_score=0.3,
-                    evidence_events=[event.event_id],
-                    volatility_index=0.7,
-                    source_domain=event.memory_domain.label,
-                    inference_depth=event.tom_depth.label,
-                    validation_state="tentative",
-                    first_inferred_at=event.timestamp,
-                    last_validated_at=event.timestamp,
-                )
-            ]
-        if any(keyword in text for keyword in CALM_KEYWORDS):
-            return [
-                L2TomAssertionWrite(
-                    entity_id=subject_id,
-                    entity_type=subject_type,
-                    trait_name="stress_level",
-                    trait_value="low",
-                    confidence_score=0.3,
-                    evidence_events=[event.event_id],
-                    volatility_index=0.7,
-                    source_domain=event.memory_domain.label,
-                    inference_depth=event.tom_depth.label,
-                    validation_state="tentative",
-                    first_inferred_at=event.timestamp,
-                    last_validated_at=event.timestamp,
-                )
-            ]
+        # Stress/calm assertion candidates used to be generated here from a
+        # tiny English-only keyword list (anxious/relaxed/...). It missed every
+        # non-English speaker and double-emitted whatever the L2 LLM extraction
+        # already produces. The LLM pipeline is now the single source of mood
+        # / stress assertions; rule fallback intentionally stays empty.
+        del event
         return []

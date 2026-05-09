@@ -34,6 +34,7 @@ class L2StoreAssertionQueryMixin:
         target_entity_id: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
+        temporal_clause: Optional[tuple[str, list[Any]]] = None,
     ) -> List[Dict[str, Any]]:
         """List ToM assertions ordered by recency."""
         host = cast(L2RetrievalQueryHostProtocol, self)
@@ -61,6 +62,11 @@ class L2StoreAssertionQueryMixin:
             now = time.time()
             query += " AND (expires_at IS NULL OR expires_at > ?)"
             args.append(now)
+        if temporal_clause:
+            tc_sql, tc_params = temporal_clause
+            if tc_sql:
+                query += f" AND {tc_sql}"
+                args.extend(tc_params)
         query += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
         args.append(int(limit))
         args.append(int(offset))
@@ -122,6 +128,7 @@ class L2StoreAssertionQueryMixin:
         include_expired: bool = False,
         target_entity_id: Optional[str] = None,
         limit_per_entity: int = 100,
+        temporal_clause: Optional[tuple[str, list[Any]]] = None,
     ) -> Dict[str, List[Dict[str, Any]]]:
         """Batch-fetch assertions for multiple entities in one query."""
         host = cast(L2RetrievalQueryHostProtocol, self)
@@ -152,6 +159,11 @@ class L2StoreAssertionQueryMixin:
             now = time.time()
             query += " AND (expires_at IS NULL OR expires_at > ?)"
             args.append(now)
+        if temporal_clause:
+            tc_sql, tc_params = temporal_clause
+            if tc_sql:
+                query += f" AND {tc_sql}"
+                args.extend(tc_params)
         query += " ORDER BY updated_at DESC"
 
         async with sqlite_connection_async(host.db_path) as db:

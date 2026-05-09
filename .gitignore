@@ -73,6 +73,10 @@ yarn-error.log
 dist/
 build/
 sidecar-dist/
+frontend/src-tauri/plugin-python/*
+!frontend/src-tauri/plugin-python/bin/
+frontend/src-tauri/plugin-python/bin/*
+!frontend/src-tauri/plugin-python/bin/.gitkeep
 
 # Cache
 .cache/
@@ -82,9 +86,8 @@ sidecar-dist/
 .magi/
 gateway-cli/.magi/
 
-# Claude Code local settings
-.claude/settings.local.json
-.claude/settings.json.local
+# Claude Code local workspace
+.claude/
 
 # Cargo / Tauri build artifacts
 target/

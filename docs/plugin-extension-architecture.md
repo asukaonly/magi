@@ -733,15 +733,20 @@ The marketplace index is a `registry.json` file at the repository root containin
 
 ### Installation Flow
 
-1. `RegistryClient.fetch_index()` fetches `registry.json` from the remote repository
-2. `RegistryClient.clone_plugin()` downloads the GitHub repository tarball, with short-lived in-memory caching for repeat install requests
-3. The requested plugin subdirectory is extracted from the tarball into a temporary directory
-4. `PluginManager.install_plugin_from_directory()` copies the plugin into `~/.magi/plugins/<plugin_id>/`
-5. The plugin is discovered on next scan and can be enabled from the settings UI
+1. The frontend starts an install, update, or upload job through the plugin API and polls the returned `job_id`
+2. The backend job reports `status`, `stage`, `progress_pct`, installer messages, and bounded install logs while work continues in the background
+3. For registry installs, `RegistryClient.fetch_index()` fetches `registry.json` from the remote repository
+4. `RegistryClient.clone_plugin()` downloads the GitHub repository tarball, with short-lived in-memory caching for repeat install requests
+5. The requested plugin subdirectory is extracted from the tarball into a temporary directory
+6. `PluginManager.install_plugin_from_directory()` copies the plugin into `~/.magi/plugins/<plugin_id>/`
+7. Python dependencies declared by the plugin are installed with a resolved Python interpreter's `pip` into the plugin-local `.deps/` directory; pip output is attached to the install job logs. Source/dev runs use the active backend Python. Packaged desktop runs pass `Contents/Resources/plugin-python/.../python` through `MAGI_PLUGIN_PYTHON`; the packaged `magi-backend` sidecar is never used as a pip executable.
+8. The plugin is discovered on next scan and can be enabled from the settings UI
+
+Packaged desktop builds stage two generated runtime resources under `frontend/src-tauri/`: `sidecar-dist/` for the backend sidecar and `plugin-python/` for plugin dependency installation. Release CI runs `scripts/prepare-plugin-python-runtime.py` to download a python-build-standalone runtime for the target platform, writes it to `MAGI_PLUGIN_PYTHON_SOURCE`, and requires that source during sidecar staging. Local development builds may omit the variable and use a local venv fallback. macOS signing scripts sign Mach-O files in both runtime resource roots before notarization.
 
 ### Frontend
 
-The marketplace UI lives in the Plugins settings section under "插件市场 / Marketplace". It shows available plugins with install/uninstall actions, version info, and platform compatibility badges.
+The marketplace UI lives in the Plugins settings section under "插件市场 / Marketplace". It shows available plugins with install/uninstall actions, version info, platform compatibility badges, and install progress with job logs. The onboarding sensor-selection step uses the same install job API for selected sensor plugins.
 
 ## Known Boundaries
 

@@ -54,6 +54,7 @@ interface LLMProviderConfigurationSectionProps {
   onRemoveProviderModel: (providerId: string, model: string) => void;
   onProviderDefaultModelChange: (providerId: string, model: string) => void;
   onDiscoverProviderModels: (providerId: string, provider?: LLMProviderConfig) => Promise<string[] | undefined>;
+  onResolveDraftProviderPreview: (providerId: string, provider: LLMProviderConfig) => Promise<LLMProviderRegistry | null>;
   providerDiscoveryState: Record<string, { loading: boolean; error: string | null }>;
   onTestProviderConnection: (providerId: string, model: string, provider?: LLMProviderConfig) => void;
   providerTestState: Record<
@@ -149,7 +150,7 @@ const createProviderFromTemplate = (
         base_url: '',
       },
       image_generation: {
-        enabled: Boolean(template.resolved_image_generation_models?.length),
+        enabled: false,
         api_key: '',
         base_url: '',
         timeout: 180,
@@ -184,6 +185,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
   onSetProvider,
   onRemoveProvider,
   onDiscoverProviderModels,
+  onResolveDraftProviderPreview,
   providerDiscoveryState,
   onTestProviderConnection,
   providerTestState,
@@ -222,6 +224,8 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
     embedding: '',
     image_generation: '',
   });
+  const [draftPreviewRegistry, setDraftPreviewRegistry] = useState<LLMProviderRegistry | null>(null);
+  const draftPreviewRequestRef = useRef(0);
   const testPopoverRootRef = useRef<HTMLDivElement | null>(null);
   const isSettingsSurface = surface === 'settings';
 
@@ -244,15 +248,21 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
     [value.providers]
   );
 
-  const activeProviderMeta = draftProvider?.provider_type === 'custom'
-    ? undefined
-    : registry.providers.find((provider) => provider.id === draftProvider?.provider_type);
   const draftProviderId = editorMode === 'edit' && editingProviderId
     ? editingProviderId
     : (draftProvider?.provider_type === 'custom' ? 'custom' : draftProvider?.provider_type || selectedTemplateId || 'custom');
+  const draftPreviewProviderId = editorMode === 'edit' && editingProviderId
+    ? editingProviderId
+    : `__draft_preview__${draftProvider?.provider_type || selectedTemplateId || 'custom'}`;
+  const draftRegistry = draftPreviewRegistry || registry;
+  const resolvedDraftProviderId = draftPreviewRegistry ? draftPreviewProviderId : draftProviderId;
+  const activeProviderMeta = draftProvider?.provider_type === 'custom'
+    ? undefined
+    : draftRegistry.providers.find((provider) => provider.id === resolvedDraftProviderId)
+      || draftRegistry.providers.find((provider) => provider.id === draftProvider?.provider_type);
   const draftWorkbenchModels = useMemo(
-    () => (draftProvider ? buildProviderWorkbenchModels(registry, draftProviderId, draftProvider) : []),
-    [draftProvider, draftProviderId, registry]
+    () => (draftProvider ? buildProviderWorkbenchModels(draftRegistry, resolvedDraftProviderId, draftProvider) : []),
+    [draftProvider, draftRegistry, resolvedDraftProviderId]
   );
   const serviceModelsByName = useMemo(
     () => ({
@@ -275,6 +285,39 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
     setTestModelByService({ chat: '', embedding: '', image_generation: '' });
     setTestPopoverService(null);
   };
+
+  useEffect(() => {
+    if (!dialogOpen || !draftProvider) {
+      draftPreviewRequestRef.current += 1;
+      setDraftPreviewRegistry(null);
+      return;
+    }
+
+    const requestId = draftPreviewRequestRef.current + 1;
+    draftPreviewRequestRef.current = requestId;
+    setDraftPreviewRegistry(null);
+
+    const timeoutId = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const previewRegistry = await onResolveDraftProviderPreview(draftPreviewProviderId, draftProvider);
+          if (draftPreviewRequestRef.current !== requestId) {
+            return;
+          }
+          setDraftPreviewRegistry(previewRegistry);
+        } catch {
+          if (draftPreviewRequestRef.current !== requestId) {
+            return;
+          }
+          setDraftPreviewRegistry(null);
+        }
+      })();
+    }, 120);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [dialogOpen, draftPreviewProviderId, draftProvider, onResolveDraftProviderPreview]);
 
   useEffect(() => {
     if (!testPopoverService) return;

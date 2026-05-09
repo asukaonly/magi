@@ -8,6 +8,12 @@ from typing import Any, Awaitable, Callable, Dict, TypeVar, cast
 from ..anthropic import AnthropicAdapter
 from ..base import LLMAdapter
 from ..concurrency_limiter import LLMConcurrencyLimiter
+from ..reasoning_dialect import (
+    ReasoningDialect,
+    build_reasoning_payload,
+    merge_payload,
+    resolve_dialect,
+)
 from ...config import get_config
 from ...config.loader import get_llm_provider_registry_file
 from ...config.llm_registry import (
@@ -15,7 +21,9 @@ from ...config.llm_registry import (
     find_chat_model_meta,
     load_llm_provider_registry,
 )
-from ...config.models import ThinkingDepth
+from ...config.llm_registry_model_resolution import _BUILTIN_PROVIDER_VENDOR
+from ...config.models import ModelVendor, ThinkingDepth
+from ...config.vendor_detection import detect_vendor_from_hints
 
 DEFAULT_CHAT_CONCURRENCY_FALLBACK = 4
 T = TypeVar("T")
@@ -40,58 +48,12 @@ class ProviderBridgeOptionsMixin:
         return str(getattr(self.llm, "provider_name", "") or "").lower()
 
     def is_anthropic(self) -> bool:
+        """Return True when the adapter speaks the Anthropic Messages API.
+
+        Transport-level check; reasoning payload shape goes through
+        ``ReasoningDialect`` instead.
+        """
         return isinstance(self.llm, AnthropicAdapter)
-
-    def is_glm(self) -> bool:
-        """Check if using GLM provider (including CodePlan)."""
-        return self._provider_name() in ("glm", "glm_codeplan")
-
-    @staticmethod
-    def _build_glm_thinking_params(depth: ThinkingDepth) -> Dict[str, Any] | None:
-        """Build GLM extra_body payload for the requested thinking depth.
-
-        GLM only supports a binary toggle: thinking enabled or disabled.
-        """
-        if depth == ThinkingDepth.NONE:
-            return {"thinking": {"type": "disabled"}}
-        return None
-
-    @staticmethod
-    def _build_dashscope_thinking_params(depth: ThinkingDepth) -> Dict[str, Any]:
-        """Build DashScope/Bailian extra_body payload for thinking control.
-
-        DashScope uses ``enable_thinking`` boolean in extra_body.
-        """
-        if depth == ThinkingDepth.NONE:
-            return {"enable_thinking": False}
-        return {"enable_thinking": True}
-
-    @staticmethod
-    def _build_openai_reasoning_params(depth: ThinkingDepth) -> Dict[str, Any]:
-        """Build OpenAI-compatible extra kwargs for reasoning effort."""
-        mapping = {
-            ThinkingDepth.NONE: "none",
-            ThinkingDepth.LOW: "low",
-            ThinkingDepth.MEDIUM: "medium",
-            ThinkingDepth.HIGH: "high",
-            ThinkingDepth.MAX: "high",
-        }
-        return {"reasoning_effort": mapping.get(depth, "medium")}
-
-    @staticmethod
-    def _build_anthropic_thinking_params(depth: ThinkingDepth) -> Dict[str, Any] | None:
-        """Map ThinkingDepth to Anthropic extended thinking budget."""
-        budget_map = {
-            ThinkingDepth.NONE: None,
-            ThinkingDepth.LOW: 2048,
-            ThinkingDepth.MEDIUM: 8192,
-            ThinkingDepth.HIGH: 16384,
-            ThinkingDepth.MAX: 32768,
-        }
-        tokens = budget_map.get(depth)
-        if tokens is None:
-            return None
-        return {"thinking": {"type": "enabled", "budget_tokens": tokens}}
 
     def _model_supports_reasoning(self) -> bool:
         """Check if the current model advertises reasoning capability."""
@@ -104,34 +66,79 @@ class ProviderBridgeOptionsMixin:
             return bool(model_meta.capabilities.reasoning)
         return False
 
+    def _resolve_model_vendor(self) -> ModelVendor:
+        """Resolve the active model's vendor.
+
+        Lookup order:
+        1. User config override (``LLMModelMetadataOverrideSettings.vendor``)
+           — already merged into runtime model metadata when a resolved
+           catalog is available.
+        2. Packaged registry: ``LLMModelMetaModel.vendor`` if set,
+           otherwise the per-provider builtin default.
+        3. Heuristic detection from model id + base url. Only fires for
+           custom-gateway models that have no override and no packaged
+           entry.
+        """
+        provider_name = self._provider_name()
+        model_name = str(getattr(self.llm, "model_name", "unknown"))
+
+        # 1+2: user override merged into resolved catalog
+        config = get_config()
+        provider_settings = (
+            config.llm.providers.get(provider_name)
+            if hasattr(config, "llm") and hasattr(config.llm, "providers")
+            else None
+        )
+        if provider_settings is not None:
+            override = (provider_settings.model_metadata_overrides or {}).get(model_name)
+            if override is not None and override.vendor is not None:
+                return override.vendor
+
+        # 2: packaged registry
+        model_meta = find_chat_model_meta(
+            _load_provider_registry(), provider_name, model_name
+        )
+        if model_meta is not None and model_meta.vendor is not None:
+            return model_meta.vendor
+        builtin_default = _BUILTIN_PROVIDER_VENDOR.get(provider_name)
+        if builtin_default is not None:
+            return builtin_default
+
+        # 3: detect from model id / base url for custom-gateway models
+        return detect_vendor_from_hints(
+            model_id=model_name,
+            base_url=getattr(self.llm, "base_url", None),
+        )
+
+    def _resolve_reasoning_dialect(self) -> ReasoningDialect:
+        """Resolve which reasoning dialect this model uses.
+
+        Anthropic transport short-circuits to ``ANTHROPIC_BUDGET`` because
+        the AnthropicAdapter never exposes a vendor-tagged model meta on
+        its own; everything else looks up vendor via
+        :meth:`_resolve_model_vendor` and then maps to a dialect.
+        """
+        if self.is_anthropic():
+            return ReasoningDialect.ANTHROPIC_BUDGET
+        return resolve_dialect(self._resolve_model_vendor())
+
     def _apply_provider_options(
         self,
         kwargs: Dict[str, Any],
         thinking_depth: ThinkingDepth,
     ) -> Dict[str, Any]:
-        """Inject provider-specific parameters into LLM request kwargs."""
-        provider = self._provider_name()
+        """Inject vendor-specific reasoning parameters into LLM request kwargs."""
+        dialect = self._resolve_reasoning_dialect()
 
-        if provider == "dashscope":
-            dashscope_extra_body = self._build_dashscope_thinking_params(thinking_depth)
-            existing = kwargs.get("extra_body", {})
-            kwargs["extra_body"] = {**existing, **dashscope_extra_body}
+        # OpenAI-effort dialects only fire when the model itself advertises
+        # reasoning capability. Other dialects (Anthropic budget, DashScope
+        # toggle, GLM toggle) are always meaningful when the user asks for
+        # a thinking depth, so we don't gate them on capability.
+        if dialect == ReasoningDialect.OPENAI_EFFORT and not self._model_supports_reasoning():
+            return kwargs
 
-        elif provider in ("glm", "glm_codeplan"):
-            glm_extra_body = self._build_glm_thinking_params(thinking_depth)
-            if glm_extra_body:
-                existing = kwargs.get("extra_body", {})
-                kwargs["extra_body"] = {**existing, **glm_extra_body}
-
-        elif self.is_anthropic():
-            budget = self._build_anthropic_thinking_params(thinking_depth)
-            if budget:
-                kwargs.update(budget)
-
-        elif provider != "grok" and self._model_supports_reasoning():
-            kwargs.update(self._build_openai_reasoning_params(thinking_depth))
-
-        return kwargs
+        payload = build_reasoning_payload(dialect, thinking_depth)
+        return cast(Dict[str, Any], merge_payload(kwargs, payload))
 
     def _build_concurrency_key(self, request_family: str) -> str:
         base_url = getattr(self.llm, "base_url", None)

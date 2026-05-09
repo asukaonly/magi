@@ -22,6 +22,13 @@ def _stem_english_token(token: str) -> str:
 
     Strips common inflectional suffixes so the stem can be used alongside
     the original token in an OR group.  Only applied to tokens > 3 chars.
+
+    NOTE: this stemmer is paired with ``answerability._normalize_query_token``.
+    Both strip the same set of inflections, but this one stops at the bare
+    stem because FTS5 prefix wildcards (``mak*``) cover the silent-``e``
+    surface form at query time, while the answerability rerank does
+    token-equality and therefore re-attaches ``e``. If you change one,
+    audit the other (M3 finding).
     """
     t = token.lower()
     if len(t) <= 3:

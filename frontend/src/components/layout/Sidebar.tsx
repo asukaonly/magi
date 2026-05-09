@@ -662,8 +662,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
           </section>
         </div>
 
-        <div className="shrink-0 pt-4">
-          <div className="mb-3 h-px bg-[hsl(var(--sidebar-divider))]" />
+        <div className="shrink-0 pt-2">
           <button
             type="button"
             onClick={() => {

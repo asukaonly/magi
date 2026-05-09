@@ -241,6 +241,10 @@ class BootstrapDialogueService:
                 temperature=0.9,
                 disable_thinking=True,
                 timeout_seconds=BOOTSTRAP_OPENING_LLM_TIMEOUT_SECONDS,
+                event_context={
+                    "request_kind": "personality:bootstrap_opening",
+                    "agent_id": "personality:bootstrap",
+                },
             )
             text = result.strip().strip('"').strip("'")
             if text:
@@ -301,6 +305,10 @@ class BootstrapDialogueService:
                 max_tokens=800,
                 temperature=0.8,
                 disable_thinking=True,
+                event_context={
+                    "request_kind": "personality:bootstrap_dialogue",
+                    "agent_id": "personality:bootstrap",
+                },
             )
         except Exception as exc:
             logger.error("Bootstrap LLM call failed: %s", exc)

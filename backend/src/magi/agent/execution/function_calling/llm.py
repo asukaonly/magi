@@ -47,7 +47,7 @@ def _build_llm_event_context(
     normalized_turn_id = str(turn_id or "").strip()
     if normalized_turn_id and iteration is not None and iteration > 0:
         context["parent_span_id"] = f"{normalized_turn_id}:iteration:{iteration}"
-    return enrich_event_context_with_turn_trace(context)
+    return cast(dict[str, Any], enrich_event_context_with_turn_trace(context))
 
 
 class _LlmHostProtocol(Protocol):

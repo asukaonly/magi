@@ -1,6 +1,7 @@
 """
 structured Logging System - Based on structlog
 """
+
 from datetime import datetime
 import logging
 from logging.handlers import RotatingFileHandler
@@ -38,7 +39,9 @@ def _format_log_event(logger, method_name, event_dict):
     return f"{timestamp} [{level}] [{logger_name}] {event}{extra_str}"
 
 
-def _add_timestamp_millis(logger: Any, method_name: str, event_dict: dict[str, Any]) -> dict[str, Any]:
+def _add_timestamp_millis(
+    logger: Any, method_name: str, event_dict: dict[str, Any]
+) -> dict[str, Any]:
     """Attach local timestamp with millisecond precision."""
     now = datetime.now().astimezone()
     event_dict["timestamp"] = f"{now.strftime('%Y-%m-%d %H:%M:%S')}.{now.microsecond // 1000:03d}"
@@ -90,6 +93,7 @@ def configure_logging(
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_log_level,
         structlog.stdlib.add_logger_name,
+        structlog.stdlib.ExtraAdder(),
         _add_timestamp_millis,
         structlog.stdlib.PositionalArgumentsFormatter(),
     ]
@@ -154,7 +158,9 @@ def configure_logging(
     _LOGGING_CONFIGURED = True
 
 
-def get_logger(name: str | None = None, category: str | None = None) -> structlog.stdlib.BoundLogger:
+def get_logger(
+    name: str | None = None, category: str | None = None
+) -> structlog.stdlib.BoundLogger:
     """
     Get logger instance with optional business category.
 

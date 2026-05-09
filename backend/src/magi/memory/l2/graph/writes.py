@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from typing import Any, Dict, List, Protocol, cast
+from typing import Any, Iterable, List, Mapping, Protocol, cast
 
 import aiosqlite
 
@@ -74,6 +74,85 @@ class L2StoreGraphWriteMixin:
         """Insert or refresh a knowledge-graph edge."""
         host = cast(_GraphWriteHostProtocol, self)
         await host.initialize()
+
+        async with sqlite_connection_async(host.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            triple_id = await self._upsert_knowledge_edge_on_connection(
+                db=db,
+                subject_id=subject_id,
+                subject_type=subject_type,
+                predicate=predicate,
+                object_id=object_id,
+                object_type=object_type,
+                fact_kind=fact_kind,
+                evidence_event_ids=evidence_event_ids,
+                confidence=confidence,
+                observed_at=observed_at,
+                source_type=source_type,
+                extraction_method=extraction_method,
+                evidence_text=evidence_text,
+                expires_at=expires_at,
+            )
+            await db.commit()
+        return triple_id
+
+    async def upsert_knowledge_edges(self, edge_writes: Iterable[Mapping[str, Any]]) -> list[str]:
+        """Insert or refresh multiple knowledge-graph edges in one transaction."""
+        host = cast(_GraphWriteHostProtocol, self)
+        await host.initialize()
+
+        triple_ids: list[str] = []
+        async with sqlite_connection_async(host.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            for edge_write in edge_writes:
+                triple_ids.append(
+                    await self._upsert_knowledge_edge_on_connection(
+                        db=db,
+                        subject_id=str(edge_write["subject_id"]),
+                        subject_type=str(edge_write["subject_type"]),
+                        predicate=str(edge_write["predicate"]),
+                        object_id=str(edge_write["object_id"]),
+                        object_type=str(edge_write["object_type"]),
+                        fact_kind=(
+                            str(edge_write["fact_kind"])
+                            if edge_write.get("fact_kind") is not None
+                            else None
+                        ),
+                        evidence_event_ids=[str(item) for item in edge_write.get("evidence_event_ids", [])],
+                        confidence=float(edge_write["confidence"]),
+                        observed_at=float(edge_write["observed_at"]),
+                        source_type=str(edge_write["source_type"]),
+                        extraction_method=str(edge_write.get("extraction_method") or "rule"),
+                        evidence_text=str(edge_write.get("evidence_text") or ""),
+                        expires_at=(
+                            float(edge_write["expires_at"])
+                            if edge_write.get("expires_at") is not None
+                            else None
+                        ),
+                    )
+                )
+            await db.commit()
+        return triple_ids
+
+    async def _upsert_knowledge_edge_on_connection(
+        self,
+        *,
+        db: aiosqlite.Connection,
+        subject_id: str,
+        subject_type: str,
+        predicate: str,
+        object_id: str,
+        object_type: str,
+        fact_kind: str | None = None,
+        evidence_event_ids: List[str],
+        confidence: float,
+        observed_at: float,
+        source_type: str,
+        extraction_method: str = "rule",
+        evidence_text: str = "",
+        expires_at: float | None = None,
+    ) -> str:
+        host = cast(_GraphWriteHostProtocol, self)
         normalized_subject_type = normalize_store_entity_type(subject_type) or subject_type
         normalized_object_type = normalize_store_entity_type(object_type) or object_type
         normalized_object_id = normalize_store_entity_ref(object_id, normalized_object_type) or object_id
@@ -89,138 +168,133 @@ class L2StoreGraphWriteMixin:
             effective_expires_at = float(observed_at) + DEFAULT_FUTURE_INTENT_TTL_SECONDS
 
         effective_predicate = predicate
-        async with sqlite_connection_async(host.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                "SELECT triple_id, predicate, observation_count FROM knowledge_graph "
-                "WHERE subject_id = ? AND object_id = ? AND status IN ('active', 'archived')",
-                (subject_id, normalized_object_id),
-            ) as cursor:
-                same_pair_edges = await cursor.fetchall()
+        async with db.execute(
+            "SELECT triple_id, predicate, observation_count FROM knowledge_graph "
+            "WHERE subject_id = ? AND object_id = ? AND status IN ('active', 'archived')",
+            (subject_id, normalized_object_id),
+        ) as cursor:
+            same_pair_edges = await cursor.fetchall()
 
-            if same_pair_edges:
-                exact_match = None
-                synonym_match = None
-                for row in same_pair_edges:
-                    existing_predicate = str(row["predicate"])
-                    if existing_predicate == predicate:
-                        exact_match = row
-                        break
-                    if synonym_match is None and are_predicates_synonymous(existing_predicate, predicate):
-                        if synonym_match is None or int(row["observation_count"]) > int(synonym_match["observation_count"]):
-                            synonym_match = row
+        if same_pair_edges:
+            exact_match = None
+            synonym_match = None
+            for row in same_pair_edges:
+                existing_predicate = str(row["predicate"])
+                if existing_predicate == predicate:
+                    exact_match = row
+                    break
+                if synonym_match is None and are_predicates_synonymous(existing_predicate, predicate):
+                    if synonym_match is None or int(row["observation_count"]) > int(synonym_match["observation_count"]):
+                        synonym_match = row
 
-                if exact_match is not None:
-                    pass
-                elif synonym_match is not None:
-                    effective_predicate = str(synonym_match["predicate"])
-                    logger.debug(
-                        "L2 same-pair interception: reusing synonymous predicate",
-                        subject_id=subject_id,
-                        object_id=normalized_object_id,
-                        requested_predicate=predicate,
-                        canonical_predicate=effective_predicate,
-                    )
+            if exact_match is not None:
+                pass
+            elif synonym_match is not None:
+                effective_predicate = str(synonym_match["predicate"])
+                logger.debug(
+                    "L2 same-pair interception: reusing synonymous predicate",
+                    subject_id=subject_id,
+                    object_id=normalized_object_id,
+                    requested_predicate=predicate,
+                    canonical_predicate=effective_predicate,
+                )
 
         triple_id = f"triple_{uuid.uuid5(uuid.NAMESPACE_DNS, f'{subject_id}:{effective_predicate}:{normalized_object_id}')}"
         effective_evidence_text = str(evidence_text).strip() if evidence_text else ""
         natural_summary = effective_evidence_text or f"{subject_id} {effective_predicate} {normalized_object_id}"
 
-        async with sqlite_connection_async(host.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                "SELECT confidence, evidence_event_ids, observation_count, first_observed_at, last_observed_at, fact_kind, evidence_text FROM knowledge_graph WHERE triple_id = ?",
-                (triple_id,),
-            ) as cursor:
-                existing = await cursor.fetchone()
+        async with db.execute(
+            "SELECT confidence, evidence_event_ids, observation_count, first_observed_at, last_observed_at, fact_kind, evidence_text FROM knowledge_graph WHERE triple_id = ?",
+            (triple_id,),
+        ) as cursor:
+            existing = await cursor.fetchone()
 
-            if existing:
-                merged_evidence = sorted(
-                    set(json.loads(existing["evidence_event_ids"] or "[]")).union(evidence_event_ids)
-                )
-                if len(merged_evidence) > MAX_EVIDENCE_EVENT_IDS:
-                    merged_evidence = merged_evidence[-MAX_EVIDENCE_EVENT_IDS:]
-                observation_count = int(existing["observation_count"]) + 1
-                first_observed_at = min(float(existing["first_observed_at"]), float(observed_at))
-                last_observed_at = max(float(existing["last_observed_at"]), float(observed_at))
-                old_confidence = float(existing["confidence"])
-                accumulated_confidence = accumulate_confidence(old_confidence, float(confidence))
-                effective_fact_kind = normalized_fact_kind or str(existing["fact_kind"] or "").strip() or "explicit_fact"
-                existing_evidence_text = str(existing["evidence_text"] or "")
-                if len(effective_evidence_text) <= len(existing_evidence_text):
-                    effective_evidence_text = existing_evidence_text
-                    natural_summary = effective_evidence_text or f"{subject_id} {effective_predicate} {normalized_object_id}"
-                await db.execute(
-                    """
-                    UPDATE knowledge_graph
-                    SET fact_kind = ?, confidence = ?, evidence_event_ids = ?, observation_count = ?,
-                        first_observed_at = ?, last_observed_at = ?, last_confirmed_at = ?, source_type = ?,
-                        extraction_method = ?, evidence_text = ?, natural_summary = ?,
-                        embedding_status = 'pending', expires_at = COALESCE(?, expires_at),
-                        updated_at = ?, status = 'active'
-                    WHERE triple_id = ?
-                    """,
-                    (
-                        effective_fact_kind,
-                        accumulated_confidence,
-                        json.dumps(merged_evidence, ensure_ascii=False),
-                        observation_count,
-                        first_observed_at,
-                        last_observed_at,
-                        float(observed_at),
-                        source_type,
-                        extraction_method,
-                        effective_evidence_text,
-                        natural_summary,
-                        effective_expires_at,
-                        now,
-                        triple_id,
-                    ),
-                )
-            else:
-                await db.execute(
-                    """
-                    INSERT INTO knowledge_graph(
-                        triple_id, subject_id, subject_type, predicate, object_id, object_type,
-                        fact_kind, confidence, evidence_event_ids, observation_count, first_observed_at,
-                        last_observed_at, last_confirmed_at, source_type, extraction_method,
-                        evidence_text, natural_summary, embedding_status, expires_at,
-                        status, privacy_scope, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, 'active', 'private', ?, ?)
-                    """,
-                    (
-                        triple_id,
-                        subject_id,
-                        normalized_subject_type,
-                        effective_predicate,
-                        normalized_object_id,
-                        normalized_object_type,
-                        normalized_fact_kind or "explicit_fact",
-                        float(confidence),
-                        json.dumps(sorted(set(evidence_event_ids)), ensure_ascii=False),
-                        1,
-                        float(observed_at),
-                        float(observed_at),
-                        float(observed_at),
-                        source_type,
-                        extraction_method,
-                        effective_evidence_text,
-                        natural_summary,
-                        effective_expires_at,
-                        now,
-                        now,
-                    ),
-                )
-            await host._resolve_graph_conflicts(
-                db=db,
-                triple_id=triple_id,
-                subject_id=subject_id,
-                predicate=effective_predicate,
-                object_id=normalized_object_id,
-                observed_at=float(observed_at),
-                now=now,
+        if existing:
+            merged_evidence = sorted(
+                set(json.loads(existing["evidence_event_ids"] or "[]")).union(evidence_event_ids)
             )
-            await db.commit()
+            if len(merged_evidence) > MAX_EVIDENCE_EVENT_IDS:
+                merged_evidence = merged_evidence[-MAX_EVIDENCE_EVENT_IDS:]
+            observation_count = int(existing["observation_count"]) + 1
+            first_observed_at = min(float(existing["first_observed_at"]), float(observed_at))
+            last_observed_at = max(float(existing["last_observed_at"]), float(observed_at))
+            old_confidence = float(existing["confidence"])
+            accumulated_confidence = accumulate_confidence(old_confidence, float(confidence))
+            effective_fact_kind = normalized_fact_kind or str(existing["fact_kind"] or "").strip() or "explicit_fact"
+            existing_evidence_text = str(existing["evidence_text"] or "")
+            if len(effective_evidence_text) <= len(existing_evidence_text):
+                effective_evidence_text = existing_evidence_text
+                natural_summary = effective_evidence_text or f"{subject_id} {effective_predicate} {normalized_object_id}"
+            await db.execute(
+                """
+                UPDATE knowledge_graph
+                SET fact_kind = ?, confidence = ?, evidence_event_ids = ?, observation_count = ?,
+                    first_observed_at = ?, last_observed_at = ?, last_confirmed_at = ?, source_type = ?,
+                    extraction_method = ?, evidence_text = ?, natural_summary = ?,
+                    embedding_status = 'pending', expires_at = COALESCE(?, expires_at),
+                    updated_at = ?, status = 'active'
+                WHERE triple_id = ?
+                """,
+                (
+                    effective_fact_kind,
+                    accumulated_confidence,
+                    json.dumps(merged_evidence, ensure_ascii=False),
+                    observation_count,
+                    first_observed_at,
+                    last_observed_at,
+                    float(observed_at),
+                    source_type,
+                    extraction_method,
+                    effective_evidence_text,
+                    natural_summary,
+                    effective_expires_at,
+                    now,
+                    triple_id,
+                ),
+            )
+        else:
+            await db.execute(
+                """
+                INSERT INTO knowledge_graph(
+                    triple_id, subject_id, subject_type, predicate, object_id, object_type,
+                    fact_kind, confidence, evidence_event_ids, observation_count, first_observed_at,
+                    last_observed_at, last_confirmed_at, source_type, extraction_method,
+                    evidence_text, natural_summary, embedding_status, expires_at,
+                    status, privacy_scope, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, 'active', 'private', ?, ?)
+                """,
+                (
+                    triple_id,
+                    subject_id,
+                    normalized_subject_type,
+                    effective_predicate,
+                    normalized_object_id,
+                    normalized_object_type,
+                    normalized_fact_kind or "explicit_fact",
+                    float(confidence),
+                    json.dumps(sorted(set(evidence_event_ids)), ensure_ascii=False),
+                    1,
+                    float(observed_at),
+                    float(observed_at),
+                    float(observed_at),
+                    source_type,
+                    extraction_method,
+                    effective_evidence_text,
+                    natural_summary,
+                    effective_expires_at,
+                    now,
+                    now,
+                ),
+            )
+        await host._resolve_graph_conflicts(
+            db=db,
+            triple_id=triple_id,
+            subject_id=subject_id,
+            predicate=effective_predicate,
+            object_id=normalized_object_id,
+            observed_at=float(observed_at),
+            now=now,
+        )
         logger.debug(
             "L2 knowledge edge upserted",
             triple_id=triple_id,

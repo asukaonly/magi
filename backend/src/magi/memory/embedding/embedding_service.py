@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import time
 from functools import lru_cache
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Awaitable, Callable, Optional, TypeVar
@@ -18,6 +19,7 @@ from ...config.llm_registry import (
 )
 from ...config.models import EmbeddingMode
 from ...llm import LLMScenario, ScenarioLLMPool, get_llm_concurrency_limiter
+from ...llm.usage_tracing import publish_llm_usage_span
 
 T = TypeVar("T")
 
@@ -308,10 +310,16 @@ class MemoryEmbeddingService:
         if not bool(getattr(adapter, "supports_embeddings", False)):
             return None
 
-        vector = await self._run_with_embedding_concurrency_limit(
-            adapter=adapter,
-            operation=lambda: adapter.get_embedding(normalized_text),
-        )
+        started_at = time.time()
+        try:
+            vector = await self._run_with_embedding_concurrency_limit(
+                adapter=adapter,
+                operation=lambda: adapter.get_embedding(normalized_text),
+            )
+        except Exception as exc:
+            await self._publish_embedding_usage(adapter, started_at=started_at, success=False, error=str(exc))
+            raise
+        await self._publish_embedding_usage(adapter, started_at=started_at, success=bool(vector))
         if not vector:
             return None
 
@@ -340,14 +348,21 @@ class MemoryEmbeddingService:
         for start in range(0, len(normalized_texts), batch_sz):
             sub_texts = normalized_texts[start : start + batch_sz]
             sub_start = start  # capture for lambda
+            started_at = time.time()
             try:
                 sub_vectors = await self._run_with_embedding_concurrency_limit(
                     adapter=adapter,
                     operation=lambda _st=sub_texts: adapter.get_embeddings(_st),
                 )
             except Exception as exc:
+                await self._publish_embedding_usage(adapter, started_at=started_at, success=False, error=str(exc))
                 logger.debug("Batch embedding sub-batch failed (offset %d): %s", start, exc)
                 continue
+            await self._publish_embedding_usage(
+                adapter,
+                started_at=started_at,
+                success=bool(sub_vectors and any(vector for vector in sub_vectors)),
+            )
             if sub_vectors:
                 for i, vec in enumerate(sub_vectors):
                     all_vectors[sub_start + i] = vec
@@ -420,3 +435,24 @@ class MemoryEmbeddingService:
         key = self._build_embedding_concurrency_key(adapter)
         limit = self._resolve_embedding_concurrency_limit(adapter)
         return await limiter.run_with_limit(key, operation, limit=limit)
+
+    async def _publish_embedding_usage(
+        self,
+        adapter: object,
+        *,
+        started_at: float,
+        success: bool,
+        error: str | None = None,
+    ) -> None:
+        try:
+            await publish_llm_usage_span(
+                provider=str(getattr(adapter, "provider_name", "unknown") or "unknown"),
+                model=str(getattr(adapter, "model_name", "embedding") or "embedding"),
+                request_kind="embedding",
+                success=success,
+                started_at=started_at,
+                error=error,
+                event_context={"agent_id": "memory:embedding"},
+            )
+        except Exception:
+            logger.debug("Embedding usage publication failed", exc_info=True)

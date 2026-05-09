@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterable, Mapping, Optional
 
 
 class UnifiedMemoryL2OperationsMixin:
@@ -78,6 +78,30 @@ class UnifiedMemoryL2OperationsMixin:
             observed_at=observed_at,
             source_type=source_type,
         )
+
+    async def upsert_user_graph_edges(self, edges: Iterable[Mapping[str, Any]]) -> list[str]:
+        """Write multiple knowledge-graph edges through one cognition-store batch."""
+        if self.l2 is None:
+            return []
+
+        edge_writes = [
+            {
+                "subject_id": str(edge["subject_id"]),
+                "subject_type": str(edge["subject_type"]),
+                "predicate": str(edge["predicate"]),
+                "object_id": str(edge["object_id"]),
+                "object_type": str(edge["object_type"]),
+                "fact_kind": edge.get("fact_kind"),
+                "evidence_event_ids": [str(item) for item in edge.get("evidence_event_ids", [])],
+                "confidence": float(edge["confidence"]),
+                "observed_at": float(edge["observed_at"]),
+                "source_type": str(edge["source_type"]),
+            }
+            for edge in edges
+        ]
+        if not edge_writes:
+            return []
+        return await self.l2.upsert_knowledge_edges(edge_writes)
 
 
 __all__ = ["UnifiedMemoryL2OperationsMixin"]

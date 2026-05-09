@@ -31,6 +31,11 @@ interface FeatureItem {
   enabled: boolean;
 }
 
+interface ScenarioPersonalityMeta {
+  nameKey: string;
+  descKey: string;
+}
+
 const scenarios: ScenarioOption[] = [
   { id: 'chat_assistant', icon: MessageSquare, labelKey: 'scenario.chatAssistant', descKey: 'scenario.chatAssistantDesc' },
   { id: 'life_monitor', icon: Activity, labelKey: 'scenario.lifeMonitor', descKey: 'scenario.lifeMonitorDesc' },
@@ -69,16 +74,36 @@ const SCENARIO_FEATURES: Record<ScenarioId, FeatureItem[]> = {
     { labelKey: 'scenario.features.shortTermMemory', enabled: true },
     { labelKey: 'scenario.features.webTools', enabled: true },
     { labelKey: 'scenario.features.knowledgeExtraction', enabled: true },
-    { labelKey: 'scenario.features.temporalSummary', enabled: true },
-    { labelKey: 'scenario.features.skillLearning', enabled: true },
+    { labelKey: 'scenario.features.temporalSummary', enabled: false },
+    { labelKey: 'scenario.features.skillLearning', enabled: false },
     { labelKey: 'scenario.features.sensors', enabled: false },
   ],
+};
+
+const SCENARIO_PERSONALITIES: Record<ScenarioId, ScenarioPersonalityMeta> = {
+  chat_assistant: {
+    nameKey: 'scenario.personas.chatAssistant.name',
+    descKey: 'scenario.personas.chatAssistant.desc',
+  },
+  life_monitor: {
+    nameKey: 'scenario.personas.lifeMonitor.name',
+    descKey: 'scenario.personas.lifeMonitor.desc',
+  },
+  knowledge_partner: {
+    nameKey: 'scenario.personas.knowledgePartner.name',
+    descKey: 'scenario.personas.knowledgePartner.desc',
+  },
+  default: {
+    nameKey: 'scenario.personas.default.name',
+    descKey: 'scenario.personas.default.desc',
+  },
 };
 
 export const ScenarioSelection: React.FC<ScenarioSelectionProps> = ({ value, onChange }) => {
   const { t } = useTranslation('onboarding');
   const shouldReduceMotion = useReducedMotion();
   const features = value ? SCENARIO_FEATURES[value] : [];
+  const personality = value ? SCENARIO_PERSONALITIES[value] : null;
 
   return (
     <div className="space-y-5">
@@ -91,6 +116,7 @@ export const ScenarioSelection: React.FC<ScenarioSelectionProps> = ({ value, onC
         {scenarios.map((scenario) => {
           const Icon = scenario.icon;
           const selected = value === scenario.id;
+          const personalityMeta = SCENARIO_PERSONALITIES[scenario.id];
 
           return (
             <motion.div
@@ -118,6 +144,9 @@ export const ScenarioSelection: React.FC<ScenarioSelectionProps> = ({ value, onC
                 <p className="mt-0.5 text-xs leading-snug text-muted-foreground">
                   {t(scenario.descKey)}
                 </p>
+                <div className="mt-2 inline-flex rounded-full border border-border/70 bg-muted/55 px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                  {t('scenario.personaBadge')}: {t(personalityMeta.nameKey)}
+                </div>
               </button>
             </motion.div>
           );
@@ -156,6 +185,19 @@ export const ScenarioSelection: React.FC<ScenarioSelectionProps> = ({ value, onC
                     </div>
                   ))}
                 </div>
+                {personality ? (
+                  <div className="mt-4 rounded-lg border border-border/70 bg-background/80 p-3">
+                    <div className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                      {t('scenario.personaSummaryTitle')}
+                    </div>
+                    <div className="mt-1 text-sm font-semibold text-foreground">
+                      {t(personality.nameKey)}
+                    </div>
+                    <p className="mt-1 text-sm leading-5 text-muted-foreground">
+                      {t(personality.descKey)}
+                    </p>
+                  </div>
+                ) : null}
                 {SCENARIO_NEEDS_SENSORS[value] && (
                   <p className="mt-3 text-xs text-muted-foreground">
                     {t('scenario.sensorHint')}

@@ -16,11 +16,13 @@ function _runEvent(kind: RunEvent['kind'], payload: Record<string, unknown> = {}
 }
 
 function _result(extra: Partial<DelegateResult> = {}): DelegateResult {
+  const { adapter, ...rest } = extra;
   return {
     delegation_id: DID,
     success: true,
     exit_code: 0,
     duration_ms: 1234,
+    adapter: adapter ?? 'codex',
     diff_path: '/tmp/changes.patch',
     diff_stats: { files_changed: 1, additions: 4, deletions: 2 },
     files_changed: ['src/a.py'],
@@ -29,7 +31,7 @@ function _result(extra: Partial<DelegateResult> = {}): DelegateResult {
     events_path: '/tmp/events.jsonl',
     error: null,
     cost: null,
-    ...extra,
+    ...rest,
   };
 }
 

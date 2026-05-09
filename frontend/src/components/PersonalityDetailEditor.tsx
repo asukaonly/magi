@@ -20,7 +20,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type {
   LayerModifierKey,
   LayerModifiers,
-  LAYER_MODIFIER_KEYS,
   PersonaLayerItem,
   PersonaRegister,
   PersonalityConfig,
@@ -205,6 +204,33 @@ const normalizeLayerModifierEntryValue = (
   }
 };
 
+const assignLayerModifierValue = (
+  modifiers: LayerModifiers,
+  key: StructuredLayerModifierKey,
+  value: LayerModifiers[StructuredLayerModifierKey],
+): void => {
+  switch (key) {
+    case 'voice_unlocks':
+    case 'register_unlocks':
+      if (Array.isArray(value)) modifiers[key] = value;
+      break;
+    case 'humor_delta':
+    case 'directness_delta':
+      if (typeof value === 'number') modifiers[key] = value;
+      break;
+    case 'trigger_threshold_shifts':
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        modifiers.trigger_threshold_shifts = value;
+      }
+      break;
+    case 'memory_behavior':
+    case 'protective_bias':
+    case 'sarcasm_bounds':
+      if (typeof value === 'string') modifiers[key] = value;
+      break;
+  }
+};
+
 const entriesToLayerModifiers = (
   entries: LayerModifierEntry[],
   behaviorShifts?: string[],
@@ -215,7 +241,7 @@ const entriesToLayerModifiers = (
     if (!entry.key || seenKeys.has(entry.key)) continue;
     const normalized = normalizeLayerModifierEntryValue(entry.key, entry.value);
     if (normalized !== undefined) {
-      nextModifiers[entry.key] = normalized;
+      assignLayerModifierValue(nextModifiers, entry.key, normalized);
       seenKeys.add(entry.key);
     }
   }

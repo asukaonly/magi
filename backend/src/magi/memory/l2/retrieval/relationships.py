@@ -34,6 +34,7 @@ class L2StoreRelationshipQueryMixin:
         object_types: Optional[List[str]] = None,
         limit: int = 100,
         offset: int = 0,
+        temporal_clause: Optional[tuple[str, list[Any]]] = None,
     ) -> List[Dict[str, Any]]:
         """Query the knowledge graph."""
         host = cast(L2RetrievalQueryHostProtocol, self)
@@ -59,6 +60,11 @@ class L2StoreRelationshipQueryMixin:
             placeholders = ", ".join("?" for _ in object_types)
             query += f" AND object_type IN ({placeholders})"
             args.extend([str(item).strip().lower() for item in object_types])
+        if temporal_clause:
+            tc_sql, tc_params = temporal_clause
+            if tc_sql:
+                query += f" AND {tc_sql}"
+                args.extend(tc_params)
         query += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
         args.append(int(limit))
         args.append(int(offset))
@@ -111,6 +117,7 @@ class L2StoreRelationshipQueryMixin:
         target_object_id: Optional[str] = None,
         object_types: Optional[List[str]] = None,
         limit_per_entity: int = 100,
+        temporal_clause: Optional[tuple[str, list[Any]]] = None,
     ) -> Dict[str, List[Dict[str, Any]]]:
         """Batch-fetch relationships for multiple entities in one query."""
         host = cast(L2RetrievalQueryHostProtocol, self)
@@ -151,6 +158,11 @@ class L2StoreRelationshipQueryMixin:
             ot_ph = ", ".join("?" for _ in object_types)
             query += f" AND object_type IN ({ot_ph})"
             args.extend(str(t).strip().lower() for t in object_types)
+        if temporal_clause:
+            tc_sql, tc_params = temporal_clause
+            if tc_sql:
+                query += f" AND {tc_sql}"
+                args.extend(tc_params)
         query += " ORDER BY updated_at DESC"
 
         async with sqlite_connection_async(host.db_path) as db:

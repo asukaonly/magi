@@ -2,12 +2,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod desktop_presence;
+mod dmg_cleanup;
 mod frontmost_app_monitor;
 
 use magi_gateway::{api, ipc, notification_bridge};
 
 #[cfg(unix)]
-use libc::{kill, SIGTERM};
+use libc::{kill, SIGKILL, SIGTERM};
 use serde::Serialize;
 use std::env;
 use std::ffi::OsString;
@@ -239,6 +240,93 @@ fn wait_for_process_stop(
     process.wait_for_exit(timeout)
 }
 
+#[cfg(unix)]
+fn send_kill_signal(pid: u32) -> bool {
+    unsafe { kill(pid as i32, SIGKILL) == 0 }
+}
+
+#[cfg(target_os = "macos")]
+fn parse_sidecar_pids_from_ps(output: &str, sidecar_path: &Path, current_pid: u32) -> Vec<u32> {
+    let target = sidecar_path.to_string_lossy();
+    output
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            let separator_index = trimmed.find(char::is_whitespace)?;
+            let pid = trimmed[..separator_index].parse::<u32>().ok()?;
+            if pid == current_pid {
+                return None;
+            }
+            let command_path = trimmed[separator_index..].trim();
+            (command_path == target).then_some(pid)
+        })
+        .collect()
+}
+
+#[cfg(target_os = "macos")]
+fn find_stale_sidecar_pids(sidecar_path: &Path) -> Result<Vec<u32>, String> {
+    let output = Command::new("ps")
+        .args(["-axo", "pid=,comm="])
+        .output()
+        .map_err(|err| format!("Failed to inspect running processes: {err}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "Failed to inspect running processes".to_string()
+        } else {
+            format!("Failed to inspect running processes: {stderr}")
+        });
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(parse_sidecar_pids_from_ps(
+        &stdout,
+        sidecar_path,
+        std::process::id(),
+    ))
+}
+
+#[cfg(target_os = "macos")]
+fn terminate_stale_sidecar_processes(pids: &[u32]) -> Result<(), String> {
+    for pid in pids {
+        let _ = send_termination_signal(*pid);
+    }
+
+    for pid in pids {
+        if wait_for_pid_exit(*pid, SHUTDOWN_TIMEOUT) {
+            continue;
+        }
+        let _ = send_kill_signal(*pid);
+        if !wait_for_pid_exit(*pid, SHUTDOWN_TIMEOUT) {
+            return Err(format!(
+                "Failed to stop stale backend sidecar process {pid}"
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn cleanup_stale_sidecar_processes(app: &AppHandle) -> Result<(), String> {
+    let sidecar_path = resolve_sidecar_path(app)?;
+    let pids = find_stale_sidecar_pids(&sidecar_path)?;
+    if pids.is_empty() {
+        return Ok(());
+    }
+
+    log::warn!(
+        "Stopping stale backend sidecar processes before startup: {:?}",
+        pids
+    );
+    terminate_stale_sidecar_processes(&pids)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn cleanup_stale_sidecar_processes(_app: &AppHandle) -> Result<(), String> {
+    Ok(())
+}
+
 fn generate_session_token() -> String {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -281,20 +369,55 @@ fn parse_external_backend_config() -> Result<Option<ExternalBackendConfig>, Stri
     }))
 }
 
-/// Resolve the builtin avatar directory (repo: backend/personalities/avatar).
-fn resolve_builtin_avatar_dir() -> Option<PathBuf> {
+fn first_existing_dir(candidates: impl IntoIterator<Item = PathBuf>) -> Option<PathBuf> {
+    candidates.into_iter().find(|dir| dir.is_dir())
+}
+
+fn ordered_builtin_avatar_dirs(
+    resource_dir: Option<PathBuf>,
+    source_tree_avatar_dir: PathBuf,
+) -> Vec<PathBuf> {
+    let mut packaged_dirs = Vec::new();
+    if let Some(resource_dir) = resource_dir {
+        packaged_dirs.push(
+            resource_dir
+                .join("sidecar-dist")
+                .join("_internal")
+                .join("personalities")
+                .join("avatar"),
+        );
+        packaged_dirs.push(
+            resource_dir
+                .join("sidecar-dist")
+                .join("personalities")
+                .join("avatar"),
+        );
+    }
+
+    if cfg!(debug_assertions) {
+        let mut candidates = vec![source_tree_avatar_dir];
+        candidates.extend(packaged_dirs);
+        candidates
+    } else {
+        packaged_dirs.push(source_tree_avatar_dir);
+        packaged_dirs
+    }
+}
+
+/// Resolve the builtin avatar directory.
+fn resolve_builtin_avatar_dir(app: &AppHandle) -> Option<PathBuf> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     // CARGO_MANIFEST_DIR = frontend/src-tauri → project root = ../..
     let project_root = manifest_dir.parent()?.parent()?;
-    let dir = project_root
+    let source_tree_avatar_dir = project_root
         .join("backend")
         .join("personalities")
         .join("avatar");
-    if dir.is_dir() {
-        Some(dir)
-    } else {
-        None
-    }
+
+    first_existing_dir(ordered_builtin_avatar_dirs(
+        app.path().resource_dir().ok(),
+        source_tree_avatar_dir,
+    ))
 }
 
 /// Resolve the user avatar directory (~/.magi/personalities/avatar).
@@ -329,6 +452,60 @@ fn resolve_sidecar_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(sidecar_path)
 }
 
+fn plugin_python_candidates_from_resource_dir(resource_dir: &Path) -> Vec<PathBuf> {
+    #[cfg(windows)]
+    let candidates = vec![
+        resource_dir.join("plugin-python").join("python.exe"),
+        resource_dir
+            .join("plugin-python")
+            .join("Scripts")
+            .join("python.exe"),
+    ];
+
+    #[cfg(not(windows))]
+    let candidates = vec![
+        resource_dir
+            .join("plugin-python")
+            .join("bin")
+            .join("python"),
+        resource_dir
+            .join("plugin-python")
+            .join("bin")
+            .join("python3"),
+    ];
+
+    candidates
+}
+
+#[cfg(test)]
+fn plugin_python_path_from_resource_dir(resource_dir: &Path) -> PathBuf {
+    plugin_python_candidates_from_resource_dir(resource_dir)
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| resource_dir.join("plugin-python"))
+}
+
+fn resolve_plugin_python_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("Failed to resolve resource directory: {e}"))?;
+    let candidates = plugin_python_candidates_from_resource_dir(&resource_dir);
+    for candidate in &candidates {
+        if candidate.exists() {
+            return Ok(candidate.clone());
+        }
+    }
+    let checked = candidates
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(format!(
+        "Plugin Python runtime not found. Checked: {checked}"
+    ))
+}
+
 fn open_sidecar_log_stdio() -> Result<(Stdio, Stdio), String> {
     let home = env::var("HOME")
         .or_else(|_| env::var("USERPROFILE"))
@@ -358,6 +535,7 @@ fn spawn_sidecar_role(
     ipc_socket_path: &str,
 ) -> Result<(BackendProcess, Option<u32>), String> {
     let sidecar_path = resolve_sidecar_path(app)?;
+    let plugin_python_path = resolve_plugin_python_path(app)?;
 
     // Ensure executable permission on Unix
     #[cfg(unix)]
@@ -369,6 +547,13 @@ fn spawn_sidecar_role(
         perms.set_mode(0o755);
         fs::set_permissions(&sidecar_path, perms)
             .map_err(|e| format!("Failed to set sidecar executable permission: {e}"))?;
+
+        let mut plugin_python_perms = fs::metadata(&plugin_python_path)
+            .map_err(|e| format!("Failed to read plugin Python metadata: {e}"))?
+            .permissions();
+        plugin_python_perms.set_mode(0o755);
+        fs::set_permissions(&plugin_python_path, plugin_python_perms)
+            .map_err(|e| format!("Failed to set plugin Python executable permission: {e}"))?;
     }
 
     let (stdout, stderr) = open_sidecar_log_stdio()?;
@@ -381,6 +566,7 @@ fn spawn_sidecar_role(
         .env("MAGI_DESKTOP_MODE", "1")
         .env("MAGI_DESKTOP_SESSION_TOKEN", session_token)
         .env("MAGI_IPC_SOCKET", ipc_socket_path)
+        .env("MAGI_PLUGIN_PYTHON", plugin_python_path)
         .stdout(stdout)
         .stderr(stderr);
 
@@ -509,6 +695,8 @@ fn spawn_dev_backend_role(
     let backend_dir = find_backend_dir()?;
     let (stdout, stderr) = open_dev_backend_log_stdio()?;
     let python_command = resolve_dev_python_command(&project_root);
+    let plugin_python = env::var_os("MAGI_PLUGIN_PYTHON")
+        .unwrap_or_else(|| python_command.clone().into_os_string());
     let python_path = build_dev_pythonpath(&project_root)?;
 
     let mut command = Command::new(&python_command);
@@ -520,6 +708,7 @@ fn spawn_dev_backend_role(
         .env("MAGI_DESKTOP_MODE", "1")
         .env("MAGI_DESKTOP_SESSION_TOKEN", session_token)
         .env("MAGI_IPC_SOCKET", ipc_socket_path)
+        .env("MAGI_PLUGIN_PYTHON", plugin_python)
         .env("PYTHONPATH", python_path)
         .current_dir(backend_dir)
         .stdout(stdout)
@@ -694,6 +883,7 @@ fn start_backend(
     let start = if cfg!(debug_assertions) {
         spawn_dev_backend_pair(&session_token, &ipc_socket_path)?
     } else {
+        cleanup_stale_sidecar_processes(&app)?;
         spawn_sidecar_backend(&app, &session_token, &ipc_socket_path)?
     };
 
@@ -812,7 +1002,7 @@ fn poll_backend_startup(
 
     let api_state = api::state::ApiState {
         ipc_client,
-        builtin_avatar_dir: resolve_builtin_avatar_dir(),
+        builtin_avatar_dir: resolve_builtin_avatar_dir(&app),
         user_avatar_dir: resolve_user_avatar_dir(),
     };
     let router = api::build_router(api_state);
@@ -948,6 +1138,13 @@ fn cancel_exit_request() -> Result<(), String> {
     Ok(())
 }
 
+fn stop_backend_for_app_exit(app: &AppHandle) {
+    let state: State<'_, BackendState> = app.state();
+    if let Err(err) = stop_backend_inner(&state) {
+        log::warn!("Failed to stop backend during app exit: {err}");
+    }
+}
+
 fn main() {
     let log_dir = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
@@ -956,7 +1153,7 @@ fn main() {
         .join(".magi")
         .join("logs");
 
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(
             tauri_plugin_log::Builder::new()
                 .target(tauri_plugin_log::Target::new(
@@ -987,13 +1184,18 @@ fn main() {
         .manage(BackendState::default())
         .manage(desktop_presence::DesktopPresenceState::default())
         .setup(|app| {
+            log::info!("Magi desktop setup starting");
+
+            #[cfg(target_os = "macos")]
+            dmg_cleanup::detach_installer_volume_after_launch();
+
             if let Err(err) = desktop_presence::setup(app.handle()) {
-                eprintln!(
+                log::warn!(
                     "Optional desktop presence setup is unavailable; continuing without tray integration: {err}"
                 );
             }
             if let Err(err) = frontmost_app_monitor::setup_monitor() {
-                eprintln!(
+                log::warn!(
                     "Optional frontmost app monitor is unavailable; continuing without activation tracking: {err}"
                 );
             }
@@ -1032,6 +1234,118 @@ fn main() {
             confirm_exit_app,
             cancel_exit_request
         ])
-        .run(tauri::generate_context!())
-        .expect("failed to run Magi desktop application");
+        .build(tauri::generate_context!())
+        .expect("failed to build Magi desktop application");
+
+    app.run(|app_handle, event| match event {
+        tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => {
+            stop_backend_for_app_exit(app_handle);
+        }
+        _ => {}
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(windows)]
+    use super::plugin_python_candidates_from_resource_dir;
+    use super::{
+        first_existing_dir, ordered_builtin_avatar_dirs, plugin_python_path_from_resource_dir,
+    };
+
+    #[test]
+    fn first_existing_dir_returns_first_existing_candidate() {
+        let base = std::env::temp_dir().join(format!(
+            "magi-first-existing-dir-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&base);
+        let missing = base.join("missing");
+        let first = base.join("first");
+        let second = base.join("second");
+        std::fs::create_dir_all(&first).unwrap();
+        std::fs::create_dir_all(&second).unwrap();
+
+        assert_eq!(
+            first_existing_dir([missing, first.clone(), second]),
+            Some(first)
+        );
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn builtin_avatar_candidates_prefer_source_tree_in_debug_builds() {
+        let base = std::env::temp_dir().join(format!(
+            "magi-avatar-candidates-test-{}",
+            std::process::id()
+        ));
+        let source_dir = base
+            .join("repo")
+            .join("backend")
+            .join("personalities")
+            .join("avatar");
+        let resource_dir = base.join("resource");
+        let internal_dir = resource_dir
+            .join("sidecar-dist")
+            .join("_internal")
+            .join("personalities")
+            .join("avatar");
+
+        let candidates = ordered_builtin_avatar_dirs(Some(resource_dir), source_dir.clone());
+
+        if cfg!(debug_assertions) {
+            assert_eq!(candidates.first(), Some(&source_dir));
+        } else {
+            assert_eq!(candidates.first(), Some(&internal_dir));
+        }
+    }
+
+    #[test]
+    fn plugin_python_path_uses_bundled_runtime_resource() {
+        let resource_dir = std::path::Path::new("/tmp/magi-resources");
+        let plugin_python = plugin_python_path_from_resource_dir(resource_dir);
+
+        #[cfg(windows)]
+        assert_eq!(
+            plugin_python,
+            resource_dir.join("plugin-python").join("python.exe")
+        );
+        #[cfg(windows)]
+        let candidates = plugin_python_candidates_from_resource_dir(resource_dir);
+        #[cfg(windows)]
+        assert!(candidates.contains(
+            &resource_dir
+                .join("plugin-python")
+                .join("Scripts")
+                .join("python.exe")
+        ));
+
+        #[cfg(not(windows))]
+        assert_eq!(
+            plugin_python,
+            resource_dir
+                .join("plugin-python")
+                .join("bin")
+                .join("python")
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn parse_sidecar_pids_from_ps_matches_exact_executable_path() {
+        let sidecar_path = std::path::Path::new(
+            "/Applications/Magi.app/Contents/Resources/sidecar-dist/magi-backend",
+        );
+        let output = r#"
+            101 /Applications/Magi.app/Contents/Resources/sidecar-dist/magi-backend
+            102 /Applications/Other.app/Contents/Resources/sidecar-dist/magi-backend
+            103 /Applications/Magi.app/Contents/Resources/sidecar-dist/magi-backend-helper
+            104 /Applications/Magi.app/Contents/Resources/sidecar-dist/magi-backend
+        "#;
+
+        let pids = super::parse_sidecar_pids_from_ps(output, sidecar_path, 104);
+
+        assert_eq!(pids, vec![101]);
+    }
 }

@@ -7,6 +7,7 @@ import importlib.util
 import os
 import platform
 import shutil
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -16,6 +17,9 @@ SIDE_EFFECT_HIDDEN_IMPORTS = (
     # ssl._encode_hostname calls codecs.lookup('idna') dynamically; PyInstaller
     # cannot detect this so the codec must be listed explicitly.
     "encodings.idna",
+    # Alembic loads migration env.py files from packaged data at runtime; those
+    # env files import this helper dynamically outside PyInstaller's graph.
+    "magi.db._alembic_env",
     # Local embedding / reranker are behind lazy ``try: import`` guards but are
     # mandatory dependencies — always include them.
     "onnxruntime",
@@ -118,6 +122,10 @@ def build_packaged_data_entries(
         if source_path.exists():
             entries.append((source_path, destination_name))
 
+    migrations_path = resolved_backend_root / "src" / "magi" / "db" / "migrations"
+    if migrations_path.exists():
+        entries.append((migrations_path, "magi/db/migrations"))
+
     # Include only core plugins as individual directories.
     plugins_root = resolved_repo_root / "plugins"
     for plugin_id in CORE_PLUGIN_IDS:
@@ -194,3 +202,32 @@ def build_pyinstaller_command(
         command.extend(["--add-binary", f"{source_path}{os.pathsep}{destination_name}"])
     command.append(entry_script)
     return command
+
+
+def validate_sqlite_vec_runtime_support() -> None:
+    """Verify the build interpreter can load the sqlite-vec extension."""
+    import sqlite_vec
+
+    conn = sqlite3.connect(":memory:")
+    enable_load_extension = getattr(conn, "enable_load_extension", None)
+    if enable_load_extension is None:
+        conn.close()
+        raise RuntimeError(
+            "The Python interpreter used for the sidecar was built without SQLite "
+            "loadable extension support. Use a Python build that exposes "
+            "sqlite3.Connection.enable_load_extension, such as Homebrew Python on macOS."
+        )
+
+    try:
+        enable_load_extension(True)
+        conn.execute("SELECT load_extension(?)", (sqlite_vec.loadable_path(),))
+    except Exception as exc:
+        raise RuntimeError(
+            "The Python interpreter used for the sidecar cannot load sqlite-vec. "
+            "Install/use a Python distribution with SQLite loadable extension support."
+        ) from exc
+    finally:
+        try:
+            enable_load_extension(False)
+        finally:
+            conn.close()

@@ -17,10 +17,5 @@ DELETE FROM l0_execution_results;
 """
 
 
-async def ensure_l0_checkpoint_schema(db: aiosqlite.Connection) -> None:
-    """No-op kept for compatibility — schema is alembic-managed."""
-    return None
-
-
 async def clear_l0_checkpoint_tables(db: aiosqlite.Connection) -> None:
     await db.executescript(L0_CLEAR_SQL)

@@ -488,9 +488,6 @@ export function MemoryEventsSettingsSection({
           checked={draftConfig.memory.l1.enabled}
           onCheckedChange={(checked) => updateMemoryToggle('l1', checked)}
         />
-      </MemoryGroup>
-
-      <MemoryGroup>
         <MemorySwitchRow
           label={t('settings.memory.fields.enable_l1_vectorization.label')}
           description={
@@ -549,9 +546,6 @@ export function MemoryKnowledgeSettingsSection({
             draft.memory.l2.vectors_enabled = checked;
           })}
         />
-      </MemoryGroup>
-
-      <MemoryGroup>
         <div className="py-3">
           <NumberField
             label={t('settings.memory.fields.l2_batch_flush_interval_seconds.label')}

@@ -307,6 +307,19 @@ class GrepTool(Tool):
                     required=False,
                     default=list(DEFAULT_EXCLUDE_PATTERNS),
                 ),
+                ToolParameter(
+                    name="outside_workspace_allowed",
+                    type=ParameterType.BOOLEAN,
+                    description=(
+                        "Set to true ONLY when the user has explicitly asked to search "
+                        "a path outside the active workspace (e.g. another repository, "
+                        "an absolute system path, or a sibling directory). Defaults to "
+                        "false; the worker guardrail will reject out-of-workspace "
+                        "searches without this flag."
+                    ),
+                    required=False,
+                    default=False,
+                ),
             ],
             examples=[
                 {

@@ -74,9 +74,6 @@ class SqliteVecIndex(SqliteVecWriteMixin, SqliteVecSearchMixin):
             )
             """)
         await db.execute(
-            f"CREATE INDEX IF NOT EXISTS idx_{self._registry_table}_{self._entity_column} ON {self._registry_table}({self._entity_column})"
-        )
-        await db.execute(
             f"CREATE INDEX IF NOT EXISTS idx_{self._registry_table}_model ON {self._registry_table}(embedding_model)"
         )
 

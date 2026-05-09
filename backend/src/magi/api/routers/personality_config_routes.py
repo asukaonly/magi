@@ -231,20 +231,58 @@ async def get_personality(name: str = "default"):
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@personality_config_core_router.post(
+    "/",
+    response_model=PersonalityResponse,
+    summary="Create personality from config",
+    description=(
+        "Create a new personality whose name is taken from the request body. "
+        "Use this instead of putting the literal string ``new`` in the path."
+    ),
+)
+async def create_personality(config: PersonalityConfigModel):
+    legacy = legacy_personality_config_module()
+    actual_name = legacy.sanitize_filename(config.name)
+    try:
+        await legacy.save_personality_to_registry(actual_name, config)
+
+        current = legacy.get_current_personality_name()
+        if actual_name == current:
+            legacy.set_current_personality_name(
+                actual_name,
+                config=legacy.PersonalityConfig.from_dict(config.model_dump()),
+            )
+
+        return PersonalityResponse(
+            success=True,
+            message=core_i18n.t(
+                "personality.config.detail.saved",
+                fallback="Personality configuration saved: {name}",
+                name=actual_name,
+            ),
+            data={
+                "actual_name": actual_name,
+                "config": legacy._normalize_avatar_in_payload(config.model_dump()),
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @personality_config_core_router.put(
     "/{name}",
     response_model=PersonalityResponse,
     summary="Save personality config",
-    description="Create or update a personality configuration and handle optional rename logic.",
+    description="Update an existing personality, optionally renaming it to ``config.name``.",
 )
-async def update_personality(name: str, config: PersonalityConfigModel, use_ai_name: bool = False):
+async def update_personality(name: str, config: PersonalityConfigModel):
     legacy = legacy_personality_config_module()
     target_name = legacy.sanitize_filename(config.name)
     actual_name = name
     try:
-        if name == "new" or use_ai_name:
-            actual_name = target_name
-        elif name == legacy.DEFAULT_PERSONALITY and target_name not in {legacy.DEFAULT_PERSONALITY, "AI_Assistant"}:
+        if name == legacy.DEFAULT_PERSONALITY and target_name not in {legacy.DEFAULT_PERSONALITY, "AI_Assistant"}:
             actual_name = target_name
         elif name != target_name:
             actual_name = target_name
@@ -505,6 +543,7 @@ __all__ = [
     "api_get_greeting",
     "api_set_current_personality",
     "compare_personalities",
+    "create_personality",
     "delete_personality",
     "generate_personality",
     "get_personality",

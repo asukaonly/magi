@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
-# Post-build: sign sidecar resources inside the .app, notarize, and re-package.
+# Post-build: sign sidecar resources inside the .app, optionally notarize, and re-package.
 #
 # Runs AFTER 'tauri build' has assembled the .app bundle.  Tauri's bundler
 # signs only the main binary + .app wrapper, but Apple notarization requires
 # ALL Mach-O binaries to carry valid signatures.  This script fills the gap
-# by signing every Mach-O inside Contents/Resources/sidecar-dist/, then
-# re-signing the .app, notarizing, stapling, and regenerating the DMG and
-# updater archive so tauri-action uploads fully-notarized artifacts.
+# by signing every Mach-O inside Contents/Resources/sidecar-dist/ and
+# Contents/Resources/plugin-python/ when present, then
+# re-signing the .app, notarizing when credentials are available, and
+# regenerating the DMG and updater archive so tauri-action uploads the final
+# artifacts.
 #
 # Usage: ./scripts/sign-and-notarize-macos.sh <target-triple>
 #
-# Required env vars:
+# Optional env vars:
 #   APPLE_SIGNING_IDENTITY
 #   APPLE_CERTIFICATE            (needed if identity not yet in keychain)
 #   APPLE_CERTIFICATE_PASSWORD
@@ -24,6 +26,7 @@ set -euo pipefail
 TARGET="${1:?Usage: $0 <target-triple>}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENTITLEMENTS="${ROOT_DIR}/scripts/sidecar.entitlements.plist"
+RUNTIME_SIGNER="${ROOT_DIR}/scripts/sign-runtime-root-macos.sh"
 
 # ── Locate build artifacts ──────────────────────────────────────
 BUNDLE_DIR="${ROOT_DIR}/target/${TARGET}/release/bundle"
@@ -43,6 +46,12 @@ if [[ ! -d "$SIDECAR" ]]; then
   echo "ERROR: sidecar-dist not found inside .app bundle"
   exit 1
 fi
+PLUGIN_PYTHON="${APP_PATH}/Contents/Resources/plugin-python"
+
+if [[ -z "${APPLE_SIGNING_IDENTITY:-}" ]]; then
+  echo "WARNING: APPLE_SIGNING_IDENTITY is not set; skipping macOS sidecar signing and notarization."
+  exit 0
+fi
 
 # ── Ensure signing identity is available ────────────────────────
 # Tauri already imported the certificate for its own .app signing.
@@ -50,6 +59,11 @@ fi
 if ! security find-identity -v -p codesigning 2>/dev/null \
      | grep -qF "${APPLE_SIGNING_IDENTITY}"; then
   echo "==> Signing identity not in keychain — importing certificate ..."
+  if [[ -z "${APPLE_CERTIFICATE:-}" || -z "${APPLE_CERTIFICATE_PASSWORD:-}" ]]; then
+    echo "ERROR: APPLE_CERTIFICATE and APPLE_CERTIFICATE_PASSWORD are required to import the signing identity."
+    exit 1
+  fi
+
   KEYCHAIN_PATH="${RUNNER_TEMP:-/tmp}/notarize-signing.keychain-db"
   KEYCHAIN_PASSWORD="$(openssl rand -hex 32)"
 
@@ -246,6 +260,12 @@ if [[ $FAIL -gt 0 ]]; then
 fi
 echo "    All ${TOTAL} sidecar signatures valid."
 
+if [[ -d "${PLUGIN_PYTHON}" ]]; then
+  bash "${RUNTIME_SIGNER}" "${PLUGIN_PYTHON}" "${ENTITLEMENTS}" "plugin-python"
+else
+  echo "WARNING: plugin-python not found inside .app bundle; skipping plugin Python signing."
+fi
+
 # ── Re-sign .app ────────────────────────────────────────────────
 # We modified resources, so the .app's CodeResources hash is stale.
 echo "==> Re-signing .app bundle ..."
@@ -264,32 +284,44 @@ echo "==> Verifying .app signature ..."
 codesign --verify --deep --strict "${APP_PATH}"
 
 # ── Notarize ────────────────────────────────────────────────────
-echo "==> Creating notarization zip ..."
-NOTARIZE_ZIP="${RUNNER_TEMP:-/tmp}/${APP_NAME}-notarize.zip"
-ditto -c -k --keepParent "${APP_PATH}" "${NOTARIZE_ZIP}"
+if [[ -n "${APPLE_ID:-}" && -n "${APPLE_PASSWORD:-}" && -n "${APPLE_TEAM_ID:-}" ]]; then
+  echo "==> Creating notarization zip ..."
+  NOTARIZE_ZIP="${RUNNER_TEMP:-/tmp}/${APP_NAME}-notarize.zip"
+  ditto -c -k --keepParent "${APP_PATH}" "${NOTARIZE_ZIP}"
 
-echo "==> Submitting to Apple notarization service ..."
-xcrun notarytool submit "${NOTARIZE_ZIP}" \
-  --apple-id "${APPLE_ID}" \
-  --password "${APPLE_PASSWORD}" \
-  --team-id "${APPLE_TEAM_ID}" \
-  --wait --timeout 30m
+  echo "==> Submitting to Apple notarization service ..."
+  xcrun notarytool submit "${NOTARIZE_ZIP}" \
+    --apple-id "${APPLE_ID}" \
+    --password "${APPLE_PASSWORD}" \
+    --team-id "${APPLE_TEAM_ID}" \
+    --wait --timeout 30m
 
-echo "==> Stapling notarization ticket ..."
-xcrun stapler staple "${APP_PATH}"
-rm -f "${NOTARIZE_ZIP}"
+  echo "==> Stapling notarization ticket ..."
+  xcrun stapler staple "${APP_PATH}"
+  rm -f "${NOTARIZE_ZIP}"
+else
+  echo "WARNING: Apple notarization credentials are incomplete; skipping notarization."
+fi
 
 # ── Re-package DMG ──────────────────────────────────────────────
 echo "==> Re-creating DMG ..."
 OLD_DMG=$(find "${DMG_DIR}" -name "*.dmg" -type f 2>/dev/null | head -1)
 if [[ -n "$OLD_DMG" ]]; then
   DMG_NAME=$(basename "$OLD_DMG")
+  DMG_STAGING="$(mktemp -d "${RUNNER_TEMP:-/tmp}/magi-dmg-staging.XXXXXX")"
+  trap 'rm -rf "${DMG_STAGING:-}"' EXIT
+
   rm -f "$OLD_DMG"
+  cp -a "${APP_PATH}" "${DMG_STAGING}/"
+  ln -s /Applications "${DMG_STAGING}/Applications"
 
   hdiutil create -volname "${APP_NAME}" \
-    -srcfolder "${APP_PATH}" \
+    -srcfolder "${DMG_STAGING}" \
     -ov -format UDZO \
     "${DMG_DIR}/${DMG_NAME}"
+
+  rm -rf "${DMG_STAGING}"
+  trap - EXIT
 
   codesign --force --sign "${APPLE_SIGNING_IDENTITY}" \
     --timestamp "${DMG_DIR}/${DMG_NAME}"

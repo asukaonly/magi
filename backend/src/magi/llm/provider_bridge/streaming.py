@@ -10,7 +10,6 @@ from .streaming_core import ProviderBridgeStreamingHostProtocol, ThinkTagScrubbe
 from .tool_streaming import ProviderBridgeToolStreamingMixin
 from ...config.constants import DEFAULT_THINKING_TOKENS
 from ...config.models import ThinkingDepth
-from ...events.tracing import current_trace_context
 from ...runtime_trace import enrich_event_context_with_turn_trace
 
 
@@ -186,26 +185,25 @@ class ProviderBridgeChatStreamingMixin:
                         event_payload = LLMStreamEvent(kind="text_delta", text=visible)
                         await emit_stream_event(event_payload)
                         yield event_payload
-        if current_trace_context() is not None or event_context.get("trace_id"):
-            event_context = dict(event_context or {})
-            request_preview = _compact_trace_preview(
-                event_context.get("request_preview")
-            ) or _build_request_preview(messages)
-            response_preview = _compact_trace_preview(
-                event_context.get("response_preview")
-            ) or _compact_trace_preview("".join(response_preview_parts))
-            if request_preview:
-                event_context.setdefault("request_preview", request_preview)
-                event_context.setdefault("input_preview", request_preview)
-            if response_preview:
-                event_context.setdefault("response_preview", response_preview)
-                event_context.setdefault("output_preview", response_preview)
-            await host._emit_usage_event(
-                success=True,
-                latency_ms=int((time.time() - started_at) * 1000),
-                usage=usage_payload,
-                event_context=event_context,
-            )
+        event_context = dict(event_context or {})
+        request_preview = _compact_trace_preview(
+            event_context.get("request_preview")
+        ) or _build_request_preview(messages)
+        response_preview = _compact_trace_preview(
+            event_context.get("response_preview")
+        ) or _compact_trace_preview("".join(response_preview_parts))
+        if request_preview:
+            event_context.setdefault("request_preview", request_preview)
+            event_context.setdefault("input_preview", request_preview)
+        if response_preview:
+            event_context.setdefault("response_preview", response_preview)
+            event_context.setdefault("output_preview", response_preview)
+        await host._emit_usage_event(
+            success=True,
+            latency_ms=int((time.time() - started_at) * 1000),
+            usage=usage_payload,
+            event_context=event_context,
+        )
         done_event = LLMStreamEvent(kind="done")
         await emit_stream_event(done_event)
         yield done_event

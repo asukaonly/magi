@@ -60,26 +60,26 @@ class FunctionCallingGuardrailsMixin:
         tool_name: str,
         arguments: dict[str, Any],
         execution_workspace: str | None = None,
-        user_message: str | None = None,
     ) -> tuple[dict[str, Any], str | None]:
         """Apply strict guardrails for bounded scan-oriented workers."""
         safe_args = dict(arguments)
+        # ``outside_workspace_allowed`` is a routing hint consumed by this
+        # guardrail only; never forward it to the underlying tool execute().
+        outside_workspace_allowed = bool(safe_args.pop("outside_workspace_allowed", False))
         if tool_name in self._FILE_SCAN_TOOLS:
             workspace_root = self._resolve_execution_workspace(execution_workspace)
             scan_root = self._resolve_scan_root_path(safe_args.get("path"), execution_workspace)
             if (
                 intent not in {"worker_explore", "worker_plan"}
                 and not self._path_within_root(scan_root, workspace_root)
-                and not self._user_explicitly_targets_scan_path(
-                    user_message=user_message,
-                    path_value=safe_args.get("path"),
-                    execution_workspace=execution_workspace,
-                )
+                and not outside_workspace_allowed
             ):
                 return {}, (
                     "File scan guardrail: glob and grep must stay within the active workspace. "
                     f"Requested path resolves to {scan_root} while workspace is {workspace_root}. "
-                    "Ask the user for an explicit path or use web-search first if the target may live outside the workspace."
+                    "If the user explicitly asked to scan an external path, retry with "
+                    "outside_workspace_allowed=true; otherwise ask the user for an explicit "
+                    "path or use web-search first."
                 )
 
         if intent not in {"worker_explore", "worker_plan"}:
@@ -156,29 +156,6 @@ class FunctionCallingGuardrailsMixin:
             return os.path.commonpath([candidate_path, root_path]) == root_path
         except ValueError:
             return False
-
-    def _user_explicitly_targets_scan_path(
-        self,
-        *,
-        user_message: str | None,
-        path_value: Any,
-        execution_workspace: str | None,
-    ) -> bool:
-        """Return True when the user explicitly named the requested scan path."""
-        normalized_message = str(user_message or "").strip()
-        raw_path = str(path_value or "").strip()
-        if not normalized_message or raw_path in {"", ".", "./"}:
-            return False
-
-        candidates = {
-            raw_path,
-            raw_path.rstrip("/"),
-            os.path.expandvars(os.path.expanduser(raw_path)),
-            os.path.expandvars(os.path.expanduser(raw_path)).rstrip("/"),
-            self._resolve_scan_root_path(raw_path, execution_workspace),
-            self._resolve_scan_root_path(raw_path, execution_workspace).rstrip("/"),
-        }
-        return any(candidate and candidate in normalized_message for candidate in candidates)
 
     def _resolve_execution_workspace(self, execution_workspace: str | None) -> str:
         raw_workspace = (

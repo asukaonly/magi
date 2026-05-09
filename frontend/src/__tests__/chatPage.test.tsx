@@ -258,6 +258,9 @@ describe('ChatPage', () => {
     render(<ChatPage />);
 
     expect(screen.queryByText('chat.workspace.label')).not.toBeInTheDocument();
+    expect(screen.getByTestId('chat-workspace-trigger')).toHaveClass('bg-background/96');
+    expect(screen.getByTestId('chat-workspace-trigger')).not.toHaveClass('border');
+    expect(screen.getByTestId('chat-workspace-trigger')).not.toHaveClass('ring-1');
     expect(screen.getByTestId('chat-workspace-path')).toHaveTextContent('/Users/asuka/code/magi');
     expect(screen.getByTestId('chat-workspace-message-count')).toHaveTextContent('2');
     expect(screen.getByText('hello').parentElement).toHaveClass('rounded-xl', 'rounded-tr-sm');
@@ -866,14 +869,16 @@ describe('ChatPage', () => {
 
     render(<ChatPage />);
 
-    await user.click(screen.getByRole('button', { name: 'chat.workspace.change' }));
+    await user.click(screen.getByTestId('chat-workspace-trigger'));
+    expect(await screen.findByText('settings.actions.chooseDirectory')).toBeInTheDocument();
+    await user.click(screen.getByText('settings.actions.chooseDirectory'));
 
     await waitFor(() => expect(pickDirectoryMock).toHaveBeenCalledWith('/Users/asuka/code/magi'));
     await waitFor(() => expect(messagesApi.updateSessionWorkspace).toHaveBeenCalledWith('local_user', 'session-1', '/tmp/next-workspace'));
     await waitFor(() => expect(messagesApi.rememberWorkspace).toHaveBeenCalledWith('/tmp/next-workspace'));
     expect(screen.getByTestId('chat-workspace-path')).toHaveTextContent('/tmp/next-workspace');
 
-    await user.click(screen.getByRole('button', { name: 'chat.workspace.recentMenu' }));
+    await user.click(screen.getByTestId('chat-workspace-path'));
     expect(await screen.findByText('/tmp/existing-workspace')).toBeInTheDocument();
 
     await user.click(screen.getByText('/tmp/existing-workspace'));
@@ -882,7 +887,7 @@ describe('ChatPage', () => {
     await waitFor(() => expect(messagesApi.rememberWorkspace).toHaveBeenLastCalledWith('/tmp/existing-workspace'));
     expect(screen.getByTestId('chat-workspace-path')).toHaveTextContent('/tmp/existing-workspace');
 
-    await user.click(screen.getByRole('button', { name: 'chat.workspace.recentMenu' }));
+    await user.click(screen.getByTestId('chat-workspace-trigger'));
     await user.click(screen.getByText('settings.actions.restoreDefaultDirectory'));
 
     await waitFor(() => expect(messagesApi.updateSessionWorkspace).toHaveBeenLastCalledWith('local_user', 'session-1', null));
@@ -942,9 +947,9 @@ describe('ChatPage', () => {
     expect(composerRoot).toHaveClass('rounded-2xl');
     expect(composerRoot).not.toHaveClass('rounded-[28px]');
     expect(toolbar).not.toHaveClass('border-t');
-    expect(toolbar).toHaveClass('px-2', 'pb-0');
-    expect(primaryAction).toHaveClass('pb-2');
-    expect(sendButton).toHaveClass('h-[34px]', 'w-[34px]', 'bg-foreground/88');
+    expect(toolbar).toHaveClass('items-end', 'px-2', 'pb-2');
+    expect(primaryAction).not.toHaveClass('pb-2');
+    expect(sendButton).toHaveClass('h-[34px]', 'w-[34px]', 'bg-primary', 'text-primary-foreground');
     expect(textarea.style.height).toBe('88px');
   });
 

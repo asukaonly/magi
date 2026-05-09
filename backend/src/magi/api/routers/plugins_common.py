@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from importlib import import_module
+import logging
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -25,6 +26,8 @@ from .plugins_schemas import (
     PluginManifestResponse,
     PluginPackageResponse,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def legacy_plugins_module() -> ModuleType:
@@ -165,9 +168,18 @@ def _lightweight_install(source_dir: Path, entry: PluginRegistryEntry) -> Plugin
     user_root = PluginManager._user_plugins_root()
     user_root.mkdir(parents=True, exist_ok=True)
     dest_dir = user_root / entry.plugin_id
+    logger.info(
+        "Installing plugin without active manager",
+        extra={
+            "plugin_id": entry.plugin_id,
+            "source_dir": str(plugin_source),
+            "dest_dir": str(dest_dir),
+        },
+    )
     replace_plugin_directory(plugin_source, dest_dir)
 
     save_config({f"plugins.packages.{entry.plugin_id}": {"enabled": True}})
+    logger.info("Saved lightweight plugin install config", extra={"plugin_id": entry.plugin_id})
 
     ctypes: list[ContributionType] = []
     for ct in entry.contribution_types:

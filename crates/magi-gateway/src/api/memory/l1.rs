@@ -154,12 +154,11 @@ fn is_iso_day(value: &str) -> bool {
 mod tests {
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU32, Ordering};
-    use std::sync::{Mutex, MutexGuard, OnceLock};
+    use std::sync::MutexGuard;
 
     use super::*;
 
     static TEST_COUNTER: AtomicU32 = AtomicU32::new(0);
-    static BASE_DIR_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
     struct BaseDirGuard {
         previous_base_dir: Option<PathBuf>,
@@ -175,10 +174,7 @@ mod tests {
     }
 
     fn isolated_base_dir(label: &str) -> BaseDirGuard {
-        let lock = BASE_DIR_LOCK
-            .get_or_init(|| Mutex::new(()))
-            .lock()
-            .expect("lock L1 gateway test base dir");
+        let lock = db::magi_base_dir_override_test_lock();
         let n = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
         let path = std::env::temp_dir().join(format!(
             "magi-gateway-l1-{label}-{}-{n}",

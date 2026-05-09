@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -571,6 +571,10 @@ const LLMForm: React.FC<LLMFormProps> = ({
   };
 
   const handleDiscoverProviderModels = async (providerId: string, providerOverride?: LLMProviderConfig) => {
+    if (!registry) {
+      return undefined;
+    }
+
     const provider = providerOverride || currentValue.providers[providerId];
     if (!provider) {
       return undefined;
@@ -612,6 +616,28 @@ const LLMForm: React.FC<LLMFormProps> = ({
       return undefined;
     }
   };
+
+  const handleResolveDraftProviderPreview = useCallback(
+    async (providerId: string, provider: LLMProviderConfig): Promise<LLMProviderRegistry | null> => {
+      if (!customProviderTemplate || !registry) {
+        return null;
+      }
+
+      const catalog = await configApi.resolveLLMProviderCatalog({
+        providers: {
+          ...currentValue.providers,
+          [providerId]: cloneProvider(provider),
+        },
+      });
+
+      if (!catalog) {
+        return null;
+      }
+
+      return buildRegistryFromCatalog(catalog, customProviderTemplate);
+    },
+    [currentValue.providers, customProviderTemplate, registry]
+  );
 
   const handleTestProviderConnection = async (providerId: string, model: string, providerOverride?: LLMProviderConfig) => {
     if (!registry) {
@@ -715,6 +741,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
           onRemoveProviderModel={handleRemoveProviderModel}
           onProviderDefaultModelChange={handleProviderDefaultModelChange}
           onDiscoverProviderModels={handleDiscoverProviderModels}
+          onResolveDraftProviderPreview={handleResolveDraftProviderPreview}
           providerDiscoveryState={providerDiscoveryState}
           onTestProviderConnection={handleTestProviderConnection}
           providerTestState={providerTestState}

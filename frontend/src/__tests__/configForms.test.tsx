@@ -352,6 +352,59 @@ vi.mock('../api/modules/config', async () => {
     output: capabilities.image_output ? ['embedding', 'image'] : ['embedding'],
   });
 
+  const detectVendorForTest = (modelId?: string, baseUrl?: string): string => {
+    const needleModel = (modelId || '').trim().toLowerCase();
+    const needleUrl = (baseUrl || '').trim().toLowerCase();
+
+    if (needleModel.includes('glm-') || needleModel.includes('glm4') || needleModel.includes('glm_') || needleModel.includes('chatglm') || needleModel.includes('codegeex')) {
+      return 'glm';
+    }
+    if (needleModel.includes('qwen') || needleModel.includes('qwq') || needleModel.includes('qvq')) {
+      return 'dashscope';
+    }
+    if (needleModel.includes('claude-')) {
+      return 'anthropic';
+    }
+    if (needleModel.includes('grok-') || needleModel.includes('grok_')) {
+      return 'grok';
+    }
+    if (needleModel.includes('gpt-') || needleModel.includes('o1-') || needleModel.includes('o3-') || needleModel.includes('o4-') || needleModel.includes('deepseek')) {
+      return 'openai';
+    }
+
+    if (needleUrl.includes('bigmodel.cn') || needleUrl.includes('z.ai') || needleUrl.includes('codeplan')) {
+      return 'glm';
+    }
+    if (needleUrl.includes('dashscope.aliyuncs.com') || needleUrl.includes('dashscope-intl.aliyuncs.com')) {
+      return 'dashscope';
+    }
+    if (needleUrl.includes('api.anthropic.com')) {
+      return 'anthropic';
+    }
+    if (needleUrl.includes('api.x.ai') || needleUrl.includes('x.ai')) {
+      return 'grok';
+    }
+    if (needleUrl.includes('api.openai.com') || needleUrl.includes('api.deepseek.com')) {
+      return 'openai';
+    }
+
+    return 'generic';
+  };
+
+  const builtinProviderVendor: Record<string, string> = {
+    openai: 'openai',
+    deepseek: 'openai',
+    local: 'openai',
+    anthropic: 'anthropic',
+    glm: 'glm',
+    glm_codeplan: 'glm',
+    dashscope: 'dashscope',
+    grok: 'grok',
+    gemini: 'generic',
+    kimi: 'generic',
+    minimax: 'generic',
+  };
+
   const resolveProviderModelsForTest = (provider: Record<string, any>) => {
     const builtinMeta =
       provider.provider_type === 'custom'
@@ -380,6 +433,7 @@ vi.mock('../api/modules/config', async () => {
         description: override?.description,
         icon: override?.icon,
         source: 'builtin',
+        vendor: override?.vendor || model.vendor || builtinProviderVendor[builtinMeta?.id || provider.provider_type] || 'generic',
         hidden: Boolean(override?.hidden),
         preferred: Boolean(override?.preferred),
         capabilities,
@@ -473,6 +527,7 @@ vi.mock('../api/modules/config', async () => {
         description: override?.description,
         icon: override?.icon,
         source: 'manual',
+        vendor: override?.vendor || detectVendorForTest(modelId, provider.services?.chat?.base_url || provider.base_url),
         hidden: Boolean(override?.hidden),
         preferred: Boolean(override?.preferred),
         capabilities,
@@ -493,6 +548,7 @@ vi.mock('../api/modules/config', async () => {
           description: override?.description,
           icon: override?.icon,
           source: 'manual',
+          vendor: override?.vendor || detectVendorForTest(modelId, provider.services?.chat?.base_url || provider.base_url),
           hidden: Boolean(override?.hidden),
           preferred: Boolean(override?.preferred),
           capabilities,
@@ -1011,6 +1067,68 @@ describe('config forms', () => {
     );
     expect(within(dialog).getAllByText('GLM-5').length).toBeGreaterThan(0);
     expect(within(dialog).queryByText('GPT-5')).not.toBeInTheDocument();
+  });
+
+  it('defaults image generation to disabled when adding a template provider', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
+      </Form>
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'llm.providerConfiguration.addProvider' }));
+    const dialog = screen.getByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'OpenAI' }));
+
+    expect(within(dialog).getByRole('switch', { name: 'llm.providerConfiguration.serviceLabels.chat' })).toBeChecked();
+    expect(within(dialog).getByRole('switch', { name: 'llm.providerConfiguration.serviceLabels.embedding' })).toBeChecked();
+    expect(within(dialog).getByRole('switch', { name: 'llm.providerConfiguration.serviceLabels.image_generation' })).not.toBeChecked();
+  });
+
+  it('renders fetched draft models immediately after discover succeeds', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
+      </Form>
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'llm.providerConfiguration.addProvider' }));
+    const dialog = screen.getByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'llm.providerConfiguration.providerKinds.custom' }));
+    await user.click(within(dialog).getByRole('button', { name: /llm.providerConfiguration.serviceLabels.chat/ }));
+    await user.click(within(dialog).getByRole('button', { name: 'llm.actions.fetchModels' }));
+
+    await waitFor(() => {
+      expect(within(dialog).getByRole('button', { name: /fetched-model-1/ })).toBeInTheDocument();
+      expect(within(dialog).getByRole('button', { name: /fetched-model-2/ })).toBeInTheDocument();
+    });
+  });
+
+  it('previews inferred vendor for draft models before the provider is saved', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
+      </Form>
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'llm.providerConfiguration.addProvider' }));
+    const dialog = screen.getByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'llm.providerConfiguration.providerKinds.custom' }));
+    await user.click(within(dialog).getByRole('button', { name: /llm.providerConfiguration.serviceLabels.chat/ }));
+
+    const customModelsField = within(dialog).getByLabelText('llm.providerConfiguration.serviceLabels.chat llm.fields.modelManualEntry');
+    await user.type(customModelsField, 'claude-sonnet-4-6');
+    await user.click(within(dialog).getByRole('button', { name: 'llm.actions.addModel' }));
+
+    await waitFor(() => {
+      expect(within(dialog).getByLabelText('llm.modelFields.vendor')).toHaveTextContent('llm.modelFields.vendorOptions.anthropic');
+    });
   });
 
   it('lets user switch the core scenario model and shows vision warning', async () => {

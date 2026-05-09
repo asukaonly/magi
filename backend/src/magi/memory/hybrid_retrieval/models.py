@@ -90,6 +90,17 @@ class TimeRange:
 
 
 @dataclass
+class TemporalContext:
+    """Explicit temporal intent for L2 retrieval queries."""
+
+    mode: Literal["none", "current", "as_of", "during", "since", "before", "after"] = "none"
+    start: Optional[float] = None
+    end: Optional[float] = None
+    anchor: Optional[float] = None
+    confidence: float = 0.5
+
+
+@dataclass
 class L1Conditions:
     """L1 query conditions: BM25 + vector + keyword."""
 

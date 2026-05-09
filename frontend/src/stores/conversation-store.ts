@@ -229,6 +229,10 @@ const ensureSession = (
   };
 };
 
+const trimTrailingStreamNewlines = (content: string): string => (
+  String(content || '').replace(/(?:\r?\n)+$/, '')
+);
+
 const upsertSessionSummary = (
   sessionsById: Record<string, ChatSessionListItem>,
   orderedSessionIds: string[],
@@ -616,6 +620,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
     const nextMessages = [...previousMessages];
     nextMessages[existingIndex] = {
       ...existing,
+      content: trimTrailingStreamNewlines(existing.content),
       personaId: personaId ?? existing.personaId ?? null,
       streaming: false,
     };

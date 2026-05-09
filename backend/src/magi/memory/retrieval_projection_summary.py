@@ -28,32 +28,41 @@ def build_summary(
     if status == "not_found":
         return "未检索到可确认的历史记忆。"
 
-    if query_mode == "exact_fact" and is_list_like_query(query):
+    if is_list_like_query(query):
         grouped_summary = _build_grouped_preference_summary(findings)
         if grouped_summary:
             return grouped_summary
 
-    primary = findings[0] if findings else {}
-    if primary.get("kind") == "relationship":
+    relationship_findings = [f for f in findings if f.get("kind") == "relationship"]
+    if relationship_findings:
+        primary = relationship_findings[0]
         statement = str(primary.get("statement") or "").strip()
         subject, predicate, object_value = split_relationship_statement(statement)
         object_label = humanize_object(object_value)
-        if query_mode == "exact_fact":
-            if predicate == "LIKES":
-                return f"你喜欢{object_label}。"
-            if predicate == "DISLIKES":
-                return f"你讨厌{object_label}。"
-            if predicate == "INTERESTED_IN":
-                return f"你对{object_label}感兴趣。"
-            if predicate == "FOLLOWS":
-                return f"你关注{object_label}。"
-            if predicate == "USES":
-                return f"你有使用{object_label}的记录。"
+        if predicate == "LIKES":
+            return f"你喜欢{object_label}。"
+        if predicate == "DISLIKES":
+            return f"你讨厌{object_label}。"
+        if predicate == "INTERESTED_IN":
+            return f"你对{object_label}感兴趣。"
+        if predicate == "FOLLOWS":
+            return f"你关注{object_label}。"
+        if predicate == "USES":
+            return f"你有使用{object_label}的记录。"
         if subject and predicate and object_value:
             return f"{subject} {predicate} {object_value}"
 
+    assertion_findings = [f for f in findings if f.get("kind") == "assertion"]
+    if assertion_findings:
+        return str(assertion_findings[0].get("statement") or "").strip() or "已检索到相关历史记忆。"
+
+    reflection_findings = [f for f in findings if f.get("kind") == "reflection"]
+    if reflection_findings:
+        return str(reflection_findings[0].get("statement") or "").strip() or "已检索到相关历史记忆。"
+
+    primary = findings[0] if findings else {}
     statement = str(primary.get("statement") or "").strip()
-    return statement or "已检索到相关历史记忆。"
+    return statement or f"关于「{query}」的历史记忆。" if findings else "已检索到相关历史记忆。"
 
 
 def derive_status(findings: list[dict[str, Any]]) -> str:

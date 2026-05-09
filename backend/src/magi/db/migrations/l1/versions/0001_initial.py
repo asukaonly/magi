@@ -113,8 +113,6 @@ CREATE TABLE IF NOT EXISTS l1_event_entities (
     created_at REAL NOT NULL,
     UNIQUE(event_id, entity_id)
 );
-CREATE INDEX IF NOT EXISTS idx_l1_event_entities_event
-    ON l1_event_entities(event_id);
 CREATE INDEX IF NOT EXISTS idx_l1_event_entities_entity
     ON l1_event_entities(entity_id);
 

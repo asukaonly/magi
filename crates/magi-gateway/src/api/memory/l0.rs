@@ -353,11 +353,77 @@ fn build_l0_workbench(session_id: &str) -> Option<Value> {
         "SELECT * FROM l0_temporary_tactics WHERE session_id = ?1 ORDER BY created_at DESC",
         rusqlite::params![session_id],
     );
+    let active_context_summary = build_active_context_summary(session_id);
+    let context_usage = build_latest_context_usage(session_id);
 
     Some(json!({
         "session": session,
         "goal_stack": goals,
         "active_entities": entities,
         "temporary_tactics": tactics,
+        "active_context_summary": active_context_summary,
+        "context_usage": context_usage,
     }))
+}
+
+fn build_active_context_summary(session_id: &str) -> Option<Value> {
+    let conn = db::open_readonly(&db::chat_db_path())?;
+    let rows = db::query_to_json_array(
+        &conn,
+        "SELECT summary_id, parent_summary_id, status, summary_kind, persona_scope, \
+                covered_from_message_id, covered_to_message_id, first_kept_message_id, \
+                covered_to_sequence_no, session_origin, summary_text, prompt_profile, \
+                model_provider, model_id, token_count_before, token_count_after, \
+                quality_status, created_at_ms, updated_at_ms \
+         FROM chat_context_summaries \
+         WHERE session_id = ?1 \
+           AND summary_kind = 'token_budget' \
+           AND COALESCE(persona_scope, '') = '' \
+           AND status = 'active' \
+         ORDER BY covered_to_sequence_no DESC, updated_at_ms DESC \
+         LIMIT 1",
+        rusqlite::params![session_id],
+    );
+    rows.into_iter().next()
+}
+
+fn build_latest_context_usage(session_id: &str) -> Option<Value> {
+    let conn = db::open_readonly(&db::runtime_trace_db_path())?;
+    let rows = db::query_to_json_array(
+        &conn,
+        "SELECT notification_id, turn_id, payload_json, created_at_ms \
+         FROM runtime_notifications \
+         WHERE session_id = ?1 AND channel = 'context_usage' \
+         ORDER BY notification_id DESC \
+         LIMIT 1",
+        rusqlite::params![session_id],
+    );
+    let row = rows.into_iter().next()?;
+    let row_obj = row.as_object()?;
+    let payload = row_obj.get("payload_json")?.clone();
+    let mut usage = match payload {
+        Value::String(text) => serde_json::from_str::<Value>(&text).ok()?,
+        Value::Object(_) => payload,
+        _ => return None,
+    };
+    if let Some(obj) = usage.as_object_mut() {
+        if !obj.contains_key("turn_id") {
+            obj.insert(
+                "turn_id".into(),
+                row_obj.get("turn_id").cloned().unwrap_or(Value::Null),
+            );
+        }
+        obj.insert(
+            "notification_id".into(),
+            row_obj
+                .get("notification_id")
+                .cloned()
+                .unwrap_or(Value::Null),
+        );
+        obj.insert(
+            "created_at_ms".into(),
+            row_obj.get("created_at_ms").cloned().unwrap_or(Value::Null),
+        );
+    }
+    Some(usage)
 }

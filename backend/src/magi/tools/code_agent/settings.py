@@ -61,7 +61,7 @@ class ConstraintsSettings(_Frozen):
 
 class CodeAgentSettings(_Frozen):
     enabled: bool = True
-    default_adapter: DefaultAdapterName = "claude_code"
+    default_adapter: DefaultAdapterName = "auto"
     claude_code: ClaudeCodeSettings = Field(default_factory=ClaudeCodeSettings)
     codex: CodexSettings = Field(default_factory=CodexSettings)
     constraints: ConstraintsSettings = Field(default_factory=ConstraintsSettings)
@@ -94,7 +94,7 @@ def load_settings(*, workspace_root: Path | str | None = None) -> CodeAgentSetti
 
     raw_default = str(merged.get("default_adapter", "")).strip()
     if raw_default not in ("auto", "claude_code", "codex"):
-        merged["default_adapter"] = "claude_code"
+        merged["default_adapter"] = "auto"
 
     return CodeAgentSettings.model_validate(merged)
 

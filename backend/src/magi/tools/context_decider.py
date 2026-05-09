@@ -157,11 +157,6 @@ class ContextDecider(
             )
 
             decision = self._parse_response(response)
-            decision = self._apply_research_guardrail(
-                user_message=user_message,
-                decision=decision,
-                available_tools=available_tools,
-            )
             decision = self._apply_memory_guidance(
                 user_message=user_message,
                 context=context,  # type: ignore[arg-type]

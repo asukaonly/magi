@@ -65,6 +65,7 @@ from .personality_config_routes import (
     api_get_greeting,
     api_set_current_personality,
     compare_personalities,
+    create_personality,
     delete_personality,
     generate_personality,
     get_personality_generation_status,
@@ -201,5 +202,6 @@ __all__ = [
     "set_current_personality_name",
     "start_personality_generation_job",
     "start_personality_generation",
+    "create_personality",
     "update_personality",
 ]

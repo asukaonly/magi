@@ -14,7 +14,17 @@ def user_avatar_dir() -> Path:
 
 
 def builtin_avatar_dir() -> Path:
-    return Path(__file__).resolve().parents[3] / "personalities" / "avatar"
+    current_file = Path(__file__).resolve()
+    candidates = [
+        # PyInstaller onedir layout: sidecar-dist/_internal/personalities/avatar.
+        current_file.parents[2] / "personalities" / "avatar",
+        # Source-tree layout: backend/personalities/avatar.
+        current_file.parents[3] / "personalities" / "avatar",
+    ]
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate
+    return candidates[-1]
 
 
 def _is_inline_avatar(value: str) -> bool:

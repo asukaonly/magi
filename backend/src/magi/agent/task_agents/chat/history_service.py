@@ -449,6 +449,11 @@ class ChatHistoryService:
                 max_tokens=_PERSONA_BOUNDARY_OUTPUT_RESERVE,
                 temperature=0.2,
                 thinking_depth=ThinkingDepth.NONE,
+                event_context={
+                    "request_kind": "memory:persona_boundary_summary",
+                    "agent_id": "persona_boundary_summary",
+                    "session_id": summary_input.session_id,
+                },
             )
             return str(response.content or "").strip()
         except Exception:

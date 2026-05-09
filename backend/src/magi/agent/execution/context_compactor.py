@@ -368,6 +368,10 @@ class ContextCompactor:
             max_tokens=_SUMMARY_OUTPUT_RESERVE,
             temperature=0.2,
             thinking_depth=ThinkingDepth.NONE,
+            event_context={
+                "request_kind": "memory:context_compact",
+                "agent_id": "context_compactor",
+            },
         )
         return response.content.strip()
 

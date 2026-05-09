@@ -12,6 +12,8 @@ from magi.events.events import EventTypes
 from magi.tools.builtin.file_read_tool import FileReadTool
 from magi.tools.builtin.glob_tool import GlobTool
 from magi.tools.builtin.grep_tool import GrepTool
+from magi.tools.builtin.web_fetch_tool import WebFetchTool
+from magi.tools.builtin.web_search_tool import WebSearchTool
 from magi.tools.registry import ToolRegistry
 
 
@@ -51,6 +53,13 @@ def _build_real_tool_registry() -> ToolRegistry:
     registry = ToolRegistry()
     for tool_class in (GlobTool, GrepTool, FileReadTool):
         registry.register(tool_class)
+    return registry
+
+
+def _build_real_tool_registry_with_web() -> ToolRegistry:
+    registry = _build_real_tool_registry()
+    registry.register(WebSearchTool)
+    registry.register(WebFetchTool)
     return registry
 
 
@@ -346,7 +355,7 @@ async def test_coordinator_match_tools_reorders_runtime_tools_with_task_hint() -
 
 @pytest.mark.asyncio
 async def test_coordinator_marks_ambiguous_external_reference_scope() -> None:
-    registry = _build_real_tool_registry()
+    registry = _build_real_tool_registry_with_web()
     coordinator = ChatExecutionCoordinator(
         context_decider=_FakeContextDecider(
             _FakeContextDecision(

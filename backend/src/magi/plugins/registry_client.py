@@ -5,6 +5,7 @@ code in a single Git repository.  Individual plugins are installed by
 downloading a tarball archive from GitHub and extracting only the needed
 plugin subdirectory — no local git commands required.
 """
+
 from __future__ import annotations
 
 import io
@@ -22,9 +23,7 @@ from .contracts import PluginRegistryEntry, PluginRegistryIndex
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_REGISTRY_URL = (
-    "https://raw.githubusercontent.com/asukaonly/magi-plugins/main/registry.json"
-)
+DEFAULT_REGISTRY_URL = "https://raw.githubusercontent.com/asukaonly/magi-plugins/main/registry.json"
 DEFAULT_REPO_URL = "https://github.com/asukaonly/magi-plugins.git"
 INDEX_TIMEOUT = 30
 TARBALL_TIMEOUT = 120  # seconds
@@ -106,10 +105,7 @@ class PluginRegistryClient:
         onboarding), only one HTTP download is performed.
         """
         now = time.monotonic()
-        if (
-            self._cached_tarball is not None
-            and (now - self._tarball_timestamp) < INDEX_CACHE_TTL
-        ):
+        if self._cached_tarball is not None and (now - self._tarball_timestamp) < INDEX_CACHE_TTL:
             return self._cached_tarball
 
         tarball_url = self._tarball_url()
@@ -119,6 +115,10 @@ class PluginRegistryClient:
             resp.raise_for_status()
             self._cached_tarball = resp.content
             self._tarball_timestamp = time.monotonic()
+        logger.info(
+            "Downloaded plugin repository tarball",
+            extra={"url": tarball_url, "bytes": len(self._cached_tarball)},
+        )
         return self._cached_tarball
 
     async def clone_plugin(
@@ -143,6 +143,14 @@ class PluginRegistryClient:
         dest.mkdir(parents=True, exist_ok=True)
 
         try:
+            logger.info(
+                "Cloning plugin from registry tarball",
+                extra={
+                    "plugin_id": entry.plugin_id,
+                    "registry_path": entry.path,
+                    "dest_dir": str(dest),
+                },
+            )
             tarball_bytes = await self._fetch_tarball()
 
             plugin_dest = dest / entry.plugin_id
@@ -154,6 +162,14 @@ class PluginRegistryClient:
             )
             return plugin_dest
         except Exception:
+            logger.exception(
+                "Plugin source extraction failed",
+                extra={
+                    "plugin_id": entry.plugin_id,
+                    "registry_path": entry.path,
+                    "dest_dir": str(dest),
+                },
+            )
             # Clean up on failure.
             if dest_dir is None:
                 shutil.rmtree(dest, ignore_errors=True)
@@ -206,7 +222,7 @@ def _extract_subdir_from_tarball(
                 continue
 
             # Security: prevent path traversal.
-            rel_path = member.name[len(target_prefix):]
+            rel_path = member.name[len(target_prefix) :]
             if not rel_path:
                 continue
             if ".." in rel_path.split("/"):

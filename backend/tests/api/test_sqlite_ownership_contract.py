@@ -32,9 +32,9 @@ def test_sqlite_ownership_contract_matches_gateway_writes() -> None:
         for item in inventory["discovered"]
     }
     assert (
-        "crates/magi-gateway/src/api/messages.rs",
+        "crates/magi-gateway/src/api/messages/mutations.rs",
         "update",
-        "chat_messages",
+        "chat_sessions",
         None,
     ) in discovered
     assert (
@@ -43,3 +43,31 @@ def test_sqlite_ownership_contract_matches_gateway_writes() -> None:
         "fact_events",
         "idx_fact_events_deleted_at",
     ) in discovered
+
+
+def test_sqlite_ownership_source_filter_keeps_cfg_test_items_before_production_sql() -> None:
+    root = Path(__file__).resolve().parents[3]
+    checker = _load_sqlite_ownership_checker(root)
+
+    source = """
+use rusqlite::Connection;
+#[cfg(test)]
+use std::sync::Mutex;
+
+pub fn emit_notification(conn: &Connection) {
+    conn.execute("INSERT INTO runtime_notifications (channel) VALUES (?1)", []);
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn ignores_test_sql() {
+        let sql = "INSERT INTO test_only_table (id) VALUES (1)";
+    }
+}
+"""
+
+    production = checker.production_source(source)
+
+    assert "INSERT INTO runtime_notifications" in production
+    assert "INSERT INTO test_only_table" not in production

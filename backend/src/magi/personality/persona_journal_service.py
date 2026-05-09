@@ -217,6 +217,10 @@ class PersonaJournalService:
                 max_tokens=400,
                 temperature=0.7,
                 disable_thinking=True,
+                event_context={
+                    "request_kind": "personality:journal_reflection",
+                    "agent_id": "personality:journal",
+                },
             )
             elapsed_ms = (time.monotonic() - t0) * 1000
             logger.debug("Journal reflection LLM call completed elapsed_ms=%.1f", elapsed_ms)

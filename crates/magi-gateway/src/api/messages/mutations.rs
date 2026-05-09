@@ -263,6 +263,7 @@ mod tests {
 
     #[test]
     fn remember_recent_workspace_deduplicates_and_caps_results() {
+        let _lock = db::magi_base_dir_override_test_lock();
         let temp_root = std::env::temp_dir().join(format!(
             "magi-gateway-recent-workspaces-{}",
             uuid::Uuid::new_v4()

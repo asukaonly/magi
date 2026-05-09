@@ -91,51 +91,32 @@ class ScenarioLLMPool:
 
     @staticmethod
     def _resolve_runtime_provider_type(provider: object, selected_model: str | None = None) -> str:
+        """Pick the adapter ``provider_type`` for ``create_llm_adapter``.
+
+        For non-custom providers this is just the declared ``provider_type``.
+        For custom providers we look at ``api_format`` to decide which
+        adapter (OpenAI or Anthropic transport) to use; vendor-specific
+        dialects (reasoning payload shape, tool-calling format, ...) are
+        no longer baked into the provider name. The runtime picks them
+        up later from ``ModelVendor`` declared on the resolved model meta
+        (with a model-id-based heuristic as a last-resort default).
+        """
+        del selected_model  # vendor inference moved to ProviderBridgeOptionsMixin
         provider_type = str(getattr(getattr(provider, "provider_type", ""), "value", getattr(provider, "provider_type", "")))
         if provider_type != LLMProvider.CUSTOM.value:
             return provider_type
 
         api_format = str(getattr(provider, "api_format", "") or "openai").strip().lower()
         if api_format == "anthropic":
-            return api_format
+            return LLMProvider.ANTHROPIC.value
         if api_format == "openai":
-            return ScenarioLLMPool._detect_openai_compatible_runtime_provider(
-                provider=provider,
-                selected_model=selected_model,
-            )
-        if api_format in {"openai", "anthropic"}:
-            return api_format
+            # Custom OpenAI-compatible gateway. Keep ``custom`` as the
+            # adapter-level provider name; ProviderBridgeOptionsMixin
+            # resolves the actual vendor (and therefore the reasoning
+            # dialect) per-model from the resolved registry / overrides
+            # / model-id heuristic, not from this string.
+            return LLMProvider.CUSTOM.value
 
-        raise ValueError(f"Unsupported custom provider api_format: {getattr(provider, 'api_format', None)}")
-
-    @staticmethod
-    def _detect_openai_compatible_runtime_provider(provider: object, selected_model: str | None = None) -> str:
-        """Infer the concrete OpenAI-compatible provider for custom gateways."""
-        hint_values = [
-            getattr(provider, "display_name", None),
-            getattr(getattr(getattr(provider, "services", None), "chat", None), "base_url", None),
-            getattr(provider, "custom_default_model", None),
-            selected_model,
-        ]
-        normalized_hints = " ".join(
-            str(value or "").strip().lower()
-            for value in hint_values
-            if str(value or "").strip()
+        raise ValueError(
+            f"Unsupported custom provider api_format: {getattr(provider, 'api_format', None)}"
         )
-
-        runtime_provider_hints = (
-            # DashScope/Bailian must precede GLM: when Bailian proxies a GLM
-            # model the platform URL determines the thinking-param protocol.
-            ("dashscope", ("dashscope.aliyuncs.com", "dashscope-intl.aliyuncs.com")),
-            ("glm_codeplan", ("codeplan",)),
-            ("glm", ("bigmodel.cn", "z.ai", "glm-", " glm")),
-            ("grok", ("api.x.ai", "x.ai", "grok")),
-            ("deepseek", ("deepseek",)),
-            ("kimi", ("moonshot", "kimi")),
-            ("minimax", ("minimax",)),
-            ("gemini", ("gemini", "generativelanguage.googleapis.com")),
-        )
-        for runtime_provider, markers in runtime_provider_hints:
-            if any(marker in normalized_hints for marker in markers):
-                return runtime_provider
-        return "openai"

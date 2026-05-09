@@ -5,11 +5,12 @@ from __future__ import annotations
 import re
 from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Any
 
+from ..recall_rendering import format_date as _shared_format_date
+from ..recall_rendering import format_time_range as _shared_format_time_range
+from ..recall_rendering import format_timestamp as _shared_format_ts
 
-# Sentence-based truncation parameters for assistant replies.
 _ASSISTANT_MAX_SENTENCES = 60
 _ASSISTANT_HARD_MAX = 4000
 
@@ -17,25 +18,13 @@ _SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?])\s+")
 
 
 def _format_ts(ts: float | None) -> str:
-    """Return a human-readable timestamp string for LLM context."""
-    if ts is None:
-        return ""
-    try:
-        dt = datetime.fromtimestamp(ts, tz=timezone.utc)
-        return dt.strftime("%Y-%m-%d %a %H:%M")
-    except (OSError, OverflowError, ValueError):
-        return ""
+    return _shared_format_ts(ts)
 
 
 def _format_date(ts: float | None) -> str:
-    """Return a date-only string (no time) to avoid replay-timestamp pollution."""
     if ts is None:
         return ""
-    try:
-        dt = datetime.fromtimestamp(ts, tz=timezone.utc)
-        return dt.strftime("%Y-%m-%d %a")
-    except (OSError, OverflowError, ValueError):
-        return ""
+    return _shared_format_date(ts)
 
 
 def _truncate_assistant_content(
@@ -234,9 +223,7 @@ def build_answer_prompt_payload(
         summary = str(ep.get("summary") or "").strip()
         if not summary:
             continue
-        time_start = _format_date(ep.get("time_start"))
-        time_end = _format_date(ep.get("time_end"))
-        time_range = f"{time_start} ~ {time_end}" if time_start and time_end else (time_start or time_end or "")
+        time_range = _shared_format_time_range(ep.get("time_start"), ep.get("time_end"))
         header = f"[{label}]" if label else "[episode]"
         if time_range:
             header += f" ({time_range})"

@@ -42,6 +42,18 @@ class TestSqliteSensorStateStore:
         assert fps == {"fp1", "fp2"}
 
     @pytest.mark.asyncio
+    async def test_fingerprint_groups_add_and_get(self, store: SqliteSensorStateStore):
+        await store.add_fingerprint_groups(
+            {
+                "sensor-1": {"fp1", "fp2"},
+                "sensor-2": {"fp3"},
+            }
+        )
+
+        assert await store.get_known_fingerprints("sensor-1") == {"fp1", "fp2"}
+        assert await store.get_known_fingerprints("sensor-2") == {"fp3"}
+
+    @pytest.mark.asyncio
     async def test_fingerprints_limit(self, store: SqliteSensorStateStore):
         await store.add_fingerprints("sensor-1", {f"fp{i}" for i in range(20)})
         fps = await store.get_known_fingerprints("sensor-1", limit=5)

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 import sys
 
@@ -8,7 +7,14 @@ import pytest
 
 from magi.config.models import AppConfig, PluginSettings
 from magi.plugins import Plugin
-from magi.plugins.installation import replace_plugin_directory
+from magi.plugins import installation as installation_module
+from magi.plugins.installation import (
+    PLUGIN_DEPENDENCY_PYTHON_ENV,
+    _build_dependency_install_command,
+    _filter_installable_dependencies,
+    _run_dependency_install_with_progress,
+    replace_plugin_directory,
+)
 from magi.plugins.manager import PluginManager, build_plugin_runtime
 from magi.plugins.sensors import SensorRegistry
 from magi.tools.registry import ToolRegistry, tool_registry as shared_tool_registry
@@ -121,7 +127,7 @@ def _write_install_test_plugin(
     plugin_dir.mkdir(parents=True, exist_ok=True)
     dependencies_line = ""
     if dependencies:
-        quoted = ", ".join(f'\"{item}\"' for item in dependencies)
+        quoted = ", ".join(f'"{item}"' for item in dependencies)
         dependencies_line = f"\ndependencies = [{quoted}]"
     (plugin_dir / "plugin.toml").write_text(
         f"""
@@ -168,7 +174,9 @@ async def test_plugin_manager_discovers_external_plugins_and_loads_enabled_tools
     tool_registry = ToolRegistry()
 
     monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
-    monkeypatch.setattr("magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True)
+    monkeypatch.setattr(
+        "magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True
+    )
 
     manager = PluginManager(
         tool_registry=tool_registry,
@@ -195,7 +203,9 @@ def test_plugin_manager_persists_newly_discovered_plugins_as_disabled(
     tool_registry = ToolRegistry()
 
     monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
-    monkeypatch.setattr("magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True)
+    monkeypatch.setattr(
+        "magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True
+    )
 
     manager = PluginManager(
         tool_registry=tool_registry,
@@ -225,13 +235,14 @@ def test_core_tools_plugin_registers_memory_query_tool(monkeypatch: pytest.Monke
     tool_registry = ToolRegistry()
 
     monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
-    monkeypatch.setattr("magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True)
+    monkeypatch.setattr(
+        "magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True
+    )
 
     builtin_plugins_root = Path(__file__).resolve().parents[3] / "plugins"
     manager = PluginManager(
         tool_registry=tool_registry,
         sensor_registry=SensorRegistry(),
-
         search_paths=[builtin_plugins_root],
     )
 
@@ -258,7 +269,9 @@ def test_plugin_manager_reload_clears_cached_plugin_submodules(
     tool_registry = ToolRegistry()
 
     monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
-    monkeypatch.setattr("magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True)
+    monkeypatch.setattr(
+        "magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True
+    )
 
     manager = PluginManager(
         tool_registry=tool_registry,
@@ -305,7 +318,9 @@ def test_install_plugin_from_directory_keeps_existing_plugin_until_staging_ready
     tool_registry = ToolRegistry()
 
     monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
-    monkeypatch.setattr("magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True)
+    monkeypatch.setattr(
+        "magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True
+    )
     monkeypatch.setattr(PluginManager, "_user_plugins_root", staticmethod(lambda: user_root))
 
     manager = PluginManager(
@@ -328,7 +343,9 @@ def test_install_plugin_from_directory_keeps_existing_plugin_until_staging_ready
         _ = dependencies, plugin_dir
         raise RuntimeError("dependency install failed")
 
-    monkeypatch.setattr(PluginManager, "_install_dependencies", staticmethod(fail_install_dependencies))
+    monkeypatch.setattr(
+        PluginManager, "_install_dependencies", staticmethod(fail_install_dependencies)
+    )
 
     with pytest.raises(RuntimeError, match="dependency install failed"):
         manager.install_plugin_from_directory(incoming_dir)
@@ -337,6 +354,114 @@ def test_install_plugin_from_directory_keeps_existing_plugin_until_staging_ready
     assert existing_dir.exists()
     assert "old-version" in (existing_dir / "plugin.py").read_text(encoding="utf-8")
     assert "new-version" not in (existing_dir / "plugin.py").read_text(encoding="utf-8")
+
+
+def test_install_plugin_from_directory_reports_progress(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    user_root = tmp_path / "user-plugins"
+    source_root = tmp_path / "incoming"
+    incoming_dir = _write_install_test_plugin(
+        source_root,
+        plugin_id="progress-test",
+        version="1.0.0",
+        marker="installed",
+    )
+
+    config = AppConfig()
+    tool_registry = ToolRegistry()
+
+    monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
+    monkeypatch.setattr(
+        "magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True
+    )
+    monkeypatch.setattr(PluginManager, "_user_plugins_root", staticmethod(lambda: user_root))
+
+    manager = PluginManager(
+        tool_registry=tool_registry,
+        sensor_registry=SensorRegistry(),
+        search_paths=[user_root],
+    )
+    progress_events: list[tuple[str, str, float | None]] = []
+
+    state = manager.install_plugin_from_directory(
+        incoming_dir,
+        progress_reporter=lambda stage, message, progress: progress_events.append(
+            (stage, message, progress)
+        ),
+    )
+
+    assert state.manifest.plugin_id == "progress-test"
+    assert state.enabled is True
+    assert [event[0] for event in progress_events] == [
+        "validate",
+        "stage",
+        "scan",
+        "activate",
+        "completed",
+    ]
+    assert progress_events[-1][2] == 100.0
+
+
+def test_dependency_install_runner_reports_subprocess_output() -> None:
+    progress_events: list[tuple[str, str, float | None]] = []
+
+    result = _run_dependency_install_with_progress(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; "
+                "sys.stdout.write('collecting\\n'); sys.stdout.flush(); "
+                "sys.stderr.write('installing\\n'); sys.stderr.flush()"
+            ),
+        ],
+        lambda stage, message, progress: progress_events.append((stage, message, progress)),
+    )
+
+    assert result.returncode == 0
+    assert result.stdout.splitlines() == ["collecting", "installing"]
+    assert progress_events == [
+        ("dependencies", "collecting", None),
+        ("dependencies", "installing", None),
+    ]
+
+
+def test_dependency_install_command_uses_configured_python_when_frozen(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    current_python = sys.executable
+    monkeypatch.setenv(PLUGIN_DEPENDENCY_PYTHON_ENV, current_python)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(
+        sys,
+        "executable",
+        "/Applications/Magi.app/Contents/Resources/sidecar-dist/magi-backend",
+    )
+
+    cmd = _build_dependency_install_command(["example-package"], tmp_path / ".deps", quiet=False)
+
+    assert cmd[:4] == [current_python, "-m", "pip", "install"]
+
+
+def test_dependency_install_command_rejects_frozen_sidecar_without_python(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv(PLUGIN_DEPENDENCY_PYTHON_ENV, raising=False)
+    monkeypatch.delenv("MAGI_BACKEND_PYTHON", raising=False)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(
+        sys,
+        "executable",
+        "/Applications/Magi.app/Contents/Resources/sidecar-dist/magi-backend",
+    )
+    monkeypatch.setattr(installation_module.shutil, "which", lambda _name: None)
+
+    with pytest.raises(RuntimeError, match=PLUGIN_DEPENDENCY_PYTHON_ENV):
+        _build_dependency_install_command(["example-package"], tmp_path / ".deps", quiet=False)
 
 
 def test_replace_plugin_directory_rolls_back_when_promotion_fails(
@@ -369,6 +494,25 @@ def test_replace_plugin_directory_rolls_back_when_promotion_fails(
     assert len(replace_calls) >= 2
 
 
+def test_filter_installable_dependencies_respects_environment_markers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    environment = installation_module.default_environment()
+    environment["sys_platform"] = "darwin"
+    monkeypatch.setattr(installation_module, "default_environment", lambda: environment)
+
+    installable, skipped = _filter_installable_dependencies(
+        [
+            "requests>=2",
+            "winrt-runtime>=2.0; sys_platform == 'win32'",
+            "not a valid requirement @@@",
+        ]
+    )
+
+    assert installable == ["requests>=2", "not a valid requirement @@@"]
+    assert skipped == ["winrt-runtime>=2.0; sys_platform == 'win32'"]
+
+
 def test_build_plugin_runtime_uses_shared_tool_registry_by_default(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -376,7 +520,9 @@ def test_build_plugin_runtime_uses_shared_tool_registry_by_default(
     config = AppConfig()
 
     monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
-    monkeypatch.setattr("magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True)
+    monkeypatch.setattr(
+        "magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True
+    )
     monkeypatch.setattr("magi.plugins.manager._resolve_search_paths", lambda: [tmp_path])
 
     bindings = build_plugin_runtime(

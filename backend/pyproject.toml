@@ -71,6 +71,7 @@ dependencies = [
     "dateparser>=1.2.0",
 
     # Utilities
+    "packaging>=23.0",
     "httpx>=0.26.0",
     "socksio>=1.0.0",
     "aiofiles>=23.2.1",
@@ -104,6 +105,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "magi.i18n" = ["locales/*.json"]
+"magi.agent.task_agents.chat" = ["*.yaml"]
 "magi.db.migrations.chat" = ["script.py.mako"]
 "magi.db.migrations.l1" = ["script.py.mako"]
 "magi.db.migrations.memory_shared" = ["script.py.mako"]

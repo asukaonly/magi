@@ -5,6 +5,8 @@ import { motion, useReducedMotion } from 'framer-motion';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { pluginsApi } from '@/api/modules/plugins';
+import type { PluginInstallJobSnapshot } from '@/api/modules/plugins';
+import { PluginInstallProgressPanel } from '@/components/plugins/PluginInstallProgressPanel';
 import type { ScenarioId } from './ScenarioSelection';
 
 /** Sensor plugins recommended per scenario. */
@@ -30,9 +32,15 @@ function getCurrentPlatform(): string {
 
 interface SensorSelectionProps {
   scenario?: ScenarioId;
+  onInstallStatusChange?: (status: SensorInstallStatus) => void;
 }
 
 type InstallState = 'idle' | 'installing' | 'installed' | 'error';
+
+export interface SensorInstallStatus {
+  canContinue: boolean;
+  isInstalling: boolean;
+}
 
 interface SensorItem {
   pluginId: string;
@@ -41,7 +49,7 @@ interface SensorItem {
   alreadyInstalled: boolean;
 }
 
-const SensorSelection: React.FC<SensorSelectionProps> = ({ scenario }) => {
+const SensorSelection: React.FC<SensorSelectionProps> = ({ scenario, onInstallStatusChange }) => {
   const { t, i18n } = useTranslation('onboarding');
   const shouldReduceMotion = useReducedMotion();
   const [loading, setLoading] = useState(true);
@@ -50,6 +58,7 @@ const SensorSelection: React.FC<SensorSelectionProps> = ({ scenario }) => {
   const [sensors, setSensors] = useState<SensorItem[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [installStates, setInstallStates] = useState<Record<string, InstallState>>({});
+  const [installSnapshots, setInstallSnapshots] = useState<Record<string, PluginInstallJobSnapshot>>({});
 
   const platform = useMemo(() => getCurrentPlatform(), []);
 
@@ -138,10 +147,13 @@ const SensorSelection: React.FC<SensorSelectionProps> = ({ scenario }) => {
     for (const pluginId of toInstall) {
       setInstallStates((prev) => ({ ...prev, [pluginId]: 'installing' }));
       try {
-        await pluginsApi.installFromRegistry(pluginId);
+        await pluginsApi.installFromRegistryWithProgress(pluginId, (snapshot) => {
+          setInstallSnapshots((prev) => ({ ...prev, [pluginId]: snapshot }));
+        });
         setInstallStates((prev) => ({ ...prev, [pluginId]: 'installed' }));
         successCount++;
-      } catch {
+      } catch (error) {
+        console.error('[sensorSelection] failed to install sensor plugin', { pluginId, error });
         setInstallStates((prev) => ({ ...prev, [pluginId]: 'error' }));
         failCount++;
       }
@@ -162,6 +174,22 @@ const SensorSelection: React.FC<SensorSelectionProps> = ({ scenario }) => {
     (id) => installStates[id] === 'installed' || sensors.find((s) => s.pluginId === id)?.alreadyInstalled
   );
   const isInstalling = Object.values(installStates).some((s) => s === 'installing');
+  const canContinue = !loading && (!registryAvailable || selected.size === 0 || allSelectedInstalled);
+  const visibleSnapshotEntry = useMemo(() => {
+    const selectedIds = [...selected];
+    const active = selectedIds.find((pluginId) => {
+      const snapshot = installSnapshots[pluginId];
+      return snapshot?.status === 'queued' || snapshot?.status === 'running';
+    });
+    const fallback = [...selectedIds].reverse().find((pluginId) => Boolean(installSnapshots[pluginId]));
+    const pluginId = active ?? fallback;
+    if (!pluginId) return null;
+    return { pluginId, snapshot: installSnapshots[pluginId] };
+  }, [installSnapshots, selected]);
+
+  useEffect(() => {
+    onInstallStatusChange?.({ canContinue, isInstalling });
+  }, [canContinue, isInstalling, onInstallStatusChange]);
 
   if (loading) {
     return (
@@ -261,23 +289,36 @@ const SensorSelection: React.FC<SensorSelectionProps> = ({ scenario }) => {
       </div>
 
       {hasSelection && !allSelectedInstalled && (
-        <button
-          type="button"
-          onClick={handleInstallSelected}
-          disabled={isInstalling}
-          className={cn(
-            'inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition',
-            'hover:bg-primary/90 disabled:opacity-60'
-          )}
-        >
-          {isInstalling ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Download className="h-4 w-4" />
-          )}
-          {t('sensorSelection.installSelected')}
-        </button>
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={handleInstallSelected}
+            disabled={isInstalling}
+            className={cn(
+              'inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition',
+              'hover:bg-primary/90 disabled:opacity-60'
+            )}
+          >
+            {isInstalling ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4" />
+            )}
+            {t('sensorSelection.installSelected')}
+          </button>
+          <p className="text-xs text-muted-foreground">{t('sensorSelection.installBeforeNextHint')}</p>
+        </div>
       )}
+
+      {visibleSnapshotEntry ? (
+        <PluginInstallProgressPanel
+          snapshot={visibleSnapshotEntry.snapshot}
+          title={t('sensorSelection.installProgressTitle', {
+            name: sensors.find((sensor) => sensor.pluginId === visibleSnapshotEntry.pluginId)?.name
+              ?? visibleSnapshotEntry.pluginId,
+          })}
+        />
+      ) : null}
 
       <p className="text-xs text-muted-foreground">{t('sensorSelection.skipHint')}</p>
     </div>

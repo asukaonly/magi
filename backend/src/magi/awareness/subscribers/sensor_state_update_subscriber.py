@@ -1,8 +1,7 @@
 """Persist sensor source-item fingerprints to dedupe future ingest."""
 from __future__ import annotations
-import asyncio
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from magi.events.events import Event, EventTypes
 from magi.events.domain_payloads import SensorEventEmitted
@@ -12,16 +11,20 @@ logger = logging.getLogger(__name__)
 
 
 class SensorStateUpdateSubscriber:
-    def __init__(self, *, event_bus, sensor_state_store) -> None:
+    def __init__(self, *, event_bus, sensor_state_writer) -> None:
         self._bus = event_bus
-        self._state_store = sensor_state_store
+        self._writer = sensor_state_writer
         self._sub_id: Optional[str] = None
-        self._inflight: set[asyncio.Task] = set()
 
     async def start(self) -> None:
-        self._sub_id = await self._bus.subscribe(
-            EventTypes.SENSOR_EVENT_EMITTED, self._on_event,
-        )
+        await self._writer.start()
+        try:
+            self._sub_id = await self._bus.subscribe(
+                EventTypes.SENSOR_EVENT_EMITTED, self._on_event,
+            )
+        except Exception:
+            await self._writer.stop()
+            raise
 
     async def stop(self) -> None:
         if self._sub_id is not None:
@@ -30,12 +33,13 @@ class SensorStateUpdateSubscriber:
             except Exception:
                 logger.exception("sensor_state_subscriber unsubscribe failed")
             self._sub_id = None
-        await self.drain()
+        await self._writer.stop()
 
     async def drain(self) -> None:
-        if not self._inflight:
-            return
-        await asyncio.gather(*list(self._inflight), return_exceptions=True)
+        await self._writer.drain()
+
+    def get_stats(self) -> Any:
+        return self._writer.get_stats()
 
     async def _on_event(self, event: Event) -> None:
         try:
@@ -44,14 +48,9 @@ class SensorStateUpdateSubscriber:
             return
         if not payload.sensor_fingerprint:
             return
-        task = asyncio.create_task(self._safe_persist(payload.sensor_id, payload.sensor_fingerprint))
-        self._inflight.add(task)
-        task.add_done_callback(self._inflight.discard)
-
-    async def _safe_persist(self, sensor_id: str, fingerprint: str) -> None:
         try:
-            await self._state_store.add_fingerprints(sensor_id, {fingerprint})
+            await self._writer.add_fingerprint(payload.sensor_id, payload.sensor_fingerprint)
         except Exception:
             logger.exception(
-                "sensor_state add_fingerprints failed (sensor=%s)", sensor_id,
+                "sensor_state enqueue fingerprint failed (sensor=%s)", payload.sensor_id,
             )
