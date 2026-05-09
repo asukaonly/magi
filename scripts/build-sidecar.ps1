@@ -33,9 +33,13 @@ cmd = build_pyinstaller_command()
 # Use the current venv interpreter instead of the bare "python" string.
 cmd[0] = sys.executable
 # Insert --noconsole for Windows so the sidecar does not spawn a console window.
-if "--onefile" in cmd:
-    idx = cmd.index("--onefile")
+for bundle_flag in ("--onedir", "--onefile"):
+  if bundle_flag in cmd:
+    idx = cmd.index(bundle_flag)
     cmd.insert(idx + 1, "--noconsole")
+    break
+else:
+  cmd.insert(1, "--noconsole")
 
 print("PyInstaller command:", " ".join(str(c) for c in cmd), flush=True)
 subprocess.run(cmd, check=True)
