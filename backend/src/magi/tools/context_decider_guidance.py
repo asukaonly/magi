@@ -35,6 +35,7 @@ class ContextDeciderGuidanceMixin:
             decision=decision,
             available_tools=available_tools,
             max_tools=self.max_tools,
+            task_category=decision.intent,
         )
 
     def _default_orchestration_strategy(

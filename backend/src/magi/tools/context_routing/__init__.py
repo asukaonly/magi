@@ -1,6 +1,11 @@
 """Context routing policy helpers used by the context decider."""
 
-from .memory_guidance import MEMORY_RETRIEVAL_TRIGGERS, apply_memory_guidance, evaluate_memory_need
+from .memory_guidance import (
+    MEMORY_RETRIEVAL_TRIGGERS,
+    MEMORY_RETRIEVAL_TRIGGERS_BY_CATEGORY,
+    apply_memory_guidance,
+    evaluate_memory_need,
+)
 from .models import ContextDecision, MemoryGuidance
 from .orchestration import default_orchestration_strategy, normalize_orchestration_strategy
 from .research_guardrail import (
@@ -12,6 +17,7 @@ __all__ = [
     "ContextDecision",
     "MemoryGuidance",
     "MEMORY_RETRIEVAL_TRIGGERS",
+    "MEMORY_RETRIEVAL_TRIGGERS_BY_CATEGORY",
     "apply_memory_guidance",
     "default_orchestration_strategy",
     "evaluate_memory_need",

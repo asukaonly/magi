@@ -25,8 +25,15 @@ def build_attachment_preparation_guidance_block(selected_tools: list[str]) -> st
 MEMORY_QUERY_GUIDANCE_BLOCK = "\n".join(
     [
         "# Memory Query Guidance",
-        "Use `memory_query` before broader search or filesystem tools when the turn is primarily asking for historical recall.",
-        "Use the memory-query result to ground later tool calls instead of re-discovering the same context from scratch.",
+        "You have access to structured long-term memory through `memory_query`. Use it when the user asks about:",
+        "- Personal facts, preferences, or relationships (\"what do I like\", \"who is X\")",
+        "- Historical events or activities (\"what did I do last week\", \"remember when\")",
+        "- Temporal state (\"how was my mood three months ago\", \"what was I reading in March\")",
+        "",
+        "Query tips:",
+        "- Include the subject entity when asking about a specific person or thing.",
+        "- Include time context if the question is about a specific period.",
+        "- Use `memory_query` before broader search tools — memory results ground later tool calls.",
     ]
 )
 
