@@ -1,107 +1,179 @@
-"""Historical-recall compaction for memory tool context."""
+"""Historical-recall compaction for memory tool context.
+
+Renders HistoricalRecallPayload dict into structured text for LLM consumption,
+replacing the previous JSON-dict approach for better token efficiency and
+readability.
+"""
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
-from .tool_context_common import truncate_text
+from .recall_rendering import (
+    aggregate_by_statement,
+    build_asset_manifest,
+    format_time_range,
+    format_timestamp,
+    truncate_statement,
+)
 
 
 def compact_historical_recall(
-    historical_recall: Dict[str, Any],
+    historical_recall: dict[str, Any],
     *,
     max_items: int,
     max_text_chars: int,
-) -> Dict[str, Any]:
-    compact: Dict[str, Any] = {
-        "status": historical_recall.get("status"),
-        "query_mode": historical_recall.get("query_mode"),
-        "summary": historical_recall.get("summary"),
-        "insufficient_evidence": bool(historical_recall.get("insufficient_evidence", False)),
-    }
+) -> str:
+    """Render historical recall as structured text for LLM consumption."""
+    status = str(historical_recall.get("status") or "not_found")
+    mode = str(historical_recall.get("query_mode") or "")
+    summary = str(historical_recall.get("summary") or "")
+    insufficient = bool(historical_recall.get("insufficient_evidence", False))
+    provenance = historical_recall.get("provenance") or {}
+    source_layers = provenance.get("source_layers") or []
+    primary_count = provenance.get("primary_count") or 0
 
-    findings = historical_recall.get("findings")
-    if isinstance(findings, list):
-        compact_findings: list[dict[str, Any]] = []
-        for item in findings[:max_items]:
-            if not isinstance(item, dict):
-                continue
-            statement, statement_truncated = truncate_text(
-                item.get("statement"),
-                max_text_chars=max_text_chars,
-            )
-            evidence_text, evidence_truncated = truncate_text(
-                item.get("evidence_text"),
-                max_text_chars=max_text_chars,
-            )
-            finding: dict[str, Any] = {
-                "kind": item.get("kind"),
-                "statement": statement,
-                "statement_truncated": statement_truncated,
-                "source_layer": item.get("source_layer"),
-                "confidence": item.get("confidence"),
-                "status": item.get("status"),
-                "occurred_at": item.get("occurred_at"),
-            }
-            if evidence_text:
-                finding["evidence_text"] = evidence_text
-                finding["evidence_text_truncated"] = evidence_truncated
-            compact_findings.append(finding)
-        compact["findings"] = compact_findings
+    sections: list[str] = []
 
-    entity_refs = historical_recall.get("entity_refs")
-    if isinstance(entity_refs, list):
-        compact_entity_refs: list[dict[str, Any]] = []
-        for item in entity_refs[:max_items]:
-            if not isinstance(item, dict):
-                continue
-            compact_entity_refs.append(
-                {
-                    "entity_id": item.get("entity_id"),
-                    "entity_type": item.get("entity_type"),
-                    "canonical_name": item.get("canonical_name"),
-                    "match_source": item.get("match_source"),
-                }
-            )
-        if compact_entity_refs:
-            compact["entity_refs"] = compact_entity_refs
+    # ---- Header ----
+    header_parts = [f"status={status}"]
+    if mode:
+        header_parts.append(f"mode={mode}")
+    if source_layers:
+        header_parts.append(f"sources={','.join(str(l) for l in source_layers)}")
+    if primary_count:
+        header_parts.append(f"total={primary_count}")
+    sections.append(f"[Memory Recall] {' | '.join(header_parts)}")
 
-    asset_refs = historical_recall.get("asset_refs")
-    if isinstance(asset_refs, list):
-        compact_asset_refs: list[dict[str, Any]] = []
-        for item in asset_refs[:max_items]:
-            if not isinstance(item, dict):
-                continue
-            compact_item = {
-                "asset_ref_id": item.get("asset_ref_id"),
-                "kind": item.get("kind"),
-                "source_type": item.get("source_type"),
-                "source_item_id": item.get("source_item_id"),
-                "event_id": item.get("event_id"),
-                "original_name": item.get("original_name"),
-                "display_name": item.get("display_name"),
-                "captured_at": item.get("captured_at"),
-                "occurred_at": item.get("occurred_at"),
-            }
-            attributes = item.get("attributes")
-            if isinstance(attributes, dict):
-                compact_item["attributes"] = dict(attributes)
-            compact_asset_refs.append({key: value for key, value in compact_item.items() if value is not None})
-        if compact_asset_refs:
-            compact["asset_refs"] = compact_asset_refs
+    # ---- Summary ----
+    if summary:
+        sections.append(f"## Summary\n{summary}")
 
-    answering_hints = historical_recall.get("answering_hints")
-    if isinstance(answering_hints, dict):
-        compact["answering_hints"] = dict(answering_hints)
+    # ---- Findings ----
+    findings = historical_recall.get("findings") or []
+    if findings:
+        rendered = _render_findings(findings, max_items=max_items, max_text_chars=max_text_chars)
+        if rendered:
+            sections.append(rendered)
 
-    provenance = historical_recall.get("provenance")
-    if isinstance(provenance, dict):
-        compact["provenance"] = {
-            "primary_count": provenance.get("primary_count"),
-            "source_layers": provenance.get("source_layers"),
-        }
+    # ---- Asset manifest ----
+    asset_refs = historical_recall.get("asset_refs") or []
+    if asset_refs:
+        manifest_text = _render_asset_manifest(asset_refs)
+        if manifest_text:
+            sections.append(manifest_text)
 
-    return compact
+    # ---- Usage guidance ----
+    if status == "not_found" or insufficient:
+        sections.append("No confirmed memory found. Do not guess.")
+    else:
+        sections.append(
+            "Source-of-truth for this turn. "
+            "Do not guess beyond these findings."
+        )
+
+    return "\n\n".join(sections)
+
+
+# ---------------------------------------------------------------------------
+# Internal renderers
+# ---------------------------------------------------------------------------
+
+_KIND_LABELS = {
+    "relationship": "Knowledge",
+    "assertion": "Assertions",
+    "event": "Events",
+    "reflection": "Reflections",
+    "procedure": "Procedures",
+}
+
+
+def _render_findings(
+    findings: list[dict[str, Any]],
+    *,
+    max_items: int,
+    max_text_chars: int,
+) -> str:
+    aggregated = aggregate_by_statement(findings[:max_items])
+
+    by_kind: dict[str, list[dict[str, Any]]] = {}
+    for f in aggregated:
+        kind = str(f.get("kind") or "event")
+        by_kind.setdefault(kind, []).append(f)
+
+    kind_order = ["relationship", "assertion", "reflection", "event", "procedure"]
+
+    parts: list[str] = []
+    for kind in kind_order:
+        items = by_kind.get(kind)
+        if not items:
+            continue
+        label = _KIND_LABELS.get(kind, kind.title())
+        lines: list[str] = [f"## {label}"]
+        for item in items:
+            line = _render_single_finding(item, max_text_chars=max_text_chars)
+            lines.append(line)
+        parts.append("\n".join(lines))
+
+    return "\n\n".join(parts)
+
+
+def _render_single_finding(item: dict[str, Any], *, max_text_chars: int) -> str:
+    statement, _ = truncate_statement(
+        str(item.get("statement") or ""),
+        max_chars=max_text_chars,
+    )
+    kind = str(item.get("kind") or "")
+
+    meta_parts: list[str] = []
+
+    ts = item.get("occurred_at")
+    if ts is not None:
+        formatted = format_timestamp(ts)
+        if formatted:
+            meta_parts.append(formatted)
+
+    count = item.get("count")
+    if count is not None and count > 1:
+        first_at = item.get("first_at")
+        last_at = item.get("last_at")
+        range_str = format_time_range(first_at, last_at)
+        meta_parts.append(f"×{count}")
+        if range_str:
+            meta_parts.append(range_str)
+
+    conf = item.get("confidence")
+    if conf is not None and kind != "event":
+        meta_parts.append(f"conf={conf:.2f}")
+
+    evidence = str(item.get("evidence_text") or "").strip()
+    if evidence:
+        ev_text, _ = truncate_statement(evidence, max_chars=min(max_text_chars, 120))
+        meta_parts.append(f"evidence: {ev_text}")
+
+    meta = f" ({', '.join(meta_parts)})" if meta_parts else ""
+    return f"- {statement}{meta}"
+
+
+def _render_asset_manifest(asset_refs: list[dict[str, Any]]) -> str:
+    manifest = build_asset_manifest(asset_refs)
+    if not manifest:
+        return ""
+    lines: list[str] = ["## Referenced Assets"]
+    for item in manifest:
+        display = item.get("display_name", "")
+        source = item.get("source_type", "")
+        domain = item.get("domain", "")
+        count = item.get("count", 1)
+        parts = [display]
+        if source:
+            parts.append(f"source={source}")
+        if domain:
+            parts.append(f"domain={domain}")
+        if count > 1:
+            parts.append(f"×{count}")
+        lines.append(f"- {', '.join(parts)}")
+    return "\n".join(lines)
 
 
 __all__ = ["compact_historical_recall"]

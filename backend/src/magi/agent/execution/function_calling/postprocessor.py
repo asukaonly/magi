@@ -43,16 +43,7 @@ class FunctionCallingPostprocessor:
             "error_code": error_code,
         }
         if tool_name == "memory_query":
-            payload.update(
-                {
-                    "source_of_truth_for_turn": True,
-                    "context_role": "historical_recall_result",
-                    "usage_guidance": (
-                        "Treat memory_query results as the source of truth for historical recall in this turn. "
-                        "Do not replace missing recall results with implicit memory or guesses."
-                    ),
-                }
-            )
+            payload["context_role"] = "historical_recall_result"
         if error_code == "AMBIGUOUS_SCOPE":
             payload["recovery_guidance"] = (
                 "The previous scan was blocked because the target location is ambiguous outside the current workspace. "
