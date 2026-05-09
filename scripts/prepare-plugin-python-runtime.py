@@ -62,12 +62,18 @@ def parse_args() -> argparse.Namespace:
 
 
 def request_json(url: str) -> Any:
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "magi-release-runtime-preparer",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    github_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if github_token:
+        headers["Authorization"] = f"Bearer {github_token}"
+
     request = urllib.request.Request(
         url,
-        headers={
-            "Accept": "application/vnd.github+json",
-            "User-Agent": "magi-release-runtime-preparer",
-        },
+        headers=headers,
     )
     last_error: Exception | None = None
     for attempt in range(1, 4):

@@ -158,6 +158,8 @@ jobs:
       - name: Prepare plugin Python runtime (Unix)
         if: matrix.os_family != 'windows'
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           python scripts/prepare-plugin-python-runtime.py \
             --target "${{ matrix.target }}" \
@@ -168,6 +170,8 @@ jobs:
       - name: Prepare plugin Python runtime (Windows)
         if: matrix.os_family == 'windows'
         shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           python scripts/prepare-plugin-python-runtime.py `
             --target "${{ matrix.target }}" `
