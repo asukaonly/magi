@@ -345,6 +345,7 @@ Classifier and policy responsibilities:
 - `public_topology` and `stable_preference` fact kinds require explicit or structured extraction sources
 - User questions, user requests/commands, assistant memory answers, and assistant freeform text must not become new user-profile facts through L2 graph/assertion writes
 - Unknown evidence can be retained as raw L1 and episode/audit material, but must not be promoted into fact-like retrieval or L2 graph/assertion state without an explicit policy decision
+- Existing L1 rows with missing, stale, or failed evidence annotations are repaired by the `scripts/backfill-l1-evidence.py` maintenance command, which reuses the same shared classifier and policy resolver
 
 #### L2 Write-Side Semantic Conventions
 
@@ -815,6 +816,7 @@ Key notes:
 - `metadata_json` carries structured event payloads
 - Evidence annotation columns describe retrieval and L2-write authority; they do not rewrite `content`
 - Unknown or failed evidence annotations default to `l1_retrieval_scope='none'`
+- Versioned evidence annotations can be backfilled in place without rewriting raw event content
 - Durable events support soft deletion via `deleted_at`
 
 ---
@@ -988,7 +990,9 @@ Main implementation entry points:
 
 - [backend/src/magi/memory/evidence/classifier.py](../backend/src/magi/memory/evidence/classifier.py) — Shared deterministic evidence classification used by L1 retrieval and L2 write governance
 
-- [backend/src/magi/memory/l2/evidence_policy.py](../backend/src/magi/memory/l2/evidence_policy.py) — Current rule-based L2 write policy per evidence class; long-term policy also governs L1 retrieval authority
+- [backend/src/magi/memory/evidence/policy.py](../backend/src/magi/memory/evidence/policy.py) — Shared rule-based policy per evidence class for L1 retrieval authority and L2 write governance
+
+- [scripts/backfill-l1-evidence.py](../scripts/backfill-l1-evidence.py) — Maintenance command for repairing missing or stale L1 evidence annotations
 
 - [backend/src/magi/memory/l3/summary_store.py](../backend/src/magi/memory/l3/summary_store.py) — `L3` summaries and evidence backlinks
 

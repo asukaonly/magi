@@ -6,8 +6,11 @@ import asyncio
 import json
 import logging
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional, Protocol, cast
+
+import aiosqlite
 
 from ...core.sqlite import sqlite_connection_async
 from ...events.events import EventTypes
@@ -51,9 +54,24 @@ class L1EventWriteHostProtocol(Protocol):
 
     async def _schedule_event_embedding(self, event: MemoryEvent) -> None: ...
 
+    def _row_to_memory_event(self, row: aiosqlite.Row) -> MemoryEvent: ...
+
     async def count_events(self) -> int: ...
 
     async def _list_chunk_ids_for_event(self, event_id: str) -> list[str]: ...
+
+
+@dataclass(slots=True)
+class L1EvidenceBackfillResult:
+    """Summary returned by L1 evidence annotation backfill."""
+
+    matched: int = 0
+    processed: int = 0
+    updated: int = 0
+    would_update: int = 0
+    errors: int = 0
+    dry_run: bool = False
+    by_l1_retrieval_scope: dict[str, int] = field(default_factory=dict)
 
 
 class L1EventWriteMixin:
@@ -268,6 +286,155 @@ class L1EventWriteMixin:
             "evidence_updated_at": now,
         }
 
+    async def backfill_evidence_annotations(
+        self,
+        *,
+        user_id: str | None = None,
+        source_filters: list[str] | None = None,
+        event_type: str | None = None,
+        start_time: float | None = None,
+        end_time: float | None = None,
+        batch_size: int = 500,
+        stale_only: bool = True,
+        dry_run: bool = False,
+    ) -> L1EvidenceBackfillResult:
+        """Classify and persist evidence policy columns for existing L1 events."""
+        host = cast(L1EventWriteHostProtocol, self)
+        await host.initialize()
+
+        where_parts = ["deleted_at IS NULL"]
+        args: list[Any] = []
+        if stale_only:
+            where_parts.append(
+                """
+                (
+                    evidence_status != 'classified'
+                    OR evidence_classifier_version != ?
+                    OR evidence_policy_version != ?
+                )
+                """
+            )
+            args.extend([EVIDENCE_CLASSIFIER_VERSION, EVIDENCE_POLICY_VERSION])
+        if user_id:
+            where_parts.append("user_id = ?")
+            args.append(user_id)
+        if source_filters:
+            placeholders = ", ".join("?" for _ in source_filters)
+            where_parts.append(f"source IN ({placeholders})")
+            args.extend(source_filters)
+        if event_type:
+            where_parts.append("event_type = ?")
+            args.append(event_type)
+        if start_time is not None:
+            where_parts.append("timestamp >= ?")
+            args.append(float(start_time))
+        if end_time is not None:
+            where_parts.append("timestamp <= ?")
+            args.append(float(end_time))
+
+        where_clause = " AND ".join(where_parts)
+        result = L1EvidenceBackfillResult(dry_run=bool(dry_run))
+        last_seen_id = 0
+        effective_batch_size = max(1, int(batch_size))
+
+        update_sql = f"""
+            UPDATE {FACT_EVENTS_TABLE}
+            SET evidence_status = ?,
+                evidence_class = ?,
+                evidence_reason_code = ?,
+                evidence_speaker_role = ?,
+                evidence_grounding_type = ?,
+                evidence_semantic_owner = ?,
+                evidence_originality_type = ?,
+                evidence_source_event_ids_json = ?,
+                evidence_confidence = ?,
+                evidence_classifier_version = ?,
+                evidence_policy_version = ?,
+                l1_retrieval_scope = ?,
+                l2_graph_scope = ?,
+                l2_assertion_scope = ?,
+                evidence_skip_reason = ?,
+                evidence_updated_at = ?
+            WHERE event_id = ?
+        """
+
+        async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                f"SELECT COUNT(*) FROM {FACT_EVENTS_TABLE} WHERE {where_clause}",
+                tuple(args),
+            ) as cursor:
+                row = await cursor.fetchone()
+                result.matched = int(row[0]) if row else 0
+
+            while True:
+                async with db.execute(
+                    f"""
+                    SELECT *
+                    FROM {FACT_EVENTS_TABLE}
+                    WHERE {where_clause}
+                      AND id > ?
+                    ORDER BY id ASC
+                    LIMIT ?
+                    """,
+                    (*args, last_seen_id, effective_batch_size),
+                ) as cursor:
+                    rows = await cursor.fetchall()
+                if not rows:
+                    break
+
+                updates: list[tuple[Any, ...]] = []
+                for row in rows:
+                    last_seen_id = max(last_seen_id, int(row["id"]))
+                    try:
+                        event = host._row_to_memory_event(row)
+                        values = self._resolve_event_evidence_values(event)
+                    except Exception as exc:  # noqa: BLE001
+                        result.errors += 1
+                        logger.warning(
+                            "L1 evidence backfill skipped event | event_id=%s error=%s",
+                            row["event_id"],
+                            exc,
+                        )
+                        continue
+
+                    result.processed += 1
+                    scope = str(values["l1_retrieval_scope"])
+                    result.by_l1_retrieval_scope[scope] = (
+                        result.by_l1_retrieval_scope.get(scope, 0) + 1
+                    )
+                    if dry_run:
+                        result.would_update += 1
+                        continue
+                    updates.append(
+                        (
+                            values["evidence_status"],
+                            values["evidence_class"],
+                            values["evidence_reason_code"],
+                            values["evidence_speaker_role"],
+                            values["evidence_grounding_type"],
+                            values["evidence_semantic_owner"],
+                            values["evidence_originality_type"],
+                            values["evidence_source_event_ids_json"],
+                            values["evidence_confidence"],
+                            values["evidence_classifier_version"],
+                            values["evidence_policy_version"],
+                            values["l1_retrieval_scope"],
+                            values["l2_graph_scope"],
+                            values["l2_assertion_scope"],
+                            values["evidence_skip_reason"],
+                            values["evidence_updated_at"],
+                            event.event_id,
+                        )
+                    )
+
+                if updates:
+                    await db.executemany(update_sql, updates)
+                    await db.commit()
+                    result.updated += len(updates)
+
+        return result
+
     async def clear(self) -> int:
         """Delete all events by dropping and recreating the DB file."""
         host = cast(L1EventWriteHostProtocol, self)
@@ -328,4 +495,8 @@ class L1EventWriteMixin:
         return cursor.rowcount > 0
 
 
-__all__ = ["L1EventWriteMixin", "L1_STORE_DIAGNOSTIC_EVENT_TYPES"]
+__all__ = [
+    "L1EvidenceBackfillResult",
+    "L1EventWriteMixin",
+    "L1_STORE_DIAGNOSTIC_EVENT_TYPES",
+]
