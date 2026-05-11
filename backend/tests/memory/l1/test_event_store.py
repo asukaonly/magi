@@ -68,6 +68,45 @@ def test_l1_migration_adds_event_evidence_defaults(tmp_path):
     assert row == ("unclassified", "unknown", "none", "none", "none", "[]")
 
 
+async def _store_polluted_oolong_events(store) -> None:
+    for index in range(12):
+        assistant_event = normalize_runtime_event(
+            Event(
+                type=EventTypes.AI_RESPONSE,
+                data={
+                    "user_id": "user-1",
+                    "session_id": "session-1",
+                    "content": "You like oolong tea.",
+                    "author_type": "assistant",
+                    "content_type": "text",
+                },
+                source="assistant",
+                level=EventLevel.INFO,
+                correlation_id=f"corr-assistant-{index}",
+                event_id=f"evt-assistant-{index}",
+            )
+        )
+        await store.store(assistant_event)
+
+    user_event = normalize_runtime_event(
+        Event(
+            type=EventTypes.USER_MESSAGE,
+            data={
+                "user_id": "user-1",
+                "session_id": "session-1",
+                "content": "I like oolong tea.",
+                "author_type": "user",
+                "content_type": "text",
+            },
+            source="chat",
+            level=EventLevel.INFO,
+            correlation_id="corr-user-scope",
+            event_id="evt-user-scope",
+        )
+    )
+    await store.store(user_event)
+
+
 @pytest.mark.asyncio
 async def test_l1_event_store_persists_evidence_annotation(tmp_path):
     from magi.memory.l1.event_store import L1EventStore
@@ -188,42 +227,7 @@ async def test_l1_bm25_filters_evidence_scope_before_limit(tmp_path):
     store = L1EventStore(db_path=str(db_path), vector_enabled=False)
     await store.initialize()
     try:
-        for index in range(12):
-            assistant_event = normalize_runtime_event(
-                Event(
-                    type=EventTypes.AI_RESPONSE,
-                    data={
-                        "user_id": "user-1",
-                        "session_id": "session-1",
-                        "content": "You like oolong tea.",
-                        "author_type": "assistant",
-                        "content_type": "text",
-                    },
-                    source="assistant",
-                    level=EventLevel.INFO,
-                    correlation_id=f"corr-assistant-{index}",
-                    event_id=f"evt-assistant-{index}",
-                )
-            )
-            await store.store(assistant_event)
-
-        user_event = normalize_runtime_event(
-            Event(
-                type=EventTypes.USER_MESSAGE,
-                data={
-                    "user_id": "user-1",
-                    "session_id": "session-1",
-                    "content": "I like oolong tea.",
-                    "author_type": "user",
-                    "content_type": "text",
-                },
-                source="chat",
-                level=EventLevel.INFO,
-                correlation_id="corr-user-scope",
-                event_id="evt-user-scope",
-            )
-        )
-        await store.store(user_event)
+        await _store_polluted_oolong_events(store)
 
         unscoped_hits = await store.bm25_search("oolong tea", limit=5, user_id="user-1")
         scoped_hits = await store.bm25_search(
@@ -235,6 +239,30 @@ async def test_l1_bm25_filters_evidence_scope_before_limit(tmp_path):
 
         assert len(unscoped_hits) == 5
         assert [event_id for event_id, _score in scoped_hits] == ["evt-user-scope"]
+    finally:
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_l1_handler_scopes_polluted_fact_recall_before_rrf_topk(tmp_path):
+    from magi.memory.hybrid_retrieval.l1_handler import L1Handler
+    from magi.memory.hybrid_retrieval.models import L1Conditions
+    from magi.memory.l1.event_store import L1EventStore
+
+    db_path = _migrated_l1_db_path(tmp_path)
+    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    await store.initialize()
+    try:
+        await _store_polluted_oolong_events(store)
+        handler = L1Handler(store).with_l1_retrieval_scopes(["fact_authoritative"])
+
+        results = await handler.execute(
+            L1Conditions(content_query="oolong tea", limit=5),
+            user_id="user-1",
+        )
+
+        assert [event["event_id"] for event in results] == ["evt-user-scope"]
+        assert results[0]["l1_retrieval_scope"] == "fact_authoritative"
     finally:
         await store.shutdown()
 
