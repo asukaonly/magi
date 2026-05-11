@@ -94,7 +94,33 @@ async def test_l2_projection_enqueues_with_metadata_coercion():
     assert kwargs["max_events"] == 5
     assert kwargs["max_wait_seconds"] == 1.5
     assert kwargs["catch_up_owner"] is None
-    assert result.markers == {"l2_job_enqueued": True}
+    assert result.markers == {
+        "l2_job_enqueued": True,
+        "l2_evidence_class": "user_self_report",
+    }
+
+
+@pytest.mark.asyncio
+async def test_l2_projection_skips_assistant_freeform_by_policy():
+    store = AsyncMock()
+    layer = L2ProjectionLayer(store)
+    event = make_event(
+        event_type="AI_RESPONSE",
+        source="assistant",
+        author_type="assistant",
+    )
+    ctx = FanOutContext(markers={"stored_event_id": "stored-id"})
+
+    result = await layer.ingest(event, ctx)
+
+    store.enqueue_projection_job.assert_not_awaited()
+    assert result.ok is True
+    assert result.markers == {
+        "l2_job_enqueued": False,
+        "l2_job_skipped_by_policy": True,
+        "l2_evidence_class": "assistant_freeform",
+        "l2_skip_reason": "assistant_freeform",
+    }
 
 
 @pytest.mark.asyncio

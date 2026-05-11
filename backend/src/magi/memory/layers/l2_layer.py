@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from ..event_contracts import MemoryEvent
+from ..evidence import classify_event_evidence, resolve_l2_policy
 from ..l2.pipeline.lifecycle import DEFAULT_L2_BATCH_FLUSH_INTERVAL_SECONDS
 from ..l2.pipeline.staging import DEFAULT_L2_MAX_EVENTS_PER_BATCH
 from ..layer_protocol import FanOutContext, LayerIngestResult, WILDCARD_EVENT_TYPES
@@ -24,6 +26,9 @@ def _default_batch_owner(event: MemoryEvent) -> str | None:
     if session_id:
         return f"chat:{session_id}"
     return None
+
+
+logger = logging.getLogger(__name__)
 
 
 class L2ProjectionLayer:
@@ -50,6 +55,18 @@ class L2ProjectionLayer:
 
     async def ingest(self, event: MemoryEvent, ctx: FanOutContext) -> LayerIngestResult:
         stored_event_id = ctx.markers.get("stored_event_id")
+        policy_markers = self._resolve_policy_markers(event)
+        if not policy_markers["l2_policy_allows_projection"]:
+            return LayerIngestResult(
+                layer_name=self.layer_name,
+                ok=True,
+                markers={
+                    "l2_job_enqueued": False,
+                    "l2_job_skipped_by_policy": True,
+                    "l2_evidence_class": policy_markers["l2_evidence_class"],
+                    "l2_skip_reason": policy_markers["l2_skip_reason"],
+                },
+            )
         metadata = event.metadata_json
         batch_owner = _coerce(metadata, "l2_batch_owner", str)
         max_events = _coerce(metadata, "l2_batch_max_events", int)
@@ -74,8 +91,46 @@ class L2ProjectionLayer:
         return LayerIngestResult(
             layer_name=self.layer_name,
             ok=True,
-            markers={"l2_job_enqueued": bool(l2_job_enqueued)},
+            markers={
+                "l2_job_enqueued": bool(l2_job_enqueued),
+                "l2_evidence_class": policy_markers["l2_evidence_class"],
+            },
         )
+
+    def _resolve_policy_markers(self, event: MemoryEvent) -> dict[str, Any]:
+        try:
+            classification = classify_event_evidence(event)
+        except Exception as exc:
+            logger.warning(
+                "L2 projection evidence classification failed | event_id=%s error=%s",
+                event.event_id,
+                exc,
+            )
+            return {
+                "l2_policy_allows_projection": False,
+                "l2_evidence_class": "unknown",
+                "l2_skip_reason": "classification_error",
+            }
+        try:
+            policy = resolve_l2_policy(classification)
+        except Exception as exc:
+            logger.warning(
+                "L2 projection evidence policy failed | event_id=%s evidence_class=%s error=%s",
+                event.event_id,
+                classification.evidence_class,
+                exc,
+            )
+            return {
+                "l2_policy_allows_projection": False,
+                "l2_evidence_class": classification.evidence_class,
+                "l2_skip_reason": "policy_error",
+            }
+        allowed = bool(policy.allow_graph_write or policy.allow_assertion_write)
+        return {
+            "l2_policy_allows_projection": allowed,
+            "l2_evidence_class": classification.evidence_class,
+            "l2_skip_reason": None if allowed else policy.skip_reason or "policy_blocked",
+        }
 
     def _batching_enabled(self) -> bool:
         return (

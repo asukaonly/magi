@@ -20,6 +20,8 @@ def make_event(
     cognition_eligible: bool = True,
     metadata: dict[str, Any] | None = None,
     source: str = "chat",
+    author_type: str = "user",
+    content_type: str = "text",
     idempotency_key: str | None = "idem-1",
 ) -> MemoryEvent:
     return MemoryEvent(
@@ -40,8 +42,8 @@ def make_event(
         user_id="user",
         task_id=None,
         content="hi",
-        author_type="user",
-        content_type="text",
+        author_type=author_type,
+        content_type=content_type,
         importance_score=0.5,
         level=20,
         idempotency_key=idempotency_key,
