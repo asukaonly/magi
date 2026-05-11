@@ -203,6 +203,21 @@ Counter-examples:
 - Step-by-step execution traces
 - Exact tool arguments, latencies, and raw tool outputs from a specific turn
 
+#### Evidence Interpretation and Retrieval Authority
+
+`L1` raw events and retrieval authority are separate concerns. The raw event row records what happened; evidence interpretation records how that event is allowed to participate in fact recall, episode recall, audit views, and downstream cognition.
+
+Evidence interpretation is shared memory governance, not an `L2`-only helper:
+
+- Classification answers what the evidence is: user assertion, user question, user request, assistant freeform answer, assistant quote, tool result, external observation, runtime signal, or other explicit class.
+- Policy answers what the evidence can do: enter fact-like retrieval, remain episode/audit-only, write L2 graph/assertions, affect snapshots, count as new evidence, or require a source backlink.
+- The baseline durable annotation is event-level. Span-level retrieval atoms are optional derived projections for mixed or long events once they are justified by measured retrieval pollution, not the default raw-memory shape.
+- If span-level atoms are introduced, they must hydrate back to the parent `fact_events` row and be protected by immutable source text or content-hash validation.
+
+Fact-like retrieval must constrain the searchable evidence pool before ranking and topK selection. It must not depend on broad L1 recall followed by answer-projection filtering as the primary defense. Assistant memory answers, user recall questions, runtime artifacts, and ungrounded assistant text can remain retrievable in conversation, episode, audit, or debug contexts, but they are not authoritative evidence for new user facts.
+
+Raw `fact_events` content is not rewritten to fix retrieval behavior. Classifier, policy, embedding profile, and index changes mark derived evidence/index records stale and trigger rebuilds; they do not mutate the original L1 fact.
+
 Prompt continuity note:
 
 - The chat runtime may carry a compact `Recent Tool State` summary across nearby turns so the LLM can reuse recent tool outcomes or handles without replaying full tool transcripts.
@@ -301,10 +316,12 @@ Key properties:
 The default execution model:
 
 1. `L1` fact is successfully written to durable store
-2. If `cognition_eligible=true`, an `l2_projection_jobs` record is created in `memory.db`
-3. `L2Pipeline` in the `runtime_worker` claims ready `pending` jobs and marks them `queued`
-4. Claimed events are batched by batch owner / session / user; the worker marks jobs `running` before extraction
-5. Successful extraction marks jobs `completed`; failures mark them `failed` or requeue to `pending`
+2. Synchronous rule evidence classification and policy resolution run on the stored event when available
+3. If `cognition_eligible=true` and evidence policy allows cognition, an `l2_projection_jobs` record is created in `memory.db`
+4. If evidence classification is unavailable or inconclusive, raw L1 storage remains successful, but fact promotion and L2 graph/assertion writes wait for evidence resolution rather than treating the event as authoritative by default
+5. `L2Pipeline` in the `runtime_worker` claims ready jobs and marks them `queued`
+6. Claimed events are batched by batch owner / session / user; the worker marks jobs `running` before extraction
+7. Successful extraction marks jobs `completed`; failures mark them `failed` or requeue to `pending`
 
 Batch policy:
 
@@ -319,11 +336,15 @@ A rare set of runtime-only events without `L1` durable anchors can use the in-pr
 
 #### Evidence Classification and Write Policy
 
-L2 ingestion uses deterministic evidence classification before LLM extraction:
+L2 ingestion uses shared evidence classification before LLM extraction. The current implementation lives in the L2 package, but the long-term ownership is a shared memory evidence subsystem consumed by both L1 retrieval and L2 write governance.
+
+Classifier and policy responsibilities:
 
 - Evidence classes: `user_self_report`, `user_report_about_others`, `assistant_quote`, `assistant_tool_grounded`, `assistant_freeform`, `assistant_runtime_derivation`, `system_runtime`, `external_observation`
 - Each class maps to a `PolicyDecision` controlling `allow_graph_write`, `allow_assertion_write`, `evidence_weight`, etc.
 - `public_topology` and `stable_preference` fact kinds require explicit or structured extraction sources
+- User questions, user requests/commands, assistant memory answers, and assistant freeform text must not become new user-profile facts through L2 graph/assertion writes
+- Unknown evidence can be retained as raw L1 and episode/audit material, but must not be promoted into fact-like retrieval or L2 graph/assertion state without an explicit policy decision
 
 #### L2 Write-Side Semantic Conventions
 
@@ -840,6 +861,7 @@ Not all retrievable memories should be implicitly injected into ordinary convers
 The `HybridRetrievalService` orchestrates cross-layer retrieval with mode-aware behavior:
 
 - Each `query_mode` defines a `QueryModePlan` with layer weight profiles
+- Each fact-like mode defines which L1 evidence scopes are authoritative for that mode; BM25, vector, and keyword retrieval must apply those scopes before topK whenever scoped indexes are available
 - Mode-adaptive RRF adjusts per-layer weights based on the query mode
 - Evidence assemblers shape raw retrieval results into per-mode evidence formats (fact cards, state cards, episode bundles, comparison frames, grouped lists)
 - Reducers produce final answering material (span selection, latest version, narrative, anchor comparison, enumeration)
@@ -848,6 +870,7 @@ The `HybridRetrievalService` orchestrates cross-layer retrieval with mode-aware 
 - LLM-facing memory tool payloads should keep human-readable findings only; opaque ids stay in debug/observability channels rather than prompt context
 - the answer-facing `historical_recall` contract may additionally expose compact `entity_refs` and `asset_refs` for reply-turn continuity and source-owned follow-up resolution, but raw local paths remain outside prompt context
 - plugins may optionally enrich these refs through a recall-artifact projection hook keyed by `source_type`; memory still owns the final query contract and chat still owns attachment import/display
+- For fact-like recall modes, answer-facing projection treats chat-derived assistant freeform replies and chat-derived user question prompts as non-authoritative artifacts. This projection hygiene is a last-mile defense; the primary defense is authoritative evidence scoping before retrieval ranking. These artifacts may remain in `L1` for audit or conversation replay, but they must not become factual `historical_recall.findings` unless the caller explicitly asks for chat-source evidence or uses a conversation-recall mode.
 
 Layer contributions:
 
@@ -919,6 +942,11 @@ These rules must be followed during day-to-day development:
 6. `event_id` is a stable external reference, not a source identity surrogate or business dedup key
 7. When `idempotency_key` is present, business uniqueness is defined by `(source, event_type, idempotency_key)`
 8. Read paths needing producer-side business identifiers should prefer `source_item_id`, then `idempotency_key`, not `event_id`
+9. L1 retrieval authority and L2 write policy must share evidence classification semantics
+10. Raw L1 writes can tolerate evidence-classifier failure; fact promotion and L2 graph/assertion writes must not treat unknown evidence as authoritative by default
+11. Fact-like retrieval modes must constrain authoritative evidence before topK selection; answer-projection filters are only a last-mile guard
+12. Span-level retrieval atoms, if introduced, are derived projections that hydrate back to raw `fact_events`; they are not new raw facts
+13. Classifier, policy, embedding profile, and index-version changes mark derived evidence/index records stale and rebuild them instead of mutating `fact_events.content`
 
 ---
 
@@ -940,9 +968,9 @@ Main implementation entry points:
 
 - [backend/src/magi/memory/l2/episode_formation.py](../backend/src/magi/memory/l2/episode_formation.py) — Streaming episode assignment and consolidation
 
-- [backend/src/magi/memory/l2/evidence_classifier.py](../backend/src/magi/memory/l2/evidence_classifier.py) — Deterministic evidence classification
+- [backend/src/magi/memory/l2/evidence_classifier.py](../backend/src/magi/memory/l2/evidence_classifier.py) — Current deterministic evidence classification; long-term ownership belongs to shared memory evidence governance
 
-- [backend/src/magi/memory/l2/evidence_policy.py](../backend/src/magi/memory/l2/evidence_policy.py) — Rule-based L2 write policy per evidence class
+- [backend/src/magi/memory/l2/evidence_policy.py](../backend/src/magi/memory/l2/evidence_policy.py) — Current rule-based L2 write policy per evidence class; long-term policy also governs L1 retrieval authority
 
 - [backend/src/magi/memory/l3/summary_store.py](../backend/src/magi/memory/l3/summary_store.py) — `L3` summaries and evidence backlinks
 
@@ -950,7 +978,7 @@ Main implementation entry points:
 
 - [backend/src/magi/memory/hybrid_retrieval/service.py](../backend/src/magi/memory/hybrid_retrieval/service.py) — Cross-layer unified retrieval orchestrator
 
-- [backend/src/magi/memory/hybrid_retrieval/mode_registry.py](../backend/src/magi/memory/hybrid_retrieval/mode_registry.py) — Query mode registry (7 unified modes)
+- [backend/src/magi/memory/hybrid_retrieval/mode_registry.py](../backend/src/magi/memory/hybrid_retrieval/mode_registry.py) — Query mode registry and mode-specific retrieval planning
 
 - [backend/src/magi/memory/hybrid_retrieval/l2_handler.py](../backend/src/magi/memory/hybrid_retrieval/l2_handler.py) — L2-specific handler with semantic frame planning
 
@@ -1013,7 +1041,7 @@ On this foundation:
 - `L3` compresses and reflects
 - `L4` distills reusable execution experience
 
-The query pipeline uses a unified `query_mode` system with eight modes, each defining its own evidence shape and reducer. Retrieval is mode-adaptive, with per-mode RRF weight profiles and structured semantic frames for L2 queries.
+The query pipeline uses a unified `query_mode` system, each mode defining its own evidence shape, reducer, and authoritative evidence scope. Retrieval is mode-adaptive, with per-mode RRF weight profiles and structured semantic frames for L2 queries.
 
 User agency is first-class: users can confirm, correct, reject, annotate, and forget memory artifacts. Privacy scope is carried on every durable L2 object.
 
