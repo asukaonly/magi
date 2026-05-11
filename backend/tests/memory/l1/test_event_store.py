@@ -12,6 +12,58 @@ from magi.memory.event_contracts import IngestTarget, MemoryDomain, RetentionCla
 from magi.memory.embedding.sqlite_vec_index import VectorSearchHit
 
 
+def test_l1_migration_adds_event_evidence_defaults(tmp_path):
+    from magi.db.runner import MIGRATION_TARGETS, run_upgrade_head
+    from magi.utils.runtime import RuntimePaths
+
+    runtime_paths = RuntimePaths(base_dir=tmp_path / "runtime")
+    l1_target = next(target for target in MIGRATION_TARGETS if target.name == "l1")
+
+    run_upgrade_head(runtime_paths, targets=(l1_target,))
+
+    db_path = runtime_paths.l1_memory_db_path
+    with sqlite3.connect(db_path) as db:
+        columns = {row[1] for row in db.execute("PRAGMA table_info(fact_events)")}
+        indexes = {row[1] for row in db.execute("PRAGMA index_list(fact_events)")}
+        db.execute(
+            """
+            INSERT INTO fact_events(
+                event_id, correlation_id, timestamp, created_at,
+                event_type, source, memory_domain, ingest_target,
+                content, author_type, content_type
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "evt-evidence-defaults",
+                "corr-evidence-defaults",
+                1710000000.0,
+                1710000000.0,
+                "UserMessage",
+                "chat",
+                int(MemoryDomain.USER_AUTHORED),
+                int(IngestTarget.L1_ONLY),
+                "I like tea.",
+                "user",
+                "text",
+            ),
+        )
+        row = db.execute(
+            """
+            SELECT evidence_status, evidence_class, l1_retrieval_scope,
+                   l2_graph_scope, l2_assertion_scope, evidence_source_event_ids_json
+            FROM fact_events
+            WHERE event_id = ?
+            """,
+            ("evt-evidence-defaults",),
+        ).fetchone()
+
+    assert "evidence_status" in columns
+    assert "evidence_class" in columns
+    assert "l1_retrieval_scope" in columns
+    assert "idx_fact_events_l1_retrieval_scope" in indexes
+    assert row == ("unclassified", "unknown", "none", "none", "none", "[]")
+
+
 class _BatchTrackingEmbeddingService:
     def __init__(self, *, model_name: str = "test-embedding", dimension: int = 4) -> None:
         self.single_calls: list[str] = []
