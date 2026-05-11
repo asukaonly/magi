@@ -27,35 +27,35 @@ fn build_l1_events_response(params: &L1EventsQuery) -> Value {
         None => return json!({"items": [], "total": 0, "limit": limit, "offset": offset}),
     };
 
-    let mut where_parts = vec!["deleted_at IS NULL".to_string()];
+    let mut where_parts = vec!["fe.deleted_at IS NULL".to_string()];
     let mut bind: Vec<rusqlite::types::Value> = Vec::new();
 
     if let Some(ref v) = params.event_type {
-        where_parts.push("event_type = ?".into());
+        where_parts.push("fe.event_type = ?".into());
         bind.push(rusqlite::types::Value::Text(v.clone()));
     }
     if let Some(ref v) = params.event_id {
-        where_parts.push("event_id = ?".into());
+        where_parts.push("fe.event_id = ?".into());
         bind.push(rusqlite::types::Value::Text(v.clone()));
     }
     if let Some(ref v) = params.user_id {
-        where_parts.push("user_id = ?".into());
+        where_parts.push("fe.user_id = ?".into());
         bind.push(rusqlite::types::Value::Text(v.clone()));
     }
     if let Some(ref v) = params.session_id {
-        where_parts.push("session_id = ?".into());
+        where_parts.push("fe.session_id = ?".into());
         bind.push(rusqlite::types::Value::Text(v.clone()));
     }
     if let Some(ref v) = params.source {
-        where_parts.push("source = ?".into());
+        where_parts.push("fe.source = ?".into());
         bind.push(rusqlite::types::Value::Text(v.clone()));
     }
     if let Some(ref v) = params.source_item_id {
-        where_parts.push("source_item_id = ?".into());
+        where_parts.push("fe.source_item_id = ?".into());
         bind.push(rusqlite::types::Value::Text(v.clone()));
     }
     if let Some(ref v) = params.idempotency_key {
-        where_parts.push("idempotency_key = ?".into());
+        where_parts.push("fe.idempotency_key = ?".into());
         bind.push(rusqlite::types::Value::Text(v.clone()));
     }
     bind_date_filter(
@@ -71,15 +71,16 @@ fn build_l1_events_response(params: &L1EventsQuery) -> Value {
         params.end_date.as_deref(),
     );
     if let Some(ref v) = params.query {
-        where_parts
-            .push("event_id IN (SELECT event_id FROM l1_events_fts WHERE content MATCH ?)".into());
+        where_parts.push(
+            "fe.event_id IN (SELECT event_id FROM l1_events_fts WHERE content MATCH ?)".into(),
+        );
         bind.push(rusqlite::types::Value::Text(v.clone()));
     }
 
     let where_clause = where_parts.join(" AND ");
 
     // Count total matching rows
-    let count_sql = format!("SELECT COUNT(*) FROM fact_events WHERE {}", where_clause);
+    let count_sql = format!("SELECT COUNT(*) FROM fact_events fe WHERE {}", where_clause);
     let count_refs: Vec<&dyn rusqlite::types::ToSql> = bind
         .iter()
         .map(|v| v as &dyn rusqlite::types::ToSql)
@@ -90,13 +91,100 @@ fn build_l1_events_response(params: &L1EventsQuery) -> Value {
     bind.push(rusqlite::types::Value::Integer(offset));
 
     let sql = format!(
-        "SELECT id, event_id, correlation_id, timestamp, created_at, event_type, \
-         source, source_item_id, idempotency_key, memory_domain, ingest_target, \
-         cognition_eligible, tom_depth, retention_class, session_id, turn_id, \
-         user_id, task_id, content, author_type, content_type, importance_score, \
-         level, media_path, metadata_json, embedding_status, embedding_profile_id, \
-         embedding_chunk_count, last_embedded_at, deleted_at \
-         FROM fact_events WHERE {} ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+          "SELECT \
+            fe.id, \
+            fe.event_id, \
+            fe.event_id AS correlation_id, \
+            fe.timestamp, \
+            fe.created_at, \
+            fe.event_type, \
+            fe.source, \
+            fe.source_item_id, \
+            fe.idempotency_key, \
+            CASE fe.memory_domain \
+                WHEN 1 THEN 'user_authored' \
+                WHEN 2 THEN 'external_activity' \
+                WHEN 3 THEN 'runtime_telemetry' \
+                WHEN 4 THEN 'system_control' \
+                WHEN 5 THEN 'interaction' \
+                ELSE 'user_authored' \
+            END AS memory_domain, \
+            'l1_only' AS ingest_target, \
+            fe.cognition_eligible, \
+            'none' AS tom_depth, \
+            CASE fe.retention_class \
+                WHEN 1 THEN 'disposable' \
+                WHEN 2 THEN 'compressible' \
+                WHEN 3 THEN 'permanent' \
+                ELSE 'compressible' \
+            END AS retention_class, \
+            fe.session_id, \
+            fe.turn_id, \
+            fe.user_id, \
+            NULL AS task_id, \
+            fe.content, \
+            CASE fe.author_type \
+                WHEN 1 THEN 'user' \
+                WHEN 2 THEN 'assistant' \
+                WHEN 3 THEN 'tool' \
+                WHEN 4 THEN 'system' \
+                WHEN 5 THEN 'sensor' \
+                WHEN 6 THEN 'external' \
+                ELSE 'unknown' \
+            END AS author_type, \
+            CASE fe.content_type \
+                WHEN 1 THEN 'text' \
+                WHEN 2 THEN 'tool_result' \
+                WHEN 3 THEN 'observation' \
+                ELSE 'unknown' \
+            END AS content_type, \
+            fe.importance_score, \
+            1 AS level, \
+            fe.media_path, \
+            fe.metadata_json, \
+            CASE COALESCE(es.embedding_status, 1) \
+                WHEN 1 THEN 'disabled' \
+                WHEN 2 THEN 'pending' \
+                WHEN 3 THEN 'ready' \
+                WHEN 4 THEN 'failed' \
+                WHEN 5 THEN 'skipped' \
+                ELSE 'disabled' \
+            END AS embedding_status, \
+            es.embedding_profile_id, \
+            es.embedding_chunk_count, \
+            es.last_embedded_at, \
+            CASE fe.evidence_status \
+                WHEN 1 THEN 'unknown' \
+                WHEN 2 THEN 'classified' \
+                WHEN 3 THEN 'classification_error' \
+                WHEN 4 THEN 'policy_error' \
+                ELSE 'unknown' \
+            END AS evidence_status, \
+            CASE fe.evidence_class \
+                WHEN 1 THEN 'unknown' \
+                WHEN 2 THEN 'user_self_report' \
+                WHEN 3 THEN 'user_report_about_others' \
+                WHEN 4 THEN 'assistant_quote' \
+                WHEN 5 THEN 'assistant_tool_grounded' \
+                WHEN 6 THEN 'assistant_freeform' \
+                WHEN 7 THEN 'assistant_runtime_derivation' \
+                WHEN 8 THEN 'external_observation' \
+                WHEN 9 THEN 'system_runtime' \
+                ELSE 'unknown' \
+            END AS evidence_class, \
+            fe.evidence_rule_version, \
+            CASE fe.l1_retrieval_scope \
+                WHEN 1 THEN 'none' \
+                WHEN 2 THEN 'fact_authoritative' \
+                WHEN 3 THEN 'conversation_only' \
+                WHEN 4 THEN 'audit_only' \
+                WHEN 5 THEN 'source_backlink_only' \
+                ELSE 'none' \
+            END AS l1_retrieval_scope, \
+            fe.deleted_at \
+            FROM fact_events fe \
+            LEFT JOIN l1_event_embedding_state es USING(event_id) \
+            WHERE {} ORDER BY fe.timestamp DESC LIMIT ? OFFSET ?",
         where_clause
     );
     let refs: Vec<&dyn rusqlite::types::ToSql> = bind
@@ -199,69 +287,90 @@ mod tests {
             CREATE TABLE fact_events (
                 id INTEGER PRIMARY KEY,
                 event_id TEXT NOT NULL,
-                correlation_id TEXT,
                 timestamp REAL NOT NULL,
                 created_at REAL,
                 event_type TEXT,
                 source TEXT,
                 source_item_id TEXT,
                 idempotency_key TEXT,
-                memory_domain TEXT,
-                ingest_target TEXT,
+                memory_domain INTEGER,
                 cognition_eligible INTEGER,
-                tom_depth TEXT,
-                retention_class TEXT,
+                retention_class INTEGER,
                 session_id TEXT,
                 turn_id TEXT,
                 user_id TEXT,
-                task_id TEXT,
                 content TEXT,
-                author_type TEXT,
-                content_type TEXT,
+                author_type INTEGER,
+                content_type INTEGER,
                 importance_score REAL,
-                level INTEGER,
                 media_path TEXT,
                 metadata_json TEXT,
-                embedding_status TEXT,
-                embedding_profile_id TEXT,
-                embedding_chunk_count INTEGER,
-                last_embedded_at REAL,
+                evidence_status INTEGER,
+                evidence_class INTEGER,
+                evidence_rule_version INTEGER,
+                l1_retrieval_scope INTEGER,
                 deleted_at REAL
             );
 
-            INSERT INTO fact_events (
-                id, event_id, correlation_id, timestamp, created_at, event_type, source,
-                source_item_id, idempotency_key, memory_domain, ingest_target,
-                cognition_eligible, tom_depth, retention_class, session_id, turn_id,
-                user_id, task_id, content, author_type, content_type, importance_score,
-                level, media_path, metadata_json, embedding_status, embedding_profile_id,
-                embedding_chunk_count, last_embedded_at, deleted_at
-            ) VALUES (
-                1, 'may-5', NULL,
-                CAST(strftime('%s', '2026-05-05 12:00:00', 'utc') AS REAL),
-                CAST(strftime('%s', '2026-05-05 12:00:00', 'utc') AS REAL),
-                'sensor_event', 'netease_music', 'source-1', 'idem-1', 'external',
-                'observation', 1, 'none', 'short', 'session-1', 'turn-1', 'user-1',
-                NULL, 'in-range event', 'system', 'text', 0.5, 20, NULL,
-                '{"timeline":{"source_app":"NetEase"}}', 'ready', 'profile-a', 2,
-                CAST(strftime('%s', '2026-05-05 12:05:00', 'utc') AS REAL), NULL
+            CREATE TABLE l1_event_embedding_state (
+                event_id TEXT PRIMARY KEY,
+                embedding_status INTEGER,
+                embedding_profile_id TEXT,
+                embedding_chunk_count INTEGER,
+                last_embedded_at REAL,
+                updated_at REAL
             );
 
             INSERT INTO fact_events (
-                id, event_id, correlation_id, timestamp, created_at, event_type, source,
-                source_item_id, idempotency_key, memory_domain, ingest_target,
-                cognition_eligible, tom_depth, retention_class, session_id, turn_id,
-                user_id, task_id, content, author_type, content_type, importance_score,
-                level, media_path, metadata_json, embedding_status, embedding_profile_id,
-                embedding_chunk_count, last_embedded_at, deleted_at
+                id, event_id, timestamp, created_at, event_type, source,
+                source_item_id, idempotency_key, memory_domain,
+                cognition_eligible, retention_class, session_id, turn_id,
+                user_id, content, author_type, content_type, importance_score,
+                media_path, metadata_json, evidence_status, evidence_class,
+                evidence_rule_version, l1_retrieval_scope, deleted_at
             ) VALUES (
-                2, 'may-7', NULL,
+                1, 'may-5',
+                CAST(strftime('%s', '2026-05-05 12:00:00', 'utc') AS REAL),
+                CAST(strftime('%s', '2026-05-05 12:00:00', 'utc') AS REAL),
+                'sensor_event', 'netease_music', 'source-1', 'idem-1', 2,
+                1, 2, 'session-1', 'turn-1', 'user-1',
+                'in-range event', 4, 1, 0.5, NULL,
+                '{"timeline":{"source_app":"NetEase"}}', 2, 8,
+                1, 2, NULL
+            );
+
+            INSERT INTO l1_event_embedding_state (
+                event_id, embedding_status, embedding_profile_id, embedding_chunk_count,
+                last_embedded_at, updated_at
+            ) VALUES (
+                'may-5', 3, 'profile-a', 2,
+                CAST(strftime('%s', '2026-05-05 12:05:00', 'utc') AS REAL),
+                CAST(strftime('%s', '2026-05-05 12:05:00', 'utc') AS REAL)
+            );
+
+            INSERT INTO fact_events (
+                id, event_id, timestamp, created_at, event_type, source,
+                source_item_id, idempotency_key, memory_domain,
+                cognition_eligible, retention_class, session_id, turn_id,
+                user_id, content, author_type, content_type, importance_score,
+                media_path, metadata_json, evidence_status, evidence_class,
+                evidence_rule_version, l1_retrieval_scope, deleted_at
+            ) VALUES (
+                2, 'may-7',
                 CAST(strftime('%s', '2026-05-07 12:00:00', 'utc') AS REAL),
                 CAST(strftime('%s', '2026-05-07 12:00:00', 'utc') AS REAL),
-                'sensor_event', 'netease_music', 'source-2', 'idem-2', 'external',
-                'observation', 1, 'none', 'short', 'session-1', 'turn-2', 'user-1',
-                NULL, 'out-of-range event', 'system', 'text', 0.5, 20, NULL,
-                '{}', 'pending', 'profile-a', 0, NULL, NULL
+                'sensor_event', 'netease_music', 'source-2', 'idem-2', 2,
+                1, 2, 'session-1', 'turn-2', 'user-1',
+                'out-of-range event', 4, 1, 0.5, NULL,
+                '{}', 1, 8, 1, 1, NULL
+            );
+
+            INSERT INTO l1_event_embedding_state (
+                event_id, embedding_status, embedding_profile_id, embedding_chunk_count,
+                last_embedded_at, updated_at
+            ) VALUES (
+                'may-7', 2, 'profile-a', 0, NULL,
+                CAST(strftime('%s', '2026-05-07 12:00:00', 'utc') AS REAL)
             );
             "#,
         )
@@ -292,9 +401,19 @@ mod tests {
         let items = response["items"].as_array().unwrap();
         assert_eq!(items.len(), 1);
         assert_eq!(items[0]["event_id"], "may-5");
+        assert_eq!(items[0]["correlation_id"], "may-5");
+        assert_eq!(items[0]["memory_domain"], "external_activity");
+        assert_eq!(items[0]["ingest_target"], "l1_only");
+        assert_eq!(items[0]["tom_depth"], "none");
+        assert_eq!(items[0]["retention_class"], "compressible");
+        assert_eq!(items[0]["author_type"], "system");
+        assert_eq!(items[0]["content_type"], "text");
         assert_eq!(items[0]["embedding_status"], "ready");
         assert_eq!(items[0]["embedding_profile_id"], "profile-a");
         assert_eq!(items[0]["embedding_chunk_count"], 2);
+        assert_eq!(items[0]["evidence_status"], "classified");
+        assert_eq!(items[0]["evidence_class"], "external_observation");
+        assert_eq!(items[0]["l1_retrieval_scope"], "fact_authoritative");
         assert_eq!(
             items[0]["metadata_json"]["timeline"]["source_app"],
             "NetEase"
