@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ..event_contracts import MemoryDomain, MemoryEvent
-from .models import EvidenceClassification
+from .models import EvidenceClass, EvidenceClassification
 
 _EXTERNAL_SOURCES = {"timeline", "sensor", "calendar", "location", "external_feed", "external"}
 
@@ -20,7 +20,7 @@ def classify_event_evidence(event: MemoryEvent) -> EvidenceClassification:
 
     if _is_assistant_runtime_derivation(event):
         return EvidenceClassification(
-            evidence_class="assistant_runtime_derivation",
+            evidence_class=EvidenceClass.ASSISTANT_RUNTIME_DERIVATION.label,
             reason_code="runtime_chat_response_action",
             speaker_role=speaker_role,
             grounding_type=grounding_type,
@@ -31,7 +31,7 @@ def classify_event_evidence(event: MemoryEvent) -> EvidenceClassification:
 
     if event.memory_domain == MemoryDomain.RUNTIME_TELEMETRY or speaker_role == "system":
         return EvidenceClassification(
-            evidence_class="system_runtime",
+            evidence_class=EvidenceClass.SYSTEM_RUNTIME.label,
             reason_code="runtime_domain",
             speaker_role=speaker_role,
             grounding_type=grounding_type,
@@ -42,7 +42,7 @@ def classify_event_evidence(event: MemoryEvent) -> EvidenceClassification:
 
     if speaker_role in {"external", "sensor"} or normalized_source in _EXTERNAL_SOURCES:
         return EvidenceClassification(
-            evidence_class="external_observation",
+            evidence_class=EvidenceClass.EXTERNAL_OBSERVATION.label,
             reason_code="external_source",
             speaker_role=speaker_role,
             grounding_type=grounding_type,
@@ -53,7 +53,7 @@ def classify_event_evidence(event: MemoryEvent) -> EvidenceClassification:
 
     if speaker_role == "assistant" and grounding_type == "tool_grounded":
         return EvidenceClassification(
-            evidence_class="assistant_tool_grounded",
+            evidence_class=EvidenceClass.ASSISTANT_TOOL_GROUNDED.label,
             reason_code="assistant_content_type",
             speaker_role=speaker_role,
             grounding_type=grounding_type,
@@ -64,7 +64,7 @@ def classify_event_evidence(event: MemoryEvent) -> EvidenceClassification:
 
     if speaker_role == "assistant":
         return EvidenceClassification(
-            evidence_class="assistant_freeform",
+            evidence_class=EvidenceClass.ASSISTANT_FREEFORM.label,
             reason_code="assistant_default",
             speaker_role=speaker_role,
             grounding_type=grounding_type,
@@ -75,7 +75,7 @@ def classify_event_evidence(event: MemoryEvent) -> EvidenceClassification:
 
     if speaker_role == "user":
         return EvidenceClassification(
-            evidence_class="user_self_report",
+            evidence_class=EvidenceClass.USER_SELF_REPORT.label,
             reason_code="user_default",
             speaker_role=speaker_role,
             grounding_type=grounding_type,
@@ -85,7 +85,7 @@ def classify_event_evidence(event: MemoryEvent) -> EvidenceClassification:
         )
 
     return EvidenceClassification(
-        evidence_class="external_observation",
+        evidence_class=EvidenceClass.EXTERNAL_OBSERVATION.label,
         reason_code="fallback_external",
         speaker_role=speaker_role,
         grounding_type=grounding_type,

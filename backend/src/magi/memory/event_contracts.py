@@ -105,6 +105,68 @@ class RetentionClass(_LabeledIntEnum):
         }
 
 
+class AuthorType(_LabeledIntEnum):
+    USER = 1
+    ASSISTANT = 2
+    TOOL = 3
+    SYSTEM = 4
+    SENSOR = 5
+    EXTERNAL = 6
+    UNKNOWN = 7
+
+    @classmethod
+    def _labels(cls) -> dict["AuthorType", str]:
+        return {
+            cls.USER: "user",
+            cls.ASSISTANT: "assistant",
+            cls.TOOL: "tool",
+            cls.SYSTEM: "system",
+            cls.SENSOR: "sensor",
+            cls.EXTERNAL: "external",
+            cls.UNKNOWN: "unknown",
+        }
+
+
+class ContentType(_LabeledIntEnum):
+    TEXT = 1
+    TOOL_RESULT = 2
+    OBSERVATION = 3
+    UNKNOWN = 4
+
+    @classmethod
+    def _labels(cls) -> dict["ContentType", str]:
+        return {
+            cls.TEXT: "text",
+            cls.TOOL_RESULT: "tool_result",
+            cls.OBSERVATION: "observation",
+            cls.UNKNOWN: "unknown",
+        }
+
+
+def author_type_code(value: AuthorType | int | str | None) -> int:
+    if value is None:
+        return int(AuthorType.UNKNOWN)
+    return int(AuthorType.from_value(value))
+
+
+def author_type_label(value: AuthorType | int | str | None) -> str:
+    if value is None:
+        return AuthorType.UNKNOWN.label
+    return AuthorType.from_value(value).label
+
+
+def content_type_code(value: ContentType | int | str | None) -> int:
+    if value is None:
+        return int(ContentType.UNKNOWN)
+    return int(ContentType.from_value(value))
+
+
+def content_type_label(value: ContentType | int | str | None) -> str:
+    if value is None:
+        return ContentType.UNKNOWN.label
+    return ContentType.from_value(value).label
+
+
 TRACE_RUNTIME_EVENT_TYPES = {
     "CHAT_TOOL_LOOP_STEP",
     "TOOL_INTERACTION",
@@ -288,35 +350,35 @@ def _resolve_source_item_id(event: Event, *, payload: dict[str, Any], metadata: 
 def _resolve_author_type(event: Event, *, payload: dict[str, Any], metadata: dict[str, Any]) -> str:
     author_type = _first_non_empty(payload.get("author_type"), metadata.get("author_type"))
     if author_type is not None:
-        return author_type
+        return author_type_label(author_type)
     event_type = str(event.type)
     source = str(event.source or "").strip().lower()
     rule = _classify_event(event)
     if event_type == EventTypes.USER_MESSAGE:
-        return "user"
+        return AuthorType.USER.label
     if event_type == EventTypes.AI_RESPONSE:
-        return "assistant"
+        return AuthorType.ASSISTANT.label
     if event_type == EventTypes.ACTION_EXECUTED:
-        return "tool"
+        return AuthorType.TOOL.label
     if rule["memory_domain"] == MemoryDomain.RUNTIME_TELEMETRY or source == "system":
-        return "system"
+        return AuthorType.SYSTEM.label
     if source in {"sensor", "location"}:
-        return "sensor"
-    return "external"
+        return AuthorType.SENSOR.label
+    return AuthorType.EXTERNAL.label
 
 
 def _resolve_content_type(event: Event, *, payload: dict[str, Any], metadata: dict[str, Any]) -> str:
     content_type = _first_non_empty(payload.get("content_type"), metadata.get("content_type"))
     if content_type is not None:
-        return content_type
+        return content_type_label(content_type)
     event_type = str(event.type)
     if event_type in {EventTypes.USER_MESSAGE, EventTypes.AI_RESPONSE}:
-        return "text"
+        return ContentType.TEXT.label
     if event_type == EventTypes.ACTION_EXECUTED:
-        return "tool_result"
+        return ContentType.TOOL_RESULT.label
     if event_type in TRACE_RUNTIME_EVENT_TYPES:
-        return "observation"
-    return "text"
+        return ContentType.OBSERVATION.label
+    return ContentType.TEXT.label
 
 
 def _classify_event(event: Event) -> Dict[str, Any]:
@@ -407,6 +469,12 @@ def _classify_event(event: Event) -> Dict[str, Any]:
 
 
 __all__ = [
+    "AuthorType",
+    "ContentType",
+    "author_type_code",
+    "author_type_label",
+    "content_type_code",
+    "content_type_label",
     "IngestTarget",
     "MemoryDomain",
     "MemoryEvent",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any, Awaitable, Callable, cast
 
 import aiosqlite
@@ -22,7 +23,9 @@ from .common import (
     EMBEDDING_TEXT_BUILDER_VERSION,
     EVENT_CHUNKS_TABLE,
     FACT_EVENTS_TABLE,
+    L1_EVENT_EMBEDDING_STATE_TABLE,
     L1EventEmbeddingHostProtocol,
+    embedding_status_code,
 )
 from .profiles import L1EventEmbeddingProfileMixin
 from .search import L1EventEmbeddingSearchMixin
@@ -57,13 +60,16 @@ class L1EventEmbeddingMixin(
         async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
             await db.execute(f"DELETE FROM {EVENT_CHUNKS_TABLE}")
             await db.execute(f"DELETE FROM {EMBEDDING_PROFILES_TABLE}")
+            reset_at = time.time()
             await db.execute(
                 f"""
-                UPDATE {FACT_EVENTS_TABLE}
-                SET embedding_status = ?, embedding_profile_id = NULL, embedding_chunk_count = 0, last_embedded_at = NULL
-                WHERE deleted_at IS NULL
+                UPDATE {L1_EVENT_EMBEDDING_STATE_TABLE}
+                SET embedding_status = ?, embedding_profile_id = NULL, embedding_chunk_count = 0, last_embedded_at = NULL, updated_at = ?
+                WHERE event_id IN (
+                    SELECT event_id FROM {FACT_EVENTS_TABLE} WHERE deleted_at IS NULL
+                )
                 """,
-                (EMBEDDING_STATUS_DISABLED,),
+                (embedding_status_code(EMBEDDING_STATUS_DISABLED), reset_at),
             )
             await db.commit()
         await host._vector_index.clear()
@@ -159,14 +165,14 @@ class L1EventEmbeddingMixin(
                 state_updates.append(
                     (
                         event.event_id,
-                        EMBEDDING_STATUS_READY,
+                        embedding_status_code(EMBEDDING_STATUS_READY),
                         profile.profile_id,
                         len(chunks),
                         embedded_at,
                     )
                 )
         for event, profile_id in failed_events:
-            state_updates.append((event.event_id, EMBEDDING_STATUS_FAILED, profile_id, 0, None))
+            state_updates.append((event.event_id, embedding_status_code(EMBEDDING_STATUS_FAILED), profile_id, 0, None))
         if state_updates:
             await self._update_event_embedding_states(state_updates, profiles_by_id=profiles_by_id)
 
@@ -206,7 +212,7 @@ class L1EventEmbeddingMixin(
 
     async def _update_event_embedding_states(
         self,
-        updates: list[tuple[str, str, str | None, int, float | None]],
+        updates: list[tuple[str, int, str | None, int, float | None]],
         *,
         profiles_by_id: dict[str, EmbeddingProfile] | None = None,
     ) -> None:
@@ -219,14 +225,15 @@ class L1EventEmbeddingMixin(
                 await self._sync_embedding_profiles(
                     db, profile_ids, profiles_by_id=profiles_by_id or {}
                 )
+            updated_at = time.time()
             await db.executemany(
                 f"""
-                UPDATE {FACT_EVENTS_TABLE}
-                SET embedding_status = ?, embedding_profile_id = ?, embedding_chunk_count = ?, last_embedded_at = ?
+                UPDATE {L1_EVENT_EMBEDDING_STATE_TABLE}
+                SET embedding_status = ?, embedding_profile_id = ?, embedding_chunk_count = ?, last_embedded_at = ?, updated_at = ?
                 WHERE event_id = ?
                 """,
                 [
-                    (status, profile_id, int(chunk_count), embedded_at, event_id)
+                    (status, profile_id, int(chunk_count), embedded_at, updated_at, event_id)
                     for event_id, status, profile_id, chunk_count, embedded_at in updates
                 ],
             )

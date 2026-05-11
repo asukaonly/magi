@@ -4,7 +4,13 @@ import sqlite3
 
 import pytest
 
-from magi.memory.event_contracts import IngestTarget, MemoryDomain
+from magi.memory.evidence import EvidenceClass, EvidenceStatus, L1RetrievalScope
+from magi.memory.event_contracts import (
+    MemoryDomain,
+    RetentionClass,
+    author_type_code,
+    content_type_code,
+)
 
 
 def _migrated_l1_db_path(tmp_path):
@@ -31,24 +37,29 @@ def _insert_legacy_event(
         db.execute(
             """
             INSERT INTO fact_events(
-                event_id, correlation_id, timestamp, created_at,
-                event_type, source, memory_domain, ingest_target,
-                content, author_type, content_type, user_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                event_id, timestamp, created_at,
+                event_type, source, memory_domain, cognition_eligible,
+                retention_class, content, author_type, content_type, user_id,
+                evidence_status, evidence_class, evidence_rule_version, l1_retrieval_scope
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 event_id,
-                f"corr-{event_id}",
                 1710000000.0,
                 1710000001.0,
                 event_type,
                 source,
                 int(MemoryDomain.USER_AUTHORED),
-                int(IngestTarget.L1_ONLY),
+                1,
+                int(RetentionClass.COMPRESSIBLE),
                 content,
-                author_type,
-                "text",
+                author_type_code(author_type),
+                content_type_code("text"),
                 "user-1",
+                int(EvidenceStatus.UNKNOWN),
+                int(EvidenceClass.UNKNOWN),
+                1,
+                int(L1RetrievalScope.NONE),
             ),
         )
 
@@ -102,7 +113,6 @@ async def test_l1_evidence_backfill_classifies_legacy_default_rows(tmp_path):
     assert assistant_event["evidence_status"] == "classified"
     assert assistant_event["evidence_class"] == "assistant_freeform"
     assert assistant_event["l1_retrieval_scope"] == "conversation_only"
-    assert assistant_event["evidence_skip_reason"] == "assistant_freeform"
 
     assert second_run.matched == 0
     assert second_run.updated == 0
@@ -136,6 +146,6 @@ async def test_l1_evidence_backfill_dry_run_leaves_rows_unchanged(tmp_path):
     assert result.by_l1_retrieval_scope == {"fact_authoritative": 1}
 
     assert fetched is not None
-    assert fetched["evidence_status"] == "unclassified"
+    assert fetched["evidence_status"] == "unknown"
     assert fetched["evidence_class"] == "unknown"
     assert fetched["l1_retrieval_scope"] == "none"

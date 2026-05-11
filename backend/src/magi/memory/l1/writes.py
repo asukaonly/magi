@@ -16,15 +16,22 @@ from ...core.sqlite import sqlite_connection_async
 from ...events.events import EventTypes
 from ..embedding.sqlite_vec_index import SqliteVecIndex
 from ..evidence import (
-    EVIDENCE_CLASSIFIER_VERSION,
-    EVIDENCE_POLICY_VERSION,
+    EVIDENCE_RULE_VERSION,
+    EvidenceClass,
+    EvidenceStatus,
+    L1RetrievalScope,
     classify_event_evidence,
     resolve_l2_policy,
 )
-from ..event_contracts import MemoryEvent
+from ..event_contracts import MemoryEvent, author_type_code, content_type_code
 from ..hybrid_retrieval.fts_utils import tokenize_for_fts
 from .chat_sessions import project_chat_event_to_session
-from .embeddings.common import EVENT_CHUNKS_TABLE, FACT_EVENTS_TABLE
+from .embeddings.common import (
+    EVENT_CHUNKS_TABLE,
+    FACT_EVENTS_TABLE,
+    L1_EVENT_EMBEDDING_STATE_TABLE,
+    embedding_status_code,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -105,24 +112,17 @@ class L1EventWriteMixin:
             cursor = await db.execute(
                 f"""
                 INSERT OR IGNORE INTO {FACT_EVENTS_TABLE}(
-                    event_id, correlation_id, timestamp, created_at,
-                    event_type, source, source_item_id, idempotency_key, memory_domain, ingest_target,
-                    cognition_eligible, tom_depth, retention_class, session_id, turn_id, user_id,
-                    task_id, content, author_type, content_type, importance_score,
-                    level, media_path, metadata_json, embedding_status, embedding_profile_id,
-                    embedding_chunk_count, last_embedded_at, deleted_at,
-                    causation_id, trace_id, span_id, parent_span_id,
-                    evidence_status, evidence_class, evidence_reason_code,
-                    evidence_speaker_role, evidence_grounding_type, evidence_semantic_owner,
-                    evidence_originality_type, evidence_source_event_ids_json,
-                    evidence_confidence, evidence_classifier_version, evidence_policy_version,
-                    l1_retrieval_scope, l2_graph_scope, l2_assertion_scope,
-                    evidence_skip_reason, evidence_updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    event_id, timestamp, created_at,
+                    event_type, source, source_item_id, idempotency_key, memory_domain,
+                    cognition_eligible, retention_class, session_id, turn_id, user_id,
+                    content, author_type, content_type, importance_score,
+                    media_path, metadata_json, deleted_at,
+                    evidence_status, evidence_class, evidence_rule_version,
+                    l1_retrieval_scope
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     event.event_id,
-                    event.correlation_id,
                     float(event.timestamp),
                     float(event.created_at),
                     event.event_type,
@@ -130,46 +130,22 @@ class L1EventWriteMixin:
                     event.source_item_id,
                     event.idempotency_key,
                     int(event.memory_domain),
-                    int(event.ingest_target),
                     1 if event.cognition_eligible else 0,
-                    int(event.tom_depth),
                     int(event.retention_class),
                     event.session_id,
                     event.turn_id,
                     event.user_id,
-                    event.task_id,
                     event.content,
-                    event.author_type,
-                    event.content_type,
+                    author_type_code(event.author_type),
+                    content_type_code(event.content_type),
                     float(event.importance_score),
-                    int(event.level),
                     event.media_path,
                     json.dumps(event.metadata_json) if event.metadata_json is not None else None,
-                    host._initial_embedding_status(event),
-                    host._initial_embedding_profile_id(event),
-                    0,
                     None,
-                    None,
-                    event.causation_id,
-                    event.trace_id,
-                    event.span_id,
-                    event.parent_span_id,
                     evidence_values["evidence_status"],
                     evidence_values["evidence_class"],
-                    evidence_values["evidence_reason_code"],
-                    evidence_values["evidence_speaker_role"],
-                    evidence_values["evidence_grounding_type"],
-                    evidence_values["evidence_semantic_owner"],
-                    evidence_values["evidence_originality_type"],
-                    evidence_values["evidence_source_event_ids_json"],
-                    evidence_values["evidence_confidence"],
-                    evidence_values["evidence_classifier_version"],
-                    evidence_values["evidence_policy_version"],
+                    evidence_values["evidence_rule_version"],
                     evidence_values["l1_retrieval_scope"],
-                    evidence_values["l2_graph_scope"],
-                    evidence_values["l2_assertion_scope"],
-                    evidence_values["evidence_skip_reason"],
-                    evidence_values["evidence_updated_at"],
                 ),
             )
             inserted = cursor.rowcount > 0
@@ -183,6 +159,22 @@ class L1EventWriteMixin:
                         event.event_type,
                     )
                 return existing_event_id or event.event_id
+            await db.execute(
+                f"""
+                INSERT OR REPLACE INTO {L1_EVENT_EMBEDDING_STATE_TABLE}(
+                    event_id, embedding_status, embedding_profile_id,
+                    embedding_chunk_count, last_embedded_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    event.event_id,
+                    embedding_status_code(host._initial_embedding_status(event)),
+                    host._initial_embedding_profile_id(event),
+                    0,
+                    None,
+                    time.time(),
+                ),
+            )
             tokenized = tokenize_for_fts(host.get_search_text(event))
             await db.execute(
                 "DELETE FROM l1_events_fts WHERE event_id = ?",
@@ -221,22 +213,10 @@ class L1EventWriteMixin:
                 exc,
             )
             return {
-                "evidence_status": "classification_error",
-                "evidence_class": "unknown",
-                "evidence_reason_code": "classifier_error",
-                "evidence_speaker_role": event.author_type,
-                "evidence_grounding_type": None,
-                "evidence_semantic_owner": None,
-                "evidence_originality_type": None,
-                "evidence_source_event_ids_json": "[]",
-                "evidence_confidence": 0.0,
-                "evidence_classifier_version": EVIDENCE_CLASSIFIER_VERSION,
-                "evidence_policy_version": "unresolved",
-                "l1_retrieval_scope": "none",
-                "l2_graph_scope": "none",
-                "l2_assertion_scope": "none",
-                "evidence_skip_reason": "classification_error",
-                "evidence_updated_at": now,
+                "evidence_status": int(EvidenceStatus.CLASSIFICATION_ERROR),
+                "evidence_class": int(EvidenceClass.UNKNOWN),
+                "evidence_rule_version": EVIDENCE_RULE_VERSION,
+                "l1_retrieval_scope": int(L1RetrievalScope.NONE),
             }
 
         try:
@@ -249,41 +229,17 @@ class L1EventWriteMixin:
                 exc,
             )
             return {
-                "evidence_status": "policy_error",
-                "evidence_class": classification.evidence_class,
-                "evidence_reason_code": classification.reason_code,
-                "evidence_speaker_role": classification.speaker_role,
-                "evidence_grounding_type": classification.grounding_type,
-                "evidence_semantic_owner": classification.semantic_owner,
-                "evidence_originality_type": classification.originality_type,
-                "evidence_source_event_ids_json": json.dumps(classification.source_event_ids),
-                "evidence_confidence": float(classification.confidence),
-                "evidence_classifier_version": EVIDENCE_CLASSIFIER_VERSION,
-                "evidence_policy_version": EVIDENCE_POLICY_VERSION,
-                "l1_retrieval_scope": "none",
-                "l2_graph_scope": "none",
-                "l2_assertion_scope": "none",
-                "evidence_skip_reason": "policy_error",
-                "evidence_updated_at": now,
+                "evidence_status": int(EvidenceStatus.POLICY_ERROR),
+                "evidence_class": int(EvidenceClass.from_value(classification.evidence_class)),
+                "evidence_rule_version": EVIDENCE_RULE_VERSION,
+                "l1_retrieval_scope": int(L1RetrievalScope.NONE),
             }
 
         return {
-            "evidence_status": "classified",
-            "evidence_class": classification.evidence_class,
-            "evidence_reason_code": classification.reason_code,
-            "evidence_speaker_role": classification.speaker_role,
-            "evidence_grounding_type": classification.grounding_type,
-            "evidence_semantic_owner": classification.semantic_owner,
-            "evidence_originality_type": classification.originality_type,
-            "evidence_source_event_ids_json": json.dumps(classification.source_event_ids),
-            "evidence_confidence": float(classification.confidence),
-            "evidence_classifier_version": EVIDENCE_CLASSIFIER_VERSION,
-            "evidence_policy_version": EVIDENCE_POLICY_VERSION,
-            "l1_retrieval_scope": policy.l1_retrieval_scope,
-            "l2_graph_scope": policy.graph_scope,
-            "l2_assertion_scope": policy.assertion_scope,
-            "evidence_skip_reason": policy.skip_reason,
-            "evidence_updated_at": now,
+            "evidence_status": int(EvidenceStatus.CLASSIFIED),
+            "evidence_class": int(EvidenceClass.from_value(classification.evidence_class)),
+            "evidence_rule_version": EVIDENCE_RULE_VERSION,
+            "l1_retrieval_scope": int(L1RetrievalScope.from_value(policy.l1_retrieval_scope)),
         }
 
     async def backfill_evidence_annotations(
@@ -308,13 +264,12 @@ class L1EventWriteMixin:
             where_parts.append(
                 """
                 (
-                    evidence_status != 'classified'
-                    OR evidence_classifier_version != ?
-                    OR evidence_policy_version != ?
+                    evidence_status != ?
+                    OR evidence_rule_version != ?
                 )
                 """
             )
-            args.extend([EVIDENCE_CLASSIFIER_VERSION, EVIDENCE_POLICY_VERSION])
+            args.extend([int(EvidenceStatus.CLASSIFIED), EVIDENCE_RULE_VERSION])
         if user_id:
             where_parts.append("user_id = ?")
             args.append(user_id)
@@ -341,20 +296,8 @@ class L1EventWriteMixin:
             UPDATE {FACT_EVENTS_TABLE}
             SET evidence_status = ?,
                 evidence_class = ?,
-                evidence_reason_code = ?,
-                evidence_speaker_role = ?,
-                evidence_grounding_type = ?,
-                evidence_semantic_owner = ?,
-                evidence_originality_type = ?,
-                evidence_source_event_ids_json = ?,
-                evidence_confidence = ?,
-                evidence_classifier_version = ?,
-                evidence_policy_version = ?,
-                l1_retrieval_scope = ?,
-                l2_graph_scope = ?,
-                l2_assertion_scope = ?,
-                evidence_skip_reason = ?,
-                evidence_updated_at = ?
+                evidence_rule_version = ?,
+                l1_retrieval_scope = ?
             WHERE event_id = ?
         """
 
@@ -399,7 +342,7 @@ class L1EventWriteMixin:
                         continue
 
                     result.processed += 1
-                    scope = str(values["l1_retrieval_scope"])
+                    scope = L1RetrievalScope.from_value(values["l1_retrieval_scope"]).label
                     result.by_l1_retrieval_scope[scope] = (
                         result.by_l1_retrieval_scope.get(scope, 0) + 1
                     )
@@ -410,20 +353,8 @@ class L1EventWriteMixin:
                         (
                             values["evidence_status"],
                             values["evidence_class"],
-                            values["evidence_reason_code"],
-                            values["evidence_speaker_role"],
-                            values["evidence_grounding_type"],
-                            values["evidence_semantic_owner"],
-                            values["evidence_originality_type"],
-                            values["evidence_source_event_ids_json"],
-                            values["evidence_confidence"],
-                            values["evidence_classifier_version"],
-                            values["evidence_policy_version"],
+                            values["evidence_rule_version"],
                             values["l1_retrieval_scope"],
-                            values["l2_graph_scope"],
-                            values["l2_assertion_scope"],
-                            values["evidence_skip_reason"],
-                            values["evidence_updated_at"],
                             event.event_id,
                         )
                     )

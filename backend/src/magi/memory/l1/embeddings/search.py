@@ -8,6 +8,7 @@ import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
 from ...embedding.sqlite_vec_index import VectorSearchHit
+from ...evidence import L1RetrievalScope
 from ...event_contracts import MemoryDomain
 from .common import (
     EMBEDDING_TEXT_BUILDER_VERSION,
@@ -72,8 +73,8 @@ class L1EventEmbeddingSearchMixin:
         event_type: Optional[str],
         source_filters: Optional[List[str]],
         domain_filters: Optional[List[str]],
-        l1_retrieval_scopes: Optional[List[str]],
         limit: int,
+        l1_retrieval_scopes: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         host = cast(L1EventEmbeddingHostProtocol, self)
         if not hits:
@@ -130,7 +131,7 @@ class L1EventEmbeddingSearchMixin:
                 return []
             scope_placeholders = ", ".join("?" for _ in l1_retrieval_scopes)
             query += f" AND l1_retrieval_scope IN ({scope_placeholders})"
-            args.extend(l1_retrieval_scopes)
+            args.extend(int(L1RetrievalScope.from_value(scope)) for scope in l1_retrieval_scopes)
         allowed_domains = [MemoryDomain.from_value(value) for value in domain_filters or []]
         if allowed_domains:
             domain_placeholders = ", ".join("?" for _ in allowed_domains)

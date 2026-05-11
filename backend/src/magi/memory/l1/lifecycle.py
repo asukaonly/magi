@@ -3,18 +3,24 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import logging
 import time
 from pathlib import Path
 from typing import Any
 
 from ...config.models import EmbeddingBackend
+from ...core.sqlite import sqlite_connection_async
 from ..embedding.embedding_service import MemoryEmbeddingService
 from ..embedding.sqlite_vec_index import SqliteVecIndex
 from ..event_contracts import MemoryEvent
 from .embeddings.common import (
     EMBEDDING_TEXT_BUILDER_VERSION,
 )
+
+SCHEMA_SQL = importlib.import_module(
+    "magi.db.migrations.l1.versions.0001_initial"
+).SCHEMA_SQL
 
 EMBEDDING_QUEUE_MAXSIZE = 512
 DEFAULT_EMBEDDING_WORKER_COUNT = 2
@@ -42,6 +48,7 @@ class L1EventLifecycleMixin:
             return
 
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+        await self._ensure_schema()
         if self._vector_index is not None:
             await self._vector_index.initialize()
 
@@ -51,6 +58,11 @@ class L1EventLifecycleMixin:
                 for _ in range(self._embedding_worker_count)
             ]
         self._initialized = True
+
+    async def _ensure_schema(self) -> None:
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
+            await db.executescript(SCHEMA_SQL)
+            await db.commit()
 
     async def shutdown(self) -> None:
         if self._embedding_queue is not None and self._embedding_workers:

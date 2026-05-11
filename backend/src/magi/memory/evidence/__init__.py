@@ -2,17 +2,25 @@
 
 from .classifier import classify_event_evidence
 from .models import (
-    EVIDENCE_CLASSIFIER_VERSION,
-    EVIDENCE_POLICY_VERSION,
+    AssertionScope,
+    EVIDENCE_RULE_VERSION,
+    EvidenceClass,
     EvidenceClassification,
+    EvidenceStatus,
+    GraphScope,
+    L1RetrievalScope,
     PolicyDecision,
 )
 from .policy import resolve_l2_policy
 
 __all__ = [
-    "EVIDENCE_CLASSIFIER_VERSION",
-    "EVIDENCE_POLICY_VERSION",
+    "AssertionScope",
+    "EVIDENCE_RULE_VERSION",
+    "EvidenceClass",
     "EvidenceClassification",
+    "EvidenceStatus",
+    "GraphScope",
+    "L1RetrievalScope",
     "PolicyDecision",
     "classify_event_evidence",
     "resolve_l2_policy",

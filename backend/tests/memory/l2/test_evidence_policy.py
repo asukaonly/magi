@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from magi.memory.evidence import EvidenceClassification, resolve_l2_policy
+from magi.memory.evidence import EvidenceClassification, L1RetrievalScope, resolve_l2_policy
 
 
 def _classification(evidence_class: str) -> EvidenceClassification:
@@ -53,6 +53,7 @@ def test_policy_blocks_new_evidence_for_assistant_quote():
     assert decision.allow_assertion_write is False
     assert decision.allow_snapshot_impact is False
     assert decision.l1_retrieval_scope == "source_backlink_only"
+    assert L1RetrievalScope.from_value(decision.l1_retrieval_scope) == L1RetrievalScope.SOURCE_BACKLINK_ONLY
     assert decision.graph_scope == "none"
     assert decision.assertion_scope == "none"
     assert decision.evidence_weight == 0.0

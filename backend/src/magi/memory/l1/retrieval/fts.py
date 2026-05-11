@@ -10,7 +10,8 @@ import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
 from ...embedding.embedding_text_builders import build_l1_retrieval_terms_text
-from ...event_contracts import MemoryEvent
+from ...event_contracts import MemoryEvent, author_type_label, content_type_label
+from ...evidence import L1RetrievalScope
 from ...hybrid_retrieval.fts_utils import (
     build_exact_fts_query,
     build_or_fts_query,
@@ -165,7 +166,7 @@ class L1EventFtsMixin:
             if l1_retrieval_scopes is not None:
                 placeholders = ", ".join("?" for _ in l1_retrieval_scopes)
                 clauses.append(f"fe.l1_retrieval_scope IN ({placeholders})")
-                params.extend(l1_retrieval_scopes)
+                params.extend(int(L1RetrievalScope.from_value(scope)) for scope in l1_retrieval_scopes)
             params.append(limit)
             where = " AND ".join(clauses)
             async with db.execute(
@@ -225,8 +226,8 @@ class L1EventFtsMixin:
                 async for row in cursor:
                     event_id = str(row[0])
                     content = str(row[1] or "")
-                    author_type = str(row[2] or "")
-                    content_type = str(row[3] or "")
+                    author_type = author_type_label(row[2])
+                    content_type = content_type_label(row[3])
                     batch.append(
                         (
                             event_id,

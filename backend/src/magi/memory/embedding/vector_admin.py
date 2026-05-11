@@ -163,7 +163,9 @@ async def collect_vector_ready_counts() -> dict[str, int]:
     return {
         "l1": await _safe_count(
             l1_db_path,
-            "SELECT COUNT(*) FROM fact_events WHERE deleted_at IS NULL AND embedding_status = 'ready'",
+            "SELECT COUNT(*) FROM fact_events fe "
+            "JOIN l1_event_embedding_state es USING(event_id) "
+            "WHERE fe.deleted_at IS NULL AND es.embedding_status = 3",
         ),
         "l2_entities": await _safe_count(
             memory_db_path, "SELECT COUNT(*) FROM entity_catalog WHERE embedding_status = 'ready'"

@@ -26,7 +26,6 @@ SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS fact_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     event_id TEXT NOT NULL UNIQUE,
-    correlation_id TEXT NOT NULL,
     timestamp REAL NOT NULL,
     created_at REAL NOT NULL,
     event_type TEXT NOT NULL,
@@ -34,30 +33,22 @@ CREATE TABLE IF NOT EXISTS fact_events (
     source_item_id TEXT,
     idempotency_key TEXT,
     memory_domain INTEGER NOT NULL,
-    ingest_target INTEGER NOT NULL,
     cognition_eligible INTEGER NOT NULL DEFAULT 0,
-    tom_depth INTEGER NOT NULL DEFAULT 1,
     retention_class INTEGER NOT NULL DEFAULT 2,
     session_id TEXT,
     turn_id TEXT,
     user_id TEXT,
-    task_id TEXT,
     content TEXT NOT NULL,
-    author_type TEXT NOT NULL,
-    content_type TEXT NOT NULL,
+    author_type INTEGER NOT NULL,
+    content_type INTEGER NOT NULL,
     importance_score REAL NOT NULL DEFAULT 0.5,
-    level INTEGER NOT NULL DEFAULT 1,
     media_path TEXT,
     metadata_json TEXT,
-    embedding_status TEXT NOT NULL DEFAULT 'disabled',
-    embedding_profile_id TEXT,
-    embedding_chunk_count INTEGER NOT NULL DEFAULT 0,
-    last_embedded_at REAL,
-    causation_id TEXT,
-    trace_id TEXT,
-    span_id TEXT,
-    parent_span_id TEXT,
-    deleted_at REAL
+    deleted_at REAL,
+    evidence_status INTEGER NOT NULL DEFAULT 1,
+    evidence_class INTEGER NOT NULL DEFAULT 1,
+    evidence_rule_version INTEGER NOT NULL DEFAULT 1,
+    l1_retrieval_scope INTEGER NOT NULL DEFAULT 1
 );
 CREATE INDEX IF NOT EXISTS idx_fact_events_timestamp ON fact_events(timestamp);
 CREATE INDEX IF NOT EXISTS idx_fact_events_type ON fact_events(event_type);
@@ -69,12 +60,25 @@ CREATE INDEX IF NOT EXISTS idx_fact_events_turn ON fact_events(turn_id);
 CREATE INDEX IF NOT EXISTS idx_fact_events_user ON fact_events(user_id);
 CREATE INDEX IF NOT EXISTS idx_fact_events_importance ON fact_events(importance_score DESC);
 CREATE INDEX IF NOT EXISTS idx_fact_events_retention ON fact_events(retention_class);
-CREATE INDEX IF NOT EXISTS idx_fact_events_trace ON fact_events(trace_id);
-CREATE INDEX IF NOT EXISTS idx_fact_events_causation ON fact_events(causation_id);
-CREATE INDEX IF NOT EXISTS idx_fact_events_embedding_status ON fact_events(embedding_status);
-CREATE INDEX IF NOT EXISTS idx_fact_events_embedding_profile ON fact_events(embedding_profile_id);
+CREATE INDEX IF NOT EXISTS idx_fact_events_evidence_status ON fact_events(evidence_status);
+CREATE INDEX IF NOT EXISTS idx_fact_events_evidence_class ON fact_events(evidence_class);
+CREATE INDEX IF NOT EXISTS idx_fact_events_l1_retrieval_scope
+    ON fact_events(l1_retrieval_scope, user_id, timestamp DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_events_business_idempotency
     ON fact_events(source, event_type, idempotency_key);
+
+CREATE TABLE IF NOT EXISTS l1_event_embedding_state (
+    event_id TEXT PRIMARY KEY,
+    embedding_status INTEGER NOT NULL DEFAULT 1,
+    embedding_profile_id TEXT,
+    embedding_chunk_count INTEGER NOT NULL DEFAULT 0,
+    last_embedded_at REAL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_l1_event_embedding_state_status
+    ON l1_event_embedding_state(embedding_status);
+CREATE INDEX IF NOT EXISTS idx_l1_event_embedding_state_profile
+    ON l1_event_embedding_state(embedding_profile_id);
 
 CREATE TABLE IF NOT EXISTS embedding_profiles (
     profile_id TEXT PRIMARY KEY,
@@ -144,6 +148,7 @@ DROP TABLE IF EXISTS chat_sessions;
 DROP TABLE IF EXISTS l1_event_entities;
 DROP TABLE IF EXISTS l1_events_fts;
 DROP TABLE IF EXISTS l1_event_chunks;
+DROP TABLE IF EXISTS l1_event_embedding_state;
 DROP TABLE IF EXISTS embedding_profiles;
 DROP TABLE IF EXISTS fact_events;
 """

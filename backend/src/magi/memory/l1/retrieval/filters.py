@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, List, Optional
 
+from ...evidence import L1RetrievalScope
 from ...event_contracts import MemoryDomain, RetentionClass
 
 
@@ -69,7 +70,7 @@ class L1EventFilterMixin:
             else:
                 placeholders = ", ".join("?" for _ in l1_retrieval_scopes)
                 parts.append(f"l1_retrieval_scope IN ({placeholders})")
-                args.extend(l1_retrieval_scopes)
+                args.extend(int(L1RetrievalScope.from_value(scope)) for scope in l1_retrieval_scopes)
         if start_time is not None:
             parts.append("timestamp >= ?")
             args.append(float(start_time))

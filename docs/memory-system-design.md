@@ -824,6 +824,7 @@ Key notes:
 - `id` is the internal relationship key
 - `metadata_json` carries structured event payloads
 - `author_type`, `content_type`, evidence fields, retrieval scope, and embedding status are stored as compact integer codes and decoded to labels at runtime/API boundaries
+- Canonical `l1_retrieval_scope` labels are `none`, `fact_authoritative`, `conversation_only`, `audit_only`, and `source_backlink_only`
 - Evidence columns describe L1 retrieval authority for the event; L2 graph/assertion policy remains a runtime decision and is not duplicated into `fact_events`
 - Unknown or failed evidence annotations default to `l1_retrieval_scope='none'`
 - Versioned evidence annotations can be backfilled in place without rewriting raw event content

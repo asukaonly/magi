@@ -2,116 +2,126 @@
 
 from __future__ import annotations
 
-from .models import EvidenceClassification, PolicyDecision
+from .models import (
+    AssertionScope,
+    EvidenceClass,
+    EvidenceClassification,
+    GraphScope,
+    L1RetrievalScope,
+    PolicyDecision,
+)
 
 
 def resolve_l2_policy(classification: EvidenceClassification) -> PolicyDecision:
     """Map an evidence class to a deterministic L2 write policy."""
 
-    evidence_class = classification.evidence_class.strip()
+    try:
+        evidence_class = EvidenceClass.from_value(classification.evidence_class)
+    except ValueError as exc:
+        raise ValueError(f"Unsupported evidence_class: {classification.evidence_class}") from exc
     try:
         return _POLICY_MATRIX[evidence_class]
     except KeyError as exc:
         raise ValueError(f"Unsupported evidence_class: {classification.evidence_class}") from exc
 
 
-_POLICY_MATRIX: dict[str, PolicyDecision] = {
-    "user_self_report": PolicyDecision(
+_POLICY_MATRIX: dict[EvidenceClass, PolicyDecision] = {
+    EvidenceClass.USER_SELF_REPORT: PolicyDecision(
         allow_entity_extraction=True,
         allow_graph_write=True,
         allow_assertion_write=True,
         allow_snapshot_impact=True,
-        l1_retrieval_scope="fact_authoritative",
-        graph_scope="full",
-        assertion_scope="full",
+        l1_retrieval_scope=L1RetrievalScope.FACT_AUTHORITATIVE.label,
+        graph_scope=GraphScope.FULL.label,
+        assertion_scope=AssertionScope.FULL.label,
         evidence_weight=1.0,
         count_as_new_evidence=True,
         require_source_backlink=False,
     ),
-    "user_report_about_others": PolicyDecision(
+    EvidenceClass.USER_REPORT_ABOUT_OTHERS: PolicyDecision(
         allow_entity_extraction=True,
         allow_graph_write=True,
         allow_assertion_write=True,
         allow_snapshot_impact=False,
-        l1_retrieval_scope="fact_authoritative",
-        graph_scope="full",
-        assertion_scope="topology_only",
+        l1_retrieval_scope=L1RetrievalScope.FACT_AUTHORITATIVE.label,
+        graph_scope=GraphScope.FULL.label,
+        assertion_scope=AssertionScope.TOPOLOGY_ONLY.label,
         evidence_weight=0.8,
         count_as_new_evidence=True,
         require_source_backlink=False,
     ),
-    "assistant_quote": PolicyDecision(
+    EvidenceClass.ASSISTANT_QUOTE: PolicyDecision(
         allow_entity_extraction=True,
         allow_graph_write=False,
         allow_assertion_write=False,
         allow_snapshot_impact=False,
         l1_retrieval_scope="source_backlink_only",
-        graph_scope="none",
-        assertion_scope="none",
+        graph_scope=GraphScope.NONE.label,
+        assertion_scope=AssertionScope.NONE.label,
         evidence_weight=0.0,
         count_as_new_evidence=False,
         require_source_backlink=True,
         skip_reason="assistant_quote",
     ),
-    "assistant_tool_grounded": PolicyDecision(
+    EvidenceClass.ASSISTANT_TOOL_GROUNDED: PolicyDecision(
         allow_entity_extraction=False,
         allow_graph_write=False,
         allow_assertion_write=False,
         allow_snapshot_impact=False,
-        l1_retrieval_scope="conversation_only",
-        graph_scope="none",
-        assertion_scope="none",
+        l1_retrieval_scope=L1RetrievalScope.CONVERSATION_ONLY.label,
+        graph_scope=GraphScope.NONE.label,
+        assertion_scope=AssertionScope.NONE.label,
         evidence_weight=0.0,
         count_as_new_evidence=False,
         require_source_backlink=False,
         skip_reason="assistant_tool_grounded",
     ),
-    "assistant_freeform": PolicyDecision(
+    EvidenceClass.ASSISTANT_FREEFORM: PolicyDecision(
         allow_entity_extraction=False,
         allow_graph_write=False,
         allow_assertion_write=False,
         allow_snapshot_impact=False,
-        l1_retrieval_scope="conversation_only",
-        graph_scope="none",
-        assertion_scope="none",
+        l1_retrieval_scope=L1RetrievalScope.CONVERSATION_ONLY.label,
+        graph_scope=GraphScope.NONE.label,
+        assertion_scope=AssertionScope.NONE.label,
         evidence_weight=0.0,
         count_as_new_evidence=False,
         require_source_backlink=False,
         skip_reason="assistant_freeform",
     ),
-    "assistant_runtime_derivation": PolicyDecision(
+    EvidenceClass.ASSISTANT_RUNTIME_DERIVATION: PolicyDecision(
         allow_entity_extraction=False,
         allow_graph_write=False,
         allow_assertion_write=False,
         allow_snapshot_impact=False,
-        l1_retrieval_scope="conversation_only",
-        graph_scope="none",
-        assertion_scope="none",
+        l1_retrieval_scope=L1RetrievalScope.CONVERSATION_ONLY.label,
+        graph_scope=GraphScope.NONE.label,
+        assertion_scope=AssertionScope.NONE.label,
         evidence_weight=0.0,
         count_as_new_evidence=False,
         require_source_backlink=False,
         skip_reason="assistant_runtime_derivation",
     ),
-    "external_observation": PolicyDecision(
+    EvidenceClass.EXTERNAL_OBSERVATION: PolicyDecision(
         allow_entity_extraction=True,
         allow_graph_write=True,
         allow_assertion_write=True,
         allow_snapshot_impact=False,
-        l1_retrieval_scope="fact_authoritative",
-        graph_scope="full",
-        assertion_scope="topology_only",
+        l1_retrieval_scope=L1RetrievalScope.FACT_AUTHORITATIVE.label,
+        graph_scope=GraphScope.FULL.label,
+        assertion_scope=AssertionScope.TOPOLOGY_ONLY.label,
         evidence_weight=0.7,
         count_as_new_evidence=True,
         require_source_backlink=False,
     ),
-    "system_runtime": PolicyDecision(
+    EvidenceClass.SYSTEM_RUNTIME: PolicyDecision(
         allow_entity_extraction=False,
         allow_graph_write=False,
         allow_assertion_write=False,
         allow_snapshot_impact=False,
-        l1_retrieval_scope="audit_only",
-        graph_scope="none",
-        assertion_scope="none",
+        l1_retrieval_scope=L1RetrievalScope.AUDIT_ONLY.label,
+        graph_scope=GraphScope.NONE.label,
+        assertion_scope=AssertionScope.NONE.label,
         evidence_weight=0.0,
         count_as_new_evidence=False,
         require_source_backlink=False,

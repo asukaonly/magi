@@ -7,8 +7,11 @@ import time
 import pytest
 
 from magi.events.events import Event, EventLevel, EventTypes
+from magi.memory.evidence import EvidenceClass, EvidenceStatus, L1RetrievalScope
+from magi.memory.event_contracts import author_type_code, content_type_code
 from magi.memory.l1.chat_sessions import CHAT_SESSIONS_TABLE
 from magi.memory.event_contracts import IngestTarget, MemoryDomain, RetentionClass, TomDepth, normalize_runtime_event, MemoryEvent
+from magi.memory.l1.embeddings.common import embedding_status_code
 from magi.memory.embedding.sqlite_vec_index import VectorSearchHit
 
 
@@ -32,29 +35,28 @@ def test_l1_migration_adds_event_evidence_defaults(tmp_path):
         db.execute(
             """
             INSERT INTO fact_events(
-                event_id, correlation_id, timestamp, created_at,
-                event_type, source, memory_domain, ingest_target,
-                content, author_type, content_type
+                event_id, timestamp, created_at,
+                event_type, source, memory_domain, cognition_eligible,
+                retention_class, content, author_type, content_type
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 "evt-evidence-defaults",
-                "corr-evidence-defaults",
                 1710000000.0,
                 1710000000.0,
                 "UserMessage",
                 "chat",
                 int(MemoryDomain.USER_AUTHORED),
-                int(IngestTarget.L1_ONLY),
+                1,
+                int(RetentionClass.COMPRESSIBLE),
                 "I like tea.",
-                "user",
-                "text",
+                author_type_code("user"),
+                content_type_code("text"),
             ),
         )
         row = db.execute(
             """
-            SELECT evidence_status, evidence_class, l1_retrieval_scope,
-                   l2_graph_scope, l2_assertion_scope, evidence_source_event_ids_json
+            SELECT evidence_status, evidence_class, l1_retrieval_scope, evidence_rule_version
             FROM fact_events
             WHERE event_id = ?
             """,
@@ -65,7 +67,12 @@ def test_l1_migration_adds_event_evidence_defaults(tmp_path):
     assert "evidence_class" in columns
     assert "l1_retrieval_scope" in columns
     assert "idx_fact_events_l1_retrieval_scope" in indexes
-    assert row == ("unclassified", "unknown", "none", "none", "none", "[]")
+    assert row == (
+        int(EvidenceStatus.UNKNOWN),
+        int(EvidenceClass.UNKNOWN),
+        int(L1RetrievalScope.NONE),
+        1,
+    )
 
 
 async def _store_polluted_oolong_events(store) -> None:
@@ -158,15 +165,13 @@ async def test_l1_event_store_persists_evidence_annotation(tmp_path):
         assert fetched_user["evidence_status"] == "classified"
         assert fetched_user["evidence_class"] == "user_self_report"
         assert fetched_user["l1_retrieval_scope"] == "fact_authoritative"
-        assert fetched_user["l2_graph_scope"] == "full"
-        assert fetched_user["l2_assertion_scope"] == "full"
+        assert fetched_user["evidence_rule_version"] == 1
 
         assert fetched_assistant is not None
         assert fetched_assistant["evidence_status"] == "classified"
         assert fetched_assistant["evidence_class"] == "assistant_freeform"
         assert fetched_assistant["l1_retrieval_scope"] == "conversation_only"
-        assert fetched_assistant["l2_graph_scope"] == "none"
-        assert fetched_assistant["evidence_skip_reason"] == "assistant_freeform"
+        assert fetched_assistant["evidence_rule_version"] == 1
     finally:
         await store.shutdown()
 
@@ -213,8 +218,7 @@ async def test_l1_event_store_keeps_raw_event_when_evidence_classification_fails
         assert fetched["evidence_status"] == "classification_error"
         assert fetched["evidence_class"] == "unknown"
         assert fetched["l1_retrieval_scope"] == "none"
-        assert fetched["l2_graph_scope"] == "none"
-        assert fetched["evidence_skip_reason"] == "classification_error"
+        assert fetched["evidence_rule_version"] == 1
     finally:
         await store.shutdown()
 
@@ -1177,37 +1181,37 @@ async def test_l1_event_store_decodes_integer_classification_fields(tmp_path):
         conn.execute(
             """
             INSERT INTO fact_events (
-                event_id, correlation_id, timestamp, created_at,
-                event_type, source, source_item_id, memory_domain, ingest_target,
-                cognition_eligible, tom_depth, retention_class, session_id, turn_id, user_id,
-                task_id, content, author_type, content_type, importance_score,
-                level, media_path, deleted_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                event_id, timestamp, created_at,
+                event_type, source, source_item_id, memory_domain,
+                cognition_eligible, retention_class, session_id, turn_id, user_id,
+                content, author_type, content_type, importance_score,
+                media_path, deleted_at, evidence_status, evidence_class, evidence_rule_version,
+                l1_retrieval_scope
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 "evt-decoded",
-                "corr-1",
                 1.0,
                 1.0,
                 "UserMessage",
                 "chat",
                 None,
                 int(MemoryDomain.USER_AUTHORED),
-                int(IngestTarget.L1_ONLY),
                 1,
-                int(TomDepth.DEFENSIVE_PSYCHOLOGY),
                 int(RetentionClass.PERMANENT),
                 "session-1",
                 "turn-1",
                 "user-1",
-                None,
                 "hello",
-                "user",
-                "text",
+                author_type_code("user"),
+                content_type_code("text"),
                 0.8,
+                None,
+                None,
+                int(EvidenceStatus.CLASSIFIED),
+                int(EvidenceClass.USER_SELF_REPORT),
                 1,
-                None,
-                None,
+                int(L1RetrievalScope.FACT_AUTHORITATIVE),
             ),
         )
         conn.commit()
@@ -1218,7 +1222,7 @@ async def test_l1_event_store_decodes_integer_classification_fields(tmp_path):
         assert fetched is not None
         assert fetched["memory_domain"] == "user_authored"
         assert fetched["ingest_target"] == "l1_only"
-        assert fetched["tom_depth"] == "defensive_psychology"
+        assert fetched["tom_depth"] == "none"
         assert fetched["retention_class"] == "permanent"
     finally:
         await store.shutdown()
@@ -1621,6 +1625,7 @@ async def test_l1_fetch_ranked_events_folds_chunk_hits_to_parent_event(tmp_path)
             source_filters=None,
             domain_filters=None,
             limit=5,
+            l1_retrieval_scopes=None,
         )
     finally:
         await store.shutdown()
@@ -1800,19 +1805,16 @@ async def test_l1_event_store_masks_legacy_failed_status_when_vectors_disabled(t
             conn.executemany(
                 """
                 INSERT INTO fact_events(
-                    event_id, correlation_id, timestamp, created_at, event_type, source,
-                    source_item_id, idempotency_key, memory_domain, ingest_target,
-                    cognition_eligible, tom_depth, retention_class, session_id, turn_id,
-                    user_id, task_id, content, author_type, content_type,
-                    importance_score, level, media_path, metadata_json,
-                    embedding_status, embedding_profile_id, embedding_chunk_count,
-                    last_embedded_at, deleted_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    event_id, timestamp, created_at, event_type, source,
+                    source_item_id, idempotency_key, memory_domain,
+                    cognition_eligible, retention_class, session_id, turn_id,
+                    user_id, content, author_type, content_type,
+                    importance_score, media_path, metadata_json, deleted_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     (
                         "evt-legacy-failed-user",
-                        "corr-legacy-failed-user",
                         now,
                         now,
                         "USER_MESSAGE",
@@ -1820,30 +1822,21 @@ async def test_l1_event_store_masks_legacy_failed_status_when_vectors_disabled(t
                         None,
                         None,
                         int(MemoryDomain.USER_AUTHORED),
-                        int(IngestTarget.L1_ONLY),
                         1,
-                        int(TomDepth.NONE),
                         int(RetentionClass.PERMANENT),
                         "s1",
                         None,
                         "u1",
-                        None,
                         "legacy failed user event",
-                        "user",
-                        "text",
+                        author_type_code("user"),
+                        content_type_code("text"),
                         0.5,
-                        1,
                         None,
-                        None,
-                        "failed",
-                        None,
-                        0,
                         None,
                         None,
                     ),
                     (
                         "evt-legacy-failed-runtime",
-                        "corr-legacy-failed-runtime",
                         now + 1,
                         now + 1,
                         "TRACE_NODE_COMPLETED",
@@ -1851,27 +1844,31 @@ async def test_l1_event_store_masks_legacy_failed_status_when_vectors_disabled(t
                         None,
                         None,
                         int(MemoryDomain.RUNTIME_TELEMETRY),
-                        int(IngestTarget.L1_ONLY),
                         0,
-                        int(TomDepth.NONE),
                         int(RetentionClass.COMPRESSIBLE),
                         None,
                         None,
                         None,
-                        None,
                         "legacy failed runtime event",
-                        "system",
-                        "observation",
+                        author_type_code("system"),
+                        content_type_code("observation"),
                         0.1,
-                        1,
                         None,
-                        None,
-                        "failed",
-                        None,
-                        0,
                         None,
                         None,
                     ),
+                ],
+            )
+            conn.executemany(
+                """
+                INSERT INTO l1_event_embedding_state(
+                    event_id, embedding_status, embedding_profile_id,
+                    embedding_chunk_count, last_embedded_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    ("evt-legacy-failed-user", embedding_status_code("failed"), None, 0, None, now),
+                    ("evt-legacy-failed-runtime", embedding_status_code("failed"), None, 0, None, now + 1),
                 ],
             )
             conn.commit()
@@ -1970,6 +1967,13 @@ async def test_l1_rebuild_embeddings_reindexes_disabled_events(tmp_path):
     finally:
         await disabled_store.shutdown()
 
+    with sqlite3.connect(str(db_path)) as conn:
+        conn.execute(
+            "UPDATE l1_event_embedding_state SET updated_at = ? WHERE event_id = ?",
+            (1.0, "evt-rebuild"),
+        )
+        conn.commit()
+
     rebuild_store = L1EventStore(
         db_path=str(db_path),
         embedding_service=_BatchTrackingEmbeddingService(),
@@ -1988,3 +1992,9 @@ async def test_l1_rebuild_embeddings_reindexes_disabled_events(tmp_path):
     assert rebuilt["embedding_profile_id"] is not None
     assert rebuilt["embedding_chunk_count"] > 0
     assert rebuilt["last_embedded_at"] is not None
+    with sqlite3.connect(str(db_path)) as conn:
+        updated_at = conn.execute(
+            "SELECT updated_at FROM l1_event_embedding_state WHERE event_id = ?",
+            ("evt-rebuild",),
+        ).fetchone()[0]
+    assert updated_at > 1.0

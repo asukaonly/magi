@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Literal, Optional, cast
 import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
+from ...evidence import L1RetrievalScope
 from ...event_contracts import MemoryDomain, MemoryEvent
 from .common import FACT_EVENTS_TABLE, L1EventQueryHostProtocol
 from .filters import L1EventFilterMixin
@@ -22,6 +23,16 @@ class L1EventQueryMixin(
     L1TimelineQueryMixin,
 ):
     """SQL read, filtering, and timeline projection helpers."""
+
+    @staticmethod
+    def _select_event_columns() -> str:
+        return (
+            "fact_events.*, "
+            "l1_event_embedding_state.embedding_status AS embedding_status, "
+            "l1_event_embedding_state.embedding_profile_id AS embedding_profile_id, "
+            "l1_event_embedding_state.embedding_chunk_count AS embedding_chunk_count, "
+            "l1_event_embedding_state.last_embedded_at AS last_embedded_at"
+        )
 
     async def search_events(
         self,
@@ -84,7 +95,8 @@ class L1EventQueryMixin(
         async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                f"SELECT * FROM {FACT_EVENTS_TABLE} WHERE event_id = ?",
+                f"SELECT {self._select_event_columns()} FROM {FACT_EVENTS_TABLE} "
+                "LEFT JOIN l1_event_embedding_state USING(event_id) WHERE event_id = ?",
                 (event_id,),
             ) as cursor:
                 row = await cursor.fetchone()
@@ -101,7 +113,8 @@ class L1EventQueryMixin(
         async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                f"SELECT * FROM {FACT_EVENTS_TABLE} WHERE event_id = ?",
+                f"SELECT {self._select_event_columns()} FROM {FACT_EVENTS_TABLE} "
+                "LEFT JOIN l1_event_embedding_state USING(event_id) WHERE event_id = ?",
                 (event_id,),
             ) as cursor:
                 row = await cursor.fetchone()
@@ -153,7 +166,7 @@ class L1EventQueryMixin(
             return []
         await host.initialize()
 
-        sql = "SELECT * FROM fact_events WHERE deleted_at IS NULL"
+        sql = f"SELECT {self._select_event_columns()} FROM fact_events LEFT JOIN l1_event_embedding_state USING(event_id) WHERE deleted_at IS NULL"
         args: list[Any] = []
         ph = ", ".join("?" for _ in event_ids)
         sql += f" AND event_id IN ({ph})"
@@ -178,7 +191,7 @@ class L1EventQueryMixin(
                 return []
             scope_ph = ", ".join("?" for _ in l1_retrieval_scopes)
             sql += f" AND l1_retrieval_scope IN ({scope_ph})"
-            args.extend(l1_retrieval_scopes)
+            args.extend(int(L1RetrievalScope.from_value(scope)) for scope in l1_retrieval_scopes)
 
         if domain_filters:
             domain_ints: list[int] = []
@@ -263,7 +276,10 @@ class L1EventQueryMixin(
             exclude_retention_class=exclude_retention_class,
             l1_retrieval_scopes=l1_retrieval_scopes,
         )
-        sql = f"SELECT * FROM {FACT_EVENTS_TABLE} WHERE {where_clause}"
+        sql = (
+            f"SELECT {self._select_event_columns()} FROM {FACT_EVENTS_TABLE} "
+            f"LEFT JOIN l1_event_embedding_state USING(event_id) WHERE {where_clause}"
+        )
         order_clause = {
             "timestamp_desc": "timestamp DESC",
             "timestamp_asc": "timestamp ASC",
