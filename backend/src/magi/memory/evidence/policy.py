@@ -1,26 +1,8 @@
-"""Rule-based L2 write policy resolution."""
+"""Rule-based memory evidence policy resolution."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
-from .evidence_classifier import EvidenceClassification
-
-
-@dataclass(slots=True)
-class PolicyDecision:
-    """Resolved write policy for one classified evidence item."""
-
-    allow_entity_extraction: bool
-    allow_graph_write: bool
-    allow_assertion_write: bool
-    allow_snapshot_impact: bool
-    graph_scope: str
-    assertion_scope: str
-    evidence_weight: float
-    count_as_new_evidence: bool
-    require_source_backlink: bool
-    skip_reason: str | None = None
+from .models import EvidenceClassification, PolicyDecision
 
 
 def resolve_l2_policy(classification: EvidenceClassification) -> PolicyDecision:

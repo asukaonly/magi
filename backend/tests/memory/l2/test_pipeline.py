@@ -1248,7 +1248,7 @@ async def test_build_focal_entities_returns_typed_refs():
 
 @pytest.mark.asyncio
 async def test_prepare_unified_graph_candidates_rejects_generic_preference_domain_questions():
-    from magi.memory.l2.evidence_policy import PolicyDecision
+    from magi.memory.evidence import PolicyDecision
     from magi.memory.l2.extraction_profiles import ExtractionProfile
     from magi.memory.l2.models import L2GraphCandidate
 
@@ -3817,9 +3817,8 @@ async def test_extract_worker_persists_category_facets_from_structured_graph_hin
 
 @pytest.mark.asyncio
 async def test_build_structured_graph_candidates_rejects_stable_preference_hints():
-    from magi.memory.l2.evidence_policy import resolve_l2_policy
+    from magi.memory.evidence import classify_event_evidence, resolve_l2_policy
     from magi.memory.l2.pipeline import L2Pipeline
-    from magi.memory.l2.evidence_classifier import classify_event_evidence
 
     pipeline = L2Pipeline.__new__(L2Pipeline)
     event = _make_memory_event(event_id="evt-structured-pref", content="sensor hinted preference")
@@ -3854,8 +3853,7 @@ async def test_build_structured_graph_candidates_rejects_stable_preference_hints
 
 @pytest.mark.asyncio
 async def test_build_structured_graph_candidates_rejects_heuristic_follows_hints():
-    from magi.memory.l2.evidence_classifier import classify_event_evidence
-    from magi.memory.l2.evidence_policy import resolve_l2_policy
+    from magi.memory.evidence import classify_event_evidence, resolve_l2_policy
     from magi.memory.l2.pipeline import L2Pipeline
 
     pipeline = L2Pipeline.__new__(L2Pipeline)
@@ -3893,8 +3891,7 @@ async def test_build_structured_graph_candidates_rejects_heuristic_follows_hints
 
 @pytest.mark.asyncio
 async def test_build_structured_graph_candidates_accepts_structured_follows_profile_hints():
-    from magi.memory.l2.evidence_classifier import classify_event_evidence
-    from magi.memory.l2.evidence_policy import resolve_l2_policy
+    from magi.memory.evidence import classify_event_evidence, resolve_l2_policy
     from magi.memory.l2.pipeline import L2Pipeline
 
     pipeline = L2Pipeline.__new__(L2Pipeline)
@@ -3935,8 +3932,7 @@ async def test_build_structured_graph_candidates_accepts_structured_follows_prof
 
 @pytest.mark.asyncio
 async def test_build_structured_graph_candidates_accepts_internal_topology_hints():
-    from magi.memory.l2.evidence_classifier import classify_event_evidence
-    from magi.memory.l2.evidence_policy import resolve_l2_policy
+    from magi.memory.evidence import classify_event_evidence, resolve_l2_policy
     from magi.memory.l2.pipeline import L2Pipeline
 
     pipeline = L2Pipeline.__new__(L2Pipeline)

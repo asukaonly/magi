@@ -1,26 +1,11 @@
-"""Deterministic evidence classification for L2 governance."""
+"""Deterministic evidence classification for memory governance."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-
 from ..event_contracts import MemoryDomain, MemoryEvent
+from .models import EvidenceClassification
 
 _EXTERNAL_SOURCES = {"timeline", "sensor", "calendar", "location", "external_feed", "external"}
-
-
-@dataclass(slots=True)
-class EvidenceClassification:
-    """Classification result used by L2 evidence governance."""
-
-    evidence_class: str
-    reason_code: str
-    speaker_role: str | None
-    grounding_type: str | None
-    semantic_owner: str | None
-    originality_type: str | None
-    source_event_ids: list[str] = field(default_factory=list)
-    confidence: float = 1.0
 
 
 def classify_event_evidence(event: MemoryEvent) -> EvidenceClassification:

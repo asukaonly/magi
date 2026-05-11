@@ -109,7 +109,7 @@ def test_normalized_event_defaults_runtime_metadata():
 
 
 def test_classifier_maps_user_self_report():
-    from magi.memory.l2.evidence_classifier import classify_event_evidence
+    from magi.memory.evidence import classify_event_evidence
 
     classification = classify_event_evidence(normalize_runtime_event(_build_user_message()))
 
@@ -118,7 +118,7 @@ def test_classifier_maps_user_self_report():
 
 
 def test_classifier_maps_assistant_tool_grounded():
-    from magi.memory.l2.evidence_classifier import classify_event_evidence
+    from magi.memory.evidence import classify_event_evidence
 
     event = normalize_runtime_event(
         Event(
@@ -145,7 +145,7 @@ def test_classifier_maps_assistant_tool_grounded():
 
 
 def test_classifier_maps_assistant_freeform():
-    from magi.memory.l2.evidence_classifier import classify_event_evidence
+    from magi.memory.evidence import classify_event_evidence
 
     classification = classify_event_evidence(normalize_runtime_event(_build_ai_response()))
 
@@ -154,7 +154,7 @@ def test_classifier_maps_assistant_freeform():
 
 
 def test_classifier_maps_external_observation():
-    from magi.memory.l2.evidence_classifier import classify_event_evidence
+    from magi.memory.evidence import classify_event_evidence
 
     classification = classify_event_evidence(_build_external_observation())
 
@@ -163,7 +163,7 @@ def test_classifier_maps_external_observation():
 
 
 def test_classifier_maps_system_runtime():
-    from magi.memory.l2.evidence_classifier import classify_event_evidence
+    from magi.memory.evidence import classify_event_evidence
 
     classification = classify_event_evidence(normalize_runtime_event(_build_runtime_event()))
 
@@ -192,7 +192,7 @@ def _build_chat_response_action_event():
 
 
 def test_classifier_maps_assistant_runtime_derivation():
-    from magi.memory.l2.evidence_classifier import classify_event_evidence
+    from magi.memory.evidence import classify_event_evidence
 
     classification = classify_event_evidence(normalize_runtime_event(_build_chat_response_action_event()))
 

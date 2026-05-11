@@ -6,8 +6,7 @@ from typing import Any
 
 from ....core.logger import get_logger
 from ...event_contracts import MemoryEvent
-from ..evidence_classifier import classify_event_evidence
-from ..evidence_policy import resolve_l2_policy
+from ...evidence import classify_event_evidence, resolve_l2_policy
 from ..extraction_profiles import resolve_extraction_profile
 from ..storage.utils import normalize_event_ids
 from ..models import (
