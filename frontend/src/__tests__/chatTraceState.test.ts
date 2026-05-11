@@ -518,7 +518,7 @@ describe('chat trace state helpers', () => {
       traceEntry: {
         turnId: 'turn-running-panel',
         canOpen: true,
-        variant: 'prominent',
+        variant: 'default',
       },
     });
   });

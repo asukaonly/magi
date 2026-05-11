@@ -25,7 +25,7 @@ export interface ProjectedTranscriptActionPresentation {
 export interface ProjectedTraceEntryPresentation {
   turnId: string | null;
   canOpen: boolean;
-  variant: 'default' | 'prominent';
+  variant: 'default';
 }
 
 export interface ProjectedTranscriptPresentation {

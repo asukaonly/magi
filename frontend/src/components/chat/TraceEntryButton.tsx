@@ -18,12 +18,10 @@ export const TraceEntryButton = ({
     return null;
   }
 
-  const isProminent = traceEntry.variant === 'prominent';
-
   return (
     <button
       type="button"
-      data-trace-variant={isProminent ? 'prominent' : 'default'}
+      data-trace-variant="default"
       aria-label={label}
       title={label}
       onClick={(event: MouseEvent<HTMLButtonElement>) => {

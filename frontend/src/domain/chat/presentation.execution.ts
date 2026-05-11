@@ -127,12 +127,11 @@ export const projectTraceEntryPresentation = (
   summary?: { traceAvailable?: boolean } | null,
 ): ProjectedTraceEntryPresentation => {
   const turnId = String(message.turnId || '').trim();
-  const traceDisplayMode = String(message.traceDisplayMode || '').trim() || 'collapsible';
 
   return {
     turnId: turnId || null,
     canOpen: shouldShowTraceEntry(message, summary),
-    variant: traceDisplayMode === 'prominent' ? 'prominent' : 'default',
+    variant: 'default',
   };
 };
 

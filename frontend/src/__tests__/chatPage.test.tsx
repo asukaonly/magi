@@ -1993,7 +1993,7 @@ describe('ChatPage', () => {
     expect(view.container.querySelector('[data-trace-variant="default"]')).toBeInTheDocument();
   });
 
-  it('renders a more prominent trace entry when ux plan requests prominent trace display', async () => {
+  it('keeps the default trace entry style when ux plan requests prominent trace display', async () => {
     const view = render(<ChatPage />);
     const scoped = within(view.container);
 
@@ -2030,7 +2030,8 @@ describe('ChatPage', () => {
       expect(scoped.getByText('需要你看下执行细节')).toBeInTheDocument();
     });
 
-    expect(view.container.querySelector('[data-trace-variant="prominent"]')).toBeInTheDocument();
+    expect(view.container.querySelector('[data-trace-variant="default"]')).toBeInTheDocument();
+    expect(view.container.querySelector('[data-trace-variant="prominent"]')).not.toBeInTheDocument();
   });
 
   it('renders an interim assistant message when turn ux plan requests interim-then-final', async () => {
