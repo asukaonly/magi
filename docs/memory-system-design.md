@@ -336,7 +336,7 @@ A rare set of runtime-only events without `L1` durable anchors can use the in-pr
 
 #### Evidence Classification and Write Policy
 
-L2 ingestion uses shared evidence classification before LLM extraction. The current implementation lives in the L2 package, but the long-term ownership is a shared memory evidence subsystem consumed by both L1 retrieval and L2 write governance.
+L2 ingestion uses shared evidence classification before LLM extraction. The implementation lives in the shared `magi.memory.evidence` package and is consumed by L1 retrieval annotation, fact-like retrieval scoping, and L2 write governance.
 
 Classifier and policy responsibilities:
 
@@ -786,6 +786,22 @@ CREATE TABLE fact_events (
     level INTEGER NOT NULL DEFAULT 1,
     media_path TEXT,
     metadata_json TEXT,
+    evidence_status TEXT NOT NULL DEFAULT 'unclassified',
+    evidence_class TEXT NOT NULL DEFAULT 'unknown',
+    evidence_reason_code TEXT NOT NULL DEFAULT 'unclassified',
+    evidence_speaker_role TEXT,
+    evidence_grounding_type TEXT,
+    evidence_semantic_owner TEXT,
+    evidence_originality_type TEXT,
+    evidence_source_event_ids_json TEXT NOT NULL DEFAULT '[]',
+    evidence_confidence REAL NOT NULL DEFAULT 0.0,
+    evidence_classifier_version TEXT NOT NULL DEFAULT 'unclassified',
+    evidence_policy_version TEXT NOT NULL DEFAULT 'unclassified',
+    l1_retrieval_scope TEXT NOT NULL DEFAULT 'none',
+    l2_graph_scope TEXT NOT NULL DEFAULT 'none',
+    l2_assertion_scope TEXT NOT NULL DEFAULT 'none',
+    evidence_skip_reason TEXT,
+    evidence_updated_at REAL,
     deleted_at REAL,
 
     UNIQUE(source, event_type, idempotency_key)
@@ -797,6 +813,8 @@ Key notes:
 - `event_id` is the external stable reference key
 - `id` is the internal relationship key
 - `metadata_json` carries structured event payloads
+- Evidence annotation columns describe retrieval and L2-write authority; they do not rewrite `content`
+- Unknown or failed evidence annotations default to `l1_retrieval_scope='none'`
 - Durable events support soft deletion via `deleted_at`
 
 ---
@@ -968,7 +986,7 @@ Main implementation entry points:
 
 - [backend/src/magi/memory/l2/episode_formation.py](../backend/src/magi/memory/l2/episode_formation.py) — Streaming episode assignment and consolidation
 
-- [backend/src/magi/memory/l2/evidence_classifier.py](../backend/src/magi/memory/l2/evidence_classifier.py) — Current deterministic evidence classification; long-term ownership belongs to shared memory evidence governance
+- [backend/src/magi/memory/evidence/classifier.py](../backend/src/magi/memory/evidence/classifier.py) — Shared deterministic evidence classification used by L1 retrieval and L2 write governance
 
 - [backend/src/magi/memory/l2/evidence_policy.py](../backend/src/magi/memory/l2/evidence_policy.py) — Current rule-based L2 write policy per evidence class; long-term policy also governs L1 retrieval authority
 
