@@ -54,7 +54,16 @@
     "memory": "记忆",
     "timeline": "时间线",
     "tasks": "任务",
-    "settings": "设置"
+    "settings": "设置",
+    "contentErrorTitle": "此页面遇到错误",
+    "contentErrorDescription": "Magi 的其他部分仍可使用。如果这个页面持续失败，请重新加载应用。",
+    "sidebarErrorTitle": "导航遇到错误",
+    "sidebarErrorDescription": "请重新加载应用以恢复导航。",
+    "overlayErrorTitle": "弹窗遇到错误",
+    "overlayErrorDescription": "可以先关闭弹窗继续使用；如果持续失败，请重新加载应用。",
+    "routeErrorTitle": "出错了",
+    "dismiss": "关闭",
+    "reload": "重新加载"
   },
   "tasks": {
     "page": {
@@ -751,6 +760,22 @@
     "saveFailed": "保存配置失败: {{message}}",
     "pendingChanges": "存在未保存的更改",
     "allChangesSaved": "所有更改都已保存",
+    "llmValidation": {
+      "customServiceModelRequired": "{{provider}} 已开启{{service}}能力，请先添加至少一个{{service}}模型再保存。",
+      "customScenarioModelMissing": "{{scenario}} 当前使用 {{model}}，但 {{provider}} 没有把它列为{{service}}模型。",
+      "services": {
+        "chat": "对话",
+        "embedding": "向量",
+        "image_generation": "生图"
+      },
+      "scenarios": {
+        "context_decider": "上下文判断",
+        "core": "核心对话",
+        "memory_summarizer": "记忆总结",
+        "embedding": "向量",
+        "image_generation": "生图"
+      }
+    },
     "errorUnknown": "未知错误",
     "resetConfirm": "确定要重置所有配置为默认值吗？",
     "resetSuccess": "配置已重置为默认值",
@@ -763,6 +788,8 @@
     "shellTitle": "系统设置",
     "subtitle": "所有配置都可在此集中管理",
     "refresh": "刷新",
+    "errorTitle": "设置遇到错误",
+    "errorDescription": "请关闭后重新打开设置；如果仍然失败，请重新加载应用。",
     "reset": "重置为默认",
     "saveAll": "保存全部",
     "saving": "保存中...",

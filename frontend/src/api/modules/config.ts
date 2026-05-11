@@ -574,6 +574,21 @@ export const DEFAULT_LLM_LIMITS: LLMLimits = {
   max_output_tokens: null,
 };
 
+export const DEFAULT_LLM_CUSTOM_PROVIDER_META: LLMCustomProviderMeta = {
+  enabled: true,
+  display_name: 'Custom Provider',
+  fields: {
+    custom_name: { visible: true, required: true },
+    api_format: { visible: true, required: true, options: ['openai', 'anthropic'] },
+    model: { visible: true, required: true },
+    api_key: { visible: true, required: true },
+    base_url: { visible: true, required: false },
+  },
+  capabilities: DEFAULT_LLM_CAPABILITIES,
+  limits: DEFAULT_LLM_LIMITS,
+  provider_options_example: {},
+};
+
 export interface ResolvedProviderModels {
   chat_models: LLMResolvedChatModelMeta[];
   embedding_models: LLMResolvedEmbeddingModelMeta[];

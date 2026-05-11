@@ -6,6 +6,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { configApi, type LLMConfig } from '../api/modules/config';
 import { SimpleForm as Form } from '../components/onboarding/simple-form';
 import LLMForm from '../components/config-forms/LLMForm';
+import { buildRegistryFromCatalog, normalizeLLMConfig } from '../components/config-forms/llm-form-state';
 import { LLMRerankerModelPanel } from '../components/config-forms/LLMRerankerModelPanel';
 import MemoryForm from '../components/config-forms/MemoryForm';
 
@@ -855,6 +856,42 @@ describe('config forms', () => {
     expect(screen.getByRole('button', { name: 'llm.providerConfiguration.addProvider' })).toBeInTheDocument();
   });
 
+  it('normalizes custom providers when custom provider metadata is absent', () => {
+    const registry = buildRegistryFromCatalog({ providers: [] }, {} as any);
+    const customValue = structuredClone(llmValue) as LLMConfig;
+    customValue.providers = {
+      custom_proxy: {
+        ...structuredClone(llmValue.providers.openai),
+        provider_type: 'custom',
+        display_name: 'Custom Proxy',
+        custom_models: [],
+        custom_default_model: 'manual-model',
+        api_format: 'openai',
+        model_metadata_overrides: {},
+      },
+    };
+    customValue.selections.context_decider = {
+      ...structuredClone(llmValue.selections.context_decider),
+      provider_id: 'custom_proxy',
+      model: 'manual-model',
+    };
+    customValue.selections.core = {
+      ...structuredClone(llmValue.selections.core),
+      provider_id: 'custom_proxy',
+      model: 'manual-model',
+    };
+    customValue.selections.memory_summarizer = {
+      ...structuredClone(llmValue.selections.memory_summarizer),
+      provider_id: 'custom_proxy',
+      model: 'manual-model',
+    };
+
+    const normalized = normalizeLLMConfig(customValue, registry);
+
+    expect(normalized.selections.core.capabilities.tool_calling).toBe(true);
+    expect(normalized.selections.core.capabilities.reasoning).toBe(true);
+  });
+
   it('pins enabled providers above disabled providers in the settings provider list', async () => {
     render(
       <Form initialValues={{ llm: llmValue }}>
@@ -1099,7 +1136,6 @@ describe('config forms', () => {
     await user.click(await screen.findByRole('button', { name: 'llm.providerConfiguration.addProvider' }));
     const dialog = screen.getByRole('dialog');
     await user.click(within(dialog).getByRole('button', { name: 'llm.providerConfiguration.providerKinds.custom' }));
-    await user.click(within(dialog).getByRole('button', { name: /llm.providerConfiguration.serviceLabels.chat/ }));
     await user.click(within(dialog).getByRole('button', { name: 'llm.actions.fetchModels' }));
 
     await waitFor(() => {
@@ -1120,7 +1156,6 @@ describe('config forms', () => {
     await user.click(await screen.findByRole('button', { name: 'llm.providerConfiguration.addProvider' }));
     const dialog = screen.getByRole('dialog');
     await user.click(within(dialog).getByRole('button', { name: 'llm.providerConfiguration.providerKinds.custom' }));
-    await user.click(within(dialog).getByRole('button', { name: /llm.providerConfiguration.serviceLabels.chat/ }));
 
     const customModelsField = within(dialog).getByLabelText('llm.providerConfiguration.serviceLabels.chat llm.fields.modelManualEntry');
     await user.type(customModelsField, 'claude-sonnet-4-6');
@@ -1932,9 +1967,14 @@ describe('config forms', () => {
     const dialog = screen.getByRole('dialog');
     await user.clear(screen.getByLabelText('llm.fields.displayName'));
     await user.type(screen.getByLabelText('llm.fields.displayName'), 'Proxy');
-    await user.type(within(dialog).getByLabelText('llm.fields.apiKey'), 'sk-proxy');
-    await user.type(within(dialog).getByLabelText('llm.fields.baseUrl'), 'https://proxy.example.com/v1');
-    await user.click(within(dialog).getByRole('button', { name: /llm.providerConfiguration.serviceLabels.chat/ }));
+    const providerApiKeyField = within(dialog)
+      .getAllByLabelText(/llm.fields.apiKey/)
+      .find((field) => field.getAttribute('aria-label') === 'llm.fields.apiKey');
+    await user.type(providerApiKeyField!, 'sk-proxy');
+    const providerBaseUrlField = within(dialog)
+      .getAllByLabelText(/llm.fields.baseUrl/)
+      .find((field) => field.getAttribute('aria-label') === 'llm.fields.baseUrl');
+    await user.type(providerBaseUrlField!, 'https://proxy.example.com/v1');
     const customModelsField = within(dialog).getByLabelText('llm.providerConfiguration.serviceLabels.chat llm.fields.modelManualEntry');
     await user.type(customModelsField, 'foo-1');
     await user.click(within(dialog).getByRole('button', { name: 'llm.actions.addModel' }));
@@ -1951,6 +1991,90 @@ describe('config forms', () => {
           provider.custom_models?.includes('foo-1') &&
           provider.custom_models?.includes('foo-2')
       )).toBe(true);
+    });
+  });
+
+  it('disables custom provider save until enabled services have models', async () => {
+    const user = userEvent.setup();
+
+    function ControlledSettingsLlmForm() {
+      const [value, setValue] = React.useState({ providers: {}, selections: llmValue.selections, model_runtime_overrides: {} } as unknown as LLMConfig);
+      return (
+        <LLMForm
+          quickMode={false}
+          surface="settings"
+          view="providers"
+          showSectionIntro={false}
+          value={value}
+          onChange={setValue}
+        />
+      );
+    }
+
+    render(<ControlledSettingsLlmForm />);
+
+    await user.click(await screen.findByRole('button', { name: 'llm.providerConfiguration.addProvider' }));
+    await user.click(screen.getByRole('button', { name: 'llm.providerConfiguration.providerKinds.custom' }));
+    const dialog = screen.getByRole('dialog');
+    const saveButton = within(dialog).getByRole('button', { name: 'llm.providerConfiguration.saveProvider' });
+
+    expect(saveButton).toBeDisabled();
+    expect(within(dialog).getAllByText('llm.validation.customServiceModelRequired').length).toBeGreaterThan(0);
+
+    const customModelsField = within(dialog).getByLabelText('llm.providerConfiguration.serviceLabels.chat llm.fields.modelManualEntry');
+    await user.type(customModelsField, 'foo-1');
+    await user.click(within(dialog).getByRole('button', { name: 'llm.actions.addModel' }));
+
+    await waitFor(() => {
+      expect(saveButton).toBeEnabled();
+    });
+  });
+
+  it('lets custom providers add manual image generation models', async () => {
+    const user = userEvent.setup();
+    let latestValue: LLMConfig | null = null;
+
+    function ControlledSettingsLlmForm() {
+      const [value, setValue] = React.useState({ providers: {}, selections: llmValue.selections, model_runtime_overrides: {} } as unknown as LLMConfig);
+      return (
+        <LLMForm
+          quickMode={false}
+          surface="settings"
+          view="providers"
+          showSectionIntro={false}
+          value={value}
+          onChange={(nextValue) => {
+            latestValue = nextValue;
+            setValue(nextValue);
+          }}
+        />
+      );
+    }
+
+    render(<ControlledSettingsLlmForm />);
+
+    await user.click(await screen.findByRole('button', { name: 'llm.providerConfiguration.addProvider' }));
+    await user.click(screen.getByRole('button', { name: 'llm.providerConfiguration.providerKinds.custom' }));
+    const dialog = screen.getByRole('dialog');
+    await user.type(within(dialog).getByLabelText('llm.providerConfiguration.serviceLabels.chat llm.fields.modelManualEntry'), 'foo-chat');
+    await user.click(within(dialog).getByRole('button', { name: 'llm.actions.addModel' }));
+
+    await user.click(within(dialog).getByRole('switch', { name: 'llm.providerConfiguration.serviceLabels.image_generation' }));
+    const saveButton = within(dialog).getByRole('button', { name: 'llm.providerConfiguration.saveProvider' });
+    expect(saveButton).toBeDisabled();
+
+    const imageModelField = within(dialog).getByLabelText('llm.providerConfiguration.serviceLabels.image_generation llm.fields.modelManualEntry');
+    await user.type(imageModelField, 'foo-image');
+    const addModelButtons = within(dialog).getAllByRole('button', { name: 'llm.actions.addModel' });
+    await user.click(addModelButtons[addModelButtons.length - 1]);
+    await waitFor(() => {
+      expect(saveButton).toBeEnabled();
+    });
+    await user.click(saveButton);
+
+    await waitFor(() => {
+      const provider = Object.values(latestValue?.providers || {}).find((item) => item.provider_type === 'custom');
+      expect(provider?.model_metadata_overrides?.['foo-image']?.capabilities?.image_output).toBe(true);
     });
   });
 

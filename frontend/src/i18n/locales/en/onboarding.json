@@ -369,7 +369,9 @@
       "customProviderNameRequired": "Please enter a name for the custom provider.",
       "customProviderApiKeyRequired": "Please enter the API Key for the custom provider.",
       "customProviderBaseUrlRequired": "Please enter the Base URL for the custom provider.",
-      "customProviderModelRequired": "Please add at least one model for the custom provider."
+      "customProviderModelRequired": "Please add at least one model for the custom provider.",
+      "customServiceModelRequired": "{{provider}} has {{service}} enabled. Add at least one {{service}} model before continuing.",
+      "customScenarioModelMissing": "{{scenario}} is using {{model}}, but {{provider}} does not list it as a {{service}} model."
     },
     "modelManualPlaceholder": "Enter a model ID, for example gpt-4.1",
     "imageGenerationModelPlaceholder": "Enter an image model ID, e.g. gpt-image-1",

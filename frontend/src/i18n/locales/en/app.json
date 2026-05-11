@@ -54,7 +54,16 @@
     "memory": "Memory",
     "timeline": "Timeline",
     "tasks": "Tasks",
-    "settings": "Settings"
+    "settings": "Settings",
+    "contentErrorTitle": "This page encountered an error",
+    "contentErrorDescription": "The rest of Magi is still available. Reload the app if this page keeps failing.",
+    "sidebarErrorTitle": "Navigation encountered an error",
+    "sidebarErrorDescription": "Reload the app to restore navigation.",
+    "overlayErrorTitle": "A dialog encountered an error",
+    "overlayErrorDescription": "Close the dialog and continue, or reload the app if it keeps failing.",
+    "routeErrorTitle": "Something went wrong",
+    "dismiss": "Dismiss",
+    "reload": "Reload"
   },
   "tasks": {
     "page": {
@@ -752,6 +761,22 @@
     "saveFailed": "Failed to save config: {{message}}",
     "pendingChanges": "There are unsaved changes",
     "allChangesSaved": "All changes are saved",
+    "llmValidation": {
+      "customServiceModelRequired": "{{provider}} has {{service}} enabled. Add at least one {{service}} model before saving.",
+      "customScenarioModelMissing": "{{scenario}} is using {{model}}, but {{provider}} does not list it as a {{service}} model.",
+      "services": {
+        "chat": "chat",
+        "embedding": "embedding",
+        "image_generation": "image generation"
+      },
+      "scenarios": {
+        "context_decider": "Context Decider",
+        "core": "Core Chat",
+        "memory_summarizer": "Memory Summarizer",
+        "embedding": "Embedding",
+        "image_generation": "Image Generation"
+      }
+    },
     "errorUnknown": "Unknown error",
     "resetConfirm": "Reset all settings to defaults?",
     "resetSuccess": "Configuration reset to defaults",
@@ -764,6 +789,8 @@
     "shellTitle": "System Settings",
     "subtitle": "Manage all settings in one place",
     "refresh": "Refresh",
+    "errorTitle": "Settings encountered an error",
+    "errorDescription": "Close and reopen settings, or reload the app if it keeps failing.",
     "reset": "Reset to Defaults",
     "saveAll": "Save All",
     "saving": "Saving...",

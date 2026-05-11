@@ -1,5 +1,5 @@
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { AlertCircle, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -27,6 +27,8 @@ import {
   resolveProviderActionBaseUrl,
   resolveProviderDefaultModel,
   resolveSelectionDefaultMaxConcurrency,
+  validateLLMCustomProviderReadiness,
+  type LLMValidationIssue,
   type ScenarioConcurrencyState,
 } from './llm-form-state';
 import { LLMEmbeddingDimensionConfirmDialog } from './LLMEmbeddingDimensionConfirmDialog';
@@ -46,6 +48,7 @@ interface LLMFormProps {
   onEmbeddingConfigChange?: (updater: (draft: import('@/api/modules/config').EmbeddingConfig) => void) => void;
   crossEncoderConfig?: import('@/api/modules/config').CrossEncoderConfig;
   onCrossEncoderConfigChange?: (updater: (draft: import('@/api/modules/config').CrossEncoderConfig) => void) => void;
+  onValidationChange?: (issues: LLMValidationIssue[]) => void;
 }
 
 interface PendingEmbeddingDimensionChange {
@@ -92,6 +95,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
   onEmbeddingConfigChange,
   crossEncoderConfig,
   onCrossEncoderConfigChange,
+  onValidationChange,
 }) => {
   const { t } = useTranslation('onboarding');
   const formCtx = useContext(FormContext);
@@ -123,6 +127,27 @@ const LLMForm: React.FC<LLMFormProps> = ({
   const memorySummarizerUsesCore =
     memorySummarizerUsesCoreOverride
     ?? areSelectionsEquivalent(currentValue.selections.memory_summarizer, currentValue.selections.core);
+  const validationIssues = useMemo(() => validateLLMCustomProviderReadiness(currentValue), [currentValue]);
+
+  const formatValidationIssue = useCallback((issue: LLMValidationIssue): string => {
+    const serviceLabel = t(`llm.providerConfiguration.serviceLabels.${issue.serviceName}`);
+    if (issue.code === 'customScenarioModelMissing' && issue.scenario && issue.model) {
+      return t('llm.validation.customScenarioModelMissing', {
+        provider: issue.providerName,
+        scenario: t(`llm.scenarios.${issue.scenario}.title`),
+        model: issue.model,
+        service: serviceLabel,
+      });
+    }
+    return t('llm.validation.customServiceModelRequired', {
+      provider: issue.providerName,
+      service: serviceLabel,
+    });
+  }, [t]);
+
+  useEffect(() => {
+    onValidationChange?.(validationIssues);
+  }, [onValidationChange, validationIssues]);
 
   const updateValue = (updater: (draft: LLMConfig) => void) => {
     const next = cloneLLMConfig(currentValue);
@@ -147,7 +172,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
         ]);
         if (catalog && template) {
           setCustomProviderTemplate(template);
-          setCustomProviderDefaults(cloneProvider(template.defaults));
+          setCustomProviderDefaults(template.defaults ? cloneProvider(template.defaults) : null);
           setRegistry(buildRegistryFromCatalog(catalog, template));
         } else {
           setError(t('llm.loadFailed'));
@@ -723,6 +748,17 @@ const LLMForm: React.FC<LLMFormProps> = ({
         fillAvailableHeight && 'flex h-full min-h-0 flex-col'
       )}
     >
+      {validationIssues.length > 0 ? (
+        <div className="space-y-1 rounded-lg border border-amber-300/55 bg-amber-50/75 px-3 py-2.5 text-xs leading-5 text-amber-900 dark:border-amber-300/25 dark:bg-amber-500/10 dark:text-amber-100">
+          {validationIssues.slice(0, 3).map((issue, index) => (
+            <p key={`${issue.code}-${issue.providerId}-${issue.serviceName}-${index}`} className="flex gap-2">
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>{formatValidationIssue(issue)}</span>
+            </p>
+          ))}
+        </div>
+      ) : null}
+
       {view !== 'models' ? (
         <LLMProviderConfigurationSection
           registry={registry}

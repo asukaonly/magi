@@ -185,9 +185,9 @@ Key properties:
 - Supports vector retrieval and keyword retrieval
 - Preserves source-side identity and business idempotency
 - Vector index uses `event` as the parent object and `chunk` as the retrieval unit: long texts are split into overlapping chunks for vector indexing, then collapsed back to the parent event during retrieval
-- `L1` / `L3` / `L4` hybrid retrieval passes through a unified reranker stage after RRF; supports a shared heuristic reranker and an optional LLM reranker
-- The LLM reranker is driven by `agent.memory.reranker`: `remote` mode uses an explicit provider/model, `local` mode reuses the global `llm.providers.local` OpenAI-compatible service
-- If the LLM reranker's provider, model, local service, or local CLI are all unavailable, retrieval automatically falls back to heuristic reranking without interruption
+- `L1` / `L3` / `L4` hybrid retrieval passes through a unified reranker stage after RRF; heuristic reranking is always active
+- An optional local cross-encoder reranker can add semantic relevance scoring on top of the heuristic stage
+- The cross-encoder reranker is driven by `agent.memory.reranker.cross_encoder` and loads a managed ONNX model by `managed_model_id`; if it is disabled or the model files are unavailable, retrieval falls back to heuristic reranking without interruption
 
 Examples:
 
@@ -330,7 +330,7 @@ Batch policy:
 - The pipeline switches between `catch_up` (throughput-focused) and `steady_state` (latency-focused) modes based on backlog
 - Durable claim is subject to runtime backpressure
 - Plugin sync cursors only track "synced to L1", not L2 progress
-- The `runtime_worker` registers `memory_l2_maintenance` as a periodic task for offline entity catalog / knowledge graph cleanup (ghost references, mergeable types, orphan entities)
+- The `runtime_worker` registers `memory_l2_maintenance` as a periodic task for offline entity catalog / knowledge graph maintenance, including ghost references, mergeable types, orphan entities, assertion reconciliation, edge embedding refresh, predicate consolidation, and episode consolidation
 
 A rare set of runtime-only events without `L1` durable anchors can use the in-process dispatch path, but they are not considered regular inputs to `L2` durable projection.
 
@@ -340,7 +340,8 @@ L2 ingestion uses shared evidence classification before LLM extraction. The impl
 
 Classifier and policy responsibilities:
 
-- Evidence classes: `user_self_report`, `user_report_about_others`, `assistant_quote`, `assistant_tool_grounded`, `assistant_freeform`, `assistant_runtime_derivation`, `system_runtime`, `external_observation`
+- Active classifier outputs: `user_self_report`, `assistant_tool_grounded`, `assistant_freeform`, `assistant_runtime_derivation`, `system_runtime`, `external_observation`
+- Reserved policy classes: `user_report_about_others`, `assistant_quote`; these are present in the policy matrix for provenance-specific classifiers and explicit policy tests, but ordinary assistant quote-like text currently classifies as `assistant_freeform` unless upstream marks it more specifically
 - Each class maps to a `PolicyDecision` controlling `allow_graph_write`, `allow_assertion_write`, `evidence_weight`, etc.
 - `public_topology` and `stable_preference` fact kinds require explicit or structured extraction sources
 - User questions, user requests/commands, assistant memory answers, and assistant freeform text must not become new user-profile facts through L2 graph/assertion writes
@@ -416,7 +417,7 @@ Key constraints:
 
 L2 retrieval uses a unified `query_mode` system (replacing the legacy `recall_intent` + `query_mode` dual system).
 
-**Eight unified modes** are registered in the mode registry:
+**Nine unified modes** are registered in the mode registry:
 
 | Mode | Primary Layer | Evidence Shape | Reducer |
 |------|--------------|---------------|---------|
@@ -427,6 +428,7 @@ L2 retrieval uses a unified `query_mode` system (replacing the legacy `recall_in
 | `cross_session` | L2 + L1 | grouped_list | enumerate |
 | `temporal_compare` | L2 + L1 | comparison_frame | anchor_compare |
 | `summary` | L3 | passthrough | passthrough |
+| `activity_summary` | L3 | activity_digest | time_window_aggregate |
 | `strategy` | L4 | passthrough | passthrough |
 
 Each mode defines a `QueryModePlan` with:
@@ -434,6 +436,8 @@ Each mode defines a `QueryModePlan` with:
 - Layer weights for mode-adaptive RRF
 - Primary and secondary layer preferences
 - Evidence assembler type and reducer type
+
+The evidence assembler and reducer fields are the mode contract, not a guarantee that every named reducer has a dedicated implementation today. If a named assembler or reducer is not registered, the hybrid retrieval service still returns normal layer payloads and answer-facing findings for that mode. In the current implementation, `activity_summary` is exposed through the mode registry and `memory_query` tool; its `activity_digest` / `time_window_aggregate` entries describe the intended reduced evidence shape while the answer-facing path prioritizes L3 summary findings and falls back to L1 activity evidence.
 
 **Fallback / auto routing**: Tool callers should pass an explicit `query_mode`; the `memory_query` tool schema keeps this required so the chat LLM owns the high-level retrieval intent. Product-facing search surfaces may omit `query_mode` to request auto routing. In that case the rule router chooses a mode from the query text, defaulting to `exact_fact` when no stronger signal is present. The workbench trace exposes the requested mode, resolved mode, executed layers, and per-layer result counts.
 
@@ -443,11 +447,13 @@ Each mode defines a `QueryModePlan` with:
 
 - `query_family` — affinity, relationship, profile, activity, lookup
 - `subject_scope` — self, explicit, none
-- `answer_kind` — creator, place, topic, person, software
+- `answer_kind` — creator, place, topic, person, software, unknown
 - `answer_unit` — identity, presence, place, mixed
+- `entity_mentions` — raw entity names or mentions extracted from the query for resolution
 - `constraints` — controlled constraint list, not arbitrary graph queries
+- `ranking_mode` — affinity, confidence, or recency; defaults to affinity
 
-**Query execution pipeline**:
+**Query execution pipeline** conceptually follows this shape:
 
 ```text
 Natural language
@@ -475,7 +481,7 @@ Scoring model: positive and negative evidence aggregate separately; direct evide
 
 Controlled facets: `platform`, `located_in`, `category`. Parsed constraints are either entity-backed (resolvable to graph entities) or facet-backed (carried in `entity_facets` sidecar).
 
-**Strategy registry**: Query execution templates are selected by `(query_family, answer_kind)` combination, composed from: candidate provider, constraint handlers, evidence collectors, grouper, scorer, projector. Extending requires only adding new facets/collectors/strategies, not rewriting query branches.
+**Strategy-style execution helpers**: Query execution templates are selected by `(query_family, answer_kind)` combinations. The current implementation dispatches affinity plans through `L2SemanticRelationshipMixin` and semantic-frame helper functions rather than a standalone registry object. Extending should still be done by adding focused constraint handlers, evidence collectors, grouping/scoring helpers, or new strategy modules instead of adding large query branches.
 
 **`presence` in queries**: Creator affinity candidates are based on `presence`; `presence -> ON_PLATFORM -> software`, `presence -> PRESENCE_OF -> person/group/organization`. Default answers aggregate by identity; only explicit account/channel queries output by `presence`.
 
@@ -544,7 +550,7 @@ Trend-shift insights are reserved for durable long-span signals. Sparse or volat
 
 #### Temporal Summary Generation
 
-Temporal L3 summaries are generated by the host memory runtime, not by individual plugins. The scheduler invokes generic temporal summary targets for configured windows such as `hour`, `day`, `week`, and `month`; source-specific activity schedules may request a narrower `source_filter`, but they still write normal L3 summary records through the same store.
+Temporal L3 summaries are generated by the host memory runtime, not by individual plugins. The runtime scheduler currently registers core interval targets for `hour`, `day`, `week`, and `month`. Source-specific activity schedules are registered from merged plugin summary profiles when their requested windows are in the scheduler interval catalog, and they may request a narrower `source_filter`; they still write normal L3 summary records through the same store. The temporal summary store and LLM service also understand `quarter` and `year` summary categories for explicit callers or future schedules that provide appropriate windows.
 
 There is no separate digest layer or digest-specific scheduler. A digest-style view is just a temporal L3 summary with a time window, evidence links, and normal L3 retrieval behavior.
 
@@ -577,7 +583,7 @@ The temporal evidence pack records:
 
 This metadata is part of the prompt contract. The temporal summarizer must treat selected raw events as representative evidence, not as an exhaustive list of everything that happened in the window.
 
-Previous and child period summaries are timeline context, not new evidence. They may help the model describe drift, continuity, or phase changes, but current-window facts must still be grounded in the current evidence pack. By default, `hour` and `day` summaries receive one previous same-period summary; `week`, `month`, `quarter`, and `year` summaries receive up to two previous same-period summaries. `week`, `month`, `quarter`, and `year` summaries may also receive compact child summaries from the next lower timeline scale.
+Previous and child period summaries are timeline context, not new evidence. They may help the model describe drift, continuity, or phase changes, but current-window facts must still be grounded in the current evidence pack. By default, `hour` and `day` summaries receive one previous same-period summary; `week` and `month` summaries receive up to three previous same-period summaries; `quarter` and `year` summaries receive up to two previous same-period summaries. Child context uses the next lower timeline scale: day summaries may include hour summaries, week summaries may include day summaries, month summaries may include week summaries, quarter summaries may include month summaries, and year summaries may include quarter summaries.
 
 Temporal summary generation must honor the user's configured language preference even when running from scheduler contexts that do not carry an HTTP language header. The temporal summarizer passes the target language in both system and user prompts and rejects model outputs whose user-facing fields clearly violate the target language, falling back to deterministic rule text rather than storing mixed-language summaries.
 
@@ -586,7 +592,9 @@ Temporal LLM calls use period-specific generation profiles by default:
 - `hour` windows get up to `180` seconds, keep thinking disabled, and focus on local sequence, immediate context, and short-lived shifts.
 - `day` windows get up to `300` seconds, enable thinking, and focus on day blocks, attention shifts, explicit decisions, and repeated constraints.
 - `week` windows get up to `600` seconds, enable thinking, and focus on durable themes, recurring interests, cross-source patterns, and notable changes.
-- `month` and longer windows get up to `600` seconds, enable thinking, and focus on cross-week themes, stage changes, sustained interests, project progress, and unusually frequent activities.
+- `month` windows get up to `600` seconds, enable thinking, and focus on cross-week themes, stage changes, sustained interests, project progress, and unusually frequent activities.
+- `quarter` windows get up to `600` seconds, enable thinking, and focus on durable projects, decisions, constraints, source-specific habits, and cross-month phase changes.
+- `year` windows get up to `600` seconds, enable thinking, and focus on year-scale durable themes, long-running projects, decisions, constraints, recurring interests, and unusually frequent activities.
 
 The legacy flat `temporal_llm_timeout_seconds` setting remains an explicit override for testing or operator tuning; the previous default value `3.0` is treated as "use the period profile" so it does not force production summaries through a three-second budget.
 
@@ -623,13 +631,7 @@ It answers:
 
 `L4` does not recount historical facts; it distills future execution guidelines.
 
-Tool success/failure rates are not L4 truth. Exact tool attempts,
-provider challenges, errors, latency, and success counts live in
-`runtime_trace.trace_tools`; any success-rate value shown to routing,
-advisory, or UI surfaces must be derived from that runtime trace table.
-L4 may retain circuit-breaker state, strategy hints, context affinity,
-and other procedural guidance, but those fields are advisory overlays on
-top of trace-derived execution facts.
+Authoritative tool execution truth lives in `runtime_trace.trace_tools`. Exact tool attempts, provider challenges, errors, latency, and success counts should be read from runtime trace when a surface needs auditable execution facts. The current L4 store also maintains denormalized procedural rollups such as `total_attempts`, `success_rate`, bounded `l4_execution_traces`, circuit-breaker state, strategy hints, and context affinity for skill learning and fast advisory reads. Treat those L4 fields as cached procedural overlays that must be reconcilable with runtime trace, not as the canonical source for execution-history inspection.
 
 `L4` vector index uses `skill` as the parent object and `chunk` as the retrieval unit.
 
@@ -648,18 +650,31 @@ Examples:
 
 All data entering durable memory is normalized into the `MemoryEvent` defined in [backend/src/magi/memory/event_contracts.py](../backend/src/magi/memory/event_contracts.py).
 
-A minimal durable memory event requires:
+A fully normalized durable `MemoryEvent` carries these required fields, either supplied by the producer or derived during normalization:
 
 - `event_id`
+- `correlation_id`
 - `event_type`
 - `source`
 - `timestamp`
+- `created_at`
 - `content`
 - `memory_domain`
 - `ingest_target`
 - `cognition_eligible`
+- `tom_depth`
 - `retention_class`
-- Optional: `source_item_id`, `idempotency_key`, `metadata_json`
+- `author_type`
+- `content_type`
+- `importance_score`
+- `level`
+
+Optional identity, payload, embedding, and observability fields include:
+
+- `source_item_id`, `idempotency_key`, `media_path`, `metadata_json`
+- `session_id`, `turn_id`, `user_id`, `task_id`
+- `embedding_status`, `embedding_profile_id`
+- `causation_id`, `trace_id`, `span_id`, `parent_span_id`
 
 ### memory_domain
 
@@ -725,7 +740,8 @@ Retention policy must be an explicit contract, not implicit post-processing.
 When `idempotency_key` is present, `L1` deduplicates by:
 
 ```sql
-UNIQUE(source, event_type, idempotency_key)
+CREATE UNIQUE INDEX idx_fact_events_business_idempotency
+  ON fact_events(source, event_type, idempotency_key);
 ```
 
 This means:
@@ -764,7 +780,6 @@ The `fact_events` core schema:
 CREATE TABLE fact_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     event_id TEXT NOT NULL UNIQUE,
-    correlation_id TEXT NOT NULL,
     timestamp REAL NOT NULL,
     created_at REAL NOT NULL,
     event_type TEXT NOT NULL,
@@ -772,40 +787,34 @@ CREATE TABLE fact_events (
     source_item_id TEXT,
     idempotency_key TEXT,
     memory_domain INTEGER NOT NULL,
-    ingest_target INTEGER NOT NULL,
     cognition_eligible INTEGER NOT NULL DEFAULT 0,
-    tom_depth INTEGER NOT NULL DEFAULT 1,
     retention_class INTEGER NOT NULL DEFAULT 2,
     session_id TEXT,
     turn_id TEXT,
     user_id TEXT,
-    task_id TEXT,
     content TEXT NOT NULL,
-    author_type TEXT NOT NULL,
-    content_type TEXT NOT NULL,
+    author_type INTEGER NOT NULL,
+    content_type INTEGER NOT NULL,
     importance_score REAL NOT NULL DEFAULT 0.5,
-    level INTEGER NOT NULL DEFAULT 1,
     media_path TEXT,
     metadata_json TEXT,
-    evidence_status TEXT NOT NULL DEFAULT 'unclassified',
-    evidence_class TEXT NOT NULL DEFAULT 'unknown',
-    evidence_reason_code TEXT NOT NULL DEFAULT 'unclassified',
-    evidence_speaker_role TEXT,
-    evidence_grounding_type TEXT,
-    evidence_semantic_owner TEXT,
-    evidence_originality_type TEXT,
-    evidence_source_event_ids_json TEXT NOT NULL DEFAULT '[]',
-    evidence_confidence REAL NOT NULL DEFAULT 0.0,
-    evidence_classifier_version TEXT NOT NULL DEFAULT 'unclassified',
-    evidence_policy_version TEXT NOT NULL DEFAULT 'unclassified',
-    l1_retrieval_scope TEXT NOT NULL DEFAULT 'none',
-    l2_graph_scope TEXT NOT NULL DEFAULT 'none',
-    l2_assertion_scope TEXT NOT NULL DEFAULT 'none',
-    evidence_skip_reason TEXT,
-    evidence_updated_at REAL,
     deleted_at REAL,
+    evidence_status INTEGER NOT NULL DEFAULT 1,
+    evidence_class INTEGER NOT NULL DEFAULT 1,
+    evidence_rule_version INTEGER NOT NULL DEFAULT 1,
+    l1_retrieval_scope INTEGER NOT NULL DEFAULT 1
+);
 
-    UNIQUE(source, event_type, idempotency_key)
+CREATE UNIQUE INDEX idx_fact_events_business_idempotency
+    ON fact_events(source, event_type, idempotency_key);
+
+CREATE TABLE l1_event_embedding_state (
+    event_id TEXT PRIMARY KEY,
+    embedding_status INTEGER NOT NULL DEFAULT 1,
+    embedding_profile_id TEXT,
+    embedding_chunk_count INTEGER NOT NULL DEFAULT 0,
+    last_embedded_at REAL,
+    updated_at REAL NOT NULL
 );
 ```
 
@@ -814,10 +823,13 @@ Key notes:
 - `event_id` is the external stable reference key
 - `id` is the internal relationship key
 - `metadata_json` carries structured event payloads
-- Evidence annotation columns describe retrieval and L2-write authority; they do not rewrite `content`
+- `author_type`, `content_type`, evidence fields, retrieval scope, and embedding status are stored as compact integer codes and decoded to labels at runtime/API boundaries
+- Evidence columns describe L1 retrieval authority for the event; L2 graph/assertion policy remains a runtime decision and is not duplicated into `fact_events`
 - Unknown or failed evidence annotations default to `l1_retrieval_scope='none'`
 - Versioned evidence annotations can be backfilled in place without rewriting raw event content
+- Embedding observation fields live in `l1_event_embedding_state`; `fact_events` remains the durable event truth table
 - Durable events support soft deletion via `deleted_at`
+- Existing pre-baseline local `L1` databases are not migrated in place in active development mode; delete/rebuild the local `l1_events.db` when adopting this clean baseline
 
 ---
 
@@ -974,7 +986,13 @@ These rules must be followed during day-to-day development:
 
 Main implementation entry points:
 
-- [backend/src/magi/memory/\_\_init\_\_.py](../backend/src/magi/memory/__init__.py) — Unified memory facade and lifecycle coordination
+- [backend/src/magi/memory/\_\_init\_\_.py](../backend/src/magi/memory/__init__.py) — Public package entry point for the unified memory store
+
+- [backend/src/magi/memory/unified_store.py](../backend/src/magi/memory/unified_store.py) — Unified L0-L4 memory store composition and lifecycle coordination
+
+- [backend/src/magi/memory/layer_protocol.py](../backend/src/magi/memory/layer_protocol.py) and [backend/src/magi/memory/layers/](../backend/src/magi/memory/layers/) — Fan-out ingestion protocol and layer adapters for L0, L1, L2 projection/pipeline, and L4
+
+- [backend/src/magi/memory/subscribers/memory_ingestion_subscriber.py](../backend/src/magi/memory/subscribers/memory_ingestion_subscriber.py) — Event-bus subscriber that translates domain events into normalized memory events
 
 - [backend/src/magi/memory/event_contracts.py](../backend/src/magi/memory/event_contracts.py) — Standard event contracts and normalization logic
 
@@ -1000,7 +1018,7 @@ Main implementation entry points:
 
 - [backend/src/magi/memory/hybrid_retrieval/service.py](../backend/src/magi/memory/hybrid_retrieval/service.py) — Cross-layer unified retrieval orchestrator
 
-- [backend/src/magi/memory/hybrid_retrieval/mode_registry.py](../backend/src/magi/memory/hybrid_retrieval/mode_registry.py) — Query mode registry and mode-specific retrieval planning
+- [backend/src/magi/memory/hybrid_retrieval/mode_registry.py](../backend/src/magi/memory/hybrid_retrieval/mode_registry.py) — Query mode registry (9 unified modes)
 
 - [backend/src/magi/memory/hybrid_retrieval/l2_handler.py](../backend/src/magi/memory/hybrid_retrieval/l2_handler.py) — L2-specific handler with semantic frame planning
 
