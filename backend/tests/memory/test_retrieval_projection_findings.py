@@ -142,6 +142,90 @@ class TestEchoFiltering:
         assert "我喜欢什么音乐" not in statements
         assert "Chrome browsed Spotify" in statements
 
+    def test_fact_recall_filters_prior_memory_qa_artifacts(self):
+        payload = _make_payload(
+            l1_events=[
+                {
+                    "event_id": "evt-assistant-answer",
+                    "event_type": "AIResponse",
+                    "source": "chat_projector",
+                    "author_type": "assistant",
+                    "content_type": "text",
+                    "content": "根据浏览记录，你访问「坤的真爱粉」直播间的时间主要集中在下午时段。",
+                    "score": 0.95,
+                    "timestamp": 3.0,
+                },
+                {
+                    "event_id": "evt-user-question",
+                    "event_type": "UserMessage",
+                    "source": "chat_projector",
+                    "author_type": "user",
+                    "content_type": "text",
+                    "content": "坤的真爱粉我一般在什么时候看",
+                    "score": 0.9,
+                    "timestamp": 2.0,
+                },
+                {
+                    "event_id": "evt-chrome-history",
+                    "event_type": "SENSOR_EVENT",
+                    "source": "chrome_history",
+                    "author_type": "external",
+                    "content_type": "observation",
+                    "content": "Chrome 浏览 坤的真爱粉的抖音直播间 - 抖音直播（访问 11 次）",
+                    "score": 0.8,
+                    "timestamp": 1.0,
+                },
+            ],
+        )
+
+        findings = build_findings(
+            payload,
+            _make_query(query="我通常几点打开坤的真爱粉直播间", mode="exact_fact"),
+        )
+
+        statements = [finding["statement"] for finding in findings]
+        assert statements == ["Chrome 浏览 坤的真爱粉的抖音直播间 - 抖音直播（访问 11 次）"]
+
+    def test_conversation_recall_can_keep_assistant_messages(self):
+        payload = _make_payload(
+            l1_events=[
+                {
+                    "event_id": "evt-assistant-answer",
+                    "event_type": "AIResponse",
+                    "source": "chat_projector",
+                    "author_type": "assistant",
+                    "content_type": "text",
+                    "content": "上次我给出的部署步骤是先构建 sidecar，再运行 Tauri 打包。",
+                    "score": 0.9,
+                    "timestamp": 1.0,
+                }
+            ],
+        )
+
+        findings = build_findings(payload, _make_query(query="上次你怎么说部署", mode="episode_recall"))
+
+        assert findings[0]["statement"] == "上次我给出的部署步骤是先构建 sidecar，再运行 Tauri 打包。"
+
+    def test_fact_recall_keeps_user_self_report_with_habit_adverb(self):
+        payload = _make_payload(
+            l1_events=[
+                {
+                    "event_id": "evt-user-self-report",
+                    "event_type": "UserMessage",
+                    "source": "chat_projector",
+                    "author_type": "user",
+                    "content_type": "text",
+                    "content": "我一般下午看坤的真爱粉直播。",
+                    "score": 0.9,
+                    "timestamp": 1.0,
+                }
+            ],
+        )
+
+        findings = build_findings(payload, _make_query(query="我什么时候看坤的真爱粉直播", mode="exact_fact"))
+
+        assert findings[0]["statement"] == "我一般下午看坤的真爱粉直播。"
+
 
 class TestPredicateBonus:
     """Predicate-aware sorting for preference queries."""

@@ -57,14 +57,22 @@ def build_findings(payload: RetrievalPayload, request: RetrievalQuery) -> list[d
     metric, and sorted.  Mode preference is a soft bonus rather than a
     hard layer selector.
     """
+    mode = str(request.query_mode or "").strip() or "exact_fact"
+    explicit_chat_source = _has_explicit_chat_source(request.source_filters)
+
     candidates: list[dict[str, Any]] = []
-    candidates.extend(_project_events(payload.l1_events))
+    candidates.extend(
+        _project_events(
+            payload.l1_events,
+            mode=mode,
+            explicit_chat_source=explicit_chat_source,
+        )
+    )
     candidates.extend(_project_relationships(payload.l2_relationships))
     candidates.extend(_project_assertions(payload.l2_assertions))
     candidates.extend(_project_reflections(payload.l3_reflections))
     candidates.extend(_project_procedures(payload.l4_procedures))
 
-    mode = str(request.query_mode or "").strip() or "exact_fact"
     answer_kind = _infer_answer_kind(payload=payload, request=request)
     polarity = _infer_query_polarity(request.query)
 
@@ -182,13 +190,85 @@ def _project_assertions(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return findings
 
 
-def _project_events(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+_FACT_LIKE_QUERY_MODES = frozenset(
+    {
+        "exact_fact",
+        "current_state",
+        "activity_summary",
+        "summary",
+        "temporal_compare",
+        "strategy",
+    }
+)
+
+_CHAT_PROJECTION_SOURCES = frozenset(
+    {
+        "assistant",
+        "chat_projector",
+        "runtime_event_emitter",
+    }
+)
+
+_CHAT_SOURCE_FILTERS = frozenset({"chat", "chat_projector"})
+
+_CHINESE_QUESTION_MARKERS = (
+    "什么时候",
+    "什么时间",
+    "几点",
+    "哪天",
+    "哪次",
+    "哪里",
+    "在哪",
+    "哪个",
+    "哪些",
+    "是谁",
+    "谁",
+    "什么",
+    "多少",
+    "几次",
+    "多久",
+    "有没有",
+    "是不是",
+    "吗",
+)
+
+_ENGLISH_QUESTION_MARKERS = (
+    "what ",
+    "when ",
+    "where ",
+    "which ",
+    "who ",
+    "how often",
+    "how many",
+    "do i ",
+    "did i ",
+    "have i ",
+    "am i ",
+    "was i ",
+    "remember ",
+    "recall ",
+)
+
+
+def _project_events(
+    items: list[dict[str, Any]],
+    *,
+    mode: str = "exact_fact",
+    explicit_chat_source: bool = False,
+) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     for item in items:
         if not isinstance(item, dict):
             continue
         content = str(item.get("content") or item.get("summary") or "").strip()
         if not content:
+            continue
+        if _is_answer_facing_chat_artifact(
+            item,
+            content=content,
+            mode=mode,
+            explicit_chat_source=explicit_chat_source,
+        ):
             continue
         findings.append(
             {
@@ -203,6 +283,53 @@ def _project_events(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
             }
         )
     return findings
+
+
+def _is_answer_facing_chat_artifact(
+    item: dict[str, Any],
+    *,
+    content: str,
+    mode: str,
+    explicit_chat_source: bool,
+) -> bool:
+    """Return True for chat artifacts that are not factual recall evidence."""
+    if explicit_chat_source:
+        return False
+    if mode not in _FACT_LIKE_QUERY_MODES:
+        return False
+
+    author_type = _normalized(item.get("author_type"))
+    source = _normalized(item.get("source"))
+    event_type = _normalized(item.get("event_type"))
+    content_type = _normalized(item.get("content_type"))
+
+    if author_type == "assistant" and content_type != "tool_result":
+        return event_type == "airesponse" or source in _CHAT_PROJECTION_SOURCES
+
+    if author_type == "user" and source in _CHAT_PROJECTION_SOURCES:
+        return _looks_like_question(content)
+
+    return False
+
+
+def _has_explicit_chat_source(source_filters: list[str]) -> bool:
+    return any(_normalized(value) in _CHAT_SOURCE_FILTERS for value in source_filters or [])
+
+
+def _looks_like_question(text: str) -> bool:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return False
+    if "?" in normalized or "？" in normalized:
+        return True
+    lowered = normalized.lower()
+    return any(marker in normalized for marker in _CHINESE_QUESTION_MARKERS) or any(
+        marker in lowered for marker in _ENGLISH_QUESTION_MARKERS
+    )
+
+
+def _normalized(value: Any) -> str:
+    return str(value or "").strip().lower()
 
 
 def _project_reflections(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
