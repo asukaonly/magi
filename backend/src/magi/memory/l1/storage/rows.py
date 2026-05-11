@@ -84,6 +84,26 @@ class L1EventRowMixin:
             "level": int(row["level"]),
             "media_path": row["media_path"],
             "metadata_json": json.loads(str(metadata_json)) if metadata_json else None,
+            "evidence_status": str(row["evidence_status"]),
+            "evidence_class": str(row["evidence_class"]),
+            "evidence_reason_code": str(row["evidence_reason_code"]),
+            "evidence_speaker_role": row["evidence_speaker_role"],
+            "evidence_grounding_type": row["evidence_grounding_type"],
+            "evidence_semantic_owner": row["evidence_semantic_owner"],
+            "evidence_originality_type": row["evidence_originality_type"],
+            "evidence_source_event_ids": json.loads(
+                str(row["evidence_source_event_ids_json"] or "[]")
+            ),
+            "evidence_confidence": float(row["evidence_confidence"] or 0.0),
+            "evidence_classifier_version": str(row["evidence_classifier_version"]),
+            "evidence_policy_version": str(row["evidence_policy_version"]),
+            "l1_retrieval_scope": str(row["l1_retrieval_scope"]),
+            "l2_graph_scope": str(row["l2_graph_scope"]),
+            "l2_assertion_scope": str(row["l2_assertion_scope"]),
+            "evidence_skip_reason": row["evidence_skip_reason"],
+            "evidence_updated_at": float(row["evidence_updated_at"])
+            if row["evidence_updated_at"] is not None
+            else None,
             "embedding_chunk_count": int(row["embedding_chunk_count"] or 0),
             "last_embedded_at": float(row["last_embedded_at"])
             if row["last_embedded_at"] is not None

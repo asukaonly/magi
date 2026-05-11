@@ -5,6 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 
+EVIDENCE_CLASSIFIER_VERSION = "deterministic_event_v1"
+EVIDENCE_POLICY_VERSION = "evidence_policy_v1"
+
+
 @dataclass(slots=True)
 class EvidenceClassification:
     """Classification result used by memory evidence governance."""
@@ -27,6 +31,7 @@ class PolicyDecision:
     allow_graph_write: bool
     allow_assertion_write: bool
     allow_snapshot_impact: bool
+    l1_retrieval_scope: str
     graph_scope: str
     assertion_scope: str
     evidence_weight: float
@@ -35,4 +40,9 @@ class PolicyDecision:
     skip_reason: str | None = None
 
 
-__all__ = ["EvidenceClassification", "PolicyDecision"]
+__all__ = [
+    "EVIDENCE_CLASSIFIER_VERSION",
+    "EVIDENCE_POLICY_VERSION",
+    "EvidenceClassification",
+    "PolicyDecision",
+]

@@ -12,6 +12,12 @@ from typing import Any, Optional, Protocol, cast
 from ...core.sqlite import sqlite_connection_async
 from ...events.events import EventTypes
 from ..embedding.sqlite_vec_index import SqliteVecIndex
+from ..evidence import (
+    EVIDENCE_CLASSIFIER_VERSION,
+    EVIDENCE_POLICY_VERSION,
+    classify_event_evidence,
+    resolve_l2_policy,
+)
 from ..event_contracts import MemoryEvent
 from ..hybrid_retrieval.fts_utils import tokenize_for_fts
 from .chat_sessions import project_chat_event_to_session
@@ -76,6 +82,7 @@ class L1EventWriteMixin:
                 event.user_id,
                 event.correlation_id,
             )
+        evidence_values = self._resolve_event_evidence_values(event)
         async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
             cursor = await db.execute(
                 f"""
@@ -86,8 +93,14 @@ class L1EventWriteMixin:
                     task_id, content, author_type, content_type, importance_score,
                     level, media_path, metadata_json, embedding_status, embedding_profile_id,
                     embedding_chunk_count, last_embedded_at, deleted_at,
-                    causation_id, trace_id, span_id, parent_span_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    causation_id, trace_id, span_id, parent_span_id,
+                    evidence_status, evidence_class, evidence_reason_code,
+                    evidence_speaker_role, evidence_grounding_type, evidence_semantic_owner,
+                    evidence_originality_type, evidence_source_event_ids_json,
+                    evidence_confidence, evidence_classifier_version, evidence_policy_version,
+                    l1_retrieval_scope, l2_graph_scope, l2_assertion_scope,
+                    evidence_skip_reason, evidence_updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     event.event_id,
@@ -123,6 +136,22 @@ class L1EventWriteMixin:
                     event.trace_id,
                     event.span_id,
                     event.parent_span_id,
+                    evidence_values["evidence_status"],
+                    evidence_values["evidence_class"],
+                    evidence_values["evidence_reason_code"],
+                    evidence_values["evidence_speaker_role"],
+                    evidence_values["evidence_grounding_type"],
+                    evidence_values["evidence_semantic_owner"],
+                    evidence_values["evidence_originality_type"],
+                    evidence_values["evidence_source_event_ids_json"],
+                    evidence_values["evidence_confidence"],
+                    evidence_values["evidence_classifier_version"],
+                    evidence_values["evidence_policy_version"],
+                    evidence_values["l1_retrieval_scope"],
+                    evidence_values["l2_graph_scope"],
+                    evidence_values["l2_assertion_scope"],
+                    evidence_values["evidence_skip_reason"],
+                    evidence_values["evidence_updated_at"],
                 ),
             )
             inserted = cursor.rowcount > 0
@@ -162,6 +191,82 @@ class L1EventWriteMixin:
             )
         await host._schedule_event_embedding(event)
         return event.event_id
+
+    def _resolve_event_evidence_values(self, event: MemoryEvent) -> dict[str, Any]:
+        now = time.time()
+        try:
+            classification = classify_event_evidence(event)
+        except Exception as exc:
+            logger.warning(
+                "L1 evidence classification failed | event_id=%s error=%s",
+                event.event_id,
+                exc,
+            )
+            return {
+                "evidence_status": "classification_error",
+                "evidence_class": "unknown",
+                "evidence_reason_code": "classifier_error",
+                "evidence_speaker_role": event.author_type,
+                "evidence_grounding_type": None,
+                "evidence_semantic_owner": None,
+                "evidence_originality_type": None,
+                "evidence_source_event_ids_json": "[]",
+                "evidence_confidence": 0.0,
+                "evidence_classifier_version": EVIDENCE_CLASSIFIER_VERSION,
+                "evidence_policy_version": "unresolved",
+                "l1_retrieval_scope": "none",
+                "l2_graph_scope": "none",
+                "l2_assertion_scope": "none",
+                "evidence_skip_reason": "classification_error",
+                "evidence_updated_at": now,
+            }
+
+        try:
+            policy = resolve_l2_policy(classification)
+        except Exception as exc:
+            logger.warning(
+                "L1 evidence policy resolution failed | event_id=%s evidence_class=%s error=%s",
+                event.event_id,
+                classification.evidence_class,
+                exc,
+            )
+            return {
+                "evidence_status": "policy_error",
+                "evidence_class": classification.evidence_class,
+                "evidence_reason_code": classification.reason_code,
+                "evidence_speaker_role": classification.speaker_role,
+                "evidence_grounding_type": classification.grounding_type,
+                "evidence_semantic_owner": classification.semantic_owner,
+                "evidence_originality_type": classification.originality_type,
+                "evidence_source_event_ids_json": json.dumps(classification.source_event_ids),
+                "evidence_confidence": float(classification.confidence),
+                "evidence_classifier_version": EVIDENCE_CLASSIFIER_VERSION,
+                "evidence_policy_version": EVIDENCE_POLICY_VERSION,
+                "l1_retrieval_scope": "none",
+                "l2_graph_scope": "none",
+                "l2_assertion_scope": "none",
+                "evidence_skip_reason": "policy_error",
+                "evidence_updated_at": now,
+            }
+
+        return {
+            "evidence_status": "classified",
+            "evidence_class": classification.evidence_class,
+            "evidence_reason_code": classification.reason_code,
+            "evidence_speaker_role": classification.speaker_role,
+            "evidence_grounding_type": classification.grounding_type,
+            "evidence_semantic_owner": classification.semantic_owner,
+            "evidence_originality_type": classification.originality_type,
+            "evidence_source_event_ids_json": json.dumps(classification.source_event_ids),
+            "evidence_confidence": float(classification.confidence),
+            "evidence_classifier_version": EVIDENCE_CLASSIFIER_VERSION,
+            "evidence_policy_version": EVIDENCE_POLICY_VERSION,
+            "l1_retrieval_scope": policy.l1_retrieval_scope,
+            "l2_graph_scope": policy.graph_scope,
+            "l2_assertion_scope": policy.assertion_scope,
+            "evidence_skip_reason": policy.skip_reason,
+            "evidence_updated_at": now,
+        }
 
     async def clear(self) -> int:
         """Delete all events by dropping and recreating the DB file."""

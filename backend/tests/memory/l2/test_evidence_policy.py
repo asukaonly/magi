@@ -22,6 +22,7 @@ def test_policy_allows_full_writes_for_user_self_report():
     assert decision.allow_graph_write is True
     assert decision.allow_assertion_write is True
     assert decision.allow_snapshot_impact is True
+    assert decision.l1_retrieval_scope == "fact_authoritative"
     assert decision.graph_scope == "full"
     assert decision.assertion_scope == "full"
     assert decision.evidence_weight == 1.0
@@ -37,6 +38,7 @@ def test_policy_limits_user_report_about_others():
     assert decision.allow_graph_write is True
     assert decision.allow_assertion_write is True
     assert decision.allow_snapshot_impact is False
+    assert decision.l1_retrieval_scope == "fact_authoritative"
     assert decision.graph_scope == "full"
     assert decision.assertion_scope == "topology_only"
     assert decision.evidence_weight == 0.8
@@ -50,6 +52,7 @@ def test_policy_blocks_new_evidence_for_assistant_quote():
     assert decision.allow_graph_write is False
     assert decision.allow_assertion_write is False
     assert decision.allow_snapshot_impact is False
+    assert decision.l1_retrieval_scope == "source_backlink_only"
     assert decision.graph_scope == "none"
     assert decision.assertion_scope == "none"
     assert decision.evidence_weight == 0.0
@@ -65,6 +68,7 @@ def test_policy_skips_assistant_tool_grounded():
     assert decision.allow_graph_write is False
     assert decision.allow_assertion_write is False
     assert decision.allow_snapshot_impact is False
+    assert decision.l1_retrieval_scope == "conversation_only"
     assert decision.graph_scope == "none"
     assert decision.assertion_scope == "none"
     assert decision.evidence_weight == 0.0
@@ -79,6 +83,7 @@ def test_policy_skips_assistant_freeform():
     assert decision.allow_graph_write is False
     assert decision.allow_assertion_write is False
     assert decision.allow_snapshot_impact is False
+    assert decision.l1_retrieval_scope == "conversation_only"
     assert decision.evidence_weight == 0.0
     assert decision.skip_reason == "assistant_freeform"
 
@@ -90,6 +95,7 @@ def test_policy_allows_topology_only_for_external_observation():
     assert decision.allow_graph_write is True
     assert decision.allow_assertion_write is True
     assert decision.allow_snapshot_impact is False
+    assert decision.l1_retrieval_scope == "fact_authoritative"
     assert decision.graph_scope == "full"
     assert decision.assertion_scope == "topology_only"
     assert decision.evidence_weight == 0.7
@@ -102,6 +108,7 @@ def test_policy_skips_system_runtime():
     assert decision.allow_graph_write is False
     assert decision.allow_assertion_write is False
     assert decision.allow_snapshot_impact is False
+    assert decision.l1_retrieval_scope == "audit_only"
     assert decision.count_as_new_evidence is False
     assert decision.skip_reason == "system_runtime"
 

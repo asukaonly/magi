@@ -12,7 +12,7 @@ from magi.memory.event_contracts import IngestTarget, MemoryDomain, RetentionCla
 from magi.memory.embedding.sqlite_vec_index import VectorSearchHit
 
 
-def test_l1_migration_adds_event_evidence_defaults(tmp_path):
+def _migrated_l1_db_path(tmp_path):
     from magi.db.runner import MIGRATION_TARGETS, run_upgrade_head
     from magi.utils.runtime import RuntimePaths
 
@@ -20,8 +20,12 @@ def test_l1_migration_adds_event_evidence_defaults(tmp_path):
     l1_target = next(target for target in MIGRATION_TARGETS if target.name == "l1")
 
     run_upgrade_head(runtime_paths, targets=(l1_target,))
+    return runtime_paths.l1_memory_db_path
 
-    db_path = runtime_paths.l1_memory_db_path
+
+def test_l1_migration_adds_event_evidence_defaults(tmp_path):
+    db_path = _migrated_l1_db_path(tmp_path)
+
     with sqlite3.connect(db_path) as db:
         columns = {row[1] for row in db.execute("PRAGMA table_info(fact_events)")}
         indexes = {row[1] for row in db.execute("PRAGMA index_list(fact_events)")}
@@ -62,6 +66,118 @@ def test_l1_migration_adds_event_evidence_defaults(tmp_path):
     assert "l1_retrieval_scope" in columns
     assert "idx_fact_events_l1_retrieval_scope" in indexes
     assert row == ("unclassified", "unknown", "none", "none", "none", "[]")
+
+
+@pytest.mark.asyncio
+async def test_l1_event_store_persists_evidence_annotation(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+
+    db_path = _migrated_l1_db_path(tmp_path)
+    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    await store.initialize()
+    try:
+        user_event = normalize_runtime_event(
+            Event(
+                type=EventTypes.USER_MESSAGE,
+                data={
+                    "user_id": "user-1",
+                    "session_id": "session-1",
+                    "content": "I like oolong tea.",
+                    "author_type": "user",
+                    "content_type": "text",
+                },
+                source="chat",
+                level=EventLevel.INFO,
+                correlation_id="corr-evidence-user",
+                event_id="evt-evidence-user",
+            )
+        )
+        assistant_event = normalize_runtime_event(
+            Event(
+                type=EventTypes.AI_RESPONSE,
+                data={
+                    "user_id": "user-1",
+                    "session_id": "session-1",
+                    "content": "You like oolong tea.",
+                    "author_type": "assistant",
+                    "content_type": "text",
+                },
+                source="assistant",
+                level=EventLevel.INFO,
+                correlation_id="corr-evidence-assistant",
+                event_id="evt-evidence-assistant",
+            )
+        )
+
+        await store.store(user_event)
+        await store.store(assistant_event)
+
+        fetched_user = await store.get_event(user_event.event_id)
+        fetched_assistant = await store.get_event(assistant_event.event_id)
+
+        assert fetched_user is not None
+        assert fetched_user["evidence_status"] == "classified"
+        assert fetched_user["evidence_class"] == "user_self_report"
+        assert fetched_user["l1_retrieval_scope"] == "fact_authoritative"
+        assert fetched_user["l2_graph_scope"] == "full"
+        assert fetched_user["l2_assertion_scope"] == "full"
+
+        assert fetched_assistant is not None
+        assert fetched_assistant["evidence_status"] == "classified"
+        assert fetched_assistant["evidence_class"] == "assistant_freeform"
+        assert fetched_assistant["l1_retrieval_scope"] == "conversation_only"
+        assert fetched_assistant["l2_graph_scope"] == "none"
+        assert fetched_assistant["evidence_skip_reason"] == "assistant_freeform"
+    finally:
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_l1_event_store_keeps_raw_event_when_evidence_classification_fails(
+    tmp_path,
+    monkeypatch,
+):
+    from magi.memory.l1 import writes
+    from magi.memory.l1.event_store import L1EventStore
+
+    db_path = _migrated_l1_db_path(tmp_path)
+    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+
+    def _raise_classifier(_event):
+        raise RuntimeError("classifier unavailable")
+
+    monkeypatch.setattr(writes, "classify_event_evidence", _raise_classifier)
+    await store.initialize()
+    try:
+        event = normalize_runtime_event(
+            Event(
+                type=EventTypes.USER_MESSAGE,
+                data={
+                    "user_id": "user-1",
+                    "session_id": "session-1",
+                    "content": "I like jasmine tea.",
+                    "author_type": "user",
+                    "content_type": "text",
+                },
+                source="chat",
+                level=EventLevel.INFO,
+                correlation_id="corr-evidence-error",
+                event_id="evt-evidence-error",
+            )
+        )
+
+        await store.store(event)
+        fetched = await store.get_event(event.event_id)
+
+        assert fetched is not None
+        assert fetched["content"] == "I like jasmine tea."
+        assert fetched["evidence_status"] == "classification_error"
+        assert fetched["evidence_class"] == "unknown"
+        assert fetched["l1_retrieval_scope"] == "none"
+        assert fetched["l2_graph_scope"] == "none"
+        assert fetched["evidence_skip_reason"] == "classification_error"
+    finally:
+        await store.shutdown()
 
 
 class _BatchTrackingEmbeddingService:

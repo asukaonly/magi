@@ -1264,6 +1264,7 @@ async def test_prepare_unified_graph_candidates_rejects_generic_preference_domai
                     allow_graph_write=True,
                     allow_assertion_write=True,
                     allow_snapshot_impact=True,
+                    l1_retrieval_scope="fact_authoritative",
                     graph_scope="full",
                     assertion_scope="full",
                     evidence_weight=1.0,
