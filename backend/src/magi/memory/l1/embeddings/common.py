@@ -76,5 +76,6 @@ class L1EventEmbeddingHostProtocol(Protocol):
         event_type: str | None,
         source_filters: List[str] | None,
         domain_filters: List[str] | None,
+        l1_retrieval_scopes: List[str] | None,
         limit: int,
     ) -> List[Dict[str, Any]]: ...

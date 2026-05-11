@@ -180,6 +180,65 @@ async def test_l1_event_store_keeps_raw_event_when_evidence_classification_fails
         await store.shutdown()
 
 
+@pytest.mark.asyncio
+async def test_l1_bm25_filters_evidence_scope_before_limit(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+
+    db_path = _migrated_l1_db_path(tmp_path)
+    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    await store.initialize()
+    try:
+        for index in range(12):
+            assistant_event = normalize_runtime_event(
+                Event(
+                    type=EventTypes.AI_RESPONSE,
+                    data={
+                        "user_id": "user-1",
+                        "session_id": "session-1",
+                        "content": "You like oolong tea.",
+                        "author_type": "assistant",
+                        "content_type": "text",
+                    },
+                    source="assistant",
+                    level=EventLevel.INFO,
+                    correlation_id=f"corr-assistant-{index}",
+                    event_id=f"evt-assistant-{index}",
+                )
+            )
+            await store.store(assistant_event)
+
+        user_event = normalize_runtime_event(
+            Event(
+                type=EventTypes.USER_MESSAGE,
+                data={
+                    "user_id": "user-1",
+                    "session_id": "session-1",
+                    "content": "I like oolong tea.",
+                    "author_type": "user",
+                    "content_type": "text",
+                },
+                source="chat",
+                level=EventLevel.INFO,
+                correlation_id="corr-user-scope",
+                event_id="evt-user-scope",
+            )
+        )
+        await store.store(user_event)
+
+        unscoped_hits = await store.bm25_search("oolong tea", limit=5, user_id="user-1")
+        scoped_hits = await store.bm25_search(
+            "oolong tea",
+            limit=5,
+            user_id="user-1",
+            l1_retrieval_scopes=["fact_authoritative"],
+        )
+
+        assert len(unscoped_hits) == 5
+        assert [event_id for event_id, _score in scoped_hits] == ["evt-user-scope"]
+    finally:
+        await store.shutdown()
+
+
 class _BatchTrackingEmbeddingService:
     def __init__(self, *, model_name: str = "test-embedding", dimension: int = 4) -> None:
         self.single_calls: list[str] = []

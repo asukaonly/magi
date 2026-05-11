@@ -14,10 +14,22 @@ logger = logging.getLogger(__name__)
 class L1SearchPathMixin:
     """Run the BM25, vector, keyword, and temporal L1 search paths."""
 
-    async def _bm25_path(self, query: str, limit: int, *, user_id: Optional[str] = None) -> List[str]:
+    async def _bm25_path(
+        self,
+        query: str,
+        limit: int,
+        *,
+        user_id: Optional[str] = None,
+        l1_retrieval_scopes: Optional[List[str]] = None,
+    ) -> List[str]:
         """BM25 search via FTS5, optionally scoped to *user_id*."""
         try:
-            hits = await self._store.bm25_search(query, limit=limit, user_id=user_id)
+            hits = await self._store.bm25_search(
+                query,
+                limit=limit,
+                user_id=user_id,
+                l1_retrieval_scopes=l1_retrieval_scopes,
+            )
             return [event_id for event_id, _score in hits]
         except Exception as exc:
             logger.warning("BM25 path failed: %s", exc)
@@ -30,6 +42,7 @@ class L1SearchPathMixin:
         time_range: TimeRange,
         *,
         user_id: Optional[str] = None,
+        l1_retrieval_scopes: Optional[List[str]] = None,
     ) -> List[str]:
         """Time-constrained BM25 search to boost recall for temporal queries."""
         try:
@@ -40,13 +53,21 @@ class L1SearchPathMixin:
                 start_time=time_range.start,
                 end_time=time_range.end,
                 strict=True,
+                l1_retrieval_scopes=l1_retrieval_scopes,
             )
             return [event_id for event_id, _score in hits]
         except Exception as exc:
             logger.warning("Temporal BM25 path failed: %s", exc)
             return []
 
-    async def _vector_path(self, query: str, limit: int, *, user_id: Optional[str] = None) -> List[str]:
+    async def _vector_path(
+        self,
+        query: str,
+        limit: int,
+        *,
+        user_id: Optional[str] = None,
+        l1_retrieval_scopes: Optional[List[str]] = None,
+    ) -> List[str]:
         """Vector similarity search via sqlite-vec."""
         try:
             chunk_density_multiplier = 10
@@ -65,7 +86,11 @@ class L1SearchPathMixin:
                     seen.add(event_id)
                     event_ids.append(event_id)
 
-            return event_ids
+            return await self._filter_ids_by_l1_retrieval_scope(
+                event_ids,
+                l1_retrieval_scopes,
+                user_id=user_id,
+            )
         except Exception as exc:
             logger.warning("Vector path failed: %s", exc)
             return []
@@ -77,6 +102,7 @@ class L1SearchPathMixin:
         *,
         session_id: Optional[str] = None,
         user_id: Optional[str] = None,
+        l1_retrieval_scopes: Optional[List[str]] = None,
     ) -> List[str]:
         """SQL LIKE keyword search via query_events + in-memory token filtering."""
         try:
@@ -86,6 +112,7 @@ class L1SearchPathMixin:
                 event_type=conditions.event_types[0] if conditions.event_types else None,
                 source_filters=conditions.source_filters,
                 query=conditions.content_query or None,
+                l1_retrieval_scopes=l1_retrieval_scopes,
                 limit=limit,
             )
             quoted_phrases = extract_quoted_spans(conditions.content_query)
@@ -114,6 +141,26 @@ class L1SearchPathMixin:
         """Return the subset of *event_ids* that belong to *user_id*."""
         return await self._store.filter_ids_by_user(event_ids, user_id)
 
+    async def _filter_ids_by_l1_retrieval_scope(
+        self,
+        event_ids: List[str],
+        scopes: Optional[List[str]],
+        *,
+        user_id: Optional[str] = None,
+    ) -> List[str]:
+        """Return event IDs whose persisted L1 evidence scope is allowed."""
+        if scopes is None:
+            return event_ids
+        if not scopes or not event_ids:
+            return []
+        events = await self._store.fetch_events(
+            event_ids,
+            user_id=user_id,
+            l1_retrieval_scopes=scopes,
+        )
+        allowed = {str(event.get("event_id") or "") for event in events}
+        return [event_id for event_id in event_ids if event_id in allowed]
+
     async def _fetch_and_filter(
         self,
         *,
@@ -122,6 +169,7 @@ class L1SearchPathMixin:
         time_range: Optional[TimeRange],
         session_id: Optional[str],
         user_id: Optional[str],
+        l1_retrieval_scopes: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """Fetch full event dicts for given IDs and apply post-filters."""
         from ..event_contracts import MemoryDomain
@@ -139,6 +187,7 @@ class L1SearchPathMixin:
             exclude_domain=MemoryDomain.RUNTIME_TELEMETRY.label if not conditions.domain_filters else None,
             time_start=time_range.start if time_range else None,
             time_end=time_range.end if time_range else None,
+            l1_retrieval_scopes=l1_retrieval_scopes,
         )
 
 

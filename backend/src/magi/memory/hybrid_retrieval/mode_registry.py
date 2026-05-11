@@ -20,6 +20,7 @@ class QueryModePlan:
     rrf_profile: dict[str, float | int]
     evidence_shape: str
     reducer_type: str
+    l1_retrieval_scopes: list[str] | None = None
     allow_query_expansion: bool = True
     time_decay_enabled: bool = True
 
@@ -62,6 +63,7 @@ MODE_REGISTRY: dict[str, QueryModePlan] = {
         },
         evidence_shape="fact_card",
         reducer_type="span_select",
+        l1_retrieval_scopes=["fact_authoritative"],
         allow_query_expansion=True,
         time_decay_enabled=False,
     ),
@@ -80,6 +82,7 @@ MODE_REGISTRY: dict[str, QueryModePlan] = {
         },
         evidence_shape="state_card",
         reducer_type="latest_version",
+        l1_retrieval_scopes=["fact_authoritative"],
         allow_query_expansion=False,
         time_decay_enabled=False,
     ),
@@ -134,6 +137,7 @@ MODE_REGISTRY: dict[str, QueryModePlan] = {
         },
         evidence_shape="comparison_frame",
         reducer_type="anchor_compare",
+        l1_retrieval_scopes=["fact_authoritative"],
         allow_query_expansion=False,
         time_decay_enabled=False,
     ),
@@ -152,6 +156,7 @@ MODE_REGISTRY: dict[str, QueryModePlan] = {
         },
         evidence_shape="passthrough",
         reducer_type="passthrough",
+        l1_retrieval_scopes=["fact_authoritative"],
         allow_query_expansion=True,
         time_decay_enabled=True,
     ),
@@ -169,6 +174,7 @@ MODE_REGISTRY: dict[str, QueryModePlan] = {
         },
         evidence_shape="passthrough",
         reducer_type="passthrough",
+        l1_retrieval_scopes=["fact_authoritative"],
         allow_query_expansion=True,
         time_decay_enabled=False,
     ),
@@ -187,6 +193,7 @@ MODE_REGISTRY: dict[str, QueryModePlan] = {
         },
         evidence_shape="activity_digest",
         reducer_type="time_window_aggregate",
+        l1_retrieval_scopes=["fact_authoritative"],
         allow_query_expansion=False,
         time_decay_enabled=True,
     ),

@@ -41,6 +41,7 @@ class L1EventQueryHostProtocol(Protocol):
         event_type: Optional[str],
         source_filters: Optional[List[str]],
         domain_filters: Optional[List[str]],
+        l1_retrieval_scopes: Optional[List[str]],
         limit: int,
     ) -> List[Dict[str, Any]]: ...
 
@@ -67,6 +68,7 @@ class L1EventQueryHostProtocol(Protocol):
         end_time: Optional[float] = None,
         exclude_memory_domain: Optional[str] = None,
         exclude_retention_class: Optional[str] = None,
+        l1_retrieval_scopes: Optional[List[str]] = None,
     ) -> tuple[str, List[Any]]: ...
 
     async def get_event(self, event_id: str) -> Optional[Dict[str, Any]]: ...
@@ -90,6 +92,7 @@ class L1EventQueryHostProtocol(Protocol):
         include_metadata_json: bool = True,
         start_time: Optional[float] = None,
         end_time: Optional[float] = None,
+        l1_retrieval_scopes: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]: ...
 
 

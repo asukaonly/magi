@@ -27,6 +27,7 @@ class L1EventFilterMixin:
         end_time: Optional[float] = None,
         exclude_memory_domain: Optional[str] = None,
         exclude_retention_class: Optional[str] = None,
+        l1_retrieval_scopes: Optional[List[str]] = None,
     ) -> tuple[str, List[Any]]:
         """Build WHERE clause and args for event queries."""
         parts = ["deleted_at IS NULL"]
@@ -62,6 +63,13 @@ class L1EventFilterMixin:
         if cognition_eligible is not None:
             parts.append("cognition_eligible = ?")
             args.append(1 if cognition_eligible else 0)
+        if l1_retrieval_scopes is not None:
+            if not l1_retrieval_scopes:
+                parts.append("0 = 1")
+            else:
+                placeholders = ", ".join("?" for _ in l1_retrieval_scopes)
+                parts.append(f"l1_retrieval_scope IN ({placeholders})")
+                args.extend(l1_retrieval_scopes)
         if start_time is not None:
             parts.append("timestamp >= ?")
             args.append(float(start_time))

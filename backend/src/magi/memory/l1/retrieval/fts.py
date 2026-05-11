@@ -42,6 +42,7 @@ class L1EventFtsMixin:
         start_time: float | None = None,
         end_time: float | None = None,
         strict: bool = False,
+        l1_retrieval_scopes: list[str] | None = None,
     ) -> List[Tuple[str, float]]:
         """Search L1 events via FTS5 BM25 ranking.
 
@@ -68,47 +69,43 @@ class L1EventFtsMixin:
             try:
                 phase = "none"
                 time_kw = {"start_time": start_time, "end_time": end_time}
+                query_kw = {
+                    **time_kw,
+                    "limit": limit,
+                    "user_id": user_id,
+                    "l1_retrieval_scopes": l1_retrieval_scopes,
+                }
                 rows: list[tuple[Any, Any]] = []
                 stemmed = ""
                 if strict:
                     exact = build_exact_fts_query(escaped)
                     if exact:
-                        rows = await self._run_bm25_query(
-                            db, exact, limit=limit, user_id=user_id, **time_kw
-                        )
+                        rows = await self._run_bm25_query(db, exact, **query_kw)
                         if rows:
                             phase = "exact_and"
                 if not rows:
                     stemmed = build_stemmed_fts_query(escaped)
                     if stemmed:
-                        rows = await self._run_bm25_query(
-                            db, stemmed, limit=limit, user_id=user_id, **time_kw
-                        )
+                        rows = await self._run_bm25_query(db, stemmed, **query_kw)
                         if rows:
                             phase = "stemmed_and"
                     else:
                         stemmed = ""
                 if not rows:
-                    rows = await self._run_bm25_query(
-                        db, escaped, limit=limit, user_id=user_id, **time_kw
-                    )
+                    rows = await self._run_bm25_query(db, escaped, **query_kw)
                     if rows:
                         phase = "original_and"
                 if not strict:
                     if not rows:
                         for fallback_query in self._build_relaxed_fts_queries(query):
-                            rows = await self._run_bm25_query(
-                                db, fallback_query, limit=limit, user_id=user_id, **time_kw
-                            )
+                            rows = await self._run_bm25_query(db, fallback_query, **query_kw)
                             if rows:
                                 phase = "relaxed_phrase"
                                 break
                     if not rows:
                         or_query = build_or_fts_query(escaped)
                         if or_query and or_query != escaped:
-                            rows = await self._run_bm25_query(
-                                db, or_query, limit=limit, user_id=user_id, **time_kw
-                            )
+                            rows = await self._run_bm25_query(db, or_query, **query_kw)
                             if rows:
                                 phase = "or_fallback"
                 logger.info(
@@ -134,6 +131,7 @@ class L1EventFtsMixin:
         user_id: str | None = None,
         start_time: float | None = None,
         end_time: float | None = None,
+        l1_retrieval_scopes: list[str] | None = None,
     ) -> list[tuple[Any, Any]]:
         """Execute a single FTS5 BM25 query.
 
@@ -142,19 +140,32 @@ class L1EventFtsMixin:
         When *start_time* / *end_time* are given, results are constrained
         to the timestamp range via ``fact_events.timestamp``.
         """
-        if user_id:
+        if l1_retrieval_scopes is not None and not l1_retrieval_scopes:
+            return []
+        if (
+            user_id
+            or start_time is not None
+            or end_time is not None
+            or l1_retrieval_scopes is not None
+        ):
             clauses = [
                 "l1_events_fts MATCH ?",
-                "fe.user_id = ?",
                 "fe.deleted_at IS NULL",
             ]
-            params: list[Any] = [match_query, user_id]
+            params: list[Any] = [match_query]
+            if user_id:
+                clauses.append("fe.user_id = ?")
+                params.append(user_id)
             if start_time is not None:
                 clauses.append("fe.timestamp >= ?")
                 params.append(start_time)
             if end_time is not None:
                 clauses.append("fe.timestamp <= ?")
                 params.append(end_time)
+            if l1_retrieval_scopes is not None:
+                placeholders = ", ".join("?" for _ in l1_retrieval_scopes)
+                clauses.append(f"fe.l1_retrieval_scope IN ({placeholders})")
+                params.extend(l1_retrieval_scopes)
             params.append(limit)
             where = " AND ".join(clauses)
             async with db.execute(

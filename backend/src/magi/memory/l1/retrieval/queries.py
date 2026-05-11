@@ -32,6 +32,7 @@ class L1EventQueryMixin(
         event_type: Optional[str] = None,
         source_filters: Optional[List[str]] = None,
         domain_filters: Optional[List[str]] = None,
+        l1_retrieval_scopes: Optional[List[str]] = None,
         limit: int = 10,
     ) -> List[Dict[str, Any]]:
         """Search L1 events using sqlite-vec and fall back to keyword matching."""
@@ -47,6 +48,7 @@ class L1EventQueryMixin(
                 event_type=event_type,
                 source_filters=source_filters,
                 domain_filters=domain_filters,
+                l1_retrieval_scopes=l1_retrieval_scopes,
                 limit=limit,
             )
             if ranked_events:
@@ -57,6 +59,7 @@ class L1EventQueryMixin(
             user_id=user_id,
             event_type=event_type,
             source_filters=source_filters,
+            l1_retrieval_scopes=l1_retrieval_scopes,
             limit=max(limit * 5, 20),
         )
         allowed_domains = {MemoryDomain.from_value(value).label for value in domain_filters or []}
@@ -137,6 +140,7 @@ class L1EventQueryMixin(
         exclude_domain: Optional[str] = None,
         time_start: Optional[float] = None,
         time_end: Optional[float] = None,
+        l1_retrieval_scopes: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """Hydrate events by IDs with optional SQL filters, preserving input order.
 
@@ -169,6 +173,12 @@ class L1EventQueryMixin(
             sf_ph = ", ".join("?" for _ in source_filters)
             sql += f" AND source IN ({sf_ph})"
             args.extend(source_filters)
+        if l1_retrieval_scopes is not None:
+            if not l1_retrieval_scopes:
+                return []
+            scope_ph = ", ".join("?" for _ in l1_retrieval_scopes)
+            sql += f" AND l1_retrieval_scope IN ({scope_ph})"
+            args.extend(l1_retrieval_scopes)
 
         if domain_filters:
             domain_ints: list[int] = []
@@ -226,6 +236,7 @@ class L1EventQueryMixin(
         end_time: Optional[float] = None,
         exclude_memory_domain: Optional[str] = None,
         exclude_retention_class: Optional[str] = None,
+        l1_retrieval_scopes: Optional[List[str]] = None,
         limit: int = 100,
         offset: int = 0,
         include_metadata_json: bool = True,
@@ -250,6 +261,7 @@ class L1EventQueryMixin(
             end_time=end_time,
             exclude_memory_domain=exclude_memory_domain,
             exclude_retention_class=exclude_retention_class,
+            l1_retrieval_scopes=l1_retrieval_scopes,
         )
         sql = f"SELECT * FROM {FACT_EVENTS_TABLE} WHERE {where_clause}"
         order_clause = {

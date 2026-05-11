@@ -27,10 +27,16 @@ class L1ExecutionMixin:
         if not conditions.content_query:
             return []
         cfg = self._config
+        l1_retrieval_scopes = getattr(self, "_l1_retrieval_scopes", None)
         fetch_k = max(conditions.limit * cfg.rrf_over_fetch_multiplier, cfg.rrf_over_fetch_minimum)
 
         ranked_lists, weights = await self._collect_candidate_lists(
-            conditions, time_range, fetch_k, session_id=session_id, user_id=user_id,
+            conditions,
+            time_range,
+            fetch_k,
+            session_id=session_id,
+            user_id=user_id,
+            l1_retrieval_scopes=l1_retrieval_scopes,
         )
         if not any(ids for ids in ranked_lists):
             return []
@@ -46,7 +52,9 @@ class L1ExecutionMixin:
 
         return await self._hydrate_and_rerank(
             top_ids, fused, conditions, time_range,
-            session_id=session_id, user_id=user_id,
+            session_id=session_id,
+            user_id=user_id,
+            l1_retrieval_scopes=l1_retrieval_scopes,
         )
 
     async def _collect_candidate_lists(
@@ -57,19 +65,42 @@ class L1ExecutionMixin:
         *,
         session_id: Optional[str] = None,
         user_id: Optional[str] = None,
+        l1_retrieval_scopes: Optional[List[str]] = None,
     ) -> Tuple[List[Sequence[str]], List[float]]:
         """Run all retrieval paths and return (ranked_lists, weights) for RRF fusion."""
         cfg = self._config
 
         retrieval_coros = [
-            self._bm25_path(conditions.content_query, fetch_k, user_id=user_id),
-            self._vector_path(conditions.content_query, fetch_k, user_id=user_id),
-            self._keyword_path(conditions, fetch_k, session_id=session_id, user_id=user_id),
+            self._bm25_path(
+                conditions.content_query,
+                fetch_k,
+                user_id=user_id,
+                l1_retrieval_scopes=l1_retrieval_scopes,
+            ),
+            self._vector_path(
+                conditions.content_query,
+                fetch_k,
+                user_id=user_id,
+                l1_retrieval_scopes=l1_retrieval_scopes,
+            ),
+            self._keyword_path(
+                conditions,
+                fetch_k,
+                session_id=session_id,
+                user_id=user_id,
+                l1_retrieval_scopes=l1_retrieval_scopes,
+            ),
         ]
         has_temporal = time_range is not None and (time_range.start is not None or time_range.end is not None)
         if has_temporal:
             retrieval_coros.append(
-                self._temporal_bm25_path(conditions.content_query, fetch_k, time_range, user_id=user_id),
+                self._temporal_bm25_path(
+                    conditions.content_query,
+                    fetch_k,
+                    time_range,
+                    user_id=user_id,
+                    l1_retrieval_scopes=l1_retrieval_scopes,
+                ),
             )
 
         results_or_errors = await asyncio.gather(*retrieval_coros, return_exceptions=True)
@@ -99,6 +130,11 @@ class L1ExecutionMixin:
         if seed_ids:
             try:
                 entity_ids = await self._store.expand_by_entities(seed_ids, limit=fetch_k)
+                entity_ids = await self._filter_ids_by_l1_retrieval_scope(
+                    entity_ids,
+                    l1_retrieval_scopes,
+                    user_id=user_id,
+                )
             except Exception as exc:
                 logger.warning("L1 entity expansion failed: %s", exc)
 
@@ -106,6 +142,11 @@ class L1ExecutionMixin:
         if cfg.graph_spreading_enabled and self._l2_store is not None and seed_ids:
             try:
                 graph_ids = await self._graph_spreading_path(seed_ids, fetch_k)
+                graph_ids = await self._filter_ids_by_l1_retrieval_scope(
+                    graph_ids,
+                    l1_retrieval_scopes,
+                    user_id=user_id,
+                )
             except Exception as exc:
                 logger.warning("L1 graph spreading failed: %s", exc)
 
@@ -132,11 +173,14 @@ class L1ExecutionMixin:
         *,
         session_id: Optional[str] = None,
         user_id: Optional[str] = None,
+        l1_retrieval_scopes: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """Fetch full event rows, apply filters, and rerank."""
         results = await self._fetch_and_filter(
             event_ids=top_ids, conditions=conditions, time_range=time_range,
-            session_id=session_id, user_id=user_id,
+            session_id=session_id,
+            user_id=user_id,
+            l1_retrieval_scopes=l1_retrieval_scopes,
         )
 
         logger.debug(

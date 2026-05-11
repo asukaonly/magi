@@ -33,6 +33,7 @@ class L1StoreProtocol(Protocol):
         start_time: Optional[float] = ...,
         end_time: Optional[float] = ...,
         strict: bool = ...,
+        l1_retrieval_scopes: Optional[List[str]] = ...,
     ) -> List[Tuple[str, float]]: ...
 
     async def vector_search(
@@ -51,6 +52,7 @@ class L1StoreProtocol(Protocol):
         event_type: Optional[str] = ...,
         source_filters: Optional[List[str]] = ...,
         query: Optional[str] = ...,
+        l1_retrieval_scopes: Optional[List[str]] = ...,
         limit: int = ...,
     ) -> List[Dict[str, Any]]: ...
 
@@ -85,6 +87,7 @@ class L1StoreProtocol(Protocol):
         exclude_domain: Optional[str] = ...,
         time_start: Optional[float] = ...,
         time_end: Optional[float] = ...,
+        l1_retrieval_scopes: Optional[List[str]] = ...,
     ) -> List[Dict[str, Any]]: ...
 
 

@@ -72,6 +72,7 @@ class L1EventEmbeddingSearchMixin:
         event_type: Optional[str],
         source_filters: Optional[List[str]],
         domain_filters: Optional[List[str]],
+        l1_retrieval_scopes: Optional[List[str]],
         limit: int,
     ) -> List[Dict[str, Any]]:
         host = cast(L1EventEmbeddingHostProtocol, self)
@@ -124,6 +125,12 @@ class L1EventEmbeddingSearchMixin:
             source_placeholders = ", ".join("?" for _ in source_filters)
             query += f" AND source IN ({source_placeholders})"
             args.extend(source_filters)
+        if l1_retrieval_scopes is not None:
+            if not l1_retrieval_scopes:
+                return []
+            scope_placeholders = ", ".join("?" for _ in l1_retrieval_scopes)
+            query += f" AND l1_retrieval_scope IN ({scope_placeholders})"
+            args.extend(l1_retrieval_scopes)
         allowed_domains = [MemoryDomain.from_value(value) for value in domain_filters or []]
         if allowed_domains:
             domain_placeholders = ", ".join("?" for _ in allowed_domains)

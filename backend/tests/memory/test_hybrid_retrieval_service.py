@@ -46,6 +46,7 @@ def _make_l1_store(events=None):
     l1.search_events.return_value = events or []
     l1.resolve_event_entities.return_value = []
     l1.find_events_by_entities.return_value = []
+    l1.expand_by_entities.return_value = []
     l1.filter_ids_by_user.return_value = []
     l1.fetch_events.return_value = events or []
     return l1
@@ -130,6 +131,27 @@ def _make_request(**kwargs):
     }
     defaults.update(kwargs)
     return RetrievalQuery(**defaults)
+
+
+@pytest.mark.asyncio
+async def test_l1_handler_passes_retrieval_scopes_before_fusion():
+    from magi.memory.hybrid_retrieval.l1_handler import L1Handler
+
+    event = {
+        "event_id": "evt-user-scope",
+        "content": "I like oolong tea.",
+        "user_id": "u1",
+        "memory_domain": "user_authored",
+        "l1_retrieval_scope": "fact_authoritative",
+    }
+    l1 = _make_l1_store([event])
+    handler = L1Handler(l1).with_l1_retrieval_scopes(["fact_authoritative"])
+
+    await handler.execute(L1Conditions(content_query="oolong tea", limit=5), user_id="u1")
+
+    assert l1.bm25_search.call_args.kwargs["l1_retrieval_scopes"] == ["fact_authoritative"]
+    assert l1.query_events.call_args.kwargs["l1_retrieval_scopes"] == ["fact_authoritative"]
+    assert l1.fetch_events.call_args.kwargs["l1_retrieval_scopes"] == ["fact_authoritative"]
 
 
 def test_build_retrieval_config_reads_memory_reranker_settings():

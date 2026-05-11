@@ -164,6 +164,9 @@ class HybridRetrievalService(
             if adapted_config is not self._config:
                 effective_l1 = self._l1.with_config(adapted_config)
                 payload.trace["mode_rrf_applied"] = True
+        if effective_l1 is not None and mode_plan.l1_retrieval_scopes is not None:
+            effective_l1 = effective_l1.with_l1_retrieval_scopes(mode_plan.l1_retrieval_scopes)
+            payload.trace["l1_retrieval_scopes"] = list(mode_plan.l1_retrieval_scopes)
         payload.trace["mode_explicit"] = mode_explicit
 
         return await self._execute_query(
