@@ -32,6 +32,7 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { cn } from '@/lib/utils';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { getTimelineSourceDisplayName } from '@/utils/timeline-source-copy';
+import { validateLLMCustomProviderReadiness, type LLMValidationIssue } from '@/components/config-forms/llm-form-state';
 
 const ADVANCED_MEMORY_SECTION_IDS = new Set([
   'memoryWorkbench',
@@ -137,6 +138,28 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
   );
 
   const quickMode = draftConfig.preferences.user_mode === 'quick';
+  const llmValidationIssues = useMemo(
+    () => validateLLMCustomProviderReadiness(draftConfig.llm),
+    [draftConfig.llm]
+  );
+  const formatLlmValidationIssue = (issue: LLMValidationIssue): string => {
+    const serviceLabel = t(`settings.llmValidation.services.${issue.serviceName}`);
+    if (issue.code === 'customScenarioModelMissing' && issue.scenario && issue.model) {
+      return t('settings.llmValidation.customScenarioModelMissing', {
+        provider: issue.providerName,
+        scenario: t(`settings.llmValidation.scenarios.${issue.scenario}`),
+        model: issue.model,
+        service: serviceLabel,
+      });
+    }
+    return t('settings.llmValidation.customServiceModelRequired', {
+      provider: issue.providerName,
+      service: serviceLabel,
+    });
+  };
+  const llmValidationMessage = llmValidationIssues[0]
+    ? formatLlmValidationIssue(llmValidationIssues[0])
+    : null;
   const visibleNavItems = useMemo(
     () =>
       NAV_ITEMS.map((item) => {
@@ -412,9 +435,9 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
           <div className="flex flex-wrap items-center justify-between gap-4 px-8 py-4">
             <p className={cn(
               'text-sm transition-colors duration-200',
-              dirty ? 'text-primary font-medium' : 'text-muted-foreground'
+              llmValidationMessage ? 'font-medium text-amber-700 dark:text-amber-300' : dirty ? 'text-primary font-medium' : 'text-muted-foreground'
             )}>
-              {dirty ? t('settings.pendingChanges') : t('settings.allChangesSaved')}
+              {llmValidationMessage || (dirty ? t('settings.pendingChanges') : t('settings.allChangesSaved'))}
             </p>
             <div className="flex flex-wrap items-center gap-2.5">
               <Button
@@ -432,7 +455,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                 type="button"
                 size="sm"
                 onClick={() => void handleSaveChanges()}
-                disabled={!dirty || saving}
+                disabled={!dirty || saving || llmValidationIssues.length > 0}
                 className={cn(
                   'transition-all duration-200',
                   dirty && 'animate-in pulse duration-300'

@@ -1,20 +1,39 @@
 import {
+  DEFAULT_LLM_CUSTOM_PROVIDER_META,
   DEFAULT_LLM_CAPABILITIES,
   DEFAULT_LLM_LIMITS,
   type LLMCapabilities,
   type LLMConcurrencyOverrideConfig,
   type LLMConfig,
+  type LLMCustomProviderMeta,
   type LLMCustomProviderTemplateData,
   type LLMLimits,
+  type LLMProviderFieldConfig,
   type LLMProviderConfig,
   type LLMProviderCatalog,
   type LLMProviderRegistry,
+  type LLMRuntimeLimits,
   type LLMScenario,
   type LLMSelectionConfig,
   resolveProviderModels,
 } from '@/api/modules/config';
 
 export const BUILTIN_SCENARIOS: LLMScenario[] = ['context_decider', 'core', 'memory_summarizer', 'embedding', 'image_generation'];
+
+export type LLMProviderServiceName = 'chat' | 'embedding' | 'image_generation';
+
+export type LLMValidationIssueCode =
+  | 'customServiceModelRequired'
+  | 'customScenarioModelMissing';
+
+export interface LLMValidationIssue {
+  code: LLMValidationIssueCode;
+  providerId: string;
+  providerName: string;
+  serviceName: LLMProviderServiceName;
+  scenario?: LLMScenario;
+  model?: string;
+}
 
 export interface ScenarioConcurrencyState {
   runtimeKey: string | null;
@@ -151,14 +170,155 @@ export const cloneLLMConfig = (value?: LLMConfig): LLMConfig => ({
   ),
 });
 
+export const getCustomProviderServiceModelIds = (
+  provider: LLMProviderConfig | undefined,
+  serviceName: LLMProviderServiceName
+): string[] => {
+  if (!provider || provider.provider_type !== 'custom') {
+    return [];
+  }
+
+  if (serviceName === 'chat') {
+    return [...(provider.custom_models || [])].filter(Boolean);
+  }
+
+  return Object.entries(provider.model_metadata_overrides || {})
+    .filter(([, override]) => {
+      if (serviceName === 'embedding') {
+        return override?.capabilities?.embedding === true;
+      }
+      return override?.capabilities?.image_output === true;
+    })
+    .map(([modelId]) => modelId)
+    .filter(Boolean);
+};
+
+const scenarioServiceName = (scenario: LLMScenario): LLMProviderServiceName => {
+  if (scenario === 'embedding') {
+    return 'embedding';
+  }
+  if (scenario === 'image_generation') {
+    return 'image_generation';
+  }
+  return 'chat';
+};
+
+export const validateCustomProviderServices = (
+  provider: LLMProviderConfig | undefined,
+  providerId: string
+): LLMValidationIssue[] => {
+  if (!provider || provider.provider_type !== 'custom' || !provider.enabled) {
+    return [];
+  }
+
+  const providerName = provider.display_name || providerId;
+  const serviceNames: LLMProviderServiceName[] = ['chat', 'embedding', 'image_generation'];
+  return serviceNames.flatMap((serviceName) => {
+    if (!provider.services?.[serviceName]?.enabled) {
+      return [];
+    }
+    if (getCustomProviderServiceModelIds(provider, serviceName).length > 0) {
+      return [];
+    }
+    return [{ code: 'customServiceModelRequired', providerId, providerName, serviceName } satisfies LLMValidationIssue];
+  });
+};
+
+export const validateLLMCustomProviderReadiness = (value?: LLMConfig): LLMValidationIssue[] => {
+  if (!value) {
+    return [];
+  }
+
+  const issues: LLMValidationIssue[] = [];
+
+  for (const [providerId, provider] of Object.entries(value.providers || {})) {
+    issues.push(...validateCustomProviderServices(provider, providerId));
+  }
+
+  for (const [scenario, selection] of Object.entries(value.selections || {}) as [LLMScenario, LLMSelectionConfig][]) {
+    if (!selection?.provider_id || !selection.model) {
+      continue;
+    }
+    const provider = value.providers?.[selection.provider_id];
+    if (!provider || provider.provider_type !== 'custom' || !provider.enabled) {
+      continue;
+    }
+    const serviceName = scenarioServiceName(scenario);
+    if (!provider.services?.[serviceName]?.enabled) {
+      continue;
+    }
+    const models = getCustomProviderServiceModelIds(provider, serviceName);
+    if (models.length > 0 && !models.includes(selection.model)) {
+      issues.push({
+        code: 'customScenarioModelMissing',
+        providerId: selection.provider_id,
+        providerName: provider.display_name || selection.provider_id,
+        serviceName,
+        scenario,
+        model: selection.model,
+      });
+    }
+  }
+
+  return issues;
+};
+
 export const llmSignature = (value: LLMConfig): string => JSON.stringify(value);
 
+const cloneProviderField = (
+  value?: Partial<LLMProviderFieldConfig>,
+  fallback?: Partial<LLMProviderFieldConfig>
+): LLMProviderFieldConfig => {
+  const next: LLMProviderFieldConfig = {
+    visible: value?.visible ?? fallback?.visible ?? true,
+    required: value?.required ?? fallback?.required ?? false,
+  };
+  const placeholder = value?.placeholder ?? fallback?.placeholder;
+  if (placeholder !== undefined) {
+    next.placeholder = placeholder;
+  }
+  const options = value?.options ?? fallback?.options;
+  if (options) {
+    next.options = [...options];
+  }
+  return next;
+};
+
+const cloneProviderFields = (
+  value?: LLMCustomProviderMeta['fields'],
+  fallback?: LLMCustomProviderMeta['fields']
+): Record<string, LLMProviderFieldConfig> => {
+  const keys = new Set([...Object.keys(fallback || {}), ...Object.keys(value || {})]);
+  return Object.fromEntries(
+    [...keys].map((key) => [key, cloneProviderField(value?.[key], fallback?.[key])])
+  );
+};
+
+const cloneRuntimeLimits = (value?: Partial<LLMRuntimeLimits>, fallback?: Partial<LLMRuntimeLimits>): LLMRuntimeLimits => ({
+  ...(fallback || {}),
+  ...(value || {}),
+});
+
+const cloneCustomProviderMeta = (value?: Partial<LLMCustomProviderMeta> | null): LLMCustomProviderMeta => ({
+  enabled: value?.enabled ?? DEFAULT_LLM_CUSTOM_PROVIDER_META.enabled,
+  display_name: value?.display_name ?? DEFAULT_LLM_CUSTOM_PROVIDER_META.display_name,
+  description: value?.description ?? DEFAULT_LLM_CUSTOM_PROVIDER_META.description,
+  icon: value?.icon ?? DEFAULT_LLM_CUSTOM_PROVIDER_META.icon,
+  fields: cloneProviderFields(value?.fields, DEFAULT_LLM_CUSTOM_PROVIDER_META.fields),
+  capabilities: cloneCapabilities(value?.capabilities || DEFAULT_LLM_CUSTOM_PROVIDER_META.capabilities),
+  limits: cloneRuntimeLimits(value?.limits, DEFAULT_LLM_CUSTOM_PROVIDER_META.limits),
+  provider_options_example: {
+    ...(DEFAULT_LLM_CUSTOM_PROVIDER_META.provider_options_example || {}),
+    ...(value?.provider_options_example || {}),
+  },
+});
+
 export const buildRegistryFromCatalog = (
-  catalog: LLMProviderCatalog,
-  customTemplate: LLMCustomProviderTemplateData
+  catalog: Partial<LLMProviderCatalog> | null | undefined,
+  customTemplate: Partial<LLMCustomProviderTemplateData> | null | undefined
 ): LLMProviderRegistry => ({
-  providers: catalog.providers,
-  custom_provider: customTemplate.template,
+  providers: [...(catalog?.providers || [])],
+  custom_provider: cloneCustomProviderMeta(customTemplate?.template),
 });
 
 const getProviderMeta = (registry: LLMProviderRegistry, providerId?: string) =>
@@ -433,9 +593,9 @@ export const applySelectionDefaults = (
     } else {
       selection.model = preferredModelId;
       if (!selection.capability_override_enabled) {
-        selection.capabilities = cloneCapabilities(registry.custom_provider.capabilities);
-        selection.limits = cloneLimits(registry.custom_provider.limits);
-        selection.provider_options = { ...(registry.custom_provider.provider_options_example || {}) };
+        selection.capabilities = cloneCapabilities(registry.custom_provider?.capabilities);
+        selection.limits = cloneLimits(registry.custom_provider?.limits);
+        selection.provider_options = { ...(registry.custom_provider?.provider_options_example || {}) };
       }
     }
     return;

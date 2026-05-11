@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { SettingsPage } from '@/components/settings/SettingsContent';
+import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import type { SettingsPageHandle } from '@/types/settings';
 
 interface SettingsCenterDialogProps {
@@ -69,7 +70,27 @@ const SettingsCenterDialog: React.FC<SettingsCenterDialogProps> = ({ open, onOpe
             <DialogDescription>{t('settings.subtitle')}</DialogDescription>
           </DialogHeader>
           <div data-testid="settings-center-shell" className="h-full overflow-hidden rounded-[inherit]">
-            <SettingsPage ref={pageRef} onRequestClose={() => void requestClose()} />
+            <ErrorBoundary
+              resetKey={open}
+              fallback={
+                <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
+                  <div>
+                    <h2 className="text-base font-semibold text-foreground">{t('settings.errorTitle')}</h2>
+                    <p className="mt-2 max-w-md text-sm text-muted-foreground">{t('settings.errorDescription')}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                      {t('settings.actions.close')}
+                    </Button>
+                    <Button type="button" onClick={() => window.location.reload()}>
+                      {t('settings.refresh')}
+                    </Button>
+                  </div>
+                </div>
+              }
+            >
+              <SettingsPage ref={pageRef} onRequestClose={() => void requestClose()} />
+            </ErrorBoundary>
           </div>
         </DialogContent>
       </Dialog>

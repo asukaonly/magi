@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, Check, ChevronDown, Eye, EyeOff, Loader2, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { Activity, AlertCircle, Check, ChevronDown, Eye, EyeOff, Loader2, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -35,7 +35,12 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 
-import { cloneProvider } from './llm-form-state';
+import {
+  cloneProvider,
+  validateCustomProviderServices,
+  validateLLMCustomProviderReadiness,
+  type LLMValidationIssue,
+} from './llm-form-state';
 
 interface LLMProviderConfigurationSectionProps {
   registry: LLMProviderRegistry;
@@ -82,6 +87,18 @@ const SERVICE_MODEL_KIND: Record<VisibleServiceName, ServiceModelKind> = {
   chat: 'chat',
   embedding: 'embedding',
   image_generation: 'image',
+};
+
+const getInitialExpandedServices = (provider?: LLMProviderConfig | null): Record<VisibleServiceName, boolean> => {
+  if (!provider || provider.provider_type !== 'custom') {
+    return { chat: false, embedding: false, image_generation: false };
+  }
+
+  return {
+    chat: Boolean(provider.services.chat.enabled),
+    embedding: Boolean(provider.services.embedding.enabled),
+    image_generation: Boolean(provider.services.image_generation.enabled),
+  };
 };
 
 const IMAGE_NATIVE_PROTOCOL_OPTIONS = [
@@ -277,9 +294,41 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
   const draftTestState = providerTestState[draftProviderId] || { loading: false, error: null, result: null };
   const draftDiscoveryState = providerDiscoveryState[draftProviderId] || { loading: false, error: null };
 
-  const resetEditorState = () => {
+  const validationIssues = useMemo(() => validateLLMCustomProviderReadiness(value), [value]);
+  const providerIssuesById = useMemo(() => {
+    const issueMap = new Map<string, LLMValidationIssue[]>();
+    for (const issue of validationIssues) {
+      const existing = issueMap.get(issue.providerId) || [];
+      existing.push(issue);
+      issueMap.set(issue.providerId, existing);
+    }
+    return issueMap;
+  }, [validationIssues]);
+  const draftValidationIssues = useMemo(
+    () => validateCustomProviderServices(draftProvider || undefined, draftProviderId),
+    [draftProvider, draftProviderId]
+  );
+  const saveDraftDisabled = draftValidationIssues.length > 0;
+
+  const formatValidationIssue = (issue: LLMValidationIssue): string => {
+    const serviceLabel = t(`llm.providerConfiguration.serviceLabels.${issue.serviceName}`);
+    if (issue.code === 'customScenarioModelMissing' && issue.scenario && issue.model) {
+      return t('llm.validation.customScenarioModelMissing', {
+        provider: issue.providerName,
+        scenario: t(`llm.scenarios.${issue.scenario}.title`),
+        model: issue.model,
+        service: serviceLabel,
+      });
+    }
+    return t('llm.validation.customServiceModelRequired', {
+      provider: issue.providerName,
+      service: serviceLabel,
+    });
+  };
+
+  const resetEditorState = (provider?: LLMProviderConfig | null) => {
     setShowApiKeys({ provider: false, chat: false, embedding: false, image_generation: false, tts: false });
-    setExpandedServices({ chat: false, embedding: false, image_generation: false });
+    setExpandedServices(getInitialExpandedServices(provider));
     setServiceModelDrafts({ chat: '', embedding: '', image_generation: '' });
     setSelectedServiceModels({ chat: '', embedding: '', image_generation: '' });
     setTestModelByService({ chat: '', embedding: '', image_generation: '' });
@@ -347,11 +396,12 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
   const openAddDialog = () => {
     const firstTemplate = providerTemplates[0] || null;
     const nextTemplateId = firstTemplate?.id || 'custom';
+    const nextProvider = createProviderFromTemplate(firstTemplate, customProviderDefaults, t('llm.customProviderDefaultName'));
     setEditorMode('add');
     setEditingProviderId('');
     setSelectedTemplateId(nextTemplateId);
-    setDraftProvider(createProviderFromTemplate(firstTemplate, customProviderDefaults, t('llm.customProviderDefaultName')));
-    resetEditorState();
+    setDraftProvider(nextProvider);
+    resetEditorState(nextProvider);
     setDialogOpen(true);
   };
 
@@ -361,16 +411,18 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
     setEditorMode('edit');
     setEditingProviderId(providerId);
     setSelectedTemplateId(provider.provider_type);
-    setDraftProvider(cloneProvider(provider));
-    resetEditorState();
+    const nextProvider = cloneProvider(provider);
+    setDraftProvider(nextProvider);
+    resetEditorState(nextProvider);
     setDialogOpen(true);
   };
 
   const handleTemplateChange = (templateId: string) => {
     setSelectedTemplateId(templateId);
     const template = templateId === 'custom' ? null : providerTemplates.find((provider) => provider.id === templateId) || null;
-    setDraftProvider(createProviderFromTemplate(template, customProviderDefaults, t('llm.customProviderDefaultName')));
-    resetEditorState();
+    const nextProvider = createProviderFromTemplate(template, customProviderDefaults, t('llm.customProviderDefaultName'));
+    setDraftProvider(nextProvider);
+    resetEditorState(nextProvider);
   };
 
   const updateDraftProvider = (updater: (provider: LLMProviderConfig) => void) => {
@@ -414,7 +466,6 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
   };
 
   const addDraftProviderModel = (serviceName: VisibleServiceName) => {
-    if (serviceName === 'image_generation') return;
     const modelId = serviceModelDrafts[serviceName].trim();
     if (!modelId) return;
 
@@ -429,6 +480,16 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
           },
         };
         provider.model_metadata_overrides = overrides;
+      } else if (serviceName === 'image_generation') {
+        const overrides = { ...(provider.model_metadata_overrides || {}) };
+        overrides[modelId] = {
+          ...(overrides[modelId] || {}),
+          capabilities: {
+            ...(overrides[modelId]?.capabilities || {}),
+            image_output: true,
+          },
+        };
+        provider.model_metadata_overrides = overrides;
       } else {
         provider.custom_models = Array.from(new Set([...(provider.custom_models || []), modelId]));
         provider.custom_default_model = provider.custom_default_model || modelId;
@@ -440,6 +501,16 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
 
   const saveDraftProvider = () => {
     if (!draftProvider) return;
+    if (draftValidationIssues.length > 0) {
+      setExpandedServices((current) => {
+        const next = { ...current };
+        for (const issue of draftValidationIssues) {
+          next[issue.serviceName] = true;
+        }
+        return next;
+      });
+      return;
+    }
     const providerId = editorMode === 'edit' && editingProviderId
       ? editingProviderId
       : createInstanceId(draftProvider.provider_type || 'custom');
@@ -529,12 +600,14 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
       ? selectedServiceModels[serviceName]
       : serviceModels[0]?.id || '';
     const selectedModel = serviceModels.find((model) => model.id === selectedModelId);
-    const canManageModels = serviceName !== 'image_generation';
+    const canManageModels = true;
+    const canDiscoverModels = serviceName !== 'image_generation';
     const canTestService = serviceName === 'chat' && service.enabled && serviceModels.length > 0;
     const selectedTestModel = testModelByService[serviceName] && serviceModels.some((model) => model.id === testModelByService[serviceName])
       ? testModelByService[serviceName]
       : serviceModels[0]?.id || '';
     const serviceModelKind = SERVICE_MODEL_KIND[serviceName];
+    const serviceValidationIssues = draftValidationIssues.filter((issue) => issue.serviceName === serviceName);
 
     return (
       <div key={serviceName} className="overflow-visible rounded-lg border border-border/70 bg-background/80">
@@ -607,7 +680,12 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
             <Switch
               aria-label={serviceLabel}
               checked={Boolean(service.enabled)}
-              onCheckedChange={(checked) => updateDraftService(serviceName, (draft) => { draft.enabled = checked; })}
+              onCheckedChange={(checked) => {
+                updateDraftService(serviceName, (draft) => { draft.enabled = checked; });
+                if (checked) {
+                  setExpandedServices((current) => ({ ...current, [serviceName]: true }));
+                }
+              }}
             />
             <ChevronDown className={cn('h-4 w-4 text-muted-foreground transition', expanded && 'rotate-180')} />
           </div>
@@ -679,7 +757,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                     aria-label={`${serviceLabel} ${t('llm.fields.modelManualEntry')}`}
                     className={fieldClassName}
                     disabled={!canManageModels}
-                    placeholder={canManageModels ? t('llm.fields.modelManualEntryPlaceholder') : t('llm.providerConfiguration.imageModelsManaged')}
+                    placeholder={t('llm.fields.modelManualEntryPlaceholder')}
                     value={serviceModelDrafts[serviceName]}
                     onChange={(event) => setServiceModelDrafts((current) => ({ ...current, [serviceName]: event.target.value }))}
                     onKeyDown={(event) => {
@@ -704,13 +782,23 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                   variant="outline"
                   size="sm"
                   className="gap-2"
-                  disabled={!canManageModels || draftDiscoveryState.loading}
+                  disabled={!canDiscoverModels || draftDiscoveryState.loading}
                   onClick={() => void handleDiscoverDraftModels(serviceName)}
                 >
                   {draftDiscoveryState.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                   <span>{t('llm.actions.fetchModels')}</span>
                 </Button>
               </div>
+              {serviceValidationIssues.length > 0 ? (
+                <div className="space-y-1 rounded-md border border-amber-300/55 bg-amber-50/75 px-3 py-2 text-xs leading-5 text-amber-900 dark:border-amber-300/25 dark:bg-amber-500/10 dark:text-amber-100">
+                  {serviceValidationIssues.map((issue, index) => (
+                    <p key={`${issue.code}-${issue.serviceName}-${index}`} className="flex gap-2">
+                      <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      <span>{formatValidationIssue(issue)}</span>
+                    </p>
+                  ))}
+                </div>
+              ) : null}
               {draftDiscoveryState.error ? (
                 <p className="text-sm text-destructive">{draftDiscoveryState.error}</p>
               ) : null}
@@ -782,6 +870,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
               ? undefined
               : registry.providers.find((item) => item.id === provider.provider_type);
             const references = scenarioReferences[providerId] || [];
+            const providerIssues = providerIssuesById.get(providerId) || [];
             const serviceLabels = SERVICE_NAMES
               .filter((serviceName) => provider.services[serviceName]?.enabled)
               .map((serviceName) => t(`llm.providerConfiguration.serviceLabels.${serviceName}`));
@@ -823,6 +912,11 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                     {references.length > 0 ? (
                       <span className="block text-xs leading-5 text-muted-foreground">
                         {t('llm.providerConfiguration.referencedBy')}: {references.map((scenario) => t(`llm.scenarios.${scenario}.title`)).join(' / ')}
+                      </span>
+                    ) : null}
+                    {providerIssues.length > 0 ? (
+                      <span className="block text-xs leading-5 text-amber-700 dark:text-amber-300">
+                        {formatValidationIssue(providerIssues[0])}
                       </span>
                     ) : null}
                   </span>
@@ -900,6 +994,17 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
 
             {draftProvider ? (
               <>
+                {draftValidationIssues.length > 0 ? (
+                  <div className="space-y-1 rounded-lg border border-amber-300/55 bg-amber-50/75 px-3 py-2.5 text-xs leading-5 text-amber-900 dark:border-amber-300/25 dark:bg-amber-500/10 dark:text-amber-100">
+                    {draftValidationIssues.map((issue, index) => (
+                      <p key={`${issue.code}-${issue.serviceName}-${index}`} className="flex gap-2">
+                        <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        <span>{formatValidationIssue(issue)}</span>
+                      </p>
+                    ))}
+                  </div>
+                ) : null}
+
                 <div className="space-y-3">
                   <div className="grid gap-3 md:grid-cols-2">
                     <label className="space-y-2">
@@ -917,7 +1022,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                         <SelectField
                           value={draftProvider.api_format || 'openai'}
                           allowEmpty={false}
-                          options={(registry.custom_provider.fields?.api_format?.options || ['openai', 'anthropic']).map((option) => ({
+                          options={(registry.custom_provider?.fields?.api_format?.options || ['openai', 'anthropic']).map((option) => ({
                             label: t(`llm.apiFormatOptions.${option}`),
                             value: option,
                           }))}
@@ -964,7 +1069,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
             <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
               {t('common.cancel')}
             </Button>
-            <Button type="button" onClick={saveDraftProvider}>
+            <Button type="button" onClick={saveDraftProvider} disabled={saveDraftDisabled}>
               {t('llm.providerConfiguration.saveProvider')}
             </Button>
           </DialogFooter>

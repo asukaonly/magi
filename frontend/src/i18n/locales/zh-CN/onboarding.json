@@ -370,7 +370,9 @@
       "customProviderNameRequired": "请为自定义供应商填写名称。",
       "customProviderApiKeyRequired": "请为自定义供应商填写 API Key。",
       "customProviderBaseUrlRequired": "请为自定义供应商填写 Base URL。",
-      "customProviderModelRequired": "请为自定义供应商添加至少一个模型。"
+      "customProviderModelRequired": "请为自定义供应商添加至少一个模型。",
+      "customServiceModelRequired": "{{provider}} 已开启{{service}}能力，请先添加至少一个{{service}}模型。",
+      "customScenarioModelMissing": "{{scenario}} 当前使用 {{model}}，但 {{provider}} 没有把它列为{{service}}模型。"
     },
     "modelManualPlaceholder": "输入模型 ID，例如 gpt-4.1",
     "imageGenerationModelPlaceholder": "输入生图模型 ID，例如 gpt-image-1",

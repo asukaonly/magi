@@ -15,6 +15,7 @@ import {
   previewLanguageSelection,
   serialize,
 } from '@/utils/settings-helpers';
+import { validateLLMCustomProviderReadiness, type LLMValidationIssue } from '@/components/config-forms/llm-form-state';
 
 interface UseSettingsPersistenceParams {
   savedConfig: SystemConfig;
@@ -113,7 +114,29 @@ export function useSettingsPersistence({
     resolveEmbeddingPreflightConfirmation(false);
   }, [resolveEmbeddingPreflightConfirmation]);
 
+  const formatLlmValidationIssue = useCallback((issue: LLMValidationIssue): string => {
+    const serviceLabel = t(`settings.llmValidation.services.${issue.serviceName}`);
+    if (issue.code === 'customScenarioModelMissing' && issue.scenario && issue.model) {
+      return t('settings.llmValidation.customScenarioModelMissing', {
+        provider: issue.providerName,
+        scenario: t(`settings.llmValidation.scenarios.${issue.scenario}`),
+        model: issue.model,
+        service: serviceLabel,
+      });
+    }
+    return t('settings.llmValidation.customServiceModelRequired', {
+      provider: issue.providerName,
+      service: serviceLabel,
+    });
+  }, [t]);
+
   const handleSaveChanges = useCallback(async () => {
+    const llmValidationIssue = validateLLMCustomProviderReadiness(draftConfig.llm)[0];
+    if (llmValidationIssue) {
+      toast.warning(formatLlmValidationIssue(llmValidationIssue));
+      return;
+    }
+
     setSaving(true);
     try {
       const configDirty = serialize(savedConfig) !== serialize(draftConfig);
@@ -234,6 +257,7 @@ export function useSettingsPersistence({
     loadPlugins,
     loadTools,
     requestEmbeddingPreflightConfirmation,
+    formatLlmValidationIssue,
   ]);
 
   const handleDiscardChanges = useCallback(async () => {

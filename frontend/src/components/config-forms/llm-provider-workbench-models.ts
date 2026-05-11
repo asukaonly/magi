@@ -97,7 +97,7 @@ export const buildProviderWorkbenchModels = (
   const manualBaseCapabilities: ProviderWorkbenchModelItem['capabilities'] = isCustomProvider
     ? {
         ...DEFAULT_CAPABILITIES,
-        ...(registry.custom_provider.capabilities || {}),
+        ...(registry.custom_provider?.capabilities || {}),
       }
     : {
         ...DEFAULT_CAPABILITIES,
@@ -107,7 +107,7 @@ export const buildProviderWorkbenchModels = (
   const manualBaseLimits: ProviderWorkbenchModelItem['limits'] = isCustomProvider
     ? {
         ...DEFAULT_LIMITS,
-        ...(registry.custom_provider.limits || {}),
+        ...(registry.custom_provider?.limits || {}),
       }
     : { ...DEFAULT_LIMITS };
   const models = new Map<string, ProviderWorkbenchModelItem>();
@@ -203,6 +203,34 @@ export const buildProviderWorkbenchModels = (
         capabilities: { ...manualBaseCapabilities },
         limits: { ...manualBaseLimits },
         kinds: ['chat'],
+        dimensions: [],
+      }, override));
+    }
+
+    if (override?.capabilities?.image_output === true) {
+      const existing = models.get(modelId);
+      if (existing) {
+        models.set(modelId, applyOverride({
+          ...existing,
+          kinds: Array.from(new Set([...existing.kinds, 'image'])),
+          capabilities: {
+            ...existing.capabilities,
+            image_output: true,
+          },
+        }, override));
+        continue;
+      }
+
+      models.set(modelId, applyOverride({
+        id: modelId,
+        label: modelId,
+        source: 'manual',
+        capabilities: {
+          ...DEFAULT_CAPABILITIES,
+          image_output: true,
+        },
+        limits: { ...DEFAULT_LIMITS },
+        kinds: ['image'],
         dimensions: [],
       }, override));
     }

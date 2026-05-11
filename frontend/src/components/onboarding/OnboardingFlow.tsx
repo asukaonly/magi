@@ -24,6 +24,7 @@ import type { SensorInstallStatus } from './SensorSelection';
 import StepIndicator from './StepIndicator';
 import CompletionScreen from './CompletionScreen';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { validateLLMCustomProviderReadiness, type LLMValidationIssue } from '../config-forms/llm-form-state';
 
 type Mode = 'quick' | 'expert' | null;
 type Phase = 'welcome' | 'guided';
@@ -284,6 +285,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   const [crossEncoderConfig, setCrossEncoderConfig] = useState<CrossEncoderConfig | undefined>(
     () => initialConfig.memory?.reranker?.cross_encoder
   );
+  const [llmValidationIssues, setLlmValidationIssues] = useState<LLMValidationIssue[]>([]);
   const activeLanguage = i18n.resolvedLanguage || i18n.language;
   const isQuickMode = mode === 'quick';
   const debugI18n = localStorage.getItem('magi_i18n_debug') === '1';
@@ -324,6 +326,25 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   const isLastStep = current === steps.length - 1;
   const isSensorStep = (isQuickMode && needsSensors && current === 1) || (!isQuickMode && current === 4);
   const sensorStepBlocksNext = isSensorStep && !sensorInstallStatus.canContinue;
+  const providerStepIndex = isQuickMode ? (needsSensors ? 2 : 1) : 0;
+  const modelStepIndex = isQuickMode ? providerStepIndex + 1 : 1;
+  const llmStepBlocksNext = (current === providerStepIndex || current === modelStepIndex) && llmValidationIssues.length > 0;
+
+  const formatLlmValidationIssue = (issue: LLMValidationIssue): string => {
+    const serviceLabel = t(`llm.providerConfiguration.serviceLabels.${issue.serviceName}`);
+    if (issue.code === 'customScenarioModelMissing' && issue.scenario && issue.model) {
+      return t('llm.validation.customScenarioModelMissing', {
+        provider: issue.providerName,
+        scenario: t(`llm.scenarios.${issue.scenario}.title`),
+        model: issue.model,
+        service: serviceLabel,
+      });
+    }
+    return t('llm.validation.customServiceModelRequired', {
+      provider: issue.providerName,
+      service: serviceLabel,
+    });
+  };
 
   // Restore saved progress
   useEffect(() => {
@@ -510,6 +531,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   const validateProviderFields = (): { valid: boolean; message?: string } => {
     const llmConfig = form.getFieldValue(['llm']);
     const providers = llmConfig?.providers || {};
+    const modelReadinessIssue = validateLLMCustomProviderReadiness(llmConfig)?.[0];
+    if (modelReadinessIssue) {
+      return { valid: false, message: formatLlmValidationIssue(modelReadinessIssue) };
+    }
 
     for (const [providerId, provider] of Object.entries(providers) as [string, any][]) {
       if (!provider?.enabled) continue;
@@ -524,9 +549,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
         }
         if (chatService?.enabled && !(chatService.base_url?.trim() || provider.base_url?.trim())) {
           return { valid: false, message: t('llm.validation.customProviderBaseUrlRequired') };
-        }
-        if (!provider.custom_models?.length) {
-          return { valid: false, message: t('llm.validation.customProviderModelRequired') };
         }
       }
 
@@ -632,6 +654,11 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       }
 
       if (current === getModelStepIndex()) {
+        const modelReadinessIssue = validateLLMCustomProviderReadiness(form.getFieldValue(['llm']))?.[0];
+        if (modelReadinessIssue) {
+          toast.warning(formatLlmValidationIssue(modelReadinessIssue));
+          return;
+        }
         if (!hasValidSelections()) {
           toast.warning(t('llm.completeSelections'));
           return;
@@ -671,6 +698,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       <LLMForm
         quickMode={quickModeForStep}
         view="models"
+        onValidationChange={setLlmValidationIssues}
         embeddingConfig={embeddingConfig}
         onEmbeddingConfigChange={(updater) => {
           setEmbeddingConfig((prev) => {
@@ -716,12 +744,12 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       if (needsSensors && current === 1) {
         return <SensorSelection scenario={scenario!} onInstallStatusChange={setSensorInstallStatus} />;
       }
-      if (current === providerIdx) return <LLMForm quickMode view="providers" />;
+      if (current === providerIdx) return <LLMForm quickMode view="providers" onValidationChange={setLlmValidationIssues} />;
       if (current === modelIdx) return renderLLMModelStep(true);
       if (current === completeIdx) return <CompletionScreen onFinish={handleFinish} />;
     } else {
       // Expert: 0=Providers, 1=Models, 2=Personality, 3=Memory, 4=Sensors, 5=Tools, 6=Complete
-      if (current === 0) return <LLMForm quickMode={false} view="providers" />;
+      if (current === 0) return <LLMForm quickMode={false} view="providers" onValidationChange={setLlmValidationIssues} />;
       if (current === 1) return renderLLMModelStep(false);
       if (current === 2) return <PersonalityForm quickMode={false} language={language} />;
       if (current === 3) return <MemoryForm />;
@@ -768,7 +796,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
               <Button variant="outline" onClick={handlePrev}>
                 {t('actions.previous')}
               </Button>
-              <Button onClick={handleNext} disabled={saving || sensorStepBlocksNext}>
+              <Button onClick={handleNext} disabled={saving || sensorStepBlocksNext || llmStepBlocksNext}>
                 {saving
                   ? (finishingRuntime ? t('actions.startingRuntime') : t('actions.saving'))
                   : t('actions.next')}
