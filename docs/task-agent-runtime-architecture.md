@@ -402,6 +402,7 @@ Current implicit-memory policy is intentionally conservative:
 Explicit historical recall is handled separately from implicit prompt injection:
 
 - `ContextDecider` remains a fast classifier and only performs a lightweight rule-based post-pass to mark explicit memory recall requests
+- routing prompt assembly may include only a compact top-N subset of notable `L4` tool advisories rather than dumping every known procedural note into `Tool Experience Notes`
 - when such a request is detected, `memory_query` is promoted into the selected tool set and a routing-scoped structured hint payload (`routing_memory_hint`) is attached for first-attempt parameters
 - that first-attempt hint now carries a recall-intent taxonomy such as `event_recall`, `preference_recall`, `profile_fact_recall`, `relationship_recall`, or `workflow_reuse`
 - parameter hint generation is handled by rules, not by an extra LLM planning step, to keep routing latency and variance low
@@ -428,10 +429,23 @@ change the outcome:
   listing evidence over older failed attempts, and a dry-run reporting zero
   planned operations is treated as current-state evidence rather than an
   instruction to ask the user to run a script
+- before execution starts, router-selected tools and static fallback tools are
+  post-processed through shared `L4` advisory reranking so breaker-open tools
+  can be skipped and historically better-fitting tools can move earlier in the
+  current-turn allowlist
 
 Tool-message context stays compact. Large listing-style tools, including
 `glob` and `file_list`, expose bounded path/name summaries to the LLM while
 leaving exact execution details in `runtime_trace.db`.
+
+Execution-time tool discovery remains bounded and append-only. When the
+execution model calls `find-relevant-tools`, the helper still starts from the
+runtime registry plus tool/skill metadata, but it now reranks tool candidates
+through `L4` procedural advisory before appending anything to the current
+turn. Historical signals such as circuit-breaker state, success rate,
+context-fit, and extracted strategy hints can promote or demote candidates;
+tools with an open breaker are skipped for the current turn instead of being
+re-added as likely next steps.
 
 ### `ExploreTaskAgent`
 

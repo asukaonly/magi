@@ -330,9 +330,14 @@ class ChatTaskAgent(
             return None
         return bus if hasattr(bus, "publish") else None
 
-    async def _get_tool_advisory(self, task_context: str | None = None) -> list[dict]:
+    async def _get_tool_advisory(
+        self,
+        task_context: str | None = None,
+        tool_names: list[str] | None = None,
+        limit: int = 10,
+    ) -> list[dict]:
         """Fetch notable L4 advisories for the coordinator."""
-        available_tool_names = tool_registry.list_tools()
+        available_tool_names = list(tool_names or tool_registry.list_tools())
         trace_stats: dict[str, dict[str, float | int]] = {}
         if self._runtime_trace_store is not None:
             try:
@@ -343,13 +348,21 @@ class ChatTaskAgent(
                 logger.debug("Failed to fetch runtime trace tool stats: %s", exc)
 
         advisories_by_tool: dict[str, dict] = {}
+        targeted_mode = bool(tool_names)
         if self.unified_memory is None or self.unified_memory.l4 is None:
             base_advisories = []
         else:
             try:
-                base_advisories = await self.unified_memory.l4.get_notable_advisories(
-                    task_context=task_context
-                )
+                if targeted_mode:
+                    base_advisories = await self.unified_memory.l4.get_tool_advisory(
+                        tool_names=list(tool_names or []),
+                        task_context=task_context,
+                    )
+                else:
+                    base_advisories = await self.unified_memory.l4.get_notable_advisories(
+                        task_context=task_context,
+                        limit=limit,
+                    )
             except Exception as exc:
                 logger.debug("Failed to fetch L4 tool advisories: %s", exc)
                 base_advisories = []
@@ -383,6 +396,14 @@ class ChatTaskAgent(
                     f"Low success rate ({success_rate:.0%} over {total_calls} attempts)"
                 )
 
+        if targeted_mode:
+            ordered: list[dict] = []
+            for tool_name in list(tool_names or []):
+                advisory = advisories_by_tool.get(tool_name)
+                if advisory is not None:
+                    ordered.append(advisory)
+            return ordered[:limit]
+
         return [
             advisory
             for advisory in advisories_by_tool.values()
@@ -392,7 +413,7 @@ class ChatTaskAgent(
                 float(advisory.get("success_rate") or 0.0) < 0.7
                 and int(advisory.get("total_attempts") or 0) >= 3
             )
-        ][:10]
+        ][:limit]
 
     async def add_fact(self, fact: FactRecord) -> bool:
         """Enqueue the fact, fast-pathing obvious INTERRUPT user turns.

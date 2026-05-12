@@ -92,6 +92,35 @@ class _IntentTraceRecorder:
         )
 
 
+async def _advisory_provider_for_runtime_rerank(task_context=None, tool_names=None, limit=10):
+    if tool_names is None:
+        return []
+    assert task_context == "分析 backend/src/magi/agent 的调用链路"
+    assert tool_names == ["glob", "grep", "file_read"]
+    return [
+        {
+            "tool_name": "glob",
+            "available": True,
+            "breaker_state": "closed",
+            "success_rate": 0.3,
+            "total_attempts": 6,
+            "strategy_hint": None,
+            "context_fit": 0.0,
+            "risk_note": "Low success rate",
+        },
+        {
+            "tool_name": "grep",
+            "available": True,
+            "breaker_state": "closed",
+            "success_rate": 0.95,
+            "total_attempts": 11,
+            "strategy_hint": "Best when tracing call sites.",
+            "context_fit": 0.92,
+            "risk_note": None,
+        },
+    ]
+
+
 @pytest.mark.asyncio
 async def test_coordinator_routes_decompose_explore_to_orchestration_launch() -> None:
     trace_recorder = _IntentTraceRecorder()
@@ -351,6 +380,61 @@ async def test_coordinator_match_tools_reorders_runtime_tools_with_task_hint() -
     assert selection.tools[:2] == ["glob", "grep"]
     assert selection.task_hint["domain"] == "codebase"
     assert selection.recommended_tools[0]["tool"] == "glob"
+
+
+@pytest.mark.asyncio
+async def test_coordinator_match_tools_applies_l4_advisory_rerank() -> None:
+    registry = _build_real_tool_registry()
+    coordinator = ChatExecutionCoordinator(
+        context_decider=_FakeContextDecider(
+            _FakeContextDecision(
+                intent="code_execution",
+                tools=["file_read", "grep", "glob"],
+                deep_thinking=False,
+                reasoning="inspect code",
+                orchestration_strategy={
+                    "mode": "direct",
+                    "planner": "task_agent",
+                    "default_leaf_type": "general-purpose",
+                    "allow_parallel": False,
+                },
+            ),
+            tool_registry=registry,
+        ),
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+        tool_advisory_provider=_advisory_provider_for_runtime_rerank,
+    )
+
+    fact = FactRecord(
+        agent_id="chat:u-chat",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u-chat", "session_id": "s-chat", "content": "分析 backend/src/magi/agent 的调用链路"},
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-chat",
+        agent_type="chat",
+        runtime_key="chat:u-chat",
+        user_id="u-chat",
+        session_id="s-chat",
+        history_key="u-chat::s-chat",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="分析 backend/src/magi/agent 的调用链路",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-chat"),
+    )
+
+    decision = await coordinator.match_intent(context)
+    selection = await coordinator.match_tools(context, decision)
+
+    assert selection.tools[:2] == ["grep", "glob"]
+    assert selection.recommended_tools[0]["tool"] == "grep"
+    assert "strong historical fit" in selection.recommended_tools[0]["reason"]
 
 
 @pytest.mark.asyncio
@@ -849,7 +933,10 @@ async def test_coordinator_injects_tool_advisory_into_decision_context() -> None
          "context_fit": None, "risk_note": None},
     ]
 
-    async def advisory_provider(task_context=None):
+    async def advisory_provider(task_context=None, tool_names=None, limit=10):
+        assert task_context == "search weather"
+        assert tool_names is None
+        assert limit == 6
         return fake_advisories
 
     decider = _FakeContextDecider(
@@ -898,7 +985,18 @@ async def test_coordinator_injects_tool_advisory_into_decision_context() -> None
     dc = decider.last_decision_context
     assert dc is not None
     assert hasattr(dc, "tool_advisory")
-    assert dc.tool_advisory == fake_advisories
+    assert dc.tool_advisory == [
+        {
+            "tool_name": "web_search",
+            "available": True,
+            "breaker_state": "closed",
+            "success_rate": 0.8,
+            "total_attempts": 5,
+            "context_fit": None,
+            "strategy_hint": "use quotes",
+            "risk_note": None,
+        }
+    ]
 
 
 @pytest.mark.asyncio
@@ -1000,6 +1098,93 @@ async def test_coordinator_injects_fallback_tools_when_tools_active() -> None:
     assert "bash" in decision.tools
     assert "web-search" in decision.tools
     assert "find-relevant-tools" in decision.tools
+
+
+@pytest.mark.asyncio
+async def test_coordinator_reranks_shortlist_and_skips_open_breaker_fallbacks() -> None:
+    decider = _FakeContextDecider(
+        _FakeContextDecision(
+            intent="code_execution",
+            tools=["bash", "web-search"],
+            deep_thinking=False,
+            reasoning="run command",
+            orchestration_strategy={"mode": "direct", "planner": "task_agent",
+                                    "default_leaf_type": "general-purpose",
+                                    "allow_parallel": False},
+        )
+    )
+    decider.tool_registry = _FakeToolRegistry(["bash", "web-search", "find-relevant-tools"])
+
+    async def advisory_provider(task_context=None, tool_names=None, limit=10):
+        if tool_names is None:
+            return []
+        assert tool_names == ["bash", "web-search", "find-relevant-tools"]
+        return [
+            {
+                "tool_name": "bash",
+                "available": True,
+                "breaker_state": "closed",
+                "success_rate": 0.55,
+                "total_attempts": 4,
+                "strategy_hint": None,
+                "context_fit": 0.2,
+                "risk_note": None,
+            },
+            {
+                "tool_name": "web-search",
+                "available": False,
+                "breaker_state": "open",
+                "success_rate": 0.1,
+                "total_attempts": 7,
+                "strategy_hint": None,
+                "context_fit": 0.0,
+                "risk_note": "Circuit breaker open",
+            },
+            {
+                "tool_name": "find-relevant-tools",
+                "available": True,
+                "breaker_state": "closed",
+                "success_rate": 0.93,
+                "total_attempts": 8,
+                "strategy_hint": "Use when the current toolset is missing a next-step capability.",
+                "context_fit": 0.9,
+                "risk_note": None,
+            },
+        ]
+
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+        tool_advisory_provider=advisory_provider,
+    )
+
+    fact = FactRecord(
+        agent_id="chat:u-chat",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u-chat", "session_id": "s-chat", "content": "查一下这个进程"},
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-chat",
+        agent_type="chat",
+        runtime_key="chat:u-chat",
+        user_id="u-chat",
+        session_id="s-chat",
+        history_key="u-chat::s-chat",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="查一下这个进程",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-chat"),
+    )
+
+    decision = await coordinator.match_intent(context)
+
+    assert decision.tools == ["find-relevant-tools", "bash"]
 
 
 @pytest.mark.asyncio

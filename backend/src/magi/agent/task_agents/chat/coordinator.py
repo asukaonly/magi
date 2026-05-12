@@ -16,6 +16,7 @@ from ....tools.context_decider import ContextDecider
 from ....tools.context_decider_context import ContextDeciderContext
 from ....tools.recommender import ToolRecommender
 from ....tools.schema import ToolExecutionContext
+from ....tools.tool_advisory_reranker import ToolAdvisoryReranker
 from ....tools.tool_hint_resolver import ToolHintResolver
 from ..common import (
     ExecutionMode,
@@ -42,7 +43,7 @@ logger = get_logger(__name__)
 _FALLBACK_TOOLS = ["web-search", "find-relevant-tools"]
 
 IntentTraceCallback = Callable[[ChatRuntimeContext, IntentDecision], Awaitable[None] | None]
-ToolAdvisoryProvider = Callable[[str | None], Awaitable[List[Dict[str, Any]]]]
+ToolAdvisoryProvider = Callable[[str | None, list[str] | None, int], Awaitable[List[Dict[str, Any]]]]
 ToolSelectionTraceCallback = Callable[[ChatRuntimeContext, IntentDecision, ToolSelection], Awaitable[None] | None]
 
 
@@ -88,6 +89,7 @@ class ChatExecutionCoordinator:
             if tool_registry is not None and callable(getattr(tool_registry, "get_tool", None))
             else None
         )
+        self._tool_advisory_reranker = ToolAdvisoryReranker()
 
     async def match_intent(self, context: ChatRuntimeContext) -> IntentDecision:
         planner_fact_kind = (
@@ -157,13 +159,21 @@ class ChatExecutionCoordinator:
         )
 
         # Inject L4 procedural-memory advisory if provider is available.
+        prompt_advisories: list[dict[str, Any]] = []
         if self._tool_advisory_provider is not None:
             try:
-                advisories = await self._tool_advisory_provider(context.latest_user_message)
-                if advisories:
-                    decision_context.tool_advisory = advisories
+                prompt_advisories = await self._tool_advisory_provider(
+                    context.latest_user_message,
+                    None,
+                    6,
+                )
             except Exception as exc:
                 logger.debug("Failed to fetch tool advisory: %s", exc)
+                prompt_advisories = []
+        decision_context.tool_advisory = self._tool_advisory_reranker.compress_for_prompt(
+            advisories=prompt_advisories,
+            limit=3,
+        )
 
         decision = await self._context_decider.decide(context.latest_user_message, decision_context)
         orchestration_plan = self._normalize_orchestration_plan(
@@ -183,6 +193,10 @@ class ChatExecutionCoordinator:
             for ft in _FALLBACK_TOOLS:
                 if ft not in selected_tools and ft in registered:
                     selected_tools.append(ft)
+            selected_tools = await self._rerank_selected_tools(
+                task_context=context.latest_user_message,
+                tool_names=selected_tools,
+            )
         execution_mode = (
             ExecutionMode.DIRECT_LLM
             if has_image_attachments
@@ -230,6 +244,11 @@ class ChatExecutionCoordinator:
             return ToolSelection(tools=[], reasoning=intent.reasoning, task_hint=dict(intent.task_hint or {}))
 
         recommendations = self._recommend_runtime_tools(context=context, intent=intent)
+        if recommendations:
+            recommendations = await self._rerank_runtime_recommendations(
+                task_context=context.latest_user_message,
+                recommendations=recommendations,
+            )
         recommended_names = [str(item.get("tool") or "").strip() for item in recommendations if str(item.get("tool") or "").strip()]
         ordered_tools = recommended_names + [tool for tool in intent.tools if tool not in recommended_names]
         tool_selection = ToolSelection(
@@ -337,6 +356,57 @@ class ChatExecutionCoordinator:
         except Exception as exc:
             logger.debug("Runtime tool recommendation failed, falling back to router order: %s", exc)
             return []
+
+    async def _rerank_selected_tools(
+        self,
+        *,
+        task_context: str,
+        tool_names: list[str],
+    ) -> list[str]:
+        if self._tool_advisory_provider is None or not tool_names:
+            return tool_names
+        try:
+            advisories = await self._tool_advisory_provider(
+                task_context,
+                list(tool_names),
+                len(tool_names),
+            )
+        except Exception as exc:
+            logger.debug("Failed to fetch targeted tool advisory: %s", exc)
+            return tool_names
+        return self._tool_advisory_reranker.rerank_tool_names(
+            tool_names=tool_names,
+            advisories=advisories,
+        )
+
+    async def _rerank_runtime_recommendations(
+        self,
+        *,
+        task_context: str,
+        recommendations: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if self._tool_advisory_provider is None or not recommendations:
+            return recommendations
+        tool_names = [
+            str(item.get("tool") or item.get("name") or "").strip()
+            for item in recommendations
+            if str(item.get("tool") or item.get("name") or "").strip()
+        ]
+        if not tool_names:
+            return recommendations
+        try:
+            advisories = await self._tool_advisory_provider(
+                task_context,
+                tool_names,
+                len(tool_names),
+            )
+        except Exception as exc:
+            logger.debug("Failed to fetch runtime recommendation advisory: %s", exc)
+            return recommendations
+        return self._tool_advisory_reranker.rerank_recommendations(
+            recommendations=recommendations,
+            advisories=advisories,
+        )
 
     def _build_turn_ux_plan(
         self,

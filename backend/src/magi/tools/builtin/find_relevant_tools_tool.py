@@ -2,17 +2,28 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List
 
 from ..recommender import ToolRecommender
+from ..tool_advisory_reranker import ToolAdvisoryReranker
 from ..schema import Tool, ToolExecutionContext, ToolParameter, ToolResult, ToolSchema, ParameterType
 from ..registry import tool_registry
+
+
+logger = logging.getLogger(__name__)
 
 
 class FindRelevantToolsTool(Tool):
     """Suggest a small number of additional tools for the current turn."""
 
     _EXCLUDED_TOOL_NAMES = {"find-relevant-tools", "get-capabilities", "todo_write"}
+    _TOOL_CANDIDATE_MULTIPLIER = 3
+    _MIN_TOOL_CANDIDATES = 4
+
+    def __init__(self) -> None:
+        self._advisory_reranker = ToolAdvisoryReranker()
+        super().__init__()
 
     def _init_schema(self) -> None:
         self.schema = ToolSchema(
@@ -86,16 +97,19 @@ class FindRelevantToolsTool(Tool):
         registry = self._get_registry()
         recommender = ToolRecommender(registry)
         recommendations: List[Dict[str, Any]] = []
-        recommendations.extend(
-            self._recommend_tools(
-                recommender=recommender,
-                registry=registry,
-                query=query,
-                context=context,
-                current_tools=current_tools,
-                limit=limit,
-            )
+        tool_recommendations = self._recommend_tools(
+            recommender=recommender,
+            registry=registry,
+            query=query,
+            context=context,
+            current_tools=current_tools,
+            candidate_limit=max(limit * self._TOOL_CANDIDATE_MULTIPLIER, self._MIN_TOOL_CANDIDATES),
         )
+        tool_recommendations = await self._rerank_tool_recommendations(
+            recommendations=tool_recommendations,
+            query=query,
+        )
+        recommendations.extend(tool_recommendations)
         recommendations.extend(
             self._recommend_skills(
                 registry=registry,
@@ -136,7 +150,7 @@ class FindRelevantToolsTool(Tool):
         query: str,
         context: ToolExecutionContext,
         current_tools: list[str],
-        limit: int,
+        candidate_limit: int,
     ) -> list[dict[str, Any]]:
         candidate_tools = [
             name
@@ -148,7 +162,7 @@ class FindRelevantToolsTool(Tool):
         raw = recommender.recommend_tools(
             intent=query,
             context=context,
-            top_k=limit,
+            top_k=candidate_limit,
             candidate_tools=candidate_tools,
         )
         recommendations: list[dict[str, Any]] = []
@@ -166,6 +180,35 @@ class FindRelevantToolsTool(Tool):
                 }
             )
         return recommendations
+
+    async def _rerank_tool_recommendations(
+        self,
+        *,
+        recommendations: list[dict[str, Any]],
+        query: str,
+    ) -> list[dict[str, Any]]:
+        if not recommendations:
+            return []
+
+        l4_store = self._get_l4_store()
+        if l4_store is None or not hasattr(l4_store, "get_tool_advisory"):
+            return recommendations
+
+        tool_names = [str(item.get("name") or "").strip() for item in recommendations]
+        tool_names = [name for name in tool_names if name]
+        if not tool_names:
+            return recommendations
+
+        try:
+            advisory_rows = await l4_store.get_tool_advisory(tool_names=tool_names, task_context=query)
+        except Exception as exc:
+            logger.debug("Failed to fetch L4 tool advisory for discovery: %s", exc)
+            return recommendations
+
+        return self._advisory_reranker.rerank_recommendations(
+            recommendations=recommendations,
+            advisories=list(advisory_rows),
+        )
 
     def _recommend_skills(
         self,
@@ -231,6 +274,15 @@ class FindRelevantToolsTool(Tool):
     def _get_registry(self) -> Any:
         bound = getattr(self, "_tool_registry_ref", None)
         return bound if bound is not None else tool_registry
+
+    def _get_l4_store(self) -> Any | None:
+        try:
+            from ...memory.provider import get_unified_memory
+
+            unified_memory = get_unified_memory()
+        except Exception:
+            return None
+        return getattr(unified_memory, "l4", None)
 
 
 __all__ = ["FindRelevantToolsTool"]
