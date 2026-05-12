@@ -245,6 +245,15 @@ const translateOptional = (t: MemoryTranslateFn, key: string) => {
   return translated === key ? null : translated;
 };
 
+const translateOptionalWithOptions = (
+  t: MemoryTranslateFn,
+  key: string,
+  options: Record<string, unknown>
+) => {
+  const translated = t(key, options);
+  return translated === key ? null : translated;
+};
+
 const getReadableEntityType = (t: MemoryTranslateFn, entityType: string | null | undefined) => {
   if (!entityType) {
     return null;
@@ -287,6 +296,28 @@ const getCuratedTraitLabel = (t: MemoryTranslateFn, traitName: string) => (
 const getReadablePredicateLabel = (t: MemoryTranslateFn, predicate: string) => (
   translateOptional(t, `memory.pages.knowledge.predicateLabels.${normalizeLabelKey(predicate)}`) || humanizeToken(predicate).toLowerCase()
 );
+
+const getReadableAssertionTitle = (
+  t: MemoryTranslateFn,
+  entityName: string,
+  assertion: L2Assertion,
+) => {
+  const traitKey = normalizeLabelKey(assertion.trait_name);
+  const specificTitle = translateOptionalWithOptions(
+    t,
+    `memory.pages.knowledge.readable.assertions.${traitKey}`,
+    { entity: entityName, value: assertion.trait_value }
+  );
+  if (specificTitle) {
+    return specificTitle;
+  }
+  return translateWithFallback(
+    t,
+    'memory.pages.knowledge.readable.assertion',
+    '{{entity}}\'s {{attribute}} may be "{{value}}".',
+    { entity: entityName, attribute: getReadableTraitLabel(t, assertion.trait_name), value: assertion.trait_value }
+  );
+};
 
 const getEvidenceSummary = (
   t: MemoryTranslateFn,
@@ -611,12 +642,7 @@ export const L2Tab: React.FC<L2TabProps> = ({
         kind: 'assertion',
         groupId: getAssertionKnowledgeGroupId(assertion),
         kindLabel: t('memory.pages.knowledge.kind.assertion'),
-        title: translateWithFallback(
-          t,
-          'memory.pages.knowledge.readable.assertion',
-          '{{entity}}\'s {{attribute}} may be "{{value}}".',
-          { entity: entityName, attribute: traitLabel, value: assertion.trait_value }
-        ),
+        title: getReadableAssertionTitle(t, entityName, assertion),
         body: getEvidenceSummary(t, evidenceCount, assertion.confidence_score),
         entityType: assertion.entity_type,
         entityIds: [assertion.entity_id].filter(Boolean),

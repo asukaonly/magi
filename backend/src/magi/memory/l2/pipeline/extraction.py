@@ -192,6 +192,7 @@ class L2PipelineExtractionMixin:
             extraction_instructions=extraction_profile.extraction_instructions,
         )
 
+        profile_signal_object_refs = self._collect_profile_signal_object_refs(phase1_result)
         resolved_mentions: list[ResolvedEntityMention] = []
         if policy.allow_entity_extraction and phase1_result.entities:
             resolved_mentions = await self._resolve_phase1_entities(
@@ -199,6 +200,7 @@ class L2PipelineExtractionMixin:
                 phase1_result,
                 evidence_event_ids=batch_event_ids,
                 allowed_entity_types=extraction_profile.allowed_entity_types,
+                profile_signal_object_refs=profile_signal_object_refs,
             )
 
         logger.debug(
@@ -328,7 +330,6 @@ class L2PipelineExtractionMixin:
         )
 
         catalog_name_index = await self._build_catalog_name_index()
-        profile_signal_object_refs = self._collect_profile_signal_object_refs(phase1_result)
         graph_candidates, corroborate_targets, rejected_graph_candidate_count = (
             self._validate_phase2_graph_edges(
                 event=stored_event,

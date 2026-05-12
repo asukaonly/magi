@@ -4161,6 +4161,74 @@ class TestEntityTypeFiltering:
             )
             assert len(resolved) == 1
 
+    @pytest.mark.asyncio
+    async def test_profile_signal_value_is_not_registered_as_entity(self):
+        from magi.memory.l2.models import L2Phase1Result
+        from magi.memory.l2.pipeline import L2Pipeline
+
+        class _EntityCatalog:
+            def __init__(self) -> None:
+                self.entities: dict[str, dict[str, str]] = {}
+
+            async def resolve_alias(self, _alias_text, *, entity_type=None):
+                return {"decision": "no_match"}
+
+            async def find_by_canonical_name(self, _canonical_name):
+                return []
+
+            async def upsert_entity(self, *, entity_id, canonical_name, entity_type):
+                self.entities[entity_id] = {
+                    "entity_id": entity_id,
+                    "canonical_name": canonical_name,
+                    "entity_type": entity_type,
+                }
+
+            async def add_alias(self, **_kwargs):
+                return None
+
+            async def record_mention(self, **_kwargs):
+                return None
+
+            async def list_entities(self, *, limit=20):
+                return list(self.entities.values())[:limit]
+
+        pipeline = L2Pipeline.__new__(L2Pipeline)
+        pipeline._entity_catalog = _EntityCatalog()
+        pipeline._llm_service = None
+        pipeline._entity_resolution_cache = {}
+
+        phase1_payload = {
+            "entities": [
+                {"surface": "子涵", "normalized_name": "子涵", "entity_type": "person", "confidence": 0.95},
+                {"surface": "GitHub", "normalized_name": "GitHub", "entity_type": "software", "confidence": 0.95},
+            ],
+            "fact_claims": [
+                {
+                    "subject_ref": "user:self",
+                    "predicate": "PREFERRED_FORM_OF_ADDRESS",
+                    "object_ref": "子涵",
+                    "object_type": "concept",
+                    "fact_kind": "explicit_fact",
+                    "confidence": 0.3,
+                }
+            ],
+            "resolved_refs": [],
+        }
+        phase1_result = L2Phase1Result.from_dict(phase1_payload)
+        event = _make_memory_event(event_id="evt-profile-signal", content="叫我子涵")
+
+        resolved = await pipeline._resolve_phase1_entities(
+            event,
+            phase1_result,
+            evidence_event_ids=["evt-profile-signal"],
+            allowed_entity_types=frozenset({"person", "software"}),
+            profile_signal_object_refs=pipeline._collect_profile_signal_object_refs(phase1_result),
+        )
+
+        assert [mention.normalized_surface for mention in resolved] == ["GitHub"]
+        entities = await pipeline._entity_catalog.list_entities(limit=20)
+        assert {entity["canonical_name"] for entity in entities} == {"GitHub"}
+
 
 class TestEntityNameQuality:
     """Tests for _is_quality_entity_name noise filter."""

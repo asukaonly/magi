@@ -2692,6 +2692,13 @@
           "place": "地点"
         },
         "traitLabels": {
+          "identity_real_name": "真实姓名",
+          "identity_birth_date": "生日",
+          "identity_birth_year": "出生年份",
+          "identity_age_stated": "年龄",
+          "identity_location_home": "常住地",
+          "communication_address_preferred": "称呼偏好",
+          "communication_address_disallowed": "不希望使用的称呼",
           "preference_address_real_name": "真实姓名",
           "preference_identity_self_label": "自我称呼",
           "preference_address_preferred": "称呼偏好",
@@ -2711,6 +2718,15 @@
         },
         "readable": {
           "assertion": "{{entity}}的{{attribute}}可能是“{{value}}”。",
+          "assertions": {
+            "identity_real_name": "你的名字可能是“{{value}}”。",
+            "identity_birth_date": "你的生日可能是“{{value}}”。",
+            "identity_birth_year": "你的出生年份可能是“{{value}}”。",
+            "identity_age_stated": "你的年龄可能是“{{value}}”。",
+            "identity_location_home": "你的常住地可能是“{{value}}”。",
+            "communication_address_preferred": "你希望我称呼你为“{{value}}”。",
+            "communication_address_disallowed": "你不希望我这样称呼你：“{{value}}”。"
+          },
           "relation": "{{subject}}{{predicate}}“{{object}}”。",
           "entity": "已识别出{{type}}“{{entity}}”。",
           "resolvedMention": "“{{mention}}” 已归到{{entity}}。",

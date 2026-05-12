@@ -41,6 +41,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         *,
         evidence_event_ids: list[str],
         allowed_entity_types: frozenset[str] | None = None,
+        profile_signal_object_refs: set[str] | None = None,
     ) -> list[ResolvedEntityMention]:
         """Register Phase 1 entities in the entity catalog and return resolved mentions.
 
@@ -65,6 +66,19 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
             mention_text = entity.surface
             normalized_surface = entity.normalized_name or mention_text
             entity_type = self._normalize_entity_type(entity.entity_type)  # type: ignore[attr-defined]
+            normalized_profile_value = self._normalize_profile_signal_value(normalized_surface)  # type: ignore[attr-defined]
+            normalized_mention_value = self._normalize_profile_signal_value(mention_text)  # type: ignore[attr-defined]
+            if profile_signal_object_refs and (
+                normalized_profile_value in profile_signal_object_refs
+                or normalized_mention_value in profile_signal_object_refs
+            ):
+                logger.debug(
+                    "L2 Phase 1 entity filtered as profile signal value",
+                    mention_text=mention_text,
+                    entity_type=entity_type,
+                    event_id=event.event_id,
+                )
+                continue
             if allowed_entity_types and entity_type not in allowed_entity_types:
                 logger.debug(
                     "L2 Phase 1 entity filtered by profile",

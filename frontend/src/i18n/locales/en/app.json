@@ -2626,6 +2626,13 @@
           "place": "place"
         },
         "traitLabels": {
+          "identity_real_name": "real name",
+          "identity_birth_date": "birth date",
+          "identity_birth_year": "birth year",
+          "identity_age_stated": "age",
+          "identity_location_home": "home location",
+          "communication_address_preferred": "preferred form of address",
+          "communication_address_disallowed": "disallowed form of address",
           "preference_address_real_name": "real name",
           "preference_identity_self_label": "self label",
           "preference_address_preferred": "preferred form of address",
@@ -2645,6 +2652,15 @@
         },
         "readable": {
           "assertion": "{{entity}}'s {{attribute}} may be \"{{value}}\".",
+          "assertions": {
+            "identity_real_name": "Your name may be \"{{value}}\".",
+            "identity_birth_date": "Your birth date may be \"{{value}}\".",
+            "identity_birth_year": "Your birth year may be \"{{value}}\".",
+            "identity_age_stated": "Your age may be \"{{value}}\".",
+            "identity_location_home": "Your home location may be \"{{value}}\".",
+            "communication_address_preferred": "You want me to call you \"{{value}}\".",
+            "communication_address_disallowed": "You do not want me to call you \"{{value}}\"."
+          },
           "relation": "{{subject}} {{predicate}} {{object}}.",
           "entity": "Recognized {{type}} \"{{entity}}\".",
           "resolvedMention": "\"{{mention}}\" was linked to {{entity}}.",

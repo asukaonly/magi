@@ -8,7 +8,7 @@ from .projection_repository import UserProfileProjectionRepository
 
 
 class UserProfileQueryService:
-    """Serve profile projections, rebuilding from L2 when missing."""
+    """Serve profile projections rebuilt from current L2 profile assertions."""
 
     def __init__(
         self,
@@ -20,9 +20,6 @@ class UserProfileQueryService:
         self._builder = builder
 
     async def get_current_profile(self, user_id: str = DEFAULT_USER_ID) -> UserProfileProjection:
-        projection = await self._repository.get(user_id)
-        if projection is not None:
-            return projection
         projection = await self._builder.build(user_id)
         return await self._repository.upsert(projection)
 
