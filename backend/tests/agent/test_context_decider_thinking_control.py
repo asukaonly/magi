@@ -287,18 +287,16 @@ def test_context_decider_prompt_includes_routing_environment_fields() -> None:
     assert "- Home directory: /Users/example" in prompt
 
 
-def test_context_decider_system_prompt_mentions_preference_and_profile_recall() -> None:
+def test_context_decider_system_prompt_keeps_core_routing_guardrails() -> None:
     decider = ContextDecider(tool_registry=_DummyToolRegistry(), llm_adapter=_DummyLLMAdapter())  # type: ignore[arg-type]
 
     system_prompt = decider.system_PROMPT
 
-    assert "user preferences" in system_prompt
-    assert "personal facts" in system_prompt
-    assert "customized settings" in system_prompt
-    assert "我喜欢什么天气" in system_prompt
-    assert "我的默认工作目录是什么" in system_prompt
-    assert "按之前那套流程修一下这个 bug" in system_prompt
-    assert "2022年9月我在哪里拍了照片" in system_prompt
-    assert "把刚才那些照片发出来" in system_prompt
+    assert "Respond with a SINGLE valid JSON object" in system_prompt
+    assert "Prefer `memory_query` for stored user preferences" in system_prompt
+    assert "Prefer `trace_query` when the user asks about exact recent tool calls" in system_prompt
+    assert "For code changes, debugging, or repo investigation, prefer `agent`" in system_prompt
+    assert "Use these as routing patterns, not literal keyword rules." in system_prompt
     assert "photo_library_resolve_photo_refs" in system_prompt
     assert "prepare_chat_attachments" in system_prompt
+    assert system_prompt.count("User: ") <= 8
