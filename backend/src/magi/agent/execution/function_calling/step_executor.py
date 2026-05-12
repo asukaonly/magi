@@ -18,11 +18,13 @@ class FunctionCallingStepState:
     messages: list[dict[str, Any]]
     effective_system_prompt: str
     tools: list[dict[str, Any]]
+    selected_tool_names: list[str] = field(default_factory=list)
     iteration: int = 0
     tool_failures: list[dict[str, Any]] = field(default_factory=list)
     chat_attachments: list[dict[str, Any]] = field(default_factory=list)
     message_payload: dict[str, Any] = field(default_factory=dict)
     allow_attachment_grounding: bool = False
+    tool_expansion_count: int = 0
     consecutive_failed_tool_iterations: int = 0
     all_tools_failed: bool = False
     failed_tool_call_fingerprints: set[str] = field(default_factory=set)
@@ -271,6 +273,24 @@ class FunctionCallingStepExecutor:
                 state.message_payload,
                 self._driver._extract_assistant_message_payload_from_tool_results(tool_results),
             )
+            expanded_tools = self._driver._apply_tool_expansion_from_results(
+                state=state,
+                tool_results=tool_results,
+            )
+            if expanded_tools:
+                await self._driver._emit_loop_event(
+                    {
+                        "stage": "toolset_expanded",
+                        "iteration": iteration,
+                        "append_tools": list(expanded_tools),
+                        "tool_count": len(state.selected_tool_names),
+                        "user_id": user_id,
+                        "session_id": session_id,
+                        "turn_id": turn_id,
+                        "intent": intent,
+                        "execution_agent_id": execution_agent_id,
+                    }
+                )
 
             if all(not result.success for result in tool_results):
                 state.consecutive_failed_tool_iterations += 1

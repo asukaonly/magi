@@ -61,6 +61,19 @@ def test_build_tools_parameter_includes_array_items_schema_for_openai_tools() ->
     assert sources_schema["description"]
 
 
+def test_build_step_state_tracks_selected_tool_names() -> None:
+    orchestrator = _build_orchestrator()
+
+    step_state = orchestrator.build_step_state(
+        turn=UserTurnInput(text="Inspect the repository.", attachments=[], user_id=None, session_id=None),
+        system_prompt="system prompt",
+        selected_tools=["memory_query", "find-relevant-tools", "memory_query"],
+        conversation_history=[],
+    )
+
+    assert step_state.selected_tool_names == ["memory_query", "find-relevant-tools"]
+
+
 @pytest.mark.asyncio
 async def test_step_executor_executes_one_llm_decision_and_one_tool_batch(monkeypatch) -> None:
     orchestrator = _build_orchestrator()
@@ -214,6 +227,98 @@ async def test_step_executor_serializes_tool_messages_without_ascii_escaping(mon
     payload = json.loads(tool_message["content"])
     assert payload["data"]["historical_recall"]["summary"] == "用户喜欢下雨天"
     assert "debug" not in payload["data"]
+
+
+@pytest.mark.asyncio
+async def test_step_executor_appends_tools_recommended_by_find_relevant_tools(monkeypatch) -> None:
+    orchestrator = _build_orchestrator()
+    orchestrator.tool_registry = SimpleNamespace(
+        get_tool_info=lambda name: {"name": name, "description": f"{name} desc", "category": "test", "parameters": []}
+        if name in {"memory_query", "find-relevant-tools", "weather"}
+        else None,
+        is_skill=lambda _name: False,
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "_build_tools_parameter",
+        lambda selected_tools: [  # type: ignore[no-untyped-call]
+            {"type": "function", "function": {"name": tool_name}}
+            for tool_name in selected_tools
+        ],
+    )
+    step_state = orchestrator.build_step_state(
+        turn=UserTurnInput(text="What was the weather there?", attachments=[], user_id=None, session_id=None),
+        system_prompt="system prompt",
+        selected_tools=["memory_query", "find-relevant-tools"],
+        conversation_history=[],
+    )
+
+    async def _fake_call_llm_with_tools(**kwargs):  # type: ignore[no-untyped-def]
+        _ = kwargs
+        return {
+            "assistant_message": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_find",
+                        "type": "function",
+                        "function": {"name": "find-relevant-tools", "arguments": "{}"},
+                    }
+                ],
+            },
+            "tool_calls": [ToolCall(id="call_find", name="find-relevant-tools", arguments={})],
+            "llm_trace": {"model": "fake-model"},
+        }
+
+    async def _fake_execute_tool_call(**kwargs):  # type: ignore[no-untyped-def]
+        tool_call = kwargs["tool_call"]
+        return ToolCallResult(
+            tool_call_id=tool_call.id,
+            tool_name=tool_call.name,
+            success=True,
+            data={
+                "recommendations": [{"name": "weather", "type": "tool"}],
+                "tool_expansion": {
+                    "append_tools": ["weather"],
+                    "reason": "Need historical weather lookup after memory recall.",
+                },
+            },
+            execution_time=0.01,
+        )
+
+    async def _noop_async(*args, **kwargs):  # type: ignore[no-untyped-def]
+        _ = (args, kwargs)
+        return None
+
+    monkeypatch.setattr(orchestrator, "_call_llm_with_tools", _fake_call_llm_with_tools)
+    monkeypatch.setattr(orchestrator, "_execute_tool_call", _fake_execute_tool_call)
+    monkeypatch.setattr(orchestrator, "_start_iteration_trace", _noop_async)
+    monkeypatch.setattr(orchestrator, "_complete_iteration_trace", _noop_async)
+    monkeypatch.setattr(orchestrator, "_emit_loop_event", _noop_async)
+    monkeypatch.setattr(orchestrator, "_emit_tool_result", _noop_async)
+    monkeypatch.setattr(orchestrator, "_persist_llm_trace", _noop_async)
+    monkeypatch.setattr(orchestrator, "_persist_tool_trace", _noop_async)
+
+    outcome = await orchestrator.step_executor.execute_step(
+        state=step_state,
+        user_message="What was the weather there?",
+        user_id="u-chat",
+        session_id="s-chat",
+        turn_id="turn-expand",
+        intent="chat",
+        execution_agent_id="chat:s-chat",
+        orchestration_strategy=None,
+    )
+
+    assert outcome.status == "continue"
+    assert step_state.selected_tool_names == ["memory_query", "find-relevant-tools", "weather"]
+    assert [tool["function"]["name"] for tool in step_state.tools] == [
+        "memory_query",
+        "find-relevant-tools",
+        "weather",
+    ]
+    assert step_state.tool_expansion_count == 1
 
 
 @pytest.mark.asyncio

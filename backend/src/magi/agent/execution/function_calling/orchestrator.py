@@ -63,6 +63,9 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
     # gives the LLM one opportunity to self-correct without loop-thrashing.
     _FAILED_ITERATION_REPLAN_LIMIT = 2
     _RATE_LIMIT_BACKOFF_SECONDS = (1.0, 2.0, 4.0, 8.0)
+    _MAX_TOOL_EXPANSIONS_PER_TURN = 1
+    _MAX_TOOLS_PER_EXPANSION = 2
+    _MAX_TOTAL_TOOLS_PER_TURN = 6
     _NON_REPLAN_ERROR_CODES = {
         "ACCESS_DENIED",
         "AUTH_REQUIRED",
@@ -148,6 +151,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         allow_attachment_grounding: bool = False,
     ) -> FunctionCallingStepState:
         """Build the initial loop state for step-wise function calling."""
+        normalized_selected_tools = list(dict.fromkeys(selected_tools))
         messages = append_latest_user_message(
             conversation_history,
             turn,
@@ -157,9 +161,76 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         return FunctionCallingStepState(
             messages=messages,
             effective_system_prompt=self._augment_system_prompt(system_prompt),
-            tools=self._build_tools_parameter(selected_tools),
+            tools=self._build_tools_parameter(normalized_selected_tools),
+            selected_tool_names=normalized_selected_tools,
             allow_attachment_grounding=allow_attachment_grounding,
         )
+
+    def _apply_tool_expansion_from_results(
+        self,
+        *,
+        state: FunctionCallingStepState,
+        tool_results: list[Any],
+    ) -> list[str]:
+        if state.tool_expansion_count >= self._MAX_TOOL_EXPANSIONS_PER_TURN:
+            return []
+        if not tool_results:
+            return []
+
+        raw_append_tools: list[str] = []
+        for result in tool_results:
+            if not getattr(result, "success", False):
+                continue
+            data = getattr(result, "data", None)
+            if not isinstance(data, dict):
+                continue
+            expansion = data.get("tool_expansion")
+            if not isinstance(expansion, dict):
+                continue
+            append_tools = expansion.get("append_tools")
+            if not isinstance(append_tools, list):
+                continue
+            raw_append_tools.extend(str(item or "").strip() for item in append_tools)
+
+        if not raw_append_tools:
+            return []
+
+        available_slots = max(0, self._MAX_TOTAL_TOOLS_PER_TURN - len(state.selected_tool_names))
+        if available_slots <= 0:
+            return []
+        max_additions = min(self._MAX_TOOLS_PER_EXPANSION, available_slots)
+
+        resolve_tool_name = getattr(self.tool_registry, "resolve_tool_name", None)
+        get_tool_info = getattr(self.tool_registry, "get_tool_info", None)
+        is_skill = getattr(self.tool_registry, "is_skill", None)
+        known_names = set(state.selected_tool_names)
+        additions: list[str] = []
+        for raw_name in raw_append_tools:
+            if len(additions) >= max_additions:
+                break
+            name = str(raw_name or "").strip()
+            if not name:
+                continue
+            skill_name = name.lstrip("/")
+            normalized = (
+                resolve_tool_name(name) if callable(resolve_tool_name) and not name.startswith("/") else skill_name
+            )
+            if normalized in known_names:
+                continue
+            known_tool = callable(get_tool_info) and get_tool_info(normalized) is not None
+            known_skill = callable(is_skill) and is_skill(skill_name)
+            if not known_tool and not known_skill:
+                continue
+            known_names.add(normalized)
+            additions.append(normalized)
+
+        if not additions:
+            return []
+
+        state.selected_tool_names.extend(additions)
+        state.tools = self._build_tools_parameter(state.selected_tool_names)
+        state.tool_expansion_count += 1
+        return additions
 
     def inject_prepared_attachment_grounding_message(
         self,

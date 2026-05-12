@@ -953,7 +953,7 @@ async def test_coordinator_works_without_advisory_provider() -> None:
 
 @pytest.mark.asyncio
 async def test_coordinator_injects_fallback_tools_when_tools_active() -> None:
-    """web-search should be appended as a fallback when tool-calling is active."""
+    """web-search and find-relevant-tools should be appended when tool-calling is active."""
     decider = _FakeContextDecider(
         _FakeContextDecision(
             intent="code_execution",
@@ -965,7 +965,7 @@ async def test_coordinator_injects_fallback_tools_when_tools_active() -> None:
                                     "allow_parallel": False},
         )
     )
-    decider.tool_registry = _FakeToolRegistry(["bash", "web-search", "file_read"])
+    decider.tool_registry = _FakeToolRegistry(["bash", "web-search", "find-relevant-tools", "file_read"])
 
     coordinator = ChatExecutionCoordinator(
         context_decider=decider,
@@ -999,6 +999,7 @@ async def test_coordinator_injects_fallback_tools_when_tools_active() -> None:
     decision = await coordinator.match_intent(context)
     assert "bash" in decision.tools
     assert "web-search" in decision.tools
+    assert "find-relevant-tools" in decision.tools
 
 
 @pytest.mark.asyncio

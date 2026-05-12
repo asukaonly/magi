@@ -39,7 +39,7 @@ logger = get_logger(__name__)
 # Tools the execution LLM always has access to when tool-calling is active,
 # regardless of what the Context Decider selected.  This avoids the routing
 # LLM becoming a single point of failure for tool availability.
-_FALLBACK_TOOLS = ["web-search"]
+_FALLBACK_TOOLS = ["web-search", "find-relevant-tools"]
 
 IntentTraceCallback = Callable[[ChatRuntimeContext, IntentDecision], Awaitable[None] | None]
 ToolAdvisoryProvider = Callable[[str | None], Awaitable[List[Dict[str, Any]]]]

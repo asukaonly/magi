@@ -64,6 +64,7 @@ class ToolRegistry(
         if tool_name in self._tools:
             logger.warning(f"Tool {tool_name} already registered, overwriting")
 
+        setattr(temp_instance, "_tool_registry_ref", self)
         self._tools[tool_name] = tool_class
         self._tool_instances[tool_name] = temp_instance
         self._category_index[schema.category].append(tool_name)

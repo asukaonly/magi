@@ -27,6 +27,9 @@ class FunctionCallingResponseMixin:
             "- If a file scan is blocked because it would leave the workspace and the user did not provide an explicit path, do not broaden the local scan; ask the user for a path or use web-search first.\n"
             "- If grep is blocked or too broad, switch to scoped glob plus file_read before trying again.\n"
             "- Prefer an alternative tool or narrower scope over repeating the failed call unchanged."
+            "\n- If the current tool set is missing a needed capability for the next step, call find-relevant-tools with the missing subtask and the tools you already have.\n"
+            "- Use find-relevant-tools only for concrete capability gaps, not for broad browsing.\n"
+            "- After a successful find-relevant-tools call, newly recommended tools may become available in the next step."
         )
         if guidance.strip() in system_prompt:
             return system_prompt

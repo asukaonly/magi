@@ -35,6 +35,7 @@ from .builtin.grep_tool import GrepTool
 from .builtin.glob_tool import GlobTool
 from .builtin.dynamic_tool import DynamicTool, create_dynamic_tool
 from .builtin.capabilities_tool import CapabilitiesTool
+from .builtin.find_relevant_tools_tool import FindRelevantToolsTool
 from .builtin.web_search_tool import WebSearchTool
 from .builtin.web_fetch_tool import WebFetchTool
 from .builtin.weather_tool import WeatherTool
@@ -101,6 +102,7 @@ __all__ = [
     "GrepTool",
     "GlobTool",
     "CapabilitiesTool",
+    "FindRelevantToolsTool",
     "WebSearchTool",
     "WebFetchTool",
     "SkillsCreatorTool",

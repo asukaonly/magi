@@ -198,6 +198,13 @@ ordinary advisory follow-ups from becoming parent-task orchestration
 while preserving decomposition for news research, repository-wide
 analysis, migration plans, and other broad verification work.
 
+  During function-calling turns, the execution LLM may also use a bounded
+  tool-discovery helper to recover from missing-capability situations.
+  This helper is not a general capability browser. It is an execution-time
+  recovery mechanism that can append a very small number of additional
+  tools to the current turn when the existing allowlist cannot complete the
+  next grounded step.
+
   Reply-target continuity in chat is intentionally compact but now carries more than plain text excerpts.
   When a user replies to an earlier assistant message, the runtime may include a sanitized structured payload summary from that replied-to message, such as managed attachment references, so follow-up turns can reuse concrete artifacts without re-exposing raw local file paths.
   Tool-driven chat turns may persist this reusable state through assistant message payloads. In particular, function-calling tools can return a sanitized `assistant_payload` with generic `asset_refs`, which later reply turns may see through reply context and hand back to source resolver tools before calling `prepare_chat_attachments`.

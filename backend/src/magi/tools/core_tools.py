@@ -5,6 +5,7 @@ from .builtin.agent_tool import AgentTool
 from .builtin.ask_user_question_tool import AskUserQuestionTool
 from .builtin.bash_tool import BashTool
 from .builtin.capabilities_tool import CapabilitiesTool
+from .builtin.find_relevant_tools_tool import FindRelevantToolsTool
 from .builtin.detach_to_background_tool import DetachToBackgroundTool
 from .builtin.file_diff_tool import FileDiffTool
 from .builtin.file_edit_tool import FileEditTool
@@ -45,6 +46,7 @@ CORE_TOOL_CLASSES: tuple[type, ...] = (
     GrepTool,
     GlobTool,
     CapabilitiesTool,
+    FindRelevantToolsTool,
     WebSearchTool,
     WebFetchTool,
     WeatherTool,
