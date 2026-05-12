@@ -21,8 +21,6 @@ _FIELD_TRAITS: dict[str, str] = {
     "identity.birth_year": "birth_year",
     "identity.location.home": "home_location",
     "communication.address.preferred": "preferred_form_of_address",
-    "communication.language.preferred": "locale",
-    "communication.timezone.preferred": "timezone",
 }
 
 _SOURCE_PRIORITY = {
@@ -133,8 +131,6 @@ class UserProfileProjectionBuilder:
                 key: value
                 for key, value in {
                     "preferred_form_of_address": projection.preferred_form_of_address,
-                    "locale": projection.locale,
-                    "timezone": projection.timezone,
                 }.items()
                 if value not in (None, "")
             }
@@ -282,8 +278,6 @@ def _completeness_score(projection: UserProfileProjection) -> float:
         projection.real_name,
         projection.birth_date,
         projection.preferred_form_of_address,
-        projection.locale,
-        projection.timezone,
         projection.home_location,
     ]
     filled = sum(1 for value in fields if str(value or "").strip())

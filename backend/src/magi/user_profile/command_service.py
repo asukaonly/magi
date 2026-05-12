@@ -152,8 +152,4 @@ class UserProfileCommandService:
                 "communication.address.disallowed",
                 [str(item).strip() for item in updates.get("disallowed_forms_of_address") or [] if str(item).strip()],
             )
-        if "locale" in updates:
-            add("communication_profile", "communication.language.preferred", updates.get("locale"))
-        if "timezone" in updates:
-            add("communication_profile", "communication.timezone.preferred", updates.get("timezone"))
         return candidates

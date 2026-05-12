@@ -30,8 +30,6 @@ class UserProfileProjection(BaseModel):
     birth_year: int | None = None
     age_years: int | None = None
     age_as_of: str = ""
-    locale: str = ""
-    timezone: str = ""
     home_location: str = ""
     communication: dict[str, Any] = Field(default_factory=dict)
     identity: dict[str, Any] = Field(default_factory=dict)
@@ -52,6 +50,4 @@ class ProfileUpdatePatch(BaseModel):
     birth_date: str | None = None
     preferred_form_of_address: str | None = None
     disallowed_forms_of_address: list[str] | None = None
-    locale: str | None = None
-    timezone: str | None = None
     home_location: str | None = None

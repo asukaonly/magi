@@ -261,11 +261,11 @@ semantic/state assertions, not in bootstrap-only state. Explicit identity facts
 use `identity_profile` assertions such as `identity.real_name`,
 `identity.birth_date`, `identity.birth_year`, and `identity.age.stated`.
 Communication preferences use `communication_profile` assertions such as
-`communication.address.preferred`, `communication.address.disallowed`,
-`communication.language.preferred`, and `communication.response_style.preferred`.
+`communication.address.preferred`, `communication.address.disallowed`, and
+`communication.response_style.preferred`.
 Phase 1 extraction may use profile-signal predicates such as `REAL_NAME`,
 `BIRTH_DATE`, `BIRTH_YEAR`, `STATED_AGE`, `PREFERRED_FORM_OF_ADDRESS`,
-`DISALLOWED_FORM_OF_ADDRESS`, `PREFERRED_LANGUAGE`, and
+`DISALLOWED_FORM_OF_ADDRESS`, and
 `PREFERRED_COMMUNICATION_STYLE` to keep those facts explicit for Phase 2, but
 these predicates are not graph relations and must never be persisted as knowledge
 graph edges.

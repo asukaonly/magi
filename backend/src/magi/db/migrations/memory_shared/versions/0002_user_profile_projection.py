@@ -26,8 +26,6 @@ CREATE TABLE IF NOT EXISTS user_profile_projection (
     birth_year INTEGER,
     age_years INTEGER,
     age_as_of TEXT NOT NULL DEFAULT '',
-    locale TEXT NOT NULL DEFAULT '',
-    timezone TEXT NOT NULL DEFAULT '',
     home_location TEXT NOT NULL DEFAULT '',
     communication_json TEXT NOT NULL DEFAULT '{}',
     identity_json TEXT NOT NULL DEFAULT '{}',

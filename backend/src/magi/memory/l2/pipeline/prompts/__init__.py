@@ -36,7 +36,7 @@ Core predicates (preferred): LIKES, DISLIKES, INTERESTED_IN, VISITED, LIVES_IN, 
 
 If none of the core predicates accurately describes the relationship, you MAY use a custom predicate in UPPER_SNAKE_CASE format (e.g., LEARNING, ALLERGIC_TO, TEACHING, STUDYING). Custom predicates receive lower confidence.
 
-Profile-signal predicates (Phase 1 only, never graph relations): REAL_NAME, BIRTH_DATE, BIRTH_YEAR, STATED_AGE, PREFERRED_FORM_OF_ADDRESS, DISALLOWED_FORM_OF_ADDRESS, PREFERRED_LANGUAGE, PREFERRED_COMMUNICATION_STYLE. Use these when the user states personal profile facts; preserve the exact value in `object_ref` and set `object_type` to `concept`.
+Profile-signal predicates (Phase 1 only, never graph relations): REAL_NAME, BIRTH_DATE, BIRTH_YEAR, STATED_AGE, PREFERRED_FORM_OF_ADDRESS, DISALLOWED_FORM_OF_ADDRESS, PREFERRED_COMMUNICATION_STYLE. Use these when the user states personal profile facts; preserve the exact value in `object_ref` and set `object_type` to `concept`.
 
 ## Rules
 1. Only extract facts from messages marked **[USER]**. Messages marked [ASSISTANT] are dialogue context only — never treat assistant responses as user beliefs, preferences, or facts.
@@ -132,7 +132,6 @@ stress, mood, engagement, trigger, relationship_shift, group_atmosphere, public_
   - Phase 1 `STATED_AGE` -> `trait_family = "identity_profile"`, `trait_name = "identity.age.stated"`
   - Phase 1 `PREFERRED_FORM_OF_ADDRESS` -> `trait_family = "communication_profile"`, `trait_name = "communication.address.preferred"`
   - Phase 1 `DISALLOWED_FORM_OF_ADDRESS` -> `trait_family = "communication_profile"`, `trait_name = "communication.address.disallowed"`
-  - Phase 1 `PREFERRED_LANGUAGE` -> `trait_family = "communication_profile"`, `trait_name = "communication.language.preferred"`
   - Phase 1 `PREFERRED_COMMUNICATION_STYLE` -> `trait_family = "communication_profile"`, `trait_name = "communication.response_style.preferred"`
     - If multiple forms are listed, encode `trait_value` as a JSON array string.
     - These internal trait names may appear ONLY in `assertion_candidates.trait_name`.

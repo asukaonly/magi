@@ -118,8 +118,6 @@ class UserProfileService:
         preferences: Dict[str, Any] = {
             "identity.real_name": projection.real_name,
             "communication.address.preferred": projection.preferred_form_of_address,
-            "communication.language.preferred": projection.locale,
-            "communication.timezone.preferred": projection.timezone,
         }
         if projection.birth_date:
             preferences["identity.birth_date"] = projection.birth_date

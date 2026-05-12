@@ -59,7 +59,6 @@ async def test_command_service_writes_profile_assertions_and_refreshes_projectio
             real_name="明日香",
             birth_date="2000-05-06",
             preferred_form_of_address="子涵",
-            locale="zh-CN",
         )
     )
 
@@ -68,7 +67,6 @@ async def test_command_service_writes_profile_assertions_and_refreshes_projectio
     assert "identity.birth_date" in trait_names
     assert "identity.birth_year" in trait_names
     assert "communication.address.preferred" in trait_names
-    assert "communication.language.preferred" in trait_names
     assert len(unified_memory.l1.events) == 1
     assert all(feedback == "confirmed" for _, feedback in unified_memory.l2.feedback)
     assert projection.display_name == "子涵"

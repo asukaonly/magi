@@ -10,8 +10,6 @@ export interface UserProfileProjection {
   birth_year: number | null;
   age_years: number | null;
   age_as_of: string;
-  locale: string;
-  timezone: string;
   home_location: string;
   communication: Record<string, unknown>;
   identity: Record<string, unknown>;
@@ -30,8 +28,6 @@ export interface UserProfilePatch {
   birth_date?: string;
   preferred_form_of_address?: string;
   disallowed_forms_of_address?: string[];
-  locale?: string;
-  timezone?: string;
   home_location?: string;
 }
 

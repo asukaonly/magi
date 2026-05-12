@@ -32,8 +32,6 @@ class UserProfileProjectionRepository:
                     birth_year INTEGER,
                     age_years INTEGER,
                     age_as_of TEXT NOT NULL DEFAULT '',
-                    locale TEXT NOT NULL DEFAULT '',
-                    timezone TEXT NOT NULL DEFAULT '',
                     home_location TEXT NOT NULL DEFAULT '',
                     communication_json TEXT NOT NULL DEFAULT '{}',
                     identity_json TEXT NOT NULL DEFAULT '{}',
@@ -85,10 +83,10 @@ class UserProfileProjectionRepository:
                 INSERT INTO user_profile_projection(
                     user_id, entity_id, display_name, preferred_form_of_address,
                     real_name, birth_date, birth_year, age_years, age_as_of,
-                    locale, timezone, home_location, communication_json,
+                    home_location, communication_json,
                     identity_json, preferences_json, state_json, field_sources_json,
                     field_conflicts_json, completeness_score, refreshed_at, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(user_id) DO UPDATE SET
                     entity_id = excluded.entity_id,
                     display_name = excluded.display_name,
@@ -98,8 +96,6 @@ class UserProfileProjectionRepository:
                     birth_year = excluded.birth_year,
                     age_years = excluded.age_years,
                     age_as_of = excluded.age_as_of,
-                    locale = excluded.locale,
-                    timezone = excluded.timezone,
                     home_location = excluded.home_location,
                     communication_json = excluded.communication_json,
                     identity_json = excluded.identity_json,
@@ -121,8 +117,6 @@ class UserProfileProjectionRepository:
                     payload["birth_year"],
                     payload["age_years"],
                     payload["age_as_of"],
-                    payload["locale"],
-                    payload["timezone"],
                     payload["home_location"],
                     json.dumps(payload["communication"], ensure_ascii=False, sort_keys=True),
                     json.dumps(payload["identity"], ensure_ascii=False, sort_keys=True),
@@ -159,8 +153,6 @@ class UserProfileProjectionRepository:
             birth_year=row["birth_year"],
             age_years=row["age_years"],
             age_as_of=str(row["age_as_of"] or ""),
-            locale=str(row["locale"] or ""),
-            timezone=str(row["timezone"] or ""),
             home_location=str(row["home_location"] or ""),
             communication=cls._json_field(row, "communication_json"),
             identity=cls._json_field(row, "identity_json"),

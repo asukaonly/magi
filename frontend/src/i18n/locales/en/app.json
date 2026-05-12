@@ -835,7 +835,7 @@
     "conversationDesc": "Configure the default workspace used for new conversations",
     "personalProfile": {
       "loading": "Loading profile...",
-      "description": "These fields write back to memory as confirmed profile facts and rebuild the current profile view.",
+      "description": "Edit what Magi should remember about you. Things you say in chat can also appear here; saving this page marks your edit as the version Magi should trust.",
       "identityTitle": "Basic profile",
       "identityDesc": "Stable identity fields used for display, context, and derived profile facts.",
       "communicationTitle": "Addressing and communication",
@@ -859,15 +859,11 @@
         "birthDate": "Birthday",
         "homeLocation": "Home location",
         "preferredFormOfAddress": "Preferred form of address",
-        "disallowedFormsOfAddress": "Names to avoid",
-        "locale": "Preferred language",
-        "timezone": "Timezone"
+        "disallowedFormsOfAddress": "Names to avoid"
       },
       "placeholders": {
         "homeLocation": "City or region",
-        "disallowedForms": "Comma-separated names",
-        "locale": "zh-CN",
-        "timezone": "Asia/Shanghai"
+        "disallowedForms": "Comma-separated names"
       }
     },
     "codeAgent": {

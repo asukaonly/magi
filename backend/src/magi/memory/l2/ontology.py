@@ -128,7 +128,6 @@ PROFILE_SIGNAL_PREDICATES: frozenset[str] = frozenset(
         "BIRTH_DATE",
         "BIRTH_YEAR",
         "STATED_AGE",
-        "PREFERRED_LANGUAGE",
         "PREFERRED_COMMUNICATION_STYLE",
         "AGE",
     }

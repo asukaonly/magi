@@ -14,8 +14,6 @@ interface ProfileDraft {
   birthDate: string;
   preferredFormOfAddress: string;
   disallowedFormsOfAddress: string;
-  locale: string;
-  timezone: string;
   homeLocation: string;
 }
 
@@ -24,8 +22,6 @@ const emptyDraft: ProfileDraft = {
   birthDate: '',
   preferredFormOfAddress: '',
   disallowedFormsOfAddress: '',
-  locale: '',
-  timezone: '',
   homeLocation: '',
 };
 
@@ -39,8 +35,6 @@ function toDraft(profile: UserProfileProjection | null): ProfileDraft {
     birthDate: profile.birth_date || '',
     preferredFormOfAddress: profile.preferred_form_of_address || '',
     disallowedFormsOfAddress: Array.isArray(disallowed) ? disallowed.join(', ') : '',
-    locale: profile.locale || '',
-    timezone: profile.timezone || '',
     homeLocation: profile.home_location || '',
   };
 }
@@ -54,8 +48,6 @@ function toPatch(draft: ProfileDraft): UserProfilePatch {
       .split(',')
       .map((item) => item.trim())
       .filter(Boolean),
-    locale: draft.locale.trim(),
-    timezone: draft.timezone.trim(),
     home_location: draft.homeLocation.trim(),
   };
 }
@@ -225,12 +217,6 @@ export function SettingsPersonalProfileSection() {
           </TextField>
           <TextField label={t('settings.personalProfile.fields.disallowedFormsOfAddress')} value={draft.disallowedFormsOfAddress} placeholder={t('settings.personalProfile.placeholders.disallowedForms')} onChange={(value) => patchDraft({ disallowedFormsOfAddress: value })}>
             <FieldSource profile={profile} fieldKey="disallowed_forms_of_address" />
-          </TextField>
-          <TextField label={t('settings.personalProfile.fields.locale')} value={draft.locale} placeholder={t('settings.personalProfile.placeholders.locale')} onChange={(value) => patchDraft({ locale: value })}>
-            <FieldSource profile={profile} fieldKey="locale" />
-          </TextField>
-          <TextField label={t('settings.personalProfile.fields.timezone')} value={draft.timezone} placeholder={t('settings.personalProfile.placeholders.timezone')} onChange={(value) => patchDraft({ timezone: value })}>
-            <FieldSource profile={profile} fieldKey="timezone" />
           </TextField>
         </div>
       </SettingsGroup>
