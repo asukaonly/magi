@@ -44,6 +44,16 @@ _ENTITY_RECALL_SUPPRESS_CATEGORIES: frozenset[str] = frozenset({
     "code_review", "debugging",
 })
 
+_WORKFLOW_REUSE_MARKERS: tuple[str, ...] = (
+    "按之前那套流程",
+    "按之前的流程",
+    "按之前流程",
+    "沿用之前流程",
+    "reuse the previous workflow",
+    "use the previous workflow",
+    "same workflow as before",
+)
+
 MEMORY_RETRIEVAL_TRIGGERS: list[str] = [
     trigger
     for triggers in MEMORY_RETRIEVAL_TRIGGERS_BY_CATEGORY.values()
@@ -59,6 +69,11 @@ def evaluate_memory_need(
 ) -> Optional[MemoryGuidance]:
     """Return memory guidance when a request looks like recall or preference lookup."""
     message_lower = user_message.lower()
+
+    if task_category in _ENTITY_RECALL_SUPPRESS_CATEGORIES and any(
+        marker in message_lower for marker in _WORKFLOW_REUSE_MARKERS
+    ):
+        return None
 
     for category, triggers in MEMORY_RETRIEVAL_TRIGGERS_BY_CATEGORY.items():
         if category == "entity_recall" and task_category in _ENTITY_RECALL_SUPPRESS_CATEGORIES:
