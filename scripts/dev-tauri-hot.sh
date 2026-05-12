@@ -3,7 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FRONTEND_DIR="${ROOT_DIR}/frontend"
-FRONTEND_PORT="${MAGI_FRONTEND_PORT:-5173}"
+FRONTEND_HOST="127.0.0.1"
+FRONTEND_PORT="5173"
 
 kill_listeners_on_port() {
   local port="$1"
@@ -104,9 +105,11 @@ kill_listeners_on_port "${FRONTEND_PORT}"
 trap cleanup_on_exit EXIT INT TERM HUP QUIT
 
 echo "Starting Tauri desktop window (frontend HMR enabled by Vite)..."
+echo "Frontend dev server: http://${FRONTEND_HOST}:${FRONTEND_PORT}"
 echo "Backend lifecycle is owned by Tauri in debug mode."
 
 cd "${FRONTEND_DIR}"
 env \
+  VITE_DEV_SERVER_HOST="${FRONTEND_HOST}" \
   VITE_DEV_SERVER_PORT="${FRONTEND_PORT}" \
   npm run tauri:dev
