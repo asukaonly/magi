@@ -37,17 +37,17 @@ export interface UserProfilePatch {
 
 export const profileApi = {
   async getMe(): Promise<UserProfileProjection> {
-    const response = await api.get<UserProfileProjection>('/api/profile/me');
+    const response = await api.get<UserProfileProjection>('/profile/me');
     return unwrapGatewayPayload(response);
   },
 
   async updateMe(patch: UserProfilePatch): Promise<UserProfileProjection> {
-    const response = await api.patch<UserProfileProjection>('/api/profile/me', patch);
+    const response = await api.patch<UserProfileProjection>('/profile/me', patch);
     return unwrapGatewayPayload(response);
   },
 
   async refreshMe(): Promise<UserProfileProjection> {
-    const response = await api.post<UserProfileProjection>('/api/profile/me/refresh');
+    const response = await api.post<UserProfileProjection>('/profile/me/refresh');
     return unwrapGatewayPayload(response);
   },
 };
