@@ -2659,7 +2659,8 @@
         "traitLabels": {
           "preference_address_real_name": "真实姓名",
           "preference_identity_self_label": "自我称呼",
-          "preference_address_preferred": "常用地址偏好",
+          "preference_address_preferred": "称呼偏好",
+          "preference_address_disallowed": "不希望使用的称呼",
           "preference_music": "音乐偏好",
           "coffee_roast_preference": "咖啡烘焙偏好",
           "music_artist_preference": "喜欢的音乐人"

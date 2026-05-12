@@ -4049,6 +4049,7 @@ class TestExtractionInstructions:
         assert profile.extraction_instructions is not None
         assert "direct user-authored chat messages" in profile.extraction_instructions
         assert "profile signals" in profile.extraction_instructions
+        assert "PREFERRED_FORM_OF_ADDRESS" in profile.extraction_instructions
         assert "preference.address" not in profile.extraction_instructions
         assert "trait_name" not in profile.extraction_instructions
 
@@ -4635,6 +4636,173 @@ async def test_validate_phase2_graph_edges_rejects_assertion_schema_leak():
     assert prepared == []
     assert corroborate_targets == []
     assert rejected == 1
+
+
+@pytest.mark.asyncio
+async def test_validate_phase2_graph_edges_rejects_address_preference_like_edge():
+    """A requested form of address is an assertion value, not a LIKES relation."""
+    from magi.memory.l2.models import L2Phase2GraphEdge
+    from magi.memory.l2.ontology import ENTITY_TYPE_REGISTRY, PREDICATE_REGISTRY
+    from magi.memory.l2.pipeline.utils import L2PipelineUtilityMixin
+    from magi.memory.l2.pipeline.validation.graph_phase2 import L2Phase2GraphValidationMixin
+    from magi.memory.l2.pipeline.validation.graph_resolution import L2GraphEndpointResolutionMixin
+
+    class _Validator(
+        L2Phase2GraphValidationMixin,
+        L2GraphEndpointResolutionMixin,
+        L2PipelineUtilityMixin,
+    ):
+        def _resolve_self_entity_id(self, event):
+            return f"user:{event.user_id or 'local_user'}"
+
+    event = _make_memory_event(event_id="evt-address", content="叫我子涵")
+
+    class _FakeProfile:
+        allow_graph = True
+        effective_structured_allowed_entity_types = ENTITY_TYPE_REGISTRY
+        effective_structured_allowed_predicates = PREDICATE_REGISTRY
+
+    class _FakePolicy:
+        allow_graph_write = True
+        graph_scope = "full"
+
+    prepared, corroborate_targets, rejected = _Validator()._validate_phase2_graph_edges(
+        event=event,
+        profile=_FakeProfile(),
+        policy=_FakePolicy(),
+        resolved_mentions=[],
+        evidence_event_ids=["evt-address"],
+        phase2_edges=[
+            L2Phase2GraphEdge(
+                subject_ref="user:u1",
+                subject_type="user",
+                predicate="LIKES",
+                object_ref="子涵",
+                object_type="person",
+                confidence=0.8,
+                relationship_to_existing="new",
+                evidence_text="叫我子涵",
+                supporting_event_ids=["evt-address"],
+            )
+        ],
+        catalog_name_index=None,
+    )
+
+    assert prepared == []
+    assert corroborate_targets == []
+    assert rejected == 1
+
+
+@pytest.mark.asyncio
+async def test_validate_phase2_graph_edges_rejects_phase1_profile_signal_object():
+    """Phase 1 profile signals are assertion values even if Phase 2 emits LIKES."""
+    from magi.memory.l2.models import L2Phase2GraphEdge
+    from magi.memory.l2.ontology import ENTITY_TYPE_REGISTRY, PREDICATE_REGISTRY
+    from magi.memory.l2.pipeline.utils import L2PipelineUtilityMixin
+    from magi.memory.l2.pipeline.validation.graph_phase2 import L2Phase2GraphValidationMixin
+    from magi.memory.l2.pipeline.validation.graph_resolution import L2GraphEndpointResolutionMixin
+
+    class _Validator(
+        L2Phase2GraphValidationMixin,
+        L2GraphEndpointResolutionMixin,
+        L2PipelineUtilityMixin,
+    ):
+        def _resolve_self_entity_id(self, event):
+            return f"user:{event.user_id or 'local_user'}"
+
+    event = _make_memory_event(event_id="evt-profile-signal", content="Please remember this profile update.")
+
+    class _FakeProfile:
+        allow_graph = True
+        effective_structured_allowed_entity_types = ENTITY_TYPE_REGISTRY
+        effective_structured_allowed_predicates = PREDICATE_REGISTRY
+
+    class _FakePolicy:
+        allow_graph_write = True
+        graph_scope = "full"
+
+    prepared, corroborate_targets, rejected = _Validator()._validate_phase2_graph_edges(
+        event=event,
+        profile=_FakeProfile(),
+        policy=_FakePolicy(),
+        resolved_mentions=[],
+        evidence_event_ids=["evt-profile-signal"],
+        phase2_edges=[
+            L2Phase2GraphEdge(
+                subject_ref="user:u1",
+                subject_type="user",
+                predicate="LIKES",
+                object_ref="Zihan",
+                object_type="person",
+                confidence=0.8,
+                relationship_to_existing="new",
+                evidence_text="call me Zihan",
+                supporting_event_ids=["evt-profile-signal"],
+            )
+        ],
+        profile_signal_object_refs={"zihan"},
+        catalog_name_index=None,
+    )
+
+    assert prepared == []
+    assert corroborate_targets == []
+    assert rejected == 1
+
+
+@pytest.mark.asyncio
+async def test_validate_phase2_graph_edges_keeps_real_person_like_edge():
+    """Only address-preference evidence is filtered; ordinary LIKES remain graph facts."""
+    from magi.memory.l2.models import L2Phase2GraphEdge
+    from magi.memory.l2.ontology import ENTITY_TYPE_REGISTRY, PREDICATE_REGISTRY
+    from magi.memory.l2.pipeline.utils import L2PipelineUtilityMixin
+    from magi.memory.l2.pipeline.validation.graph_phase2 import L2Phase2GraphValidationMixin
+    from magi.memory.l2.pipeline.validation.graph_resolution import L2GraphEndpointResolutionMixin
+
+    class _Validator(
+        L2Phase2GraphValidationMixin,
+        L2GraphEndpointResolutionMixin,
+        L2PipelineUtilityMixin,
+    ):
+        def _resolve_self_entity_id(self, event):
+            return f"user:{event.user_id or 'local_user'}"
+
+    event = _make_memory_event(event_id="evt-like", content="我喜欢子涵")
+
+    class _FakeProfile:
+        allow_graph = True
+        effective_structured_allowed_entity_types = ENTITY_TYPE_REGISTRY
+        effective_structured_allowed_predicates = PREDICATE_REGISTRY
+
+    class _FakePolicy:
+        allow_graph_write = True
+        graph_scope = "full"
+
+    prepared, corroborate_targets, rejected = _Validator()._validate_phase2_graph_edges(
+        event=event,
+        profile=_FakeProfile(),
+        policy=_FakePolicy(),
+        resolved_mentions=[],
+        evidence_event_ids=["evt-like"],
+        phase2_edges=[
+            L2Phase2GraphEdge(
+                subject_ref="user:u1",
+                subject_type="user",
+                predicate="LIKES",
+                object_ref="子涵",
+                object_type="person",
+                confidence=0.8,
+                relationship_to_existing="new",
+                evidence_text="我喜欢子涵",
+                supporting_event_ids=["evt-like"],
+            )
+        ],
+        catalog_name_index=None,
+    )
+
+    assert len(prepared) == 1
+    assert prepared[0]["predicate"] == "LIKES"
+    assert corroborate_targets == []
+    assert rejected == 0
 
 
 @pytest.mark.asyncio

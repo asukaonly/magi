@@ -36,6 +36,8 @@ Core predicates (preferred): LIKES, DISLIKES, INTERESTED_IN, VISITED, LIVES_IN, 
 
 If none of the core predicates accurately describes the relationship, you MAY use a custom predicate in UPPER_SNAKE_CASE format (e.g., LEARNING, ALLERGIC_TO, TEACHING, STUDYING). Custom predicates receive lower confidence.
 
+Profile-signal predicates (Phase 1 only, never graph relations): PREFERRED_FORM_OF_ADDRESS, DISALLOWED_FORM_OF_ADDRESS, REAL_NAME. Use these when the user states a name, nickname, or form of address; preserve the exact value in `object_ref` and set `object_type` to `concept`.
+
 ## Rules
 1. Only extract facts from messages marked **[USER]**. Messages marked [ASSISTANT] are dialogue context only — never treat assistant responses as user beliefs, preferences, or facts.
 2. Do NOT extract preferences from questions, recall requests, or hypothetical statements (e.g., "你记得我喜欢什么吗？", "What if I liked X?").
@@ -45,6 +47,7 @@ If none of the core predicates accurately describes the relationship, you MAY us
 6. Each entity must include a specificity rating: "concrete" for specific items, "underspecified" for vague/category-level references.
 7. Preserve entity language and script. `surface` must be the original text span, and `normalized_name` must keep the source language/script unless the source itself uses a translated name. Do NOT translate Chinese, Japanese, Korean, Cyrillic, or other non-Latin proper nouns into English; do NOT romanize or slugify them. Put known translations, romanizations, or alternate spellings in `alias_signals` only.
 8. For web pages and external-source metadata, never use a URL domain/path slug as the canonical entity name when the title or source text contains a readable subject name. Treat domains and platforms as provenance or separate platform entities, not as replacements for the content entity.
+9. Addressing instructions such as "叫我子涵" or "call me Zihan" are profile/address-preference signals. Emit one fact claim with `predicate = "PREFERRED_FORM_OF_ADDRESS"`, `object_ref` set to the requested name, and `object_type = "concept"`. Do NOT turn the requested name into a LIKES, DISLIKES, INTERESTED_IN, KNOWS, or other graph relationship.
 
 ## Output Format
 Return JSON only:
@@ -122,6 +125,9 @@ stress, mood, engagement, trigger, relationship_shift, group_atmosphere, public_
 3. For single-event evidence, cap assertion confidence at 0.3.
 4. Respect evidence accumulation: if an existing edge has high observation_count and the new evidence is a single event, do not override.
 5. When the user explicitly states how they want to be addressed, prefer a `preference_profile` assertion instead of a graph edge.
+  - Phase 1 `PREFERRED_FORM_OF_ADDRESS` -> `trait_name = "preference.address.preferred"`
+  - Phase 1 `DISALLOWED_FORM_OF_ADDRESS` -> `trait_name = "preference.address.disallowed"`
+  - Phase 1 `REAL_NAME` -> `trait_name = "preference.address.real_name"`
     - Preferred form of address -> `trait_name = "preference.address.preferred"`
     - Disallowed form of address -> `trait_name = "preference.address.disallowed"`
     - Explicit real name -> `trait_name = "preference.address.real_name"`
@@ -129,6 +135,7 @@ stress, mood, engagement, trigger, relationship_shift, group_atmosphere, public_
     - These internal trait names may appear ONLY in `assertion_candidates.trait_name`.
       Never use assertion families, trait names, output field names, or schema keys as
       `graph_edges.predicate` or `graph_edges.object_ref`.
+    - Do not emit any `graph_edges` item whose object is the requested form of address.
 
 ## Output Format
 Return JSON only:

@@ -328,6 +328,7 @@ class L2PipelineExtractionMixin:
         )
 
         catalog_name_index = await self._build_catalog_name_index()
+        profile_signal_object_refs = self._collect_profile_signal_object_refs(phase1_result)
         graph_candidates, corroborate_targets, rejected_graph_candidate_count = (
             self._validate_phase2_graph_edges(
                 event=stored_event,
@@ -336,6 +337,7 @@ class L2PipelineExtractionMixin:
                 resolved_mentions=resolved_mentions,
                 evidence_event_ids=batch_event_ids,
                 phase2_edges=phase2_result.graph_edges,
+                profile_signal_object_refs=profile_signal_object_refs,
                 catalog_name_index=catalog_name_index,
             )
         )

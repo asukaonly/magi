@@ -22,6 +22,8 @@ class _L2GraphValidationHostProtocol(Protocol):
 
     def _is_generic_preference_object_id(self, value: str | None) -> bool: ...
 
+    def _is_address_preference_object(self, *, event_text: str | None, value: str | None) -> bool: ...
+
     def _is_self_like_preference_object(
         self, *, subject_id: str, object_id: str, object_type: str
     ) -> bool: ...
@@ -78,9 +80,14 @@ class L2GraphEndpointResolutionMixin:
         object_type: str,
         raw_object_ref: str,
     ) -> bool:
+        host = self._graph_validation_host()
+        if host._is_address_preference_object(
+            event_text=event.content,
+            value=raw_object_ref,
+        ):
+            return True
         if predicate not in _PREFERENCE_PREDICATES:
             return False
-        host = self._graph_validation_host()
         if host._looks_like_interrogative_preference_query(event.content):
             return True
         if host._is_generic_preference_object_id(

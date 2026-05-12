@@ -2593,7 +2593,8 @@
         "traitLabels": {
           "preference_address_real_name": "real name",
           "preference_identity_self_label": "self label",
-          "preference_address_preferred": "address preference",
+          "preference_address_preferred": "preferred form of address",
+          "preference_address_disallowed": "disallowed form of address",
           "preference_music": "music preference",
           "coffee_roast_preference": "coffee roast preference",
           "music_artist_preference": "favorite music artist"
@@ -3114,7 +3115,6 @@
       "exitBehavior": "Exit Behavior",
       "quietHourCondition": "Restraint Condition",
       "clamps": "Clamps (key: value)",
-      "layerModifiers": "Layer Modifiers (key: value)",
       "occupation": "Occupation",
       "innerNarrative": "Inner Narrative",
       "languageFingerprint": "Language Fingerprint",

@@ -260,7 +260,10 @@ addressing preferences should land in L2 semantic memory, not in bootstrap-only
 state. For example, "call me Hakimi", "don't call me teacher", and explicit
 real-name statements belong in `preference_profile` assertions under stable
 `preference.address.*` trait names so prompt assembly and retrieval can reuse one
-shared read path.
+shared read path. Phase 1 extraction may use profile-signal predicates such as
+`PREFERRED_FORM_OF_ADDRESS`, `DISALLOWED_FORM_OF_ADDRESS`, and `REAL_NAME` to
+keep those facts explicit for Phase 2, but these predicates are not graph
+relations and must never be persisted as knowledge graph edges.
 
 Bootstrap is only responsible for injecting the first assistant opening for a
 persona. After that opening is persisted, all profile extraction returns to the

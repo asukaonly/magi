@@ -117,6 +117,15 @@ PREDICATE_REGISTRY: frozenset[str] = frozenset(
     }
 )
 
+PROFILE_SIGNAL_PREDICATES: frozenset[str] = frozenset(
+    {
+        "PREFERRED_FORM_OF_ADDRESS",
+        "DISALLOWED_FORM_OF_ADDRESS",
+        "REAL_NAME",
+        "AGE",
+    }
+)
+
 _STRICT_PREDICATE_COMPATIBILITY: dict[str, frozenset[str]] = {
     "HAS_METRIC": frozenset({"health_metric"}),
     "LIVES_IN": frozenset({"place"}),
@@ -140,6 +149,13 @@ def is_reserved_assertion_graph_predicate(predicate: str | None) -> bool:
     if predicate is None:
         return False
     return predicate.strip().casefold() in ASSERTION_FAMILY_ALLOWLIST
+
+
+def is_profile_signal_predicate(predicate: str | None) -> bool:
+    """Return whether *predicate* is a Phase 1 profile signal, not a graph relation."""
+    if predicate is None:
+        return False
+    return predicate.strip().upper() in PROFILE_SIGNAL_PREDICATES
 
 
 def is_reserved_assertion_graph_identifier(value: Any) -> bool:
@@ -315,6 +331,8 @@ def validate_graph_candidate(candidate: dict[str, Any]) -> tuple[bool, str | Non
     """
 
     predicate = str(candidate.get("predicate", "")).strip().upper()
+    if is_profile_signal_predicate(predicate):
+        return False, "profile_signal_predicate"
     if is_reserved_assertion_graph_predicate(predicate):
         return False, "reserved_assertion_predicate"
     for key in ("object_ref", "object_id"):
@@ -373,6 +391,7 @@ __all__ = [
     "ENTITY_TYPE_REGISTRY",
     "FAMILY_TO_PREDICATES",
     "OPEN_PREDICATE_CONFIDENCE_PENALTY",
+    "PROFILE_SIGNAL_PREDICATES",
     "PREDICATE_REGISTRY",
     "are_predicates_synonymous",
     "coerce_unknown_entity_type",
@@ -380,6 +399,7 @@ __all__ = [
     "get_predicate_synonym_group",
     "is_reserved_assertion_graph_identifier",
     "is_reserved_assertion_graph_predicate",
+    "is_profile_signal_predicate",
     "is_leaf_fact_duplicate",
     "is_predicate_compatible",
     "is_valid_entity_type",

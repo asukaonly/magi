@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from ...core.logger import get_logger
-from .ontology import PREDICATE_REGISTRY
+from .ontology import PREDICATE_REGISTRY, PROFILE_SIGNAL_PREDICATES
 
 logger = get_logger(__name__)
 
@@ -54,6 +54,14 @@ PREDICATE_ALIASES: dict[str, str] = {
     "LOCATED": "LOCATED_IN",
     "LIVES": "LIVES_IN",
     "LOCATED_NEAR": "LOCATED_IN",
+    "PREFERRED_ADDRESS": "PREFERRED_FORM_OF_ADDRESS",
+    "ADDRESS_PREFERRED": "PREFERRED_FORM_OF_ADDRESS",
+    "PREFERRED_NAME": "PREFERRED_FORM_OF_ADDRESS",
+    "CALL_ME": "PREFERRED_FORM_OF_ADDRESS",
+    "DISALLOWED_ADDRESS": "DISALLOWED_FORM_OF_ADDRESS",
+    "ADDRESS_DISALLOWED": "DISALLOWED_FORM_OF_ADDRESS",
+    "DO_NOT_CALL_ME": "DISALLOWED_FORM_OF_ADDRESS",
+    "NAME": "REAL_NAME",
 }
 
 
@@ -71,6 +79,8 @@ def canonicalize_predicate(raw: Any) -> str | None:
         return None
     upper = text.upper()
     if upper in PREDICATE_REGISTRY:
+        return upper
+    if upper in PROFILE_SIGNAL_PREDICATES:
         return upper
     if upper in PREDICATE_ALIASES:
         return PREDICATE_ALIASES[upper]

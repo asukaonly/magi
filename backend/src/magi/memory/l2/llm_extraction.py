@@ -78,6 +78,12 @@ class L2LLMExtractionMixin:
             resolved_ref_count=len(result.resolved_refs),
             entity_status=result.diagnostics.get("entity_status"),
         )
+        logger.info(
+            "L2 Phase 1 candidate summary",
+            event_ids=event_ids,
+            entities=_summarize_phase1_entities(result),
+            fact_claims=_summarize_phase1_fact_claims(result),
+        )
         return result
 
     async def integrate_phase2(
@@ -135,7 +141,70 @@ class L2LLMExtractionMixin:
             contradiction_hint_count=len(result.contradiction_hints),
             refinement_count=len(result.refinements),
         )
+        logger.info(
+            "L2 Phase 2 candidate summary",
+            event_ids=event_ids,
+            graph_edges=_summarize_phase2_graph_edges(result),
+            assertion_candidates=_summarize_phase2_assertions(result),
+        )
         return result
+
+
+def _summarize_phase1_entities(result: L2Phase1Result) -> list[dict[str, Any]]:
+    return [
+        {
+            "surface": entity.surface,
+            "normalized_name": entity.normalized_name,
+            "entity_type": entity.entity_type,
+            "resolved_id": entity.resolved_id,
+            "confidence": entity.confidence,
+        }
+        for entity in result.entities[:20]
+    ]
+
+
+def _summarize_phase1_fact_claims(result: L2Phase1Result) -> list[dict[str, Any]]:
+    return [
+        {
+            "subject_ref": claim.subject_ref,
+            "predicate": claim.predicate,
+            "object_ref": claim.object_ref,
+            "object_type": claim.object_type,
+            "fact_kind": claim.fact_kind,
+            "evidence_text": claim.evidence_text,
+            "confidence": claim.confidence,
+        }
+        for claim in result.fact_claims[:20]
+    ]
+
+
+def _summarize_phase2_graph_edges(result: L2Phase2Result) -> list[dict[str, Any]]:
+    return [
+        {
+            "subject_ref": edge.subject_ref,
+            "predicate": edge.predicate,
+            "object_ref": edge.object_ref,
+            "object_type": edge.object_type,
+            "relationship_to_existing": edge.relationship_to_existing,
+            "evidence_text": edge.evidence_text,
+            "confidence": edge.confidence,
+        }
+        for edge in result.graph_edges[:20]
+    ]
+
+
+def _summarize_phase2_assertions(result: L2Phase2Result) -> list[dict[str, Any]]:
+    return [
+        {
+            "entity_ref": assertion.entity_ref,
+            "trait_family": assertion.trait_family,
+            "trait_name": assertion.trait_name,
+            "trait_value": assertion.trait_value,
+            "natural_summary": assertion.natural_summary,
+            "confidence": assertion.confidence,
+        }
+        for assertion in result.assertion_candidates[:20]
+    ]
 
 
 __all__ = ["L2LLMExtractionMixin"]

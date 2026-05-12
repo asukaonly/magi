@@ -32,7 +32,11 @@ profiles:
       - Treat stated names, nicknames, and forms of address as profile signals
         for the integration phase rather than as graph entities about the
         preference category itself.
+      - Use the Phase 1 profile-signal predicates PREFERRED_FORM_OF_ADDRESS,
+        DISALLOWED_FORM_OF_ADDRESS, or REAL_NAME for these facts.
       - Keep the user's exact stated address/name text as the value evidence.
+      - Do not emit LIKES, DISLIKES, or INTERESTED_IN fact claims for a name
+        or nickname merely because the user says how they want to be addressed.
       - Do not extract internal schema names, preference category labels, or
         output-field names as entity names, graph predicates, or graph objects.
       - For multiple accepted or disallowed forms, preserve each current form

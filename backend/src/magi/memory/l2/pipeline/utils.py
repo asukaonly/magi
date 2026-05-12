@@ -6,7 +6,8 @@ import re
 import uuid
 from typing import Any, Optional, cast
 
-from ..ontology import coerce_unknown_entity_type
+from ..models import L2Phase1Result
+from ..ontology import PROFILE_SIGNAL_PREDICATES, coerce_unknown_entity_type
 from ..ontology_aliases import canonicalize_predicate
 
 _GENERIC_PREFERENCE_OBJECT_SUFFIXES = {
@@ -16,6 +17,12 @@ _GENERIC_PREFERENCE_OBJECT_SUFFIXES = {
     "music",
     "place",
 }
+
+_ADDRESS_PREFERENCE_PATTERNS = (
+    re.compile(r"(?:请|麻烦|以后|之后|往后|可以|就|直接)?(?:叫我|称呼我)(?:为|作|做|成)?[\s:：'\"“”‘’「」『』]*([^\s，。,.!?！？\n]+)"),
+    re.compile(r"(?:call me|refer to me as|address me as)\s+['\"]?([^,.;!?\n]+)", re.IGNORECASE),
+)
+_ADDRESS_VALUE_STRIP_CHARS = " \t\r\n'\"“”‘’「」『』（）()[]{}<>《》：:，,。.!！?？"
 
 
 class L2PipelineUtilityMixin:
@@ -103,6 +110,55 @@ class L2PipelineUtilityMixin:
         _, _, suffix = normalized.partition(":")
         candidate = suffix or normalized
         return candidate in _GENERIC_PREFERENCE_OBJECT_SUFFIXES
+
+    def _extract_address_preference_values(self, text: str | None) -> set[str]:
+        normalized = str(text or "").strip()
+        if not normalized:
+            return set()
+        values: set[str] = set()
+        for pattern in _ADDRESS_PREFERENCE_PATTERNS:
+            for match in pattern.finditer(normalized):
+                value = self._normalize_address_preference_value(match.group(1))
+                if value:
+                    values.add(value)
+        return values
+
+    def _is_address_preference_object(self, *, event_text: str | None, value: str | None) -> bool:
+        candidate = self._normalize_address_preference_value(value)
+        if not candidate:
+            return False
+        return candidate in self._extract_address_preference_values(event_text)
+
+    def _normalize_address_preference_value(self, value: str | None) -> str | None:
+        text = str(value or "").strip()
+        if not text:
+            return None
+        _, _, suffix = text.partition(":")
+        candidate = suffix or text
+        candidate = candidate.strip(_ADDRESS_VALUE_STRIP_CHARS)
+        candidate = re.sub(r"\s+", " ", candidate).strip()
+        return candidate.casefold() or None
+
+    def _normalize_profile_signal_value(self, value: Any) -> str | None:
+        text = str(value or "").strip()
+        if not text:
+            return None
+        _, _, suffix = text.partition(":")
+        candidate = suffix or text
+        candidate = candidate.strip(_ADDRESS_VALUE_STRIP_CHARS)
+        candidate = re.sub(r"\s+", " ", candidate).strip()
+        return candidate.casefold() or None
+
+    def _collect_profile_signal_object_refs(self, phase1_result: L2Phase1Result) -> set[str]:
+        values: set[str] = set()
+        for claim in phase1_result.fact_claims:
+            predicate = self._normalize_predicate(claim.predicate)
+            if predicate not in PROFILE_SIGNAL_PREDICATES:
+                continue
+            normalized = self._normalize_profile_signal_value(claim.object_ref)
+            if normalized:
+                values.add(normalized)
+        return values
 
     def _is_self_like_preference_object(
         self, *, subject_id: str, object_id: str, object_type: str

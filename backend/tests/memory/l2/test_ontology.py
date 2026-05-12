@@ -83,6 +83,29 @@ def test_validator_rejects_assertion_family_as_graph_predicate():
     assert reason == "reserved_assertion_predicate"
 
 
+def test_validator_rejects_profile_signal_as_graph_predicate():
+    from magi.memory.l2.ontology import validate_graph_candidate
+
+    is_valid, reason = validate_graph_candidate(
+        {
+            "predicate": "PREFERRED_FORM_OF_ADDRESS",
+            "object_type": "concept",
+            "object_ref": "子涵",
+        }
+    )
+
+    assert is_valid is False
+    assert reason == "profile_signal_predicate"
+
+
+def test_profile_signal_predicate_aliases_are_canonicalized():
+    from magi.memory.l2.ontology_aliases import canonicalize_predicate
+
+    assert canonicalize_predicate("PREFERRED_ADDRESS") == "PREFERRED_FORM_OF_ADDRESS"
+    assert canonicalize_predicate("call me") == "PREFERRED_FORM_OF_ADDRESS"
+    assert canonicalize_predicate("name") == "REAL_NAME"
+
+
 def test_validator_rejects_internal_assertion_identifier_as_graph_object():
     from magi.memory.l2.ontology import validate_graph_candidate
 

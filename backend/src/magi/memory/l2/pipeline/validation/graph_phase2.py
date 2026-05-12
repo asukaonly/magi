@@ -34,6 +34,7 @@ class L2Phase2GraphValidationMixin:
         resolved_mentions: list[ResolvedEntityMention],
         evidence_event_ids: list[str],
         phase2_edges: list[L2Phase2GraphEdge],
+        profile_signal_object_refs: set[str] | None = None,
         catalog_name_index: dict[str, str] | None = None,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
         """Validate Phase 2 graph edges against ontology and profile constraints."""
@@ -94,6 +95,10 @@ class L2Phase2GraphValidationMixin:
                 rejected_count += 1
                 continue
             if is_reserved_assertion_graph_identifier(object_id):
+                rejected_count += 1
+                continue
+            normalized_object_ref = self._normalize_profile_signal_value(edge.object_ref)  # type: ignore[attr-defined]
+            if normalized_object_ref and normalized_object_ref in (profile_signal_object_refs or set()):
                 rejected_count += 1
                 continue
             if self._should_reject_preference_graph_candidate(  # type: ignore[attr-defined]
