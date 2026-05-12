@@ -177,6 +177,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
   const effectiveActiveSection = quickMode && ADVANCED_MEMORY_SECTION_IDS.has(activeSection)
     ? 'memoryGeneral'
     : activeSection;
+  const showSettingsFooter = !['personalitySelection', 'personalProfile'].includes(effectiveActiveSection);
 
   useImperativeHandle(ref, getHandle, [getHandle]);
 
@@ -434,7 +435,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
         </main>
       </div>
 
-      {activeSection !== 'personalitySelection' ? (
+      {showSettingsFooter ? (
         <footer className="shrink-0 border-t border-[hsl(var(--settings-subnav-border)/0.68)] bg-[hsl(var(--settings-shell-elevated)/0.94)] backdrop-blur-sm">
           <div className="flex flex-wrap items-center justify-between gap-4 px-8 py-4">
             <p className={cn(

@@ -175,7 +175,7 @@ export function SettingsPersonalProfileSection() {
 
   return (
     <SettingsSectionShell>
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
         <div className="space-y-1">
           <p className="text-sm text-muted-foreground">{t('settings.personalProfile.description')}</p>
           {profile?.age_years !== null && profile?.age_years !== undefined ? (
@@ -184,7 +184,7 @@ export function SettingsPersonalProfileSection() {
             </p>
           ) : null}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-start gap-2 sm:justify-end">
           <Button type="button" variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing || saving}>
             <RefreshCw className="mr-1.5 h-4 w-4" />
             {refreshing ? t('settings.personalProfile.refreshing') : t('settings.personalProfile.refresh')}
