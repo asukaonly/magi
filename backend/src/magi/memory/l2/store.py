@@ -168,6 +168,10 @@ class L2CognitionStore(
     ) -> list[ReconciledTraitOutcome]:
         """Re-evaluate assertion confidence and stability for one entity."""
         assertions = await self.list_tom_assertions(entity_id=entity_id, entity_type=entity_type, limit=500)
+        assertions = [
+            item for item in assertions
+            if item.get("status", item["validation_state"]) not in {"superseded", "archived", "expired", "user_rejected"}
+        ]
         if not assertions:
             return []
 

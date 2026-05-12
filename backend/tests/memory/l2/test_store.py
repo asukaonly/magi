@@ -81,6 +81,27 @@ async def _build_contradiction(text: str, *, correlation_id: str, timestamp: flo
         )
 
 
+def _migrated_l2_db_path(tmp_path):
+    from alembic import command
+
+    from magi.db.runner import MIGRATION_TARGETS, _build_config
+
+    db_path = tmp_path / "l2.db"
+    memory_shared_target = next(
+        target for target in MIGRATION_TARGETS if target.name == "memory_shared"
+    )
+    command.upgrade(_build_config(memory_shared_target, db_path), "head")
+    return str(db_path)
+
+
+@pytest.fixture(autouse=True)
+def _ensure_test_store_schema(request):
+    if "tmp_path" not in request.fixturenames:
+        return
+    tmp_path = request.getfixturevalue("tmp_path")
+    _migrated_l2_db_path(tmp_path)
+
+
 async def _apply_rule_candidates(store, event):  # type: ignore[no-untyped-def]
     await store.initialize()
     relation_count = 0
@@ -3137,6 +3158,40 @@ async def test_same_value_corroboration_keeps_same_id(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_structured_trait_value_formats_corroborate_without_superseding(tmp_path):
+    """Equivalent structured values should merge evidence instead of superseding."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=_migrated_l2_db_path(tmp_path))
+    await store.initialize()
+
+    c1 = _make_assertion_candidate(
+        trait_name="communication.address.preferred",
+        trait_family="communication_profile",
+        trait_value='["子涵", "哈基米"]',
+        evidence_events=["evt-1"],
+    )
+    id1 = await store.upsert_assertion_candidate(c1)
+
+    c2 = _make_assertion_candidate(
+        trait_name="communication.address.preferred",
+        trait_family="communication_profile",
+        trait_value="['子涵', '哈基米']",
+        evidence_events=["evt-2"],
+        last_validated_at=1710010000.0,
+    )
+    id2 = await store.upsert_assertion_candidate(c2)
+
+    assert id2 == id1
+
+    a = await store.get_tom_assertion(assertion_id=id1)
+    assert a is not None
+    assert a["trait_value"] == '["子涵", "哈基米"]'
+    assert a["status"] == "corroborated"
+    assert sorted(a["evidence_events"]) == ["evt-1", "evt-2"]
+
+
+@pytest.mark.asyncio
 async def test_user_correction_supersedes_and_creates_stable(tmp_path):
     """correct_assertion creates a new stable assertion and supersedes the old."""
     from magi.memory.l2.store import L2CognitionStore
@@ -3201,6 +3256,46 @@ async def test_superseded_assertion_excluded_from_new_upsert(tmp_path):
 
     old = await store.get_tom_assertion(assertion_id=id1)
     assert old["status"] == "superseded"
+
+
+@pytest.mark.asyncio
+async def test_reconcile_entity_ignores_superseded_assertions(tmp_path):
+    """Reconcile should only process active assertions and leave superseded history untouched."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=_migrated_l2_db_path(tmp_path))
+    await store.initialize()
+
+    id1 = await store.upsert_assertion_candidate(
+        _make_assertion_candidate(trait_value="A", evidence_events=["evt-1"])
+    )
+    id2 = await store.upsert_assertion_candidate(
+        _make_assertion_candidate(
+            trait_value="B",
+            evidence_events=["evt-2"],
+            last_validated_at=1710010000.0,
+        )
+    )
+
+    outcomes = await store.reconcile_entity(
+        entity_id="user:u1",
+        entity_type="user",
+        evidence_timestamps={
+            "evt-1": 1710000000.0,
+            "evt-2": 1710010000.0,
+        },
+    )
+
+    assert len(outcomes) == 1
+    assert outcomes[0].winning_value == "B"
+
+    old = await store.get_tom_assertion(assertion_id=id1)
+    new = await store.get_tom_assertion(assertion_id=id2)
+
+    assert old is not None
+    assert old["status"] == "superseded"
+    assert new is not None
+    assert new["status"] in {"tentative", "corroborated", "stable"}
 
 
 @pytest.mark.asyncio

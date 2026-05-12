@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import time
 import uuid
@@ -20,6 +21,31 @@ from ..storage.utils import (
 from .state_machine import compute_confidence, derive_validation_state
 
 logger = get_logger(__name__)
+
+
+def _canonicalize_trait_value(value: Any) -> str:
+    """Normalize structured assertion values into a stable serialized form."""
+    if value is None:
+        return ""
+    if isinstance(value, (list, dict)):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+
+    text = str(value)
+    if not text.strip():
+        return ""
+
+    parsed: Any | None = None
+    try:
+        parsed = json.loads(text)
+    except (TypeError, ValueError):
+        try:
+            parsed = ast.literal_eval(text)
+        except (SyntaxError, ValueError):
+            parsed = None
+
+    if isinstance(parsed, (list, dict)):
+        return json.dumps(parsed, ensure_ascii=False, sort_keys=True)
+    return text
 
 
 class _AssertionHostProtocol(Protocol):
@@ -112,6 +138,9 @@ class L2StoreAssertionMixin:
         normalized_candidate["evidence_events"] = normalize_event_ids(
             candidate.get("evidence_events") or []
         )
+        normalized_candidate["trait_value"] = _canonicalize_trait_value(
+            candidate.get("trait_value")
+        )
 
         trait_name = str(candidate.get("trait_name", "")).strip()
         triggered_stable = False
@@ -158,8 +187,8 @@ class L2StoreAssertionMixin:
                     triggered_stable = validation_state == "stable"
                     result_id = assertion_id
                 else:
-                    existing_value = str(existing["trait_value"])
-                    next_value = str(normalized_candidate["trait_value"])
+                    existing_value = _canonicalize_trait_value(existing["trait_value"])
+                    next_value = _canonicalize_trait_value(normalized_candidate["trait_value"])
                     existing_temporal_scope = str(existing["temporal_scope"] or "session")
 
                     merged_evidence = sorted(
@@ -312,7 +341,7 @@ class L2StoreAssertionMixin:
                         await db.execute(
                             """
                             UPDATE tom_trait_assertions
-                            SET confidence_score = ?, evidence_events = ?,
+                            SET trait_value = ?, confidence_score = ?, evidence_events = ?,
                                 validation_state = ?, status = ?,
                                 last_validated_at = ?, first_inferred_at = ?,
                                 target_entity_type = ?, target_scope = ?, temporal_scope = ?,
@@ -321,6 +350,7 @@ class L2StoreAssertionMixin:
                             WHERE assertion_id = ?
                             """,
                             (
+                                next_value,
                                 confidence,
                                 json.dumps(merged_evidence, ensure_ascii=False),
                                 validation_state,
@@ -403,7 +433,7 @@ class L2StoreAssertionMixin:
                 candidate["entity_type"],
                 candidate["trait_family"],
                 trait_name,
-                candidate["trait_value"],
+                _canonicalize_trait_value(candidate["trait_value"]),
                 confidence,
                 json.dumps(candidate["evidence_events"], ensure_ascii=False),
                 float(candidate["volatility_index"]),
