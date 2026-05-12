@@ -14,6 +14,7 @@ mod trace;
 
 use std::path::PathBuf;
 
+use axum::extract::DefaultBodyLimit;
 use axum::Router;
 use state::ApiState;
 use tower_http::cors::{Any, CorsLayer};
@@ -41,6 +42,12 @@ pub fn build_router(state: ApiState) -> Router {
         .route(
             "/api/messages/history",
             axum::routing::get(messages::message_history),
+        )
+        .route(
+            "/api/messages/session/{session_id}/attachments",
+            axum::routing::post(messages::upload_attachment).layer(DefaultBodyLimit::max(
+                messages::MAX_ATTACHMENT_UPLOAD_BODY_BYTES,
+            )),
         )
         .route(
             "/api/messages/session/{session_id}/attachments/{attachment_id}/content",

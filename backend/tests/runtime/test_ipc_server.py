@@ -55,3 +55,33 @@ async def test_ipc_ping_round_trip() -> None:
             await server.stop()
         finally:
             os.environ.pop("MAGI_IPC_SOCKET", None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix socket test")
+async def test_ipc_server_accepts_large_request_lines() -> None:
+    """The IPC server should accept requests larger than the asyncio default line limit."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        sock_path = os.path.join(tmpdir, "test.sock")
+        os.environ["MAGI_IPC_SOCKET"] = sock_path
+        try:
+            server = IpcServer()
+            await server.start()
+
+            reader, writer = await asyncio.open_unix_connection(sock_path)
+
+            oversized_payload = "x" * (80 * 1024)
+            req = json.dumps({"id": "test-large", "method": "ping", "params": {"blob": oversized_payload}}) + "\n"
+            writer.write(req.encode("utf-8"))
+            await writer.drain()
+
+            raw = await asyncio.wait_for(reader.readline(), timeout=2.0)
+            resp = json.loads(raw.decode("utf-8"))
+            assert resp["id"] == "test-large"
+            assert resp["result"] == {"status": "pong"}
+
+            writer.close()
+            await writer.wait_closed()
+            await server.stop()
+        finally:
+            os.environ.pop("MAGI_IPC_SOCKET", None)

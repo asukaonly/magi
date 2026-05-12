@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+from pathlib import Path
 from typing import Any
 
 import structlog
@@ -55,13 +56,19 @@ class ApiForwardHandler:
         query = params.get("query", "")
         headers = params.get("headers", {})
         body = params.get("body")
+        body_file_path = str(params.get("body_file_path") or "").strip()
 
         url = path
         if query:
             url = f"{path}?{query}"
 
         kwargs: dict[str, Any] = {"headers": headers}
-        if body is not None:
+        if body_file_path:
+            staged_path = Path(body_file_path)
+            if not staged_path.is_file():
+                return {"status": 400, "body": {"detail": "Missing staged request body file"}}
+            kwargs["content"] = staged_path.read_bytes()
+        elif body is not None:
             kwargs["content"] = json.dumps(body).encode("utf-8") if not isinstance(body, (str, bytes)) else (
                 body.encode("utf-8") if isinstance(body, str) else body
             )

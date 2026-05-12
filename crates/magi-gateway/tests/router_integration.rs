@@ -274,6 +274,52 @@ async fn native_read_routes_return_stable_empty_payloads_when_databases_are_miss
 }
 
 #[tokio::test]
+async fn native_attachment_upload_route_stores_text_attachment() {
+    let home = isolated_home("upload-attachment");
+    let state = test_state().await;
+    let router = api::build_router(state);
+
+    let boundary = "magi-boundary";
+    let body = format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"user_id\"\r\n\r\nlocal_user\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"turn_id\"\r\n\r\nturn-1\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"notes.txt\"\r\nContent-Type: text/plain\r\n\r\nhello rust native upload\r\n--{boundary}--\r\n"
+    );
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/messages/session/session-1/attachments")
+        .header(
+            "content-type",
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+        .body(Body::from(body))
+        .unwrap();
+
+    let response = router.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), 200);
+
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["success"], true);
+    assert_eq!(json["data"]["user_id"], "local_user");
+    assert_eq!(json["data"]["session_id"], "session-1");
+    assert_eq!(json["data"]["turn_id"], "turn-1");
+    assert_eq!(json["data"]["attachment"]["kind"], "text_file");
+    assert_eq!(json["data"]["attachment"]["parse_status"], "parsed");
+    assert_eq!(
+        json["data"]["attachment"]["derived_text_excerpt"],
+        "hello rust native upload"
+    );
+
+    let storage_path = json["data"]["attachment"]["storage_path"].as_str().unwrap();
+    let derived_text_path = json["data"]["attachment"]["derived_text_path"]
+        .as_str()
+        .unwrap();
+    assert!(Path::new(storage_path).is_file());
+    assert!(Path::new(derived_text_path).is_file());
+    assert!(storage_path.starts_with(home.path().join(".magi").to_string_lossy().as_ref()));
+}
+
+#[tokio::test]
 async fn native_message_routes_return_history_versions() {
     let home = isolated_home("message-history-version");
     let chat_dir = home.path().join(".magi").join("data").join("chat");

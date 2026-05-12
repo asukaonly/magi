@@ -15,6 +15,8 @@ from magi.ipc.protocol import IpcError, IpcNotify, IpcRequest, IpcResponse, pars
 
 logger = structlog.get_logger(__name__)
 
+IPC_STREAM_LIMIT_BYTES = 16 * 1024 * 1024
+
 
 class IpcServer:
     """NDJSON IPC server that accepts a single persistent connection from the Rust gateway."""
@@ -45,7 +47,7 @@ class IpcServer:
             # Windows: MAGI_IPC_SOCKET is host:port
             host, port_str = socket_path.rsplit(":", 1)
             self._server = await asyncio.start_server(
-                self._handle_connection, host, int(port_str)
+                self._handle_connection, host, int(port_str), limit=IPC_STREAM_LIMIT_BYTES
             )
             logger.info("ipc_server_started", transport="tcp", addr=socket_path)
         else:
@@ -55,7 +57,7 @@ class IpcServer:
             except FileNotFoundError:
                 pass
             self._server = await asyncio.start_unix_server(
-                self._handle_connection, path=socket_path
+                self._handle_connection, path=socket_path, limit=IPC_STREAM_LIMIT_BYTES
             )
             logger.info("ipc_server_started", transport="unix", path=socket_path)
 

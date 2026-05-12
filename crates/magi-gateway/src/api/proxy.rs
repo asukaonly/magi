@@ -6,8 +6,13 @@ use axum::{
 };
 use base64::Engine;
 use serde_json::Value;
+use std::fs;
+use std::path::PathBuf;
 
 use super::state::ApiState;
+
+const MAX_PROXY_BODY_BYTES: usize = 10 * 1024 * 1024;
+const BODY_FILE_PREFIX: &str = "magi-ipc-body-";
 
 pub async fn proxy_handler(State(state): State<ApiState>, req: Request) -> impl IntoResponse {
     ipc_proxy(&state.ipc_client, req).await
@@ -21,39 +26,81 @@ async fn ipc_proxy(ipc: &crate::ipc::IpcClient, req: Request) -> Response {
     // Collect headers
     let mut headers = serde_json::Map::new();
     for (name, value) in req.headers() {
+        let name_lower = name.as_str().to_ascii_lowercase();
+        if name_lower == "connection"
+            || name_lower == "content-length"
+            || name_lower == "transfer-encoding"
+        {
+            continue;
+        }
         if let Ok(v) = value.to_str() {
             headers.insert(name.to_string(), Value::String(v.to_string()));
         }
     }
 
     // Read body
-    let body_bytes = match axum::body::to_bytes(req.into_body(), 10 * 1024 * 1024).await {
+    let body_bytes = match axum::body::to_bytes(req.into_body(), MAX_PROXY_BODY_BYTES).await {
         Ok(b) => b,
         Err(_) => return (StatusCode::BAD_REQUEST, "Request body too large").into_response(),
     };
 
-    let body: Option<Value> = if body_bytes.is_empty() {
-        None
-    } else {
-        serde_json::from_slice(&body_bytes).ok().or_else(|| {
-            Some(Value::String(
-                String::from_utf8_lossy(&body_bytes).to_string(),
-            ))
-        })
-    };
+    let (params, staged_body_path) =
+        match build_ipc_params(method, path, query, headers, &body_bytes) {
+            Ok(value) => value,
+            Err(_) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Failed to stage request body for IPC forwarding",
+                )
+                    .into_response();
+            }
+        };
 
-    let params = serde_json::json!({
-        "method": method,
-        "path": path,
-        "query": query,
-        "headers": headers,
-        "body": body,
-    });
-
-    match ipc.request("api.forward", Some(params)).await {
+    let response = match ipc.request("api.forward", Some(params)).await {
         Ok(result) => build_response_from_ipc(result),
         Err(e) => (StatusCode::BAD_GATEWAY, format!("IPC error: {e}")).into_response(),
+    };
+
+    if let Some(path) = staged_body_path {
+        let _ = fs::remove_file(path);
     }
+
+    response
+}
+
+fn build_ipc_params(
+    method: String,
+    path: String,
+    query: String,
+    headers: serde_json::Map<String, Value>,
+    body_bytes: &[u8],
+) -> std::io::Result<(Value, Option<PathBuf>)> {
+    let mut params = serde_json::Map::new();
+    params.insert("method".to_string(), Value::String(method));
+    params.insert("path".to_string(), Value::String(path));
+    params.insert("query".to_string(), Value::String(query));
+    params.insert("headers".to_string(), Value::Object(headers));
+
+    if !body_bytes.is_empty() {
+        if let Ok(json_body) = serde_json::from_slice::<Value>(body_bytes) {
+            params.insert("body".to_string(), json_body);
+        } else {
+            let staged_path = stage_request_body(body_bytes)?;
+            params.insert(
+                "body_file_path".to_string(),
+                Value::String(staged_path.to_string_lossy().into_owned()),
+            );
+            return Ok((Value::Object(params), Some(staged_path)));
+        }
+    }
+
+    Ok((Value::Object(params), None))
+}
+
+fn stage_request_body(body_bytes: &[u8]) -> std::io::Result<PathBuf> {
+    let path = std::env::temp_dir().join(format!("{BODY_FILE_PREFIX}{}", uuid::Uuid::new_v4()));
+    fs::write(&path, body_bytes)?;
+    Ok(path)
 }
 
 fn build_response_from_ipc(result: Value) -> Response {
@@ -107,10 +154,50 @@ fn build_response_from_ipc(result: Value) -> Response {
 
 #[cfg(test)]
 mod tests {
-    use super::build_response_from_ipc;
+    use super::{build_ipc_params, build_response_from_ipc};
     use axum::http::StatusCode;
     use http_body_util::BodyExt;
     use serde_json::json;
+
+    #[test]
+    fn stages_binary_request_body_in_temp_file() {
+        let (params, staged_path) = build_ipc_params(
+            "POST".to_string(),
+            "/api/upload".to_string(),
+            "".to_string(),
+            serde_json::Map::new(),
+            b"\x89PNG\r\n",
+        )
+        .expect("build proxy params");
+
+        let staged_path = staged_path.expect("staged file path");
+        assert_eq!(
+            params
+                .get("body_file_path")
+                .and_then(|value| value.as_str()),
+            Some(staged_path.to_string_lossy().as_ref())
+        );
+        assert_eq!(std::fs::read(&staged_path).unwrap(), b"\x89PNG\r\n");
+        assert!(params.get("body").is_none());
+
+        std::fs::remove_file(staged_path).unwrap();
+    }
+
+    #[test]
+    fn keeps_json_request_body_structured() {
+        let (params, staged_path) = build_ipc_params(
+            "POST".to_string(),
+            "/api/echo".to_string(),
+            "".to_string(),
+            serde_json::Map::new(),
+            br#"{"ok":true}"#,
+        )
+        .expect("build proxy params");
+
+        assert_eq!(params.get("body"), Some(&json!({"ok": true})));
+        assert!(params.get("body_file_path").is_none());
+        assert!(staged_path.is_none());
+    }
 
     #[tokio::test]
     async fn decodes_base64_binary_body() {
