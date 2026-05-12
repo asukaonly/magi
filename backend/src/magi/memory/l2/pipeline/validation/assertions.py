@@ -8,13 +8,23 @@ from typing import Any, Optional, Protocol
 from ....event_contracts import MemoryEvent
 from ...context_bundle import ResolvedContextRef
 from ...extraction_profiles import ExtractionProfile
-from ...models import L2AssertionCandidate
+from ...models import L2AssertionCandidate, L2Phase1Result
 from ...ontology import is_leaf_fact_duplicate, validate_assertion_candidate
+from ...ontology_aliases import canonicalize_predicate
 from ...storage.utils import normalize_event_ids
 
 _TOPOLOGY_ONLY_TRAIT_FAMILIES = {"public_sentiment", "group_atmosphere", "relationship_shift"}
 _SEMANTIC_TEMPORAL_SCOPES = {"persistent", "stable", ""}
 _SEMANTIC_DECAY_POLICIES = {"none", "evidence_only", ""}
+_PROFILE_TRAIT_BY_PREDICATE = {
+    "REAL_NAME": "identity.real_name",
+    "BIRTH_DATE": "identity.birth_date",
+    "BIRTH_YEAR": "identity.birth_year",
+    "STATED_AGE": "identity.age.stated",
+    "PREFERRED_FORM_OF_ADDRESS": "communication.address.preferred",
+    "DISALLOWED_FORM_OF_ADDRESS": "communication.address.disallowed",
+    "PREFERRED_COMMUNICATION_STYLE": "communication.response_style.preferred",
+}
 
 
 def classify_memory_subdomain(temporal_scope: str, decay_policy: str) -> str:
@@ -24,6 +34,19 @@ def classify_memory_subdomain(temporal_scope: str, decay_policy: str) -> str:
     ):
         return "semantic"
     return "state"
+
+
+def _profile_values_by_trait(phase1_result: L2Phase1Result | None) -> dict[str, str]:
+    if phase1_result is None:
+        return {}
+    values: dict[str, str] = {}
+    for claim in phase1_result.fact_claims:
+        predicate = canonicalize_predicate(getattr(claim, "predicate", ""))
+        trait_name = _PROFILE_TRAIT_BY_PREDICATE.get(predicate or "")
+        value = str(getattr(claim, "object_ref", "") or "").strip()
+        if trait_name and value:
+            values[trait_name] = value[:40]
+    return values
 
 
 class _L2AssertionHostProtocol(Protocol):
@@ -46,6 +69,7 @@ class L2AssertionValidationMixin:
         graph_candidates: list[dict[str, Any]],
         default_event_ids: list[str],
         phase2_assertions: list,
+        phase1_result: L2Phase1Result | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         """Validate Phase 2 assertion candidates."""
         if not policy.allow_assertion_write or not profile.allow_assertion:
@@ -57,6 +81,7 @@ class L2AssertionValidationMixin:
         duplicate_check_candidates = [
             {"predicate": c["predicate"], "object_ref": c["object_id"]} for c in graph_candidates
         ]
+        profile_values_by_trait = _profile_values_by_trait(phase1_result)
         for assertion in phase2_assertions:
             trait_family = str(getattr(assertion, "trait_family", "") or "").casefold()
             if trait_family not in profile.allowed_assertion_families:
@@ -78,7 +103,8 @@ class L2AssertionValidationMixin:
             if entity_ref and entity_ref.startswith("user:") and self_entity_id:
                 entity_ref = self_entity_id
 
-            trait_value = assertion.trait_value
+            trait_name = str(getattr(assertion, "trait_name", "") or "")
+            trait_value = profile_values_by_trait.get(trait_name) or assertion.trait_value
             if isinstance(trait_value, (dict, list)):
                 trait_value = json.dumps(trait_value, ensure_ascii=False, sort_keys=True)
             elif trait_value is None:
@@ -102,7 +128,7 @@ class L2AssertionValidationMixin:
                     "entity_id": entity_ref or self_entity_id or "",
                     "entity_type": str(getattr(assertion, "entity_type", "user") or "user"),
                     "trait_family": trait_family,
-                    "trait_name": str(getattr(assertion, "trait_name", "") or ""),
+                    "trait_name": trait_name,
                     "trait_value": trait_value,
                     "confidence_score": float(getattr(assertion, "confidence", 0.0) or 0.0),
                     "evidence_events": normalize_event_ids(

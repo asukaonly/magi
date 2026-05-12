@@ -4199,14 +4199,15 @@ class TestEntityTypeFiltering:
 
         phase1_payload = {
             "entities": [
-                {"surface": "子涵", "normalized_name": "子涵", "entity_type": "person", "confidence": 0.95},
+                {"surface": "哈基米", "normalized_name": "哈基米", "entity_type": "concept", "confidence": 0.95},
+                {"surface": "子涵", "normalized_name": "子涵", "entity_type": "concept", "confidence": 0.95},
                 {"surface": "GitHub", "normalized_name": "GitHub", "entity_type": "software", "confidence": 0.95},
             ],
             "fact_claims": [
                 {
                     "subject_ref": "user:self",
                     "predicate": "PREFERRED_FORM_OF_ADDRESS",
-                    "object_ref": "子涵",
+                    "object_ref": "哈基米或者子涵",
                     "object_type": "concept",
                     "fact_kind": "explicit_fact",
                     "confidence": 0.3,
@@ -4215,19 +4216,64 @@ class TestEntityTypeFiltering:
             "resolved_refs": [],
         }
         phase1_result = L2Phase1Result.from_dict(phase1_payload)
-        event = _make_memory_event(event_id="evt-profile-signal", content="叫我子涵")
+        event = _make_memory_event(event_id="evt-profile-signal", content="叫我哈基米或者子涵都行吧")
 
         resolved = await pipeline._resolve_phase1_entities(
             event,
             phase1_result,
             evidence_event_ids=["evt-profile-signal"],
-            allowed_entity_types=frozenset({"person", "software"}),
+            allowed_entity_types=frozenset({"concept", "software"}),
             profile_signal_object_refs=pipeline._collect_profile_signal_object_refs(phase1_result),
         )
 
         assert [mention.normalized_surface for mention in resolved] == ["GitHub"]
         entities = await pipeline._entity_catalog.list_entities(limit=20)
         assert {entity["canonical_name"] for entity in entities} == {"GitHub"}
+
+    def test_phase2_profile_assertion_preserves_phase1_value(self):
+        from magi.memory.l2.models import L2Phase1Result, L2Phase2AssertionCandidate
+        from magi.memory.l2.pipeline import L2Pipeline
+
+        pipeline = L2Pipeline.__new__(L2Pipeline)
+        event = _make_memory_event(event_id="evt-profile-value", content="叫我哈基米或者子涵都行吧")
+        phase1_result = L2Phase1Result.from_dict({
+            "entities": [],
+            "fact_claims": [
+                {
+                    "subject_ref": "user:self",
+                    "predicate": "PREFERRED_FORM_OF_ADDRESS",
+                    "object_ref": "哈基米或者子涵",
+                    "object_type": "concept",
+                    "fact_kind": "explicit_fact",
+                    "confidence": 0.3,
+                }
+            ],
+            "resolved_refs": [],
+        })
+
+        prepared, rejected_count = pipeline._validate_phase2_assertions(
+            event=event,
+            profile=SimpleNamespace(
+                allow_assertion=True,
+                allowed_assertion_families={"communication_profile"},
+            ),
+            policy=SimpleNamespace(allow_assertion_write=True),
+            graph_candidates=[],
+            default_event_ids=["evt-profile-value"],
+            phase2_assertions=[
+                L2Phase2AssertionCandidate(
+                    entity_ref="user:local_user",
+                    trait_family="communication_profile",
+                    trait_name="communication.address.preferred",
+                    trait_value="haji_mi_or_zi_han",
+                    confidence=0.3,
+                )
+            ],
+            phase1_result=phase1_result,
+        )
+
+        assert rejected_count == 0
+        assert prepared[0]["trait_value"] == "哈基米或者子涵"
 
 
 class TestEntityNameQuality:

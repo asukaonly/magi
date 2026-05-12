@@ -23,6 +23,10 @@ _ADDRESS_PREFERENCE_PATTERNS = (
     re.compile(r"(?:call me|refer to me as|address me as)\s+['\"]?([^,.;!?\n]+)", re.IGNORECASE),
 )
 _ADDRESS_VALUE_STRIP_CHARS = " \t\r\n'\"“”‘’「」『』（）()[]{}<>《》：:，,。.!！?？"
+_PROFILE_SIGNAL_VALUE_SEPARATOR_RE = re.compile(
+    r"\s*(?:或者|还是|或是|以及|和|或|、|/|，|,|；|;|\bor\b|\band\b)\s*",
+    re.IGNORECASE,
+)
 
 
 class L2PipelineUtilityMixin:
@@ -155,9 +159,21 @@ class L2PipelineUtilityMixin:
             predicate = self._normalize_predicate(claim.predicate)
             if predicate not in PROFILE_SIGNAL_PREDICATES:
                 continue
-            normalized = self._normalize_profile_signal_value(claim.object_ref)
-            if normalized:
-                values.add(normalized)
+            values.update(self._expand_profile_signal_values(claim.object_ref))
+        return values
+
+    def _expand_profile_signal_values(self, value: Any) -> set[str]:
+        text = str(value or "").strip()
+        if not text:
+            return set()
+        values: set[str] = set()
+        normalized = self._normalize_profile_signal_value(text)
+        if normalized:
+            values.add(normalized)
+        for part in _PROFILE_SIGNAL_VALUE_SEPARATOR_RE.split(text):
+            normalized_part = self._normalize_profile_signal_value(part)
+            if normalized_part:
+                values.add(normalized_part)
         return values
 
     def _is_self_like_preference_object(

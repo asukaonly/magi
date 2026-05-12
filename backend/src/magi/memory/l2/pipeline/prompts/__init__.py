@@ -134,6 +134,10 @@ stress, mood, engagement, trigger, relationship_shift, group_atmosphere, public_
   - Phase 1 `DISALLOWED_FORM_OF_ADDRESS` -> `trait_family = "communication_profile"`, `trait_name = "communication.address.disallowed"`
   - Phase 1 `PREFERRED_COMMUNICATION_STYLE` -> `trait_family = "communication_profile"`, `trait_name = "communication.response_style.preferred"`
     - If multiple forms are listed, encode `trait_value` as a JSON array string.
+    - For profile assertions, `trait_value` is user-facing data. Preserve the
+      original language/script and wording from Phase 1 `object_ref` or evidence.
+      Do NOT translate, romanize, slugify, or convert it to snake_case IDs
+      (for example, keep `哈基米或者子涵`, never `haji_mi_or_zi_han`).
     - These internal trait names may appear ONLY in `assertion_candidates.trait_name`.
       Never use assertion families, trait names, output field names, or schema keys as
       `graph_edges.predicate` or `graph_edges.object_ref`.
@@ -172,7 +176,7 @@ Return JSON only:
       "entity_type": "enum",
       "trait_family": "enum from allowed families",
       "trait_name": "string",
-      "trait_value": "short snake_case slug or controlled value, max 40 chars (e.g. 'prefers_chinese_response', 'high', 'engaged')",
+      "trait_value": "profile assertions: original user-facing text; state assertions: short controlled value, max 40 chars",
       "natural_summary": "free-form description in user's language, max 500 chars",
       "inference_depth": "topology_only|defensive_psychology",
       "volatility_index": 0.0,

@@ -358,6 +358,7 @@ class L2PipelineExtractionMixin:
             policy=policy,
             graph_candidates=assertion_dedup_context,
             default_event_ids=batch_event_ids,
+            phase1_result=phase1_result,
             phase2_assertions=phase2_result.assertion_candidates,
         )
 
