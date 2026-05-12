@@ -68,6 +68,46 @@ def test_validator_accepts_open_predicate_upper_snake_case():
     assert reason is None
 
 
+def test_validator_rejects_assertion_family_as_graph_predicate():
+    from magi.memory.l2.ontology import validate_graph_candidate
+
+    is_valid, reason = validate_graph_candidate(
+        {
+            "predicate": "PREFERENCE_PROFILE",
+            "object_type": "concept",
+            "object_ref": "子涵",
+        }
+    )
+
+    assert is_valid is False
+    assert reason == "reserved_assertion_predicate"
+
+
+def test_validator_rejects_internal_assertion_identifier_as_graph_object():
+    from magi.memory.l2.ontology import validate_graph_candidate
+
+    is_valid, reason = validate_graph_candidate(
+        {
+            "predicate": "LIKES",
+            "object_type": "concept",
+            "object_ref": "preference.address.preferred",
+        }
+    )
+
+    assert is_valid is False
+    assert reason == "reserved_assertion_identifier"
+
+
+def test_reserved_assertion_identifier_guard_is_namespace_based():
+    from magi.memory.l2.ontology import is_reserved_assertion_graph_identifier
+
+    assert is_reserved_assertion_graph_identifier("concept:preference-address-preferred") is True
+    assert is_reserved_assertion_graph_identifier("stress.level.current") is True
+    assert is_reserved_assertion_graph_identifier("preference_profile") is True
+    assert is_reserved_assertion_graph_identifier("concept:mood-board") is False
+    assert is_reserved_assertion_graph_identifier("concept:mood-board-blue") is False
+
+
 def test_validator_rejects_illegal_graph_object_type_combination():
     from magi.memory.l2.ontology import validate_graph_candidate
 

@@ -73,6 +73,15 @@ ASSERTION_FAMILY_ALLOWLIST: frozenset[str] = frozenset(
     }
 )
 
+_ASSERTION_FAMILY_ROOTS: frozenset[str] = frozenset(
+    family.split("_", 1)[0] for family in ASSERTION_FAMILY_ALLOWLIST
+)
+_PROFILE_ASSERTION_FAMILY_ROOTS: frozenset[str] = frozenset(
+    family.split("_", 1)[0]
+    for family in ASSERTION_FAMILY_ALLOWLIST
+    if family.endswith("_profile")
+)
+
 PREDICATE_REGISTRY: frozenset[str] = frozenset(
     {
         "LIKES",
@@ -124,6 +133,51 @@ _UPPER_SNAKE_CASE_RE = re.compile(r"^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$")
 def is_valid_open_predicate(predicate: str) -> bool:
     """Return whether *predicate* is a well-formed open predicate (UPPER_SNAKE_CASE)."""
     return bool(_UPPER_SNAKE_CASE_RE.match(predicate.strip()))
+
+
+def is_reserved_assertion_graph_predicate(predicate: str | None) -> bool:
+    """Return whether *predicate* is an assertion-family name, not a graph relation."""
+    if predicate is None:
+        return False
+    return predicate.strip().casefold() in ASSERTION_FAMILY_ALLOWLIST
+
+
+def is_reserved_assertion_graph_identifier(value: Any) -> bool:
+    """Return whether *value* looks like an internal assertion schema identifier.
+
+    Graph edges should point at user-world entities, not trait-family names or
+    trait keys such as ``preference.address.preferred``. This guard is based on
+    assertion-family namespaces instead of a list of individual leaked keys.
+    """
+
+    text = str(value or "").strip()
+    if not text:
+        return False
+    candidate = _strip_entity_prefix_for_schema_check(text)
+    first_path_segment = re.split(r"[^a-z0-9]+", candidate.casefold(), maxsplit=1)[0]
+    if "." in candidate and first_path_segment in _ASSERTION_FAMILY_ROOTS:
+        return True
+    normalized = re.sub(r"[^a-z0-9]+", "_", candidate.casefold()).strip("_")
+    if not normalized:
+        return False
+    if normalized in ASSERTION_FAMILY_ALLOWLIST:
+        return True
+    tokens = [token for token in normalized.split("_") if token]
+    if len(tokens) < 2:
+        return False
+    if "_".join(tokens[:2]) in ASSERTION_FAMILY_ALLOWLIST:
+        return True
+    return len(tokens) >= 3 and tokens[0] in _PROFILE_ASSERTION_FAMILY_ROOTS
+
+
+def _strip_entity_prefix_for_schema_check(value: str) -> str:
+    prefix, separator, suffix = value.partition(":")
+    if not separator:
+        return value
+    normalized_prefix = normalize_entity_type(prefix)
+    if normalized_prefix in ENTITY_TYPE_REGISTRY or prefix.strip().casefold() == "user":
+        return suffix
+    return value
 
 
 _PREDICATE_SYNONYM_GROUPS: dict[str, str] = {
@@ -261,6 +315,11 @@ def validate_graph_candidate(candidate: dict[str, Any]) -> tuple[bool, str | Non
     """
 
     predicate = str(candidate.get("predicate", "")).strip().upper()
+    if is_reserved_assertion_graph_predicate(predicate):
+        return False, "reserved_assertion_predicate"
+    for key in ("object_ref", "object_id"):
+        if is_reserved_assertion_graph_identifier(candidate.get(key)):
+            return False, "reserved_assertion_identifier"
     is_core = predicate in PREDICATE_REGISTRY
     if not is_core and not is_valid_open_predicate(predicate):
         return False, "invalid_predicate"
@@ -319,6 +378,8 @@ __all__ = [
     "coerce_unknown_entity_type",
     "expand_predicate_group",
     "get_predicate_synonym_group",
+    "is_reserved_assertion_graph_identifier",
+    "is_reserved_assertion_graph_predicate",
     "is_leaf_fact_duplicate",
     "is_predicate_compatible",
     "is_valid_entity_type",

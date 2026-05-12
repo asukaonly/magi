@@ -423,6 +423,8 @@ Key fields:
 - `source_types`: normalized event sources routed to this profile.
 - `extraction_instructions`: free-text instructions injected into the LLM Phase 1 prompt under a `## Source-Specific Instructions` section. This is the primary mechanism for source-specific LLM extraction behavior.
 
+Assertion families and assertion trait/schema identifiers are assertion-only. They must not be emitted as graph predicates, graph object refs, or concept nodes; graph admission validates this boundary before persistence.
+
 Profile mapping uses the normalized event source. Source-specific profiles are contributed by loaded plugins through `Plugin.get_extraction_profiles()` using the SDK `ExtractionProfileSpec` contract. The host owns ontology, schema validation, prompt assembly, and final write guards. Profile IDs use the `source.*` namespace for external/source-specific events so they are not confused with the product Timeline surface. New source types fall back to the unrestricted `chat.user_message` default profile.
 
 Current host-owned profiles include:

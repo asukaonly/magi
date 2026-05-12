@@ -28,15 +28,15 @@ profiles:
         are acceptable or unacceptable.
       - Explicit likes, dislikes, interests, favorite topics, and hobbies.
 
-      Addressing assertion conventions:
-      - When the user says how they want to be addressed, prefer a
-        `preference_profile` assertion with trait_name `preference.address.preferred`.
-      - When the user says a form of address is unwanted, prefer a
-        `preference_profile` assertion with trait_name `preference.address.disallowed`.
-      - When the user explicitly distinguishes their real name from a nickname,
-        store the real name as `preference.address.real_name`.
-      - For multiple accepted or disallowed forms, use a JSON array string in
-        trait_value and keep only the currently valid forms.
+      Addressing extraction guidance:
+      - Treat stated names, nicknames, and forms of address as profile signals
+        for the integration phase rather than as graph entities about the
+        preference category itself.
+      - Keep the user's exact stated address/name text as the value evidence.
+      - Do not extract internal schema names, preference category labels, or
+        output-field names as entity names, graph predicates, or graph objects.
+      - For multiple accepted or disallowed forms, preserve each current form
+        explicitly in the value evidence.
 
       Extraction rules:
       - Only extract what the user explicitly states. Do not infer from the assistant.

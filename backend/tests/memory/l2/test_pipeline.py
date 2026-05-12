@@ -4048,6 +4048,9 @@ class TestExtractionInstructions:
         profile = get_extraction_profiles()["chat.user_message"]
         assert profile.extraction_instructions is not None
         assert "direct user-authored chat messages" in profile.extraction_instructions
+        assert "profile signals" in profile.extraction_instructions
+        assert "preference.address" not in profile.extraction_instructions
+        assert "trait_name" not in profile.extraction_instructions
 
     def test_prompt_includes_extraction_instructions(self):
         from magi.memory.l2.pipeline.prompts import render_phase1_extract_prompt
@@ -4561,6 +4564,77 @@ async def test_validate_phase2_graph_edges_routes_corroborates_to_targets():
         # It may also be rejected depending on resolution — that's fine
         # The key assertion is that corroborates is separated
         assert all(t.get("triple_id") != "triple_abc123" for t in prepared)
+
+
+@pytest.mark.asyncio
+async def test_validate_phase2_graph_edges_rejects_assertion_schema_leak():
+    """Phase 2 graph output must not reify assertion schema identifiers as nodes."""
+    from magi.memory.l2.models import L2Phase2GraphEdge
+    from magi.memory.l2.ontology import ENTITY_TYPE_REGISTRY, PREDICATE_REGISTRY
+    from magi.memory.l2.pipeline.validation.graph_phase2 import L2Phase2GraphValidationMixin
+
+    class _Validator(L2Phase2GraphValidationMixin):
+        def _normalize_entity_type(self, value):
+            return value
+
+        def _normalize_predicate(self, value):
+            return str(value).strip().upper()
+
+        def _resolve_phase2_subject_id(self, *, event, subject_ref):
+            return subject_ref or event.user_id
+
+        def _resolve_phase2_object_id(
+            self,
+            *,
+            raw_object_ref,
+            object_type,
+            resolved_mentions,
+            catalog_name_index=None,
+        ):
+            return f"{object_type}:{raw_object_ref.replace('.', '-')}"
+
+        def _should_reject_preference_graph_candidate(self, **_kwargs):
+            return False
+
+        def _non_empty_text(self, value):
+            text = str(value or "").strip()
+            return text or None
+
+    event = _make_memory_event(event_id="evt-address", content="叫我子涵")
+
+    class _FakeProfile:
+        allow_graph = True
+        effective_structured_allowed_entity_types = ENTITY_TYPE_REGISTRY
+        effective_structured_allowed_predicates = PREDICATE_REGISTRY
+
+    class _FakePolicy:
+        allow_graph_write = True
+        graph_scope = "full"
+
+    prepared, corroborate_targets, rejected = _Validator()._validate_phase2_graph_edges(
+        event=event,
+        profile=_FakeProfile(),
+        policy=_FakePolicy(),
+        resolved_mentions=[],
+        evidence_event_ids=["evt-address"],
+        phase2_edges=[
+            L2Phase2GraphEdge(
+                subject_ref="user:u1",
+                subject_type="user",
+                predicate="PREFERENCE_PROFILE",
+                object_ref="preference.address.preferred",
+                object_type="concept",
+                confidence=0.8,
+                relationship_to_existing="new",
+                supporting_event_ids=["evt-address"],
+            )
+        ],
+        catalog_name_index=None,
+    )
+
+    assert prepared == []
+    assert corroborate_targets == []
+    assert rejected == 1
 
 
 @pytest.mark.asyncio

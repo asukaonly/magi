@@ -15,6 +15,7 @@ from ...models import (
 from ...ontology import (
     OPEN_PREDICATE_CONFIDENCE_PENALTY,
     PREDICATE_REGISTRY,
+    is_reserved_assertion_graph_identifier,
     is_valid_open_predicate,
     validate_graph_candidate,
 )
@@ -69,7 +70,11 @@ class L2Phase2GraphValidationMixin:
                 rejected_count += 1
                 continue
             is_valid, _ = validate_graph_candidate(
-                {"predicate": predicate, "object_type": object_type}
+                {
+                    "predicate": predicate,
+                    "object_type": object_type,
+                    "object_ref": edge.object_ref,
+                }
             )
             if not is_valid:
                 rejected_count += 1
@@ -86,6 +91,9 @@ class L2Phase2GraphValidationMixin:
                 catalog_name_index=catalog_name_index,
             )
             if not object_id:
+                rejected_count += 1
+                continue
+            if is_reserved_assertion_graph_identifier(object_id):
                 rejected_count += 1
                 continue
             if self._should_reject_preference_graph_candidate(  # type: ignore[attr-defined]

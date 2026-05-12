@@ -126,6 +126,9 @@ stress, mood, engagement, trigger, relationship_shift, group_atmosphere, public_
     - Disallowed form of address -> `trait_name = "preference.address.disallowed"`
     - Explicit real name -> `trait_name = "preference.address.real_name"`
     - If multiple forms are listed, encode `trait_value` as a JSON array string.
+    - These internal trait names may appear ONLY in `assertion_candidates.trait_name`.
+      Never use assertion families, trait names, output field names, or schema keys as
+      `graph_edges.predicate` or `graph_edges.object_ref`.
 
 ## Output Format
 Return JSON only:
