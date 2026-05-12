@@ -27,8 +27,14 @@ class L2ReconcileStateMixin:
             return "trigger"
         if normalized in {"taste_profile", "taste_preference"}:
             return "taste_profile"
+        if normalized.startswith("identity."):
+            return "identity_profile"
+        if normalized.startswith("communication."):
+            return "communication_profile"
         if normalized.startswith("preference."):
             return "preference_profile"
+        if normalized.startswith("state."):
+            return "state_profile"
         return "preference_profile"
 
     def _optional_text(self, value: Any) -> str | None:

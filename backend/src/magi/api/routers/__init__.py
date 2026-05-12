@@ -23,6 +23,7 @@ from .control import control_router
 from .mcp import mcp_router
 from .schedules import schedules_router
 from .code_agent import code_agent_router
+from .profile import profile_router
 
 __all__ = [
     "tools_router",
@@ -45,4 +46,5 @@ __all__ = [
     "mcp_router",
     "schedules_router",
     "code_agent_router",
+    "profile_router",
 ]

@@ -255,15 +255,29 @@ by L2 domain rather than by generic helper status: `storage/`, `graph/`,
 `maintenance/` owns offline cleanup, `models.py` owns entity contracts, and
 `facets.py` owns sidecar entity attributes.
 
-For user-authored chat, durable self-descriptive profile facts such as naming and
-addressing preferences should land in L2 semantic memory, not in bootstrap-only
-state. For example, "call me Hakimi", "don't call me teacher", and explicit
-real-name statements belong in `preference_profile` assertions under stable
-`preference.address.*` trait names so prompt assembly and retrieval can reuse one
-shared read path. Phase 1 extraction may use profile-signal predicates such as
-`PREFERRED_FORM_OF_ADDRESS`, `DISALLOWED_FORM_OF_ADDRESS`, and `REAL_NAME` to
-keep those facts explicit for Phase 2, but these predicates are not graph
-relations and must never be persisted as knowledge graph edges.
+For user-authored chat, durable self-descriptive profile facts such as identity,
+birthday, preferred language, and addressing preferences should land in L2
+semantic/state assertions, not in bootstrap-only state. Explicit identity facts
+use `identity_profile` assertions such as `identity.real_name`,
+`identity.birth_date`, `identity.birth_year`, and `identity.age.stated`.
+Communication preferences use `communication_profile` assertions such as
+`communication.address.preferred`, `communication.address.disallowed`,
+`communication.language.preferred`, and `communication.response_style.preferred`.
+Phase 1 extraction may use profile-signal predicates such as `REAL_NAME`,
+`BIRTH_DATE`, `BIRTH_YEAR`, `STATED_AGE`, `PREFERRED_FORM_OF_ADDRESS`,
+`DISALLOWED_FORM_OF_ADDRESS`, `PREFERRED_LANGUAGE`, and
+`PREFERRED_COMMUNICATION_STYLE` to keep those facts explicit for Phase 2, but
+these predicates are not graph relations and must never be persisted as knowledge
+graph edges.
+
+`user_profile_projection` in `memory.db` is the product-facing read model for the
+local user profile. It is rebuilt from current L2 profile assertions, records
+field sources/conflicts, and derives deterministic fields such as `birth_year`
+and `age_years` from `identity.birth_date`. Settings writes are user-authored
+evidence: they create an L1 audit event, write confirmed L2 profile assertions,
+and then refresh the projection. Product code and prompt assembly should read the
+projection first and fall back to raw L2 assertions only when the projection does
+not yet exist.
 
 Bootstrap is only responsible for injecting the first assistant opening for a
 persona. After that opening is persisted, all profile extraction returns to the

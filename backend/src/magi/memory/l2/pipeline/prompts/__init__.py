@@ -36,7 +36,7 @@ Core predicates (preferred): LIKES, DISLIKES, INTERESTED_IN, VISITED, LIVES_IN, 
 
 If none of the core predicates accurately describes the relationship, you MAY use a custom predicate in UPPER_SNAKE_CASE format (e.g., LEARNING, ALLERGIC_TO, TEACHING, STUDYING). Custom predicates receive lower confidence.
 
-Profile-signal predicates (Phase 1 only, never graph relations): PREFERRED_FORM_OF_ADDRESS, DISALLOWED_FORM_OF_ADDRESS, REAL_NAME. Use these when the user states a name, nickname, or form of address; preserve the exact value in `object_ref` and set `object_type` to `concept`.
+Profile-signal predicates (Phase 1 only, never graph relations): REAL_NAME, BIRTH_DATE, BIRTH_YEAR, STATED_AGE, PREFERRED_FORM_OF_ADDRESS, DISALLOWED_FORM_OF_ADDRESS, PREFERRED_LANGUAGE, PREFERRED_COMMUNICATION_STYLE. Use these when the user states personal profile facts; preserve the exact value in `object_ref` and set `object_type` to `concept`.
 
 ## Rules
 1. Only extract facts from messages marked **[USER]**. Messages marked [ASSISTANT] are dialogue context only — never treat assistant responses as user beliefs, preferences, or facts.
@@ -47,7 +47,8 @@ Profile-signal predicates (Phase 1 only, never graph relations): PREFERRED_FORM_
 6. Each entity must include a specificity rating: "concrete" for specific items, "underspecified" for vague/category-level references.
 7. Preserve entity language and script. `surface` must be the original text span, and `normalized_name` must keep the source language/script unless the source itself uses a translated name. Do NOT translate Chinese, Japanese, Korean, Cyrillic, or other non-Latin proper nouns into English; do NOT romanize or slugify them. Put known translations, romanizations, or alternate spellings in `alias_signals` only.
 8. For web pages and external-source metadata, never use a URL domain/path slug as the canonical entity name when the title or source text contains a readable subject name. Treat domains and platforms as provenance or separate platform entities, not as replacements for the content entity.
-9. Addressing instructions such as "叫我子涵" or "call me Zihan" are profile/address-preference signals. Emit one fact claim with `predicate = "PREFERRED_FORM_OF_ADDRESS"`, `object_ref` set to the requested name, and `object_type = "concept"`. Do NOT turn the requested name into a LIKES, DISLIKES, INTERESTED_IN, KNOWS, or other graph relationship.
+9. Addressing instructions such as "叫我子涵" or "call me Zihan" are communication-profile signals. Emit one fact claim with `predicate = "PREFERRED_FORM_OF_ADDRESS"`, `object_ref` set to the requested name, and `object_type = "concept"`. Do NOT turn the requested name into a LIKES, DISLIKES, INTERESTED_IN, KNOWS, or other graph relationship.
+10. Explicit self-profile facts such as real name, birthday, birth year, age, preferred language, or preferred communication style should use the matching profile-signal predicate, not graph predicates.
 
 ## Output Format
 Return JSON only:
@@ -112,7 +113,7 @@ PHASE2_INTEGRATE_SYSTEM_PROMPT = """You are a memory integration engine for a pe
 Given Phase 1 extracted facts and the user's existing knowledge graph, produce final graph edges, ToM (Theory of Mind) assertions, and identify contradictions or refinements.
 
 ## Allowed Assertion Families
-stress, mood, engagement, trigger, relationship_shift, group_atmosphere, public_sentiment, preference_profile, taste_profile
+stress, mood, engagement, trigger, relationship_shift, group_atmosphere, public_sentiment, identity_profile, communication_profile, preference_profile, state_profile, taste_profile
 
 ## Rules
 1. Compare each new fact claim against the Existing Graph. Determine the relationship:
@@ -124,13 +125,15 @@ stress, mood, engagement, trigger, relationship_shift, group_atmosphere, public_
 2. Only generate ToM assertions when psychological state evidence is clear and directly from user's own words. Do not infer mood or stress from assistant responses.
 3. For single-event evidence, cap assertion confidence at 0.3.
 4. Respect evidence accumulation: if an existing edge has high observation_count and the new evidence is a single event, do not override.
-5. When the user explicitly states how they want to be addressed, prefer a `preference_profile` assertion instead of a graph edge.
-  - Phase 1 `PREFERRED_FORM_OF_ADDRESS` -> `trait_name = "preference.address.preferred"`
-  - Phase 1 `DISALLOWED_FORM_OF_ADDRESS` -> `trait_name = "preference.address.disallowed"`
-  - Phase 1 `REAL_NAME` -> `trait_name = "preference.address.real_name"`
-    - Preferred form of address -> `trait_name = "preference.address.preferred"`
-    - Disallowed form of address -> `trait_name = "preference.address.disallowed"`
-    - Explicit real name -> `trait_name = "preference.address.real_name"`
+5. When the user explicitly states profile facts, prefer `identity_profile` or `communication_profile` assertions instead of graph edges.
+  - Phase 1 `REAL_NAME` -> `trait_family = "identity_profile"`, `trait_name = "identity.real_name"`
+  - Phase 1 `BIRTH_DATE` -> `trait_family = "identity_profile"`, `trait_name = "identity.birth_date"`
+  - Phase 1 `BIRTH_YEAR` -> `trait_family = "identity_profile"`, `trait_name = "identity.birth_year"`
+  - Phase 1 `STATED_AGE` -> `trait_family = "identity_profile"`, `trait_name = "identity.age.stated"`
+  - Phase 1 `PREFERRED_FORM_OF_ADDRESS` -> `trait_family = "communication_profile"`, `trait_name = "communication.address.preferred"`
+  - Phase 1 `DISALLOWED_FORM_OF_ADDRESS` -> `trait_family = "communication_profile"`, `trait_name = "communication.address.disallowed"`
+  - Phase 1 `PREFERRED_LANGUAGE` -> `trait_family = "communication_profile"`, `trait_name = "communication.language.preferred"`
+  - Phase 1 `PREFERRED_COMMUNICATION_STYLE` -> `trait_family = "communication_profile"`, `trait_name = "communication.response_style.preferred"`
     - If multiple forms are listed, encode `trait_value` as a JSON array string.
     - These internal trait names may appear ONLY in `assertion_candidates.trait_name`.
       Never use assertion families, trait names, output field names, or schema keys as

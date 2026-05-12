@@ -194,6 +194,10 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/delegations/{session_id}/{delegation_id}/apply": {"POST"},
         "/delegations/{session_id}/{delegation_id}/discard": {"POST"},
     },
+    "profile": {
+        "/me": {"GET", "PATCH"},
+        "/me/refresh": {"POST"},
+    },
 
 }
 
@@ -236,6 +240,7 @@ def register_api_routes(app: FastAPI) -> None:
         mcp_router,
         commands_router,
         code_agent_router,
+        profile_router,
     )
 
     app.include_router(
@@ -336,4 +341,9 @@ def register_api_routes(app: FastAPI) -> None:
         _build_public_router(code_agent_router, _PUBLIC_ROUTE_METHODS["code_agent"]),
         prefix="/api/code_agent",
         tags=["CodeAgent"],
+    )
+    app.include_router(
+        _build_public_router(profile_router, _PUBLIC_ROUTE_METHODS["profile"]),
+        prefix="/api/profile",
+        tags=["Profile"],
     )

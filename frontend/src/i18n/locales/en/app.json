@@ -800,6 +800,7 @@
       "llmProviders": "Provider Configuration",
       "llmModels": "Model Selection",
       "conversation": "Conversation Settings",
+      "personalProfile": "Personal Profile",
       "statistics": "Statistics",
       "statisticsLlm": "LLM Statistics",
       "statisticsRuntime": "System Runtime",
@@ -830,7 +831,45 @@
       "system": "System"
     },
     "preferencesDesc": "Configure interface language, theme, and desktop behavior",
+    "personalProfileDesc": "Manage the profile Magi uses to address and understand you.",
     "conversationDesc": "Configure the default workspace used for new conversations",
+    "personalProfile": {
+      "loading": "Loading profile...",
+      "description": "These fields write back to memory as confirmed profile facts and rebuild the current profile view.",
+      "identityTitle": "Basic profile",
+      "identityDesc": "Stable identity fields used for display, context, and derived profile facts.",
+      "communicationTitle": "Addressing and communication",
+      "communicationDesc": "How Magi should address you and adapt basic communication context.",
+      "save": "Save profile",
+      "refresh": "Refresh from memory",
+      "refreshing": "Refreshing...",
+      "loadFailed": "Failed to load profile: {{message}}",
+      "saveSuccess": "Profile saved",
+      "saveFailed": "Failed to save profile: {{message}}",
+      "refreshSuccess": "Profile refreshed",
+      "derivedAge": "Age {{age}} is derived from birthday as of {{date}}.",
+      "source": "Source: {{source}}",
+      "sources": {
+        "settings_profile": "personal profile settings",
+        "chat": "conversation memory",
+        "derived": "derived"
+      },
+      "fields": {
+        "realName": "Real name",
+        "birthDate": "Birthday",
+        "homeLocation": "Home location",
+        "preferredFormOfAddress": "Preferred form of address",
+        "disallowedFormsOfAddress": "Names to avoid",
+        "locale": "Preferred language",
+        "timezone": "Timezone"
+      },
+      "placeholders": {
+        "homeLocation": "City or region",
+        "disallowedForms": "Comma-separated names",
+        "locale": "zh-CN",
+        "timezone": "Asia/Shanghai"
+      }
+    },
     "codeAgent": {
       "loading": "Loading…",
       "rescan": "Rescan",

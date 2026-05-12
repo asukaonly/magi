@@ -68,7 +68,10 @@ ASSERTION_FAMILY_ALLOWLIST: frozenset[str] = frozenset(
         "relationship_shift",
         "group_atmosphere",
         "public_sentiment",
+        "identity_profile",
+        "communication_profile",
         "preference_profile",
+        "state_profile",
         "taste_profile",
     }
 )
@@ -122,6 +125,11 @@ PROFILE_SIGNAL_PREDICATES: frozenset[str] = frozenset(
         "PREFERRED_FORM_OF_ADDRESS",
         "DISALLOWED_FORM_OF_ADDRESS",
         "REAL_NAME",
+        "BIRTH_DATE",
+        "BIRTH_YEAR",
+        "STATED_AGE",
+        "PREFERRED_LANGUAGE",
+        "PREFERRED_COMMUNICATION_STYLE",
         "AGE",
     }
 )

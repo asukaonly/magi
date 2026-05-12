@@ -799,6 +799,7 @@
       "llmProviders": "供应商配置",
       "llmModels": "模型选择",
       "conversation": "对话设置",
+      "personalProfile": "个人资料",
       "statistics": "统计",
       "statisticsLlm": "大模型统计",
       "statisticsRuntime": "系统实时数据",
@@ -829,7 +830,45 @@
       "system": "系统"
     },
     "preferencesDesc": "配置界面语言、主题和桌面行为",
+    "personalProfileDesc": "管理 Magi 用来称呼和理解你的个人资料。",
     "conversationDesc": "配置新对话默认使用的工作目录",
+    "personalProfile": {
+      "loading": "正在加载个人资料...",
+      "description": "这些字段会作为已确认的用户画像事实写回记忆，并刷新当前资料视图。",
+      "identityTitle": "基本资料",
+      "identityDesc": "用于展示、上下文和派生资料的稳定身份字段。",
+      "communicationTitle": "称呼与沟通",
+      "communicationDesc": "Magi 应该如何称呼你，以及基础沟通上下文。",
+      "save": "保存资料",
+      "refresh": "从记忆刷新",
+      "refreshing": "刷新中...",
+      "loadFailed": "加载个人资料失败：{{message}}",
+      "saveSuccess": "个人资料已保存",
+      "saveFailed": "保存个人资料失败：{{message}}",
+      "refreshSuccess": "个人资料已刷新",
+      "derivedAge": "年龄 {{age}} 根据生日推算，日期为 {{date}}。",
+      "source": "来源：{{source}}",
+      "sources": {
+        "settings_profile": "个人资料设置",
+        "chat": "对话记忆",
+        "derived": "派生"
+      },
+      "fields": {
+        "realName": "真实姓名",
+        "birthDate": "生日",
+        "homeLocation": "常住地",
+        "preferredFormOfAddress": "希望如何称呼我",
+        "disallowedFormsOfAddress": "不希望使用的称呼",
+        "locale": "偏好语言",
+        "timezone": "时区"
+      },
+      "placeholders": {
+        "homeLocation": "城市或地区",
+        "disallowedForms": "用英文逗号分隔多个称呼",
+        "locale": "zh-CN",
+        "timezone": "Asia/Shanghai"
+      }
+    },
     "codeAgent": {
       "loading": "加载中…",
       "rescan": "重新探测",

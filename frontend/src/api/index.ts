@@ -57,6 +57,9 @@ export type { SkillItem } from './modules/skills';
 export { memoryApi } from './modules/memory';
 export type { ModelDownloadStatus } from './modules/memory';
 
+export { profileApi } from './modules/profile';
+export type { UserProfilePatch, UserProfileProjection } from './modules/profile';
+
 export { sensorsApi } from './modules/sensors';
 export type {
   SensorSourceAuthorizationResponse,

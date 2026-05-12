@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict
 
 from ..core.logger import get_logger
+from ..user_profile.projection_repository import UserProfileProjectionRepository
 
 logger = get_logger(__name__)
 
@@ -90,10 +91,51 @@ class UserProfileService:
             return entry
 
         entry = _CacheEntry(fetched_at=now)
-        entry.preferences = await self._fetch_preferences(user_id)
-        entry.display_name = await self._fetch_display_name(user_id, preferences=entry.preferences)
+        projection_entry = await self._fetch_projection_entry(user_id)
+        if projection_entry is not None:
+            entry = projection_entry
+            entry.fetched_at = now
+        else:
+            entry.preferences = await self._fetch_preferences(user_id)
+            entry.display_name = await self._fetch_display_name(user_id, preferences=entry.preferences)
         self._cache[user_id] = entry
         return entry
+
+    async def _fetch_projection_entry(self, user_id: str) -> _CacheEntry | None:
+        if self._unified_memory is None:
+            return None
+        l2 = getattr(self._unified_memory, "l2", None)
+        db_path = str(getattr(l2, "db_path", "") or "") if l2 is not None else ""
+        if not db_path:
+            return None
+        try:
+            projection = await UserProfileProjectionRepository(db_path).get(user_id)
+        except Exception:
+            logger.debug("Failed to get profile projection for %s", user_id)
+            return None
+        if projection is None:
+            return None
+        preferences: Dict[str, Any] = {
+            "identity.real_name": projection.real_name,
+            "communication.address.preferred": projection.preferred_form_of_address,
+            "communication.language.preferred": projection.locale,
+            "communication.timezone.preferred": projection.timezone,
+        }
+        if projection.birth_date:
+            preferences["identity.birth_date"] = projection.birth_date
+        if projection.birth_year is not None:
+            preferences["identity.birth_year"] = projection.birth_year
+        if projection.age_years is not None:
+            preferences["identity.age_years"] = projection.age_years
+        if projection.home_location:
+            preferences["identity.location.home"] = projection.home_location
+        disallowed = projection.communication.get("disallowed_forms_of_address")
+        if disallowed:
+            preferences["communication.address.disallowed"] = disallowed
+        return _CacheEntry(
+            display_name=projection.display_name or "unknown",
+            preferences={key: value for key, value in preferences.items() if value not in (None, "")},
+        )
 
     async def _fetch_display_name(self, user_id: str, *, preferences: Dict[str, Any] | None = None) -> str:
         preferred_name = self._derive_display_name(preferences or {})
@@ -219,7 +261,15 @@ class UserProfileService:
         if preferred:
             return preferred
 
+        preferred = cls._first_text(preferences.get("communication.address.preferred"))
+        if preferred:
+            return preferred
+
         real_name = cls._first_text(preferences.get(_ADDRESS_REAL_NAME_KEY))
+        if real_name:
+            return real_name
+
+        real_name = cls._first_text(preferences.get("identity.real_name"))
         if real_name:
             return real_name
 

@@ -508,6 +508,11 @@
       "owner_file": "backend/src/magi/api/routers/plugins.py"
     },
     {
+      "prefix": "/api/profile",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/profile.py"
+    },
+    {
       "prefix": "/api/runtime",
       "owner": "python-ipc",
       "owner_file": "backend/src/magi/transport/http_app.py"

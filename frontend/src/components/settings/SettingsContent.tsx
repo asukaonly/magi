@@ -22,6 +22,7 @@ import { EmbeddingPreflightConfirmDialog } from '@/components/settings/Embedding
 import { SettingsNavigationSidebar } from '@/components/settings/SettingsNavigationSidebar';
 import { SettingsPersonalityRuntimeSection } from '@/components/settings/SettingsPersonalityRuntimeSection';
 import { SettingsPreferencesSection } from '@/components/settings/SettingsPreferencesSection';
+import { SettingsPersonalProfileSection } from '@/components/settings/SettingsPersonalProfileSection';
 import { SettingsToolsSection } from '@/components/settings/SettingsToolsSection';
 import { MCPServersSection } from '@/components/settings/MCPServersSection';
 import { CodeAgentSection } from '@/components/settings/CodeAgentSection';
@@ -205,6 +206,9 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             onLanguagePreviewChange={handleLanguagePreviewChange}
           />
         );
+
+      case 'personalProfile':
+        return <SettingsPersonalProfileSection />;
 
       case 'conversation':
         return (
