@@ -795,7 +795,7 @@
     "saveAll": "Save All",
     "saving": "Saving...",
     "tabs": {
-      "preferences": "Preferences",
+      "preferences": "General",
       "llm": "Model Configuration",
       "llmProviders": "Provider Configuration",
       "llmModels": "Model Selection",

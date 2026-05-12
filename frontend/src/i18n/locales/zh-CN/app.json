@@ -794,7 +794,7 @@
     "saveAll": "保存全部",
     "saving": "保存中...",
     "tabs": {
-      "preferences": "偏好",
+      "preferences": "常规",
       "llm": "大模型配置",
       "llmProviders": "供应商配置",
       "llmModels": "模型选择",
