@@ -156,7 +156,7 @@ def test_loader_migrates_legacy_disabled_chrome_history_plugin(tmp_path: Path, m
                         "enabled": False,
                         "trusted": False,
                         "source": "builtin",
-                        "manifest_path": "/Users/asuka/code/magi/plugins/chrome-history/plugin.toml",
+                        "manifest_path": "/tmp/magi/plugins/chrome-history/plugin.toml",
                     }
                 }
             },

@@ -328,13 +328,13 @@ async def test_dispatch_user_message_carries_attachments_and_workspace_path_into
         message="",
         session_id="session-for-u1",
         attachments=[{"kind": "image", "attachment_id": "att-1"}],
-        workspace_path="/Users/asuka/code/magi",
+        workspace_path="/tmp/magi",
     )
 
     assert outcome.success is True
     command = queue.commands[0]
     assert command.attachments == [{"kind": "image", "attachment_id": "att-1"}]
-    assert command.workspace_path == "/Users/asuka/code/magi"
+    assert command.workspace_path == "/tmp/magi"
 
 
 @pytest.mark.asyncio
@@ -348,7 +348,7 @@ async def test_dispatch_user_message_falls_back_to_session_workspace_path(
     monkeypatch.setattr(
         service,
         "get_chat_read_service",
-        lambda: _FakeChatReadService("/Users/asuka/code/magi"),
+        lambda: _FakeChatReadService("/tmp/magi"),
     )
 
     outcome = await service.dispatch_user_message(
@@ -361,7 +361,7 @@ async def test_dispatch_user_message_falls_back_to_session_workspace_path(
 
     assert outcome.success is True
     command = queue.commands[0]
-    assert command.workspace_path == "/Users/asuka/code/magi"
+    assert command.workspace_path == "/tmp/magi"
 
 
 @pytest.mark.asyncio

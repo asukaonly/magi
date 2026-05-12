@@ -113,7 +113,7 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
 
     async def test_build_prompt_package_uses_session_workspace_path_when_available(self):
         retrieval_memory_provider = AsyncMock(return_value=self._empty_retrieval_payload())
-        session_workspace_provider = AsyncMock(return_value="/Users/asuka/code/magi")
+        session_workspace_provider = AsyncMock(return_value="/tmp/magi")
         service = ContextAssemblyService(
             agent_id="chat-agent",
             agent_type="chat",
@@ -133,8 +133,8 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
         )
 
         session_workspace_provider.assert_awaited_once_with(user_id="u1", session_id="s1")
-        self.assertEqual(package.prompt_context.runtime_system.cwd, "/Users/asuka/code/magi")
-        self.assertIn("* Working Directory: /Users/asuka/code/magi", package.system_prompt)
+        self.assertEqual(package.prompt_context.runtime_system.cwd, "/tmp/magi")
+        self.assertIn("* Working Directory: /tmp/magi", package.system_prompt)
 
     async def test_build_prompt_package_uses_stored_persona_id_for_prompt_identity(self):
         persona_config = PersonalityConfig.from_dict(

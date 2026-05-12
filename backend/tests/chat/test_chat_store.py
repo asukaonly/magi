@@ -104,7 +104,7 @@ async def test_chat_store_persists_turn_and_message_records(tmp_path: Path) -> N
                 last_message_preview="",
                 last_user_message_preview="",
                 message_count=0,
-                workspace_path="/Users/asuka/code/magi",
+                workspace_path="/tmp/magi",
                 archived_at_ms=None,
                 deleted_at_ms=None,
             )
@@ -173,7 +173,7 @@ async def test_chat_store_persists_turn_and_message_records(tmp_path: Path) -> N
         assert [message.message_kind for message in messages] == ["user_text", "assistant_final"]
         assert [message.content_text for message in messages] == ["hello", "hi there"]
         assert [message.persona_id for message in messages] == ["persona-a", "persona-a"]
-        assert _read_session_workspace_path(db_path, "session-1") == "/Users/asuka/code/magi"
+        assert _read_session_workspace_path(db_path, "session-1") == "/tmp/magi"
     finally:
         await store.shutdown()
 

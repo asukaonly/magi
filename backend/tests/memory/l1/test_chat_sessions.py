@@ -67,8 +67,8 @@ def test_create_chat_session_record_keeps_workspace_path() -> None:
     record = create_chat_session_record(
         user_id="user-1",
         session_id="session-1",
-        workspace_path="/Users/asuka/code/magi",
+        workspace_path="/tmp/magi",
         now=123.0,
     )
 
-    assert record.workspace_path == "/Users/asuka/code/magi"
+    assert record.workspace_path == "/tmp/magi"

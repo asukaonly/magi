@@ -764,7 +764,7 @@ describe('settings page draft saving', () => {
 
   it('saves a picked default chat workspace path in conversation settings', async () => {
     const user = userEvent.setup();
-    pickDirectoryMock.mockResolvedValue('/Users/asuka/code/magi');
+    pickDirectoryMock.mockResolvedValue('/tmp/magi-workspace');
     render(<SettingsPage />);
 
     await user.click(await screen.findByRole('button', { name: 'settings.tabs.conversation' }));
@@ -775,7 +775,7 @@ describe('settings page draft saving', () => {
 
     await waitFor(() => expect(pickDirectoryMock).toHaveBeenCalledTimes(1));
     expect(pickDirectoryMock).toHaveBeenCalledWith('~/.magi/chat-workspace');
-    expect(workspaceInput).toHaveValue('/Users/asuka/code/magi');
+    expect(workspaceInput).toHaveValue('/tmp/magi-workspace');
     expect(screen.getByText('settings.pendingChanges')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
@@ -784,7 +784,7 @@ describe('settings page draft saving', () => {
       expect(configApi.update).toHaveBeenCalledWith(
         expect.objectContaining({
           preferences: expect.objectContaining({
-            default_chat_workspace_path: '/Users/asuka/code/magi',
+            default_chat_workspace_path: '/tmp/magi-workspace',
           }),
         })
       )
@@ -798,7 +798,7 @@ describe('settings page draft saving', () => {
         ...structuredClone(DEFAULT_SYSTEM_CONFIG),
         preferences: {
           ...structuredClone(DEFAULT_SYSTEM_CONFIG.preferences),
-          default_chat_workspace_path: '/Users/asuka/code/magi',
+          default_chat_workspace_path: '/tmp/magi-workspace',
         },
       },
     } as any);
@@ -807,7 +807,7 @@ describe('settings page draft saving', () => {
 
     await user.click(await screen.findByRole('button', { name: 'settings.tabs.conversation' }));
     const workspaceInput = await screen.findByLabelText('settings.fields.defaultChatWorkspace');
-    expect(workspaceInput).toHaveValue('/Users/asuka/code/magi');
+    expect(workspaceInput).toHaveValue('/tmp/magi-workspace');
 
     await user.click(screen.getByRole('button', { name: 'settings.actions.restoreDefaultDirectory' }));
     expect(workspaceInput).toHaveValue('~/.magi/chat-workspace');
@@ -989,7 +989,7 @@ describe('settings page draft saving', () => {
 
   it('saves memory storage path from the general memory section alongside knowledge settings', async () => {
     const user = userEvent.setup();
-    pickDirectoryMock.mockResolvedValue('/Users/asuka/.magi/data/custom-memories');
+    pickDirectoryMock.mockResolvedValue('/tmp/magi-data/custom-memories');
     render(<SettingsPage />);
 
     await user.click(await screen.findByRole('button', { name: 'settings.tabs.memory' }));
@@ -1001,7 +1001,7 @@ describe('settings page draft saving', () => {
       expect(pickDirectoryMock).toHaveBeenCalledWith('~/.magi/data/memories')
     );
     expect(
-      screen.getByDisplayValue('/Users/asuka/.magi/data/custom-memories')
+      screen.getByDisplayValue('/tmp/magi-data/custom-memories')
     ).toBeInTheDocument();
     expect(
       screen.queryByRole('switch', { name: 'settings.memory.fields.async_embeddings.label' })
@@ -1026,7 +1026,7 @@ describe('settings page draft saving', () => {
       expect(configApi.update).toHaveBeenCalledWith(
         expect.objectContaining({
           memory: expect.objectContaining({
-            db_path: '/Users/asuka/.magi/data/custom-memories',
+            db_path: '/tmp/magi-data/custom-memories',
             l2: expect.objectContaining({
               batch_flush_interval_seconds: 90,
               conflict_arbitration_enabled: false,

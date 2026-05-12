@@ -511,12 +511,12 @@ def test_list_sessions_respects_limit(tmp_path):
 def test_create_new_session_persists_workspace_path(tmp_path):
     service = _build_service(tmp_path)
 
-    session_id = service.create_new_session("u1", workspace_path="/Users/asuka/code/magi")
+    session_id = service.create_new_session("u1", workspace_path="/tmp/magi")
 
     sessions = service.list_sessions("u1", limit=10)
 
     assert sessions[0].session_id == session_id
-    assert sessions[0].workspace_path == "/Users/asuka/code/magi"
+    assert sessions[0].workspace_path == "/tmp/magi"
 
 
 def test_get_display_history_returns_attachment_metadata_for_user_message(tmp_path):
@@ -621,11 +621,11 @@ def test_update_session_workspace_persists_and_allows_clearing(tmp_path):
         updated_at=1000,
     )
 
-    updated = service.update_session_workspace("u1", "s1", "/Users/asuka/code/magi")
+    updated = service.update_session_workspace("u1", "s1", "/tmp/magi")
     cleared = service.update_session_workspace("u1", "s1", "")
     sessions = service.list_sessions("u1", limit=10)
 
-    assert updated.workspace_path == "/Users/asuka/code/magi"
+    assert updated.workspace_path == "/tmp/magi"
     assert cleared.workspace_path is None
     assert sessions[0].workspace_path is None
 
@@ -1323,7 +1323,7 @@ def test_list_sessions_router_response(monkeypatch):
                     title_overridden=False,
                     last_timestamp=123,
                     message_count=2,
-                    workspace_path="/Users/asuka/code/magi",
+                    workspace_path="/tmp/magi",
                     history_version=9,
                 )
             ]
@@ -1346,13 +1346,13 @@ def test_list_sessions_exposes_workspace_path(tmp_path):
         title="Workspace Chat",
         created_at=1000,
         updated_at=1010,
-        workspace_path="/Users/asuka/code/magi",
+        workspace_path="/tmp/magi",
     )
 
     sessions = service.list_sessions("u1", limit=10)
 
     assert len(sessions) == 1
-    assert sessions[0].workspace_path == "/Users/asuka/code/magi"
+    assert sessions[0].workspace_path == "/tmp/magi"
 
 
 def test_rename_session_router_response(monkeypatch):

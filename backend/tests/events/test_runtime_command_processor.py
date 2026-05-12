@@ -50,7 +50,7 @@ async def test_runtime_command_processor_publishes_user_message_to_local_bus(tmp
                 runtime_namespace="desktop",
                 metadata={"origin": "test"},
                 attachments=[{"kind": "pdf", "attachment_id": "att-1"}],
-                workspace_path="/Users/asuka/code/magi",
+                workspace_path="/tmp/magi",
             )
         )
 
@@ -67,7 +67,7 @@ async def test_runtime_command_processor_publishes_user_message_to_local_bus(tmp
         assert event.payload["content"] == "hello runtime"
         assert event.payload["user_id"] == "user-1"
         assert event.payload["attachments"] == [{"kind": "pdf", "attachment_id": "att-1"}]
-        assert event.payload["workspace_path"] == "/Users/asuka/code/magi"
+        assert event.payload["workspace_path"] == "/tmp/magi"
 
         for _ in range(100):
             stats = await queue.get_stats()

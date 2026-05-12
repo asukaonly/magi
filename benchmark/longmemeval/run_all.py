@@ -20,7 +20,7 @@ from benchmark.longmemeval.query_dataset import main as query_main
 from benchmark.longmemeval.replay_dataset import main as replay_main
 
 DEFAULT_BACKEND_URL: str | None = None  # resolved lazily from ~/.magi/config/agent.yaml
-DEFAULT_LONGMEMEVAL_ROOT = Path("/Users/asuka/code/LongMemEval")
+DEFAULT_LONGMEMEVAL_ROOT = REPO_ROOT.parent / "LongMemEval"
 
 
 def format_run_id(now: datetime | None = None) -> str:

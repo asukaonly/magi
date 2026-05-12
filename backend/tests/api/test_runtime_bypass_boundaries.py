@@ -22,8 +22,13 @@ def test_api_services_module_does_not_reexport_runtime_globals() -> None:
 
 
 def test_api_service_helpers_do_not_probe_container_directly() -> None:
-    chat_read_service = Path("/Users/asuka/code/magi/backend/src/magi/chat/read_service.py").read_text(encoding="utf-8")
-    chat_trace_read_service = Path("/Users/asuka/code/magi/backend/src/magi/api/services/chat_trace/read_service.py").read_text(encoding="utf-8")
+    from magi.api import services as api_services
+    from magi.api.services.chat_trace import read_service as chat_trace_read_service_module
+    from magi.chat import read_service as chat_read_service_module
+
+    api_services_dir = Path(api_services.__file__).resolve().parent
+    chat_read_service = Path(chat_read_service_module.__file__).read_text(encoding="utf-8")
+    chat_trace_read_service = Path(chat_trace_read_service_module.__file__).read_text(encoding="utf-8")
 
     assert "get_container()" not in chat_read_service
     assert "get_container()" not in chat_trace_read_service
@@ -31,14 +36,16 @@ def test_api_service_helpers_do_not_probe_container_directly() -> None:
     assert "global _chat_read_service" not in chat_read_service
     assert "\n_chat_trace_read_service" not in chat_trace_read_service
     assert "global _chat_trace_read_service" not in chat_trace_read_service
-    assert not Path("/Users/asuka/code/magi/backend/src/magi/api/services/chat_read_service.py").exists()
-    assert not Path("/Users/asuka/code/magi/backend/src/magi/api/services/user_message_sensor_service.py").exists()
-    assert not Path("/Users/asuka/code/magi/backend/src/magi/api/services/message_bus_service.py").exists()
-    assert not Path("/Users/asuka/code/magi/backend/src/magi/api/services/other_memory_service.py").exists()
+    assert not (api_services_dir / "chat_read_service.py").exists()
+    assert not (api_services_dir / "user_message_sensor_service.py").exists()
+    assert not (api_services_dir / "message_bus_service.py").exists()
+    assert not (api_services_dir / "other_memory_service.py").exists()
 
 
 def test_personality_config_router_does_not_read_builtin_preset_files() -> None:
-    source = Path("/Users/asuka/code/magi/backend/src/magi/api/routers/personality_config.py").read_text(encoding="utf-8")
+    from magi.api.routers import personality_config as personality_config_router
+
+    source = Path(personality_config_router.__file__).read_text(encoding="utf-8")
 
     assert "_get_builtin_personalities_dir" not in source
     assert "_load_builtin_personality" not in source

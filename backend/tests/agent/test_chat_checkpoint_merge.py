@@ -110,7 +110,7 @@ def _make_request(context: ChatRuntimeContext) -> FunctionCallingRequest:
             orchestration_plan=OrchestrationPlan(),
         ),
         tool_selection=ToolSelection(tools=["memory_query"], reasoning="tool use"),
-        prompt_context=SimpleNamespace(runtime_system=SimpleNamespace(cwd="/Users/asuka/code/magi")),
+        prompt_context=SimpleNamespace(runtime_system=SimpleNamespace(cwd="/tmp/magi")),
         system_prompt="system prompt",
         selected_tools=["memory_query"],
     )
@@ -323,7 +323,7 @@ async def test_function_calling_handler_passes_prompt_workspace_to_execute_with_
     result = await handler.execute(_make_request(context))
 
     assert result.response_text == "tool result"
-    assert orchestrator.execute_with_tools_calls[0]["execution_workspace"] == "/Users/asuka/code/magi"
+    assert orchestrator.execute_with_tools_calls[0]["execution_workspace"] == "/tmp/magi"
 
 
 @pytest.mark.asyncio
@@ -350,4 +350,4 @@ async def test_function_calling_handler_passes_prompt_workspace_to_checkpoint_fa
     result = await handler.execute(_make_request(context))
 
     assert result.response_text == "fallback result"
-    assert orchestrator.fallback_calls[0]["execution_workspace"] == "/Users/asuka/code/magi"
+    assert orchestrator.fallback_calls[0]["execution_workspace"] == "/tmp/magi"

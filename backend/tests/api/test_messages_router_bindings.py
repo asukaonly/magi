@@ -100,13 +100,13 @@ async def test_send_user_message_passes_attachments_and_workspace_path(monkeypat
             message="",
             session_id="session-1",
             attachments=[{"kind": "image", "attachment_id": "att-1"}],
-            workspace_path="/Users/asuka/code/magi",
+            workspace_path="/tmp/magi",
         )
     )
 
     assert response.success is True
     assert captured["attachments"] == [{"kind": "image", "attachment_id": "att-1"}]
-    assert captured["workspace_path"] == "/Users/asuka/code/magi"
+    assert captured["workspace_path"] == "/tmp/magi"
 
 
 @pytest.mark.asyncio
@@ -434,14 +434,14 @@ async def test_create_new_session_uses_default_workspace_path(monkeypatch: pytes
             return "session-1"
 
     monkeypatch.setattr(messages_router, "get_chat_read_service", lambda: _FakeReadService())
-    monkeypatch.setattr(messages_router, "_get_default_chat_workspace_path", lambda: "/Users/asuka/code/magi")
+    monkeypatch.setattr(messages_router, "_get_default_chat_workspace_path", lambda: "/tmp/magi")
 
     response = await messages_router.create_new_session(user_id="u1")
 
     assert response["success"] is True
     assert response["session_id"] == "session-1"
-    assert response["workspace_path"] == "/Users/asuka/code/magi"
-    assert captured["workspace_path"] == "/Users/asuka/code/magi"
+    assert response["workspace_path"] == "/tmp/magi"
+    assert captured["workspace_path"] == "/tmp/magi"
 
 
 @pytest.mark.asyncio
@@ -450,10 +450,10 @@ async def test_update_session_workspace_route_response(monkeypatch: pytest.Monke
         async def aupdate_session_workspace(self, user_id: str, session_id: str, workspace_path: str | None):
             assert user_id == "u1"
             assert session_id == "s1"
-            assert workspace_path == "/Users/asuka/code/magi"
+            assert workspace_path == "/tmp/magi"
             return messages_router.SessionWorkspaceUpdateResult(
                 session_id="s1",
-                workspace_path="/Users/asuka/code/magi",
+                workspace_path="/tmp/magi",
             )
 
     monkeypatch.setattr(messages_router, "get_chat_read_service", lambda: _FakeReadService())
@@ -462,12 +462,12 @@ async def test_update_session_workspace_route_response(monkeypatch: pytest.Monke
         session_id="s1",
         request=messages_router.UpdateSessionWorkspaceRequest(
             user_id="u1",
-            workspace_path="/Users/asuka/code/magi",
+            workspace_path="/tmp/magi",
         ),
     )
 
     assert response["success"] is True
-    assert response["session"]["workspace_path"] == "/Users/asuka/code/magi"
+    assert response["session"]["workspace_path"] == "/tmp/magi"
 
 
 @pytest.mark.asyncio

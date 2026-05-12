@@ -132,12 +132,12 @@ async def test_chat_default_workspace_root_prefers_session_workspace() -> None:
         aggregate_orchestration=_fake_aggregate,
         register_user_message=_fake_register_user_message,
         parent_task_agent_type="chat",
-        session_workspace_provider=lambda **_: "/Users/asuka/code/magi",
+        session_workspace_provider=lambda **_: "/tmp/magi",
     )
 
     resolved = await orchestrator._default_workspace_root(user_id="user-1", session_id="session-1")
 
-    assert resolved == "/Users/asuka/code/magi"
+    assert resolved == "/tmp/magi"
 
 
 @pytest.mark.asyncio
@@ -182,6 +182,7 @@ async def test_explore_default_workspace_root_uses_runtime_project_root_not_cwd(
 
 @pytest.mark.asyncio
 async def test_resolve_workspace_root_prefers_explicit_user_scope() -> None:
+    expected_workspace_root = str(Path(task_orchestrator_module.__file__).resolve().parents[4])
     orchestrator = TaskOrchestrator(
         runtime_key="explore:user-1",
         tool_registry=ToolRegistry(),
@@ -194,10 +195,10 @@ async def test_resolve_workspace_root_prefers_explicit_user_scope() -> None:
     resolved = await orchestrator._resolve_workspace_root(
         user_id="user-1",
         session_id="session-1",
-        user_message="看下 ~/code/magi 的代码，分析下代码架构",
+        user_message=f"看下 {expected_workspace_root} 的代码，分析下代码架构",
     )
 
-    assert resolved == "/Users/asuka/code/magi"
+    assert resolved == expected_workspace_root
 
 
 @pytest.mark.asyncio
@@ -360,7 +361,7 @@ async def test_start_orchestration_passes_workspace_root_to_planner(monkeypatch:
     monkeypatch.setattr(orchestrator, "_launch_workers", _fake_launch_workers)
     async def _fake_resolve_workspace_root(*, user_id: str, session_id: str, user_message: str) -> str:
         _ = (user_id, session_id, user_message)
-        return "/Users/asuka/code/magi"
+        return "/tmp/magi"
 
     monkeypatch.setattr(orchestrator, "_resolve_workspace_root", _fake_resolve_workspace_root)
 
@@ -379,7 +380,7 @@ async def test_start_orchestration_passes_workspace_root_to_planner(monkeypatch:
     )
 
     assert result.skip_emit is True
-    assert captured["kwargs"]["workspace_root"] == "/Users/asuka/code/magi"
+    assert captured["kwargs"]["workspace_root"] == "/tmp/magi"
     assert captured["saved_state"].metadata["persona_id"] == "persona-orchestration"
 
 

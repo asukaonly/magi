@@ -170,7 +170,7 @@ def _make_request(context: ChatRuntimeContext) -> FunctionCallingRequest:
         ),
         tool_selection=ToolSelection(tools=["memory_query"], reasoning="tool use"),
         prompt_context=SimpleNamespace(
-            runtime_system=SimpleNamespace(cwd="/Users/asuka/code/magi")
+            runtime_system=SimpleNamespace(cwd="/tmp/magi")
         ),
         system_prompt="system prompt",
         selected_tools=["memory_query"],

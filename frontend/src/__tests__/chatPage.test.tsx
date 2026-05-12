@@ -244,7 +244,7 @@ describe('ChatPage', () => {
         title_overridden: false,
         last_timestamp: 0,
         message_count: 0,
-        workspace_path: '/Users/asuka/code/magi',
+        workspace_path: '/tmp/magi-workspace',
       },
     ], 'session-1');
     useConversationStore.getState().receiveHistory(
@@ -261,7 +261,7 @@ describe('ChatPage', () => {
     expect(screen.getByTestId('chat-workspace-trigger')).toHaveClass('bg-background/96');
     expect(screen.getByTestId('chat-workspace-trigger')).not.toHaveClass('border');
     expect(screen.getByTestId('chat-workspace-trigger')).not.toHaveClass('ring-1');
-    expect(screen.getByTestId('chat-workspace-path')).toHaveTextContent('/Users/asuka/code/magi');
+    expect(screen.getByTestId('chat-workspace-path')).toHaveTextContent('/tmp/magi-workspace');
     expect(screen.getByTestId('chat-workspace-message-count')).toHaveTextContent('2');
     expect(screen.getByText('hello').parentElement).toHaveClass('rounded-xl', 'rounded-tr-sm');
     expect(screen.getByText('world').parentElement?.parentElement).toHaveClass('rounded-xl', 'rounded-tl-sm');
@@ -801,14 +801,14 @@ describe('ChatPage', () => {
     const user = userEvent.setup();
     pickDirectoryMock.mockResolvedValue('/tmp/next-workspace');
     vi.mocked(messagesApi.getRecentWorkspaces).mockResolvedValue({
-      paths: ['/Users/asuka/code/magi', '/tmp/existing-workspace'],
+      paths: ['/tmp/magi-workspace', '/tmp/existing-workspace'],
     } as any);
     vi.mocked(messagesApi.rememberWorkspace)
       .mockResolvedValueOnce({
-        paths: ['/tmp/next-workspace', '/Users/asuka/code/magi', '/tmp/existing-workspace'],
+        paths: ['/tmp/next-workspace', '/tmp/magi-workspace', '/tmp/existing-workspace'],
       } as any)
       .mockResolvedValueOnce({
-        paths: ['/Users/asuka/code/magi', '/tmp/existing-workspace', '/tmp/next-workspace'],
+        paths: ['/tmp/magi-workspace', '/tmp/existing-workspace', '/tmp/next-workspace'],
       } as any);
     vi.mocked(messagesApi.updateSessionWorkspace)
       .mockResolvedValueOnce({
@@ -863,7 +863,7 @@ describe('ChatPage', () => {
         title_overridden: false,
         last_timestamp: 0,
         message_count: 0,
-        workspace_path: '/Users/asuka/code/magi',
+        workspace_path: '/tmp/magi-workspace',
       },
     ], 'session-1');
 
@@ -873,7 +873,7 @@ describe('ChatPage', () => {
     expect(await screen.findByText('settings.actions.chooseDirectory')).toBeInTheDocument();
     await user.click(screen.getByText('settings.actions.chooseDirectory'));
 
-    await waitFor(() => expect(pickDirectoryMock).toHaveBeenCalledWith('/Users/asuka/code/magi'));
+    await waitFor(() => expect(pickDirectoryMock).toHaveBeenCalledWith('/tmp/magi-workspace'));
     await waitFor(() => expect(messagesApi.updateSessionWorkspace).toHaveBeenCalledWith('local_user', 'session-1', '/tmp/next-workspace'));
     await waitFor(() => expect(messagesApi.rememberWorkspace).toHaveBeenCalledWith('/tmp/next-workspace'));
     expect(screen.getByTestId('chat-workspace-path')).toHaveTextContent('/tmp/next-workspace');
@@ -1093,7 +1093,7 @@ describe('ChatPage', () => {
         title_overridden: false,
         last_timestamp: 0,
         message_count: 0,
-        workspace_path: '/Users/asuka/code/magi',
+        workspace_path: '/tmp/magi-workspace',
       },
     ], 'session-1');
 
@@ -1126,7 +1126,7 @@ describe('ChatPage', () => {
           kind: 'text_file',
         }),
       ],
-      workspace_path: '/Users/asuka/code/magi',
+      workspace_path: '/tmp/magi-workspace',
       client_turn_id: uploadedTurnId,
     });
     await waitFor(() => {

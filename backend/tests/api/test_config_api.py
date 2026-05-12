@@ -191,12 +191,12 @@ def test_build_system_config_loads_default_chat_workspace_path_from_raw_yaml(
 ):
     monkeypatch.setattr(
         "magi.api.routers.config._read_raw_yaml",
-        lambda: {"preferences": {"default_chat_workspace_path": "/Users/asuka/code/magi"}},
+        lambda: {"preferences": {"default_chat_workspace_path": "/tmp/magi"}},
     )
 
     config = _build_system_config()
 
-    assert config.preferences.default_chat_workspace_path == "/Users/asuka/code/magi"
+    assert config.preferences.default_chat_workspace_path == "/tmp/magi"
 
 
 def test_system_config_does_not_expose_internal_runtime_fields():
@@ -291,13 +291,13 @@ def test_custom_provider_default_model_must_be_in_model_list():
 def test_build_update_paths_contains_new_sections():
     current = _build_system_config(mask_api_key=False)
     config = SystemConfigModel.model_validate(current.model_dump(mode="json"))
-    config.memory.db_path = "/Users/asuka/.magi/data/custom-memories"
+    config.memory.db_path = "/tmp/magi-data/custom-memories"
     config.memory.reranker.top_k = 12
     config.memory.reranker.cross_encoder.enabled = True
     config.memory.reranker.cross_encoder.managed_model_id = "bge-reranker-v2-m3"
     config.memory.query_expansion.enabled = False
     config.memory.l0.enabled = not current.memory.l0.enabled
-    config.preferences.default_chat_workspace_path = "/Users/asuka/code/magi"
+    config.preferences.default_chat_workspace_path = "/tmp/magi"
     config.memory.l2.batch_flush_interval_seconds = 90
     config.memory.l2.vectors_enabled = not current.memory.l2.vectors_enabled
     config.llm.model_runtime_overrides["openai::gpt-5.2::chat"] = LLMConcurrencyOverrideSettings(
@@ -312,7 +312,7 @@ def test_build_update_paths_contains_new_sections():
     )
     updates = _build_update_paths(config)
 
-    assert updates["agent.memory.db_path"] == "/Users/asuka/.magi/data/custom-memories"
+    assert updates["agent.memory.db_path"] == "/tmp/magi-data/custom-memories"
     assert updates["agent.memory.reranker.top_k"] == 12
     assert updates["agent.memory.reranker.cross_encoder.enabled"] is True
     assert updates["agent.memory.reranker.cross_encoder.managed_model_id"] == "bge-reranker-v2-m3"
@@ -334,7 +334,7 @@ def test_build_update_paths_contains_new_sections():
         updates["timeline"]["sources"]["photo_library"]["enabled"]
         == config.timeline.sources.photo_library.enabled
     )
-    assert updates["preferences"]["default_chat_workspace_path"] == "/Users/asuka/code/magi"
+    assert updates["preferences"]["default_chat_workspace_path"] == "/tmp/magi"
     assert "agent.memory.async_embeddings" not in updates
     assert "agent.memory.embedding.backend" not in updates
     assert "agent.memory.l4.enabled" not in updates

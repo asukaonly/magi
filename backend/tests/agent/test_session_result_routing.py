@@ -159,10 +159,10 @@ def test_chat_planning_service_context_uses_explicit_workspace_root() -> None:
     context = service._build_agent_tool_context(
         "user-1",
         "session-1",
-        workspace_root="/Users/asuka/code/magi",
+        workspace_root="/tmp/magi",
     )
 
-    assert context.workspace == "/Users/asuka/code/magi"
+    assert context.workspace == "/tmp/magi"
 
 
 @pytest.mark.asyncio
@@ -297,12 +297,12 @@ async def test_chat_planning_service_plan_worker_uses_explicit_workspace_root() 
         user_message="analyze repo",
         user_id="user-1",
         session_id="session-1",
-        workspace_root="/Users/asuka/code/magi",
+        workspace_root="/tmp/magi",
     )
 
     assert plan is not None
     _, _, context = registry.calls[0]
-    assert context.workspace == "/Users/asuka/code/magi"
+    assert context.workspace == "/tmp/magi"
 
 
 def test_chat_planning_service_generic_fallback_and_leaf_prompt_emphasize_anchor_first_execution() -> None:
@@ -372,13 +372,13 @@ async def test_chat_planning_service_mixed_evidence_prompt_preserves_external_le
         orchestration_plan={"mode": "decompose", "default_leaf_type": "Explore", "allow_parallel": True},
         user_id="user-1",
         session_id="session-1",
-        workspace_root="/Users/asuka/code/magi",
+        workspace_root="/tmp/magi",
     )
 
     planning_message = str(captured["messages"][0]["content"])
     assert planning_message.startswith("# Planning Brief")
     assert "## Workspace Context" in planning_message
-    assert "- Workspace root: /Users/asuka/code/magi" in planning_message
+    assert "- Workspace root: /tmp/magi" in planning_message
     assert "- Workspace name: magi" in planning_message
     assert "## Requirements" in planning_message
     assert "split the plan by evidence source" in planning_message

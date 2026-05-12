@@ -595,7 +595,7 @@ async def test_chat_task_agent_context_service_resolves_session_workspace_from_r
         async def aget_session_summary(self, user_id: str, session_id: str):
             assert user_id == "u-chat"
             assert session_id == "s-chat"
-            return SimpleNamespace(workspace_path="/Users/asuka/code/magi")
+            return SimpleNamespace(workspace_path="/tmp/magi")
 
     agent._chat_read_service = _FakeReadService()
 
@@ -607,8 +607,8 @@ async def test_chat_task_agent_context_service_resolves_session_workspace_from_r
         tools=[],
     )
 
-    assert package.prompt_context.runtime_system.cwd == "/Users/asuka/code/magi"
-    assert "* Working Directory: /Users/asuka/code/magi" in package.system_prompt
+    assert package.prompt_context.runtime_system.cwd == "/tmp/magi"
+    assert "* Working Directory: /tmp/magi" in package.system_prompt
 
 
 @pytest.mark.asyncio

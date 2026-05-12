@@ -276,7 +276,7 @@ def test_context_decider_prompt_includes_routing_environment_fields() -> None:
             current_datetime="2026-03-25T12:00:00+08:00",
             timezone="Asia/Shanghai",
             workspace_path="/tmp/workspace",
-            home_dir="/Users/asuka",
+            home_dir="/Users/example",
         ),
     )
 
@@ -284,7 +284,7 @@ def test_context_decider_prompt_includes_routing_environment_fields() -> None:
     assert "- Current datetime: 2026-03-25T12:00:00+08:00" in prompt
     assert "- Timezone: Asia/Shanghai" in prompt
     assert "- Workspace path: /tmp/workspace" in prompt
-    assert "- Home directory: /Users/asuka" in prompt
+    assert "- Home directory: /Users/example" in prompt
 
 
 def test_context_decider_system_prompt_mentions_preference_and_profile_recall() -> None:
