@@ -422,4 +422,59 @@ describe('L2Tab lab', () => {
     expect(await screen.findByText('I like jazz.')).toBeInTheDocument();
     expect(screen.getByText('memory.pages.knowledge.sections.technicalDetails')).toBeInTheDocument();
   });
+
+  it('renders knowledge items with nonstandard assertion values and evidence ids', () => {
+    render(
+      <L2Tab
+        section="knowledgeBase"
+        stats={{ relation_count: 0, assertion_count: 1 }}
+        relations={[]}
+        assertions={[
+          {
+            assertion_id: 'assert-malformed',
+            entity_id: 'user:u1',
+            entity_type: 'user',
+            trait_name: 'preference.music',
+            trait_value: { genre: 'jazz' } as unknown as string,
+            confidence_score: 0.7,
+            evidence_events: '["evt-2"]' as unknown as string[],
+            validation_state: 'tentative',
+            volatility_index: 0.2,
+            source_domain: 'chat',
+            inference_depth: 'explicit',
+            first_inferred_at: 1710000000,
+            last_validated_at: 1710000000,
+            user_feedback: null,
+            user_feedback_at: null,
+          },
+        ]}
+        identityLinks={[]}
+        entities={[
+          {
+            entity_id: 'user:u1',
+            canonical_name: 'User U1',
+            entity_type: 'user',
+            aliases: ['me'],
+          },
+        ]}
+        mentions={[]}
+        snapshots={[]}
+        conflictRules={[]}
+        events={[]}
+        knowledgeStatusFilter="needsReview"
+        actionLoading={false}
+        onSubmitManualEvent={vi.fn().mockResolvedValue(undefined)}
+        onReplayExtraction={vi.fn().mockResolvedValue(undefined)}
+        onRunReconcile={vi.fn().mockResolvedValue(undefined)}
+        onRunSnapshotRefresh={vi.fn().mockResolvedValue(undefined)}
+        onUpsertGraphConflictRule={vi.fn().mockResolvedValue(undefined)}
+        onSubmitAssertionFeedback={vi.fn().mockResolvedValue(undefined)}
+        onCorrectAssertion={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+
+    expect(screen.getByText('memory.pages.knowledge.sections.knowledgeDirectory')).toBeInTheDocument();
+    expect(screen.getByText('User U1\'s preference music may be "{"genre":"jazz"}".')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.l2.correctAssertion' })).toBeInTheDocument();
+  });
 });

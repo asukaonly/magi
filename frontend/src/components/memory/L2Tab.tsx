@@ -183,6 +183,50 @@ const humanizeToken = (value: string) => {
 
 const textIncludesAny = (value: string, terms: string[]) => terms.some((term) => value.includes(term));
 
+const coerceKnowledgeText = (value: unknown): string => {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (value === null || value === undefined) {
+    return '';
+  }
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return String(value);
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+};
+
+const coerceKnowledgeEventIds = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => coerceKnowledgeText(item).trim())
+      .filter(Boolean);
+  }
+  if (typeof value !== 'string') {
+    return [];
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed !== value) {
+      return coerceKnowledgeEventIds(parsed);
+    }
+  } catch {
+    // Fall back to treating the raw string as a single event id.
+  }
+
+  return [trimmed];
+};
+
 const getAssertionKnowledgeGroupId = (assertion: L2Assertion): KnowledgeBaseGroupId => {
   const trait = normalizeLabelKey(assertion.trait_name);
   const entityType = normalizeLabelKey(assertion.entity_type || '');
@@ -302,11 +346,12 @@ const getReadableAssertionTitle = (
   entityName: string,
   assertion: L2Assertion,
 ) => {
+  const traitValue = coerceKnowledgeText(assertion.trait_value);
   const traitKey = normalizeLabelKey(assertion.trait_name);
   const specificTitle = translateOptionalWithOptions(
     t,
     `memory.pages.knowledge.readable.assertions.${traitKey}`,
-    { entity: entityName, value: assertion.trait_value }
+    { entity: entityName, value: traitValue }
   );
   if (specificTitle) {
     return specificTitle;
@@ -315,7 +360,7 @@ const getReadableAssertionTitle = (
     t,
     'memory.pages.knowledge.readable.assertion',
     '{{entity}}\'s {{attribute}} may be "{{value}}".',
-    { entity: entityName, attribute: getReadableTraitLabel(t, assertion.trait_name), value: assertion.trait_value }
+    { entity: entityName, attribute: getReadableTraitLabel(t, assertion.trait_name), value: traitValue }
   );
 };
 
@@ -593,7 +638,8 @@ export const L2Tab: React.FC<L2TabProps> = ({
       const objectName = getEntityName(relation.object_id);
       const predicateLabel = getReadablePredicateLabel(t, relation.predicate);
       const entityType = getEntityType(relation.subject_id, relation.subject_type);
-      const evidenceCount = relation.observation_count || relation.evidence_event_ids.length;
+      const evidenceIds = coerceKnowledgeEventIds(relation.evidence_event_ids);
+      const evidenceCount = relation.observation_count || evidenceIds.length;
       const statusGroup: KnowledgeStatusGroup = relation.status === 'conflicted'
         ? 'conflicted'
         : relation.status === 'deprecated'
@@ -617,7 +663,7 @@ export const L2Tab: React.FC<L2TabProps> = ({
         statusLabel: t(`memory.pages.knowledge.statusOptions.${statusGroup}`),
         confidence: relation.confidence,
         evidenceCount,
-        evidenceIds: relation.evidence_event_ids,
+        evidenceIds,
         updatedAt: relation.last_observed_at || relation.updated_at || relation.first_observed_at,
         detailRows: [
           { label: t('memory.pages.knowledge.fields.subject'), value: subjectName },
@@ -635,7 +681,9 @@ export const L2Tab: React.FC<L2TabProps> = ({
     const assertionItems = assertions.map((assertion): KnowledgeItem => {
       const entityName = getEntityName(assertion.entity_id);
       const traitLabel = getReadableTraitLabel(t, assertion.trait_name);
-      const evidenceCount = assertion.evidence_events.length;
+      const traitValue = coerceKnowledgeText(assertion.trait_value);
+      const evidenceIds = coerceKnowledgeEventIds(assertion.evidence_events);
+      const evidenceCount = evidenceIds.length;
       const statusGroup = getAssertionStatusGroup(assertion);
       return {
         id: `assertion:${assertion.assertion_id}`,
@@ -650,12 +698,12 @@ export const L2Tab: React.FC<L2TabProps> = ({
         statusLabel: t(`memory.pages.knowledge.statusOptions.${statusGroup}`),
         confidence: assertion.confidence_score,
         evidenceCount,
-        evidenceIds: assertion.evidence_events,
+        evidenceIds,
         updatedAt: assertion.last_validated_at || assertion.user_feedback_at || assertion.first_inferred_at,
         detailRows: [
           { label: t('memory.pages.knowledge.fields.entity'), value: entityName },
           { label: t('memory.pages.knowledge.fields.predicate'), value: traitLabel },
-          { label: t('memory.pages.knowledge.fields.object'), value: assertion.trait_value },
+          { label: t('memory.pages.knowledge.fields.object'), value: traitValue },
         ],
         technicalRows: [
           { label: t('memory.pages.knowledge.fields.technicalType'), value: getEntityTypeLabel(assertion.entity_type) },
@@ -663,9 +711,9 @@ export const L2Tab: React.FC<L2TabProps> = ({
           { label: t('memory.pages.knowledge.fields.inferenceDepth'), value: assertion.inference_depth },
           { label: t('memory.pages.knowledge.fields.technicalId'), value: assertion.assertion_id },
         ],
-        searchableText: [entityName, assertion.entity_id, assertion.entity_type, traitLabel, assertion.trait_name, assertion.trait_value, assertion.validation_state, assertion.source_domain].join(' '),
+        searchableText: [entityName, assertion.entity_id, assertion.entity_type, traitLabel, assertion.trait_name, traitValue, assertion.validation_state, assertion.source_domain].join(' '),
         assertionId: assertion.assertion_id,
-        correctionValue: assertion.trait_value,
+        correctionValue: traitValue,
         userFeedback: assertion.user_feedback,
       };
     });
@@ -1887,9 +1935,10 @@ const KnowledgeItemRow: React.FC<{
   onCorrectAssertion?: (assertionId: string, newValue: string) => Promise<void>;
   t: (key: string, options?: Record<string, unknown>) => string;
 }> = ({ item, actionLoading, evidenceEventsById, loadingEvidenceIds, onLoadEvidenceEvents, onSubmitAssertionFeedback, onCorrectAssertion, t }) => {
+  const safeCorrectionValue = coerceKnowledgeText(item.correctionValue);
   const [isOpen, setIsOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  const [correctionDraft, setCorrectionDraft] = useState(item.correctionValue ?? '');
+  const [correctionDraft, setCorrectionDraft] = useState(safeCorrectionValue);
   const confidence = formatConfidence(item.confidence);
   const metaItems = [
     item.kindLabel,
@@ -1907,9 +1956,9 @@ const KnowledgeItemRow: React.FC<{
       { count: item.evidenceCount }
     ) : null,
   ].filter(Boolean).join(' · ');
-  const evidenceIds = item.evidenceIds?.slice(0, 8) ?? [];
+  const evidenceIds = coerceKnowledgeEventIds(item.evidenceIds).slice(0, 8);
   const trimmedCorrectionDraft = correctionDraft.trim();
-  const currentCorrectionValue = item.correctionValue?.trim() ?? '';
+  const currentCorrectionValue = safeCorrectionValue.trim();
   const canReview = Boolean(
     item.assertionId &&
     onSubmitAssertionFeedback &&
@@ -1934,12 +1983,12 @@ const KnowledgeItemRow: React.FC<{
   const handleStartCorrection = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    setCorrectionDraft(item.correctionValue ?? '');
+    setCorrectionDraft(safeCorrectionValue);
     setIsEditing(true);
     setIsOpen(true);
   };
   const handleCancelCorrection = () => {
-    setCorrectionDraft(item.correctionValue ?? '');
+    setCorrectionDraft(safeCorrectionValue);
     setIsEditing(false);
   };
   const handleSaveCorrection = async () => {
@@ -1956,9 +2005,9 @@ const KnowledgeItemRow: React.FC<{
 
   useEffect(() => {
     if (!isEditing) {
-      setCorrectionDraft(item.correctionValue ?? '');
+      setCorrectionDraft(safeCorrectionValue);
     }
-  }, [isEditing, item.correctionValue]);
+  }, [isEditing, safeCorrectionValue]);
 
   return (
     <details
