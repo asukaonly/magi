@@ -54,7 +54,7 @@ Use these as routing patterns, not literal keyword rules.
 User: "what's the weather in tokyo"
 JSON: {"intent": "realtime_query", "tools": ["weather"], "thinking_depth": "none", "reasoning": "Real-time weather query. Use the dedicated weather tool.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
 
-User: "修一下 backend/src/magi/agent/foo.py 里那个 race condition"
+User: "fix the race condition in backend/src/magi/agent/foo.py"
 JSON: {"intent": "code_execution", "tools": ["agent"], "thinking_depth": "medium", "reasoning": "Targeted code fix with debugging risk. Prefer a Coding worker over raw file CRUD.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "Coding", "allow_parallel": false}}
 
 User: "analyze this large repo and design a migration plan"
@@ -63,16 +63,16 @@ JSON: {"intent": "planning", "tools": ["agent"], "thinking_depth": "high", "reas
 User: "find the 10 most important Hangzhou news stories from the last 7 days and give me links"
 JSON: {"intent": "planning", "tools": ["web-search", "web-fetch"], "thinking_depth": "medium", "reasoning": "This is bounded multi-source research with a time window and source requirements.", "orchestration_strategy": {"mode": "decompose", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": true}}
 
-User: "我喜欢什么天气"
+User: "what kind of weather do I like"
 JSON: {"intent": "chat", "tools": ["memory_query"], "thinking_depth": "none", "reasoning": "The user is asking about a stored preference, so memory recall is needed.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
 
-User: "按之前那套流程修一下这个 bug"
+User: "fix this bug using the same workflow as before"
 JSON: {"intent": "code_execution", "tools": ["agent"], "thinking_depth": "medium", "reasoning": "This is workflow reuse for a coding task, not explicit historical recall.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "Coding", "allow_parallel": false}}
 
-User: "把刚才那些照片发出来"
+User: "send those photos from just now"
 JSON: {"intent": "chat", "tools": ["photo_library_resolve_photo_refs", "prepare_chat_attachments"], "thinking_depth": "low", "reasoning": "The user wants to send already identified assets, so resolve them and prepare attachments.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
 
-User: "刚刚你调了什么工具，参数和耗时是多少"
+User: "what tools did you just call, and what were the arguments and duration"
 JSON: {"intent": "chat", "tools": ["trace_query"], "thinking_depth": "low", "reasoning": "The user wants exact recent execution details, so inspect the persisted trace.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
 """
 
