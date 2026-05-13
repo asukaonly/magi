@@ -5,11 +5,15 @@ from __future__ import annotations
 import mimetypes
 from pathlib import Path
 
+from ..core.logger import get_logger
 from ..i18n import t
 from ..utils.runtime import RuntimePaths, get_runtime_paths
-from .attachment_storage import LocalChatAttachmentStorage
-from .pdf_attachment_parser import LocalPdfAttachmentParser
+from .attachment_storage import LocalChatAttachmentStorage, StoredChatAttachment
+from .pdf_attachment_parser import PDF_PARSER_BACKEND, PDF_PARSER_BACKEND_VERSION, LocalPdfAttachmentParser
 from .text_attachment_parser import LocalTextAttachmentParser
+
+
+logger = get_logger(__name__)
 
 SUPPORTED_IMAGE_MIME_TYPES = {
     "image/jpeg",
@@ -88,7 +92,7 @@ MAX_FILE_ATTACHMENT_BYTES = 50 * 1024 * 1024
 
 
 class LocalChatAttachmentIngestionService:
-    """Normalize, store, and parse one uploaded desktop chat attachment."""
+    """Normalize, store, and prepare chat attachments for runtime use."""
 
     def __init__(
         self,
@@ -112,7 +116,7 @@ class LocalChatAttachmentIngestionService:
         content: bytes,
         mime_type: str,
     ) -> dict[str, object]:
-        """Store one attachment and return normalized payload metadata."""
+        """Store one attachment and return normalized upload metadata."""
 
         normalized_name = Path(str(original_name or "").strip()).name
         normalized_mime_type = str(mime_type or "application/octet-stream").strip().lower()
@@ -137,16 +141,7 @@ class LocalChatAttachmentIngestionService:
                 content=content,
                 mime_type=normalized_mime_type,
             )
-            return {
-                "attachment_id": stored.attachment_id,
-                "kind": "image",
-                "original_name": stored.original_name,
-                "mime_type": stored.mime_type,
-                "size_bytes": stored.size_bytes,
-                "storage_path": stored.storage_path,
-                "sha256": stored.sha256,
-                "parse_status": "not_applicable",
-            }
+            return self._build_uploaded_payload(stored=stored, attachment_kind=attachment_kind)
 
         stored = self._storage.store_file_attachment(
             session_id=session_id,
@@ -156,17 +151,7 @@ class LocalChatAttachmentIngestionService:
             mime_type=normalized_mime_type,
         )
 
-        if attachment_kind == "pdf":
-            return self._build_pdf_payload(
-                session_id=session_id,
-                turn_id=turn_id,
-                stored=stored,
-            )
-        return self._build_text_payload(
-            session_id=session_id,
-            turn_id=turn_id,
-            stored=stored,
-        )
+        return self._build_uploaded_payload(stored=stored, attachment_kind=attachment_kind)
 
     def ingest_local_file(
         self,
@@ -197,12 +182,76 @@ class LocalChatAttachmentIngestionService:
         payload["source_origin"] = "local_file"
         return payload
 
+    def prepare_runtime_attachment(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        attachment: dict[str, object],
+    ) -> dict[str, object]:
+        """Parse one already-managed attachment for prompt/runtime consumption."""
+
+        payload = dict(attachment)
+        attachment_kind = self._resolve_payload_kind(payload)
+        if attachment_kind is None:
+            return payload
+        payload["kind"] = attachment_kind
+        if attachment_kind == "image":
+            return payload
+        if self._is_prepared_payload(payload):
+            return payload
+
+        stored = self._stored_from_payload(payload, attachment_kind=attachment_kind)
+        if stored is None:
+            return self._mark_parse_failed(payload, "Attachment file not found.")
+
+        try:
+            if attachment_kind == "pdf":
+                return self._build_pdf_payload(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    stored=stored,
+                )
+            return self._build_text_payload(
+                session_id=session_id,
+                turn_id=turn_id,
+                stored=stored,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Chat attachment runtime preparation failed",
+                session_id=session_id,
+                turn_id=turn_id,
+                attachment_id=str(payload.get("attachment_id") or ""),
+                kind=attachment_kind,
+                error=str(exc),
+                exc_info=True,
+            )
+            return self._mark_parse_failed(payload, str(exc) or "Attachment parsing failed.")
+
+    @staticmethod
+    def _build_uploaded_payload(
+        *,
+        stored: StoredChatAttachment,
+        attachment_kind: str,
+    ) -> dict[str, object]:
+        return {
+            "attachment_id": stored.attachment_id,
+            "kind": attachment_kind,
+            "original_name": stored.original_name,
+            "mime_type": stored.mime_type,
+            "size_bytes": stored.size_bytes,
+            "storage_path": stored.storage_path,
+            "sha256": stored.sha256,
+            "parse_status": "not_applicable" if attachment_kind == "image" else "pending",
+        }
+
     def _build_text_payload(
         self,
         *,
         session_id: str,
         turn_id: str,
-        stored,
+        stored: StoredChatAttachment,
     ) -> dict[str, object]:
         parsed = self._text_parser.parse_file(stored.storage_path)
         derived_text_path = self._write_derived_text(
@@ -232,9 +281,30 @@ class LocalChatAttachmentIngestionService:
         *,
         session_id: str,
         turn_id: str,
-        stored,
+        stored: StoredChatAttachment,
     ) -> dict[str, object]:
+        logger.info(
+            "Starting PDF attachment text extraction",
+            session_id=session_id,
+            turn_id=turn_id,
+            attachment_id=stored.attachment_id,
+            original_name=stored.original_name,
+            mime_type=stored.mime_type,
+            size_bytes=stored.size_bytes,
+            storage_path=stored.storage_path,
+            sha256_prefix=str(stored.sha256)[:12],
+            parser_backend=PDF_PARSER_BACKEND,
+            parser_version=PDF_PARSER_BACKEND_VERSION,
+        )
         parsed = self._pdf_parser.parse_file(stored.storage_path)
+        derived_text_path: str | None = None
+        if parsed.extraction_succeeded:
+            derived_text_path = self._write_derived_text(
+                session_id=session_id,
+                turn_id=turn_id,
+                attachment_id=stored.attachment_id,
+                text=parsed.text,
+            )
         payload: dict[str, object] = {
             "attachment_id": stored.attachment_id,
             "kind": "pdf",
@@ -250,15 +320,100 @@ class LocalChatAttachmentIngestionService:
             "page_count": parsed.page_count,
             "extraction_succeeded": parsed.extraction_succeeded,
         }
-        if parsed.extraction_succeeded:
-            payload["derived_text_path"] = self._write_derived_text(
-                session_id=session_id,
-                turn_id=turn_id,
-                attachment_id=stored.attachment_id,
-                text=parsed.text,
-            )
+        if derived_text_path is not None:
+            payload["derived_text_path"] = derived_text_path
         if parsed.error:
             payload["parse_error"] = parsed.error
+        log_payload = {
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "attachment_id": stored.attachment_id,
+            "original_name": stored.original_name,
+            "size_bytes": stored.size_bytes,
+            "storage_path": stored.storage_path,
+            "parser_backend": PDF_PARSER_BACKEND,
+            "parser_version": PDF_PARSER_BACKEND_VERSION,
+            "parse_status": payload["parse_status"],
+            "page_count": parsed.page_count,
+            "character_count": parsed.character_count,
+            "truncated": parsed.truncated,
+            "derived_text_path": derived_text_path,
+            "parse_error": parsed.error,
+        }
+        if parsed.extraction_succeeded:
+            logger.info("PDF attachment text extraction completed", **log_payload)
+        else:
+            logger.warning("PDF attachment text extraction failed", **log_payload)
+        return payload
+
+    def _stored_from_payload(
+        self,
+        payload: dict[str, object],
+        *,
+        attachment_kind: str,
+    ) -> StoredChatAttachment | None:
+        storage_path = self._resolve_managed_storage_path(
+            str(payload.get("storage_path") or "").strip()
+        )
+        if storage_path is None:
+            return None
+        attachment_id = str(payload.get("attachment_id") or "").strip()
+        if not attachment_id:
+            return None
+        size_bytes = payload.get("size_bytes")
+        try:
+            normalized_size = int(str(size_bytes or storage_path.stat().st_size))
+        except (OSError, TypeError, ValueError):
+            normalized_size = 0
+        return StoredChatAttachment(
+            attachment_id=attachment_id,
+            kind=attachment_kind,
+            original_name=str(payload.get("original_name") or storage_path.name).strip() or storage_path.name,
+            mime_type=str(payload.get("mime_type") or "application/octet-stream").strip()
+            or "application/octet-stream",
+            size_bytes=normalized_size,
+            storage_path=str(storage_path),
+            sha256=str(payload.get("sha256") or "").strip(),
+        )
+
+    def _resolve_managed_storage_path(self, storage_path: str) -> Path | None:
+        if not storage_path:
+            return None
+        candidate = Path(storage_path)
+        try:
+            resolved = candidate.resolve()
+            resolved.relative_to(self._runtime_paths.base_dir.resolve())
+        except Exception:
+            return None
+        return resolved if resolved.is_file() else None
+
+    def _resolve_payload_kind(self, payload: dict[str, object]) -> str | None:
+        explicit_kind = str(payload.get("kind") or "").strip()
+        if explicit_kind in {"image", "pdf", "text_file"}:
+            return explicit_kind
+        if explicit_kind == "mcp_resource":
+            return None
+        return self._classify_attachment_kind(
+            original_name=str(payload.get("original_name") or "").strip(),
+            mime_type=str(payload.get("mime_type") or "application/octet-stream").strip().lower(),
+        )
+
+    @staticmethod
+    def _is_prepared_payload(payload: dict[str, object]) -> bool:
+        parse_status = str(payload.get("parse_status") or "").strip()
+        if parse_status != "parsed":
+            return False
+        return bool(str(payload.get("derived_text_path") or "").strip()) or bool(
+            str(payload.get("derived_text_excerpt") or "").strip()
+        )
+
+    @staticmethod
+    def _mark_parse_failed(payload: dict[str, object], error: str) -> dict[str, object]:
+        payload["parse_status"] = "failed"
+        payload["parse_error"] = error
+        payload.setdefault("derived_text_excerpt", "")
+        payload.setdefault("character_count", 0)
+        payload.setdefault("truncated", False)
         return payload
 
     def _write_derived_text(

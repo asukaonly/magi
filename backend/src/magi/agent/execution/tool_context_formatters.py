@@ -43,6 +43,10 @@ class ToolContextFormatterRegistry:
         registry.register("agent", lambda data: compact_agent_tool_data(data, max_items=max_items))
         registry.register("memory_query", memory_formatter)
         registry.register("prepare_chat_attachments", compact_prepare_chat_attachments_tool_data)
+        registry.register(
+            "read_chat_attachment",
+            lambda data: compact_read_chat_attachment_tool_data(data, max_text_chars=max_text_chars),
+        )
         registry.register("image-generation", compact_image_generation_tool_data)
         registry.register("image_generation", compact_image_generation_tool_data)
         return registry
@@ -234,6 +238,26 @@ def compact_prepare_chat_attachments_tool_data(data: Dict[str, Any]) -> Dict[str
         ],
         "summary": data.get("summary"),
     }
+
+
+def compact_read_chat_attachment_tool_data(data: Dict[str, Any], *, max_text_chars: int) -> Dict[str, Any]:
+    text = str(data.get("text") or "")
+    compact: Dict[str, Any] = {
+        "attachment": data.get("attachment"),
+        "content_kind": data.get("content_kind"),
+        "offset": data.get("offset"),
+        "returned_chars": data.get("returned_chars"),
+        "total_chars": data.get("total_chars"),
+        "is_complete": data.get("is_complete"),
+        "next_offset": data.get("next_offset"),
+        "parse_status": data.get("parse_status"),
+        "page_count": data.get("page_count"),
+        "summary": data.get("summary"),
+    }
+    if text:
+        compact["text_preview"] = text[:max_text_chars]
+        compact["text_truncated"] = len(text) > max_text_chars
+    return compact
 
 
 def compact_image_generation_tool_data(data: Dict[str, Any]) -> Dict[str, Any]:

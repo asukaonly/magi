@@ -10,6 +10,7 @@ import {
   type NormalizedExecutionTraceSummary,
   type NormalizedTurnUxPlan,
   type ReasoningTrace,
+  type RuntimeStatusTrace,
   type ToolCallTrace,
   upsertTraceSummary as applyTraceSummaryUpdate,
 } from '@/domain/chat/state';
@@ -50,6 +51,15 @@ type StreamReasoningDeltaPayload = {
   stepLabel?: string | null;
   personaId?: string | null;
   textDelta: string;
+};
+
+type StreamStatusUpdatePayload = {
+  sessionId: string;
+  turnId: string;
+  source: string;
+  stepLabel?: string | null;
+  personaId?: string | null;
+  content: string;
 };
 
 type StreamToolCallPayload = {
@@ -101,6 +111,7 @@ type ConversationState = {
   appendStreamTextDelta: (payload: StreamTextDeltaPayload) => void;
   appendStreamTextFlush: (payload: StreamTextFlushPayload) => void;
   appendStreamReasoningDelta: (payload: StreamReasoningDeltaPayload) => void;
+  appendStreamStatusUpdate: (payload: StreamStatusUpdatePayload) => void;
   appendStreamToolCall: (payload: StreamToolCallPayload) => void;
   applyMessageLabel: (sessionId: string, messageId: string, label: ChatTimelineMessageLabel) => void;
   removeMessage: (sessionId: string, messageId: string) => void;
@@ -134,6 +145,32 @@ const appendReasoning = (
     }
   }
   list.push({ source, stepLabel: normalizedLabel, content: textDelta });
+  return list;
+};
+
+const appendRuntimeStatus = (
+  prev: RuntimeStatusTrace[] | undefined,
+  source: string,
+  stepLabel: string | null | undefined,
+  content: string,
+): RuntimeStatusTrace[] => {
+  const normalizedContent = String(content || '').trim();
+  if (!normalizedContent) {
+    return prev ? [...prev] : [];
+  }
+  const list = prev ? [...prev] : [];
+  const normalizedSource = String(source || '').trim() || 'assistant';
+  const normalizedLabel = stepLabel ?? null;
+  const last = list[list.length - 1];
+  if (
+    last
+    && last.source === normalizedSource
+    && (last.stepLabel ?? null) === normalizedLabel
+    && last.content.trim() === normalizedContent
+  ) {
+    return list;
+  }
+  list.push({ source: normalizedSource, stepLabel: normalizedLabel, content: normalizedContent });
   return list;
 };
 
@@ -262,6 +299,31 @@ const sortTimelineMessages = (messages: ChatTimelineMessage[]): ChatTimelineMess
   })
 );
 
+const insertTimelineMessageForTurn = (
+  messages: ChatTimelineMessage[],
+  incoming: ChatTimelineMessage,
+): ChatTimelineMessage[] => {
+  const turnId = String(incoming.turnId || '').trim();
+  if (!turnId) {
+    return sortTimelineMessages([...messages, incoming]);
+  }
+
+  let lastSameTurnIndex = -1;
+  messages.forEach((message, index) => {
+    if (String(message.turnId || '').trim() === turnId) {
+      lastSameTurnIndex = index;
+    }
+  });
+
+  if (lastSameTurnIndex < 0) {
+    return sortTimelineMessages([...messages, incoming]);
+  }
+
+  const nextMessages = [...messages];
+  nextMessages.splice(lastSameTurnIndex + 1, 0, incoming);
+  return nextMessages;
+};
+
 const canMergeTimelineMessage = (
   existing: ChatTimelineMessage,
   incoming: ChatTimelineMessage,
@@ -325,6 +387,9 @@ const mergeTimelineMessage = (
     ? incoming.traceAvailable
     : Boolean(existing.traceAvailable),
   personaId: incoming.personaId ?? existing.personaId ?? null,
+  runtimeStatuses: incoming.runtimeStatuses ?? existing.runtimeStatuses,
+  reasoning: incoming.reasoning ?? existing.reasoning,
+  toolCalls: incoming.toolCalls ?? existing.toolCalls,
 });
 
 const upsertTimelineMessage = (
@@ -333,11 +398,11 @@ const upsertTimelineMessage = (
 ): ChatTimelineMessage[] => {
   const existingIndex = messages.findIndex((message) => canMergeTimelineMessage(message, incoming));
   if (existingIndex < 0) {
-    return sortTimelineMessages([...messages, incoming]);
+    return insertTimelineMessageForTurn(messages, incoming);
   }
   const nextMessages = [...messages];
   nextMessages[existingIndex] = mergeTimelineMessage(messages[existingIndex], incoming);
-  return sortTimelineMessages(nextMessages);
+  return nextMessages;
 };
 
 const mergeHistorySnapshot = (
@@ -601,7 +666,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
       orderedSessionIds: ensured.orderedSessionIds,
       messagesBySession: {
         ...state.messagesBySession,
-        [sessionId]: [...previousMessages, streamingMessage],
+        [sessionId]: insertTimelineMessageForTurn(previousMessages, streamingMessage),
       },
     };
   }),
@@ -637,10 +702,10 @@ export const useConversationStore = create<ConversationState>((set) => ({
     }
     const previousMessages = state.messagesBySession[sessionId] || [];
     const existingIndex = findStreamingAssistantIndex(previousMessages, turnId);
-    let messages = previousMessages;
-    let targetIndex = existingIndex;
+    const targetIndex = existingIndex;
     if (existingIndex < 0) {
       const ensured = ensureSession(state.sessionsById, state.orderedSessionIds, sessionId);
+      const nextReasoning = appendReasoning([], source, stepLabel, textDelta);
       const placeholder: ChatTimelineMessage = {
         id: `stream_${turnId}`,
         role: 'assistant',
@@ -650,19 +715,14 @@ export const useConversationStore = create<ConversationState>((set) => ({
         turnId,
         personaId: personaId ?? null,
         streaming: true,
-        reasoning: [],
+        reasoning: nextReasoning,
       };
-      messages = [...previousMessages, placeholder];
-      targetIndex = messages.length - 1;
-      const target = messages[targetIndex];
-      const nextReasoning = appendReasoning(target.reasoning, source, stepLabel, textDelta);
-      messages[targetIndex] = { ...target, personaId: personaId ?? target.personaId ?? null, reasoning: nextReasoning };
       return {
         sessionsById: ensured.sessionsById,
         orderedSessionIds: ensured.orderedSessionIds,
         messagesBySession: {
           ...state.messagesBySession,
-          [sessionId]: messages,
+          [sessionId]: insertTimelineMessageForTurn(previousMessages, placeholder),
         },
       };
     }
@@ -677,15 +737,12 @@ export const useConversationStore = create<ConversationState>((set) => ({
       },
     };
   }),
-  appendStreamToolCall: ({ sessionId, turnId, toolCallId, toolName, toolArgsDelta, toolArguments, personaId, status }) => set((state) => {
-    if (!sessionId || !turnId) {
+  appendStreamStatusUpdate: ({ sessionId, turnId, source, stepLabel, personaId, content }) => set((state) => {
+    if (!sessionId || !turnId || !String(content || '').trim()) {
       return state;
     }
     const previousMessages = state.messagesBySession[sessionId] || [];
     const existingIndex = findStreamingAssistantIndex(previousMessages, turnId);
-    let messages = previousMessages;
-    let targetIndex = existingIndex;
-
     if (existingIndex < 0) {
       const ensured = ensureSession(state.sessionsById, state.orderedSessionIds, sessionId);
       const placeholder: ChatTimelineMessage = {
@@ -697,12 +754,43 @@ export const useConversationStore = create<ConversationState>((set) => ({
         turnId,
         personaId: personaId ?? null,
         streaming: true,
-        toolCalls: [],
+        runtimeStatuses: appendRuntimeStatus([], source, stepLabel, content),
       };
-      messages = [...previousMessages, placeholder];
-      targetIndex = messages.length - 1;
-      const target = messages[targetIndex];
-      const nextToolCalls = appendToolCall(target.toolCalls, {
+      return {
+        sessionsById: ensured.sessionsById,
+        orderedSessionIds: ensured.orderedSessionIds,
+        messagesBySession: {
+          ...state.messagesBySession,
+          [sessionId]: insertTimelineMessageForTurn(previousMessages, placeholder),
+        },
+      };
+    }
+
+    const target = previousMessages[existingIndex];
+    const nextMessages = [...previousMessages];
+    nextMessages[existingIndex] = {
+      ...target,
+      personaId: personaId ?? target.personaId ?? null,
+      runtimeStatuses: appendRuntimeStatus(target.runtimeStatuses, source, stepLabel, content),
+    };
+    return {
+      messagesBySession: {
+        ...state.messagesBySession,
+        [sessionId]: nextMessages,
+      },
+    };
+  }),
+  appendStreamToolCall: ({ sessionId, turnId, toolCallId, toolName, toolArgsDelta, toolArguments, personaId, status }) => set((state) => {
+    if (!sessionId || !turnId) {
+      return state;
+    }
+    const previousMessages = state.messagesBySession[sessionId] || [];
+    const existingIndex = findStreamingAssistantIndex(previousMessages, turnId);
+    const targetIndex = existingIndex;
+
+    if (existingIndex < 0) {
+      const ensured = ensureSession(state.sessionsById, state.orderedSessionIds, sessionId);
+      const nextToolCalls = appendToolCall([], {
         sessionId,
         turnId,
         toolCallId,
@@ -711,13 +799,23 @@ export const useConversationStore = create<ConversationState>((set) => ({
         toolArguments,
         status,
       });
-      messages[targetIndex] = { ...target, personaId: personaId ?? target.personaId ?? null, toolCalls: nextToolCalls };
+      const placeholder: ChatTimelineMessage = {
+        id: `stream_${turnId}`,
+        role: 'assistant',
+        kind: 'assistant' as ChatTimelineMessage['kind'],
+        content: '',
+        timestamp: Date.now(),
+        turnId,
+        personaId: personaId ?? null,
+        streaming: true,
+        toolCalls: nextToolCalls,
+      };
       return {
         sessionsById: ensured.sessionsById,
         orderedSessionIds: ensured.orderedSessionIds,
         messagesBySession: {
           ...state.messagesBySession,
-          [sessionId]: messages,
+          [sessionId]: insertTimelineMessageForTurn(previousMessages, placeholder),
         },
       };
     }

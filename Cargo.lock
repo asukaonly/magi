@@ -2395,7 +2395,6 @@ dependencies = [
  "base64 0.22.1",
  "http-body-util",
  "hyper",
- "regex",
  "rusqlite",
  "serde",
  "serde_json",

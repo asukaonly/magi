@@ -7,8 +7,21 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ....config.models import ThinkingDepth
+from ....llm.streaming_events import LLMStreamEvent, emit_stream_event
 from ...cancel import CancelToken, null_cancel_token
 from .types import ToolCallResult
+
+
+MAX_RUNTIME_STATUS_CHARS = 2_000
+
+
+def _normalize_runtime_status_text(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if len(text) <= MAX_RUNTIME_STATUS_CHARS:
+        return text
+    return f"{text[:MAX_RUNTIME_STATUS_CHARS].rstrip()}..."
 
 
 @dataclass(slots=True)
@@ -123,6 +136,16 @@ class FunctionCallingStepExecutor:
 
         if response.get("tool_calls"):
             tool_calls = response["tool_calls"]
+            status_text = _normalize_runtime_status_text(response.get("content"))
+            if status_text:
+                await emit_stream_event(
+                    LLMStreamEvent(
+                        kind="status_update",
+                        text=status_text,
+                        source="assistant_tool_call",
+                        step_label="tool_call_narration",
+                    )
+                )
             await self._driver._emit_loop_event(
                 {
                     "stage": "llm_requested_tools",

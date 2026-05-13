@@ -44,6 +44,7 @@ from .builtin.agent_tool import AgentTool
 from .builtin.memory_query_tool import MemoryQueryTool
 from .builtin.schedule_tool import ScheduleTool
 from .builtin.prepare_chat_attachments_tool import PrepareChatAttachmentsTool
+from .builtin.read_chat_attachment_tool import ReadChatAttachmentTool
 
 # Import skills module
 from ..skills.indexer import SkillIndexer
@@ -112,6 +113,7 @@ __all__ = [
     "MemoryQueryTool",
     "ScheduleTool",
     "PrepareChatAttachmentsTool",
+    "ReadChatAttachmentTool",
 
     # Skills
     "SkillIndexer",

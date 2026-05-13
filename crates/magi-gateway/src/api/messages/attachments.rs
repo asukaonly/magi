@@ -3,14 +3,11 @@ use axum::extract::{Multipart, Path, Query};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use regex::bytes::Regex as BytesRegex;
-use regex::Regex;
 use rusqlite::Connection;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::path::{Path as FsPath, PathBuf};
-use std::sync::OnceLock;
 
 use crate::db;
 
@@ -19,8 +16,6 @@ use super::common::DEFAULT_USER_ID;
 const MAX_IMAGE_ATTACHMENT_BYTES: usize = 20 * 1024 * 1024;
 const MAX_FILE_ATTACHMENT_BYTES: usize = 50 * 1024 * 1024;
 pub const MAX_ATTACHMENT_UPLOAD_BODY_BYTES: usize = 55 * 1024 * 1024;
-const DEFAULT_TEXT_ATTACHMENT_MAX_CHARS: usize = 120_000;
-const DEFAULT_PDF_ATTACHMENT_MAX_CHARS: usize = 120_000;
 
 #[derive(Clone, Copy)]
 enum AttachmentKind {
@@ -55,24 +50,6 @@ struct StoredAttachment {
     size_bytes: usize,
     storage_path: PathBuf,
     sha256: String,
-}
-
-struct ParsedTextAttachment {
-    text: String,
-    encoding: String,
-    character_count: usize,
-    truncated: bool,
-    excerpt: String,
-}
-
-struct ParsedPdfAttachment {
-    text: String,
-    character_count: usize,
-    truncated: bool,
-    excerpt: String,
-    page_count: usize,
-    extraction_succeeded: bool,
-    error: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -295,13 +272,7 @@ fn persist_upload(request: UploadRequest) -> Result<Value, String> {
         &request.content,
     )?;
 
-    let attachment_payload = build_attachment_payload(
-        &base_dir,
-        attachment_kind,
-        &request.session_id,
-        &request.turn_id,
-        stored,
-    )?;
+    let attachment_payload = build_attachment_payload(attachment_kind, stored)?;
 
     Ok(json!({
         "success": true,
@@ -316,10 +287,7 @@ fn persist_upload(request: UploadRequest) -> Result<Value, String> {
 }
 
 fn build_attachment_payload(
-    base_dir: &FsPath,
     attachment_kind: AttachmentKind,
-    session_id: &str,
-    turn_id: &str,
     stored: StoredAttachment,
 ) -> Result<Value, String> {
     let attachment_id = stored.attachment_id.clone();
@@ -341,62 +309,12 @@ fn build_attachment_payload(
                 "parse_status": "not_applicable",
             }),
         )),
-        AttachmentKind::TextFile => {
-            let parsed = parse_text_attachment(&stored.storage_path)?;
-            let derived_text_path = write_derived_text(
-                base_dir,
-                session_id,
-                turn_id,
-                &attachment_id,
-                &parsed.text,
-            )?;
-            Ok(json_merge(
-                base_payload,
-                json!({
-                    "parse_status": "parsed",
-                    "derived_text_path": derived_text_path.to_string_lossy().into_owned(),
-                    "derived_text_excerpt": parsed.excerpt,
-                    "character_count": parsed.character_count,
-                    "truncated": parsed.truncated,
-                    "encoding": parsed.encoding,
-                }),
-            ))
-        }
-        AttachmentKind::Pdf => {
-            let parsed = parse_pdf_attachment(&stored.storage_path)?;
-            let mut payload = json_merge(
-                base_payload,
-                json!({
-                    "parse_status": if parsed.extraction_succeeded { "parsed" } else { "failed" },
-                    "derived_text_excerpt": parsed.excerpt,
-                    "character_count": parsed.character_count,
-                    "truncated": parsed.truncated,
-                    "page_count": parsed.page_count,
-                    "extraction_succeeded": parsed.extraction_succeeded,
-                }),
-            );
-            if parsed.extraction_succeeded {
-                let derived_text_path = write_derived_text(
-                    base_dir,
-                    session_id,
-                    turn_id,
-                    &attachment_id,
-                    &parsed.text,
-                )?;
-                if let Some(object) = payload.as_object_mut() {
-                    object.insert(
-                        "derived_text_path".to_string(),
-                        Value::String(derived_text_path.to_string_lossy().into_owned()),
-                    );
-                }
-            }
-            if let Some(error) = parsed.error {
-                if let Some(object) = payload.as_object_mut() {
-                    object.insert("parse_error".to_string(), Value::String(error));
-                }
-            }
-            Ok(payload)
-        }
+        AttachmentKind::Pdf | AttachmentKind::TextFile => Ok(json_merge(
+            base_payload,
+            json!({
+                "parse_status": "pending",
+            }),
+        )),
     }
 }
 
@@ -429,197 +347,6 @@ fn store_attachment(
         storage_path: target_path,
         sha256,
     })
-}
-
-fn parse_text_attachment(file_path: &FsPath) -> Result<ParsedTextAttachment, String> {
-    let content_bytes =
-        std::fs::read(file_path).map_err(|_| "Failed to read text attachment".to_string())?;
-    let (text, encoding) = decode_text_bytes(&content_bytes)?;
-    let character_count = text.chars().count();
-    let truncated = character_count > DEFAULT_TEXT_ATTACHMENT_MAX_CHARS;
-    let visible_text: String = text.chars().take(DEFAULT_TEXT_ATTACHMENT_MAX_CHARS).collect();
-    let excerpt: String = visible_text.chars().take(200).collect();
-    Ok(ParsedTextAttachment {
-        text: if truncated { visible_text } else { text },
-        encoding,
-        character_count,
-        truncated,
-        excerpt,
-    })
-}
-
-fn decode_text_bytes(content_bytes: &[u8]) -> Result<(String, String), String> {
-    if let Ok(text) = String::from_utf8(content_bytes.to_vec()) {
-        return Ok((text, "utf-8".to_string()));
-    }
-    if let Some(stripped) = content_bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]) {
-        if let Ok(text) = String::from_utf8(stripped.to_vec()) {
-            return Ok((text, "utf-8-sig".to_string()));
-        }
-    }
-    if content_bytes.starts_with(&[0xFF, 0xFE]) || content_bytes.starts_with(&[0xFE, 0xFF]) {
-        if let Ok(text) = decode_utf16_bytes(content_bytes) {
-            return Ok((text, "utf-16".to_string()));
-        }
-    }
-    let latin1 = content_bytes
-        .iter()
-        .map(|byte| char::from(*byte))
-        .collect::<String>();
-    Ok((latin1, "latin-1".to_string()))
-}
-
-fn decode_utf16_bytes(content_bytes: &[u8]) -> Result<String, String> {
-    if content_bytes.len() < 2 {
-        return Err("Invalid UTF-16 content".to_string());
-    }
-    let little_endian = content_bytes.starts_with(&[0xFF, 0xFE]);
-    let data = &content_bytes[2..];
-    let mut units = Vec::with_capacity(data.len() / 2);
-    for chunk in data.chunks_exact(2) {
-        let value = if little_endian {
-            u16::from_le_bytes([chunk[0], chunk[1]])
-        } else {
-            u16::from_be_bytes([chunk[0], chunk[1]])
-        };
-        units.push(value);
-    }
-    String::from_utf16(&units).map_err(|_| "Invalid UTF-16 content".to_string())
-}
-
-fn parse_pdf_attachment(file_path: &FsPath) -> Result<ParsedPdfAttachment, String> {
-    let content_bytes =
-        std::fs::read(file_path).map_err(|_| "Failed to read PDF attachment".to_string())?;
-    if !content_bytes.starts_with(b"%PDF-") {
-        return Ok(ParsedPdfAttachment {
-            text: String::new(),
-            character_count: 0,
-            truncated: false,
-            excerpt: String::new(),
-            page_count: 0,
-            extraction_succeeded: false,
-            error: Some("Unsupported PDF format".to_string()),
-        });
-    }
-
-    let page_count = pdf_page_pattern().find_iter(&content_bytes).count();
-    let mut extracted_segments = Vec::new();
-    let mut had_unsupported_stream = false;
-
-    for captures in pdf_stream_pattern().captures_iter(&content_bytes) {
-        let Some(stream_match) = captures.get(1) else {
-            continue;
-        };
-        let stream_start = captures.get(0).map(|value| value.start()).unwrap_or(0);
-        let header_start = stream_start.saturating_sub(200);
-        let header_window = &content_bytes[header_start..stream_start];
-        if header_window
-            .windows(b"/FlateDecode".len())
-            .any(|window| window == b"/FlateDecode")
-        {
-            had_unsupported_stream = true;
-            continue;
-        }
-        extracted_segments.extend(extract_stream_text(stream_match.as_bytes()));
-    }
-
-    let normalized_text = extracted_segments
-        .into_iter()
-        .filter(|segment| !segment.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .to_string();
-
-    if normalized_text.is_empty() {
-        return Ok(ParsedPdfAttachment {
-            text: String::new(),
-            character_count: 0,
-            truncated: false,
-            excerpt: String::new(),
-            page_count,
-            extraction_succeeded: false,
-            error: Some(if had_unsupported_stream {
-                "PDF text extraction requires an uncompressed readable PDF stream".to_string()
-            } else {
-                "No readable text found in PDF".to_string()
-            }),
-        });
-    }
-
-    let character_count = normalized_text.chars().count();
-    let truncated = character_count > DEFAULT_PDF_ATTACHMENT_MAX_CHARS;
-    let visible_text: String = normalized_text
-        .chars()
-        .take(DEFAULT_PDF_ATTACHMENT_MAX_CHARS)
-        .collect();
-    let excerpt: String = visible_text.chars().take(200).collect();
-
-    Ok(ParsedPdfAttachment {
-        text: if truncated { visible_text } else { normalized_text },
-        character_count,
-        truncated,
-        excerpt,
-        page_count,
-        extraction_succeeded: true,
-        error: None,
-    })
-}
-
-fn extract_stream_text(stream_bytes: &[u8]) -> Vec<String> {
-    let stream_text = String::from_utf8_lossy(stream_bytes);
-    let mut segments = Vec::new();
-    for text_block in pdf_text_block_pattern().captures_iter(&stream_text) {
-        let Some(block_match) = text_block.get(1) else {
-            continue;
-        };
-        let mut segment = String::new();
-        for literal in pdf_text_string_pattern().find_iter(block_match.as_str()) {
-            segment.push_str(&decode_pdf_literal(literal.as_str()));
-        }
-        let normalized = segment.trim().to_string();
-        if !normalized.is_empty() {
-            segments.push(normalized);
-        }
-    }
-    segments
-}
-
-fn decode_pdf_literal(literal: &str) -> String {
-    let inner = literal
-        .strip_prefix('(')
-        .and_then(|value| value.strip_suffix(')'))
-        .unwrap_or(literal);
-    let normalized = inner
-        .replace(r"\(", "(")
-        .replace(r"\)", ")")
-        .replace(r"\\", "\\");
-    pdf_octal_pattern()
-        .replace_all(&normalized, |captures: &regex::Captures<'_>| {
-            let value = captures
-                .get(1)
-                .and_then(|matched| u8::from_str_radix(matched.as_str(), 8).ok())
-                .map(char::from)
-                .unwrap_or('\0');
-            value.to_string()
-        })
-        .into_owned()
-}
-
-fn write_derived_text(
-    base_dir: &FsPath,
-    session_id: &str,
-    turn_id: &str,
-    attachment_id: &str,
-    text: &str,
-) -> Result<PathBuf, String> {
-    let target_dir = chat_derived_dir(base_dir).join(session_id).join(turn_id);
-    std::fs::create_dir_all(&target_dir)
-        .map_err(|_| "Failed to prepare derived attachment storage".to_string())?;
-    let target_path = target_dir.join(format!("{attachment_id}.txt"));
-    std::fs::write(&target_path, text.as_bytes())
-        .map_err(|_| "Failed to write derived attachment text".to_string())?;
-    Ok(target_path)
 }
 
 fn normalize_path_component(value: String, label: &str) -> Result<String, String> {
@@ -735,8 +462,7 @@ fn is_supported_text_mime(mime_type: &str) -> bool {
 fn is_supported_text_extension(extension: &str) -> bool {
     matches!(
         extension,
-        ".c"
-            | ".cc"
+        ".c" | ".cc"
             | ".cpp"
             | ".css"
             | ".csv"
@@ -785,14 +511,6 @@ fn chat_files_dir(base_dir: &FsPath) -> PathBuf {
         .join("files")
 }
 
-fn chat_derived_dir(base_dir: &FsPath) -> PathBuf {
-    base_dir
-        .join("data")
-        .join("resources")
-        .join("chat")
-        .join("derived")
-}
-
 fn json_merge(mut base: Value, extra: Value) -> Value {
     if let (Some(base_object), Some(extra_object)) = (base.as_object_mut(), extra.as_object()) {
         for (key, value) in extra_object {
@@ -806,31 +524,6 @@ fn bad_request(message: &str) -> (StatusCode, Json<Value>) {
     (StatusCode::BAD_REQUEST, Json(json!({ "detail": message })))
 }
 
-fn pdf_stream_pattern() -> &'static BytesRegex {
-    static RE: OnceLock<BytesRegex> = OnceLock::new();
-    RE.get_or_init(|| BytesRegex::new(r"(?s)stream\r?\n(.*?)\r?\nendstream").unwrap())
-}
-
-fn pdf_page_pattern() -> &'static BytesRegex {
-    static RE: OnceLock<BytesRegex> = OnceLock::new();
-    RE.get_or_init(|| BytesRegex::new(r"/Type\s*/Page\b").unwrap())
-}
-
-fn pdf_text_block_pattern() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"(?s)BT(.*?)ET").unwrap())
-}
-
-fn pdf_text_string_pattern() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"\((?:\\.|[^\\)])*\)").unwrap())
-}
-
-fn pdf_octal_pattern() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"\\([0-7]{1,3})").unwrap())
-}
-
 fn sanitize_header_filename(value: &str) -> String {
     value.replace('\\', "_").replace('"', "_")
 }
@@ -838,8 +531,8 @@ fn sanitize_header_filename(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_pdf_attachment, parse_text_attachment, query_attachment_metadata,
-        sanitize_original_name,
+        build_attachment_payload, query_attachment_metadata, sanitize_original_name,
+        AttachmentKind, StoredAttachment,
     };
     use rusqlite::Connection;
     use std::fs;
@@ -910,43 +603,66 @@ mod tests {
     }
 
     #[test]
-    fn text_attachment_parser_extracts_excerpt() {
-        let temp_root =
-            std::env::temp_dir().join(format!("magi-text-attachment-test-{}", uuid::Uuid::new_v4()));
+    fn text_attachment_upload_defers_parsing_to_python_runtime() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "magi-text-attachment-test-{}",
+            uuid::Uuid::new_v4()
+        ));
         fs::create_dir_all(&temp_root).unwrap();
         let file_path = temp_root.join("notes.txt");
         fs::write(&file_path, "hello rust attachment parser").unwrap();
 
-        let parsed = parse_text_attachment(&file_path).unwrap();
-        assert_eq!(parsed.encoding, "utf-8");
-        assert_eq!(parsed.excerpt, "hello rust attachment parser");
-        assert!(!parsed.truncated);
+        let payload = build_attachment_payload(
+            AttachmentKind::TextFile,
+            StoredAttachment {
+                attachment_id: "att-1".to_string(),
+                original_name: "notes.txt".to_string(),
+                mime_type: "text/plain".to_string(),
+                size_bytes: 28,
+                storage_path: file_path,
+                sha256: "sha".to_string(),
+            },
+        )
+        .unwrap();
+        assert_eq!(payload["parse_status"], "pending");
+        assert!(payload.get("derived_text_path").is_none());
+        assert!(payload.get("derived_text_excerpt").is_none());
 
         let _ = fs::remove_dir_all(&temp_root);
     }
 
     #[test]
-    fn pdf_attachment_parser_reports_missing_text() {
+    fn pdf_attachment_upload_defers_parsing_to_python_runtime() {
         let temp_root =
             std::env::temp_dir().join(format!("magi-pdf-attachment-test-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&temp_root).unwrap();
         let file_path = temp_root.join("notes.pdf");
-        fs::write(
-            &file_path,
-            b"%PDF-1.4\n1 0 obj<< /Type /Page >>\nstream\ncompressed\nendstream\n",
+        fs::write(&file_path, b"%PDF-1.4\n").unwrap();
+
+        let payload = build_attachment_payload(
+            AttachmentKind::Pdf,
+            StoredAttachment {
+                attachment_id: "att-1".to_string(),
+                original_name: "notes.pdf".to_string(),
+                mime_type: "application/pdf".to_string(),
+                size_bytes: 9,
+                storage_path: file_path,
+                sha256: "sha".to_string(),
+            },
         )
         .unwrap();
-
-        let parsed = parse_pdf_attachment(&file_path).unwrap();
-        assert!(!parsed.extraction_succeeded);
-        assert_eq!(parsed.page_count, 1);
-        assert!(parsed.error.is_some());
+        assert_eq!(payload["parse_status"], "pending");
+        assert!(payload.get("page_count").is_none());
+        assert!(payload.get("parse_error").is_none());
 
         let _ = fs::remove_dir_all(&temp_root);
     }
 
     #[test]
     fn sanitize_original_name_strips_path_segments() {
-        assert_eq!(sanitize_original_name("../../hello world?.txt"), "hello_world_.txt");
+        assert_eq!(
+            sanitize_original_name("../../hello world?.txt"),
+            "hello_world_.txt"
+        );
     }
 }

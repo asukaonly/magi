@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Optional
 
+from ....agent.cancel import CancelToken, SessionRunCancelToken, null_cancel_token
 from ....core.logger import get_logger
 from ....agent.background.dispatcher import (
     BackgroundDispatcher,
@@ -40,6 +41,7 @@ from .handler_helpers import (
     resolve_turn_workspace_path as _resolve_turn_workspace_path,
     serialize_ux_plan as _serialize_ux_plan,
 )
+from .attachment_context import resolve_effective_turn_attachments
 from ...task_orchestrator import TaskOrchestrator
 
 logger = get_logger(__name__)
@@ -73,6 +75,25 @@ def build_common_handler_dependencies(
         start_specialized_orchestration=lambda request: _start_explore_task_agent(
             deps, request
         ),
+        build_cancel_token=lambda request: _build_common_cancel_token(deps, request),
+    )
+
+
+def _build_common_cancel_token(
+    deps: ChatHandlerDependencies,
+    request: ExecutionRequest,
+) -> CancelToken:
+    coordinator = deps.session_run_coordinator
+    session_id = str(request.context.session_id or "").strip()
+    run_id = str(getattr(request.context, "session_run_id", None) or "").strip()
+    if coordinator is None or not session_id or not run_id:
+        return null_cancel_token()
+    revision = int(getattr(request.context, "session_run_revision", 0) or 0)
+    return SessionRunCancelToken(
+        coordinator=coordinator,
+        session_id=session_id,
+        run_id=run_id,
+        revision=revision,
     )
 
 
@@ -84,9 +105,7 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
             user_id=request.context.user_id,
             session_id=request.context.session_id,
             user_message=request.context.latest_user_message,
-            attachments=list(
-                getattr(request.context.latest_payload, "attachments", []) or []
-            ),
+            attachments=resolve_effective_turn_attachments(request.context),
             task_category=request.intent.intent,
             tools=request.tool_selection.tools,
             scenario=Scenario.CHAT,
@@ -166,10 +185,7 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
                 await self._deps.function_calling_orchestrator.execute_with_tools(
                     turn=UserTurnInput(
                         text=request.context.latest_user_message,
-                        attachments=list(
-                            getattr(request.context.latest_payload, "attachments", [])
-                            or []
-                        ),
+                        attachments=resolve_effective_turn_attachments(request.context),
                         user_id=request.context.user_id,
                         session_id=request.context.session_id,
                     ),
@@ -183,6 +199,7 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
                     conversation_history=request.context.history,
                     session_summary=getattr(request.context, "session_summary", None),
                     session_origin=getattr(request.context, "session_origin", None),
+                    reply_context=getattr(request.context, "reply_context", None),
                     thinking_depth=request.thinking_depth,
                     intent=request.intent.intent,
                     execution_agent_id=request.context.runtime_key,
@@ -240,9 +257,7 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
         def _build_turn(text: str) -> UserTurnInput:
             return UserTurnInput(
                 text=text,
-                attachments=list(
-                    getattr(request.context.latest_payload, "attachments", []) or []
-                ),
+                attachments=resolve_effective_turn_attachments(request.context),
                 user_id=request.context.user_id,
                 session_id=request.context.session_id,
             )
@@ -254,6 +269,7 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
             conversation_history=request.context.history,
             session_summary=getattr(request.context, "session_summary", None),
             session_origin=getattr(request.context, "session_origin", None),
+            reply_context=getattr(request.context, "reply_context", None),
             allow_attachment_grounding=(
                 bool(
                     getattr(
@@ -412,6 +428,7 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
                             request.context, "session_summary", None
                         ),
                         session_origin=getattr(request.context, "session_origin", None),
+                        reply_context=getattr(request.context, "reply_context", None),
                         allow_attachment_grounding=(
                             bool(
                                 getattr(
@@ -453,6 +470,7 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
                             request.context, "session_summary", None
                         ),
                         session_origin=getattr(request.context, "session_origin", None),
+                        reply_context=getattr(request.context, "reply_context", None),
                         allow_attachment_grounding=(
                             bool(
                                 getattr(

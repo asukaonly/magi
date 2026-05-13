@@ -30,11 +30,8 @@ export const TranscriptBubbleTop = ({
   const { t } = useTranslation();
   const hasReplyStrip = showReplyStrip && Boolean(replyTo);
   const visibleAttachments = showAttachments && Array.isArray(attachments) ? attachments : [];
-  const assistantInlineImages = align === 'assistant'
-    ? visibleAttachments.filter((attachment) => attachment.kind === 'image')
-    : [];
-  const renderInlineImageGallery = assistantInlineImages.length === visibleAttachments.length
-    && assistantInlineImages.length > 0;
+  const imageAttachments = visibleAttachments.filter((attachment) => attachment.kind === 'image');
+  const fileAttachments = visibleAttachments.filter((attachment) => attachment.kind !== 'image');
 
   if (!hasReplyStrip && visibleAttachments.length === 0) {
     return null;
@@ -56,97 +53,89 @@ export const TranscriptBubbleTop = ({
           </div>
         </div>
       ) : null}
-      {visibleAttachments.length > 0 ? (
-        renderInlineImageGallery ? (
-          <div className="mb-3 grid gap-2">
-            {assistantInlineImages.map((attachment) => {
-              const previewUrl = resolveHistoryImagePreviewUrl(currentSessionId, attachment);
+      {imageAttachments.length > 0 ? (
+        <div className="mb-3 grid gap-2">
+          {imageAttachments.map((attachment) => {
+            const previewUrl = resolveHistoryImagePreviewUrl(currentSessionId, attachment);
 
-              return (
-                <button
-                  key={attachment.attachment_id}
-                  type="button"
-                  onClick={() => {
-                    if (!previewUrl) {
-                      return;
-                    }
-                    onOpenImagePreview({
+            return (
+              <button
+                key={attachment.attachment_id}
+                type="button"
+                onClick={() => {
+                  if (!previewUrl) {
+                    return;
+                  }
+                  onOpenImagePreview({
+                    name: attachment.original_name,
+                    url: previewUrl,
+                  });
+                }}
+                aria-label={t('chat.attachments.openPreview')}
+                className={align === 'user'
+                  ? 'group block w-[340px] max-w-full overflow-hidden rounded-xl bg-[#f8eee8] text-left shadow-[0_10px_26px_rgba(138,73,47,0.10)] transition hover:brightness-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 sm:w-[380px]'
+                  : 'group block w-[340px] max-w-full overflow-hidden rounded-xl border border-border/45 bg-background text-left shadow-sm transition hover:border-border/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 sm:w-[380px]'}
+              >
+                {previewUrl ? (
+                  <img
+                    src={previewUrl}
+                    alt={attachment.original_name}
+                    className="block max-h-[420px] min-h-24 w-full object-contain transition duration-200 group-hover:scale-[1.006]"
+                  />
+                ) : (
+                  <div className="flex h-48 items-center justify-center bg-muted/40 text-primary">
+                    <ImagePlus className="h-8 w-8" />
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+      {fileAttachments.length > 0 ? (
+        <div className="mb-3 flex flex-wrap gap-2">
+          {fileAttachments.map((attachment) => {
+            const previewUrl = resolveHistoryImagePreviewUrl(currentSessionId, attachment);
+
+            return (
+              <div
+                key={attachment.attachment_id}
+                className={align === 'user'
+                  ? 'flex min-w-[180px] max-w-[260px] items-center gap-3 rounded-xl border border-accent-foreground/10 bg-background/90 px-3 py-2 text-foreground'
+                  : 'flex min-w-[180px] max-w-[260px] items-center gap-3 rounded-xl border border-border/55 bg-background px-3 py-2 text-foreground'}
+              >
+                {previewUrl ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenImagePreview({
                       name: attachment.original_name,
                       url: previewUrl,
-                    });
-                  }}
-                  aria-label={t('chat.attachments.openPreview')}
-                  className="group overflow-hidden rounded-2xl border border-border/50 bg-background text-left shadow-sm transition hover:border-border/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                >
-                  {previewUrl ? (
+                    })}
+                    aria-label={t('chat.attachments.openPreview')}
+                    className="shrink-0 rounded-xl transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                  >
                     <img
                       src={previewUrl}
                       alt={attachment.original_name}
-                      className="max-h-[360px] w-full object-cover transition duration-200 group-hover:scale-[1.01]"
+                      className="h-12 w-12 rounded-xl object-cover"
                     />
-                  ) : (
-                    <div className="flex h-40 items-center justify-center bg-muted/40 text-primary">
-                      <ImagePlus className="h-8 w-8" />
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between gap-3 px-3 py-2">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-foreground">{attachment.original_name}</div>
-                      <div className="truncate text-xs text-muted-foreground">
-                        {formatAttachmentKindLabel(attachment, t)}
-                        {typeof attachment.size_bytes === 'number' ? ` · ${formatAttachmentSize(attachment.size_bytes)}` : ''}
-                      </div>
-                    </div>
+                  </button>
+                ) : (
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                    <FileText className="h-5 w-5" />
                   </div>
-                </button>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="mb-3 flex flex-wrap gap-2">
-            {visibleAttachments.map((attachment) => {
-              const previewUrl = resolveHistoryImagePreviewUrl(currentSessionId, attachment);
-
-              return (
-                <div
-                  key={attachment.attachment_id}
-                  className={align === 'user'
-                    ? 'flex min-w-[180px] max-w-[260px] items-center gap-3 rounded-xl border border-accent-foreground/10 bg-background/90 px-3 py-2 text-foreground'
-                    : 'flex min-w-[180px] max-w-[260px] items-center gap-3 rounded-xl border border-border/55 bg-background px-3 py-2 text-foreground'}
-                >
-                  {previewUrl ? (
-                    <button
-                      type="button"
-                      onClick={() => onOpenImagePreview({
-                        name: attachment.original_name,
-                        url: previewUrl,
-                      })}
-                      aria-label={t('chat.attachments.openPreview')}
-                      className="shrink-0 rounded-xl transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                    >
-                      <img
-                        src={previewUrl}
-                        alt={attachment.original_name}
-                        className="h-12 w-12 rounded-xl object-cover"
-                      />
-                    </button>
-                  ) : (
-                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                      {attachment.kind === 'image' ? <ImagePlus className="h-5 w-5" /> : <FileText className="h-5 w-5" />}
-                    </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium text-foreground">{attachment.original_name}</div>
-                    <div className="truncate text-xs text-muted-foreground">
-                      {formatAttachmentKindLabel(attachment, t)}
-                      {typeof attachment.size_bytes === 'number' ? ` · ${formatAttachmentSize(attachment.size_bytes)}` : ''}
-                    </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium text-foreground">{attachment.original_name}</div>
+                  <div className="truncate text-xs text-muted-foreground">
+                    {formatAttachmentKindLabel(attachment, t)}
+                    {typeof attachment.size_bytes === 'number' ? ` · ${formatAttachmentSize(attachment.size_bytes)}` : ''}
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        )
+              </div>
+            );
+          })}
+        </div>
       ) : null}
     </>
   );

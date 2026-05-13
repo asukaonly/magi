@@ -17,6 +17,7 @@ from .handler_helpers import (
     resolve_turn_workspace_path as _resolve_turn_workspace_path,
     serialize_ux_plan as _serialize_ux_plan,
 )
+from .attachment_context import resolve_effective_turn_attachments
 from ....runtime_trace import enrich_event_context_with_turn_trace
 
 IMAGE_VISION_UNSUPPORTED_RESPONSE_KEY = "chat.image_vision_unsupported"
@@ -56,7 +57,7 @@ class DirectLLMHandler(BaseExecutionHandler):
     mode = ExecutionMode.DIRECT_LLM
 
     async def build_request(self, request: ExecutionRequest) -> DirectLLMRequest:
-        attachments = list(getattr(request.context.latest_payload, "attachments", []) or [])
+        attachments = resolve_effective_turn_attachments(request.context)
         attachments_for_model = (
             attachments
             if _image_attachments_supported(request.context, attachments)
@@ -96,6 +97,7 @@ class DirectLLMHandler(BaseExecutionHandler):
                 turn,
                 session_summary=getattr(request.context, "session_summary", None),
                 session_origin=getattr(request.context, "session_origin", None),
+                reply_context=getattr(request.context, "reply_context", None),
             ),
             thinking_depth=request.intent.thinking_depth,
         )
@@ -109,7 +111,7 @@ class DirectLLMHandler(BaseExecutionHandler):
 
         turn_id = getattr(request.context.latest_payload, "turn_id", None)
         event_context = _build_llm_event_context(request.context, turn_id)
-        attachments = list(getattr(request.context.latest_payload, "attachments", []) or [])
+        attachments = resolve_effective_turn_attachments(request.context)
         if not _image_attachments_supported(request.context, attachments):
             return ExecutionResult(
                 mode=request.mode,

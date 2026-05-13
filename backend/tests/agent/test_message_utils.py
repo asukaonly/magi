@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from magi.agent.message_utils import append_latest_user_message
+from magi.agent.task_agents.chat.contracts import ChatReplyContext
 from magi.agent.turn_input import UserTurnInput
 
 
@@ -101,3 +102,42 @@ def test_append_latest_user_message_removes_persisted_current_turn_with_attachme
         "previous answer",
         "Voice transcript: hello",
     ]
+
+
+def test_append_latest_user_message_marks_explicit_reply_target_attachments() -> None:
+    reply_context = ChatReplyContext(
+        message_id="msg-image",
+        role="user",
+        content_excerpt="这个是谁",
+        is_explicit_reply=True,
+        references_prior_turn=True,
+        structured_payload={
+            "attachments": [
+                {
+                    "attachment_id": "att-image",
+                    "kind": "image",
+                    "original_name": "image.png",
+                    "mime_type": "image/png",
+                    "parse_status": "not_applicable",
+                }
+            ]
+        },
+    )
+
+    messages = append_latest_user_message(
+        [{"role": "user", "content": "这个图上文字是居中的还是居左的"}],
+        _turn("这个图上文字是居中的还是居左的"),
+        history_token_budget=10_000,
+        reply_context=reply_context,
+    )
+
+    assert len(messages) == 1
+    content = messages[-1]["content"]
+    assert "这个图上文字是居中的还是居左的" in content
+    assert "[Current message reply target]" in content
+    assert "message_id=msg-image" in content
+    assert 'message="这个是谁"' in content
+    assert "attachment_id=att-image" in content
+    assert "name=image.png" in content
+    assert "kind=image" in content
+    assert "parse_status=not_applicable" in content

@@ -148,6 +148,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         conversation_history: List[Dict[str, Any]] | None = None,
         session_summary: str | None = None,
         session_origin: str | None = None,
+        reply_context: Any | None = None,
         allow_attachment_grounding: bool = False,
     ) -> FunctionCallingStepState:
         """Build the initial loop state for step-wise function calling."""
@@ -157,6 +158,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
             turn,
             session_summary=session_summary,
             session_origin=session_origin,
+            reply_context=reply_context,
         )
         return FunctionCallingStepState(
             messages=messages,
@@ -285,6 +287,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         conversation_history: Optional[List[Dict[str, Any]]] = None,
         session_summary: str | None = None,
         session_origin: str | None = None,
+        reply_context: Any | None = None,
         max_iterations: int = MAX_ITERATIONS,
         disable_thinking: bool = True,
         intent: str = "unknown",
@@ -317,6 +320,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
                 conversation_history=conversation_history,
                 session_summary=session_summary,
                 session_origin=session_origin,
+                reply_context=reply_context,
                 max_iterations=max_iterations,
                 thinking_depth=thinking_depth,
                 disable_thinking=disable_thinking,
@@ -345,6 +349,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         conversation_history: Optional[List[Dict[str, Any]]],
         session_summary: str | None,
         session_origin: str | None,
+        reply_context: Any | None,
         max_iterations: int,
         thinking_depth: Optional[ThinkingDepth],
         disable_thinking: bool,
@@ -361,6 +366,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
             conversation_history=conversation_history,
             session_summary=session_summary,
             session_origin=session_origin,
+            reply_context=reply_context,
         )
         self._current_messages = state.messages
         depth = _coerce_thinking_depth(thinking_depth, disable_thinking)

@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional, Protocol
 
+from ....agent.cancel import CancelToken, null_cancel_token
 from ....agent.runtime.contracts import FactRecord
 from ...task_orchestrator import TaskOrchestrator
 from .contracts import (
@@ -62,6 +63,7 @@ class CommonHandlerDependencies:
 
     task_orchestrator: TaskOrchestrator
     start_specialized_orchestration: Optional[SpecializedLaunchCallback] = None
+    build_cancel_token: Optional[Callable[[ExecutionRequest], CancelToken]] = None
 
 
 class BaseExecutionHandler:
@@ -118,6 +120,11 @@ class OrchestrationLaunchHandler(BaseExecutionHandler):
             specialized = await self._deps.start_specialized_orchestration(request)
             if specialized is not None:
                 return specialized
+        cancel_token = (
+            self._deps.build_cancel_token(request)
+            if self._deps.build_cancel_token is not None
+            else null_cancel_token()
+        )
         raw_result = await self._deps.task_orchestrator.start_orchestration(
             user_id=request.context.user_id,
             session_id=request.context.session_id,
@@ -130,6 +137,7 @@ class OrchestrationLaunchHandler(BaseExecutionHandler):
             correlation_id=request.correlation_id,
             orchestration_strategy=orchestration_plan.to_strategy_dict(),
             persona_id=getattr(request.context, "active_persona_id", None),
+            cancel_token=cancel_token,
         )
         return ExecutionResult(
             mode=request.mode,

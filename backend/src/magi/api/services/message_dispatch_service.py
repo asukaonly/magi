@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
 from dataclasses import dataclass
 from typing import Any
 
+from ...chat.attachment_ingestion import LocalChatAttachmentIngestionService
 from ...chat.provider import get_chat_projector, get_chat_store
 from ...core.logger import get_logger
 from ...core.runtime_bindings import require_runtime_command_queue
@@ -154,6 +156,12 @@ async def dispatch_user_message(
     )
     if ask_outcome is not None:
         return ask_outcome
+    turn_id = str(client_turn_id or "").strip() or f"turn_{uuid.uuid4().hex[:12]}"
+    normalized_attachments = await _prepare_runtime_attachments(
+        session_id=resolved_session_id,
+        turn_id=turn_id,
+        attachments=normalized_attachments,
+    )
     normalized_workspace_path = str(workspace_path or "").strip() or None
     if normalized_workspace_path is None:
         try:
@@ -169,7 +177,6 @@ async def dispatch_user_message(
         normalized_metadata["reply_to_message_id"] = normalized_reply_to_message_id
     created_at = time.time()
     created_at_ms = int(created_at * 1000)
-    turn_id = str(client_turn_id or "").strip() or f"turn_{uuid.uuid4().hex[:12]}"
     active_persona_id = await _resolve_active_persona_id()
     try:
         created_turn = await chat_store.create_user_turn(
@@ -362,3 +369,39 @@ def _normalize_attachments(attachments: list[dict[str, Any]] | None) -> list[dic
         normalized_item["kind"] = attachment_kind
         normalized.append(normalized_item)
     return normalized
+
+
+async def _prepare_runtime_attachments(
+    *,
+    session_id: str,
+    turn_id: str,
+    attachments: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not attachments:
+        return []
+    ingestion_service = LocalChatAttachmentIngestionService()
+    return await asyncio.to_thread(
+        _prepare_runtime_attachments_sync,
+        ingestion_service,
+        session_id,
+        turn_id,
+        attachments,
+    )
+
+
+def _prepare_runtime_attachments_sync(
+    ingestion_service: LocalChatAttachmentIngestionService,
+    session_id: str,
+    turn_id: str,
+    attachments: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    prepared: list[dict[str, Any]] = []
+    for attachment in attachments:
+        prepared.append(
+            ingestion_service.prepare_runtime_attachment(
+                session_id=session_id,
+                turn_id=turn_id,
+                attachment=attachment,
+            )
+        )
+    return prepared

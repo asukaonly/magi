@@ -1,5 +1,5 @@
 import type { ClipboardEventHandler, KeyboardEventHandler, ReactNode, Ref } from 'react';
-import { ArrowUp, Loader2, Square } from 'lucide-react';
+import { ArrowUp, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
 import { SessionSafetyControl } from '@/components/control';
@@ -146,7 +146,7 @@ export const ChatComposerShell = ({
             {sendingMessage ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : waitingForReply ? (
-              <Square className="h-3.5 w-3.5" />
+              <span aria-hidden="true" className="h-3.5 w-3.5 rounded-[2px] bg-current" />
             ) : (
               <ArrowUp className="h-3.5 w-3.5" />
             )}

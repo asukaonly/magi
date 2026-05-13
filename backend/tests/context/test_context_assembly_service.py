@@ -261,6 +261,44 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
         self.assertIn("report.pdf", package.system_prompt)
         self.assertIn("Quarterly summary", package.system_prompt)
 
+    async def test_build_prompt_package_prefers_full_attachment_text_over_excerpt(self):
+        retrieval_memory_provider = AsyncMock(return_value=self._empty_retrieval_payload())
+        text_path = Path(self.id().replace(".", "_")).with_suffix(".txt")
+        text_path.write_text("First line\nSecond line\nFinal line", encoding="utf-8")
+        self.addCleanup(lambda: text_path.unlink(missing_ok=True))
+
+        service = ContextAssemblyService(
+            agent_id="chat-agent",
+            agent_type="chat",
+            prompt_context_assembler=PromptContextAssembler(),
+            prompt_context_renderer=PromptContextRenderer(),
+            memory=_FakeMemory(),
+            retrieval_memory_provider=retrieval_memory_provider,
+        )
+
+        package = await service.build_prompt_package(
+            user_id="u1",
+            session_id="s1",
+            user_message="完整看看附件",
+            task_category="chat",
+            tools=[],
+            attachments=[
+                {
+                    "attachment_id": "att-text",
+                    "kind": "text_file",
+                    "original_name": "notes.md",
+                    "parse_status": "parsed",
+                    "derived_text_excerpt": "First line",
+                    "derived_text_path": str(text_path),
+                    "character_count": len("First line\nSecond line\nFinal line"),
+                    "truncated": False,
+                },
+            ],
+        )
+
+        self.assertIn("First line\nSecond line\nFinal line", package.system_prompt)
+        self.assertNotIn("```text\nFirst line\n```", package.system_prompt)
+
     @staticmethod
     def _empty_retrieval_payload() -> dict[str, object]:
         return {

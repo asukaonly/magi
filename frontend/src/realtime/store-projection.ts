@@ -160,6 +160,18 @@ export const applyRealtimeStoreProjection = (
       return true;
     }
 
+    if (streamEvent?.kind === 'status_update' && streamEvent.text) {
+      conversationStore.appendStreamStatusUpdate({
+        sessionId,
+        turnId,
+        personaId,
+        source: streamEvent.source || 'assistant',
+        stepLabel: streamEvent.stepLabel,
+        content: streamEvent.text,
+      });
+      return true;
+    }
+
     const contentDelta = String(payload.content_delta || '');
     if (contentDelta) {
       conversationStore.appendStreamTextDelta({

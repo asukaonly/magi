@@ -588,7 +588,8 @@
     "runtime": {
       "label": "运行态详情",
       "expand": "展开运行态详情",
-      "collapse": "收起运行态详情"
+      "collapse": "收起运行态详情",
+      "status": "过程状态"
     },
     "toolCalls": {
       "label": "{{count}} 个工具调用",

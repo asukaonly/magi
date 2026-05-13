@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
 from typing import Any, Awaitable, Callable, Optional
 
+from .cancel import CancelToken, null_cancel_token
 from ..core.logger import get_logger
 from ..agent.runtime.contracts import FactRecord
 from ..events.events import Event, EventTypes
@@ -39,6 +41,10 @@ SessionWorkspaceProvider = Callable[..., Awaitable[str | None] | str | None]
 ControlSessionStoreProvider = Callable[[], Any]
 
 DEFAULT_WORKER_RETRY_BUDGET = 1
+
+
+class _PlanningCancelled(RuntimeError):
+    """Raised when orchestration planning is aborted by a cancel token."""
 
 
 class TaskOrchestrator(
@@ -163,6 +169,90 @@ class TaskOrchestrator(
             user_id=state.user_id,
         )
 
+    async def _consume_startup_cancellation(
+        self,
+        *,
+        cancel_token: CancelToken,
+        session_id: str,
+        run_id: str | None,
+        run_revision: int,
+        log_message: str,
+        orchestration_id: str | None = None,
+        cancel_persisted_run: bool = False,
+    ) -> bool:
+        """Return ``True`` after consuming a startup-time cancellation.
+
+        The planner callback now has a transport-abort path, but cancellation
+        can still arrive at later startup boundaries after planning completes.
+        Re-check the shared cancel token before persisting or launching more
+        orchestration work, and mark any persisted state as cancelled before
+        the caller exits early.
+        """
+        if not await cancel_token.is_cancelled():
+            return False
+        logger.info(
+            log_message,
+            session_id=session_id,
+            run_id=run_id,
+            run_revision=run_revision,
+            orchestration_id=orchestration_id,
+        )
+        if cancel_persisted_run and run_id:
+            await self.cancel_run(
+                session_id=session_id,
+                run_id=run_id,
+                run_revision=run_revision,
+            )
+        return True
+
+    async def _await_planning_result(
+        self,
+        *,
+        cancel_token: CancelToken,
+        session_id: str,
+        run_id: str | None,
+        run_revision: int,
+        planning_operation: Awaitable[Any],
+    ) -> Any:
+        """Await the planner callback or cancel its task if the token fires.
+
+        This is the transport-abort path for long planner LLM calls: the
+        planning coroutine is promoted into its own task so a later cancel
+        request can call ``task.cancel()`` and propagate cancellation down to
+        the provider SDK / httpx await chain rather than waiting for the
+        request to return and discarding the result afterwards.
+        """
+        planning_task = asyncio.create_task(
+            planning_operation,
+            name=f"task-orchestrator-plan:{session_id}:{run_id or 'none'}:{run_revision}",
+        )
+        cancel_wait_task = asyncio.create_task(
+            cancel_token.wait(),
+            name=f"task-orchestrator-plan-cancel:{session_id}:{run_id or 'none'}:{run_revision}",
+        )
+        try:
+            done, pending = await asyncio.wait(
+                {planning_task, cancel_wait_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if cancel_wait_task in done:
+                planning_task.cancel()
+                try:
+                    await planning_task
+                except asyncio.CancelledError:
+                    pass
+                raise _PlanningCancelled(cancel_token.reason or "cancelled")
+            for task in pending:
+                task.cancel()
+            return await planning_task
+        finally:
+            if not cancel_wait_task.done():
+                cancel_wait_task.cancel()
+            try:
+                await cancel_wait_task
+            except asyncio.CancelledError:
+                pass
+
     async def start_orchestration(
         self,
         *,
@@ -177,22 +267,57 @@ class TaskOrchestrator(
         correlation_id: Optional[str],
         orchestration_strategy: dict[str, Any],
         persona_id: str | None = None,
+        cancel_token: CancelToken | None = None,
     ) -> OrchestrationExecutionResult:
+        resolved_cancel_token = cancel_token or null_cancel_token()
+
+        def _cancelled_result() -> OrchestrationExecutionResult:
+            return OrchestrationExecutionResult(
+                response="",
+                skip_emit=True,
+                root_user_message=user_message,
+                correlation_id=correlation_id,
+                turn_id=turn_id,
+            )
+
         workspace_root = await self._resolve_workspace_root(
             user_id=user_id,
             session_id=session_id,
             user_message=user_message,
         )
-        plan_payload = await self._plan_subtasks(
-            user_message,
-            history,
-            orchestration_strategy,
-            user_id,
-            session_id,
-            run_id,
-            run_revision,
-            workspace_root=workspace_root,
-        )
+        try:
+            plan_payload = await self._await_planning_result(
+                cancel_token=resolved_cancel_token,
+                session_id=session_id,
+                run_id=run_id,
+                run_revision=run_revision,
+                planning_operation=self._plan_subtasks(
+                    user_message,
+                    history,
+                    orchestration_strategy,
+                    user_id,
+                    session_id,
+                    run_id,
+                    run_revision,
+                    workspace_root=workspace_root,
+                ),
+            )
+        except _PlanningCancelled:
+            logger.info(
+                "Aborted orchestration planner request after cancellation",
+                session_id=session_id,
+                run_id=run_id,
+                run_revision=run_revision,
+            )
+            return _cancelled_result()
+        if await self._consume_startup_cancellation(
+            cancel_token=resolved_cancel_token,
+            session_id=session_id,
+            run_id=run_id,
+            run_revision=run_revision,
+            log_message="Discarding orchestration plan after cancellation",
+        ):
+            return _cancelled_result()
         if not plan_payload.subtasks:
             return OrchestrationExecutionResult(
                 response="Failed to generate worker subtasks for this request.",
@@ -250,17 +375,47 @@ class TaskOrchestrator(
             subtasks=subtasks,
         )
         await self._orchestration_store.save_orchestration(state)
+        if await self._consume_startup_cancellation(
+            cancel_token=resolved_cancel_token,
+            session_id=session_id,
+            run_id=run_id,
+            run_revision=run_revision,
+            orchestration_id=state.orchestration_id,
+            log_message="Cancelling orchestration before todo publish",
+            cancel_persisted_run=True,
+        ):
+            return _cancelled_result()
         # Planner-owned todo list: publish the planned subtasks as the
         # session's todo list before any worker runs. Worker-side
         # ``todo_write`` is intentionally retired — the planner (i.e. this
         # orchestrator) is the single source of truth for todo lifecycle.
         await self._publish_session_todos(state)
+        if await self._consume_startup_cancellation(
+            cancel_token=resolved_cancel_token,
+            session_id=session_id,
+            run_id=run_id,
+            run_revision=run_revision,
+            orchestration_id=state.orchestration_id,
+            log_message="Cancelling orchestration after todo publish",
+            cancel_persisted_run=True,
+        ):
+            return _cancelled_result()
 
         launch_error = await self._launch_workers(
             state,
             run_id=run_id,
             run_revision=run_revision,
         )
+        if await self._consume_startup_cancellation(
+            cancel_token=resolved_cancel_token,
+            session_id=session_id,
+            run_id=run_id,
+            run_revision=run_revision,
+            orchestration_id=state.orchestration_id,
+            log_message="Cancelling orchestration after worker launch",
+            cancel_persisted_run=True,
+        ):
+            return _cancelled_result()
         if launch_error:
             state.status = "failed"
             state.updated_at = time.time()

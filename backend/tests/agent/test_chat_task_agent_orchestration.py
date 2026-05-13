@@ -478,7 +478,10 @@ async def test_chat_task_agent_builds_reply_aware_prompt_context(tmp_path: Path)
     assert 'Run the desktop dev script from the repo root.' in request.system_prompt
     assert '"attachment_id": "att-root-1"' in request.system_prompt
     assert '"asset_ref_id": "asset-root-1"' in request.system_prompt
-    assert request.messages[-1] == {"role": "user", "content": "What if I only want the backend?"}
+    assert request.messages[-1]["role"] == "user"
+    assert "What if I only want the backend?" in request.messages[-1]["content"]
+    assert "[Current message reply target]" in request.messages[-1]["content"]
+    assert "attachment_id=att-root-1" in request.messages[-1]["content"]
     assert original_user_message.reply_to_message_id is None
 
 

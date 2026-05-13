@@ -212,6 +212,8 @@ analysis, migration plans, and other broad verification work.
   Beyond explicit reply targets, chat prompt assembly may inject a compact `Recent Tool State` block derived from the last few tool interactions in the same session. This block is intentionally lossy: tool name, coarse success/failure state, short outcome summary, limited reusable handles, and coarse duration only.
   Important rule: `Recent Tool State` is continuity guidance for the chat LLM, not the canonical execution audit trail. Exact parameters, full outputs, and detailed timing remain in `runtime_trace.db` and should be queried through trace read APIs or the builtin `trace_query` tool.
 
+  Chat attachment continuity follows the same compact-reference pattern. The runtime may include a lightweight session attachment manifest in prompt context containing managed `attachment_id` values, names, kinds, and coarse parse metadata. Full attachment text is not permanently embedded in every turn; follow-up questions about earlier files should use the managed attachment id with the builtin `read_chat_attachment` tool, which resolves the session-owned resource and performs Python-side text/PDF reading on demand. When the current user turn is an explicit reply to an earlier attachment-bearing message, that reply target is annotated in the latest user prompt and its attachments are treated as effective current-turn attachments for routing and multimodal grounding.
+
 ## Runtime And Persistence Boundaries
 
 The current dual-process topology is intentionally split by responsibility:

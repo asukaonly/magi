@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Activity, Brain, ChevronDown, ChevronRight, Hammer } from 'lucide-react';
-import type { ReasoningTrace, ToolCallTrace } from '@/domain/chat/state';
+import { Activity, Brain, ChevronDown, ChevronRight, Hammer, MessageSquare } from 'lucide-react';
+import type { ReasoningTrace, RuntimeStatusTrace, ToolCallTrace } from '@/domain/chat/state';
 
 type AssistantRuntimePanelProps = {
+  runtimeStatuses?: RuntimeStatusTrace[];
   reasoning?: ReasoningTrace[];
   toolCalls?: ToolCallTrace[];
   streaming?: boolean;
@@ -16,8 +17,12 @@ const formatToolArguments = (toolCall: ToolCallTrace): string => {
   return String(toolCall.toolArgsText || '').trim();
 };
 
-export function AssistantRuntimePanel({ reasoning, toolCalls, streaming }: AssistantRuntimePanelProps) {
+export function AssistantRuntimePanel({ runtimeStatuses, reasoning, toolCalls, streaming }: AssistantRuntimePanelProps) {
   const { t } = useTranslation('app');
+  const visibleStatuses = useMemo(
+    () => (runtimeStatuses || []).filter((item) => Boolean(String(item.content || '').trim())),
+    [runtimeStatuses],
+  );
   const visibleReasoning = useMemo(
     () => (reasoning || []).filter((item) => Boolean(String(item.content || '').trim())),
     [reasoning],
@@ -26,16 +31,25 @@ export function AssistantRuntimePanel({ reasoning, toolCalls, streaming }: Assis
     () => (toolCalls || []).filter((item) => Boolean(String(item.toolName || '').trim())),
     [toolCalls],
   );
+  const hasStatuses = visibleStatuses.length > 0;
   const hasReasoning = visibleReasoning.length > 0;
   const hasToolCalls = visibleToolCalls.length > 0;
-  const hasRuntimeActivity = hasReasoning || hasToolCalls;
+  const hasRuntimeActivity = hasStatuses || hasReasoning || hasToolCalls;
   const [expanded, setExpanded] = useState(false);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (streaming && (hasReasoning || visibleToolCalls.some((item) => item.status === 'running'))) {
+    if (streaming && (hasStatuses || hasReasoning || visibleToolCalls.some((item) => item.status === 'running'))) {
       setExpanded(true);
     }
-  }, [streaming, hasReasoning, visibleToolCalls]);
+  }, [streaming, hasStatuses, hasReasoning, visibleToolCalls]);
+
+  useEffect(() => {
+    if (!streaming || !expanded || !scrollRef.current) {
+      return;
+    }
+    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [streaming, expanded, visibleStatuses, visibleReasoning, visibleToolCalls]);
 
   if (!hasRuntimeActivity) {
     return null;
@@ -66,7 +80,25 @@ export function AssistantRuntimePanel({ reasoning, toolCalls, streaming }: Assis
         </span>
       </button>
       {expanded && (
-        <div className="space-y-3 border-t border-border/30 px-3 py-2">
+        <div ref={scrollRef} className="max-h-80 space-y-3 overflow-y-auto overscroll-contain border-t border-border/30 px-3 py-2 pr-2">
+          {hasStatuses ? (
+            <section className="space-y-2">
+              <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>{t('chat.runtime.status')}</span>
+              </div>
+              <div className="space-y-1.5">
+                {visibleStatuses.map((item, index) => (
+                  <div
+                    key={`${item.source}-${item.stepLabel || 'status'}-${index}`}
+                    className="rounded-md border border-border/35 bg-background/60 px-3 py-2 text-xs leading-relaxed text-muted-foreground"
+                  >
+                    {item.content.trim()}
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
           {hasReasoning ? (
             <section className="space-y-1">
               <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">

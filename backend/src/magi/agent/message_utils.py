@@ -23,6 +23,7 @@ def append_latest_user_message(
     history_token_budget: int | None = DEFAULT_HISTORY_TOKEN_BUDGET,
     session_summary: str | None = None,
     session_origin: str | None = None,
+    reply_context: Any | None = None,
 ) -> list[dict[str, Any]]:
     """Return prompt history with the current user turn appended once.
 
@@ -37,6 +38,7 @@ def append_latest_user_message(
         list(turn.attachments or []),
         user_id=turn.user_id,
         session_id=turn.session_id,
+        reply_context=reply_context,
     )
     # The durable history can already include the current turn before the
     # runtime command is processed. Keep the richer latest turn below, which
@@ -119,10 +121,15 @@ def _build_latest_user_message_content(
     *,
     user_id: str | None = None,
     session_id: str | None = None,
+    reply_context: Any | None = None,
 ) -> str | list[dict[str, str]] | None:
     blocks: list[dict[str, str]] = []
     if latest_user_message:
         blocks.append({"type": "text", "text": latest_user_message})
+
+    reply_context_note = _build_reply_context_note(reply_context)
+    if reply_context_note:
+        blocks.append({"type": "text", "text": reply_context_note})
 
     for attachment in attachments:
         if not isinstance(attachment, dict):
@@ -162,9 +169,61 @@ def _build_latest_user_message_content(
 
     if not blocks:
         return None
-    if len(blocks) == 1 and blocks[0]["type"] == "text":
-        return blocks[0]["text"]
+    if all(block.get("type") == "text" for block in blocks):
+        text_blocks = [
+            str(block.get("text") or "").strip()
+            for block in blocks
+            if str(block.get("text") or "").strip()
+        ]
+        return "\n\n".join(text_blocks)
     return blocks
+
+
+def _build_reply_context_note(reply_context: Any | None) -> str:
+    if reply_context is None or not bool(getattr(reply_context, "is_explicit_reply", False)):
+        return ""
+    lines = ["[Current message reply target]"]
+    message_id = str(getattr(reply_context, "message_id", "") or "").strip()
+    if message_id:
+        lines.append(f"message_id={message_id}")
+    role = str(getattr(reply_context, "role", "") or "").strip()
+    if role:
+        lines.append(f"speaker={role}")
+    content_excerpt = str(getattr(reply_context, "content_excerpt", "") or "").strip()
+    if content_excerpt:
+        lines.append(f'message="{content_excerpt}"')
+    structured_payload = getattr(reply_context, "structured_payload", None)
+    attachments = structured_payload.get("attachments") if isinstance(structured_payload, dict) else None
+    if isinstance(attachments, list) and attachments:
+        lines.append("Referenced attachments from the replied-to message:")
+        for attachment in attachments[:6]:
+            if not isinstance(attachment, dict):
+                continue
+            attachment_id = str(attachment.get("attachment_id") or "").strip()
+            if not attachment_id:
+                continue
+            name = str(attachment.get("original_name") or "attachment").strip() or "attachment"
+            kind = str(attachment.get("kind") or "file").strip() or "file"
+            details = [
+                f"attachment_id={attachment_id}",
+                f"name={name}",
+                f"kind={kind}",
+            ]
+            mime_type = str(attachment.get("mime_type") or "").strip()
+            if mime_type:
+                details.append(f"mime_type={mime_type}")
+            page_count = attachment.get("page_count")
+            if isinstance(page_count, int):
+                details.append(f"pages={page_count}")
+            character_count = attachment.get("character_count")
+            if isinstance(character_count, int):
+                details.append(f"chars={character_count}")
+            parse_status = str(attachment.get("parse_status") or "").strip()
+            if parse_status:
+                details.append(f"parse_status={parse_status}")
+            lines.append("- " + "; ".join(details))
+        lines.append("Interpret deictic phrases like this image, that document, or the previous attachment against this reply target first.")
+    return "\n".join(lines).strip()
 
 
 def _extract_text_content(content: Any) -> str:

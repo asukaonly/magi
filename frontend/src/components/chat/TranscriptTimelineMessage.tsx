@@ -18,6 +18,7 @@ type TranscriptTimelineMessageProps = {
   avatar: ReactNode;
   headerExtras?: ReactNode;
   bubbleTop?: ReactNode;
+  bubbleFooter?: ReactNode;
   belowBubble?: ReactNode;
   onContextMenu?: MouseEventHandler<HTMLDivElement>;
 };
@@ -102,6 +103,7 @@ export const TranscriptTimelineMessage = ({
   avatar,
   headerExtras,
   bubbleTop,
+  bubbleFooter,
   belowBubble,
   onContextMenu,
 }: TranscriptTimelineMessageProps) => {
@@ -135,16 +137,20 @@ export const TranscriptTimelineMessage = ({
           {bubbleTop}
           {message.role === 'assistant' ? (
             <div className="max-w-none text-current">
-              <AssistantRuntimePanel reasoning={message.reasoning} toolCalls={message.toolCalls} streaming={message.streaming} />
+              <AssistantRuntimePanel runtimeStatuses={message.runtimeStatuses} reasoning={message.reasoning} toolCalls={message.toolCalls} streaming={message.streaming} />
               <ReactMarkdown remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
                 {normalizeAssistantMarkdownContent(renderedContent)}
               </ReactMarkdown>
               {showStreamingCaret && (
                 <span className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-current opacity-70" />
               )}
+              {bubbleFooter}
             </div>
           ) : renderedContent ? (
-            <p className="m-0 whitespace-pre-wrap text-sm">{renderedContent}</p>
+            <>
+              <p className="m-0 whitespace-pre-wrap text-sm">{renderedContent}</p>
+              {bubbleFooter}
+            </>
           ) : null}
         </div>
         {belowBubble}

@@ -91,7 +91,7 @@ fn build_l1_events_response(params: &L1EventsQuery) -> Value {
     bind.push(rusqlite::types::Value::Integer(offset));
 
     let sql = format!(
-          "SELECT \
+        "SELECT \
             fe.id, \
             fe.event_id, \
             fe.event_id AS correlation_id, \

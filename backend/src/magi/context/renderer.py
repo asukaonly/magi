@@ -401,14 +401,15 @@ class PromptContextRenderer:
 
     @staticmethod
     def _load_attachment_text(attachment: Dict[str, Any], *, max_chars: int = 24_000) -> str:
-        text = str(attachment.get("derived_text_excerpt") or "").strip()
+        text = ""
+        text_path = str(attachment.get("derived_text_path") or "").strip()
+        if text_path:
+            try:
+                text = Path(text_path).read_text(encoding="utf-8").strip()
+            except OSError:
+                text = ""
         if not text:
-            text_path = str(attachment.get("derived_text_path") or "").strip()
-            if text_path:
-                try:
-                    text = Path(text_path).read_text(encoding="utf-8").strip()
-                except OSError:
-                    text = ""
+            text = str(attachment.get("derived_text_excerpt") or "").strip()
         normalized = text.strip()
         if len(normalized) <= max_chars:
             return normalized

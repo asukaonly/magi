@@ -1172,6 +1172,9 @@ describe('ChatPage', () => {
       'src',
       'http://127.0.0.1:8000/api/messages/session/session-1/attachments/att-image-history/content?user_id=local_user',
     );
+    expect(screen.queryByText('diagram.png')).not.toBeInTheDocument();
+    expect(screen.queryByText('chat.attachments.addImage')).not.toBeInTheDocument();
+    expect(screen.queryByText('2.0 KB')).not.toBeInTheDocument();
     expect(convertFileSrcMock).not.toHaveBeenCalled();
   });
 
@@ -2291,6 +2294,48 @@ describe('ChatPage', () => {
     expect(within(panel).getByText('web-search')).toBeInTheDocument();
     expect(within(panel).getByText('chat.toolCalls.running')).toBeInTheDocument();
     expect(within(panel).getByText('{"query":"magi memory architecture"}')).toBeInTheDocument();
+  });
+
+  it('renders tool-call assistant narration inside runtime activity', async () => {
+    useConversationStore.getState().hydrateSessions([
+      {
+        session_id: 'session-1',
+        title: 'New Chat',
+        last_message_preview: '',
+        last_user_message_preview: '',
+        title_overridden: false,
+        last_timestamp: 0,
+        message_count: 0,
+        workspace_path: null,
+      },
+    ], 'session-1');
+    useConversationStore.getState().upsertMessage('session-1', {
+      id: 'msg-status-runtime',
+      role: 'assistant',
+      kind: 'assistant',
+      content: '',
+      timestamp: 1000,
+      turnId: 'turn-status-runtime',
+      streaming: true,
+      runtimeStatuses: [
+        {
+          source: 'assistant_tool_call',
+          stepLabel: 'tool_call_narration',
+          content: '工作区是空的，附件解析也失败了。我先试试提取它们。',
+        },
+      ],
+    });
+
+    render(<ChatPage />);
+
+    const panels = await screen.findAllByTestId('chat-assistant-runtime-panel');
+    const panel = panels.find((candidate) => within(candidate).queryByText('工作区是空的，附件解析也失败了。我先试试提取它们。'));
+    expect(panel).toBeDefined();
+    if (!panel) {
+      throw new Error('Expected a runtime panel containing assistant narration.');
+    }
+    expect(within(panel).getByText('chat.runtime.status')).toBeInTheDocument();
+    expect(within(panel).getByText('工作区是空的，附件解析也失败了。我先试试提取它们。')).toBeInTheDocument();
   });
 
   it('renders streamed reasoning details inside the assistant bubble', async () => {

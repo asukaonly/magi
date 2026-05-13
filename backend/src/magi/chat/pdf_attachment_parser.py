@@ -1,17 +1,27 @@
-"""Local parser for readable PDF chat attachments without OCR fallback."""
+"""Local parser for readable PDF chat attachments."""
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
+from importlib import metadata
 from pathlib import Path
+
+from pypdf import PdfReader
+from pypdf.errors import PdfReadError
 
 
 DEFAULT_PDF_ATTACHMENT_MAX_CHARS = 120_000
-_STREAM_PATTERN = re.compile(rb"stream\r?\n(.*?)\r?\nendstream", re.DOTALL)
-_PAGE_PATTERN = re.compile(rb"/Type\s*/Page\b")
-_TEXT_BLOCK_PATTERN = re.compile(r"BT(.*?)ET", re.DOTALL)
-_TEXT_STRING_PATTERN = re.compile(r"\((?:\\.|[^\\)])*\)")
+PDF_PARSER_BACKEND = "pypdf"
+
+
+def _resolve_pdf_parser_backend_version() -> str:
+    try:
+        return metadata.version(PDF_PARSER_BACKEND)
+    except metadata.PackageNotFoundError:
+        return "unknown"
+
+
+PDF_PARSER_BACKEND_VERSION = _resolve_pdf_parser_backend_version()
 
 
 @dataclass(slots=True)
@@ -28,7 +38,7 @@ class ParsedPdfAttachment:
 
 
 class LocalPdfAttachmentParser:
-    """Extract text from simple readable PDFs without external dependencies."""
+    """Extract embedded text from readable digital PDFs."""
 
     def parse_file(
         self,
@@ -38,30 +48,45 @@ class LocalPdfAttachmentParser:
     ) -> ParsedPdfAttachment:
         """Parse one local PDF and return structured extraction output."""
 
-        content_bytes = Path(file_path).read_bytes()
-        if not content_bytes.startswith(b"%PDF-"):
-            return ParsedPdfAttachment(
-                text="",
-                character_count=0,
-                truncated=False,
-                excerpt="",
-                page_count=0,
-                extraction_succeeded=False,
-                error="Unsupported PDF format",
-            )
+        path = Path(file_path)
+        try:
+            with path.open("rb") as file:
+                header = file.read(5)
+        except OSError:
+            return _failed_parse("Unsupported PDF format")
+        if header != b"%PDF-":
+            return _failed_parse("Unsupported PDF format")
 
-        page_count = len(_PAGE_PATTERN.findall(content_bytes))
+        try:
+            reader = PdfReader(str(path), strict=False)
+        except (OSError, PdfReadError, ValueError):
+            return _failed_parse("Unsupported PDF format")
+
+        if reader.is_encrypted:
+            try:
+                decrypt_result = reader.decrypt("")
+            except (PdfReadError, ValueError, NotImplementedError):
+                return _failed_parse("Encrypted PDF requires a password")
+            if not decrypt_result:
+                return _failed_parse("Encrypted PDF requires a password")
+
+        try:
+            pages = list(reader.pages)
+        except (PdfReadError, ValueError, RuntimeError):
+            return _failed_parse("Unable to read PDF pages")
+
+        page_count = len(pages)
         extracted_segments: list[str] = []
-        had_unsupported_stream = False
-        for match in _STREAM_PATTERN.finditer(content_bytes):
-            stream_bytes = match.group(1)
-            header_window = content_bytes[max(0, match.start() - 200):match.start()]
-            if b"/FlateDecode" in header_window:
-                had_unsupported_stream = True
+        for page in pages:
+            try:
+                page_text = page.extract_text() or ""
+            except (AttributeError, KeyError, PdfReadError, TypeError, ValueError):
                 continue
-            extracted_segments.extend(self._extract_stream_text(stream_bytes))
+            normalized_page_text = _normalize_extracted_text(page_text)
+            if normalized_page_text:
+                extracted_segments.append(normalized_page_text)
 
-        normalized_text = "\n".join(segment for segment in extracted_segments if segment).strip()
+        normalized_text = "\n\n".join(extracted_segments).strip()
         if not normalized_text:
             return ParsedPdfAttachment(
                 text="",
@@ -70,11 +95,7 @@ class LocalPdfAttachmentParser:
                 excerpt="",
                 page_count=page_count,
                 extraction_succeeded=False,
-                error=(
-                    "PDF text extraction requires an uncompressed readable PDF stream"
-                    if had_unsupported_stream
-                    else "No readable text found in PDF"
-                ),
+                error="No readable text found in PDF",
             )
 
         character_count = len(normalized_text)
@@ -91,22 +112,19 @@ class LocalPdfAttachmentParser:
             error=None,
         )
 
-    def _extract_stream_text(self, stream_bytes: bytes) -> list[str]:
-        stream_text = stream_bytes.decode("latin-1", errors="ignore")
-        segments: list[str] = []
-        for text_block in _TEXT_BLOCK_PATTERN.findall(stream_text):
-            literals = _TEXT_STRING_PATTERN.findall(text_block)
-            if not literals:
-                continue
-            segments.append("".join(self._decode_pdf_literal(item) for item in literals).strip())
-        return [segment for segment in segments if segment]
 
-    @staticmethod
-    def _decode_pdf_literal(literal: str) -> str:
-        inner = literal[1:-1]
-        inner = inner.replace(r"\(", "(").replace(r"\)", ")").replace(r"\\", "\\")
-        return re.sub(
-            r"\\([0-7]{1,3})",
-            lambda match: chr(int(match.group(1), 8)),
-            inner,
-        )
+def _failed_parse(error: str, *, page_count: int = 0) -> ParsedPdfAttachment:
+    return ParsedPdfAttachment(
+        text="",
+        character_count=0,
+        truncated=False,
+        excerpt="",
+        page_count=page_count,
+        extraction_succeeded=False,
+        error=error,
+    )
+
+
+def _normalize_extracted_text(text: str) -> str:
+    normalized = str(text or "").replace("\r\n", "\n").replace("\r", "\n")
+    return "\n".join(line.rstrip() for line in normalized.split("\n")).strip()

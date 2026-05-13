@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 
 from magi.api.services import message_dispatch_service as service
 from magi.i18n import language_context
+from magi.utils.runtime import get_runtime_paths, set_runtime_dir
 
 
 class _FakeBus:
@@ -335,6 +337,53 @@ async def test_dispatch_user_message_carries_attachments_and_workspace_path_into
     command = queue.commands[0]
     assert command.attachments == [{"kind": "image", "attachment_id": "att-1"}]
     assert command.workspace_path == "/tmp/magi"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_user_message_prepares_text_attachment_before_enqueue(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    original_runtime_base = get_runtime_paths().base_dir
+    set_runtime_dir(tmp_path / "runtime")
+    try:
+        queue = _FakeRuntimeCommandQueue()
+        chat_store = _FakeChatStore()
+        monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+        monkeypatch.setattr(service, "get_chat_store", lambda: chat_store)
+        attachment_dir = get_runtime_paths().chat_files_dir / "session-for-u1" / "turn-client-1"
+        attachment_dir.mkdir(parents=True, exist_ok=True)
+        attachment_path = attachment_dir / "att-1__notes.md"
+        attachment_path.write_text("# hello\nworld\n", encoding="utf-8")
+
+        outcome = await service.dispatch_user_message(
+            source="api",
+            user_id="u1",
+            message="",
+            session_id="session-for-u1",
+            client_turn_id="turn-client-1",
+            attachments=[
+                {
+                    "kind": "text_file",
+                    "attachment_id": "att-1",
+                    "original_name": "notes.md",
+                    "mime_type": "text/markdown",
+                    "size_bytes": attachment_path.stat().st_size,
+                    "storage_path": str(attachment_path),
+                    "sha256": "sha",
+                    "parse_status": "pending",
+                }
+            ],
+        )
+
+        assert outcome.success is True
+        stored_attachment = chat_store.created_turns[0]["attachment_payloads"][0]
+        assert stored_attachment["parse_status"] == "parsed"
+        assert stored_attachment["derived_text_excerpt"] == "# hello\nworld\n"
+        assert Path(str(stored_attachment["derived_text_path"])).is_file()
+        assert queue.commands[0].attachments[0]["parse_status"] == "parsed"
+    finally:
+        set_runtime_dir(original_runtime_base)
 
 
 @pytest.mark.asyncio

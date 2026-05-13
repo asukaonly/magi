@@ -588,7 +588,8 @@
     "runtime": {
       "label": "Runtime activity",
       "expand": "Expand runtime activity",
-      "collapse": "Collapse runtime activity"
+      "collapse": "Collapse runtime activity",
+      "status": "Process updates"
     },
     "toolCalls": {
       "label_one": "{{count}} tool call",

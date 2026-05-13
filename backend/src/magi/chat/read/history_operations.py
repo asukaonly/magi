@@ -374,7 +374,7 @@ class ChatHistoryOperationsMixin:
             host._get_conn()
             .execute(
                 f"""
-            SELECT a.attachment_id, a.kind, a.original_name, a.mime_type,
+                 SELECT a.attachment_id, a.turn_id, a.kind, a.original_name, a.mime_type,
                    a.size_bytes, a.storage_rel_path, a.sha256
             FROM {CHAT_ATTACHMENTS_TABLE} a
             JOIN {CHAT_MESSAGES_TABLE} m ON m.message_id = a.message_id
@@ -396,6 +396,7 @@ class ChatHistoryOperationsMixin:
         storage_path = host._runtime_paths.base_dir / Path(storage_rel_path)
         return {
             "attachment_id": str(row["attachment_id"] or "").strip(),
+            "turn_id": str(row["turn_id"] or "").strip(),
             "kind": str(row["kind"] or "file").strip() or "file",
             "original_name": str(row["original_name"] or "").strip(),
             "mime_type": str(row["mime_type"] or "application/octet-stream").strip()

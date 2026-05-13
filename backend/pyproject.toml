@@ -76,6 +76,7 @@ dependencies = [
     "socksio>=1.0.0",
     "aiofiles>=23.2.1",
     "playwright>=1.53.0",
+    "pypdf>=5.0.0",
 
     # Local embedding / reranker (ONNX)
     "numpy>=1.26.0",

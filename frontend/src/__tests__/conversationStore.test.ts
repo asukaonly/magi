@@ -470,6 +470,54 @@ describe('conversation store', () => {
 
   });
 
+  it('anchors a late interim message to its original turn', () => {
+    const store = useConversationStore.getState();
+
+    store.appendPendingTurn({
+      sessionId: 'session-a',
+      input: '第一次架构扫描',
+      turnId: 'turn-first',
+      timestamp: 1000,
+      pendingLabel: 'Thinking...',
+    });
+    store.appendPendingTurn({
+      sessionId: 'session-a',
+      input: '第二次架构扫描',
+      turnId: 'turn-second',
+      timestamp: 2000,
+      pendingLabel: 'Thinking...',
+    });
+    store.upsertMessage('session-a', {
+      id: 'msg-first-interim',
+      messageId: 'msg-first-interim',
+      role: 'assistant',
+      kind: 'assistant',
+      messageKind: 'assistant_interim',
+      content: '我看一下。',
+      timestamp: 3000,
+      turnId: 'turn-first',
+    });
+    store.upsertMessage('session-a', {
+      id: 'msg-first-interim',
+      messageId: 'msg-first-interim',
+      role: 'assistant',
+      kind: 'assistant',
+      messageKind: 'assistant_interim',
+      content: '已取消执行',
+      timestamp: 4000,
+      turnId: 'turn-first',
+    });
+
+    const messages = useConversationStore.getState().messagesBySession['session-a'] || [];
+
+    expect(messages.map((message) => [message.turnId, message.role, message.messageKind || null])).toEqual([
+      ['turn-first', 'user', null],
+      ['turn-first', 'assistant', 'assistant_interim'],
+      ['turn-second', 'user', null],
+    ]);
+    expect(messages[1].content).toBe('已取消执行');
+  });
+
   it('preserves assistant attachments from realtime agent responses', () => {
     const store = useConversationStore.getState();
 
@@ -601,6 +649,40 @@ describe('conversation store', () => {
           status: 'completed',
           toolArgsText: '{"query":"magi"}',
           toolArguments: { query: 'magi' },
+        }),
+      ],
+    }));
+  });
+
+  it('routes tool-call assistant narration into runtime status updates', () => {
+    applyRealtimeStoreProjection({
+      event: 'agent_response_chunk',
+      data: {
+        session_id: 'session-a',
+        turn_id: 'turn-status',
+        persona_id: 'persona-seven',
+        event: {
+          kind: 'status_update',
+          text: '附件解析失败了，我先尝试其它提取方式。',
+          source: 'assistant_tool_call',
+          step_label: 'tool_call_narration',
+        },
+      },
+    });
+
+    const statusMessage = (useConversationStore.getState().messagesBySession['session-a'] || [])
+      .find((message) => message.turnId === 'turn-status' && message.role === 'assistant');
+
+    expect(statusMessage).toEqual(expect.objectContaining({
+      turnId: 'turn-status',
+      role: 'assistant',
+      streaming: true,
+      personaId: 'persona-seven',
+      runtimeStatuses: [
+        expect.objectContaining({
+          source: 'assistant_tool_call',
+          stepLabel: 'tool_call_narration',
+          content: '附件解析失败了，我先尝试其它提取方式。',
         }),
       ],
     }));

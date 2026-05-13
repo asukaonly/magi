@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from magi.agent.cancel import EventCancelToken
 from magi.agent.runtime.contracts import FactRecord
 import magi.agent.task_orchestrator as task_orchestrator_module
 import magi.agent.task_orchestration_workers as task_orchestration_workers_module
@@ -382,6 +384,141 @@ async def test_start_orchestration_passes_workspace_root_to_planner(monkeypatch:
     assert result.skip_emit is True
     assert captured["kwargs"]["workspace_root"] == "/tmp/magi"
     assert captured["saved_state"].metadata["persona_id"] == "persona-orchestration"
+
+
+@pytest.mark.asyncio
+async def test_start_orchestration_discards_plan_when_cancelled_during_planning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cancel_token = EventCancelToken()
+    control_store = _FakeControlSessionStore()
+
+    async def _planning_then_cancel(*args, **kwargs):  # type: ignore[no-untyped-def]
+        _ = (args, kwargs)
+        cancel_token.cancel("user_cancel")
+        return SimpleNamespace(
+            subtasks=[
+                SimpleNamespace(
+                    description="Inspect backend",
+                    subagent_type="Explore",
+                    prompt="Inspect backend",
+                    parallel_group="group-a",
+                )
+            ]
+        )
+
+    orchestrator = TaskOrchestrator(
+        runtime_key="chat:user-1",
+        tool_registry=ToolRegistry(),
+        plan_subtasks=_planning_then_cancel,
+        aggregate_orchestration=_fake_aggregate,
+        register_user_message=_fake_register_user_message,
+        parent_task_agent_type="chat",
+        control_session_store_provider=lambda: control_store,
+    )
+
+    class _UnexpectedStore:
+        async def save_orchestration(self, state: TaskOrchestrationState) -> None:
+            _ = state
+            raise AssertionError("save_orchestration should not be called after cancellation")
+
+    async def _unexpected_launch_workers(
+        state: TaskOrchestrationState,
+        *,
+        run_id=None,
+        run_revision=0,
+    ):  # type: ignore[no-untyped-def]
+        _ = (state, run_id, run_revision)
+        raise AssertionError("workers should not launch after cancellation")
+
+    monkeypatch.setattr(orchestrator, "_orchestration_store", _UnexpectedStore())
+    monkeypatch.setattr(orchestrator, "_launch_workers", _unexpected_launch_workers)
+
+    result = await orchestrator.start_orchestration(
+        user_id="user-1",
+        session_id="session-1",
+        user_message="Analyze the repo",
+        run_id="run-1",
+        run_revision=0,
+        turn_id="turn-1",
+        history=[],
+        history_key="user-1::session-1",
+        correlation_id=None,
+        orchestration_strategy={"planner": "task_agent", "allow_parallel": True},
+        cancel_token=cancel_token,
+    )
+
+    assert result.skip_emit is True
+    assert result.response == ""
+    assert control_store.replace_calls == []
+
+
+@pytest.mark.asyncio
+async def test_start_orchestration_cancels_inflight_planner_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cancel_token = EventCancelToken()
+    planner_started = asyncio.Event()
+    planner_cancelled = asyncio.Event()
+
+    async def _slow_planner(*args, **kwargs):  # type: ignore[no-untyped-def]
+        _ = (args, kwargs)
+        planner_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            planner_cancelled.set()
+            raise
+
+    orchestrator = TaskOrchestrator(
+        runtime_key="chat:user-1",
+        tool_registry=ToolRegistry(),
+        plan_subtasks=_slow_planner,
+        aggregate_orchestration=_fake_aggregate,
+        register_user_message=_fake_register_user_message,
+        parent_task_agent_type="chat",
+    )
+
+    class _UnexpectedStore:
+        async def save_orchestration(self, state: TaskOrchestrationState) -> None:
+            _ = state
+            raise AssertionError("save_orchestration should not be called after planner cancellation")
+
+    async def _unexpected_launch_workers(
+        state: TaskOrchestrationState,
+        *,
+        run_id=None,
+        run_revision=0,
+    ):  # type: ignore[no-untyped-def]
+        _ = (state, run_id, run_revision)
+        raise AssertionError("workers should not launch after planner cancellation")
+
+    monkeypatch.setattr(orchestrator, "_orchestration_store", _UnexpectedStore())
+    monkeypatch.setattr(orchestrator, "_launch_workers", _unexpected_launch_workers)
+
+    task = asyncio.create_task(
+        orchestrator.start_orchestration(
+            user_id="user-1",
+            session_id="session-1",
+            user_message="Analyze the repo",
+            run_id="run-1",
+            run_revision=0,
+            turn_id="turn-1",
+            history=[],
+            history_key="user-1::session-1",
+            correlation_id=None,
+            orchestration_strategy={"planner": "task_agent", "allow_parallel": True},
+            cancel_token=cancel_token,
+        )
+    )
+    await planner_started.wait()
+
+    cancel_token.cancel("user_cancel")
+    result = await task
+
+    assert result.skip_emit is True
+    assert result.response == ""
+    assert planner_cancelled.is_set()
 
 
 @pytest.mark.asyncio

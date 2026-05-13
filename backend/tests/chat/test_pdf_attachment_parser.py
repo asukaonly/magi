@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+import zlib
 from pathlib import Path
 
 from magi.chat.pdf_attachment_parser import LocalPdfAttachmentParser
 
 
-def test_parse_file_extracts_text_from_simple_pdf(tmp_path: Path) -> None:
+def test_parse_file_extracts_text_from_compressed_pdf_stream(tmp_path: Path) -> None:
     file_path = tmp_path / "sample.pdf"
-    file_path.write_bytes(_build_simple_pdf_bytes("Hello PDF"))
+    file_path.write_bytes(_build_simple_pdf_bytes("Hello PDF", compressed=True))
 
     parser = LocalPdfAttachmentParser()
     parsed = parser.parse_file(file_path)
@@ -47,19 +48,48 @@ def test_parse_file_truncates_extracted_pdf_text(tmp_path: Path) -> None:
     assert parsed.truncated is True
 
 
-def _build_simple_pdf_bytes(text: str) -> bytes:
+def _build_simple_pdf_bytes(text: str, *, compressed: bool = False) -> bytes:
     content_stream = f"BT\n/F1 12 Tf\n72 72 Td\n({text}) Tj\nET".encode("latin-1")
+    stored_stream = zlib.compress(content_stream) if compressed else content_stream
+    filter_entry = b" /Filter /FlateDecode" if compressed else b""
     objects = [
-        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
-        b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
         (
-            b"3 0 obj\n"
-            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 144] /Contents 4 0 R "
-            b"/Resources << /Font << /F1 5 0 R >> >> >>\n"
-            b"endobj\n"
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 144] "
+            b"/Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>"
         ),
-        b"4 0 obj\n<< /Length " + str(len(content_stream)).encode("ascii") + b" >>\nstream\n" + content_stream + b"\nendstream\nendobj\n",
-        b"5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n",
+        b"<< /Length "
+        + str(len(stored_stream)).encode("ascii")
+        + filter_entry
+        + b" >>\nstream\n"
+        + stored_stream
+        + b"\nendstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
     ]
-    body = b"".join(objects)
-    return b"%PDF-1.4\n" + body + b"%%EOF\n"
+    return _build_pdf_bytes(objects)
+
+
+def _build_pdf_bytes(objects: list[bytes]) -> bytes:
+    header = b"%PDF-1.4\n"
+    body = b""
+    offsets: list[int] = []
+    for index, obj in enumerate(objects, start=1):
+        offsets.append(len(header) + len(body))
+        body += f"{index} 0 obj\n".encode("ascii") + obj + b"\nendobj\n"
+    xref_offset = len(header) + len(body)
+    xref_entries = b"".join(f"{offset:010d} 00000 n \n".encode("ascii") for offset in offsets)
+    xref = (
+        b"xref\n0 "
+        + str(len(objects) + 1).encode("ascii")
+        + b"\n0000000000 65535 f \n"
+        + xref_entries
+    )
+    trailer = (
+        b"trailer\n<< /Size "
+        + str(len(objects) + 1).encode("ascii")
+        + b" /Root 1 0 R >>\nstartxref\n"
+        + str(xref_offset).encode("ascii")
+        + b"\n%%EOF\n"
+    )
+    return header + body + xref + trailer

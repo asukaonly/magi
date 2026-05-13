@@ -523,6 +523,43 @@ describe('chat trace state helpers', () => {
     });
   });
 
+  it('uses interim assistant text as the running bubble label', () => {
+    const interimMessage: ChatTimelineMessage = {
+      id: 'msg-interim-running',
+      role: 'assistant',
+      kind: 'assistant',
+      content: '我看一下。',
+      timestamp: 1000,
+      turnId: 'turn-interim-running',
+      messageKind: 'assistant_interim',
+      traceDisplayMode: 'prominent',
+      traceSummary: normalizeTraceSummary({
+        turn_id: 'turn-interim-running',
+        mode: 'orchestration',
+        status: 'running',
+        headline: '正在分析项目',
+        active_steps: 1,
+        completed_steps: 0,
+        failed_steps: 0,
+        duration_seconds: 0.4,
+        trace_available: true,
+      }),
+      traceAvailable: true,
+    };
+
+    expect(projectExecutionProgressPresentation(interimMessage, {
+      executionControlByTurnId: {},
+      cancellingTurnIds: [],
+      detachingTurnIds: [],
+      summary: { traceAvailable: true },
+      variant: 'bubble',
+    })).toMatchObject({
+      executionState: 'running',
+      statusTitle: '正在分析项目',
+      showBubbleTitle: false,
+    });
+  });
+
   it('projects control status card descriptors from control payloads', () => {
     expect(projectControlStatusCardPresentation({
       id: 'permission:req-1',
@@ -967,6 +1004,24 @@ describe('chat trace state helpers', () => {
     expect(next[1].kind).toBe('assistant');
     expect(next[1].messageKind).toBe('assistant_interim');
     expect(next[1].content).toBe('正在思考');
+  });
+
+  it('inserts a late interim bubble after its own user turn', () => {
+    const initial = [
+      ...createPendingTurn('第一次架构扫描', 'turn_first', 1000, 'Thinking'),
+      ...createPendingTurn('第二次架构扫描', 'turn_second', 2000, 'Thinking'),
+    ];
+
+    const next = applyTurnUxPlan(initial, 'turn_first', {
+      assistantSurfaceMode: 'interim_then_final',
+      interimText: '我看一下。',
+    });
+
+    expect(next.map((message) => [message.turnId, message.role, message.content])).toEqual([
+      ['turn_first', 'user', '第一次架构扫描'],
+      ['turn_first', 'assistant', '我看一下。'],
+      ['turn_second', 'user', '第二次架构扫描'],
+    ]);
   });
 
   it('keeps the interim assistant card and appends the final assistant answer', () => {

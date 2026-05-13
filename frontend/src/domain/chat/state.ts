@@ -39,9 +39,16 @@ export interface ChatTimelineMessage {
   traceAvailable?: boolean;
   runState?: ChatRunState | null;
   streaming?: boolean;
+  runtimeStatuses?: RuntimeStatusTrace[];
   reasoning?: ReasoningTrace[];
   toolCalls?: ToolCallTrace[];
   payload?: Record<string, unknown> | null;
+}
+
+export interface RuntimeStatusTrace {
+  source: string;
+  stepLabel?: string | null;
+  content: string;
 }
 
 export interface ReasoningTrace {
@@ -486,6 +493,32 @@ export const createPendingTurn = (
   },
 ];
 
+const insertAfterTurnAnchor = (
+  messages: ChatTimelineMessage[],
+  incoming: ChatTimelineMessage,
+  turnId: string,
+): ChatTimelineMessage[] => {
+  const resolvedTurnId = String(turnId || '').trim();
+  if (!resolvedTurnId) {
+    return [...messages, incoming];
+  }
+
+  let lastSameTurnIndex = -1;
+  messages.forEach((message, index) => {
+    if (String(message.turnId || '').trim() === resolvedTurnId) {
+      lastSameTurnIndex = index;
+    }
+  });
+
+  if (lastSameTurnIndex < 0) {
+    return [...messages, incoming];
+  }
+
+  const nextMessages = [...messages];
+  nextMessages.splice(lastSameTurnIndex + 1, 0, incoming);
+  return nextMessages;
+};
+
 export const applyTurnUxPlan = (
   messages: ChatTimelineMessage[],
   turnId: string,
@@ -541,7 +574,7 @@ export const applyTurnUxPlan = (
     });
 
     if (replaced) return nextMessages;
-    return [...messages, applyUxMetadata(interimMessage, plan)];
+    return insertAfterTurnAnchor(messages, applyUxMetadata(interimMessage, plan), resolvedTurnId);
   }
 
   if (plan.thinkingIndicator && plan.thinkingIndicator !== 'hidden') {
@@ -553,13 +586,14 @@ export const applyTurnUxPlan = (
     if (hasTurnFeedback) {
       return messages;
     }
-    return [
-      ...messages,
+    return insertAfterTurnAnchor(
+      messages,
       applyUxMetadata(
         buildSyntheticInterimMessage(String(options.pendingLabel || 'Thinking...')),
         plan,
       ),
-    ];
+      resolvedTurnId,
+    );
   }
 
   return messages.map((message) => (
@@ -616,8 +650,8 @@ export const upsertTraceSummary = (
     ));
   }
 
-  return [
-    ...messages,
+  return insertAfterTurnAnchor(
+    messages,
     {
       id: `${turnId}-assistant`,
       role: 'assistant',
@@ -631,7 +665,8 @@ export const upsertTraceSummary = (
       traceSummary: nextSummary || null,
       traceAvailable: Boolean(nextSummary?.traceAvailable),
     },
-  ];
+    turnId,
+  );
 };
 
 export const shouldShowTraceEntry = (
@@ -721,6 +756,9 @@ export const applyAgentResponse = (
     allowTraceCollapse: Boolean(uxPlan?.allowTraceCollapse),
     traceSummary,
     traceAvailable,
+    runtimeStatuses: existing?.runtimeStatuses,
+    reasoning: existing?.reasoning,
+    toolCalls: existing?.toolCalls,
     payload: payload.payload ?? null,
   });
 
@@ -754,7 +792,7 @@ export const applyAgentResponse = (
         index === existingIndex ? { ...incoming, personaId: incoming.personaId ?? message.personaId ?? null } : message
       ));
     }
-    return [...withoutTransientStatus, incoming];
+    return insertAfterTurnAnchor(withoutTransientStatus, incoming, turnId);
   }
 
   if (hasRhythmSegments && !String(payload.messageId || '').trim()) {
@@ -787,7 +825,11 @@ export const applyAgentResponse = (
       .reverse()
       .find(Boolean);
     if (fallbackTurnId) {
-      return [...messages, { ...buildAssistantMessage(fallbackTurnId), id: String(payload.messageId || `${fallbackTurnId}-assistant`), turnId: fallbackTurnId }];
+      return insertAfterTurnAnchor(
+        messages,
+        { ...buildAssistantMessage(fallbackTurnId), id: String(payload.messageId || `${fallbackTurnId}-assistant`), turnId: fallbackTurnId },
+        fallbackTurnId,
+      );
     }
     return [...messages, buildAssistantMessage()];
   }
@@ -805,7 +847,7 @@ export const applyAgentResponse = (
         index === existingFinalIndex ? buildAssistantMessage(turnId, message) : message
       );
     }
-    return [...messages, buildAssistantMessage(turnId)];
+    return insertAfterTurnAnchor(messages, buildAssistantMessage(turnId), turnId);
   }
 
   const nextMessages = messages.map((message) => {
@@ -831,7 +873,7 @@ export const applyAgentResponse = (
     );
   }
 
-  return [...messages, { ...buildAssistantMessage(turnId), turnId }];
+  return insertAfterTurnAnchor(messages, { ...buildAssistantMessage(turnId), turnId }, turnId);
 };
 
 const normalizeReplyPreview = (

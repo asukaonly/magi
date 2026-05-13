@@ -271,6 +271,9 @@ export const projectExecutionProgressPresentation = (
     }
   })();
   const contentText = String(message.content || '').trim();
+  const runningBubbleUsesMessageText = variant === 'bubble'
+    && executionState === 'running'
+    && contentText.length > 0;
 
   return {
     turnId,
@@ -287,7 +290,7 @@ export const projectExecutionProgressPresentation = (
     subtitle,
     footer,
     planStage,
-    showBubbleTitle: variant === 'card' || statusTitle !== contentText,
+    showBubbleTitle: variant === 'card' || (!runningBubbleUsesMessageText && statusTitle !== contentText),
     indicator: executionState === 'cancelled' ? 'cancelled' : 'loader',
     showSpinningIndicator: executionState === 'running' || executionState === 'cancelling' || executionState === 'detaching',
     traceStats: traceSummary

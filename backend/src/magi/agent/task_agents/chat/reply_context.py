@@ -104,7 +104,16 @@ class ChatReplyContextMixin:
                 if not isinstance(item, dict):
                     continue
                 compact_item: dict[str, Any] = {}
-                for key in ("attachment_id", "kind", "original_name", "mime_type", "size_bytes"):
+                for key in (
+                    "attachment_id",
+                    "kind",
+                    "original_name",
+                    "mime_type",
+                    "size_bytes",
+                    "parse_status",
+                    "page_count",
+                    "character_count",
+                ):
                     value = item.get(key)
                     if value is not None:
                         compact_item[key] = value

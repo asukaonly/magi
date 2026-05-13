@@ -51,7 +51,7 @@ export const ExecutionProgressPanel = ({
     : <Loader2 className={`h-4 w-4 text-primary ${presentation.showSpinningIndicator ? 'animate-spin' : ''}`} />;
   const shellClassName = variant === 'card'
     ? ''
-    : 'mt-3 rounded-lg border border-border/45 bg-background/70 px-3 py-3';
+    : 'mt-3 border-t border-border/35 pt-3';
 
   return (
     <div className={shellClassName} data-testid={`chat-execution-panel-${turnId}`}>

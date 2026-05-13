@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from magi.agent.execution.tool_context_formatters import compact_agent_tool_data, compact_glob_tool_data
+from magi.agent.execution.tool_context_formatters import (
+    compact_agent_tool_data,
+    compact_glob_tool_data,
+    compact_read_chat_attachment_tool_data,
+)
 
 
 def test_compact_glob_tool_data_trims_matches() -> None:
@@ -41,3 +45,24 @@ def test_compact_agent_tool_data_keeps_worker_summary() -> None:
 
     assert compact["worker_id"] == "worker_1"
     assert compact["worker_result"]["summary"] == "backend analyzed"
+
+
+def test_compact_read_chat_attachment_tool_data_trims_text() -> None:
+    compact = compact_read_chat_attachment_tool_data(
+        {
+            "attachment": {"attachment_id": "att-1", "original_name": "report.pdf"},
+            "content_kind": "text",
+            "text": "abcdef",
+            "offset": 0,
+            "returned_chars": 6,
+            "total_chars": 6,
+            "is_complete": True,
+            "summary": "Read report",
+        },
+        max_text_chars=3,
+    )
+
+    assert compact["attachment"]["attachment_id"] == "att-1"
+    assert compact["text_preview"] == "abc"
+    assert compact["text_truncated"] is True
+    assert compact["summary"] == "Read report"

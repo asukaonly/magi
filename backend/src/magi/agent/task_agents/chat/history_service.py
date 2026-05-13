@@ -31,6 +31,7 @@ _TOOL_STATE_HANDLE_FIELDS = (
     "source_item_id",
     "message_id",
 )
+_SESSION_ATTACHMENT_MANIFEST_LIMIT = 40
 
 
 @dataclass(slots=True)
@@ -154,12 +155,14 @@ class ChatHistoryService:
                 history=history,
                 active_persona_id=normalized_persona_id,
             )
+            attachment_manifest = self._build_session_attachment_manifest(history)
             cached_history = CachedConversationHistory(
                 version=durable_version,
                 messages=[item.to_prompt_message() for item in history],
                 session_summary=self._combine_session_summaries(
                     active_summary.summary_text if active_summary is not None else None,
                     persona_boundary_summary,
+                    attachment_manifest,
                 ),
                 session_origin=(active_summary.session_origin if active_summary is not None else None),
                 active_persona_id=normalized_persona_id,
@@ -594,16 +597,65 @@ Rules:
     def _combine_session_summaries(
         token_budget_summary: str | None,
         persona_boundary_summary: str | None,
+        attachment_manifest: str | None = None,
     ) -> str | None:
         token_text = str(token_budget_summary or "").strip()
         boundary_text = str(persona_boundary_summary or "").strip()
-        if not boundary_text:
-            return token_text or None
+        attachment_text = str(attachment_manifest or "").strip()
         sections: list[str] = []
         if token_text:
             sections.extend(["# Rolling Token-Budget Summary", token_text, ""])
-        sections.extend(["# Persona Boundary Summary", boundary_text])
+        if boundary_text:
+            sections.extend(["# Persona Boundary Summary", boundary_text, ""])
+        if attachment_text:
+            sections.extend(["# Session Attachment References", attachment_text])
         return "\n".join(sections).strip() or None
+
+    @staticmethod
+    def _build_session_attachment_manifest(messages: list[Any]) -> str | None:
+        all_entries: list[str] = []
+        for message in messages:
+            attachments = getattr(message, "attachments", None)
+            if not isinstance(attachments, list):
+                continue
+            for attachment in attachments:
+                if not isinstance(attachment, dict):
+                    continue
+                attachment_id = str(attachment.get("attachment_id") or "").strip()
+                if not attachment_id:
+                    continue
+                name = str(attachment.get("original_name") or "attachment").strip() or "attachment"
+                kind = str(attachment.get("kind") or "file").strip() or "file"
+                details = [
+                    f"attachment_id={attachment_id}",
+                    f"name={name}",
+                    f"kind={kind}",
+                ]
+                page_count = attachment.get("page_count")
+                if isinstance(page_count, int):
+                    details.append(f"pages={page_count}")
+                character_count = attachment.get("character_count")
+                if isinstance(character_count, int):
+                    details.append(f"chars={character_count}")
+                parse_status = str(attachment.get("parse_status") or "").strip()
+                if parse_status:
+                    details.append(f"parse_status={parse_status}")
+                turn_id = str(getattr(message, "turn_id", "") or "").strip()
+                if turn_id:
+                    details.append(f"turn_id={turn_id}")
+                all_entries.append("- " + "; ".join(details))
+        if not all_entries:
+            return None
+        omitted = max(0, len(all_entries) - _SESSION_ATTACHMENT_MANIFEST_LIMIT)
+        entries = all_entries[-_SESSION_ATTACHMENT_MANIFEST_LIMIT:]
+        lines = [
+            "These are lightweight references to files attached in this session.",
+            "Use `read_chat_attachment` with an `attachment_id` when the user asks about an earlier attachment; do not guess attachment contents from memory.",
+            *entries,
+        ]
+        if omitted:
+            lines.append(f"- {omitted} older attachment reference(s) omitted from this prompt manifest.")
+        return "\n".join(lines).strip()
 
     @staticmethod
     def _message_persona_id(item: Any) -> str | None:

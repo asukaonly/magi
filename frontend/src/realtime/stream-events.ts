@@ -1,6 +1,7 @@
 export type RealtimeStreamEventKind =
   | 'text_delta'
   | 'reasoning_delta'
+  | 'status_update'
   | 'text_flush'
   | 'tool_call_start'
   | 'tool_call_args'
@@ -26,6 +27,7 @@ export interface RealtimeStreamEvent {
 const STREAM_EVENT_KINDS = new Set<RealtimeStreamEventKind>([
   'text_delta',
   'reasoning_delta',
+  'status_update',
   'text_flush',
   'tool_call_start',
   'tool_call_args',

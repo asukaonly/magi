@@ -46,6 +46,21 @@ async def test_emit_drops_text_delta_when_source_is_planner() -> None:
 
 
 @pytest.mark.asyncio
+async def test_emit_keeps_status_update_for_non_chat_source() -> None:
+    captured: List[LLMStreamEvent] = []
+
+    async def sink(event: LLMStreamEvent) -> None:
+        captured.append(event)
+
+    async with stream_scope(sink, source="chat"):
+        async with stream_source("planner"):
+            await emit_stream_event(LLMStreamEvent(kind="status_update", text="Preparing tools"))
+
+    assert [event.kind for event in captured] == ["status_update"]
+    assert captured[0].source == "planner"
+
+
+@pytest.mark.asyncio
 async def test_emit_keeps_text_delta_for_chat_source() -> None:
     captured: List[LLMStreamEvent] = []
 

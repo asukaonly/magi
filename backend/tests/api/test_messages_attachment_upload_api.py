@@ -33,8 +33,8 @@ def test_upload_chat_attachment_returns_normalized_metadata(monkeypatch, tmp_pat
         attachment = payload["data"]["attachment"]
         assert attachment["kind"] == "text_file"
         assert attachment["original_name"] == "notes.md"
-        assert attachment["parse_status"] == "parsed"
+        assert attachment["parse_status"] == "pending"
         assert Path(attachment["storage_path"]).is_file()
-        assert Path(attachment["derived_text_path"]).is_file()
+        assert "derived_text_path" not in attachment
     finally:
         set_runtime_dir(original_runtime_base)

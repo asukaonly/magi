@@ -110,7 +110,41 @@ class ChatDisplayMessage:
         }
 
     def to_prompt_message(self) -> dict[str, str]:
+        content = str(self.content or "").strip()
+        attachment_references = _format_prompt_attachment_references(self.attachments or [])
+        if attachment_references:
+            content = f"{content}\n\n{attachment_references}" if content else attachment_references
         return {
             "role": self.role,
-            "content": self.content,
+            "content": content,
         }
+
+
+def _format_prompt_attachment_references(attachments: list[dict[str, Any]]) -> str:
+    lines: list[str] = []
+    for attachment in attachments:
+        if not isinstance(attachment, dict):
+            continue
+        attachment_id = str(attachment.get("attachment_id") or "").strip()
+        if not attachment_id:
+            continue
+        name = str(attachment.get("original_name") or "attachment").strip() or "attachment"
+        kind = str(attachment.get("kind") or "file").strip() or "file"
+        details = [
+            f"attachment_id={attachment_id}",
+            f"name={name}",
+            f"kind={kind}",
+        ]
+        page_count = attachment.get("page_count")
+        if isinstance(page_count, int):
+            details.append(f"pages={page_count}")
+        character_count = attachment.get("character_count")
+        if isinstance(character_count, int):
+            details.append(f"chars={character_count}")
+        parse_status = str(attachment.get("parse_status") or "").strip()
+        if parse_status:
+            details.append(f"parse_status={parse_status}")
+        lines.append("- " + "; ".join(details))
+    if not lines:
+        return ""
+    return "[Message attachment references]\n" + "\n".join(lines)

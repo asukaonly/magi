@@ -22,6 +22,7 @@ from .builtin.image_generation_tool import ImageGenerationTool
 from .builtin.plan_mode_tool import EnterPlanModeTool, ExitPlanModeTool
 from .builtin.powershell_tool import PowerShellTool
 from .builtin.prepare_chat_attachments_tool import PrepareChatAttachmentsTool
+from .builtin.read_chat_attachment_tool import ReadChatAttachmentTool
 from .builtin.schedule_tool import ScheduleTool
 from .builtin.system_settings_tool import SystemSettingsTool
 from .builtin.todo_write_tool import TodoWriteTool
@@ -56,6 +57,7 @@ CORE_TOOL_CLASSES: tuple[type, ...] = (
     TraceQueryTool,
     ScheduleTool,
     PrepareChatAttachmentsTool,
+    ReadChatAttachmentTool,
     ImageGenerationTool,
     DetachToBackgroundTool,
     EnterPlanModeTool,

@@ -50,7 +50,7 @@ Magi is a desktop-only application:
 - Desktop mode
   Tauri shell plus React WebView plus Rust Axum gateway plus Python sidecar (IPC worker)
 
-The Rust gateway serves all HTTP and WebSocket traffic on a single port. It handles static database reads, chat attachment content reads, config file I/O, and session/task mutations natively in Rust. Requests that require the Python runtime (message send, LLM calls, agent execution) are dispatched over IPC to the Python sidecar, using Unix Domain Sockets on Unix-like systems and loopback TCP on Windows. The Python process runs no public HTTP server; FastAPI is used only as an in-memory ASGI app for IPC request dispatch.
+The Rust gateway serves all HTTP and WebSocket traffic on a single port. It handles static database reads, chat attachment upload/download resource handling, config file I/O, and session/task mutations natively in Rust. Requests that require the Python runtime (message send, attachment parsing/context preparation, LLM calls, agent execution) are dispatched over IPC to the Python sidecar, using Unix Domain Sockets on Unix-like systems and loopback TCP on Windows. The Python process runs no public HTTP server; FastAPI is used only as an in-memory ASGI app for IPC request dispatch.
 
 ### Gateway-visible API contract
 
@@ -164,7 +164,7 @@ The durable design is documented in [Persona Runtime Architecture](./persona-run
   Chat-domain source of truth for `chat_sessions`, `chat_turns`, `chat_messages`, and indexed `chat_attachments`
 
 - `~/.magi/data/resources/chat/`
-  Managed local chat attachments and derived artifacts grouped by type, session, and turn
+  Managed local chat attachments and derived artifacts grouped by type, session, and turn. Rust owns raw desktop upload/download resource handling; Python owns semantic parsing, compact session attachment references, on-demand attachment reading tools, and derived text artifacts used by runtime context.
 
 - `~/.magi/data/memory/l1_events.db`
   Canonical L1 fact storage for lossy memory projection of `user_text` and `assistant_final` content only
@@ -215,7 +215,7 @@ High-volume Python write paths must have a single owning service or bounded writ
 | Database | Tables / state | Source of truth | Rust gateway access | Python access | Migration owner |
 |---|---|---|---|---|---|
 | `chat.db` | `chat_sessions`, `chat_turns`, `chat_messages`, `chat_attachments` metadata | Chat domain transcript and presentation state | Reads history/session/attachment views; writes lightweight session presentation mutations such as create, rename, workspace, labels, soft-delete, and history version bumps | Writes user/assistant turn and message records produced by runtime execution; owns chat-domain store invariants | Python chat store schema; Rust route tests must track response/write expectations |
-| `data/resources/chat/` | attachment files and derived artifacts | Managed chat attachment content | Reads attachment content for desktop HTTP routes | Writes managed attachment files and parsed artifacts during upload/runtime preparation | Python chat attachment services |
+| `data/resources/chat/` | attachment files and derived artifacts | Managed chat attachment content | Writes raw desktop uploads and reads attachment content for desktop HTTP routes; does not parse file semantics | Writes derived artifacts during runtime preparation and may import local tool/channel attachments into managed storage | Python chat attachment services for parsing; Rust gateway for desktop upload resource storage |
 | `runtime_trace.db` | trace turns, spans, tool calls, LLM calls, runtime notifications, plugin ingress events | Execution observability and best-effort live fan-out | Reads trace snapshots and readiness metrics; inserts `runtime_notifications` only for gateway-owned mutations that need frontend fan-out | Writes trace/notification/plugin ingress records produced by runtime services | Python runtime trace store schema; Rust notification bridge contract tests |
 | `message_queue.db` | `runtime_commands` | Durable runtime command queue | No direct writes except through IPC-facing command enqueue flows if explicitly implemented | Owns queue schema, claiming, retry, ack, and recovery semantics | Python runtime command queue |
 | `tasks.db` | `tasks` | User-facing task records | Reads task views; writes product task CRUD fields through `crates/magi-gateway/src/api/tasks/write.rs` | May write runtime-linked task rows and orchestration linkage through task-domain services | Shared task-domain schema; native route mutations must stay field-scoped |

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronRight, Hammer } from 'lucide-react';
 import type { ToolCallTrace } from '@/domain/chat/state';
@@ -23,12 +23,20 @@ export function ToolCallPanel({ toolCalls, streaming }: ToolCallPanelProps) {
   );
   const hasToolCalls = visibleToolCalls.length > 0;
   const [expanded, setExpanded] = useState(false);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (streaming && visibleToolCalls.some((item) => item.status === 'running')) {
       setExpanded(true);
     }
   }, [streaming, visibleToolCalls]);
+
+  useEffect(() => {
+    if (!streaming || !expanded || !scrollRef.current) {
+      return;
+    }
+    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [streaming, expanded, visibleToolCalls]);
 
   if (!hasToolCalls) {
     return null;
@@ -57,7 +65,7 @@ export function ToolCallPanel({ toolCalls, streaming }: ToolCallPanelProps) {
         </span>
       </button>
       {expanded && (
-        <div className="space-y-2 border-t border-border/30 px-3 py-2">
+        <div ref={scrollRef} className="max-h-80 space-y-2 overflow-y-auto overscroll-contain border-t border-border/30 px-3 py-2 pr-2">
           {visibleToolCalls.map((toolCall) => {
             const statusKey = toolCall.status === 'completed'
               ? 'chat.toolCalls.completed'

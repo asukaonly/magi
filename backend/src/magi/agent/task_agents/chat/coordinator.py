@@ -34,6 +34,7 @@ from .contracts import (
     TraceDisplayMode,
     TurnUXPlan,
 )
+from .attachment_context import resolve_effective_turn_attachments
 from .fact_classifier import ChatFactClassifier
 logger = get_logger(__name__)
 
@@ -180,9 +181,10 @@ class ChatExecutionCoordinator:
             user_message=context.latest_user_message,
             strategy=decision.orchestration_strategy,
         )
+        effective_attachments = resolve_effective_turn_attachments(context)
         has_image_attachments = any(
             isinstance(item, dict) and str(item.get("kind") or "").strip() == "image"
-            for item in list(getattr(context.latest_payload, "attachments", []) or [])
+            for item in effective_attachments
         )
         selected_tools = [] if has_image_attachments else list(decision.tools)
         # Ensure fallback tools are always available when tool-assisted execution
