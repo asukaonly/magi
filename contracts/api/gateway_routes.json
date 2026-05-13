@@ -113,7 +113,7 @@
     },
     {
       "path": "/api/messages/session/{session_id}",
-      "methods": ["PATCH"],
+      "methods": ["DELETE", "PATCH"],
       "owner": "rust-native",
       "owner_file": "crates/magi-gateway/src/api/sessions.rs",
       "response_envelope": "native-json",
