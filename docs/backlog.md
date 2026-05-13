@@ -40,7 +40,7 @@ Why it is still open:
 - The persona registry backend (PersonaRepository, seed service, evolution engine persona_id scoping, `/api/personas/*` routes) is implemented and tested.
 - The main frontend personality surface and onboarding flow now use the persona registry path.
 - Quick onboarding now selects the default persona from locale-aware seed metadata instead of a hardcoded seed slug.
-- Existing file-based persona JSON configs can be imported into the registry with `scripts/migrate-personas-to-registry.py`.
+- Existing file-based persona JSON configs now require one-off local migration work when they need to be imported into the registry.
 - The old in-memory `current_state.py` bridge has been retired; active persona runtime state lives in `active_persona.py`.
 - Legacy `/api/personality` slug/list reads now stay registry-backed; bundled JSON preset reads remain isolated behind `/api/personalities/*`.
 

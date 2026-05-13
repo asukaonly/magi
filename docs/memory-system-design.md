@@ -377,7 +377,7 @@ Classifier and policy responsibilities:
 - `public_topology` and `stable_preference` fact kinds require explicit or structured extraction sources
 - User questions, user requests/commands, assistant memory answers, and assistant freeform text must not become new user-profile facts through L2 graph/assertion writes
 - Unknown evidence can be retained as raw L1 and episode/audit material, but must not be promoted into fact-like retrieval or L2 graph/assertion state without an explicit policy decision
-- Existing L1 rows with missing, stale, or failed evidence annotations are repaired by the `scripts/backfill-l1-evidence.py` maintenance command, which reuses the same shared classifier and policy resolver
+- Existing L1 rows with missing, stale, or failed evidence annotations are repaired through `L1EventStore.backfill_evidence_annotations`, which reuses the same shared classifier and policy resolver
 
 #### L2 Write-Side Semantic Conventions
 
@@ -1042,7 +1042,7 @@ Main implementation entry points:
 
 - [backend/src/magi/memory/evidence/policy.py](../backend/src/magi/memory/evidence/policy.py) — Shared rule-based policy per evidence class for L1 retrieval authority and L2 write governance
 
-- [scripts/backfill-l1-evidence.py](../scripts/backfill-l1-evidence.py) — Maintenance command for repairing missing or stale L1 evidence annotations
+- [backend/src/magi/memory/l1/event_store.py](../backend/src/magi/memory/l1/event_store.py) — `L1EventStore.backfill_evidence_annotations` maintenance path for repairing missing or stale L1 evidence annotations
 
 - [backend/src/magi/memory/l3/summary_store.py](../backend/src/magi/memory/l3/summary_store.py) — `L3` summaries and evidence backlinks
 
