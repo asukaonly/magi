@@ -121,6 +121,8 @@ Treat conversations as controllable agent runs. You can interrupt them, steer th
 
 Install, enable, and configure official or third-party plugins. MCP servers and channels such as Telegram can also plug into the same runtime.
 
+One clarification: Magi uses a unified plugin architecture, but the marketplace registry and most installable official or third-party plugins currently live in the companion repository [magi-plugins](https://github.com/asukaonly/magi-plugins). This repository mainly contains the desktop app, agent runtime, gateway, frontend, backend, and the plugin platform itself, so it is normal not to find every plugin implementation here.
+
 ## Privacy And Data
 
 Magi is designed to be local-first:
@@ -181,6 +183,7 @@ Magi is still moving quickly. Expect rough edges:
 ## Contributing
 
 Issues and Pull Requests are welcome. For development environment setup, build commands, and repository structure, see [CONTRIBUTING.md](./CONTRIBUTING.md).
+If you want to contribute a new external plugin, you will usually want the companion repository [magi-plugins](https://github.com/asukaonly/magi-plugins).
 
 ## About The Name
 

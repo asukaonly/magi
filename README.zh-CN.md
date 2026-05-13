@@ -123,6 +123,8 @@ L0 工作状态、L1 事件、L2 结构化认知、L3 反思、L4 程序性技�
 
 安装/启用/配置官方或第三方插件。MCP 服务器和 Telegram 等渠道也可以接入同一个运行时。
 
+补充说明：Magi 采用统一插件架构，但插件市场索引以及大多数可安装的官方/第三方插件目前维护在配套仓库 [magi-plugins](https://github.com/asukaonly/magi-plugins)。这个仓库主要承载桌面应用、Agent runtime、网关、前后端界面和插件平台本身；如果你在这里没有看到某个插件实现，这通常是正常的。
+
 ## 隐私与数据
 
 Magi 是本地优先设计：
@@ -183,6 +185,7 @@ Magi 仍在快速迭代，请留意：
 ## 贡献
 
 欢迎提交 Issue 和 Pull Request。开发环境搭建、构建命令和仓库结构请参考 [CONTRIBUTING.md](./CONTRIBUTING.md)。
+如果你想贡献新的外部插件，通常应该前往配套仓库 [magi-plugins](https://github.com/asukaonly/magi-plugins)。
 
 ## 关于名字
 
