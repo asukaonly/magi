@@ -75,8 +75,6 @@ const buildHookState = (overrides: Partial<Record<string, unknown>> = {}) => ({
   switchPrompt: null,
   prompt: '',
   setPrompt: vi.fn(),
-  targetLanguage: 'Auto',
-  setTargetLanguage: vi.fn(),
   patch: vi.fn(),
   selectPersonality: vi.fn(),
   startNewPersonality: vi.fn(),
@@ -145,8 +143,7 @@ describe('PersonalityModern', () => {
     expect(createCard.querySelectorAll('.lucide-check')).toHaveLength(0);
   });
 
-  it('keeps generation controls stable while generating a new personality', () => {
-    const setTargetLanguage = vi.fn();
+  it('shows generation progress while generating a new personality', () => {
     vi.mocked(usePersonality).mockReturnValue(
       buildHookState({
         isNewMode: true,
@@ -154,19 +151,18 @@ describe('PersonalityModern', () => {
         selectedInfo: undefined,
         config: buildConfig('', ''),
         generating: true,
-        targetLanguage: 'Japanese',
-        setTargetLanguage,
+        generationProgress: 43,
+        generationStageKey: 'rules',
       }) as any
     );
 
     render(<PersonalityModern embedded />);
 
-    expect(screen.getByRole('combobox')).toHaveValue('Japanese');
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'personality.languages.auto' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'personality.generate' })).toBeDisabled();
-
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'English' } });
-
-    expect(setTargetLanguage).toHaveBeenCalledWith('English');
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '43');
+    expect(screen.getByText('personality.generationStages.rules')).toBeInTheDocument();
   });
 
   it('hides AI generation when editing an existing personality', () => {

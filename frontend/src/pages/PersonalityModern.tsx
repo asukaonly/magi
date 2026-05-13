@@ -47,6 +47,8 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
     loading,
     saving,
     generating,
+    generationProgress,
+    generationStageKey,
     switching,
     selectedInfo,
     switchPrompt,
@@ -54,8 +56,6 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
     // Form state
     prompt,
     setPrompt,
-    targetLanguage,
-    setTargetLanguage,
 
     // Actions
     patch,
@@ -385,34 +385,47 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
 
             {/* AI Generate Section */}
             {isNewMode ? (
-              <div className="w-full max-w-2xl space-y-3 border-t border-border/30 pt-4">
+              <div className="w-full space-y-3 border-t border-border/30 pt-4">
                 <div className="flex items-center gap-2 text-sm font-medium text-foreground">
                   <Sparkles className="h-4 w-4 text-primary" />
                   {t('personality.generate')}
                 </div>
-                <div className="flex flex-col gap-2 xl:flex-row">
+                <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto]">
                   <Input
                     value={prompt}
                     onChange={(event) => setPrompt(event.target.value)}
                     placeholder={t('personality.generatePlaceholder')}
                     className="h-11 rounded-2xl"
                   />
-                  <select
-                    aria-label={t('personality.languages.target')}
-                    className="h-11 rounded-2xl border border-input bg-background px-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                    value={targetLanguage}
-                    onChange={(event) => setTargetLanguage(event.target.value)}
-                  >
-                    <option value="Auto">{t('personality.languages.auto')}</option>
-                    <option value="Chinese">{t('personality.languages.chinese')}</option>
-                    <option value="English">{t('personality.languages.english')}</option>
-                    <option value="Japanese">{t('personality.languages.japanese')}</option>
-                  </select>
-                  <Button onClick={generate} disabled={generating} className="h-11 rounded-2xl px-5">
-                    <Sparkles className="mr-2 h-4 w-4" />
-                    {t('personality.generate')}
-                  </Button>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <Button onClick={generate} disabled={generating} className="h-11 rounded-2xl px-5">
+                      {generating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+                      {t('personality.generate')}
+                    </Button>
+                  </div>
                 </div>
+                {generating ? (
+                  <div className="rounded-2xl border border-primary/15 bg-primary/5 px-3 py-2.5">
+                    <div className="mb-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                      <span className="truncate font-medium text-foreground">
+                        {t(`personality.generationStages.${generationStageKey}`)}
+                      </span>
+                      <span className="shrink-0 tabular-nums">{generationProgress}%</span>
+                    </div>
+                    <div
+                      className="h-2 overflow-hidden rounded-full bg-background"
+                      role="progressbar"
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={generationProgress}
+                    >
+                      <div
+                        className="h-full rounded-full bg-primary transition-all duration-500"
+                        style={{ width: `${Math.min(100, Math.max(4, generationProgress))}%` }}
+                      />
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </div>
