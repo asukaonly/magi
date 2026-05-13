@@ -16,6 +16,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 fallback
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 VERSION_FILE = REPO_ROOT / "VERSION"
+CARGO_LOCK = REPO_ROOT / "Cargo.lock"
 FRONTEND_PACKAGE_JSON = REPO_ROOT / "frontend" / "package.json"
 FRONTEND_PACKAGE_LOCK = REPO_ROOT / "frontend" / "package-lock.json"
 TAURI_CONFIG = REPO_ROOT / "frontend" / "src-tauri" / "tauri.conf.json"
@@ -61,8 +62,23 @@ def _replace_first_version(path: Path, version: str) -> None:
     path.write_text(updated, encoding="utf-8")
 
 
+def _replace_cargo_lock_package_version(path: Path, package_name: str, version: str) -> None:
+    content = path.read_text(encoding="utf-8")
+    updated, count = re.subn(
+        rf'(?ms)(\[\[package\]\]\nname = "{re.escape(package_name)}"\nversion = ")([^"]+)(")',
+        rf'\g<1>{version}\g<3>',
+        content,
+        count=1,
+    )
+    if count != 1:
+        relative_path = path.relative_to(REPO_ROOT)
+        raise SystemExit(f"Could not find package {package_name!r} in {relative_path}")
+    path.write_text(updated, encoding="utf-8")
+
+
 def sync_versions(version: str) -> None:
     _write_version_file(version)
+    _replace_cargo_lock_package_version(CARGO_LOCK, "magi-desktop", version)
 
     package_json = _load_json(FRONTEND_PACKAGE_JSON)
     package_json["version"] = version
@@ -84,14 +100,27 @@ def sync_versions(version: str) -> None:
 
 
 def collect_versions() -> dict[str, str]:
+    cargo_lock = tomllib.loads(CARGO_LOCK.read_text(encoding="utf-8"))
     package_json = _load_json(FRONTEND_PACKAGE_JSON)
     package_lock = _load_json(FRONTEND_PACKAGE_LOCK)
     tauri_config = _load_json(TAURI_CONFIG)
     tauri_cargo = tomllib.loads(TAURI_CARGO.read_text(encoding="utf-8"))
     backend_pyproject = tomllib.loads(BACKEND_PYPROJECT.read_text(encoding="utf-8"))
 
+    cargo_lock_version = next(
+        (
+            str(package["version"])
+            for package in cargo_lock.get("package", [])
+            if package.get("name") == "magi-desktop"
+        ),
+        None,
+    )
+    if cargo_lock_version is None:
+        raise SystemExit("Could not find magi-desktop in Cargo.lock")
+
     return {
         "VERSION": _read_version_file(),
+        "Cargo.lock magi-desktop": cargo_lock_version,
         "frontend/package.json": str(package_json["version"]),
         "frontend/package-lock.json": str(package_lock["version"]),
         "frontend/package-lock.json packages['']": str(package_lock["packages"][""]["version"]),
