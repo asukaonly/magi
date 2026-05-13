@@ -1623,6 +1623,8 @@
           "directReply": "Direct reply",
           "toolMemorySelection": "Tool / memory selection",
           "toolDecision": "Tool decision",
+          "chatToolDecision": "Chat tool decision",
+          "workerToolDecision": "Worker tool decision",
           "finalResponse": "Final response",
           "direct": "Direct subagent call",
           "taskDecomposition": "Task decomposition",

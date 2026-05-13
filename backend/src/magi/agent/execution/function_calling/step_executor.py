@@ -41,6 +41,7 @@ class FunctionCallingStepState:
     consecutive_failed_tool_iterations: int = 0
     all_tools_failed: bool = False
     failed_tool_call_fingerprints: set[str] = field(default_factory=set)
+    suppressed_tool_names: set[str] = field(default_factory=set)
 
 
 @dataclass(slots=True)
@@ -234,6 +235,9 @@ class FunctionCallingStepExecutor:
                             "execution_time": round(result.execution_time, 3),
                         }
                     )
+                    terminal_error_code = str(result.error_code or "").strip()
+                    if terminal_error_code in self._driver._SUPPRESS_TOOL_AFTER_ERROR_CODES:
+                        state.suppressed_tool_names.add(result.tool_name)
                 await self._driver._emit_loop_event(
                     {
                         "stage": "tool_executed",
@@ -300,6 +304,40 @@ class FunctionCallingStepExecutor:
                 state=state,
                 tool_results=tool_results,
             )
+            newly_suppressed = {
+                result.tool_name
+                for result in tool_results
+                if result.tool_name in state.suppressed_tool_names
+            }
+            if newly_suppressed:
+                state.tools = [
+                    tool
+                    for tool in state.tools
+                    if str(tool.get("function", {}).get("name", "")) not in state.suppressed_tool_names
+                ]
+                state.selected_tool_names = [
+                    name for name in state.selected_tool_names if name not in state.suppressed_tool_names
+                ]
+                await self._driver._emit_loop_event(
+                    {
+                        "stage": "tools_suppressed_after_terminal_error",
+                        "iteration": iteration,
+                        "tool_names": sorted(newly_suppressed),
+                        "error_codes": sorted(
+                            {
+                                str(result.error_code or "").strip()
+                                for result in tool_results
+                                if result.tool_name in newly_suppressed
+                                and str(result.error_code or "").strip()
+                            }
+                        ),
+                        "user_id": user_id,
+                        "session_id": session_id,
+                        "turn_id": turn_id,
+                        "intent": intent,
+                        "execution_agent_id": execution_agent_id,
+                    }
+                )
             if expanded_tools:
                 await self._driver._emit_loop_event(
                     {

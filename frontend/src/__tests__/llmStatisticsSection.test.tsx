@@ -42,6 +42,7 @@ const summaryFixture = {
   ],
   request_kinds: [
     { request_kind: 'task_agent:chat_direct', calls: 90, prompt_tokens: 90000, completion_tokens: 40000, total_tokens: 130000, cost_usd: 8.9, failed_calls: 4, avg_latency_ms: 1200, avg_ttft_ms: 320 },
+    { request_kind: 'function_calling:worker_tools', calls: 12, prompt_tokens: 18000, completion_tokens: 3000, total_tokens: 21000, cost_usd: 1.1, failed_calls: 1, avg_latency_ms: 1500 },
     { request_kind: 'memory:l2_phase1_extract', calls: 30, prompt_tokens: 30000, completion_tokens: 14000, total_tokens: 44000, cost_usd: 3.2, failed_calls: 2, avg_latency_ms: 2400 },
   ],
 };
@@ -113,6 +114,8 @@ describe('LLMStatisticsSection', () => {
     expect(screen.getByText('settings.statistics.llm.table.columns.stage')).toBeInTheDocument();
     expect(screen.getByText('settings.statistics.llm.requestKindScenarios.generalChat')).toBeInTheDocument();
     expect(screen.getByText('settings.statistics.llm.requestKindStages.directReply')).toBeInTheDocument();
+    expect(screen.getByText('settings.statistics.llm.requestKindScenarios.toolConversation')).toBeInTheDocument();
+    expect(screen.getByText('settings.statistics.llm.requestKindStages.workerToolDecision')).toBeInTheDocument();
     expect(screen.getByText('settings.statistics.llm.requestKindScenarios.memoryL2')).toBeInTheDocument();
     expect(screen.getByText('settings.statistics.llm.requestKindStages.eventExtraction')).toBeInTheDocument();
 

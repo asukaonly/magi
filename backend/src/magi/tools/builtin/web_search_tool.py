@@ -8,6 +8,7 @@ from ..schema import MultiProviderTool, ToolSchema, ToolExecutionContext, ToolRe
 from ..providers.base import ProviderConfig
 from ..providers.web_search import DuckDuckGoSearchProvider, BraveSearchProvider, PerplexitySearchProvider, TavilySearchProvider
 from ...config import get_config, save_config
+from ...i18n import t
 
 
 # Provider display info for messages
@@ -90,8 +91,8 @@ class WebSearchTool(MultiProviderTool):
                 },
             ],
             timeout=30,
-            retry_on_failure=True,
-            max_retries=2,
+            retry_on_failure=False,
+            max_retries=0,
             dangerous=False,
             tags=["web", "search", "information"],
             metadata={
@@ -260,20 +261,22 @@ class WebSearchTool(MultiProviderTool):
         if not available_providers:
             return ToolResult(
                 success=False,
-                error=(
-                    "No search providers are configured. "
-                    "Ask the user to configure a provider API key via system-settings, then retry."
+                error=t(
+                    "tools.web_search.no_providers.error",
+                    fallback="No search providers are configured. Ask the user to configure a provider API key via system-settings, then retry.",
                 ),
                 error_code=ToolErrorCode.NO_PROVIDERS_CONFIGURED.value,
                 data={
                     "next_action": "ask_user_to_configure_api_key",
-                    "llm_guidance": (
-                        "Do not retry web search until at least one search provider is available. "
-                        "Ask the user to confirm tool configuration or restore a supported provider."
+                    "retryable": False,
+                    "terminal": True,
+                    "llm_guidance": t(
+                        "tools.web_search.no_providers.llm_guidance",
+                        fallback="Do not retry web search until at least one search provider is available. Ask the user to confirm tool configuration or restore a supported provider.",
                     ),
-                    "user_message_template": (
-                        "To continue web search, please ensure the web search tool is configured. "
-                        "I will resume the current search after it is available."
+                    "user_message_template": t(
+                        "tools.web_search.no_providers.user_message",
+                        fallback="To continue web search, please ensure the web search tool is configured. I will resume the current search after it is available.",
                     ),
                     "config_tool": "system-settings",
                     "config_example": {
@@ -285,14 +288,12 @@ class WebSearchTool(MultiProviderTool):
                 },
             )
 
-        # Fall back to first available if requested provider not available
-        fallback_reason = None
+        # Provider selection is explicit: configuration errors should not silently switch providers.
         if provider_name not in available_providers:
-            fallback_reason = (
-                f"Requested provider '{requested_provider}' is unavailable; "
-                f"used '{available_providers[0]}' instead."
+            return self._build_provider_unavailable_guidance(
+                requested_provider=requested_provider,
+                available_providers=available_providers,
             )
-            provider_name = available_providers[0]
 
         result = await self.execute_with_provider(
             provider_name,
@@ -316,12 +317,52 @@ class WebSearchTool(MultiProviderTool):
             result.data["executed_query"] = executed_query
             result.data["requested_provider"] = requested_provider
             result.data["actual_provider"] = provider_name
-            if fallback_reason:
-                result.data["fallback_reason"] = fallback_reason
             if date_range_applied is not None:
                 result.data["date_range_applied"] = date_range_applied
 
         return result
+
+    def _build_provider_unavailable_guidance(
+        self,
+        *,
+        requested_provider: str,
+        available_providers: List[str],
+    ) -> ToolResult:
+        provider_display = self._provider_display_name(requested_provider)
+        supported_providers = self.get_all_provider_names()
+        alternative_providers = [name for name in supported_providers if name != requested_provider]
+        data: Dict[str, Any] = {
+            "next_action": "ask_user_to_configure_requested_search_provider",
+            "retryable": False,
+            "terminal": True,
+            "requested_provider": requested_provider,
+            "available_providers": available_providers,
+            "supported_providers": supported_providers,
+            "llm_guidance": t(
+                "tools.web_search.provider_unavailable.llm_guidance",
+                fallback="The requested web search provider is not configured. Do not silently switch providers or retry web search in this turn. Ask the user to configure the requested provider, or ask permission to change the default provider.",
+                provider=provider_display,
+            ),
+            "user_message_template": t(
+                "tools.web_search.provider_unavailable.user_message",
+                fallback="The selected web search provider {provider} is not configured yet. Please add its API key in settings, or choose another configured provider before I continue searching.",
+                provider=provider_display,
+            ),
+            "config_tool": "system-settings",
+            "config_examples": self._build_provider_config_examples(
+                [requested_provider] if requested_provider in supported_providers else alternative_providers
+            ),
+        }
+        return ToolResult(
+            success=False,
+            error=t(
+                "tools.web_search.provider_unavailable.error",
+                fallback="Requested web search provider {provider} is not configured.",
+                provider=provider_display,
+            ),
+            error_code=ToolErrorCode.PROVIDER_NOT_CONFIGURED.value,
+            data=data,
+        )
 
     def _is_duckduckgo_challenge_error(self, provider_name: str, result: ToolResult) -> bool:
         if provider_name != "duckduckgo":
@@ -351,40 +392,64 @@ class WebSearchTool(MultiProviderTool):
         alternative_providers = [name for name in self.get_all_provider_names() if name != "duckduckgo"]
         guidance_data: Dict[str, Any] = {
             "next_action": "ask_user_to_configure_search_provider",
-            "llm_guidance": (
-                "DuckDuckGo is currently blocked by an anti-bot challenge for this search. "
-                "Ask the user to configure Brave, Perplexity, or Tavily via system-settings before retrying. "
-                "Do not keep retrying DuckDuckGo for the same request."
+            "retryable": False,
+            "terminal": True,
+            "llm_guidance": t(
+                "tools.web_search.duckduckgo_challenge.llm_guidance",
+                fallback="DuckDuckGo is currently blocked by an anti-bot challenge for this search. Ask the user to configure Brave, Perplexity, or Tavily via system-settings before retrying. Do not keep retrying DuckDuckGo for the same request.",
             ),
-            "user_message_template": (
-                "DuckDuckGo hit an anti-bot check this time and could not return stable results. "
-                "Please configure Brave, Perplexity, or Tavily in settings, then I can continue the search."
+            "user_message_template": t(
+                "tools.web_search.duckduckgo_challenge.user_message",
+                fallback="DuckDuckGo hit an anti-bot check this time and could not return stable results. Please configure Brave, Perplexity, or Tavily in settings, then I can continue the search.",
             ),
             "config_tool": "system-settings",
             "requested_provider": requested_provider,
             "actual_provider": actual_provider,
-            "fallback_reason": (
-                "DuckDuckGo returned an anti-bot verification challenge instead of usable search results."
+            "fallback_reason": t(
+                "tools.web_search.duckduckgo_challenge.fallback_reason",
+                fallback="DuckDuckGo returned an anti-bot verification challenge instead of usable search results.",
             ),
             "query": query,
             "supported_providers": alternative_providers,
-            "config_examples": [
-                {
-                    "action": "set",
-                    "path": f"tool.web-search.providers.{provider}.api_key",
-                    "value": f"YOUR_{provider.upper()}_API_KEY",
-                }
-                for provider in alternative_providers
-            ],
+            "config_examples": self._build_provider_config_examples(alternative_providers),
         }
         if date_range_applied is not None:
             guidance_data["date_range_applied"] = date_range_applied
         return ToolResult(
             success=False,
-            error="DuckDuckGo search challenge triggered. Configure another web-search provider and retry.",
+            error=t(
+                "tools.web_search.duckduckgo_challenge.error",
+                fallback="DuckDuckGo search challenge triggered. Configure another web-search provider and retry.",
+            ),
             error_code=ToolErrorCode.PROVIDER_CHALLENGE.value,
             data=guidance_data,
         )
+
+    def _build_provider_config_examples(self, providers: List[str]) -> List[Dict[str, str]]:
+        examples: List[Dict[str, str]] = []
+        for provider in providers:
+            if provider == "duckduckgo":
+                examples.append(
+                    {
+                        "action": "set",
+                        "path": "tool.web-search.default_provider",
+                        "value": "duckduckgo",
+                    }
+                )
+                continue
+            examples.append(
+                {
+                    "action": "set",
+                    "path": f"tool.web-search.providers.{provider}.api_key",
+                    "value": f"YOUR_{provider.upper()}_API_KEY",
+                }
+            )
+        return examples
+
+    @staticmethod
+    def _provider_display_name(provider_name: str) -> str:
+        info = PROVIDER_INFO.get(provider_name, {})
+        return str(info.get("name") or provider_name).strip() or provider_name
 
     def _normalize_date_range(self, start_date: Any, end_date: Any) -> Dict[str, str] | ToolResult | None:
         start = str(start_date or "").strip()

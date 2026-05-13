@@ -47,6 +47,14 @@ class ToolContextFormatterRegistry:
             "read_chat_attachment",
             lambda data: compact_read_chat_attachment_tool_data(data, max_text_chars=max_text_chars),
         )
+        registry.register(
+            "web-search",
+            lambda data: compact_web_search_tool_data(
+                data,
+                max_items=max_items,
+                max_text_chars=max_text_chars,
+            ),
+        )
         registry.register("image-generation", compact_image_generation_tool_data)
         registry.register("image_generation", compact_image_generation_tool_data)
         return registry
@@ -258,6 +266,51 @@ def compact_read_chat_attachment_tool_data(data: Dict[str, Any], *, max_text_cha
         compact["text_preview"] = text[:max_text_chars]
         compact["text_truncated"] = len(text) > max_text_chars
     return compact
+
+
+def compact_web_search_tool_data(
+    data: Dict[str, Any],
+    *,
+    max_items: int,
+    max_text_chars: int,
+) -> Dict[str, Any]:
+    results = data.get("results")
+    compact: Dict[str, Any] = {
+        "next_action": data.get("next_action"),
+        "requested_provider": data.get("requested_provider"),
+        "actual_provider": data.get("actual_provider") or data.get("provider"),
+        "provider": data.get("provider"),
+        "query": data.get("query"),
+        "total": data.get("total"),
+        "retryable": data.get("retryable"),
+        "terminal": data.get("terminal"),
+        "date_range_applied": data.get("date_range_applied"),
+        "llm_guidance": data.get("llm_guidance"),
+        "user_message_template": data.get("user_message_template"),
+        "fallback_reason": data.get("fallback_reason"),
+        "config_tool": data.get("config_tool"),
+        "available_providers": data.get("available_providers"),
+        "supported_providers": data.get("supported_providers"),
+    }
+
+    if isinstance(results, list):
+        compact_results = []
+        for item in results[:max_items]:
+            if not isinstance(item, dict):
+                continue
+            compact_results.append(
+                {
+                    "title": item.get("title"),
+                    "url": item.get("url"),
+                    "source": item.get("source"),
+                    "description_preview": str(item.get("description", ""))[:max_text_chars],
+                }
+            )
+        compact["result_count"] = len(results)
+        compact["omitted_results"] = max(0, len(results) - len(compact_results))
+        compact["results"] = compact_results
+
+    return {key: value for key, value in compact.items() if value not in (None, [], {})}
 
 
 def compact_image_generation_tool_data(data: Dict[str, Any]) -> Dict[str, Any]:

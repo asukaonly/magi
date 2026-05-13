@@ -50,6 +50,14 @@ def _build_llm_event_context(
     return cast(dict[str, Any], enrich_event_context_with_turn_trace(context))
 
 
+def _resolve_tools_request_kind(*, execution_agent_id: str, intent: str) -> str:
+    agent_id = str(execution_agent_id or "").strip()
+    normalized_intent = str(intent or "").strip()
+    if agent_id.startswith("worker_") or normalized_intent.startswith("worker_"):
+        return "function_calling:worker_tools"
+    return "function_calling:chat_tools"
+
+
 class _LlmHostProtocol(Protocol):
     provider_bridge: LLMProviderBridge
     _context_compactor: ContextCompactor
@@ -93,6 +101,10 @@ class FunctionCallingLlmMixin:
 
         llm = host._resolve_llm()
         model_name = llm.model_name
+        request_kind = _resolve_tools_request_kind(
+            execution_agent_id=execution_agent_id,
+            intent=intent,
+        )
 
         log_llm_request(
             llm_logger,
@@ -120,7 +132,7 @@ class FunctionCallingLlmMixin:
                         ),
                         event_context=_build_llm_event_context(
                             request_id=request_id,
-                            request_kind="function_calling:tools",
+                            request_kind=request_kind,
                             session_id=session_id,
                             turn_id=turn_id,
                             execution_agent_id=execution_agent_id,
@@ -148,7 +160,7 @@ class FunctionCallingLlmMixin:
                         ),
                         event_context=_build_llm_event_context(
                             request_id=request_id,
-                            request_kind="function_calling:tools",
+                            request_kind=request_kind,
                             session_id=session_id,
                             turn_id=turn_id,
                             execution_agent_id=execution_agent_id,

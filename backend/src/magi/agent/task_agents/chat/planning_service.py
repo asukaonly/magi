@@ -8,6 +8,7 @@ from ....core.logger import get_logger
 from ....context.service import ContextAssemblyService
 from ....context.scenarios import Scenario
 from ....events.domain_payloads import TaskContext
+from ....i18n import llm_language_label
 from ....llm.streaming_events import get_stream_sink, stream_source
 from ....tools.registry import ToolRegistry
 from ....tools.tool_hint_resolver import ToolHintResolver
@@ -203,6 +204,7 @@ class ChatPlanningService(ChatPlanningPromptMixin):
             if isinstance(item, dict) and str(item.get("content", "")).strip()
         ]
         if request_profile == "research":
+            target_language = llm_language_label()
             seed_subtasks = [item.to_dict() for item in self._build_research_seed_subtasks(user_message)]
             task_hint = self._resolve_planning_task_hint(
                 user_message=user_message,
@@ -211,6 +213,7 @@ class ChatPlanningService(ChatPlanningPromptMixin):
             )
             planning_prompt = {
                 "planning_profile": "research",
+                "target_language": target_language,
                 "user_request": user_message,
                 "recent_history": recent_history,
                 "default_leaf_type": "general-purpose",
@@ -234,10 +237,12 @@ class ChatPlanningService(ChatPlanningPromptMixin):
                 "Return ONLY valid JSON with this schema: "
                 '{"summary":"string","subtasks":[{"description":"string","subagent_type":"general-purpose","prompt":"string","parallel_group":"string"}]}. '
                 "Produce execution-ready leaf tasks only. Do not answer the user request directly. "
+                f"Write summary, description, and prompt values in {target_language} unless preserving exact names, paths, or source titles. "
                 "Never emit a worker whose only job is final synthesis across sibling results. "
                 "When task_hints are present, use them to separate broad discovery from detail fetch work."
             )
         else:
+            target_language = llm_language_label()
             task_hint = self._resolve_planning_task_hint(
                 user_message=user_message,
                 request_profile=request_profile,
@@ -245,6 +250,7 @@ class ChatPlanningService(ChatPlanningPromptMixin):
             )
             planning_prompt = {
                 "planning_profile": request_profile,
+                "target_language": target_language,
                 "user_request": user_message,
                 "recent_history": recent_history,
                 "default_leaf_type": orchestration_plan.default_leaf_type,
@@ -268,6 +274,7 @@ class ChatPlanningService(ChatPlanningPromptMixin):
                 "Return ONLY valid JSON with this schema: "
                 '{"summary":"string","subtasks":[{"description":"string","subagent_type":"Explore|general-purpose","prompt":"string","parallel_group":"string"}]}. '
                 "Do not answer the user request directly. Produce execution-ready leaf tasks only. "
+                f"Write summary, description, and prompt values in {target_language} unless preserving exact names, paths, or source titles. "
                 "Workers gather evidence; the parent task agent performs cross-subtask synthesis. "
                 "If the request mixes local repository analysis with external targets or sources, split those evidence paths into separate leaf tasks. "
                 "When task_hints are present, use them to bias the plan toward efficient bounded search sequences."
@@ -340,6 +347,7 @@ class ChatPlanningService(ChatPlanningPromptMixin):
             run_revision=run_revision,
         )
         parent_task_agent_id = self._resolve_parent_task_agent_id(user_id, session_id)
+        target_language = llm_language_label()
         tool_guidance = self._tool_hint_resolver.render_guidance_block(
             self._resolve_planning_task_hint(
                 user_message=user_message,
@@ -361,6 +369,7 @@ class ChatPlanningService(ChatPlanningPromptMixin):
                     "Do not create a final synthesis or compare-the-findings worker that depends on sibling outputs. "
                     "Avoid generic subtasks that only gather context or summarize risks unless ambiguity remains unresolved. "
                     "Return JSON with summary, findings, evidence, gaps, next_steps, and subtasks only. "
+                    f"Write all natural-language JSON values in {target_language} unless preserving exact names, paths, commands, or source titles. "
                     f"Parent task: {user_message}"
                     + (f"\n\n{tool_guidance}" if tool_guidance else "")
                 ),

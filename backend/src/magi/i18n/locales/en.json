@@ -159,6 +159,24 @@
     "errors": {
       "not_found": "Tool {tool_name} not found"
     },
+    "web_search": {
+      "no_providers": {
+        "error": "No search providers are configured. Ask the user to configure a provider API key via system-settings, then retry.",
+        "llm_guidance": "Do not retry web search until at least one search provider is available. Ask the user to confirm tool configuration or restore a supported provider.",
+        "user_message": "To continue web search, please ensure the web search tool is configured. I will resume the current search after it is available."
+      },
+      "provider_unavailable": {
+        "error": "Requested web search provider {provider} is not configured.",
+        "llm_guidance": "The requested web search provider {provider} is not configured. Do not silently switch providers or retry web search in this turn. Ask the user to configure the requested provider, or ask permission to change the default provider.",
+        "user_message": "The selected web search provider {provider} is not configured yet. Please add its API key in settings, or choose another configured provider before I continue searching."
+      },
+      "duckduckgo_challenge": {
+        "error": "DuckDuckGo search challenge triggered. Configure another web-search provider and retry.",
+        "llm_guidance": "DuckDuckGo is currently blocked by an anti-bot challenge for this search. Ask the user to configure Brave, Perplexity, or Tavily via system-settings before retrying. Do not keep retrying DuckDuckGo for the same request.",
+        "user_message": "DuckDuckGo hit an anti-bot check this time and could not return stable results. Please configure Brave, Perplexity, or Tavily in settings, then I can continue the search.",
+        "fallback_reason": "DuckDuckGo returned an anti-bot verification challenge instead of usable search results."
+      }
+    },
     "config": {
       "no_updates": "No updates to apply",
       "updated": "Tool {tool_name} configuration updated",

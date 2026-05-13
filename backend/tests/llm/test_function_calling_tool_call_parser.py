@@ -1119,6 +1119,80 @@ async def test_execute_with_tools_stops_replanning_for_non_recoverable_tool_fail
 
 
 @pytest.mark.asyncio
+async def test_execute_with_tools_stops_replanning_for_provider_challenge_even_with_other_tools() -> None:
+    registry = _SequencedToolRegistry(
+        results={
+            "web_search": [
+                ToolResult(
+                    success=False,
+                    error="DuckDuckGo challenge",
+                    error_code="PROVIDER_CHALLENGE",
+                    data={"retryable": False, "terminal": True},
+                )
+            ],
+            "grep": [ToolResult(success=True, data={"matches": []})],
+        }
+    )
+    executor = FunctionCallingOrchestrator(
+        llm_adapter=_DummyLLMAdapter(),
+        tool_registry=registry,  # type: ignore[arg-type]
+    )
+
+    llm_calls: list[dict[str, Any]] = []
+
+    async def _fake_call_llm_with_tools(**kwargs):  # type: ignore[no-untyped-def]
+        llm_calls.append(kwargs)
+        return {
+            "content": "",
+            "assistant_message": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_search",
+                        "type": "function",
+                        "function": {"name": "web_search", "arguments": "{}"},
+                    }
+                ],
+            },
+            "tool_calls": [
+                ToolCall(id="call_search", name="web_search", arguments={"query": "magi"})
+            ],
+        }
+
+    async def _fake_call_llm_without_tools(**kwargs):  # type: ignore[no-untyped-def]
+        _ = kwargs
+        return {"content": ""}
+
+    executor._call_llm_with_tools = _fake_call_llm_with_tools  # type: ignore[method-assign]
+    executor._call_llm_without_tools = _fake_call_llm_without_tools  # type: ignore[method-assign]
+
+    result = await executor.execute_with_tools(
+        turn=UserTurnInput(text="search docs", attachments=[], user_id=None, session_id=None),
+        system_prompt="sys",
+        selected_tools=["web_search", "grep"],
+        user_id="u1",
+        max_iterations=4,
+    )
+
+    assert result.status == "failed"
+    assert result.failure_reason == "ALL_TOOLS_FAILED"
+    assert len(llm_calls) == 1
+    assert [call[0] for call in registry.calls] == ["web_search"]
+
+
+def test_function_calling_tools_request_kind_distinguishes_worker_and_chat() -> None:
+    assert function_calling_llm_module._resolve_tools_request_kind(
+        execution_agent_id="worker_123",
+        intent="worker_general",
+    ) == "function_calling:worker_tools"
+    assert function_calling_llm_module._resolve_tools_request_kind(
+        execution_agent_id="chat_session",
+        intent="chat",
+    ) == "function_calling:chat_tools"
+
+
+@pytest.mark.asyncio
 async def test_call_llm_without_tools_logs_provider_metadata(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
+from ....i18n import llm_language_label
 from ....tools.schema import ToolExecutionContext
 from ....tools.tool_hint_resolver import ToolHintResolver
 from ...orchestration import PlannedSubtask
@@ -107,6 +108,11 @@ class ChatPlanningPromptMixin:
         request_profile: str,
         subagent_type: str | None = None,
     ) -> str:
+        target_language = llm_language_label()
+        response_language_line = (
+            f"Response language: {target_language}. Write natural-language JSON values, findings, gaps, "
+            "and next_steps in this language unless quoting exact source titles, identifiers, paths, or commands."
+        )
         tool_guidance = self._tool_hint_resolver.render_guidance_block(
             self._resolve_leaf_task_hint(
                 root_user_message=root_user_message,
@@ -120,6 +126,7 @@ class ChatPlanningPromptMixin:
             lines = [
                 f"Parent user request: {root_user_message}",
                 f"Assigned subtask: {subtask_description}",
+                response_language_line,
                 "Task-specific instructions:",
                 subtask_prompt,
                 *([tool_guidance] if tool_guidance else []),
@@ -144,6 +151,7 @@ class ChatPlanningPromptMixin:
                 [
                     f"Parent user request: {root_user_message}",
                     f"Assigned subtask: {subtask_description}",
+                    response_language_line,
                     "Task-specific instructions:",
                     subtask_prompt,
                     *([tool_guidance] if tool_guidance else []),
@@ -162,6 +170,7 @@ class ChatPlanningPromptMixin:
             [
                 f"Parent user request: {root_user_message}",
                 f"Assigned subtask: {subtask_description}",
+                response_language_line,
                 "Task-specific instructions:",
                 subtask_prompt,
                 *([tool_guidance] if tool_guidance else []),
@@ -247,6 +256,14 @@ class ChatPlanningPromptMixin:
             "",
         ])
 
+        target_language = str(planning_prompt.get("target_language") or llm_language_label()).strip()
+        lines.extend([
+            "## Response Language",
+            f"- Target language: {target_language}",
+            "- Keep all natural-language JSON values in this language unless preserving exact names, paths, commands, or source titles.",
+            "",
+        ])
+
         user_request = str(planning_prompt.get("user_request") or "").strip()
         if user_request:
             lines.extend([
@@ -324,6 +341,7 @@ class ChatPlanningPromptMixin:
             "## Output Contract",
             "- Return ONLY valid JSON that matches the system prompt schema.",
             "- Produce execution-ready leaf tasks rather than answering the user directly.",
+            "- Keep summary, description, prompt, findings, gaps, and next_steps values in the target language.",
         ])
         return "\n".join(lines).strip()
 

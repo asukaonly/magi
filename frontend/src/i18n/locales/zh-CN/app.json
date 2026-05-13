@@ -1621,6 +1621,8 @@
           "directReply": "直接回复",
           "toolMemorySelection": "工具/记忆选择",
           "toolDecision": "工具决策",
+          "chatToolDecision": "聊天工具决策",
+          "workerToolDecision": "工作代理工具决策",
           "finalResponse": "最终回复",
           "direct": "子代理直连",
           "taskDecomposition": "任务拆解",

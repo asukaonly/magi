@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any, List, Optional, Protocol, cast
 
 from ...chat.workspace import get_default_chat_workspace_path
+from ...i18n import llm_language_label
 
 
 class _WorkerPromptHostProtocol(Protocol):
@@ -62,6 +63,10 @@ class WorkerPromptMixin:
             if selected_tools
             else "No tools are available. Reason directly from prompt context."
         )
+        language_rules = (
+            f"Response language: {llm_language_label()}. Write natural-language JSON values in this language "
+            "unless preserving exact names, paths, commands, identifiers, or source titles."
+        )
         host = cast(_WorkerPromptHostProtocol, self)
         if subagent_type == host.TYPE_EXPLORE:
             role_rules = self._build_explore_role_rules(description)
@@ -85,7 +90,7 @@ class WorkerPromptMixin:
                 '{"result_status":"success|partial|failed","summary":"string","findings":[{"title":"string","detail":"string","path":"string","why_it_matters":"string"}],"evidence":[{"path":"string","detail":"string"}],"gaps":["string"],"next_steps":["string"],"failure_reason":"string|null"}. '
                 "Any response that is not a single valid JSON object will be treated as failure."
             )
-        return "\n".join([base_rules, environment_rules, role_rules, tool_rules])
+        return "\n".join([base_rules, environment_rules, role_rules, language_rules, tool_rules])
 
     def _build_coding_role_rules(self) -> str:
         return (

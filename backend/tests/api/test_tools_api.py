@@ -70,6 +70,13 @@ def test_web_search_provider_parameter_does_not_hardcode_duckduckgo_default():
     assert "configured default provider" in provider_param.description
 
 
+def test_web_search_schema_disables_tool_retry_for_terminal_provider_errors():
+    schema = WebSearchTool().get_schema()
+
+    assert schema.retry_on_failure is False
+    assert schema.max_retries == 0
+
+
 def test_web_search_config_response_includes_sensitive_current_values(monkeypatch):
     config = AppConfig()
     config.tools.web_search.providers["brave"].api_key = "secret-key"

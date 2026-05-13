@@ -159,6 +159,24 @@
     "errors": {
       "not_found": "未找到工具：{tool_name}"
     },
+    "web_search": {
+      "no_providers": {
+        "error": "当前没有可用的搜索提供商。请先让用户配置搜索提供商 API key，然后再重试。",
+        "llm_guidance": "在至少有一个搜索提供商可用前，不要继续重试 web-search。请用中文告知用户需要检查或恢复搜索工具配置。",
+        "user_message": "要继续联网搜索，请先确认搜索工具已经配置好。配置可用后，我可以继续当前搜索。"
+      },
+      "provider_unavailable": {
+        "error": "请求的搜索提供商 {provider} 尚未配置。",
+        "llm_guidance": "请求的搜索提供商 {provider} 尚未配置。不要静默切换到其他提供商，也不要在本轮继续重试 web-search。请用中文让用户配置该提供商，或确认是否要改用其他已配置的提供商。",
+        "user_message": "当前选择的搜索提供商 {provider} 还没有配置。请先在设置里填好它的 API key，或改选一个已经配置好的搜索提供商，我再继续搜索。"
+      },
+      "duckduckgo_challenge": {
+        "error": "DuckDuckGo 触发了反机器人验证。请配置其他 web-search 提供商后再重试。",
+        "llm_guidance": "DuckDuckGo 当前因为反机器人验证无法返回稳定搜索结果。请用中文让用户在设置中配置 Brave、Perplexity 或 Tavily 后再继续。不要在同一个请求里反复重试 DuckDuckGo。",
+        "user_message": "DuckDuckGo 这次触发了反机器人验证，没法返回稳定结果。请先在设置中配置 Brave、Perplexity 或 Tavily，然后我可以继续搜索。",
+        "fallback_reason": "DuckDuckGo 返回了反机器人验证页面，而不是可用的搜索结果。"
+      }
+    },
     "config": {
       "no_updates": "没有需要应用的更新",
       "updated": "工具 {tool_name} 配置已更新",

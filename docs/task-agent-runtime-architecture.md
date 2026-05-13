@@ -424,6 +424,11 @@ change the outcome:
 - provider content-inspection failures are classified as
   `CONTENT_INSPECTION_FAILED`, retain a compact upstream error trace for
   diagnostics, and do not trigger automatic replanning
+- provider configuration failures and provider challenges, including
+  `NO_PROVIDERS_CONFIGURED`, `PROVIDER_NOT_CONFIGURED`, and
+  `PROVIDER_CHALLENGE`, are terminal for the current failed tool path; the
+  runtime suppresses the failed tool for the rest of the turn instead of
+  spending additional LLM rounds on equivalent retries
 - an unchanged tool call that already failed in the same loop is blocked with
   `REPEATED_FAILED_TOOL_CALL`; the model must change parameters or choose a
   different path before another attempt is allowed
@@ -437,8 +442,9 @@ change the outcome:
   current-turn allowlist
 
 Tool-message context stays compact. Large listing-style tools, including
-`glob` and `file_list`, expose bounded path/name summaries to the LLM while
-leaving exact execution details in `runtime_trace.db`.
+`glob` and `file_list`, plus web-search result and failure payloads, expose
+bounded summaries to the LLM while leaving exact execution details in
+`runtime_trace.db`.
 
 Execution-time tool discovery remains bounded and append-only. When the
 execution model calls `find-relevant-tools`, the helper still starts from the
@@ -932,6 +938,7 @@ Two rules matter here:
 - `trace_turns` is the turn-level trace ledger used for availability, status, and duration; visible execution tree nodes live in `trace_spans`
 - `turn_record` is an internal projection event for `trace_turns` and must not be stored or displayed as a visible span
 - `DIRECT_LLM` turns carry explicit trace context into provider calls so the main model call is attached under the turn root and contributes token metrics
+- function-calling LLM usage labels distinguish chat-level tool decisions from worker tool decisions with separate request kinds, so usage dashboards can explain which loop consumed tokens
 - function-calling turns group each bounded loop as an `iteration` span; LLM decisions and semantic tool calls inside that loop must be children of the iteration, and low-level `tool_invocation` spans should sit under their semantic `tool_call`
 - response rhythm planning emits a `rhythm_processing` span when the final answer is split into multiple natural-language segments
 - user-facing input/output details in trace UI must remain bounded previews, not raw full prompts, transcripts, or tool payloads

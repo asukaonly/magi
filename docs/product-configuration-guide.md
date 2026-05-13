@@ -380,6 +380,8 @@ Tool-specific expectations:
 
 - users can enable or disable supported builtin or plugin-provided tools
 - tool-specific configuration is shown only when relevant
+- web search uses the explicitly selected provider; if the selected or requested provider is unavailable, runtime should return a provider-configuration error instead of silently falling back to DuckDuckGo or another provider
+- DuckDuckGo anti-bot challenge responses are terminal for the current turn; the assistant should ask the user to configure another supported search provider instead of retrying the same provider loop
 - external skills are discoverable from the backend rather than hardcoded
 - expert mode exposes more of this surface than quick mode
 

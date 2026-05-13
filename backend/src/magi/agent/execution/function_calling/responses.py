@@ -14,6 +14,7 @@ class FunctionCallingResponseMixin:
 
     _FAILED_ITERATION_REPLAN_LIMIT: int
     _NON_REPLAN_ERROR_CODES: set[str]
+    _TERMINAL_TOOL_ERROR_CODES: set[str]
     _PARENT_CONTEXT_MAX_MESSAGES: int
     _PARENT_CONTEXT_MAX_CHARS: int
     _current_messages: list[dict[str, Any]]
@@ -26,6 +27,7 @@ class FunctionCallingResponseMixin:
             "- If a call fails because parameters or path selection are wrong, choose a narrower or corrected tool strategy.\n"
             "- If a file scan is blocked because it would leave the workspace and the user did not provide an explicit path, do not broaden the local scan; ask the user for a path or use web-search first.\n"
             "- If grep is blocked or too broad, switch to scoped glob plus file_read before trying again.\n"
+            "- If a tool result has retryable=false, terminal=true, or error code PROVIDER_CHALLENGE, NO_PROVIDERS_CONFIGURED, or PROVIDER_NOT_CONFIGURED, do not call that same tool again in the current turn.\n"
             "- Prefer an alternative tool or narrower scope over repeating the failed call unchanged."
             "\n- If the current tool set is missing a needed capability for the next step, call find-relevant-tools with the missing subtask and the tools you already have.\n"
             "- Use find-relevant-tools only for concrete capability gaps, not for broad browsing.\n"
@@ -107,6 +109,8 @@ class FunctionCallingResponseMixin:
         }
         if not error_codes:
             return True
+        if any(code in self._TERMINAL_TOOL_ERROR_CODES for code in error_codes):
+            return False
         has_non_replan_error = any(code in self._NON_REPLAN_ERROR_CODES for code in error_codes)
         if not has_non_replan_error:
             return True

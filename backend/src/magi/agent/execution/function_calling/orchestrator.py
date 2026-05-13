@@ -73,10 +73,21 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         "NO_PROVIDERS_CONFIGURED",
         "PERMISSION_DENIED",
         "POLICY_BLOCKED",
+        "PROVIDER_CHALLENGE",
         "PROVIDER_NOT_CONFIGURED",
         "READ_ONLY",
         "REPEATED_FAILED_TOOL_CALL",
         "ROLE_NOT_ALLOWED",
+    }
+    _TERMINAL_TOOL_ERROR_CODES = {
+        "NO_PROVIDERS_CONFIGURED",
+        "PROVIDER_CHALLENGE",
+        "PROVIDER_NOT_CONFIGURED",
+    }
+    _SUPPRESS_TOOL_AFTER_ERROR_CODES = {
+        "NO_PROVIDERS_CONFIGURED",
+        "PROVIDER_CHALLENGE",
+        "PROVIDER_NOT_CONFIGURED",
     }
     _SLOW_SCAN_WARNING_SECONDS = 5.0
     # Parent-context budget passed down to spawned sub-tasks. 20 messages /
