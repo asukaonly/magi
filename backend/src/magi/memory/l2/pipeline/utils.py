@@ -6,7 +6,7 @@ import re
 import uuid
 from typing import Any, Optional, cast
 
-from ..models import L2Phase1Result
+from ..models import L2BatchEvent, L2Phase1FactClaim, L2Phase1Result
 from ..ontology import PROFILE_SIGNAL_PREDICATES, coerce_unknown_entity_type
 from ..ontology_aliases import canonicalize_predicate
 
@@ -161,6 +161,59 @@ class L2PipelineUtilityMixin:
                 continue
             values.update(self._expand_profile_signal_values(claim.object_ref))
         return values
+
+    def _filter_ungrounded_profile_signal_claims(
+        self,
+        phase1_result: L2Phase1Result,
+        events: list[L2BatchEvent],
+    ) -> int:
+        user_texts = [
+            str(event.content or "")
+            for event in events
+            if str(event.author_type or "").strip().casefold() == "user"
+        ]
+        if not user_texts:
+            rejected_count = sum(
+                1
+                for claim in phase1_result.fact_claims
+                if self._normalize_predicate(claim.predicate) in PROFILE_SIGNAL_PREDICATES
+            )
+            phase1_result.fact_claims = [
+                claim
+                for claim in phase1_result.fact_claims
+                if self._normalize_predicate(claim.predicate) not in PROFILE_SIGNAL_PREDICATES
+            ]
+            return rejected_count
+
+        filtered_claims: list[L2Phase1FactClaim] = []
+        rejected_count = 0
+        for claim in phase1_result.fact_claims:
+            predicate = self._normalize_predicate(claim.predicate)
+            if predicate not in PROFILE_SIGNAL_PREDICATES:
+                filtered_claims.append(claim)
+                continue
+            if self._is_profile_signal_claim_grounded_in_user_text(claim, user_texts):
+                filtered_claims.append(claim)
+                continue
+            rejected_count += 1
+        phase1_result.fact_claims = filtered_claims
+        return rejected_count
+
+    def _is_profile_signal_claim_grounded_in_user_text(
+        self,
+        claim: L2Phase1FactClaim,
+        user_texts: list[str],
+    ) -> bool:
+        fragments = [
+            str(claim.evidence_text or "").strip(),
+            str(claim.object_ref or "").strip(),
+        ]
+        fragments.extend(self._expand_profile_signal_values(claim.object_ref))
+        normalized_fragments = [fragment for fragment in fragments if fragment]
+        if not normalized_fragments:
+            return False
+        user_text_blob = "\n".join(user_texts).casefold()
+        return any(fragment.casefold() in user_text_blob for fragment in normalized_fragments)
 
     def _expand_profile_signal_values(self, value: Any) -> set[str]:
         text = str(value or "").strip()

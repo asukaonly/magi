@@ -25,6 +25,7 @@ _PROFILE_TRAIT_BY_PREDICATE = {
     "DISALLOWED_FORM_OF_ADDRESS": "communication.address.disallowed",
     "PREFERRED_COMMUNICATION_STYLE": "communication.response_style.preferred",
 }
+_PROFILE_TRAITS_REQUIRING_PHASE1_SIGNAL = frozenset(_PROFILE_TRAIT_BY_PREDICATE.values())
 
 
 def classify_memory_subdomain(temporal_scope: str, decay_policy: str) -> str:
@@ -104,6 +105,12 @@ class L2AssertionValidationMixin:
                 entity_ref = self_entity_id
 
             trait_name = str(getattr(assertion, "trait_name", "") or "")
+            if (
+                trait_name in _PROFILE_TRAITS_REQUIRING_PHASE1_SIGNAL
+                and trait_name not in profile_values_by_trait
+            ):
+                rejected_count += 1
+                continue
             trait_value = profile_values_by_trait.get(trait_name) or assertion.trait_value
             if isinstance(trait_value, (dict, list)):
                 trait_value = json.dumps(trait_value, ensure_ascii=False, sort_keys=True)

@@ -144,6 +144,10 @@ stress, mood, engagement, trigger, relationship_shift, group_atmosphere, public_
       Never use assertion families, trait names, output field names, or schema keys as
       `graph_edges.predicate` or `graph_edges.object_ref`.
     - Do not emit any `graph_edges` item whose object is the requested form of address.
+    - Emit these profile assertions only when Phase 1 contains the matching
+      profile-signal fact claim grounded in current [USER] text. Do not infer
+      identity or communication profile values from assistant/persona text,
+      history context, or a one-off task request.
 6. Custom graph predicates are allowed only for stable, reusable facts not covered by the core predicate list. Do NOT emit dialogue/query predicates such as ASKED_ABOUT, QUESTIONED_ABOUT, MENTIONED, TALKED_ABOUT, REFERRED_TO, LOOKED_AT, WANTS_TO_KNOW, or NEEDS_HELP_WITH.
 7. Do NOT emit graph edges whose object is an unresolved pronoun or vague placeholder such as "他", "她", "它", "这个", "那个", generic "app", generic "PDF", "file", "document", or "image". Resolve them to a concrete existing entity/asset first, or omit the graph edge.
 

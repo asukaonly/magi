@@ -2631,8 +2631,10 @@
           "identity_birth_year": "birth year",
           "identity_age_stated": "age",
           "identity_location_home": "home location",
+          "identity_knowledge_gaps": "topic to clarify",
           "communication_address_preferred": "preferred form of address",
           "communication_address_disallowed": "disallowed form of address",
+          "communication_response_style_preferred": "response style preference",
           "preference_address_real_name": "real name",
           "preference_identity_self_label": "self label",
           "preference_address_preferred": "preferred form of address",
@@ -2647,6 +2649,7 @@
           "uses": "uses",
           "interested_in": "may be interested in",
           "works_with": "worked with",
+          "asked_about": "asked about",
           "likes": "likes",
           "endorses": "endorses"
         },
@@ -2658,8 +2661,10 @@
             "identity_birth_year": "Your birth year may be \"{{value}}\".",
             "identity_age_stated": "Your age may be \"{{value}}\".",
             "identity_location_home": "Your home location may be \"{{value}}\".",
+            "identity_knowledge_gaps": "You may want to clarify \"{{value}}\".",
             "communication_address_preferred": "You want me to call you \"{{value}}\".",
-            "communication_address_disallowed": "You do not want me to call you \"{{value}}\"."
+            "communication_address_disallowed": "You do not want me to call you \"{{value}}\".",
+            "communication_response_style_preferred": "You may prefer responses like \"{{value}}\"."
           },
           "relation": "{{subject}} {{predicate}} {{object}}.",
           "entity": "Recognized {{type}} \"{{entity}}\".",

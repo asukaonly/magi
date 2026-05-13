@@ -4379,6 +4379,85 @@ class TestEntityTypeFiltering:
         assert rejected_count == 0
         assert prepared[0]["trait_value"] == "哈基米或者子涵"
 
+    def test_profile_signal_claim_requires_current_user_evidence(self):
+        from magi.memory.l2.models import L2BatchEvent, L2Phase1Result
+        from magi.memory.l2.pipeline import L2Pipeline
+
+        pipeline = L2Pipeline.__new__(L2Pipeline)
+        phase1_result = L2Phase1Result.from_dict({
+            "entities": [],
+            "fact_claims": [
+                {
+                    "subject_ref": "user:self",
+                    "predicate": "REAL_NAME",
+                    "object_ref": "苏眠",
+                    "object_type": "person",
+                    "fact_kind": "explicit_fact",
+                    "evidence_text": "我是苏眠。",
+                    "confidence": 0.8,
+                },
+                {
+                    "subject_ref": "user:self",
+                    "predicate": "PREFERRED_FORM_OF_ADDRESS",
+                    "object_ref": "子涵",
+                    "object_type": "concept",
+                    "fact_kind": "explicit_fact",
+                    "evidence_text": "叫我子涵就好。",
+                    "confidence": 0.8,
+                },
+            ],
+            "resolved_refs": [],
+        })
+        events = [
+            L2BatchEvent(
+                event_id="evt-profile-evidence",
+                content="你可以叫我子涵就好。",
+                author_type="user",
+            )
+        ]
+
+        rejected_count = pipeline._filter_ungrounded_profile_signal_claims(phase1_result, events)
+
+        assert rejected_count == 1
+        assert [claim.predicate for claim in phase1_result.fact_claims] == [
+            "PREFERRED_FORM_OF_ADDRESS"
+        ]
+
+    def test_phase2_profile_assertion_requires_phase1_profile_signal(self):
+        from magi.memory.l2.models import L2Phase1Result, L2Phase2AssertionCandidate
+        from magi.memory.l2.pipeline import L2Pipeline
+
+        pipeline = L2Pipeline.__new__(L2Pipeline)
+        event = _make_memory_event(event_id="evt-profile-inference", content="帮我全面审查这段代码")
+
+        prepared, rejected_count = pipeline._validate_phase2_assertions(
+            event=event,
+            profile=SimpleNamespace(
+                allow_assertion=True,
+                allowed_assertion_families={"communication_profile"},
+            ),
+            policy=SimpleNamespace(allow_assertion_write=True),
+            graph_candidates=[],
+            default_event_ids=["evt-profile-inference"],
+            phase2_assertions=[
+                L2Phase2AssertionCandidate(
+                    entity_ref="user:local_user",
+                    trait_family="communication_profile",
+                    trait_name="communication.response_style.preferred",
+                    trait_value="全面审查与详细建议",
+                    confidence=0.7,
+                )
+            ],
+            phase1_result=L2Phase1Result.from_dict({
+                "entities": [],
+                "fact_claims": [],
+                "resolved_refs": [],
+            }),
+        )
+
+        assert prepared == []
+        assert rejected_count == 1
+
 
 class TestEntityNameQuality:
     """Tests for _is_quality_entity_name noise filter."""

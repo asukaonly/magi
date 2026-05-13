@@ -2697,8 +2697,10 @@
           "identity_birth_year": "出生年份",
           "identity_age_stated": "年龄",
           "identity_location_home": "常住地",
+          "identity_knowledge_gaps": "待了解主题",
           "communication_address_preferred": "称呼偏好",
           "communication_address_disallowed": "不希望使用的称呼",
+          "communication_response_style_preferred": "回复风格偏好",
           "preference_address_real_name": "真实姓名",
           "preference_identity_self_label": "自我称呼",
           "preference_address_preferred": "称呼偏好",
@@ -2713,6 +2715,7 @@
           "uses": "使用过",
           "interested_in": "可能感兴趣于",
           "works_with": "曾一起工作于",
+          "asked_about": "询问过",
           "likes": "喜欢",
           "endorses": "认可"
         },
@@ -2724,8 +2727,10 @@
             "identity_birth_year": "你的出生年份可能是“{{value}}”。",
             "identity_age_stated": "你的年龄可能是“{{value}}”。",
             "identity_location_home": "你的常住地可能是“{{value}}”。",
+            "identity_knowledge_gaps": "你可能想进一步了解“{{value}}”。",
             "communication_address_preferred": "你希望我称呼你为“{{value}}”。",
-            "communication_address_disallowed": "你不希望我这样称呼你：“{{value}}”。"
+            "communication_address_disallowed": "你不希望我这样称呼你：“{{value}}”。",
+            "communication_response_style_preferred": "你可能偏好“{{value}}”这样的回复方式。"
           },
           "relation": "{{subject}}{{predicate}}“{{object}}”。",
           "entity": "已识别出{{type}}“{{entity}}”。",

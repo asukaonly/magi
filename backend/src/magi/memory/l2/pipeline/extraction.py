@@ -191,6 +191,16 @@ class L2PipelineExtractionMixin:
             context_messages=context_messages,
             extraction_instructions=extraction_profile.extraction_instructions,
         )
+        rejected_profile_signal_claim_count = self._filter_ungrounded_profile_signal_claims(
+            phase1_result,
+            event_window.events,
+        )
+        if rejected_profile_signal_claim_count:
+            logger.info(
+                "L2 Phase 1 profile signal claims filtered by user evidence",
+                event_id=stored_event.event_id,
+                rejected_profile_signal_claim_count=rejected_profile_signal_claim_count,
+            )
 
         profile_signal_object_refs = self._collect_profile_signal_object_refs(phase1_result)
         resolved_mentions: list[ResolvedEntityMention] = []

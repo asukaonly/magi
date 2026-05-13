@@ -269,6 +269,10 @@ Phase 1 extraction may use profile-signal predicates such as `REAL_NAME`,
 `PREFERRED_COMMUNICATION_STYLE` to keep those facts explicit for Phase 2, but
 these predicates are not graph relations and must never be persisted as knowledge
 graph edges.
+Profile-signal claims must be grounded in current user-authored text before they
+can produce profile assertions; assistant persona text, recalled history, and
+one-off task phrasing are not sufficient evidence for durable identity or
+communication-profile fields.
 
 L2 keeps a semi-open graph predicate model so source-specific relationships can
 be captured before the core ontology knows every useful verb. That openness is
