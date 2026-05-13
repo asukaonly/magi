@@ -270,6 +270,16 @@ Phase 1 extraction may use profile-signal predicates such as `REAL_NAME`,
 these predicates are not graph relations and must never be persisted as knowledge
 graph edges.
 
+L2 keeps a semi-open graph predicate model so source-specific relationships can
+be captured before the core ontology knows every useful verb. That openness is
+bounded by a quality gate: custom predicates must describe stable, reusable
+facts, while dialogue/query activity such as asking about, mentioning, looking
+at, or wanting help with an object belongs in short-lived interaction context,
+not the durable knowledge graph. Entity extraction follows the same boundary:
+pronouns and vague placeholders such as “那个”, “他”, generic “app”, or generic
+“PDF” may help resolve references, but should not become canonical L2 entities
+unless they resolve to a concrete named entity or asset.
+
 `user_profile_projection` in `memory.db` is the product-facing read model for the
 local user profile. It is rebuilt from current L2 profile assertions, records
 field sources/conflicts, and derives deterministic fields such as `birth_year`

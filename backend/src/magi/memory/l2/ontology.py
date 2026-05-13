@@ -143,12 +143,104 @@ _STRICT_PREDICATE_COMPATIBILITY: dict[str, frozenset[str]] = {
 
 OPEN_PREDICATE_CONFIDENCE_PENALTY: float = 0.7
 
+LOW_VALUE_OPEN_PREDICATES: frozenset[str] = frozenset(
+    {
+        "ASKED",
+        "ASKED_ABOUT",
+        "DISCUSSED",
+        "INQUIRED_ABOUT",
+        "LOOKED_AT",
+        "MENTIONED",
+        "NEEDS_HELP_WITH",
+        "QUESTION_ABOUT",
+        "QUESTIONED_ABOUT",
+        "REFERRED_TO",
+        "REFERENCED",
+        "REQUESTED_INFO_ABOUT",
+        "SAW",
+        "TALKED_ABOUT",
+        "WANTS_TO_KNOW",
+    }
+)
+
+VAGUE_ENTITY_REFERENCES: frozenset[str] = frozenset(
+    {
+        "他",
+        "她",
+        "它",
+        "他们",
+        "她们",
+        "它们",
+        "这个",
+        "那个",
+        "这",
+        "那",
+        "这里",
+        "那里",
+        "这个东西",
+        "那个东西",
+        "这个文件",
+        "那个文件",
+        "这个文档",
+        "那个文档",
+        "图片",
+        "图",
+        "截图",
+        "文件",
+        "文档",
+        "app",
+        "application",
+        "pdf",
+        "file",
+        "document",
+        "image",
+        "photo",
+        "screenshot",
+        "it",
+        "he",
+        "she",
+        "they",
+        "this",
+        "that",
+        "this one",
+        "that one",
+        "the one",
+        "one",
+    }
+)
+
 _UPPER_SNAKE_CASE_RE = re.compile(r"^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$")
 
 
 def is_valid_open_predicate(predicate: str) -> bool:
     """Return whether *predicate* is a well-formed open predicate (UPPER_SNAKE_CASE)."""
     return bool(_UPPER_SNAKE_CASE_RE.match(predicate.strip()))
+
+
+def is_low_value_open_predicate(predicate: str | None) -> bool:
+    """Return whether an open predicate describes dialogue/query behavior, not stable knowledge."""
+    if predicate is None:
+        return False
+    return predicate.strip().upper() in LOW_VALUE_OPEN_PREDICATES
+
+
+def is_vague_entity_reference(value: Any) -> bool:
+    """Return whether *value* is a pronoun or generic placeholder, not a stable entity name."""
+    text = str(value or "").strip()
+    if not text:
+        return False
+    candidate = _strip_entity_prefix_for_schema_check(text).strip()
+    normalized = re.sub(r"\s+", " ", candidate.casefold()).strip(
+        " '\"“”‘’「」『』（）()[]{}<>《》：:，,。.!！?？"
+    )
+    if normalized in VAGUE_ENTITY_REFERENCES:
+        return True
+    return bool(
+        re.fullmatch(
+            r"(?:this|that|the)\s+(?:one|file|document|image|photo|screenshot|app|application|pdf)",
+            normalized,
+        )
+    )
 
 
 def is_reserved_assertion_graph_predicate(predicate: str | None) -> bool:
@@ -342,9 +434,13 @@ def validate_graph_candidate(candidate: dict[str, Any]) -> tuple[bool, str | Non
         return False, "profile_signal_predicate"
     if is_reserved_assertion_graph_predicate(predicate):
         return False, "reserved_assertion_predicate"
+    if is_low_value_open_predicate(predicate):
+        return False, "low_value_predicate"
     for key in ("object_ref", "object_id"):
         if is_reserved_assertion_graph_identifier(candidate.get(key)):
             return False, "reserved_assertion_identifier"
+        if is_vague_entity_reference(candidate.get(key)):
+            return False, "vague_entity_reference"
     is_core = predicate in PREDICATE_REGISTRY
     if not is_core and not is_valid_open_predicate(predicate):
         return False, "invalid_predicate"

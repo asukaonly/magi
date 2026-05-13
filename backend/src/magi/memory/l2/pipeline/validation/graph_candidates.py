@@ -11,6 +11,8 @@ from ...models import L2GraphCandidate, ResolvedEntityMention
 from ...ontology import (
     OPEN_PREDICATE_CONFIDENCE_PENALTY,
     PREDICATE_REGISTRY,
+    is_low_value_open_predicate,
+    is_vague_entity_reference,
     is_valid_open_predicate,
     validate_graph_candidate,
 )
@@ -98,6 +100,9 @@ class L2GraphCandidateValidationMixin:
             ):
                 rejected_count += 1
                 continue
+            if is_low_value_open_predicate(predicate):
+                rejected_count += 1
+                continue
             is_valid, _ = validate_graph_candidate(
                 {
                     "predicate": predicate,
@@ -119,6 +124,9 @@ class L2GraphCandidateValidationMixin:
                 resolved_context_refs=resolved_context_refs,
             )
             if not object_id:
+                rejected_count += 1
+                continue
+            if is_vague_entity_reference(raw_candidate.object_ref) or is_vague_entity_reference(object_id):
                 rejected_count += 1
                 continue
             if self._should_reject_preference_graph_candidate(  # type: ignore[attr-defined]

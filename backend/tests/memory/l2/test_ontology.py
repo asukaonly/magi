@@ -68,6 +68,36 @@ def test_validator_accepts_open_predicate_upper_snake_case():
     assert reason is None
 
 
+def test_validator_rejects_low_value_open_predicate():
+    from magi.memory.l2.ontology import validate_graph_candidate
+
+    is_valid, reason = validate_graph_candidate(
+        {
+            "predicate": "ASKED_ABOUT",
+            "object_type": "software",
+            "object_ref": "GitHub",
+        }
+    )
+
+    assert is_valid is False
+    assert reason == "low_value_predicate"
+
+
+def test_validator_rejects_vague_graph_object():
+    from magi.memory.l2.ontology import validate_graph_candidate
+
+    is_valid, reason = validate_graph_candidate(
+        {
+            "predicate": "MAINTAINS",
+            "object_type": "software",
+            "object_ref": "那个",
+        }
+    )
+
+    assert is_valid is False
+    assert reason == "vague_entity_reference"
+
+
 def test_validator_rejects_assertion_family_as_graph_predicate():
     from magi.memory.l2.ontology import validate_graph_candidate
 
@@ -261,6 +291,23 @@ def test_is_valid_open_predicate_accepts_upper_snake_case():
     assert is_valid_open_predicate("LEARNING") is True
     assert is_valid_open_predicate("ALLERGIC_TO") is True
     assert is_valid_open_predicate("HAS_2_CATS") is True
+
+
+def test_low_value_open_predicates_are_identified():
+    from magi.memory.l2.ontology import is_low_value_open_predicate
+
+    assert is_low_value_open_predicate("ASKED_ABOUT") is True
+    assert is_low_value_open_predicate("mentioned") is True
+    assert is_low_value_open_predicate("MAINTAINS") is False
+
+
+def test_vague_entity_references_are_identified():
+    from magi.memory.l2.ontology import is_vague_entity_reference
+
+    assert is_vague_entity_reference("那个") is True
+    assert is_vague_entity_reference("person:他") is True
+    assert is_vague_entity_reference("software:app") is True
+    assert is_vague_entity_reference("person:德克萨斯") is False
 
 
 def test_is_valid_open_predicate_rejects_invalid_formats():

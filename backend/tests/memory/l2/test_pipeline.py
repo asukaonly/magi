@@ -4230,6 +4230,110 @@ class TestEntityTypeFiltering:
         entities = await pipeline._entity_catalog.list_entities(limit=20)
         assert {entity["canonical_name"] for entity in entities} == {"GitHub"}
 
+    @pytest.mark.asyncio
+    async def test_vague_references_are_not_registered_as_entities(self):
+        from magi.memory.l2.models import L2Phase1Result
+        from magi.memory.l2.pipeline import L2Pipeline
+
+        class _EntityCatalog:
+            def __init__(self) -> None:
+                self.entities: dict[str, dict[str, str]] = {}
+
+            async def resolve_alias(self, _alias_text, *, entity_type=None):
+                return {"decision": "no_match"}
+
+            async def find_by_canonical_name(self, _canonical_name):
+                return []
+
+            async def upsert_entity(self, *, entity_id, canonical_name, entity_type):
+                self.entities[entity_id] = {
+                    "entity_id": entity_id,
+                    "canonical_name": canonical_name,
+                    "entity_type": entity_type,
+                }
+
+            async def add_alias(self, **_kwargs):
+                return None
+
+            async def record_mention(self, **_kwargs):
+                return None
+
+            async def list_entities(self, *, limit=20):
+                return list(self.entities.values())[:limit]
+
+        pipeline = L2Pipeline.__new__(L2Pipeline)
+        pipeline._entity_catalog = _EntityCatalog()
+        pipeline._llm_service = None
+        pipeline._entity_resolution_cache = {}
+
+        phase1_result = L2Phase1Result.from_dict({
+            "entities": [
+                {"surface": "他", "normalized_name": "德克萨斯", "entity_type": "person", "confidence": 0.95},
+                {"surface": "那个", "normalized_name": "that one", "entity_type": "other", "confidence": 0.95},
+                {"surface": "app", "normalized_name": "app", "entity_type": "software", "confidence": 0.95},
+                {"surface": "GitHub", "normalized_name": "GitHub", "entity_type": "software", "confidence": 0.95},
+            ],
+            "fact_claims": [],
+            "resolved_refs": [],
+        })
+        event = _make_memory_event(event_id="evt-vague-entity", content="他和那个 app 是什么")
+
+        resolved = await pipeline._resolve_phase1_entities(
+            event,
+            phase1_result,
+            evidence_event_ids=["evt-vague-entity"],
+            allowed_entity_types=frozenset({"person", "other", "software"}),
+        )
+
+        assert [mention.normalized_surface for mention in resolved] == ["GitHub"]
+        entities = await pipeline._entity_catalog.list_entities(limit=20)
+        assert {entity["canonical_name"] for entity in entities} == {"GitHub"}
+
+    def test_phase2_rejects_low_value_open_predicate_but_keeps_stable_custom_predicate(self):
+        from magi.memory.l2.models import L2Phase2GraphEdge
+        from magi.memory.l2.ontology import PREDICATE_REGISTRY
+        from magi.memory.l2.pipeline import L2Pipeline
+
+        pipeline = L2Pipeline.__new__(L2Pipeline)
+        event = _make_memory_event(event_id="evt-open-predicate", content="Magi 维护 core-tools 插件")
+        profile = SimpleNamespace(
+            allow_graph=True,
+            effective_structured_allowed_entity_types=frozenset({"product", "software"}),
+            effective_structured_allowed_predicates=PREDICATE_REGISTRY,
+        )
+        policy = SimpleNamespace(allow_graph_write=True, graph_scope="full")
+
+        prepared, _corroborate_targets, rejected_count = pipeline._validate_phase2_graph_edges(
+            event=event,
+            profile=profile,
+            policy=policy,
+            resolved_mentions=[],
+            evidence_event_ids=["evt-open-predicate"],
+            phase2_edges=[
+                L2Phase2GraphEdge(
+                    subject_ref="user:local_user",
+                    predicate="ASKED_ABOUT",
+                    object_ref="app",
+                    object_type="software",
+                    confidence=0.9,
+                ),
+                L2Phase2GraphEdge(
+                    subject_ref="user:local_user",
+                    predicate="MAINTAINS",
+                    object_ref="Magi",
+                    object_type="product",
+                    confidence=0.9,
+                ),
+            ],
+            profile_signal_object_refs=set(),
+            catalog_name_index={},
+        )
+
+        assert rejected_count == 1
+        assert len(prepared) == 1
+        assert prepared[0]["predicate"] == "MAINTAINS"
+        assert prepared[0]["object_id"] == "product:magi"
+
     def test_phase2_profile_assertion_preserves_phase1_value(self):
         from magi.memory.l2.models import L2Phase1Result, L2Phase2AssertionCandidate
         from magi.memory.l2.pipeline import L2Pipeline

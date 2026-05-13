@@ -13,6 +13,7 @@ from ...models import (
     L2Phase1Result,
     ResolvedEntityMention,
 )
+from ...ontology import is_vague_entity_reference
 from .id_resolution import L2EntityIdResolutionMixin
 from ...storage.utils import normalize_event_ids
 
@@ -66,6 +67,15 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
             mention_text = entity.surface
             normalized_surface = entity.normalized_name or mention_text
             entity_type = self._normalize_entity_type(entity.entity_type)  # type: ignore[attr-defined]
+            if is_vague_entity_reference(mention_text) or is_vague_entity_reference(normalized_surface):
+                logger.debug(
+                    "L2 Phase 1 entity filtered as vague reference",
+                    mention_text=mention_text,
+                    normalized_surface=normalized_surface,
+                    entity_type=entity_type,
+                    event_id=event.event_id,
+                )
+                continue
             normalized_profile_value = self._normalize_profile_signal_value(normalized_surface)  # type: ignore[attr-defined]
             normalized_mention_value = self._normalize_profile_signal_value(mention_text)  # type: ignore[attr-defined]
             if profile_signal_object_refs and (
@@ -323,6 +333,15 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
                 continue
             normalized_surface = str(mention.get("normalized_surface") or mention_text).strip()
             entity_type = self._normalize_entity_type(mention.get("entity_type"))  # type: ignore[attr-defined]
+            if is_vague_entity_reference(mention_text) or is_vague_entity_reference(normalized_surface):
+                logger.debug(
+                    "L2 mention filtered as vague reference",
+                    mention_text=mention_text,
+                    normalized_surface=normalized_surface,
+                    entity_type=entity_type,
+                    event_id=event.event_id,
+                )
+                continue
             evidence_text = self._non_empty_text(mention.get("evidence_text")) or event.content  # type: ignore[attr-defined]
             mention_confidence = float(mention.get("confidence", 0.0) or 0.0)
 

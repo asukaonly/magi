@@ -15,7 +15,9 @@ from ...models import (
 from ...ontology import (
     OPEN_PREDICATE_CONFIDENCE_PENALTY,
     PREDICATE_REGISTRY,
+    is_low_value_open_predicate,
     is_reserved_assertion_graph_identifier,
+    is_vague_entity_reference,
     is_valid_open_predicate,
     validate_graph_candidate,
 )
@@ -70,6 +72,9 @@ class L2Phase2GraphValidationMixin:
             ):
                 rejected_count += 1
                 continue
+            if is_low_value_open_predicate(predicate):
+                rejected_count += 1
+                continue
             is_valid, _ = validate_graph_candidate(
                 {
                     "predicate": predicate,
@@ -95,6 +100,9 @@ class L2Phase2GraphValidationMixin:
                 rejected_count += 1
                 continue
             if is_reserved_assertion_graph_identifier(object_id):
+                rejected_count += 1
+                continue
+            if is_vague_entity_reference(edge.object_ref) or is_vague_entity_reference(object_id):
                 rejected_count += 1
                 continue
             normalized_object_ref = self._normalize_profile_signal_value(edge.object_ref)  # type: ignore[attr-defined]
