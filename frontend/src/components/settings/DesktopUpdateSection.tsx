@@ -3,14 +3,21 @@ import { useTranslation } from 'react-i18next';
 import { Download, RefreshCcw, RotateCcw } from 'lucide-react';
 import type { Update } from '@tauri-apps/plugin-updater';
 
+import type { NetworkProxyConfig } from '@/api/modules/config';
 import { Button } from '@/components/ui/button';
 import {
+  buildUpdaterProxyUrl,
   checkForAppUpdate,
+  DEFAULT_UPDATE_CHECK_TIMEOUT_MS,
   getCurrentAppVersion,
   isUpdaterRuntimeAvailable,
   restartToApplyUpdate,
 } from '@/runtime/updater';
 import { toast } from 'sonner';
+
+interface DesktopUpdateSectionProps {
+  networkConfig?: NetworkProxyConfig | null;
+}
 
 function formatReleaseDate(value: string | undefined): string | null {
   if (!value) {
@@ -25,7 +32,7 @@ function formatReleaseDate(value: string | undefined): string | null {
   return parsed.toLocaleString();
 }
 
-export function DesktopUpdateSection() {
+export function DesktopUpdateSection({ networkConfig }: DesktopUpdateSectionProps) {
   const { t } = useTranslation('app');
   const desktopRuntime = isUpdaterRuntimeAvailable();
   const [currentVersion, setCurrentVersion] = useState<string | null>(null);
@@ -88,7 +95,10 @@ export function DesktopUpdateSection() {
     setContentLength(null);
 
     try {
-      const result = await checkForAppUpdate();
+      const result = await checkForAppUpdate({
+        proxy: buildUpdaterProxyUrl(networkConfig),
+        timeoutMs: DEFAULT_UPDATE_CHECK_TIMEOUT_MS,
+      });
       setCurrentVersion(result.currentVersion);
       setLastCheckedAt(new Date());
 
@@ -234,6 +244,10 @@ export function DesktopUpdateSection() {
                 })}
               </p>
             ) : null}
+
+            <p className="text-xs leading-6 text-muted-foreground">
+              {t('settings.updates.backgroundCheckHint')}
+            </p>
 
             {availableUpdate ? (
               <div className="space-y-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-3">

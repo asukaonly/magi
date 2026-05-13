@@ -25,7 +25,7 @@ Current release expectations are:
 - release automation builds the Python sidecar first, then runs frontend type-check, a focused frontend smoke suite, frontend lint, a focused backend smoke suite, and finally the Tauri bundle build
 - release jobs publish a GitHub Release and attach the generated desktop installers (`releaseDraft: false` in the workflow)
 - desktop update packages are signed with the Tauri updater keypair, and release automation expects `TAURI_SIGNING_PRIVATE_KEY` plus the optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secret in the `release` environment
-- the desktop app checks the GitHub Release update feed through `latest.json`; prerelease visibility follows the release tag and updater configuration
+- the desktop app checks the GitHub Release update feed through `latest.json`; prerelease visibility follows the release tag and updater configuration, startup runs a delayed background check, and packaged builds reuse the app-level network proxy for updater requests when configured
 - macOS signing and notarization should be supplied through repository secrets before shipping public releases to end users
 
 ## Core Goals

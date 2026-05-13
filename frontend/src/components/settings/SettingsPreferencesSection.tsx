@@ -150,7 +150,7 @@ export function SettingsPreferencesSection({
         </div>
       </SettingsGroup>
 
-      <DesktopUpdateSection />
+      <DesktopUpdateSection networkConfig={draftConfig.network} />
     </SettingsSectionShell>
   );
 }

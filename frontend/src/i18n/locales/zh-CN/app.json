@@ -1094,6 +1094,7 @@
       "restartHint": "版本 {{version}} 已安装完成。重启 Magi 以完成更新。",
       "availableToast": "发现新版本 {{version}}",
       "upToDateToast": "Magi 已是最新版本",
+      "backgroundCheckHint": "Magi 会在启动后稍后后台检查更新，并在启用时复用全局网络代理。",
       "installSuccess": "版本 {{version}} 已安装",
       "checkFailed": "检查更新失败：{{message}}",
       "installFailed": "安装更新失败：{{message}}",

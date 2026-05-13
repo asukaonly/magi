@@ -4,9 +4,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import App from './App';
 import './index.css';
 import './i18n';
+import i18n from './i18n';
 import { configureApiClient } from './api/client';
 import { configApi } from './api/modules/config';
 import type { LanguageCode } from './api/modules/config';
@@ -14,6 +16,7 @@ import { initializeRuntime, resetRuntimeInitialization } from './runtime/config'
 import type { StartupPhase } from './runtime/config';
 import { syncCloseToTrayPreference, syncAutoStartPreference, syncStartMinimizedPreference, applyStartMinimized } from './runtime/desktop';
 import { initializeDesktopLogging } from './runtime/logging';
+import { scheduleStartupUpdateCheck } from './runtime/updater';
 import { initializeTheme } from './stores/theme';
 import { persistLanguageSelection, previewLanguageSelection } from './utils/settings-helpers';
 
@@ -48,6 +51,19 @@ const RuntimeBootstrap: React.FC = () => {
         await syncAutoStartPreference(prefs?.auto_start_enabled ?? false);
         await syncStartMinimizedPreference(prefs?.start_minimized ?? false);
         await applyStartMinimized();
+        void scheduleStartupUpdateCheck({
+          network: response.data?.network,
+          onUpdateAvailable: (result) => {
+            if (!result.update) {
+              return;
+            }
+
+            toast.info(i18n.t('settings.updates.availableToast', {
+              ns: 'app',
+              version: result.update.version,
+            }));
+          },
+        });
       } catch {
         await syncCloseToTrayPreference(true);
       }

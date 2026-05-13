@@ -28,16 +28,6 @@ const ACTIVE_STATUSES: ReadonlyArray<BackgroundTaskStatus> = [
   'cancelling',
 ];
 
-const countActive = (tasks: Record<string, BackgroundTaskDTO>): number => {
-  let count = 0;
-  for (const task of Object.values(tasks)) {
-    if (ACTIVE_STATUSES.includes(task.status)) {
-      count += 1;
-    }
-  }
-  return count;
-};
-
 export const useBackgroundTaskStore = create<BackgroundTaskState>((set) => ({
   tasksById: {},
   orderedIds: [],
