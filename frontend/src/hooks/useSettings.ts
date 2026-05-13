@@ -57,7 +57,7 @@ export interface UseSettingsReturn {
   handleThemePreviewChange: (mode: ThemeMode) => void;
 
   // Language
-  handleLanguagePreviewChange: (value: string) => void;
+  handleLanguageDraftChange: (value: string) => void;
 
   updateMemoryToggle: (field: MemoryToggleFieldId, checked: boolean) => void;
 
@@ -139,13 +139,14 @@ export function useSettings(): UseSettingsReturn {
     patchDraftControlSettings,
     fetchConfig,
     loadControlSettings,
-    handleLanguagePreviewChange,
+    handleLanguageDraftChange,
     updateMemoryToggle,
   } = useSettingsConfig({
     themeMode,
     setSavedThemeMode,
     setDraftThemeMode,
   });
+  const initialLoadStartedRef = useRef(false);
 
   const {
     activeSection,
@@ -235,6 +236,10 @@ export function useSettings(): UseSettingsReturn {
 
   // Initial data load
   useEffect(() => {
+    if (initialLoadStartedRef.current) {
+      return;
+    }
+    initialLoadStartedRef.current = true;
     void Promise.all([
       fetchConfig(),
       loadControlSettings(),
@@ -334,7 +339,7 @@ export function useSettings(): UseSettingsReturn {
     handleThemePreviewChange,
 
     // Language
-    handleLanguagePreviewChange,
+    handleLanguageDraftChange,
 
     // Memory
     updateMemoryToggle,

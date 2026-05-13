@@ -16,6 +16,7 @@ const {
   syncAutoStartPreferenceMock,
   syncStartMinimizedPreferenceMock,
   pickDirectoryMock,
+  changeLanguageMock,
   llmFormAutoChangeRef,
   translateMock,
 } = vi.hoisted(() => ({
@@ -23,6 +24,7 @@ const {
   syncAutoStartPreferenceMock: vi.fn(),
   syncStartMinimizedPreferenceMock: vi.fn(),
   pickDirectoryMock: vi.fn(),
+  changeLanguageMock: vi.fn(),
   llmFormAutoChangeRef: {
     current: null as null | ((args: { value: any; view?: 'all' | 'providers' | 'models' }) => any | null),
   },
@@ -54,7 +56,7 @@ vi.mock('react-i18next', () => ({
 
 vi.mock('@/i18n', () => ({
   default: {
-    changeLanguage: vi.fn(),
+    changeLanguage: changeLanguageMock,
   },
 }));
 
@@ -503,6 +505,8 @@ describe('settings page draft saving', () => {
     vi.clearAllMocks();
     llmFormMock.mockReset();
     llmFormAutoChangeRef.current = null;
+    changeLanguageMock.mockResolvedValue(undefined);
+    document.documentElement.lang = 'zh-CN';
     syncCloseToTrayPreferenceMock.mockReset();
     syncAutoStartPreferenceMock.mockReset();
     syncStartMinimizedPreferenceMock.mockReset();
@@ -585,6 +589,35 @@ describe('settings page draft saving', () => {
         })
       )
     );
+  });
+
+  it('does not apply interface language before save', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    await screen.findByRole('button', { name: 'settings.tabs.preferences' });
+    await user.click(screen.getByRole('button', { name: 'settings.fields.language' }));
+    await user.click(await screen.findByRole('button', { name: 'language.en' }));
+
+    expect(document.documentElement.lang).toBe('zh-CN');
+    expect(changeLanguageMock).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'settings.actions.save' })).toBeEnabled();
+    expect(screen.getByText('settings.pendingChanges')).toBeInTheDocument();
+  });
+
+  it('keeps unsaved theme changes dirty without reloading config', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    await screen.findByRole('button', { name: 'settings.tabs.preferences' });
+    expect(configApi.get).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole('button', { name: 'settings.fields.theme' }));
+    await user.click(await screen.findByRole('button', { name: 'settings.theme.dark' }));
+
+    expect(screen.getByRole('button', { name: 'settings.actions.save' })).toBeEnabled();
+    expect(screen.getByText('settings.pendingChanges')).toBeInTheDocument();
+    expect(configApi.get).toHaveBeenCalledTimes(1);
   });
 
   it('requires an app dialog confirmation for strong embedding preflight warnings', async () => {

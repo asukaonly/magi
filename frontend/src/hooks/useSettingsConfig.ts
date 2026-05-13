@@ -8,7 +8,6 @@ import type { ThemeMode } from '@/stores/theme';
 import type { MemoryToggleFieldId } from '@/types/settings';
 import {
   applyMemoryToggle,
-  previewLanguageSelection,
   serialize,
 } from '@/utils/settings-helpers';
 
@@ -33,7 +32,7 @@ interface UseSettingsConfigReturn {
   patchDraftControlSettings: (updater: (draft: ControlSettingsDTO) => void) => void;
   fetchConfig: () => Promise<void>;
   loadControlSettings: () => Promise<void>;
-  handleLanguagePreviewChange: (value: string) => void;
+  handleLanguageDraftChange: (value: string) => void;
   updateMemoryToggle: (field: MemoryToggleFieldId, checked: boolean) => void;
 }
 
@@ -115,12 +114,11 @@ export function useSettingsConfig({
     }
   }, [t]);
 
-  const handleLanguagePreviewChange = useCallback((value: string) => {
+  const handleLanguageDraftChange = useCallback((value: string) => {
     const nextLanguage = value as LanguageCode;
     patchDraftConfig((draft) => {
       draft.preferences.language = nextLanguage;
     });
-    void previewLanguageSelection(nextLanguage);
   }, [patchDraftConfig]);
 
   const updateMemoryToggle = useCallback((field: MemoryToggleFieldId, checked: boolean) => {
@@ -144,7 +142,7 @@ export function useSettingsConfig({
     patchDraftControlSettings,
     fetchConfig,
     loadControlSettings,
-    handleLanguagePreviewChange,
+    handleLanguageDraftChange,
     updateMemoryToggle,
   };
 }

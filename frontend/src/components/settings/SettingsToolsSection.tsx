@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next';
 import { skillsApi, type SkillItem } from '@/api/modules/skills';
 import type { ToolConfig } from '@/api/modules/tools';
 import { DynamicToolsConfig } from '@/components/config-forms/DynamicToolConfig';
-import { SettingsGroup } from '@/components/settings/SettingsSectionPrimitives';
 import { Switch } from '@/components/ui/switch';
 import type { ToolDraftMap } from '@/types/settings';
 
@@ -84,8 +83,6 @@ export function SettingsToolsSection({
     };
   }, [t, view]);
 
-  const skillsEnabled = selectedSkills.length > 0;
-
   if (view !== 'skills') {
     const emptyMessage = view === 'plugins'
       ? t('settings.toolsEmptyPlugins')
@@ -122,33 +119,20 @@ export function SettingsToolsSection({
   }
 
   return (
-    <div className="space-y-6">
-      <p className="text-sm leading-6 text-muted-foreground">{t('settings.toolsSkillsDesc')}</p>
-      <SettingsGroup
-        title={t('tools.skills.label', { ns: 'onboarding' })}
-        description={
-          skills.length > 0
-            ? t('tools.skills.desc', { ns: 'onboarding', count: skills.length })
-            : t('tools.skills.empty', { ns: 'onboarding' })
-        }
-      >
-        <label className="grid gap-3 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
-          <div className="space-y-1">
-            <div className="text-sm font-medium text-foreground">{t('tools.skills.enable', { ns: 'onboarding' })}</div>
-            <div className="text-xs leading-6 text-muted-foreground">
-              {t('tools.skills.emptyHint', { ns: 'onboarding' })}
-            </div>
-          </div>
-          <div className="flex justify-start sm:justify-end">
-            <Switch
-              checked={skillsEnabled}
-              disabled={skills.length === 0}
-              onCheckedChange={(checked) => onSelectedSkillsChange(checked ? skills.map((skill) => skill.name) : [])}
-            />
-          </div>
-        </label>
+    <div className="flex h-full min-h-0 flex-col">
+      <section className="flex min-h-0 flex-1 flex-col">
+        <div className="shrink-0 space-y-1.5 pb-4">
+          <h3 className="text-sm font-semibold tracking-[0.01em] text-foreground">
+            {t('tools.skills.label', { ns: 'onboarding' })}
+          </h3>
+          <p className="max-w-3xl text-xs leading-6 text-muted-foreground">
+            {skills.length > 0
+              ? t('tools.skills.desc', { ns: 'onboarding', count: skills.length })
+              : t('tools.skills.empty', { ns: 'onboarding' })}
+          </p>
+        </div>
 
-        <div className="max-h-64 overflow-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto border-t border-[hsl(var(--settings-subnav-border)/0.6)] pr-2">
           {skillsLoading ? (
             <div className="py-3 text-xs text-muted-foreground">{t('settings.loadingTools')}</div>
           ) : null}
@@ -187,10 +171,10 @@ export function SettingsToolsSection({
             : null}
 
           {!skillsLoading && !skillsError && skills.length === 0 ? (
-            <div className="py-3 text-xs text-muted-foreground">{t('tools.skills.emptyHint', { ns: 'onboarding' })}</div>
+            <div className="py-3 text-xs text-muted-foreground">{t('tools.skills.empty', { ns: 'onboarding' })}</div>
           ) : null}
         </div>
-      </SettingsGroup>
+      </section>
     </div>
   );
 }

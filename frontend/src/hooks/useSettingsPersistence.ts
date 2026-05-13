@@ -140,6 +140,7 @@ export function useSettingsPersistence({
     setSaving(true);
     try {
       const configDirty = serialize(savedConfig) !== serialize(draftConfig);
+      const languageChanged = savedConfig.preferences.language !== draftConfig.preferences.language;
       const controlDirty = serialize(savedControlSettings) !== serialize(draftControlSettings);
       const pluginsDirty = serialize(savedPluginDrafts) !== serialize(draftPluginDrafts);
       const toolsDirty = serialize(savedToolDrafts) !== serialize(draftToolDrafts);
@@ -214,7 +215,10 @@ export function useSettingsPersistence({
         setThemeMode(draftThemeMode, { persist: true });
         setSavedThemeMode(draftThemeMode);
       }
-      persistLanguageSelection(persistedConfig.preferences.language);
+      if (languageChanged) {
+        persistLanguageSelection(persistedConfig.preferences.language);
+        await previewLanguageSelection(persistedConfig.preferences.language);
+      }
 
       await Promise.all([
         fetchTimelineStatuses(),

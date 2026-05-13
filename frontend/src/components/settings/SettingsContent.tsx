@@ -82,7 +82,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     patchDraftControlSettings,
     draftThemeMode,
     handleThemePreviewChange,
-    handleLanguagePreviewChange,
+    handleLanguageDraftChange,
     updateMemoryToggle,
     plugins,
     pluginsLoading,
@@ -204,7 +204,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             draftThemeMode={draftThemeMode}
             patchDraftConfig={patchDraftConfig}
             onThemePreviewChange={handleThemePreviewChange}
-            onLanguagePreviewChange={handleLanguagePreviewChange}
+            onLanguageDraftChange={handleLanguageDraftChange}
           />
         );
 

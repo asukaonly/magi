@@ -13,7 +13,7 @@ interface SettingsPreferencesSectionProps {
   draftThemeMode: ThemeMode;
   patchDraftConfig: (updater: (draft: SystemConfig) => void) => void;
   onThemePreviewChange: (mode: ThemeMode) => void;
-  onLanguagePreviewChange: (value: string) => void;
+  onLanguageDraftChange: (value: string) => void;
 }
 
 export function SettingsPreferencesSection({
@@ -21,7 +21,7 @@ export function SettingsPreferencesSection({
   draftThemeMode,
   patchDraftConfig,
   onThemePreviewChange,
-  onLanguagePreviewChange,
+  onLanguageDraftChange,
 }: SettingsPreferencesSectionProps) {
   const { t } = useTranslation('app');
 
@@ -36,7 +36,7 @@ export function SettingsPreferencesSection({
             { label: t('language.zhHans', { ns: 'onboarding' }), value: 'zh' },
             { label: t('language.en', { ns: 'onboarding' }), value: 'en' },
           ]}
-          onChange={onLanguagePreviewChange}
+          onChange={onLanguageDraftChange}
         />
       </SettingsGroup>
 

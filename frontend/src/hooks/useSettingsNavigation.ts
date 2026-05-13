@@ -36,7 +36,7 @@ export function useSettingsNavigation(): UseSettingsNavigationReturn {
   const [channelsSelection, setChannelsSelection] = useState<string | null>(null);
 
   const usesInnerPaneScroll = useMemo(
-    () => activeSection === 'llmProviders',
+    () => activeSection === 'llmProviders' || activeSection === 'toolsSkills',
     [activeSection]
   );
 
