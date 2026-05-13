@@ -105,3 +105,4 @@ docs/dev/
 # Benchmark outputs
 outputs/
 backend/magi-backend.spec
+/.magi/
