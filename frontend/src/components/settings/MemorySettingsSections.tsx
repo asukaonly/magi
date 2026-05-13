@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FolderOpen, RefreshCw, RotateCcw, Trash2, XCircle } from 'lucide-react';
+import { RefreshCw, RotateCcw, Trash2, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
 import type { VectorLayerId } from '@/api/modules/config';
@@ -11,9 +11,7 @@ import memoryApi from '@/api/modules/memory';
 import { ClearMemoryDialog } from '@/components/memory/ClearMemoryDialog';
 import { LabeledSelectField, NumberField } from '@/components/settings/form-fields';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
-import { pickDirectory } from '@/runtime/desktop';
 import type { MemoryToggleFieldId } from '@/types/settings';
 
 interface MemorySettingsSectionProps {
@@ -243,10 +241,8 @@ export function MemoryGeneralSettingsSection({
   patchDraftConfig,
 }: Omit<MemorySettingsSectionProps, 'updateMemoryToggle' | 'hasEmbeddingModel'>) {
   const { t } = useTranslation('app');
-  const [pickingMemoryStoragePath, setPickingMemoryStoragePath] = useState(false);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const [clearing, setClearing] = useState(false);
-  const memoryStoragePath = draftConfig.memory.db_path ?? '';
   const historyBehaviorOptions = [
     { value: 'delete', label: t('settings.memory.options.history_behavior.delete') },
     { value: 'archive', label: t('settings.memory.options.history_behavior.archive') },
@@ -264,21 +260,6 @@ export function MemoryGeneralSettingsSection({
     ...draftConfig.memory.query_expansion,
   };
 
-  const handlePickMemoryStoragePath = async () => {
-    setPickingMemoryStoragePath(true);
-    try {
-      const selectedPath = await pickDirectory(memoryStoragePath || null);
-      if (!selectedPath) {
-        return;
-      }
-      patchDraftConfig((draft) => {
-        draft.memory.db_path = selectedPath;
-      });
-    } finally {
-      setPickingMemoryStoragePath(false);
-    }
-  };
-
   const handleClearConfirm = useCallback(async () => {
     setClearing(true);
     try {
@@ -294,42 +275,6 @@ export function MemoryGeneralSettingsSection({
 
   return (
     <MemorySectionShell className="space-y-0">
-      <MemoryGroup>
-        <div className="py-2">
-          <div className="space-y-2">
-            <label className="space-y-2" htmlFor="memory-storage-path">
-              <span className="text-sm font-medium text-foreground">
-                {t('settings.memory.fields.db_path.label')}
-              </span>
-              <Input
-                id="memory-storage-path"
-                aria-label={t('settings.memory.fields.db_path.label')}
-                readOnly
-                value={memoryStoragePath}
-                placeholder={t('settings.memory.fields.db_path.placeholder')}
-              />
-            </label>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  void handlePickMemoryStoragePath();
-                }}
-                disabled={pickingMemoryStoragePath}
-              >
-                <FolderOpen className="mr-2 h-4 w-4" />
-                {t('settings.actions.chooseDirectory')}
-              </Button>
-            </div>
-          </div>
-          <div className="mt-2 space-y-1">
-            <p className="text-xs leading-6 text-muted-foreground">{t('settings.memory.fields.db_path.description')}</p>
-            <p className="text-xs leading-6 text-amber-600 dark:text-amber-300">{t('settings.memory.fields.db_path.runtimeHint')}</p>
-          </div>
-        </div>
-      </MemoryGroup>
-
       <MemoryGroup>
         <div className="grid gap-6 py-2 lg:grid-cols-2">
           <div>

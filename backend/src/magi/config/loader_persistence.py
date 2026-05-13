@@ -22,6 +22,7 @@ class ConfigLoaderPersistenceMixin:
 
     _config_file: Path
     _llm_config_file: Path
+    _lifecycle_config_file: Path
     _plugins_index_file: Path
     _config_signature: tuple[tuple[str, int, int], ...] | None
 
@@ -50,11 +51,17 @@ class ConfigLoaderPersistenceMixin:
             llm_defaults = self._build_llm_defaults()
             llm_overrides = self._load_yaml_file(self._llm_config_file)
             llm_effective = deep_merge_dict(llm_defaults, llm_overrides)
+            lifecycle_yaml = self._load_yaml_file(self._lifecycle_config_file)
+            lifecycle_payload = dict(lifecycle_yaml.get("lifecycle") or lifecycle_yaml)
             plugin_settings_updates: Dict[str, Dict[str, Any]] = {}
 
             for path, value in updates.items():
                 if path.startswith("llm."):
                     self._set_nested_yaml(llm_effective, path[4:], value)
+                    continue
+
+                if path.startswith("lifecycle."):
+                    self._set_nested_yaml(lifecycle_payload, path[10:], value)
                     continue
 
                 if path.startswith("plugins.packages."):
@@ -77,6 +84,7 @@ class ConfigLoaderPersistenceMixin:
 
             self._write_yaml_file(self._config_file, agent_yaml)
             self._write_yaml_file(self._llm_config_file, llm_overrides)
+            self._write_yaml_file(self._lifecycle_config_file, {"lifecycle": lifecycle_payload})
             self._write_yaml_file(self._plugins_index_file, plugins_index)
 
             facade = _loader_facade()

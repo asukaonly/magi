@@ -987,22 +987,22 @@ describe('settings page draft saving', () => {
     expect(screen.queryByRole('button', { name: 'settings.tabs.memoryGeneral' })).not.toBeInTheDocument();
   });
 
-  it('saves memory storage path from the general memory section alongside knowledge settings', async () => {
+  it('saves general memory retention settings alongside knowledge settings', async () => {
     const user = userEvent.setup();
-    pickDirectoryMock.mockResolvedValue('/tmp/magi-data/custom-memories');
     render(<SettingsPage />);
 
     await user.click(await screen.findByRole('button', { name: 'settings.tabs.memory' }));
     await screen.findByRole('heading', { name: 'settings.tabs.memoryGeneral' });
 
-    await user.click(screen.getByRole('button', { name: 'settings.actions.chooseDirectory' }));
+    expect(screen.queryByLabelText('settings.memory.fields.db_path.label')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'settings.actions.chooseDirectory' })).not.toBeInTheDocument();
 
-    await waitFor(() =>
-      expect(pickDirectoryMock).toHaveBeenCalledWith('~/.magi/data/memories')
-    );
-    expect(
-      screen.getByDisplayValue('/tmp/magi-data/custom-memories')
-    ).toBeInTheDocument();
+    const retentionInput = screen.getByLabelText('settings.memory.fields.retention_days.label');
+    fireEvent.change(retentionInput, { target: { value: '120' } });
+
+    await user.click(screen.getByRole('button', { name: 'settings.memory.fields.history_behavior.label' }));
+    await user.click(screen.getByRole('button', { name: 'settings.memory.options.history_behavior.archive' }));
+
     expect(
       screen.queryByRole('switch', { name: 'settings.memory.fields.async_embeddings.label' })
     ).not.toBeInTheDocument();
@@ -1026,7 +1026,8 @@ describe('settings page draft saving', () => {
       expect(configApi.update).toHaveBeenCalledWith(
         expect.objectContaining({
           memory: expect.objectContaining({
-            db_path: '/tmp/magi-data/custom-memories',
+            retention_days: 120,
+            history_behavior: 'archive',
             l2: expect.objectContaining({
               batch_flush_interval_seconds: 90,
               conflict_arbitration_enabled: false,

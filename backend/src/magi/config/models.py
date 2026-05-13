@@ -845,6 +845,110 @@ class NetworkProxySettings(BaseModel):
 
 
 # =============================================================================
+# Data Lifecycle Configuration
+# =============================================================================
+
+
+class RuntimeTraceLifecycleSettings(BaseModel):
+    """Retention policy for runtime trace and notification rows."""
+
+    raw_retention_days: int = Field(default=7, ge=1)
+    notifications_retention_days: int = Field(default=7, ge=1)
+    plugin_ingress_retention_days: int = Field(default=7, ge=1)
+
+
+class LLMUsageLifecycleSettings(BaseModel):
+    """Retention and rollup policy for LLM usage rows."""
+
+    raw_retention_days: int = Field(default=7, ge=1)
+    rollup_retention_days: int = Field(default=180, ge=1)
+    rollup_granularity: str = Field(default="day")
+
+
+class MessageQueueCompletedLifecycleSettings(BaseModel):
+    """Lifecycle policy for completed runtime command rows."""
+
+    raw_retention_hours: int = Field(default=24, ge=1)
+    rollup_retention_days: int = Field(default=30, ge=1)
+    rollup_granularity: str = Field(default="hour")
+
+
+class MessageQueueFailedLifecycleSettings(BaseModel):
+    """Lifecycle policy for failed runtime command rows."""
+
+    raw_retention_days: int = Field(default=7, ge=1)
+
+
+class MessageQueueLifecycleSettings(BaseModel):
+    """Lifecycle policy for runtime command queue history."""
+
+    completed: MessageQueueCompletedLifecycleSettings = Field(
+        default_factory=MessageQueueCompletedLifecycleSettings
+    )
+    failed: MessageQueueFailedLifecycleSettings = Field(
+        default_factory=MessageQueueFailedLifecycleSettings
+    )
+
+
+class SchedulerHistoryLifecycleSettings(BaseModel):
+    """Retention policy for scheduler history tables."""
+
+    success_retention_days: int = Field(default=30, ge=1)
+    failed_retention_days: int = Field(default=60, ge=1)
+
+
+class SchedulerLifecycleSettings(BaseModel):
+    """Lifecycle policy for scheduler operational history."""
+
+    executions: SchedulerHistoryLifecycleSettings = Field(
+        default_factory=SchedulerHistoryLifecycleSettings
+    )
+    sensor_sync_jobs: SchedulerHistoryLifecycleSettings = Field(
+        default_factory=SchedulerHistoryLifecycleSettings
+    )
+
+
+class SensorStateLifecycleSettings(BaseModel):
+    """Lifecycle policy for sensor runtime state."""
+
+    fingerprints_keep_latest: int = Field(default=10000, ge=1)
+
+
+class ChatAssetsLifecycleSettings(BaseModel):
+    """Lifecycle policy for managed chat attachment resources."""
+
+    delete_on_session_delete: bool = Field(default=True)
+    delete_on_clear_memory: bool = Field(default=True)
+    orphan_grace_hours: int = Field(default=24, ge=0)
+
+
+class EphemeralJobsLifecycleSettings(BaseModel):
+    """Lifecycle policy for in-memory pollable job snapshots."""
+
+    personality_generation_ttl_seconds: int = Field(default=1800, ge=60)
+
+
+class LifecycleSettings(BaseModel):
+    """Local data lifecycle and cleanup policy."""
+
+    runtime_trace: RuntimeTraceLifecycleSettings = Field(
+        default_factory=RuntimeTraceLifecycleSettings
+    )
+    llm_usage: LLMUsageLifecycleSettings = Field(default_factory=LLMUsageLifecycleSettings)
+    message_queue: MessageQueueLifecycleSettings = Field(
+        default_factory=MessageQueueLifecycleSettings
+    )
+    scheduler: SchedulerLifecycleSettings = Field(default_factory=SchedulerLifecycleSettings)
+    sensor_state: SensorStateLifecycleSettings = Field(
+        default_factory=SensorStateLifecycleSettings
+    )
+    chat_assets: ChatAssetsLifecycleSettings = Field(default_factory=ChatAssetsLifecycleSettings)
+    ephemeral_jobs: EphemeralJobsLifecycleSettings = Field(
+        default_factory=EphemeralJobsLifecycleSettings
+    )
+
+
+# =============================================================================
 # Root Configuration
 # =============================================================================
 
@@ -860,5 +964,6 @@ class AppConfig(BaseModel):
     timeline: TimelineSettings = Field(default_factory=TimelineSettings)
     plugins: PluginsSettings = Field(default_factory=PluginsSettings)
     network: NetworkProxySettings = Field(default_factory=NetworkProxySettings)
+    lifecycle: LifecycleSettings = Field(default_factory=LifecycleSettings)
     debug: bool = Field(default=False)
     log_level: str = Field(default="INFO")

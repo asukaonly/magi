@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import sys
+from types import SimpleNamespace
 
 from fastapi import HTTPException
 import pytest
@@ -528,3 +530,42 @@ def test_normalize_generated_personality_payload_prunes_unknown_layer_modifiers(
         "voice_unlocks": ["rare direct sincerity", "quiet admission"],
         "directness_delta": 0.2,
     }
+
+
+def test_personality_generation_cleanup_uses_lifecycle_ttl(monkeypatch) -> None:
+    from magi.api.routers import personality_config  # noqa: F401
+
+    personality_generation = sys.modules["magi.api.services.personality_generation"]
+
+    monkeypatch.setattr(
+        "magi.config.get_config",
+        lambda: SimpleNamespace(
+            lifecycle=SimpleNamespace(
+                ephemeral_jobs=SimpleNamespace(personality_generation_ttl_seconds=10)
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        personality_generation,
+        "_PERSONALITY_GENERATION_JOBS",
+        {
+            "expired": personality_generation.PersonalityGenerationJob(
+                job_id="expired",
+                status="completed",
+                stages=[],
+                created_at=0,
+                updated_at=80,
+            ),
+            "recent": personality_generation.PersonalityGenerationJob(
+                job_id="recent",
+                status="completed",
+                stages=[],
+                created_at=0,
+                updated_at=95,
+            ),
+        },
+    )
+
+    personality_generation._cleanup_personality_generation_jobs(now=100)
+
+    assert set(personality_generation._PERSONALITY_GENERATION_JOBS) == {"recent"}

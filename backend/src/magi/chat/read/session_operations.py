@@ -29,6 +29,10 @@ class _ChatSessionOperationsHost(Protocol):
 
     def _delete_runtime_trace_rows(self, *, user_id: str, session_id: str) -> None: ...
 
+    def _delete_chat_session_assets(self, *, session_id: str) -> None: ...
+
+    def _clear_all_chat_assets(self) -> None: ...
+
 
 class ChatSessionOperationsMixin:
     """Create, update, list, and delete chat sessions."""
@@ -262,6 +266,7 @@ class ChatSessionOperationsMixin:
             except Exception as exc:
                 logger.exception(f"Failed to delete session: {exc}")
         host._delete_runtime_trace_rows(user_id=normalized_user_id, session_id=normalized_session_id)
+        host._delete_chat_session_assets(session_id=normalized_session_id)
 
         conn = host._get_conn()
         conn.execute(
@@ -302,9 +307,11 @@ class ChatSessionOperationsMixin:
         ).fetchone()
         removed = int((row["total"] if row is not None else 0) or 0)
         conn.execute(f"DELETE FROM {CHAT_MESSAGES_TABLE}")
+        conn.execute(f"DELETE FROM {CHAT_ATTACHMENTS_TABLE}")
         conn.execute(f"DELETE FROM {CHAT_TURNS_TABLE}")
         conn.execute(f"DELETE FROM {CHAT_SESSIONS_TABLE}")
         conn.commit()
+        host._clear_all_chat_assets()
         return removed
 
 

@@ -33,6 +33,24 @@ CREATE INDEX IF NOT EXISTS idx_runtime_commands_status_created
     ON runtime_commands(status, created_at ASC);
 CREATE INDEX IF NOT EXISTS idx_runtime_commands_type_status_created
     ON runtime_commands(command_type, status, created_at ASC);
+
+CREATE TABLE IF NOT EXISTS runtime_command_rollups (
+    granularity TEXT NOT NULL,
+    bucket_start TEXT NOT NULL,
+    command_type TEXT NOT NULL,
+    status TEXT NOT NULL,
+    commands INTEGER NOT NULL DEFAULT 0,
+    retries INTEGER NOT NULL DEFAULT 0,
+    last_rolled_up_at REAL NOT NULL,
+    PRIMARY KEY (granularity, bucket_start, command_type, status)
+);
+CREATE INDEX IF NOT EXISTS idx_runtime_command_rollups_bucket
+    ON runtime_command_rollups(granularity, bucket_start);
+"""
+
+DROP_SQL = """
+DROP TABLE IF EXISTS runtime_command_rollups;
+DROP TABLE IF EXISTS runtime_commands;
 """
 
 
@@ -41,4 +59,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.get_bind().connection.executescript("DROP TABLE IF EXISTS runtime_commands;")
+    op.get_bind().connection.executescript(DROP_SQL)

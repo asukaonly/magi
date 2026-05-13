@@ -22,9 +22,13 @@ def _patch_config_paths(monkeypatch, root: Path) -> None:
     monkeypatch.setattr("magi.config.loader.get_data_dir", lambda: data_dir)
     monkeypatch.setattr("magi.config.loader.get_example_config_file", lambda: root / "missing-example.yaml")
     monkeypatch.setattr("magi.config.loader.get_llm_config_file", lambda: config_dir / "llm.yaml")
+    monkeypatch.setattr("magi.config.loader.get_lifecycle_config_file", lambda: config_dir / "lifecycle.yaml")
+    monkeypatch.setattr("magi.config.loader.get_lifecycle_example_config_file", lambda: root / "lifecycle.example.yaml")
     monkeypatch.setattr("magi.config.loader.get_llm_provider_registry_file", lambda: root / "llm_providers.yaml")
     packaged_llm_registry = Path(__file__).resolve().parents[2] / "configs" / "llm_providers.yaml"
     (root / "llm_providers.yaml").write_text(packaged_llm_registry.read_text(encoding="utf-8"), encoding="utf-8")
+    packaged_lifecycle = Path(__file__).resolve().parents[2] / "configs" / "lifecycle.example.yaml"
+    (root / "lifecycle.example.yaml").write_text(packaged_lifecycle.read_text(encoding="utf-8"), encoding="utf-8")
 
 
 def test_loader_migrates_inline_plugin_settings_to_split_files(tmp_path: Path, monkeypatch) -> None:
@@ -225,6 +229,46 @@ def test_loader_creates_llm_split_file_and_loads_default_llm_config(tmp_path: Pa
     assert config.llm.providers == {}
     assert config.llm.selections["core"].provider_id == ""
     assert config.llm.selections["core"].model == ""
+
+
+def test_loader_creates_lifecycle_split_file_and_loads_policy(tmp_path: Path, monkeypatch) -> None:
+    _patch_config_paths(monkeypatch, tmp_path)
+
+    loader = ConfigLoader()
+    config = loader.load()
+
+    lifecycle_file = tmp_path / "config" / "lifecycle.yaml"
+    lifecycle_data = yaml.safe_load(lifecycle_file.read_text(encoding="utf-8")) or {}
+
+    assert lifecycle_file.exists()
+    assert lifecycle_data["lifecycle"]["runtime_trace"]["raw_retention_days"] == 7
+    assert config.lifecycle.runtime_trace.raw_retention_days == 7
+    assert config.lifecycle.message_queue.completed.raw_retention_hours == 24
+    assert config.lifecycle.scheduler.executions.failed_retention_days == 60
+
+
+def test_loader_save_routes_lifecycle_updates_to_split_file(tmp_path: Path, monkeypatch) -> None:
+    _patch_config_paths(monkeypatch, tmp_path)
+
+    loader = ConfigLoader()
+    _ = loader.load()
+    saved = loader.save(
+        {
+            "lifecycle.runtime_trace.raw_retention_days": 9,
+            "lifecycle.message_queue.completed.raw_retention_hours": 12,
+            "tools.weather.default_provider": "qweather",
+        }
+    )
+
+    agent_data = yaml.safe_load((tmp_path / "config" / "agent.yaml").read_text(encoding="utf-8")) or {}
+    lifecycle_data = yaml.safe_load((tmp_path / "config" / "lifecycle.yaml").read_text(encoding="utf-8")) or {}
+
+    assert saved is True
+    assert "lifecycle" not in agent_data
+    assert lifecycle_data["lifecycle"]["runtime_trace"]["raw_retention_days"] == 9
+    assert lifecycle_data["lifecycle"]["message_queue"]["completed"]["raw_retention_hours"] == 12
+    assert loader.load().lifecycle.runtime_trace.raw_retention_days == 9
+    assert loader.load().lifecycle.message_queue.completed.raw_retention_hours == 12
 
 
 def test_loader_save_writes_llm_overrides_only(tmp_path: Path, monkeypatch) -> None:

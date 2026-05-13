@@ -8,9 +8,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
 from ..agent.orchestration import get_orchestration_store
+from ..config import get_config
 from ..core.logger import get_logger
 from ..core.sqlite import connect_sqlite
 from ..utils.runtime import get_runtime_paths
+from .asset_gc import ChatAssetGC
 from .read.models import (
     ChatDisplayMessage,
     ChatSessionRenameResult,
@@ -51,6 +53,7 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
         self._chat_db_path: Path = runtime_paths.chat_db_path
         self._l1_db_path: Path = runtime_paths.l1_memory_db_path
         self._runtime_trace_db_path: Path = runtime_paths.runtime_trace_db_path
+        self._asset_gc = ChatAssetGC(runtime_paths=runtime_paths)
         self._conn: Optional[sqlite3.Connection] = None
 
     def _get_conn(self) -> sqlite3.Connection:
@@ -257,10 +260,24 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
             cur.execute(
                 "DELETE FROM trace_intent_resolutions WHERE turn_id NOT IN (SELECT turn_id FROM trace_turns)",
             )
+            cur.execute(
+                "DELETE FROM runtime_notifications WHERE user_id = ? AND session_id = ?",
+                (user_id, session_id),
+            )
             conn.commit()
             conn.close()
         except Exception as exc:
             logger.exception(f"Failed to delete runtime trace rows: {exc}")
+
+    def _delete_chat_session_assets(self, *, session_id: str) -> None:
+        if not get_config().lifecycle.chat_assets.delete_on_session_delete:
+            return
+        self._asset_gc.delete_session_assets(session_id)
+
+    def _clear_all_chat_assets(self) -> None:
+        if not get_config().lifecycle.chat_assets.delete_on_clear_memory:
+            return
+        self._asset_gc.clear_all_assets()
 
     def _query_chat_message_rows(
         self,

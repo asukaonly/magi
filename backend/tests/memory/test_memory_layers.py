@@ -861,6 +861,26 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         event_links = await self.store.l3.list_summary_event_links(summary["summary_id"])
         self.assertEqual(len(event_links), 2)
 
+class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.base = Path(self.temp_dir.name)
+        self.store = UnifiedMemoryStore(
+            l1_db_path=str(self.base / "l1_events.db"),
+            memory_db_path=str(self.base / "memory.db"),
+            persist_dir=str(self.base / "memories"),
+            enable_l0=False,
+            enable_l2=False,
+            enable_l4=False,
+            enable_l1_vectors=False,
+            enable_l3_vectors=False,
+        )
+        await self.store.initialize()
+
+    async def asyncTearDown(self) -> None:
+        await self.store.shutdown()
+        self.temp_dir.cleanup()
+
     async def test_cleanup_old_data_soft_deletes_only_l3_covered_compressible_events(self):
         old_timestamp = time.time() - (40 * 86400)
         linked_compressible_event_id = await self.store.add_event(
@@ -952,13 +972,22 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
                 summary_category="state_change",
                 content="A compressed reflection covers the archived external action.",
                 source_event_ids=[linked_compressible_event_id],
-            )
+            ),
+            summary_overrides={
+                "period_start": old_timestamp,
+                "period_end": old_timestamp,
+                "created_at": old_timestamp,
+                "updated_at": old_timestamp,
+            },
         )
 
         removed = await self.store.cleanup_old_data(older_than_days=30, history_behavior="archive")
 
         self.assertEqual(removed["archived_events"], 1)
         self.assertEqual(removed["deleted_events"], 1)
+        self.assertEqual(removed["archived_summaries"], 1)
+        self.assertEqual(removed["deleted_summaries"], 1)
+        self.assertEqual(await self.store.l3.count_summaries(), 0)
 
         archive_db_path = self.base / "memories" / "archive" / time.strftime("%Y-%m-%d", time.gmtime())
         archive_db_path = archive_db_path.with_suffix(".db")
@@ -976,6 +1005,57 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         payload = json.loads(str(row["payload_json"]))
         self.assertEqual(payload["event_id"], linked_compressible_event_id)
         self.assertEqual(payload["source"], "worker")
+
+        async with aiosqlite.connect(archive_db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT summary_id, payload_json FROM archived_l3_summaries"
+            ) as cursor:
+                summary_row = await cursor.fetchone()
+
+        self.assertIsNotNone(summary_row)
+        summary_payload = json.loads(str(summary_row["payload_json"]))
+        self.assertEqual(summary_payload["summary"]["summary_id"], str(summary_row["summary_id"]))
+        self.assertEqual(summary_payload["summary"]["summary_category"], "state_change")
+
+    async def test_cleanup_old_data_deletes_expired_l3_summaries_without_touching_durable_events(self) -> None:
+        old_timestamp = time.time() - (50 * 86400)
+        durable_event_id = await self.store.add_event(
+            Event(
+                type=EventTypes.USER_MESSAGE,
+                data={
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "content": "Keep the durable fact but age out the hot reflection.",
+                },
+                source="chat",
+                level=EventLevel.INFO,
+                correlation_id="evt-summary-retention-1",
+                timestamp=old_timestamp,
+            )
+        )
+
+        await self.store.l3.upsert_candidate(
+            candidate=L3Candidate(
+                summary_type="insight",
+                summary_category="state_change",
+                content="An old reflection that should leave the active hot path.",
+                source_event_ids=[durable_event_id],
+            ),
+            summary_overrides={
+                "period_start": old_timestamp,
+                "period_end": old_timestamp,
+                "created_at": old_timestamp,
+                "updated_at": old_timestamp,
+            },
+        )
+
+        removed = await self.store.cleanup_old_data(older_than_days=30)
+
+        self.assertEqual(removed["deleted_events"], 0)
+        self.assertEqual(removed["deleted_summaries"], 1)
+        self.assertEqual(await self.store.l3.count_summaries(), 0)
+        self.assertIsNone((await self.store.l1.get_event(durable_event_id))["deleted_at"])
 
 
 class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):

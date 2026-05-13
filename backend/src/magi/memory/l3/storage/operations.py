@@ -87,6 +87,59 @@ class L3SummaryPersistenceMixin:
                 rows = await cursor.fetchall()
         return [self._row_to_dict(row) for row in rows]
 
+    async def list_summaries_older_than(
+        self,
+        *,
+        older_than: float,
+        limit: int = 1000,
+    ) -> List[Dict[str, Any]]:
+        """List summaries whose covered time window ended before a cutoff."""
+        host = cast(_L3SummaryPersistenceHostProtocol, self)
+        await host.initialize()
+        async with sqlite_connection_async(host.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """
+                SELECT *
+                FROM summaries
+                WHERE period_end < ?
+                ORDER BY period_end ASC, updated_at ASC
+                LIMIT ?
+                """,
+                (float(older_than), int(limit)),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [self._row_to_dict(row) for row in rows]
+
+    async def delete_summary(self, summary_id: str) -> bool:
+        """Delete one summary together with its search/vector artifacts."""
+        host = cast(_L3SummaryPersistenceHostProtocol, self)
+        await host.initialize()
+
+        chunk_ids: list[str] = []
+        deleted_count = 0
+        async with sqlite_connection_async(host.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                f"SELECT chunk_id FROM {SUMMARY_CHUNKS_TABLE} WHERE summary_id = ?",
+                (summary_id,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+            chunk_ids = [str(row["chunk_id"]) for row in rows]
+
+            await db.execute("DELETE FROM summary_event_links WHERE summary_id = ?", (summary_id,))
+            await db.execute("DELETE FROM summary_task_links WHERE summary_id = ?", (summary_id,))
+            await db.execute(f"DELETE FROM {SUMMARY_CHUNKS_TABLE} WHERE summary_id = ?", (summary_id,))
+            await db.execute("DELETE FROM l3_summaries_fts WHERE summary_id = ?", (summary_id,))
+            cursor = await db.execute("DELETE FROM summaries WHERE summary_id = ?", (summary_id,))
+            deleted_count = int(cursor.rowcount or 0)
+            await db.commit()
+
+        if deleted_count > 0 and host._vector_index is not None:
+            for chunk_id in chunk_ids:
+                await host._vector_index.delete_entity(entity_id=chunk_id)
+        return deleted_count > 0
+
     async def clear(self) -> int:
         """Delete all summaries."""
         host = cast(_L3SummaryPersistenceHostProtocol, self)

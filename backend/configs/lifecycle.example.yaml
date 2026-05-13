@@ -1,0 +1,43 @@
+# Magi data lifecycle defaults.
+#
+# This file is copied to ~/.magi/config/lifecycle.yaml on first run.
+# It centralizes operational cleanup windows so early releases can tune
+# local data governance without changing code.
+
+lifecycle:
+  runtime_trace:
+    raw_retention_days: 7
+    notifications_retention_days: 7
+    plugin_ingress_retention_days: 7
+
+  llm_usage:
+    raw_retention_days: 7
+    rollup_retention_days: 180
+    rollup_granularity: day
+
+  message_queue:
+    completed:
+      raw_retention_hours: 24
+      rollup_retention_days: 30
+      rollup_granularity: hour
+    failed:
+      raw_retention_days: 7
+
+  scheduler:
+    executions:
+      success_retention_days: 30
+      failed_retention_days: 60
+    sensor_sync_jobs:
+      success_retention_days: 30
+      failed_retention_days: 60
+
+  sensor_state:
+    fingerprints_keep_latest: 10000
+
+  chat_assets:
+    delete_on_session_delete: true
+    delete_on_clear_memory: true
+    orphan_grace_hours: 24
+
+  ephemeral_jobs:
+    personality_generation_ttl_seconds: 1800

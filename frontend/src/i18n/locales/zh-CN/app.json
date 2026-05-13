@@ -1431,11 +1431,11 @@
         },
         "retention_days": {
           "label": "全局记忆保留天数",
-          "description": "超过该天数的旧历史记忆会按下方策略删除或归档，默认 90 天。"
+          "description": "超过该天数的 L1 历史投影与 L3 历史摘要会按下方策略删除或归档，默认 90 天。"
         },
         "history_behavior": {
           "label": "历史记忆行为",
-          "description": "删除会直接清理过期历史；归档会将过期历史写入单独归档库，便于后续做冷数据。"
+          "description": "删除会直接清理过期的活跃历史；归档会先写入单独归档库，再从活跃记忆库移除。"
         },
         "enable_l1_vectorization": {
           "label": "启用语义搜索",

@@ -9,8 +9,7 @@ file owns a piece of state — start here.
 
 All runtime data is rooted under `RuntimePaths.base_dir`
 (`~/.magi` by default; override with `MAGI_RUNTIME_DIR`). The runtime
-keeps state across **fourteen** SQLite files, grouped by lifecycle
-ownership:
+keeps state across multiple SQLite files, grouped by lifecycle ownership:
 
 | File | Owner | Holds |
 |------|-------|-------|
@@ -18,15 +17,17 @@ ownership:
 | `data/memory/l1_events.db` | memory L1 + L1-projected chat sessions | normalized event log, embeddings, FTS, entity links |
 | `data/memory/memory.db` | memory L0 / L2 / L3 / L4 | working memory, knowledge graph, ToM, summaries, procedural skills |
 | `runtime/runtime_trace.db` | runtime trace | trace turns / spans / llm calls / tools, plugin ingress events |
-| `runtime/llm_usage.db` | llm | per-request usage + cost telemetry |
+| `runtime/llm_usage.db` | llm | per-request usage + cost telemetry, daily rollups |
 | `data/app/persona_registry.db` | personality | personas, active persona |
 | `data/memory/behavior_evolution.db` | personality | task interactions, category statistics, behavior profiles |
 | `data/memory/emotional_state.db` | personality | emotional state KV + events |
 | `data/memory/growth_memory.db` | personality | milestones, relationships, personality evolution |
-| `runtime/scheduler.db` | scheduler | apscheduler job store |
-| `runtime/message_queue.db` | runtime | runtime command queue |
-| `runtime/sensor_state.db` | sensors | per-source sync state |
+| `runtime/scheduler.db` | scheduler | schedules, execution history, sensor sync jobs |
+| `runtime/message_queue.db` | runtime | runtime command queue, command rollups |
+| `runtime/sensor_state.db` | sensors | per-source cursors, fingerprints, stats |
 | `runtime/background_tasks.db` | runtime | background-task durability |
+| `runtime/permission_rules.db` | runtime permissions | trust and permission rule state |
+| `data/channels/channels.db` | channels | external channel session mapping |
 | `data/memory/self_memory_v2.db` | (reserved) | — |
 
 Each subsystem owns the schema for its own file. There is no
@@ -34,7 +35,7 @@ cross-file foreign-key enforcement.
 
 ## Two tiers of schema management
 
-### Tier 1 — Alembic-managed (six core DBs)
+### Tier 1 — Alembic-managed runtime DBs
 
 These have schema that evolves under load. They each have an
 independent Alembic environment with its own version chain:
@@ -47,6 +48,15 @@ independent Alembic environment with its own version chain:
 | `runtime_trace` | `runtime_trace.db` |
 | `llm_usage` | `llm_usage.db` |
 | `persona_registry` | `persona_registry.db` |
+| `behavior_evolution` | `behavior_evolution.db` |
+| `emotional` | `emotional_state.db` |
+| `growth_memory` | `growth_memory.db` |
+| `scheduler` | `scheduler.db` |
+| `sensor_state` | `sensor_state.db` |
+| `background_tasks` | `background_tasks.db` |
+| `message_queue` | `message_queue.db` |
+| `permission_rules` | `permission_rules.db` |
+| `channels` | `channels.db` |
 
 Layout under `backend/src/magi/db/`:
 
@@ -69,18 +79,38 @@ db/
     persona_registry/...
 ```
 
-### Tier 2 — store-owned baseline (eight smaller DBs)
+### Store baselines
 
-`behavior_evolution`, `emotional_state`, `growth_memory`, `scheduler`,
-`message_queue`, `sensor_state`, `background_tasks`, `self_memory_v2`
-keep their schema as `CREATE TABLE IF NOT EXISTS` blocks inside
-their respective lifecycle modules. They are small, low-churn, and
-rebuildable. **Add a new column there → just edit the lifecycle
-module's DDL.** If a Tier-2 database starts seeing frequent or
-non-additive changes, promote it to Tier 1 (add a `MigrationTarget`
-in `db/runner.py`, add a `migrations/<name>/` folder, write
-`0001_initial.py` mirroring an existing env, then move the DDL into
-that revision).
+Some stores keep `CREATE TABLE IF NOT EXISTS` baseline DDL for fast
+fresh-install initialization, but registered runtime DB schema is still
+owned by its Alembic environment. Additive schema changes to registered
+DBs require both a migration revision and a matching baseline update.
+Reserved or experimental stores that are not in `MIGRATION_TARGETS`
+may still use store-owned DDL until they graduate into a migration
+environment.
+
+## Operational lifecycle cleanup
+
+Runtime data retention is configured in `~/.magi/config/lifecycle.yaml`,
+materialized from `backend/configs/lifecycle.example.yaml` on first run.
+The maintenance daemon combines memory maintenance with operational GC.
+
+Current governed runtime cleanup:
+
+| Area | Default behavior |
+|------|------------------|
+| `runtime_trace.db` | delete raw traces, notifications, and terminal plugin ingress rows older than 7 days |
+| `llm_usage.db` | roll up expired raw rows by day, then delete raw rows older than 7 days |
+| `message_queue.db` | roll up completed rows by hour, delete completed rows older than 24 hours, delete failed rows older than 7 days |
+| `scheduler.db` | delete success history after 30 days and failed history after 60 days |
+| `sensor_state.db` | keep only the latest configured fingerprint count per sensor |
+| chat resources | delete session attachment and derived-file directories on session/history clear; sweep old orphan directories |
+| ephemeral jobs | personality generation job snapshots use the configured TTL |
+
+Cleanup deletes operational rows or files after any configured rollup step;
+it does not soft-delete runtime telemetry. Durable memory history remains
+governed by the memory retention/archive settings described in the product
+configuration guide.
 
 ## How migrations run
 
@@ -111,10 +141,10 @@ python -m magi.db history [target]
 python -m magi.db revision <target> -m "describe change"
 ```
 
-`target` is one of `chat`, `l1`, `memory_shared`, `runtime_trace`,
-`llm_usage`, `persona_registry`. For `upgrade`, `current`, and
-`history`, omitting `target` runs the action against every env in
-order. `revision` and `downgrade` always require an explicit env.
+`target` is one of the registered `MIGRATION_TARGETS` names above. For
+`upgrade`, `current`, and `history`, omitting `target` runs the action
+against every env in order. `revision` and `downgrade` always require
+an explicit env.
 
 Use the raw `alembic -c alembic.ini -n <env>` CLI only when you need
 to point Alembic at a non-runtime DB file via `-x dburl=sqlite:///...`.

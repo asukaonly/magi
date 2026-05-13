@@ -121,6 +121,8 @@ class _ChatHistoryOperationsHost(Protocol):
 
     def _delete_runtime_trace_rows(self, *, user_id: str, session_id: str) -> None: ...
 
+    def _delete_chat_session_assets(self, *, session_id: str) -> None: ...
+
 
 class ChatHistoryOperationsMixin:
     """Read display history, single messages, attachments, and clear history."""
@@ -446,6 +448,7 @@ class ChatHistoryOperationsMixin:
         except Exception as exc:
             logger.exception(f"Failed to clear chat history: {exc}")
         host._delete_runtime_trace_rows(user_id=user_id, session_id=session_id)
+        host._delete_chat_session_assets(session_id=session_id)
 
 
 __all__ = ["ChatHistoryOperationsMixin"]

@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
+
+from ..chat.asset_gc import ChatAssetGC
 from ..config import get_config
 from .lifecycle import LifecycleModule
 from .context import RuntimeBootstrapContext, require_initialized
 from ..core.maintenance import MaintenanceConfig, MaintenanceDaemon, set_maintenance_daemon
+from ..core.runtime_operational_gc import RuntimeOperationalGC
 from ..core.logger import get_logger
+from ..utils.runtime import get_runtime_paths
 
 logger = get_logger(__name__)
 
@@ -25,12 +30,27 @@ class OtherDependenciesModule(LifecycleModule):
         config = require_initialized(self._context.core.config, "runtime config")
         unified_memory = require_initialized(self._context.memory.unified_memory, "unified memory")
 
-        async def _run_memory_maintenance() -> dict[str, int]:
-            memory_settings = get_config().agent.memory
-            return await unified_memory.run_maintenance(
+        async def _run_maintenance() -> dict[str, int]:
+            current_config = get_config()
+            memory_settings = current_config.agent.memory
+            results = await unified_memory.run_maintenance(
                 retention_days=memory_settings.retention_days,
                 history_behavior=getattr(memory_settings.history_behavior, "value", str(memory_settings.history_behavior)),
             )
+            runtime_gc = RuntimeOperationalGC(
+                lifecycle=current_config.lifecycle,
+                runtime_paths=get_runtime_paths(),
+            )
+            results.update(await runtime_gc.run())
+            if current_config.lifecycle.chat_assets.delete_on_clear_memory:
+                chat_asset_gc = ChatAssetGC(runtime_paths=get_runtime_paths())
+                results.update(
+                    await asyncio.to_thread(
+                        chat_asset_gc.sweep_orphan_session_assets,
+                        orphan_grace_hours=current_config.lifecycle.chat_assets.orphan_grace_hours,
+                    )
+                )
+            return results
 
         maintenance_config = MaintenanceConfig(
             enabled=config.agent.maintenance.enabled,
@@ -40,7 +60,7 @@ class OtherDependenciesModule(LifecycleModule):
         )
         self._context.maintenance.maintenance_daemon = MaintenanceDaemon(
             config=maintenance_config,
-            maintenance_callback=_run_memory_maintenance,
+            maintenance_callback=_run_maintenance,
         )
         await self._context.maintenance.maintenance_daemon.start()
         set_maintenance_daemon(self._context.maintenance.maintenance_daemon)

@@ -38,6 +38,7 @@ from .loader import (
     get_plugins_config_dir,
     get_plugins_index_file,
     get_plugin_settings_file,
+    get_lifecycle_config_file,
     get_data_dir,
 )
 
@@ -72,6 +73,7 @@ from .models import (
     PersonalitySettings,
     PluginSettings,
     PluginsSettings,
+    LifecycleSettings,
 )
 from .llm_registry import (
     LLMAudioGenerationModelMetaModel,
@@ -107,6 +109,7 @@ __all__ = [
     "get_plugins_config_dir",
     "get_plugins_index_file",
     "get_plugin_settings_file",
+    "get_lifecycle_config_file",
     "get_data_dir",
 
     # Loader class
@@ -153,4 +156,5 @@ __all__ = [
     "PersonalitySettings",
     "PluginSettings",
     "PluginsSettings",
+    "LifecycleSettings",
 ]

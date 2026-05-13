@@ -1433,11 +1433,11 @@
         },
         "retention_days": {
           "label": "Global memory retention (days)",
-          "description": "Historical memory older than this will be deleted or archived using the policy below. Default is 90 days."
+          "description": "L1 history projections and L3 history summaries older than this will be deleted or archived using the policy below. Default is 90 days."
         },
         "history_behavior": {
           "label": "Historical memory behavior",
-          "description": "Delete removes expired history immediately. Archive moves it into a separate archive database for later cold storage flows."
+          "description": "Delete removes expired active history immediately. Archive writes it to a separate archive database before removing it from the active memory store."
         },
         "enable_l1_vectorization": {
           "label": "Enable semantic search",

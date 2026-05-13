@@ -5,6 +5,7 @@ Configuration Sources (priority order):
     1. Runtime config files:
        - ~/.magi/config/agent.yaml
        - ~/.magi/config/llm.yaml
+    - ~/.magi/config/lifecycle.yaml
        - ~/.magi/config/plugins/index.yaml
        - ~/.magi/config/plugins/<plugin_id>.yaml
     2. Pydantic model defaults (lowest priority)
@@ -14,6 +15,7 @@ Directory Structure:
     ├── config/
     │   ├── agent.yaml           # Host/runtime configuration (without llm block)
     │   ├── llm.yaml             # LLM override-only configuration
+    │   ├── lifecycle.yaml       # Data lifecycle and cleanup policy
     │   └── plugins/
     │       ├── index.yaml       # Plugin package state
     │       └── <plugin>.yaml    # Per-plugin settings
@@ -83,6 +85,16 @@ def get_llm_config_file() -> Path:
     return get_config_dir() / "llm.yaml"
 
 
+def get_lifecycle_config_file() -> Path:
+    """Get runtime lifecycle policy config file path."""
+    return get_config_dir() / "lifecycle.yaml"
+
+
+def get_lifecycle_example_config_file() -> Path:
+    """Get packaged lifecycle policy defaults file path."""
+    return get_backend_root() / "configs" / "lifecycle.example.yaml"
+
+
 def get_llm_provider_registry_file() -> Path:
     """Get packaged llm provider registry file path."""
     return get_backend_root() / "configs" / "llm_providers.yaml"
@@ -117,6 +129,8 @@ class ConfigLoader(ConfigLoaderPersistenceMixin, ConfigLoaderFileOpsMixin, Confi
         self._config_signature: Optional[Tuple[Tuple[str, int, int], ...]] = None
         self._config_file: Path = get_config_file()
         self._llm_config_file: Path = get_llm_config_file()
+        self._lifecycle_config_file: Path = get_lifecycle_config_file()
+        self._lifecycle_example_config_file: Path = get_lifecycle_example_config_file()
         self._llm_provider_registry_file: Path = get_llm_provider_registry_file()
         self._plugins_index_file: Path = get_plugins_index_file()
 

@@ -27,6 +27,8 @@ class ConfigLoaderFileOpsMixin:
 
     _config_file: Path
     _llm_config_file: Path
+    _lifecycle_config_file: Path
+    _lifecycle_example_config_file: Path
     _llm_provider_registry_file: Path
     _plugins_index_file: Path
     _yaml_data: Dict[str, Any]
@@ -37,6 +39,7 @@ class ConfigLoaderFileOpsMixin:
         tracked_paths = [
             self._config_file,
             self._llm_config_file,
+            self._lifecycle_config_file,
             self._plugins_index_file,
             *sorted(facade.get_plugins_config_dir().glob("*.yaml")),
         ]
@@ -86,6 +89,11 @@ class ConfigLoaderFileOpsMixin:
         if not self._llm_config_file.exists():
             self._write_yaml_file(self._llm_config_file, {})
             logger.info(f"Created llm config file: {self._llm_config_file}")
+
+        if not self._lifecycle_config_file.exists():
+            lifecycle_defaults = self._load_yaml_file(self._lifecycle_example_config_file)
+            self._write_yaml_file(self._lifecycle_config_file, lifecycle_defaults)
+            logger.info(f"Created lifecycle config file: {self._lifecycle_config_file}")
 
         data_dir = facade.get_data_dir()
         if not data_dir.exists():
@@ -148,6 +156,11 @@ class ConfigLoaderFileOpsMixin:
         data = self._load_yaml_file(self._config_file)
         data = self._merge_split_plugin_config(data)
         data["llm"] = self._load_effective_llm_config()
+        lifecycle_data = self._load_yaml_file(self._lifecycle_config_file)
+        if isinstance(lifecycle_data.get("lifecycle"), dict):
+            data["lifecycle"] = lifecycle_data["lifecycle"]
+        else:
+            data["lifecycle"] = lifecycle_data
         return data
 
     def _load_effective_llm_config(self) -> Dict[str, Any]:

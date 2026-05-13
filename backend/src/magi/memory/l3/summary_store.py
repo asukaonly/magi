@@ -23,6 +23,7 @@ from .temporal_llm_service import TemporalSummaryLLMService
 from .validator import validate_candidate
 from .embeddings.operations import L3SummaryEmbeddingMixin
 from .retrieval.operations import L3SummarySearchMixin
+from .storage.schema import ensure_l3_summary_schema
 from .storage.operations import L3SummaryPersistenceMixin
 
 logger = logging.getLogger(__name__)
@@ -112,6 +113,7 @@ class L3SummaryStore(L3SummaryEmbeddingMixin, L3SummarySearchMixin, L3SummaryPer
         async with sqlite_connection_async(self.db_path) as db:
             if self._vector_index is not None:
                 await self._vector_index.initialize()
+            await ensure_l3_summary_schema(db)
             await db.commit()
         if self._embedding_queue is not None and self._embedding_worker is None:
             self._embedding_worker = asyncio.create_task(self._run_embedding_worker())

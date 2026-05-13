@@ -794,10 +794,16 @@ def _personality_generation_job_snapshot(job: PersonalityGenerationJob) -> dict[
 
 def _cleanup_personality_generation_jobs(now: Optional[float] = None) -> None:
   current_time = now or time.time()
+  ttl_seconds = PERSONALITY_GENERATION_JOB_TTL_SECONDS
+  try:
+    from ...config import get_config
+    ttl_seconds = get_config().lifecycle.ephemeral_jobs.personality_generation_ttl_seconds
+  except Exception:
+    ttl_seconds = PERSONALITY_GENERATION_JOB_TTL_SECONDS
   expired_ids = [
     job_id
     for job_id, job in _PERSONALITY_GENERATION_JOBS.items()
-    if current_time - job.updated_at > PERSONALITY_GENERATION_JOB_TTL_SECONDS
+    if current_time - job.updated_at > ttl_seconds
   ]
   for job_id in expired_ids:
     _PERSONALITY_GENERATION_JOBS.pop(job_id, None)

@@ -306,8 +306,8 @@ Product expectations:
 - L0-L4 workbench and inspector surfaces should be treated as expert/operator tooling, not as the default user memory experience
 - quick onboarding should not force detailed memory tuning
 - settings should expose the main lifecycle toggles and key pipeline switches
-- general memory settings should expose the managed local storage directory used for memory databases
 - general memory settings should expose a global hot-memory retention window and whether aged history is deleted or archived
+- the managed memory storage directory remains an internal runtime path until live path switching and migration are supported safely
 - general memory settings should also expose retrieval reranker controls, including whether LLM reranking is enabled, whether it runs locally or remotely, and where managed local reranker models are stored
 - vector writes should always stay on the async sqlite path rather than being user-configurable
 - changing the active embedding model must run a save preflight: model or dimension changes for existing vectors require a strong confirmation and should prompt users to rebuild vectors; remote provider/base URL changes with the same model and dimension may show a softer provenance warning
@@ -336,12 +336,14 @@ Important behavioral rules:
 
 Current storage implementation notes:
 
-- `agent.memory.db_path` points at the managed memory data directory shown in Settings.
+- `agent.memory.db_path` is persisted for forward compatibility, but the current Settings UI hides it until runtime directory switching and migration are implemented; active memory still uses `data/memory/`.
 - `message_queue.db` is reserved for runtime command persistence, not long-term L1 memory.
 - `chat.db` is the product-domain source of truth for chat sessions, turn state, and visible transcript rows.
+- `~/.magi/config/lifecycle.yaml` owns local data lifecycle policy for runtime telemetry, LLM usage rollups, command queue history, scheduler history, sensor fingerprints, chat asset GC, and ephemeral job TTLs; it is copied from `backend/configs/lifecycle.example.yaml` on first run.
 - L1 is stored in `data/memory/l1_events.db`.
 - `data/memory/l1_events.db` is now a lossy canonical projection target for `user_text` and `assistant_final` only; it is not the transcript source of truth.
 - when history behavior is `archive`, aged-out hot-path events are copied into `data/memory/archive/YYYY-MM-DD.db` before being removed from the active L1 projection.
+- the global hot-memory retention window currently applies to active L1 history projections and L3 history summaries; it does not prune L2 knowledge or L4 skills.
 - L0/L2/L3/L4 are consolidated into `data/memory/memory.db` (multi-table layout).
 - Layer vectors are stored per layer (`L1/L2 entity/L2 relation/L3/L4` vector tables) instead of a shared `embeddings.db`.
 - The vector backend is fixed to sqlite and vector writes stay async; Settings no longer exposes backend or scheduling switches.
@@ -351,7 +353,9 @@ Current storage implementation notes:
 - If that local provider path is unavailable and a managed/external local reranker model file is configured, retrieval may fall back to direct `llama-cli` execution against that local model file.
 - If neither the local provider path nor the local CLI path is available, retrieval falls back to heuristic reranking.
 - `llm_usage.db` lives under `~/.magi/runtime/`.
-- `runtime_trace.db` is reserved for execution observability and live runtime notifications, not durable chat transcript recovery.
+- `runtime_trace.db` is reserved for execution observability and live runtime notifications, not durable chat transcript recovery; raw trace data defaults to a 7-day retention window.
+- managed chat attachment and derived text files live under `~/.magi/data/resources/chat/` and are removed when their chat session/history is cleared; periodic orphan sweeps remove old session asset directories that no longer have active chat rows.
+- runtime logs are governed by size-based `RotatingFileHandler` limits, not lifecycle row retention.
 - rebuildable plugin state belongs under `~/.magi/cache/plugins/<plugin_id>/`, not under memory storage.
 
 ## Tool And Plugin Management
