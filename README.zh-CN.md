@@ -12,7 +12,7 @@
   <a href="https://github.com/asukaonly/magi/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-2f3b4d" alt="License"></a>
   <a href="https://github.com/asukaonly/magi/releases"><img src="https://img.shields.io/github/v/release/asukaonly/magi" alt="Release"></a>
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows-black" alt="Platform">
-  <img src="https://img.shields.io/badge/status-alpha-orange" alt="Alpha">
+  <img src="https://img.shields.io/badge/status-beta-2d7ff9" alt="Beta">
   <img src="https://img.shields.io/badge/LongMemEval-87.2%25-success" alt="LongMemEval">
 </p>
 
@@ -22,67 +22,104 @@
 
 ---
 
-> 截图占位：这里放一张 Hero 截图或 GIF，展示 Chat 带着记忆回答 + Timeline 联动效果
+<p align="center">
+  <img src="./docs/assets/hero.png" alt="Magi 聊天工作区截图" width="100%">
+</p>
 
-Magi 会记得你上次抱怨过的那把键盘、你这周一直在改的项目、你昨晚循环了三遍的歌，并把这些散落在对话、日历、浏览记录、Git 提交、音乐、照片里的片段，整理成一条**你可以回看、追问、修正、删除**的个人时间线。
 
-它不是另一个聊天窗口。它是一个运行在你本地桌面上的 AI 伴侣运行时——任务执行只是其中一部分，更重要的是它愿意持续地认识你。
+Magi 首先是一个运行在你本地桌面上的 **Agent runtime**：它可以对话、调用工具、执行任务、处理中断与权限请求，也可以把长任务放到后台继续跑。
+
+它的差异化不在于“再做一个能跑任务的 Agent”，而在于它**不是一次性工作的 Agent**。Magi 会记得你上次抱怨过的那把键盘、你这周一直在改的项目、你昨晚循环了三遍的歌，并把这些散落在对话、日历、浏览记录、Git 提交、音乐、照片里的片段，整理成一条**你可以回看、追问、修正、删除**的个人时间线，让 Agent 的判断建立在持续积累的记忆之上。
 
 ## 为什么是 Magi
 
 Magi 的设计初衷并不是为了再造一个 Claude Code 或者 OpenClaw。
 
-如果说很多 AI Agent 的核心问题是“怎样更快、更好地完成一项任务”，那么 Magi 更关心另一个问题：在一次次对话、一天天活动和不断变化的生活里，AI 能不能真正观察到“你”？
+如果说很多 AI Agent 的核心问题是“怎样更快、更好地完成一项任务”，那么 Magi 想回答的是另一个问题：**能不能做一个真正长期工作的 Agent**，在一次次对话、一天天活动和不断变化的生活里，持续理解“你”、理解上下文，并据此做出更好的判断？
 
 这里的观察不是监控，也不是把数据堆成报表。Magi 希望在你授权的范围内，把散落在对话、日历、浏览记录、Git 提交、音乐、照片、屏幕使用、终端命令里的生活片段，整理成一条可以回望的时间线，沉淀成可检查、可修正、可删除的长期记忆。
 
+- 🤖 **Agent 是主能力，记忆让 Agent 变强** — Magi 能对话、调用工具、执行任务和持续运行，而不是停留在“会记事的聊天界面”
 - 🧠 **真正的长期记忆，不是更长的上下文窗口** — 在 LongMemEval 上达到 **87.2% accuracy**，面向事实、偏好、跨会话模式和时间变化构建召回链路
-- 📅 **时间线，不是聊天记录** — 把对话和外部数据源的事件组织成可搜索、可回看、可追问的个人时间线
+- 📅 **时间线，不是聊天记录** — 把对话和外部数据源的事件组织成可搜索、可回看、可追问的个人时间线，并为 Agent 提供可追溯依据
 - 🔍 **记忆是白盒的** — 你可以查看 AI 记住了什么，修正错误推断，删除不想保留的内容
 - 🏠 **本地优先** — 应用与运行数据默认保存在你自己的机器上（`~/.magi`），LLM API 调用之外不主动外发数据
-- 🎭 **人格不是一层 system prompt** — 维护人格档案、关系深度、动态状态，回复也会按自然节奏分段，而不是一次性丢给你一整段报告
+- 🎭 **人格不是一层 system prompt** — 维护人格档案、关系深度、动态状态，让 Agent 的行为、语气和长期互动更连续
 
-## Magi 怎么观察你的生活
+## Magi 怎么让 Agent 持续理解你
 
-Magi 的差异化在于：它不是孤立地完成一次对话，而是把多个数据源汇聚到同一份长期记忆里。
+Magi 的重点不是“把记忆单独做成一个模块”，而是让 Agent 在执行、对话和长期互动时，都能建立在持续积累的上下文之上。
 
-> 架构图占位：这里放一张"外部接入 → Magi → Memory + Timeline"的中心辐射图
->
-> 周围节点：Calendar / Chrome / Git / Spotify / Photos / Screen Time / Terminal / Telegram / MCP servers
-> 中心：Magi 桌面运行时
-> 下游：本地 Memory + Timeline（强调"本地，可检查"）
+```mermaid
+flowchart LR
+  A[对话]
+  B[日历]
+  C[浏览记录]
+  D[Git / 音乐 / 照片 / 终端]
+  E[插件与 MCP]
+
+  A --> M[Magi Agent Runtime]
+  B --> M
+  C --> M
+  D --> M
+  E --> M
+
+  M --> X[对话 / 工具调用 / 任务执行]
+  M --> T[Timeline 时间线]
+  M --> L[Memory 长期记忆]
+  L --> R[带证据的判断与回答]
+  T --> R
+  R --> X
+```
+
+你可以把它理解成一个持续运行的本地系统：
+
+1. **先作为 Agent 工作**：Magi 会对话、调工具、执行任务，也会处理中断、权限和后台运行。
+2. **再把互动沉淀成长期上下文**：在你授权的前提下，对话和外部数据源会被整理成 Timeline 与 Memory，而不是散成一堆日志。
+3. **让后续判断建立在记忆上**：当它继续回答、规划或执行任务时，会从时间线和长期记忆里检索依据，而不是只靠当前窗口里的上下文猜。
 
 所有数据源都通过统一的插件架构接入。你授权什么，Magi 才看什么；你删除什么，Magi 就忘记什么。
 
 ## 主要功能
 
 ### 💬 带记忆的对话
-> 截图占位：Chat 界面，展示带记忆证据的回答 + 工具调用 trace
+
+<p align="center">
+  <img src="./docs/assets/chat_with_memory.png" alt="Magi 聊天工作区截图" width="100%">
+</p>
 
 长对话、本地工作区、受管理附件，并能在合适的时候带着长期记忆回答——而不是每次从一片空白开始。
 
 ### 📜 时间线
-> 截图占位：Timeline 界面，月/周/日/小时多尺度导航
 
 把聊天和插件来源的事件组织成可搜索时间线，支持自然语言查询和上下文抽屉。
 
 ### 🧩 记忆工作台
-> 截图占位：Memory Workbench，展示 L1-L4 分层
+
+<img src="./docs/assets/memory_console_event.png" alt="事件记忆" width="100%">
+
+<img src="./docs/assets/memory_console_knowledge.png" alt="知识记忆" width="100%">
 
 L0 工作状态、L1 事件、L2 结构化认知、L3 反思、L4 程序性技能。每一层都可以检查、修正、清除。
 
 ### 🎭 人格与自然节奏
-> 截图占位：Persona 编辑或自然分段回复
+
+<img src="./docs/assets/memory_console_knowledge.png" alt="自然回复" width="100%">
 
 人格档案、对话模式、关系深度、动态状态。长回复会拆成多段聊天气泡，更像持续互动而不是一次性报告。
 
 ### 🎮 任务与运行控制
-> 截图占位：后台任务或活跃运行控制面板
+
+<img src="./docs/assets/natural_reply.png" alt="调度任务" width="100%">
+
+<img src="./docs/assets/schedule_task_status.png" alt="调度任务状态" width="100%">
+
 
 把对话视为可控制的 Agent run。可以打断、调整方向、处理权限请求，或把长任务移到后台继续执行。
 
 ### 🔌 插件市场与外部能力
-> 截图占位：Plugin Marketplace
+
+<img src="./docs/assets/plugin.png" alt="调度任务状态" width="100%">
 
 安装/启用/配置官方或第三方插件。MCP 服务器和 Telegram 等渠道也可以接入同一个运行时。
 
@@ -125,7 +162,7 @@ Magi 以打包好的桌面应用交付。普通用户不需要安装 Python、No
 3. 安装并启动 Magi
 4. 完成语言、模型/提供商和基础偏好配置
 
-## Alpha 阶段说明
+## Beta 阶段说明
 
 Magi 仍在快速迭代，请留意：
 

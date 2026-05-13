@@ -2,222 +2,171 @@
   <img src="./docs/assets/brand/magi-mark.png" alt="Magi" width="96">
 </p>
 
+<h1 align="center">Magi</h1>
+
 <p align="center">
-  <strong style="font-size: 40px;">Magi</strong>
+  <em>A local AI companion that remembers you</em>
 </p>
 
 <p align="center">
   <a href="https://github.com/asukaonly/magi/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-2f3b4d" alt="License"></a>
   <a href="https://github.com/asukaonly/magi/releases"><img src="https://img.shields.io/github/v/release/asukaonly/magi" alt="Release"></a>
-  <img src="https://img.shields.io/badge/platform-macOS-black?logo=apple" alt="macOS">
-  <img src="https://img.shields.io/badge/platform-Windows-0078D4?logo=windows&logoColor=white" alt="Windows">
-  <img src="https://img.shields.io/badge/Tauri-2.x-24C8DB?logo=tauri&logoColor=white" alt="Tauri">
-  <img src="https://img.shields.io/badge/Rust-gateway-b7410e?logo=rust&logoColor=white" alt="Rust gateway">
-  <img src="https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows-black" alt="Platform">
+  <img src="https://img.shields.io/badge/status-beta-2d7ff9" alt="Beta">
+  <img src="https://img.shields.io/badge/LongMemEval-87.2%25-success" alt="LongMemEval">
 </p>
 
-Magi is a local-first AI companion. It does more than answer the question in front of you: with your permission, it remembers conversations, organizes a timeline, helps you revisit fragments of everyday life, and keeps those memories inspectable, correctable, and deletable.
+<p align="center">
+  Language: English | <a href="./README.zh-CN.md">简体中文</a>
+</p>
 
-**Status:** Alpha. Magi is moving quickly, and interfaces may still change.
+---
 
-Language: English | [简体中文](./README.zh-CN.md)
+<p align="center">
+  <img src="./docs/assets/hero.png" alt="Magi chat workspace screenshot" width="100%">
+</p>
 
-## What Is Magi
+Magi is first and foremost an **agent runtime** that runs on your local desktop: it can chat, call tools, execute tasks, handle interruptions and permission requests, and move long-running work into the background.
+
+What makes it different is not simply that it can run tasks. It is **not a one-shot agent**. Magi remembers the keyboard you complained about last time, the project you have been working on all week, and the song you looped three times last night. It turns those fragments from conversations, calendars, browsing history, git commits, music, and photos into a personal timeline you can revisit, question, correct, and delete, so the agent's judgment stays grounded in memory that accumulates over time.
+
+## Why Magi
 
 Magi was not designed to rebuild Claude Code or OpenClaw.
 
-If many AI agents are centered on the question "how can this task be completed faster and better?", Magi cares more about another question: across conversations, daily activity, and the changes that happen over time, can an AI actually observe you?
+If many AI agents focus on the question, "How can this task be completed faster and better?", Magi wants to answer a different one: **can an agent keep working over the long term**, across repeated conversations, daily activity, and a life that keeps changing, while continuing to understand you and make better judgments from that context?
 
-Observation here does not mean surveillance, and it does not mean turning your life into a dashboard of raw data. Magi aims to take the fragments you authorize from conversations, calendars, browsing history, git commits, music, photos, screen time, terminal commands, and other sources, then organize them into a timeline you can revisit and a long-term memory you can inspect, correct, and delete.
+This kind of observation is not surveillance, and it is not about piling data into a dashboard. Within the boundaries you authorize, Magi takes fragments from conversations, calendars, browsing history, git commits, music, photos, screen time, and terminal commands, then organizes them into a timeline you can revisit and turns them into long-term memory you can inspect, correct, and delete.
 
-You can ask it, "What was the keyboard I said I wanted to buy last time?" You can also ask it to review what you were busy with this week, which ideas kept coming back, or how a preference changed over time. When it answers, it should not be guessing from vibes. It should be able to recover evidence from memory and timeline context.
+- 🤖 **The agent is the core capability; memory makes the agent stronger** - Magi can chat, call tools, execute tasks, and keep running, rather than stopping at being a chat UI that merely remembers things.
+- 🧠 **Real long-term memory is not just a larger context window** - It reaches **87.2% accuracy** on LongMemEval, with a retrieval pipeline built for facts, preferences, cross-session patterns, and changes over time.
+- 📅 **A timeline is not a chat log** - It organizes events from conversations and external data sources into a searchable, reviewable, askable personal timeline, and gives the agent traceable grounding.
+- 🔍 **Memory is inspectable** - You can review what the AI remembers, correct wrong inferences, and delete anything you do not want to keep.
+- 🏠 **Local-first** - App and runtime data stay on your own machine by default under `~/.magi`, and data is not proactively sent elsewhere outside LLM API calls.
+- 🎭 **Persona is not just a system prompt** - Magi maintains persona profiles, relationship depth, and dynamic state so the agent's behavior, tone, and long-term interaction feel more continuous.
 
-So Magi is closer to an AI companion runtime that lives on your local desktop: it remembers what happened, understands how things changed, and lets you inspect, correct, or take over its judgment at any time. Task execution is only one part of it. The deeper goal is helping you turn everyday fragments that would otherwise get washed away into something understandable, memorable, and able to keep growing.
+## How Magi Keeps An Agent Oriented Over Time
 
-The name `Magi` comes from the intelligent computer system in `EVA`, and can also be read as `My Agent Gets It`: not because it always knows the answer, but because it is willing to keep getting to know you.
+Magi is not about turning memory into an isolated module. It is about letting the agent build on continuously accumulated context while it executes tasks, chats with you, and keeps interacting over time.
 
-## What You Can Do With Magi
+```mermaid
+flowchart LR
+  A[Chat]
+  B[Calendar]
+  C[Browsing History]
+  D[Git / Music / Photos / Terminal]
+  E[Plugins and MCP]
 
-- **Recall the small things you mentioned**: Magi can distill people, preferences, habits, facts, and changes from conversations. Next time you ask "what was that keyboard I said I wanted?", it can answer with memory evidence.
-- **Look back at yourself over time**: after connecting data sources such as calendars, Chrome history, git commits, music playback, photos, screen time, and terminal commands, Magi can organize scattered activity into month, week, day, and hour timelines.
-- **Organize life fragments you can keep asking about**: the timeline is not a cold list of logs. It brings events, context, state changes, and reflections together so it is easier to see what actually happened recently.
-- **Inspect and correct AI memory**: memory is not a hidden black box. You can review what Magi remembers, confirm accurate facts, correct bad inferences, and delete things you do not want kept.
-- **Take over while an agent run is happening**: you can interrupt a reply, add direction, correct a judgment, stop the active run, or move long work into the background.
-- **Expand the boundary yourself**: the plugin marketplace, MCP servers, Telegram, and other external channels can connect more tools, resources, and personal data sources to the same Magi.
+  A --> M[Magi Agent Runtime]
+  B --> M
+  C --> M
+  D --> M
+  E --> M
 
-## Why It Is Not Just Another Chat Window
+  M --> X[Chat / Tool Calls / Task Execution]
+  M --> T[Timeline]
+  M --> L[Long-Term Memory]
+  L --> R[Evidence-Grounded Judgment and Replies]
+  T --> R
+  R --> X
+```
 
-- **Long-term memory is not short context**: Magi is built to recall facts, preferences, episodes, cross-session patterns, and temporal changes instead of depending only on the current chat window.
-- **A timeline is not a data report**: Magi organizes events from conversations and plugins into a searchable, reviewable, askable personal timeline that helps you understand yourself across time.
-- **Personality is not a system prompt wrapper**: Magi maintains personality configuration, scenario-specific expression, relationship depth, state changes, and deeper behavior modeling so interaction can feel continuous.
-- **Execution is not a black-box wait**: traces, tool calls, task status, permission prompts, and control surfaces show what the agent is doing and let you step in.
+You can think of it as a continuously running local system:
 
-## Product Tour
+1. **It works as an agent first**: Magi chats, calls tools, executes tasks, and handles interruptions, permissions, and background work.
+2. **Then it turns interactions into long-term context**: with your permission, conversations and external data sources are organized into a Timeline and Memory instead of dissolving into scattered logs.
+3. **Later judgments are grounded in memory**: when it continues answering, planning, or executing tasks, it retrieves evidence from the timeline and long-term memory instead of guessing from the current window alone.
 
-### Chat With Memory And Attachments
+All data sources connect through one unified plugin architecture. Magi only sees what you authorize, and it forgets what you delete.
 
-The chat workspace supports long-running conversations, local workspaces, managed attachments, reply context, and tool traces. More importantly, it can answer with long-term memory when that context matters, instead of starting from a blank slate every time.
+## Main Features
 
-> Screenshot placeholder: add a chat screenshot or GIF showing a memory-backed answer with visible context/tool evidence.
+### 💬 Chat With Memory
 
-### Timeline
+<p align="center">
+  <img src="./docs/assets/chat_with_memory.png" alt="Magi chat workspace screenshot" width="100%">
+</p>
 
-Magi turns events from conversations and plugins into a searchable timeline with month, week, day, and hour scales, natural-language queries, and context drawers. You can review a week's rhythm from a day's fragments, or trace one event back to its evidence.
+Long conversations, local workspaces, managed attachments, and answers that can bring in long-term memory when it matters, instead of starting from a blank slate every time.
 
-> Screenshot placeholder: add a timeline screenshot showing month/week/day/hour navigation and a context drawer.
+### 📜 Timeline
 
-### Memory Workbench
+It organizes chat and plugin events into a searchable timeline, with natural-language queries and context drawers.
 
-The memory pages expose L0 working state, L1 events, L2 structured cognition, L3 reflections, and L4 procedural skills. You can inspect what the AI remembers, then correct, reject, or clear memory that should not be kept.
+### 🧩 Memory Workbench
 
-> Screenshot placeholder: add a memory workbench screenshot showing the L1-L4 navigation or L2 knowledge/state view.
+<img src="./docs/assets/memory_console_event.png" alt="Event memory" width="100%">
 
-### Persona And Natural Reply Rhythm
+<img src="./docs/assets/memory_console_knowledge.png" alt="Knowledge memory" width="100%">
 
-Magi is not just a model with a fixed system prompt attached. It maintains persona profiles, conversation modes, trigger reactions, relationship depth, and dynamic state. It can also split long replies into more natural chat bubbles, so responses feel more like ongoing interaction than one-off reports.
+L0 working state, L1 events, L2 structured cognition, L3 reflections, and L4 procedural skills. Every layer can be inspected, corrected, and cleared.
 
-> Screenshot placeholder: add a persona or chat rhythm screenshot showing persona editing or natural segmented replies.
+### 🎭 Persona And Natural Rhythm
 
-### Tasks And Run Control
+<img src="./docs/assets/memory_console_knowledge.png" alt="Natural reply" width="100%">
 
-Magi treats conversations as controllable agent runs. You can interrupt a reply, steer the active run, approve permission prompts, ask or answer agent questions, and move long work into the background.
+Persona profiles, conversation modes, relationship depth, and dynamic state. Long replies can be split into multiple chat bubbles so the interaction feels more like an ongoing exchange than a one-off report.
 
-> Screenshot placeholder: add a tasks/control screenshot showing a background task or active run controls.
+### 🎮 Tasks And Run Control
 
-### Plugin Marketplace And External Capabilities
+<img src="./docs/assets/natural_reply.png" alt="Scheduled task" width="100%">
 
-The plugin marketplace lets users install, update, enable, disable, and configure official or external plugins. MCP servers and channels such as Telegram can also connect to the same runtime, letting Magi observe more sources and use more tools.
+<img src="./docs/assets/schedule_task_status.png" alt="Scheduled task status" width="100%">
 
-> Screenshot placeholder: add a plugin marketplace screenshot showing official source/channel plugins.
+Treat conversations as controllable agent runs. You can interrupt them, steer them, handle permission requests, or move long jobs into the background.
 
-## Technical Credibility
+### 🔌 Plugin Marketplace And External Capabilities
 
-### Benchmark Signal
+<img src="./docs/assets/plugin.png" alt="Plugin marketplace" width="100%">
 
-Magi's current memory and retrieval benchmark harness reaches **87.2% accuracy** on LongMemEval.
+Install, enable, and configure official or third-party plugins. MCP servers and channels such as Telegram can also plug into the same runtime.
+
+## Privacy And Data
+
+Magi is designed to be local-first:
+
+- **Application data stays local**: on macOS/Linux it lives under `~/.magi/`; on Windows under `%USERPROFILE%\.magi`
+- **Data is only sent out during LLM calls**: your chat content and retrieved context are sent as needed to the model providers you configure, such as OpenAI, Anthropic, or local Ollama
+- **Permission tiers**: tool execution supports permission levels, and sensitive actions such as file writes, commits, or pushes require confirmation
+- **Memory can be deleted**: all stored memories can be reviewed and cleared from the memory workbench
+
+If you want to fully wipe Magi data, deleting the directory above is enough.
+
+## Benchmark
+
+The current long-term memory and retrieval pipeline reaches **87.2% accuracy** on LongMemEval:
 
 | LongMemEval category | Accuracy | Count |
-| --- | ---: | ---: |
-| Overall | 0.8720 | - |
-| Multi-session | 0.7444 | 133 |
-| Single-session assistant | 1.0000 | 56 |
-| Temporal reasoning | 0.8947 | 133 |
-| Knowledge update | 0.8974 | 78 |
-| Single-session preference | 0.8667 | 30 |
-| Single-session user | 0.9429 | 70 |
+| -------------------- | -------: | ----: |
+| **Overall**          | **0.8720** | **-** |
+| Multi-session        |   0.7444 |   133 |
+| Single-session assistant | 1.0000 |    56 |
+| Temporal reasoning   |   0.8947 |   133 |
+| Knowledge update     |   0.8974 |    78 |
+| Single-session preference | 0.8667 |    30 |
+| Single-session user  |   0.9429 |    70 |
 
-Methodology note: these numbers describe the current long-term memory/retrieval evaluation path, not a broad claim about every product surface. Before using them as a release claim, attach the model configuration, dataset revision, run command, and output artifact.
-
-> Benchmark artifact placeholder: add the reproducible LongMemEval output summary here.
-
-### Technical Foundation
-
-- **Local-first desktop runtime**: a Tauri app starts a Rust gateway and Python IPC worker locally, with app/runtime data stored under your local Magi directory.
-- **L0-L4 lifecycle memory**: working context, normalized events, structured cognition, reflections, and procedural memory are stored in separate layers that still work together during retrieval.
-- **Multi-model division of labor**: planning, core reasoning, embedding, and other model roles can be configured separately to balance speed, quality, and cost.
-- **Permission and safety controls**: tool execution supports permission levels, sensitive operations require confirmation, and delegated code work can restrict paths, commits, and pushes.
-- **Runtime observability**: traces, tool calls, LLM usage, task status, and system metrics help users and developers understand what the agent is doing.
+For reproduction steps, model configuration, and raw outputs, see [`benchmark/README.md`](./benchmark/README.md).
 
 ## Install
 
-Magi is distributed as a packaged desktop app. You do not need to install Python, Node.js, or Rust to use a release build.
+Magi is distributed as a packaged desktop application. End users do not need to install Python, Node.js, or Rust.
 
-1. Open [GitHub Releases](https://github.com/asukaonly/magi/releases).
+1. Open [GitHub Releases](https://github.com/asukaonly/magi/releases)
 2. Download the latest installer for your platform:
-   - macOS Apple Silicon: `Magi_aarch64.dmg`
-   - macOS Intel: `Magi_x64.dmg`
-   - Windows: `Magi_<version>_x64-setup.exe`
-3. Install and launch Magi.
-4. Complete onboarding for language, model/provider setup, and basic preferences.
+   - **macOS Apple Silicon**: `Magi_aarch64.dmg`
+   - **macOS Intel**: `Magi_x64.dmg`
+   - **Windows**: `Magi_<version>_x64-setup.exe`
+3. Install and launch Magi
+4. Complete onboarding for language, model/provider setup, and basic preferences
 
-### Local Data Directory
+## Beta Notes
 
-Magi stores local app/runtime data under:
+Magi is still moving quickly. Expect rough edges:
 
-- macOS/Linux: `~/.magi/`
-- Windows: `%USERPROFILE%\.magi`
-
-Remove that directory only if you want to fully clear local Magi data.
-
-## Architecture At A Glance
-
-```text
-Tauri desktop shell
-  -> React WebView
-  -> Rust gateway (Axum HTTP/WebSocket, config I/O, static reads)
-    -> Python IPC worker (LLM, agents, memory, plugins, scheduler)
-      -> local stores under ~/.magi
-```
-
-The Rust gateway owns the desktop-facing API and WebSocket surface. Requests that need model calls, agent execution, memory retrieval, plugin runtime, or scheduler work are dispatched to the Python sidecar over IPC. FastAPI is used as an in-memory ASGI app inside the worker, not as a public Python HTTP server in desktop mode.
-
-## For Contributors
-
-### Prerequisites
-
-- Python 3.10+
-- Node.js 18+
-- npm
-- Rust toolchain
-
-### Quick Start
-
-```bash
-./scripts/install-deps.sh
-./scripts/dev-tauri-hot.sh
-```
-
-On Windows, use the PowerShell helpers where applicable:
-
-```powershell
-./scripts/install-deps.ps1
-.\scripts\dev-tauri-hot.ps1
-```
-
-### Desktop Release Build
-
-```bash
-# 1. Build the Python sidecar (--onedir mode)
-./scripts/build-sidecar.sh
-
-# 2. Build the Tauri desktop app
-cd frontend
-npm run tauri:build
-```
-
-On Windows, build the sidecar with:
-
-```powershell
-.\scripts\build-sidecar.ps1
-```
-
-### Validation Commands
-
-```bash
-cd frontend
-npm run type-check
-npm run test
-npm run lint
-```
-
-```bash
-cd backend
-pytest
-```
-
-## Repository Layout
-
-```text
-magi/
-├── backend/        # Python runtime, IPC app, orchestration, memory, tools, plugins
-├── crates/         # Rust gateway crate
-├── frontend/       # React UI and Tauri desktop host
-├── docs/           # Architecture and product documentation
-├── plugins/        # Built-in plugin packages
-├── benchmark/      # LongMemEval and benchmark utilities
-├── sdk/            # Plugin SDK package
-└── scripts/        # Dev/build helper scripts
-```
+- Interfaces and data schemas may continue to change, so check release notes before upgrading
+- Some plugins are still being polished, and third-party MCP compatibility is still improving
+- Feedback is welcome in [Issues](https://github.com/asukaonly/magi/issues) or [Discussions](https://github.com/asukaonly/magi/discussions)
 
 ## Documentation
 
@@ -231,15 +180,12 @@ magi/
 
 ## Contributing
 
-Issues and Pull Requests are welcome.
+Issues and Pull Requests are welcome. For development environment setup, build commands, and repository structure, see [CONTRIBUTING.md](./CONTRIBUTING.md).
 
-Before opening a PR, please:
+## About The Name
 
-1. Align changes with architecture/product docs in `docs/`
-2. Keep changes atomic and independently verifiable
-3. Add tests or explicit validation evidence
-4. Follow Conventional Commits
+`Magi` comes from the intelligent computer system in `EVA`, and can also be read as `My Agent Gets It` - not because it always knows the answer, but because it is willing to keep getting to know you.
 
 ## License
 
-MIT
+[MIT](./LICENSE)
