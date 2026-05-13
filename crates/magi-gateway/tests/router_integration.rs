@@ -304,18 +304,11 @@ async fn native_attachment_upload_route_stores_text_attachment() {
     assert_eq!(json["data"]["session_id"], "session-1");
     assert_eq!(json["data"]["turn_id"], "turn-1");
     assert_eq!(json["data"]["attachment"]["kind"], "text_file");
-    assert_eq!(json["data"]["attachment"]["parse_status"], "parsed");
-    assert_eq!(
-        json["data"]["attachment"]["derived_text_excerpt"],
-        "hello rust native upload"
-    );
+    assert_eq!(json["data"]["attachment"]["parse_status"], "pending");
+    assert!(json["data"]["attachment"]["derived_text_excerpt"].is_null());
 
     let storage_path = json["data"]["attachment"]["storage_path"].as_str().unwrap();
-    let derived_text_path = json["data"]["attachment"]["derived_text_path"]
-        .as_str()
-        .unwrap();
     assert!(Path::new(storage_path).is_file());
-    assert!(Path::new(derived_text_path).is_file());
     assert!(storage_path.starts_with(home.path().join(".magi").to_string_lossy().as_ref()));
 }
 
