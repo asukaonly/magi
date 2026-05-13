@@ -23,7 +23,7 @@
 ---
 
 <p align="center">
-  <img src="./docs/assets/hero.png" alt="Magi 聊天工作区截图" width="100%">
+  <img src="./docs/assets/hero.png" alt="Magi" width="100%">
 </p>
 
 
@@ -104,13 +104,13 @@ L0 工作状态、L1 事件、L2 结构化认知、L3 反思、L4 程序性技�
 
 ### 🎭 人格与自然节奏
 
-<img src="./docs/assets/memory_console_knowledge.png" alt="自然回复" width="100%">
+<img src="./docs/assets/natural_reply.png" alt="调度任务" width="100%">
 
 人格档案、对话模式、关系深度、动态状态。长回复会拆成多段聊天气泡，更像持续互动而不是一次性报告。
 
 ### 🎮 任务与运行控制
 
-<img src="./docs/assets/natural_reply.png" alt="调度任务" width="100%">
+<img src="./docs/assets/schedule_task.png" alt="调度任务状态" width="100%">
 
 <img src="./docs/assets/schedule_task_status.png" alt="调度任务状态" width="100%">
 

@@ -103,13 +103,13 @@ L0 working state, L1 events, L2 structured cognition, L3 reflections, and L4 pro
 
 ### 🎭 Persona And Natural Rhythm
 
-<img src="./docs/assets/memory_console_knowledge.png" alt="Natural reply" width="100%">
+<img src="./docs/assets/natural_reply.png" alt="Natural Rhythm" width="100%">
 
 Persona profiles, conversation modes, relationship depth, and dynamic state. Long replies can be split into multiple chat bubbles so the interaction feels more like an ongoing exchange than a one-off report.
 
 ### 🎮 Tasks And Run Control
 
-<img src="./docs/assets/natural_reply.png" alt="Scheduled task" width="100%">
+<img src="./docs/assets/schedule_task.png" alt="Scheduled task" width="100%">
 
 <img src="./docs/assets/schedule_task_status.png" alt="Scheduled task status" width="100%">
 
