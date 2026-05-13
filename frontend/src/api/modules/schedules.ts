@@ -133,6 +133,10 @@ export const schedulesApi = {
     return unwrapGatewayPayload(response);
   },
 
+  async remove(scheduleId: string): Promise<void> {
+    await api.delete(`/schedules/${encodeURIComponent(scheduleId)}`);
+  },
+
   async run(scheduleId: string): Promise<RunScheduleResponse> {
     const response = await api.post<RunScheduleResponse>(
       `/schedules/${encodeURIComponent(scheduleId)}/run`,

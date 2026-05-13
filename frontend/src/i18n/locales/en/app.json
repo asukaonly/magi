@@ -72,6 +72,11 @@
       "refresh": "Refresh",
       "refreshing": "Refreshing..."
     },
+    "pagination": {
+      "info": "Showing {{from}}-{{to}} of {{total}}",
+      "prev": "Previous",
+      "next": "Next"
+    },
     "tabs": {
       "background": "Background Tasks",
       "scheduled": "Scheduled Tasks"
@@ -127,9 +132,9 @@
     "scheduled": {
       "sections": {
         "enabled": "Enabled Scheduled Tasks",
-        "enabledHint": "Active interval, one-shot, and system maintenance schedules.",
+        "enabledHint": "Active interval, one-shot, and system maintenance schedules. Update sensor sync schedules from Settings.",
         "activity": "Running And Upcoming",
-        "activityHint": "Schedules currently running, queued, or waiting for their next run time."
+        "activityHint": "Only schedules running, queued, or due within the next hour are shown here."
       },
       "columns": {
         "name": "Name",
@@ -178,6 +183,9 @@
         "runNow": "Run Now",
         "runUnavailable": "This scheduled target is already running",
         "edit": "Edit",
+        "enable": "Enable",
+        "disable": "Disable",
+        "delete": "Delete",
         "openSettings": "Open Settings",
         "sensorEditTitle": "Sensor schedules are updated in Settings",
         "stop": "Stop",
@@ -196,6 +204,10 @@
         "loadFailed": "Failed to load scheduled tasks.",
         "runSuccess": "Scheduled task started.",
         "runFailed": "Failed to start scheduled task.",
+        "toggleSuccess": "Scheduled task updated.",
+        "toggleFailed": "Failed to update scheduled task.",
+        "deleteSuccess": "Scheduled task deleted.",
+        "deleteFailed": "Failed to delete scheduled task.",
         "saveSuccess": "Scheduled task updated.",
         "saveFailed": "Failed to update scheduled task.",
         "stopSuccess": "Queued task stopped.",

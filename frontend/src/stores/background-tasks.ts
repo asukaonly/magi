@@ -62,28 +62,40 @@ export const useBackgroundTaskStore = create<BackgroundTaskState>((set) => ({
 
   upsert: (task) =>
     set((state) => {
+      const previous = state.tasksById[task.task_id];
+      const wasActive = previous ? ACTIVE_STATUSES.includes(previous.status) : false;
+      const isActive = ACTIVE_STATUSES.includes(task.status);
       const tasksById = { ...state.tasksById, [task.task_id]: task };
       const existing = state.orderedIds.includes(task.task_id);
       const orderedIds = existing
         ? state.orderedIds
         : [task.task_id, ...state.orderedIds];
+      let activeCount = state.activeCount;
+      if (!wasActive && isActive) {
+        activeCount += 1;
+      } else if (wasActive && !isActive) {
+        activeCount = Math.max(0, activeCount - 1);
+      }
       return {
         tasksById,
         orderedIds,
-        activeCount: countActive(tasksById),
+        activeCount,
       };
     }),
 
   remove: (taskId) =>
     set((state) => {
-      if (!(taskId in state.tasksById)) {
+      const existing = state.tasksById[taskId];
+      if (!existing) {
         return state;
       }
       const { [taskId]: _removed, ...rest } = state.tasksById;
       return {
         tasksById: rest,
         orderedIds: state.orderedIds.filter((id) => id !== taskId),
-        activeCount: countActive(rest),
+        activeCount: ACTIVE_STATUSES.includes(existing.status)
+          ? Math.max(0, state.activeCount - 1)
+          : state.activeCount,
       };
     }),
 

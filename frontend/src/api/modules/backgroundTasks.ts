@@ -64,6 +64,7 @@ export interface BackgroundTaskEventDTO {
 export interface ListBackgroundTasksResponse {
   tasks: BackgroundTaskDTO[];
   active_count: number;
+  total: number;
 }
 
 export interface GetBackgroundTaskResponse {

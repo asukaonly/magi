@@ -9,10 +9,20 @@ import { useChatShellStore } from '@/stores';
 import { useBackgroundTaskStore } from '@/stores/background-tasks';
 import type { BackgroundTaskDTO, ScheduleActivityDTO, ScheduleDTO } from '@/api';
 
-const { schedulesListMock, schedulesListActivityMock, schedulesRunMock } = vi.hoisted(() => ({
+const {
+  backgroundTasksListMock,
+  schedulesListMock,
+  schedulesListActivityMock,
+  schedulesRunMock,
+  schedulesUpdateMock,
+  schedulesRemoveMock,
+} = vi.hoisted(() => ({
+  backgroundTasksListMock: vi.fn(),
   schedulesListMock: vi.fn(),
   schedulesListActivityMock: vi.fn(),
   schedulesRunMock: vi.fn(),
+  schedulesUpdateMock: vi.fn(),
+  schedulesRemoveMock: vi.fn(),
 }));
 
 const tFn = (key: string, opts?: { defaultValue?: string }) =>
@@ -33,7 +43,7 @@ vi.mock('sonner', () => ({
 
 vi.mock('@/api/modules/backgroundTasks', () => ({
   backgroundTasksApi: {
-    list: vi.fn().mockResolvedValue({ tasks: [], active_count: 0 }),
+    list: backgroundTasksListMock,
     get: vi.fn(),
     cancel: vi.fn(),
     retry: vi.fn(),
@@ -46,7 +56,8 @@ vi.mock('@/api/modules/schedules', () => ({
     list: schedulesListMock,
     listActivity: schedulesListActivityMock,
     run: schedulesRunMock,
-    update: vi.fn(),
+    update: schedulesUpdateMock,
+    remove: schedulesRemoveMock,
     cancelActivity: vi.fn(),
   },
 }));
@@ -141,12 +152,15 @@ const LocationProbe = () => {
 
 describe('TasksPage', () => {
   beforeEach(() => {
+    backgroundTasksListMock.mockResolvedValue({ tasks: [], active_count: 0, total: 0 });
     schedulesListMock.mockResolvedValue({ schedules: [] });
     schedulesListActivityMock.mockResolvedValue({ activities: [] });
     schedulesRunMock.mockResolvedValue({
       schedule: makeSchedule(),
       result: { success: true, message: 'manual_run_started' },
     });
+    schedulesUpdateMock.mockResolvedValue({ schedule: makeSchedule() });
+    schedulesRemoveMock.mockResolvedValue(undefined);
     useBackgroundTaskStore.setState({
       tasksById: {},
       orderedIds: [],
@@ -171,7 +185,7 @@ describe('TasksPage', () => {
 
   it('renders a running task row from the store', async () => {
     const task = makeTask();
-    useBackgroundTaskStore.getState().hydrate([task], 1);
+    backgroundTasksListMock.mockResolvedValue({ tasks: [task], active_count: 1, total: 1 });
 
     render(
       <MemoryRouter>
@@ -180,6 +194,48 @@ describe('TasksPage', () => {
     );
 
     await screen.findByText('Deep research on transformers');
+  });
+
+  it('paginates background tasks with a fixed footer control', async () => {
+    const user = userEvent.setup();
+    const tasks = Array.from({ length: 25 }, (_, index) => makeTask({
+      task_id: `bg_${index + 1}`,
+      status: 'succeeded',
+      spec: {
+        ...makeTask().spec,
+        title: `Task ${index + 1}`,
+      },
+      created_at: 1000 + index,
+      updated_at: 1000 + index,
+    })).reverse();
+
+    backgroundTasksListMock.mockImplementation(async ({ limit = 20, offset = 0 } = {}) => ({
+      tasks: tasks.slice(offset, offset + limit),
+      active_count: 0,
+      total: tasks.length,
+    }));
+
+    render(
+      <MemoryRouter>
+        <TasksPage />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText('Task 25');
+    expect(screen.getByText('tasks.pagination.info')).toBeInTheDocument();
+    expect(screen.queryByText('Task 5')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'tasks.pagination.next' }));
+
+    await waitFor(() => {
+      expect(backgroundTasksListMock).toHaveBeenLastCalledWith({
+        userId: 'local_user',
+        limit: 20,
+        offset: 20,
+      });
+    });
+    expect(await screen.findByText('Task 5')).toBeInTheDocument();
+    expect(screen.queryByText('Task 25')).not.toBeInTheDocument();
   });
 
   it('renders scheduled tasks in the scheduled tab', async () => {
@@ -193,7 +249,11 @@ describe('TasksPage', () => {
     );
 
     await screen.findAllByText('screen_time');
-    await screen.findByText('tasks.scheduled.actions.openSettings');
+    await screen.findByRole('button', { name: 'tasks.scheduled.actions.openSettings' });
+    expect(screen.queryByRole('button', { name: 'tasks.scheduled.actions.disable' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'tasks.scheduled.actions.delete' })).not.toBeInTheDocument();
+    expect(screen.queryByText('tasks.scheduled.columns.type')).not.toBeInTheDocument();
+    expect(screen.getByText('interval 5m')).toBeInTheDocument();
   });
 
   it('opens schedule settings over the tasks page', async () => {
@@ -252,7 +312,7 @@ describe('TasksPage', () => {
 
     await user.click(await screen.findByRole('button', { name: 'tasks.scheduled.actions.edit' }));
 
-    expect(await screen.findByText('Prompt')).toBeInTheDocument();
+    await screen.findByDisplayValue('提醒我及时喝水');
     expect(screen.getByDisplayValue('提醒我及时喝水')).toBeInTheDocument();
   });
 
@@ -293,6 +353,93 @@ describe('TasksPage', () => {
 
     await waitFor(() => {
       expect(schedulesRunMock).toHaveBeenCalledWith('agent-task:drink-water');
+    });
+  });
+
+  it('updates schedule enabled state from the scheduled tab', async () => {
+    const user = userEvent.setup();
+    const schedule = makeSchedule({
+      schedule_id: 'agent-task:drink-water',
+      target_type: 'user_agent_task',
+      target_key: 'agent-task:drink-water',
+      editable: true,
+      settings_link: null,
+    });
+    schedulesListMock.mockResolvedValue({ schedules: [schedule] });
+    schedulesListActivityMock.mockResolvedValue({ activities: [] });
+    schedulesUpdateMock.mockResolvedValue({
+      schedule: {
+        ...schedule,
+        enabled: false,
+      },
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/tasks?tab=scheduled']}>
+        <TasksPage />
+      </MemoryRouter>,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'tasks.scheduled.actions.disable' }));
+
+    await waitFor(() => {
+      expect(schedulesUpdateMock).toHaveBeenCalledWith('agent-task:drink-water', { enabled: false });
+    });
+  });
+
+  it('deletes a scheduled task from the scheduled tab', async () => {
+    const user = userEvent.setup();
+    const schedule = makeSchedule({
+      schedule_id: 'agent-task:drink-water',
+      target_type: 'user_agent_task',
+      target_key: 'agent-task:drink-water',
+      editable: true,
+      settings_link: null,
+    });
+    schedulesListMock.mockResolvedValue({ schedules: [schedule] });
+    schedulesListActivityMock.mockResolvedValue({ activities: [] });
+
+    render(
+      <MemoryRouter initialEntries={['/tasks?tab=scheduled']}>
+        <TasksPage />
+      </MemoryRouter>,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'tasks.scheduled.actions.delete' }));
+
+    await waitFor(() => {
+      expect(schedulesRemoveMock).toHaveBeenCalledWith('agent-task:drink-water');
+    });
+  });
+
+  it('limits schedule activity to the next hour window', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    schedulesListMock.mockResolvedValue({ schedules: [makeSchedule()] });
+    schedulesListActivityMock.mockResolvedValue({
+      activities: [
+        makeActivity({
+          activity_id: 'upcoming:soon',
+          title: 'soon',
+          planned_at: now + 30 * 60,
+        }),
+        makeActivity({
+          activity_id: 'upcoming:later',
+          title: 'later',
+          planned_at: now + 2 * 60 * 60,
+        }),
+      ],
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/tasks?tab=scheduled']}>
+        <TasksPage />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText('soon');
+
+    await waitFor(() => {
+      expect(screen.queryByText('later')).not.toBeInTheDocument();
     });
   });
 });

@@ -158,6 +158,33 @@ class BackgroundTaskRowStoreMixin:
             rows = await cursor.fetchall()
         return [self._row_to_task(row) for row in rows]
 
+    async def count_tasks(
+        self,
+        *,
+        user_id: str | None = None,
+        session_id: str | None = None,
+        statuses: list[BackgroundTaskStatus] | None = None,
+    ) -> int:
+        await self.initialize()
+        conditions: list[str] = []
+        params: list[object] = []
+        if user_id is not None:
+            conditions.append("user_id = ?")
+            params.append(user_id)
+        if session_id is not None:
+            conditions.append("session_id = ?")
+            params.append(session_id)
+        if statuses:
+            placeholders = ",".join(["?"] * len(statuses))
+            conditions.append(f"status IN ({placeholders})")
+            params.extend(status.value for status in statuses)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        query = f"SELECT COUNT(*) FROM background_tasks {where}"
+        async with sqlite_connection_async(self.db_path, profile="readonly") as db:
+            cursor = await db.execute(query, params)
+            row = await cursor.fetchone()
+        return int(row[0]) if row is not None else 0
+
     async def list_pending(self, *, limit: int = 200) -> list[BackgroundTask]:
         """Queue order: oldest pending first (FIFO within priority)."""
         await self.initialize()

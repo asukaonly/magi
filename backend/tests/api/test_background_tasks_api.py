@@ -99,6 +99,7 @@ def test_list_returns_empty_when_no_tasks(client):
     data = response.json()
     assert data["tasks"] == []
     assert data["active_count"] == 0
+    assert data["total"] == 0
 
 
 def test_list_returns_tasks_and_active_count(client):
@@ -116,6 +117,26 @@ def test_list_returns_tasks_and_active_count(client):
     data = response.json()
     assert len(data["tasks"]) == 2
     assert data["active_count"] == 1
+    assert data["total"] == 2
+
+
+def test_list_applies_limit_offset_and_reports_total(client):
+    tc, _manager, store = client
+    import asyncio
+
+    async def seed():
+        first = await _seed(store, status=BackgroundTaskStatus.SUCCEEDED)
+        second = await _seed(store, status=BackgroundTaskStatus.SUCCEEDED)
+        third = await _seed(store, status=BackgroundTaskStatus.SUCCEEDED)
+        return first, second, third
+
+    first, second, third = asyncio.run(seed())
+    response = tc.get("/api/background-tasks", params={"limit": 1, "offset": 1})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 3
+    assert len(data["tasks"]) == 1
+    assert data["tasks"][0]["task_id"] == second.task_id
 
 
 def test_list_filters_by_status(client):

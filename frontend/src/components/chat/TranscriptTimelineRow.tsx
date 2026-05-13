@@ -159,23 +159,6 @@ export const TranscriptTimelineRow = ({
     ? delegationCards[backgroundTaskId]
     : null;
 
-  // Debug: log when message has background_task_id but no matching delegation
-  if (backgroundTaskId && !matchingDelegation) {
-    console.log('[TranscriptTimelineRow] Message has background_task_id but no matching delegation', {
-      backgroundTaskId,
-      delegationCardsKeys: delegationCards ? Object.keys(delegationCards) : [],
-      messageId: message.id,
-    });
-  }
-  // Debug: log when message has background_task_id and matching delegation
-  if (backgroundTaskId && matchingDelegation) {
-    console.log('[TranscriptTimelineRow] Message has background_task_id with matching delegation', {
-      backgroundTaskId,
-      lifecycle: matchingDelegation.lifecycle,
-      messageId: message.id,
-    });
-  }
-
   const messageContent = resolveTranscriptContent(message, matchingDelegation);
   const messageAssistant = message.role === 'assistant'
     ? resolveAssistantIdentity(assistant, message.personaId)

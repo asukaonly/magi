@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { CalendarClock, ChevronRight, ListChecks, Pencil, Play, RefreshCw, Settings, Square } from 'lucide-react';
+import { CalendarClock, ChevronRight, ListChecks, Pencil, Play, Power, PowerOff, RefreshCw, Settings, Square, Trash2 } from 'lucide-react';
 
 import {
   backgroundTasksApi,
@@ -15,7 +15,7 @@ import {
   type ScheduleTriggerType,
   type UpdateScheduleRequest,
 } from '@/api';
-import { Button } from '@/components/ui/button';
+import { Button, type ButtonProps } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { MarkdownBlock } from '@/components/ui/markdown-block';
@@ -33,11 +33,14 @@ import {
 } from '@/stores/background-tasks';
 import { useChatShellStore } from '@/stores';
 import { DEFAULT_USER_ID } from '@/constants';
+
 const ACTIVE_STATUSES: ReadonlyArray<BackgroundTaskStatus> = [
   'pending',
   'running',
   'cancelling',
 ];
+
+const BACKGROUND_TASK_PAGE_SIZE = 20;
 
 type TasksTab = 'background' | 'scheduled';
 
@@ -46,6 +49,8 @@ const SCHEDULE_ACTIVITY_ORDER: Record<string, number> = {
   queued: 1,
   upcoming: 2,
 };
+
+const SCHEDULE_ACTIVITY_WINDOW_SECONDS = 60 * 60;
 
 const isActiveStatus = (status: BackgroundTaskStatus): boolean =>
   ACTIVE_STATUSES.includes(status);
@@ -64,7 +69,7 @@ const statusToneClass = (status: BackgroundTaskStatus): string => {
     case 'cancelled':
       return 'bg-muted text-muted-foreground';
     case 'succeeded':
-      return 'bg-sky-500/15 text-sky-500';
+      return 'bg-primary/15 text-primary';
     case 'failed':
       return 'bg-red-500/15 text-red-500';
     default:
@@ -75,6 +80,16 @@ const statusToneClass = (status: BackgroundTaskStatus): string => {
 const formatUnixSeconds = (ts: number | null | undefined): string => {
   if (!ts || !Number.isFinite(ts)) return '—';
   return new Date(ts * 1000).toLocaleString();
+};
+
+const formatScheduleTableTime = (ts: number | null | undefined): string => {
+  if (!ts || !Number.isFinite(ts)) return '—';
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(ts * 1000));
 };
 
 const formatDuration = (durationMs: number | null | undefined): string => {
@@ -142,6 +157,18 @@ const isPromptBackedSchedule = (schedule: ScheduleDTO): boolean => (
   && getScheduleTargetKind(schedule) === 'agent_task'
 );
 
+const getScheduleTargetLabelKey = (schedule: ScheduleDTO): string => (
+  isPromptBackedSchedule(schedule)
+    ? `tasks.scheduled.targetKinds.${getScheduleTargetKindLabelKey(schedule)}`
+    : `tasks.scheduled.targetTypes.${schedule.target_type}`
+);
+
+const getScheduleTargetLabelFallback = (schedule: ScheduleDTO): string => (
+  isPromptBackedSchedule(schedule)
+    ? getScheduleTargetKindFallback(schedule)
+    : schedule.target_type
+);
+
 const getActivityTitle = (
   activity: ScheduleActivityDTO,
   schedulesById: Record<string, ScheduleDTO>,
@@ -152,23 +179,75 @@ const getActivityTitle = (
   return schedule ? getScheduleTitle(schedule) : activity.schedule_id;
 };
 
-const describeScheduleTrigger = (schedule: ScheduleDTO): string => {
+const formatCompactInterval = (seconds: number): string => {
+  const remainingStart = Math.max(1, Math.round(seconds));
+  const units = [
+    ['d', 24 * 60 * 60],
+    ['h', 60 * 60],
+    ['m', 60],
+    ['s', 1],
+  ] as const;
+  let remaining = remainingStart;
+  const parts: string[] = [];
+
+  for (const [suffix, unitSeconds] of units) {
+    if (remaining < unitSeconds) continue;
+    const value = Math.floor(remaining / unitSeconds);
+    remaining %= unitSeconds;
+    parts.push(`${value}${suffix}`);
+    if (parts.length === 2) break;
+  }
+
+  return parts.length > 0 ? parts.join(' ') : `${remainingStart}s`;
+};
+
+const toScheduleToken = (value: unknown, fallback: string = '*'): string => {
+  if (value === null || value === undefined) return fallback;
+  const text = String(value).trim();
+  return text ? text : fallback;
+};
+
+const formatCronExpression = (config: Record<string, unknown>): string => (
+  [
+    toScheduleToken(config.second, '0'),
+    toScheduleToken(config.minute),
+    toScheduleToken(config.hour),
+    toScheduleToken(config.day),
+    toScheduleToken(config.month),
+    toScheduleToken(config.day_of_week),
+  ].join(' ')
+);
+
+const getScheduleTriggerSummary = (schedule: ScheduleDTO): string => {
   const trigger = schedule.trigger;
   if (trigger.trigger_type === 'interval') {
     const seconds = toFiniteNumber(trigger.config.seconds);
     if (!seconds) return '—';
-    return formatDuration(seconds * 1000);
+    return formatCompactInterval(seconds);
   }
   if (trigger.trigger_type === 'once') {
     return formatUnixSeconds(toFiniteNumber(trigger.config.run_at));
   }
   if (trigger.trigger_type === 'cron') {
-    return Object.entries(trigger.config)
-      .map(([key, value]) => `${key}=${String(value)}`)
-      .join(' ') || 'cron';
+    return formatCronExpression(trigger.config);
   }
   return trigger.trigger_type;
 };
+
+const filterScheduleActivities = (
+  activities: ScheduleActivityDTO[],
+  nowUnixSeconds: number = Date.now() / 1000,
+): ScheduleActivityDTO[] => activities.filter((activity) => {
+  if (activity.status === 'running') {
+    const runningAnchor = activity.started_at ?? activity.planned_at;
+    return runningAnchor == null || runningAnchor >= nowUnixSeconds - SCHEDULE_ACTIVITY_WINDOW_SECONDS;
+  }
+
+  const plannedAnchor = activity.planned_at ?? activity.started_at;
+  if (plannedAnchor == null) return false;
+  return plannedAnchor >= nowUnixSeconds - SCHEDULE_ACTIVITY_WINDOW_SECONDS
+    && plannedAnchor <= nowUnixSeconds + SCHEDULE_ACTIVITY_WINDOW_SECONDS;
+});
 
 const sortActivities = (activities: ScheduleActivityDTO[]): ScheduleActivityDTO[] =>
   [...activities].sort((left, right) => {
@@ -208,7 +287,7 @@ const TaskRow: React.FC<TaskRowProps> = ({ task, onSelect }) => {
     <button
       type="button"
       onClick={() => onSelect(task.task_id)}
-      className="group flex w-full items-center justify-between gap-4 rounded-lg border border-border/60 bg-background/60 px-4 py-3 text-left transition hover:border-border hover:bg-accent/30"
+      className="group flex w-full items-center justify-between gap-4 rounded-lg border border-border/60 bg-background/70 px-4 py-3 text-left transition hover:border-border/80 hover:bg-muted/35"
     >
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
@@ -242,6 +321,62 @@ const TaskRow: React.FC<TaskRowProps> = ({ task, onSelect }) => {
   );
 };
 
+interface TasksPaginationBarProps {
+  total: number;
+  offset: number;
+  limit: number;
+  loading: boolean;
+  onPageChange: (offset: number) => void;
+}
+
+const TasksPaginationBar: React.FC<TasksPaginationBarProps> = ({
+  total,
+  offset,
+  limit,
+  loading,
+  onPageChange,
+}) => {
+  const { t } = useTranslation('app');
+  const currentPage = Math.floor(offset / limit) + 1;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const hasPrev = offset > 0;
+  const hasNext = offset + limit < total;
+
+  if (total <= limit && offset === 0) return null;
+
+  const rangeStart = Math.min(offset + 1, total);
+  const rangeEnd = Math.min(offset + limit, total);
+
+  return (
+    <div className="flex items-center justify-between rounded-lg border border-border/60 bg-background/90 px-4 py-3 shadow-sm">
+      <span className="text-sm text-muted-foreground">
+        {t('tasks.pagination.info', { from: rangeStart, to: rangeEnd, total })}
+      </span>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!hasPrev || loading}
+          onClick={() => onPageChange(Math.max(0, offset - limit))}
+        >
+          {t('tasks.pagination.prev')}
+        </Button>
+        <span className="min-w-[4.5rem] text-center text-sm text-foreground">
+          {currentPage} / {totalPages}
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!hasNext || loading}
+          onClick={() => onPageChange(offset + limit)}
+        >
+          {t('tasks.pagination.next')}
+        </Button>
+      </div>
+    </div>
+  );
+};
+
 interface TasksSectionProps {
   title: string;
   tasks: BackgroundTaskDTO[];
@@ -263,6 +398,30 @@ const TasksSection: React.FC<TasksSectionProps> = ({ title, tasks, onSelect }) =
     </section>
   );
 };
+
+interface IconActionButtonProps extends Omit<ButtonProps, 'children' | 'size'> {
+  label: string;
+  icon: React.ReactNode;
+}
+
+const IconActionButton: React.FC<IconActionButtonProps> = ({
+  label,
+  icon,
+  className,
+  type = 'button',
+  ...props
+}) => (
+  <Button
+    {...props}
+    type={type}
+    size="icon"
+    aria-label={label}
+    title={label}
+    className={cn('h-8 w-8 shrink-0', className)}
+  >
+    {icon}
+  </Button>
+);
 
 interface TaskDetailDrawerProps {
   taskId: string | null;
@@ -820,6 +979,8 @@ const ScheduledTasksTab: React.FC<ScheduledTasksTabProps> = ({
   const [editingSchedule, setEditingSchedule] = useState<ScheduleDTO | null>(null);
   const [runningScheduleId, setRunningScheduleId] = useState<string | null>(null);
   const [stoppingActivityId, setStoppingActivityId] = useState<string | null>(null);
+  const [togglingScheduleId, setTogglingScheduleId] = useState<string | null>(null);
+  const [deletingScheduleId, setDeletingScheduleId] = useState<string | null>(null);
 
   const schedulesById = useMemo(
     () => Object.fromEntries(schedules.map((schedule) => [schedule.schedule_id, schedule])),
@@ -835,7 +996,7 @@ const ScheduledTasksTab: React.FC<ScheduledTasksTabProps> = ({
         schedulesApi.listActivity({ limit: 100 }),
       ]);
       setSchedules(scheduleResponse.schedules);
-      setActivities(sortActivities(activityResponse.activities));
+      setActivities(sortActivities(filterScheduleActivities(activityResponse.activities)));
     } catch {
       toast.error(t('tasks.scheduled.feedback.loadFailed'));
     } finally {
@@ -876,6 +1037,38 @@ const ScheduledTasksTab: React.FC<ScheduledTasksTabProps> = ({
     }
   };
 
+  const handleToggleSchedule = async (schedule: ScheduleDTO) => {
+    setTogglingScheduleId(schedule.schedule_id);
+    try {
+      await schedulesApi.update(schedule.schedule_id, { enabled: !schedule.enabled });
+      if (editingSchedule?.schedule_id === schedule.schedule_id) {
+        setEditingSchedule(null);
+      }
+      toast.success(t('tasks.scheduled.feedback.toggleSuccess'));
+      await loadSchedules();
+    } catch {
+      toast.error(t('tasks.scheduled.feedback.toggleFailed'));
+    } finally {
+      setTogglingScheduleId(null);
+    }
+  };
+
+  const handleDeleteSchedule = async (schedule: ScheduleDTO) => {
+    setDeletingScheduleId(schedule.schedule_id);
+    try {
+      await schedulesApi.remove(schedule.schedule_id);
+      if (editingSchedule?.schedule_id === schedule.schedule_id) {
+        setEditingSchedule(null);
+      }
+      toast.success(t('tasks.scheduled.feedback.deleteSuccess'));
+      await loadSchedules();
+    } catch {
+      toast.error(t('tasks.scheduled.feedback.deleteFailed'));
+    } finally {
+      setDeletingScheduleId(null);
+    }
+  };
+
   const emptySchedules = !loading && schedules.length === 0;
   const emptyActivities = !loading && activities.length === 0;
 
@@ -889,22 +1082,21 @@ const ScheduledTasksTab: React.FC<ScheduledTasksTabProps> = ({
           </div>
           {loading ? <LoadingSpinner className="h-4 w-4" /> : null}
         </div>
-        <div className="overflow-x-auto rounded-lg border border-border/60">
-          <table className="min-w-[900px] table-fixed text-left text-sm">
+        <div className="overflow-hidden rounded-lg border border-border/60">
+          <table className="w-full table-fixed text-left text-sm">
             <thead className="border-b border-border/60 bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
-                <th className="w-[22%] px-4 py-3 font-medium">{t('tasks.scheduled.columns.name')}</th>
-                <th className="w-[13%] px-4 py-3 font-medium">{t('tasks.scheduled.columns.type')}</th>
-                <th className="w-[15%] px-4 py-3 font-medium">{t('tasks.scheduled.columns.rule')}</th>
-                <th className="w-[15%] px-4 py-3 font-medium">{t('tasks.scheduled.columns.lastRun')}</th>
-                <th className="w-[15%] px-4 py-3 font-medium">{t('tasks.scheduled.columns.nextRun')}</th>
-                <th className="w-[20%] px-4 py-3 text-right font-medium">{t('tasks.scheduled.columns.actions')}</th>
+                <th className="w-[32%] px-4 py-3 font-medium">{t('tasks.scheduled.columns.name')}</th>
+                <th className="w-[18%] px-4 py-3 font-medium">{t('tasks.scheduled.columns.rule')}</th>
+                <th className="w-[17%] px-4 py-3 font-medium">{t('tasks.scheduled.columns.lastRun')}</th>
+                <th className="w-[17%] px-4 py-3 font-medium">{t('tasks.scheduled.columns.nextRun')}</th>
+                <th className="w-[16%] px-4 py-3 text-right font-medium">{t('tasks.scheduled.columns.actions')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/60">
               {emptySchedules ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-xs text-muted-foreground">
+                  <td colSpan={5} className="px-4 py-8 text-center text-xs text-muted-foreground">
                     {t('tasks.scheduled.empty.enabled')}
                   </td>
                 </tr>
@@ -913,7 +1105,20 @@ const ScheduledTasksTab: React.FC<ScheduledTasksTabProps> = ({
                 const selected = editingSchedule?.schedule_id === schedule.schedule_id;
                 const scheduleRunning = Boolean(schedule.target_state?.running);
                 const runPending = runningScheduleId === schedule.schedule_id;
-                const runDisabled = scheduleRunning || runningScheduleId !== null;
+                const togglePending = togglingScheduleId === schedule.schedule_id;
+                const deletePending = deletingScheduleId === schedule.schedule_id;
+                const rowBusy = togglePending || deletePending;
+                const runDisabled = scheduleRunning || runningScheduleId !== null || rowBusy;
+                const triggerMode = t(`tasks.scheduled.triggerTypes.${schedule.trigger.trigger_type}`, {
+                  defaultValue: schedule.trigger.trigger_type,
+                });
+                const triggerText = `${triggerMode} ${getScheduleTriggerSummary(schedule)}`.trim();
+                const scheduleTypeLabel = t(getScheduleTargetLabelKey(schedule), {
+                  defaultValue: getScheduleTargetLabelFallback(schedule),
+                });
+                const toggleLabel = schedule.enabled
+                  ? t('tasks.scheduled.actions.disable')
+                  : t('tasks.scheduled.actions.enable');
                 return (
                   <tr
                     key={schedule.schedule_id}
@@ -928,62 +1133,90 @@ const ScheduledTasksTab: React.FC<ScheduledTasksTabProps> = ({
                     }}
                   >
                     <td className="px-4 py-3 align-middle">
-                      <div className="truncate font-medium text-foreground">{getScheduleTitle(schedule)}</div>
-                      <div className="mt-1 truncate font-mono text-[11px] text-muted-foreground">{schedule.schedule_id}</div>
+                      <div className="truncate font-medium text-foreground" title={getScheduleTitle(schedule)}>
+                        {getScheduleTitle(schedule)}
+                      </div>
+                      <div className="mt-1 truncate text-[11px] text-muted-foreground" title={scheduleTypeLabel}>
+                        {scheduleTypeLabel}
+                      </div>
                     </td>
-                    <td className="px-4 py-3 align-middle text-xs text-muted-foreground">
-                      {t(`tasks.scheduled.targetTypes.${schedule.target_type}`, { defaultValue: schedule.target_type })}
-                    </td>
-                    <td className="px-4 py-3 align-middle text-xs text-muted-foreground">{describeScheduleTrigger(schedule)}</td>
-                    <td className="px-4 py-3 align-middle text-xs text-muted-foreground">{formatUnixSeconds(schedule.target_state?.last_run_at)}</td>
-                    <td className="px-4 py-3 align-middle text-xs text-muted-foreground">{formatUnixSeconds(schedule.target_state?.next_run_at)}</td>
+                    <td className="px-4 py-3 align-middle text-xs text-foreground" title={triggerText}>{triggerText}</td>
+                    <td className="px-4 py-3 align-middle text-xs text-muted-foreground whitespace-nowrap">{formatScheduleTableTime(schedule.target_state?.last_run_at)}</td>
+                    <td className="px-4 py-3 align-middle text-xs text-muted-foreground whitespace-nowrap">{formatScheduleTableTime(schedule.target_state?.next_run_at)}</td>
                     <td className="px-4 py-3 align-middle">
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          type="button"
+                      <div className="flex justify-end gap-1">
+                        <IconActionButton
                           variant="outline"
-                          size="sm"
                           disabled={runDisabled}
-                          title={scheduleRunning ? t('tasks.scheduled.actions.runUnavailable') : undefined}
+                          label={t('tasks.scheduled.actions.runNow')}
+                          icon={runPending ? (
+                            <LoadingSpinner className="h-3.5 w-3.5" />
+                          ) : (
+                            <Play className="h-3.5 w-3.5" />
+                          )}
                           onClick={(event) => {
                             event.stopPropagation();
                             void handleRunSchedule(schedule);
                           }}
-                        >
-                          {runPending ? (
-                            <LoadingSpinner className="mr-2 h-3.5 w-3.5" />
-                          ) : (
-                            <Play className="mr-2 h-3.5 w-3.5" />
-                          )}
-                          {t('tasks.scheduled.actions.runNow')}
-                        </Button>
+                        />
                         {!sensorOwned ? (
-                          <Button
-                            type="button"
+                          <IconActionButton
                             variant="outline"
-                            size="sm"
+                            label={t('tasks.scheduled.actions.edit')}
+                            icon={<Pencil className="h-3.5 w-3.5" />}
+                            disabled={rowBusy}
                             onClick={(event) => {
                               event.stopPropagation();
                               setEditingSchedule(schedule);
                             }}
-                          >
-                            <Pencil className="mr-2 h-3.5 w-3.5" />
-                            {t('tasks.scheduled.actions.edit')}
-                          </Button>
+                          />
                         ) : null}
                         {sensorOwned ? (
-                          <Button
-                            type="button"
+                          <IconActionButton
                             variant="secondary"
-                            size="sm"
+                            label={t('tasks.scheduled.actions.openSettings')}
+                            icon={<Settings className="h-3.5 w-3.5" />}
+                            disabled={rowBusy}
                             onClick={(event) => {
                               event.stopPropagation();
                               onOpenSettings(schedule);
                             }}
-                          >
-                            <Settings className="mr-2 h-3.5 w-3.5" />
-                            {t('tasks.scheduled.actions.openSettings')}
-                          </Button>
+                          />
+                        ) : null}
+                        {!sensorOwned ? (
+                          <IconActionButton
+                            variant="outline"
+                            label={toggleLabel}
+                            disabled={rowBusy || scheduleRunning}
+                            icon={togglePending ? (
+                              <LoadingSpinner className="h-3.5 w-3.5" />
+                            ) : schedule.enabled ? (
+                              <PowerOff className="h-3.5 w-3.5" />
+                            ) : (
+                              <Power className="h-3.5 w-3.5" />
+                            )}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleToggleSchedule(schedule);
+                            }}
+                          />
+                        ) : null}
+                        {!sensorOwned ? (
+                          <IconActionButton
+                            variant="ghost"
+                            label={t('tasks.scheduled.actions.delete')}
+                            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                            disabled={rowBusy || scheduleRunning}
+                            icon={deletePending ? (
+                              <LoadingSpinner className="h-3.5 w-3.5" />
+                            ) : (
+                              <Trash2 className="h-3.5 w-3.5" />
+                            )}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleDeleteSchedule(schedule);
+                            }}
+                          />
                         ) : null}
                       </div>
                     </td>
@@ -1000,16 +1233,16 @@ const ScheduledTasksTab: React.FC<ScheduledTasksTabProps> = ({
           <h2 className="text-sm font-semibold text-foreground">{t('tasks.scheduled.sections.activity')}</h2>
           <p className="mt-1 text-xs text-muted-foreground">{t('tasks.scheduled.sections.activityHint')}</p>
         </div>
-        <div className="overflow-x-auto rounded-lg border border-border/60">
-          <table className="min-w-[900px] table-fixed text-left text-sm">
+        <div className="overflow-hidden rounded-lg border border-border/60">
+          <table className="w-full table-fixed text-left text-sm">
             <thead className="border-b border-border/60 bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
-                <th className="w-[26%] px-4 py-3 font-medium">{t('tasks.scheduled.columns.name')}</th>
+                <th className="w-[34%] px-4 py-3 font-medium">{t('tasks.scheduled.columns.name')}</th>
                 <th className="w-[12%] px-4 py-3 font-medium">{t('tasks.scheduled.columns.status')}</th>
                 <th className="w-[17%] px-4 py-3 font-medium">{t('tasks.scheduled.columns.plannedAt')}</th>
                 <th className="w-[17%] px-4 py-3 font-medium">{t('tasks.scheduled.columns.startedAt')}</th>
-                <th className="w-[12%] px-4 py-3 font-medium">{t('tasks.scheduled.columns.duration')}</th>
-                <th className="w-[16%] px-4 py-3 text-right font-medium">{t('tasks.scheduled.columns.actions')}</th>
+                <th className="w-[10%] px-4 py-3 font-medium">{t('tasks.scheduled.columns.duration')}</th>
+                <th className="w-[10%] px-4 py-3 text-right font-medium">{t('tasks.scheduled.columns.actions')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/60">
@@ -1019,39 +1252,49 @@ const ScheduledTasksTab: React.FC<ScheduledTasksTabProps> = ({
                     {t('tasks.scheduled.empty.activity')}
                   </td>
                 </tr>
-              ) : activities.map((activity) => (
-                <tr key={activity.activity_id} className="bg-background/60">
-                  <td className="px-4 py-3 align-middle">
-                    <div className="truncate font-medium text-foreground">{getActivityTitle(activity, schedulesById)}</div>
-                    <div className="mt-1 truncate font-mono text-[11px] text-muted-foreground">{activity.activity_id}</div>
-                  </td>
-                  <td className="px-4 py-3 align-middle text-xs text-muted-foreground">
-                    {t(`tasks.scheduled.activityStatus.${activity.status}`, { defaultValue: activity.status })}
-                  </td>
-                  <td className="px-4 py-3 align-middle text-xs text-muted-foreground">{formatUnixSeconds(activity.planned_at)}</td>
-                  <td className="px-4 py-3 align-middle text-xs text-muted-foreground">{formatUnixSeconds(activity.started_at)}</td>
-                  <td className="px-4 py-3 align-middle text-xs text-muted-foreground">{formatDuration(activity.duration_ms)}</td>
-                  <td className="px-4 py-3 align-middle">
-                    <div className="flex justify-end">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={!activity.cancellable || stoppingActivityId === activity.activity_id}
-                        title={!activity.cancellable ? t('tasks.scheduled.actions.stopUnavailable') : undefined}
-                        onClick={() => void handleStopActivity(activity)}
-                      >
-                        {stoppingActivityId === activity.activity_id ? (
-                          <LoadingSpinner className="mr-2 h-3.5 w-3.5" />
-                        ) : (
-                          <Square className="mr-2 h-3.5 w-3.5" />
-                        )}
-                        {t('tasks.scheduled.actions.stop')}
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              ) : activities.map((activity) => {
+                const linkedSchedule = schedulesById[activity.schedule_id];
+                const activityTypeLabel = linkedSchedule
+                  ? t(getScheduleTargetLabelKey(linkedSchedule), {
+                    defaultValue: getScheduleTargetLabelFallback(linkedSchedule),
+                  })
+                  : t(`tasks.scheduled.targetTypes.${activity.target_type}`, {
+                    defaultValue: activity.target_type,
+                  });
+                return (
+                  <tr key={activity.activity_id} className="bg-background/60">
+                    <td className="px-4 py-3 align-middle">
+                      <div className="truncate font-medium text-foreground" title={getActivityTitle(activity, schedulesById)}>
+                        {getActivityTitle(activity, schedulesById)}
+                      </div>
+                      <div className="mt-1 truncate text-[11px] text-muted-foreground" title={activityTypeLabel}>
+                        {activityTypeLabel}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 align-middle text-xs text-muted-foreground">
+                      {t(`tasks.scheduled.activityStatus.${activity.status}`, { defaultValue: activity.status })}
+                    </td>
+                    <td className="px-4 py-3 align-middle text-xs text-muted-foreground whitespace-nowrap">{formatUnixSeconds(activity.planned_at)}</td>
+                    <td className="px-4 py-3 align-middle text-xs text-muted-foreground whitespace-nowrap">{formatUnixSeconds(activity.started_at)}</td>
+                    <td className="px-4 py-3 align-middle text-xs text-muted-foreground whitespace-nowrap">{formatDuration(activity.duration_ms)}</td>
+                    <td className="px-4 py-3 align-middle">
+                      <div className="flex justify-end">
+                        <IconActionButton
+                          variant="outline"
+                          label={t('tasks.scheduled.actions.stop')}
+                          disabled={!activity.cancellable || stoppingActivityId === activity.activity_id}
+                          icon={stoppingActivityId === activity.activity_id ? (
+                            <LoadingSpinner className="h-3.5 w-3.5" />
+                          ) : (
+                            <Square className="h-3.5 w-3.5" />
+                          )}
+                          onClick={() => void handleStopActivity(activity)}
+                        />
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -1083,6 +1326,8 @@ export const TasksPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [scheduledLoading, setScheduledLoading] = useState(false);
   const [scheduledRefreshToken, setScheduledRefreshToken] = useState(0);
+  const [backgroundOffset, setBackgroundOffset] = useState(0);
+  const [backgroundTotal, setBackgroundTotal] = useState(0);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState<TasksTab>(
@@ -1106,15 +1351,27 @@ export const TasksPage: React.FC = () => {
     try {
       const response = await backgroundTasksApi.list({
         userId: DEFAULT_USER_ID,
-        limit: 100,
+        limit: BACKGROUND_TASK_PAGE_SIZE,
+        offset: backgroundOffset,
       });
+      if (response.total > 0 && backgroundOffset >= response.total) {
+        const fallbackOffset = Math.max(
+          0,
+          (Math.ceil(response.total / BACKGROUND_TASK_PAGE_SIZE) - 1) * BACKGROUND_TASK_PAGE_SIZE,
+        );
+        if (fallbackOffset !== backgroundOffset) {
+          setBackgroundOffset(fallbackOffset);
+          return;
+        }
+      }
       hydrate(response.tasks, response.active_count);
+      setBackgroundTotal(response.total);
     } catch {
       toast.error(t('tasks.feedback.loadFailed'));
     } finally {
       setLoading(false);
     }
-  }, [hydrate, t]);
+  }, [backgroundOffset, hydrate, t]);
 
   useEffect(() => {
     void refresh();
@@ -1136,7 +1393,7 @@ export const TasksPage: React.FC = () => {
     return { runningTasks: running, queuedTasks: queued, finishedTasks: finished };
   }, [orderedTasks]);
 
-  const isEmpty = orderedTasks.length === 0;
+  const isEmpty = !loading && backgroundTotal === 0;
   const refreshing = activeTab === 'background' ? loading : scheduledLoading;
 
   const handleTabChange = (value: string) => {
@@ -1195,8 +1452,8 @@ export const TasksPage: React.FC = () => {
         </Button>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-6 py-5">
-        <Tabs value={activeTab} onValueChange={handleTabChange} className="flex min-h-full flex-col">
+      <div className="flex-1 overflow-hidden px-6 py-5">
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="flex h-full min-h-0 flex-col">
           <TabsList className="self-start">
             <TabsTrigger value="background">
               <ListChecks className="mr-2 h-3.5 w-3.5" />
@@ -1208,44 +1465,59 @@ export const TasksPage: React.FC = () => {
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="background" className="mt-6 flex-1">
-            {isEmpty ? (
-              <div className="mx-auto flex max-w-md flex-col items-center justify-center rounded-lg border border-dashed border-border/60 px-6 py-16 text-center">
-                <ListChecks className="mb-3 h-10 w-10 text-muted-foreground/70" />
-                <h2 className="text-sm font-medium text-foreground">
-                  {t('tasks.empty.title')}
-                </h2>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {t('tasks.empty.description')}
-                </p>
+          <TabsContent value="background" className="mt-6 min-h-0 flex-1">
+            <div className="flex h-full min-h-0 flex-col gap-4">
+              <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                {isEmpty ? (
+                  <div className="flex h-full min-h-[20rem] flex-col items-center justify-center rounded-lg border border-dashed border-border/60 px-6 py-16 text-center">
+                    <ListChecks className="mb-3 h-10 w-10 text-muted-foreground/70" />
+                    <h2 className="text-sm font-medium text-foreground">
+                      {t('tasks.empty.title')}
+                    </h2>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {t('tasks.empty.description')}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="w-full space-y-6 pb-1">
+                    <TasksSection
+                      title={t('tasks.sections.running')}
+                      tasks={runningTasks}
+                      onSelect={setSelectedTaskId}
+                    />
+                    <TasksSection
+                      title={t('tasks.sections.queued')}
+                      tasks={queuedTasks}
+                      onSelect={setSelectedTaskId}
+                    />
+                    <TasksSection
+                      title={t('tasks.sections.finished')}
+                      tasks={finishedTasks}
+                      onSelect={setSelectedTaskId}
+                    />
+                  </div>
+                )}
               </div>
-            ) : (
-              <div className="mx-auto max-w-3xl space-y-6">
-                <TasksSection
-                  title={t('tasks.sections.running')}
-                  tasks={runningTasks}
-                  onSelect={setSelectedTaskId}
-                />
-                <TasksSection
-                  title={t('tasks.sections.queued')}
-                  tasks={queuedTasks}
-                  onSelect={setSelectedTaskId}
-                />
-                <TasksSection
-                  title={t('tasks.sections.finished')}
-                  tasks={finishedTasks}
-                  onSelect={setSelectedTaskId}
+              <div className="shrink-0">
+                <TasksPaginationBar
+                  total={backgroundTotal}
+                  offset={backgroundOffset}
+                  limit={BACKGROUND_TASK_PAGE_SIZE}
+                  loading={loading}
+                  onPageChange={setBackgroundOffset}
                 />
               </div>
-            )}
+            </div>
           </TabsContent>
 
-          <TabsContent value="scheduled" className="mt-6 flex-1">
-            <ScheduledTasksTab
-              refreshToken={scheduledRefreshToken}
-              onLoadingChange={setScheduledLoading}
-              onOpenSettings={handleOpenScheduleSettings}
-            />
+          <TabsContent value="scheduled" className="mt-6 min-h-0 flex-1 overflow-y-auto pr-1">
+            <div className="pb-1">
+              <ScheduledTasksTab
+                refreshToken={scheduledRefreshToken}
+                onLoadingChange={setScheduledLoading}
+                onOpenSettings={handleOpenScheduleSettings}
+              />
+            </div>
           </TabsContent>
         </Tabs>
       </div>

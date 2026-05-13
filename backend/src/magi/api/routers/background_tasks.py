@@ -74,9 +74,15 @@ async def list_background_tasks(
         limit=limit,
         offset=offset,
     )
+    total = await manager.store.count_tasks(
+        user_id=user_id,
+        session_id=session_id,
+        statuses=statuses,
+    )
     return {
         "tasks": [_serialize_task(task) for task in tasks],
         "active_count": manager.active_count(),
+        "total": total,
     }
 
 

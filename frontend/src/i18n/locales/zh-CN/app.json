@@ -72,6 +72,11 @@
       "refresh": "刷新",
       "refreshing": "刷新中..."
     },
+    "pagination": {
+      "info": "显示 {{from}}-{{to}} / 共 {{total}} 项",
+      "prev": "上一页",
+      "next": "下一页"
+    },
     "tabs": {
       "background": "后台任务",
       "scheduled": "调度任务"
@@ -127,9 +132,9 @@
     "scheduled": {
       "sections": {
         "enabled": "已开启的调度任务",
-        "enabledHint": "当前启用的周期、一次性和系统维护调度。",
+        "enabledHint": "当前启用的周期、一次性和系统维护调度。传感器同步请到设置页更新。",
         "activity": "执行中与即将执行",
-        "activityHint": "正在运行、排队中和已有下次执行时间的调度任务。"
+        "activityHint": "只显示最近 1 小时内运行中、排队中或即将执行的调度任务。"
       },
       "columns": {
         "name": "名称",
@@ -178,6 +183,9 @@
         "runNow": "立即执行",
         "runUnavailable": "当前调度目标正在执行",
         "edit": "编辑",
+        "enable": "启用",
+        "disable": "停用",
+        "delete": "删除",
         "openSettings": "去设置更新",
         "sensorEditTitle": "传感器调度请在设置中更新",
         "stop": "停止",
@@ -196,6 +204,10 @@
         "loadFailed": "调度任务加载失败。",
         "runSuccess": "已触发调度任务。",
         "runFailed": "调度任务触发失败。",
+        "toggleSuccess": "调度任务已更新。",
+        "toggleFailed": "调度任务更新失败。",
+        "deleteSuccess": "调度任务已删除。",
+        "deleteFailed": "调度任务删除失败。",
         "saveSuccess": "调度任务已更新。",
         "saveFailed": "调度任务更新失败。",
         "stopSuccess": "已停止排队任务。",
