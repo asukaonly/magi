@@ -98,44 +98,7 @@ jobs:
       - name: Validate version metadata against release tag
         shell: bash
         run: |
-          python - <<'PY'
-          import json
-          import os
-          import pathlib
-          import tomllib
-
-          root = pathlib.Path(".")
-          tag = os.environ["GITHUB_REF_NAME"]
-          expected_version = tag.removeprefix("v")
-
-          versions = {
-              "frontend/package.json": json.loads(
-                  (root / "frontend/package.json").read_text(encoding="utf-8")
-              )["version"],
-              "frontend/src-tauri/tauri.conf.json": json.loads(
-                  (root / "frontend/src-tauri/tauri.conf.json").read_text(encoding="utf-8")
-              )["version"],
-              "frontend/src-tauri/Cargo.toml": tomllib.loads(
-                  (root / "frontend/src-tauri/Cargo.toml").read_text(encoding="utf-8")
-              )["package"]["version"],
-              "backend/pyproject.toml": tomllib.loads(
-                  (root / "backend/pyproject.toml").read_text(encoding="utf-8")
-              )["project"]["version"],
-          }
-
-          mismatches = {
-              path: version for path, version in versions.items() if version != expected_version
-          }
-
-          if mismatches:
-              details = "\n".join(
-                  f"- {path}: expected {expected_version}, found {version}"
-                  for path, version in mismatches.items()
-              )
-              raise SystemExit(f"Release tag does not match version metadata:\n{details}")
-
-          print(f"Validated release version {expected_version} across metadata files.")
-          PY
+          python scripts/release-version.py validate --tag "${GITHUB_REF_NAME}"
 
       - name: Install backend dependencies
         working-directory: backend
