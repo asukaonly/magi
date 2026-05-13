@@ -693,6 +693,11 @@
       "usePlaywright": "Use Playwright rendering",
       "usePlaywrightDesc": "Enable browser rendering for pages that require JavaScript."
     },
+    "validation": {
+      "weatherApiKeyRequired": "Enter the weather provider API Key before continuing.",
+      "qweatherApiUrlRequired": "Enter the QWeather API URL before continuing.",
+      "webSearchApiKeyRequired": "Enter the API Key for {{provider}} before continuing."
+    },
     "skills": {
       "label": "Skills",
       "desc": "{{count}} skills available",

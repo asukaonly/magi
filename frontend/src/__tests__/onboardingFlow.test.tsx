@@ -13,6 +13,7 @@ const { localStorageMock } = vi.hoisted(() => {
 });
 
 import { apiClient } from '@/api/client';
+import { skillsApi } from '@/api';
 import { configApi, DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
 import { personasApi } from '@/api/modules/personas';
 import { pluginsApi } from '@/api/modules/plugins';
@@ -386,5 +387,94 @@ describe('OnboardingFlow', () => {
 
     expect(await screen.findByRole('button', { name: 'actions.enterApp' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'actions.finish' })).not.toBeInTheDocument();
+  });
+
+  it('expands built-in tools and blocks continuing until required config is filled', async () => {
+    const initialConfig = {
+      ...DEFAULT_SYSTEM_CONFIG,
+      preferences: {
+        ...DEFAULT_SYSTEM_CONFIG.preferences,
+        user_mode: 'expert' as const,
+      },
+    };
+    localStorageMock.getItem.mockImplementation((key: string) => {
+      if (key === 'magi_onboarding_state') {
+        return JSON.stringify({
+          phase: 'guided',
+          mode: 'expert',
+          current: 5,
+          values: initialConfig,
+        });
+      }
+      return null;
+    });
+    vi.spyOn(skillsApi, 'list').mockResolvedValue([]);
+
+    render(<OnboardingFlow initialConfig={initialConfig} />);
+
+    expect(await screen.findByText('tools.weather.apiKey')).toBeInTheDocument();
+    expect(screen.getByText('tools.weather.apiUrl')).toBeInTheDocument();
+    expect(screen.getByText('tools.validation.weatherApiKeyRequired')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'actions.next' })).toBeDisabled();
+  });
+
+  it('shows completion loading immediately and ignores duplicate finish clicks', async () => {
+    const user = userEvent.setup();
+    const initialConfig = {
+      ...DEFAULT_SYSTEM_CONFIG,
+      preferences: {
+        ...DEFAULT_SYSTEM_CONFIG.preferences,
+        language: 'en' as const,
+        user_mode: 'quick' as const,
+        scenario: 'knowledge_partner',
+      },
+    };
+    localStorageMock.getItem.mockImplementation((key: string) => {
+      if (key === 'magi_onboarding_state') {
+        return JSON.stringify({
+          phase: 'guided',
+          mode: 'quick',
+          current: 4,
+          scenario: 'knowledge_partner',
+          values: initialConfig,
+        });
+      }
+      return null;
+    });
+
+    let resolveComplete: (value: any) => void = () => undefined;
+    vi.spyOn(configApi, 'completeOnboarding').mockReturnValue(
+      new Promise((resolve) => {
+        resolveComplete = resolve;
+      }) as any
+    );
+    vi.spyOn(personasApi, 'seed').mockResolvedValue({ success: true, data: { created_ids: [] } } as any);
+    vi.spyOn(personasApi, 'seedPreviews').mockResolvedValue({ success: true, data: [] } as any);
+    vi.spyOn(personasApi, 'list').mockResolvedValue({ success: true, data: [] } as any);
+    vi.spyOn(apiClient, 'get').mockResolvedValue({
+      data: {
+        success: true,
+        data: {
+          ready: true,
+          status: 'ready',
+          runtime_ready: true,
+          runtime_status: 'ready',
+        },
+      },
+    });
+
+    render(<OnboardingFlow initialConfig={initialConfig} />);
+
+    await user.click(await screen.findByRole('button', { name: 'actions.enterApp' }));
+
+    await waitFor(() => expect(configApi.completeOnboarding).toHaveBeenCalledTimes(1));
+    const loadingButton = screen.getByRole('button', { name: 'actions.saving' });
+    expect(loadingButton).toBeDisabled();
+
+    await user.click(loadingButton);
+    expect(configApi.completeOnboarding).toHaveBeenCalledTimes(1);
+
+    resolveComplete({ success: true, message: 'ok', data: initialConfig });
+    await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/ready'));
   });
 });

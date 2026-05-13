@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { SimpleForm as Form } from './simple-form';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
@@ -14,6 +14,7 @@ import LLMForm from '../config-forms/LLMForm';
 import PersonalityForm from '../config-forms/PersonalityForm';
 import MemoryForm from '../config-forms/MemoryForm';
 import ToolsForm from '../config-forms/ToolsForm';
+import { validateToolsConfig, type ToolValidationIssue } from '../config-forms/tool-validation';
 import GuidedConfigFrame from '../config-forms/GuidedConfigFrame';
 import WelcomeScreen from './WelcomeScreen';
 import ScenarioSelection from './ScenarioSelection';
@@ -274,6 +275,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   const [current, setCurrent] = useState(0);
   const [saving, setSaving] = useState(false);
   const [finishingRuntime, setFinishingRuntime] = useState(false);
+  const finishInFlightRef = useRef(false);
   const [sensorInstallStatus, setSensorInstallStatus] = useState<SensorInstallStatus>({
     canContinue: true,
     isInstalling: false,
@@ -286,6 +288,9 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     () => initialConfig.memory?.reranker?.cross_encoder
   );
   const [llmValidationIssues, setLlmValidationIssues] = useState<LLMValidationIssue[]>([]);
+  const [toolValidationIssues, setToolValidationIssues] = useState<ToolValidationIssue[]>(
+    () => validateToolsConfig(initialConfig)
+  );
   const activeLanguage = i18n.resolvedLanguage || i18n.language;
   const isQuickMode = mode === 'quick';
   const debugI18n = localStorage.getItem('magi_i18n_debug') === '1';
@@ -329,6 +334,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   const providerStepIndex = isQuickMode ? (needsSensors ? 2 : 1) : 0;
   const modelStepIndex = isQuickMode ? providerStepIndex + 1 : 1;
   const llmStepBlocksNext = (current === providerStepIndex || current === modelStepIndex) && llmValidationIssues.length > 0;
+  const isToolsStep = !isQuickMode && current === 5;
+  const toolStepBlocksNext = isToolsStep && toolValidationIssues.length > 0;
 
   const formatLlmValidationIssue = (issue: LLMValidationIssue): string => {
     const serviceLabel = t(`llm.providerConfiguration.serviceLabels.${issue.serviceName}`);
@@ -345,6 +352,9 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       service: serviceLabel,
     });
   };
+
+  const formatToolValidationIssue = (issue: ToolValidationIssue): string =>
+    t(issue.messageKey, issue.values);
 
   // Restore saved progress
   useEffect(() => {
@@ -378,6 +388,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
           },
         };
         form.setFieldsValue(mergedValues);
+        setToolValidationIssues(validateToolsConfig(mergedValues));
       }
     } catch {
       // Ignore invalid cached state.
@@ -422,6 +433,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       }
     }
     saveProgress(allValues);
+    setToolValidationIssues(validateToolsConfig(allValues));
   };
 
   useEffect(() => {
@@ -446,81 +458,96 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   }, [i18n]);
 
   const handleFinish = async () => {
-    const values = form.getFieldsValue(true);
-    values.preferences.onboarding_completed = true;
-    await configApi.completeOnboarding(values);
-
-    // Seed builtin personas into the registry and set the selected one active
-    const locale = (values.preferences?.language || 'en').startsWith('zh') ? 'zh' : 'en';
-    try {
-      const quickSeedPreviewsPromise = mode === 'quick' ? personasApi.seedPreviews(locale) : Promise.resolve(null);
-      await personasApi.seed(locale);
-      const [listResult, quickSeedPreviews] = await Promise.all([
-        personasApi.list(),
-        quickSeedPreviewsPromise,
-      ]);
-      const personas = listResult.data || [];
-      const quickDefaultSeedSlug = quickSeedPreviews
-        ? selectQuickModeSeedSlug(locale, values.preferences?.scenario, quickSeedPreviews.data || [])
-        : undefined;
-
-      // Determine which persona to activate:
-      // - Quick mode: use the scenario-mapped seed preview when available
-      // - Expert mode with preset: use the seed_slug saved by PersonalityForm
-      // - Expert mode with custom: create a new persona entry
-      const seedSlug: string | undefined =
-        mode === 'quick' ? quickDefaultSeedSlug : values.personalitySeedSlug;
-
-      let activatedPersonaId: string | undefined;
-
-      if (seedSlug) {
-        const match = personas.find((p) => p.slug === seedSlug);
-        if (match) activatedPersonaId = match.persona_id;
-      }
-
-      if (!activatedPersonaId && !seedSlug && values.personality) {
-        // Expert mode with a custom/generated persona — create a new registry entry
-        try {
-          const configJson = JSON.stringify(values.personality);
-          const created = await personasApi.create({ config_json: configJson, locale });
-          if (created.data?.persona_id) activatedPersonaId = created.data.persona_id;
-        } catch {
-          // Fall through to name-based matching
-        }
-      }
-
-      // Fallback: match by name, then first persona
-      if (!activatedPersonaId) {
-        const selectedName = values.personality?.name;
-        const fallback = personas.find((p) => p.name === selectedName) || personas[0];
-        if (fallback) activatedPersonaId = fallback.persona_id;
-      }
-
-      if (activatedPersonaId) {
-        await personasApi.setActive(activatedPersonaId);
-      }
-    } catch {
-      // Persona registry is best-effort during onboarding;
-      // the backend lifecycle fallback handles missing registry state.
-    }
-
-    setFinishingRuntime(true);
-    const runtimeSnapshot = await waitForRuntimeReadyAfterOnboarding();
-    setFinishingRuntime(false);
-
-    if (!runtimeSnapshot?.runtime_ready) {
-      toast.warning(t('messages.runtimeStartingSlow'));
-    }
-
-    localStorage.removeItem(STORAGE_KEY);
-    if (values.preferences.language) {
-      localStorage.setItem('magi_language', values.preferences.language);
-    }
-    if (values.preferences.language !== initialConfig.preferences.language) {
-      window.location.href = '/';
+    if (finishInFlightRef.current) {
       return;
     }
-    navigate('/');
+    finishInFlightRef.current = true;
+    setSaving(true);
+
+    try {
+      const values = form.getFieldsValue(true);
+      values.preferences.onboarding_completed = true;
+      await configApi.completeOnboarding(values);
+
+      // Seed builtin personas into the registry and set the selected one active
+      const locale = (values.preferences?.language || 'en').startsWith('zh') ? 'zh' : 'en';
+      try {
+        const quickSeedPreviewsPromise =
+          mode === 'quick' ? personasApi.seedPreviews(locale) : Promise.resolve(null);
+        await personasApi.seed(locale);
+        const [listResult, quickSeedPreviews] = await Promise.all([
+          personasApi.list(),
+          quickSeedPreviewsPromise,
+        ]);
+        const personas = listResult.data || [];
+        const quickDefaultSeedSlug = quickSeedPreviews
+          ? selectQuickModeSeedSlug(locale, values.preferences?.scenario, quickSeedPreviews.data || [])
+          : undefined;
+
+        // Determine which persona to activate:
+        // - Quick mode: use the scenario-mapped seed preview when available
+        // - Expert mode with preset: use the seed_slug saved by PersonalityForm
+        // - Expert mode with custom: create a new persona entry
+        const seedSlug: string | undefined =
+          mode === 'quick' ? quickDefaultSeedSlug : values.personalitySeedSlug;
+
+        let activatedPersonaId: string | undefined;
+
+        if (seedSlug) {
+          const match = personas.find((p) => p.slug === seedSlug);
+          if (match) activatedPersonaId = match.persona_id;
+        }
+
+        if (!activatedPersonaId && !seedSlug && values.personality) {
+          // Expert mode with a custom/generated persona — create a new registry entry
+          try {
+            const configJson = JSON.stringify(values.personality);
+            const created = await personasApi.create({ config_json: configJson, locale });
+            if (created.data?.persona_id) activatedPersonaId = created.data.persona_id;
+          } catch {
+            // Fall through to name-based matching
+          }
+        }
+
+        // Fallback: match by name, then first persona
+        if (!activatedPersonaId) {
+          const selectedName = values.personality?.name;
+          const fallback = personas.find((p) => p.name === selectedName) || personas[0];
+          if (fallback) activatedPersonaId = fallback.persona_id;
+        }
+
+        if (activatedPersonaId) {
+          await personasApi.setActive(activatedPersonaId);
+        }
+      } catch {
+        // Persona registry is best-effort during onboarding;
+        // the backend lifecycle fallback handles missing registry state.
+      }
+
+      setFinishingRuntime(true);
+      const runtimeSnapshot = await waitForRuntimeReadyAfterOnboarding();
+      setFinishingRuntime(false);
+
+      if (!runtimeSnapshot?.runtime_ready) {
+        toast.warning(t('messages.runtimeStartingSlow'));
+      }
+
+      localStorage.removeItem(STORAGE_KEY);
+      if (values.preferences.language) {
+        localStorage.setItem('magi_language', values.preferences.language);
+      }
+      if (values.preferences.language !== initialConfig.preferences.language) {
+        window.location.href = '/';
+        return;
+      }
+      navigate('/');
+    } catch (error: any) {
+      toast.error(error?.message || t('messages.saveFailed'));
+    } finally {
+      finishInFlightRef.current = false;
+      setSaving(false);
+      setFinishingRuntime(false);
+    }
   };
 
   const hasEnabledProvider = (): boolean => {
@@ -620,6 +647,11 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
           ? t('sensorSelection.installingBlockNext')
           : t('sensorSelection.installBeforeNextHint')
       );
+      return;
+    }
+
+    if (toolStepBlocksNext) {
+      toast.warning(formatToolValidationIssue(toolValidationIssues[0]));
       return;
     }
 
@@ -744,18 +776,38 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       if (needsSensors && current === 1) {
         return <SensorSelection scenario={scenario!} onInstallStatusChange={setSensorInstallStatus} />;
       }
-      if (current === providerIdx) return <LLMForm quickMode view="providers" onValidationChange={setLlmValidationIssues} />;
+      if (current === providerIdx) {
+        return <LLMForm quickMode view="providers" onValidationChange={setLlmValidationIssues} />;
+      }
       if (current === modelIdx) return renderLLMModelStep(true);
-      if (current === completeIdx) return <CompletionScreen onFinish={handleFinish} />;
+      if (current === completeIdx) {
+        return (
+          <CompletionScreen
+            onFinish={handleFinish}
+            loading={saving || finishingRuntime}
+            loadingLabel={finishingRuntime ? t('actions.startingRuntime') : t('actions.saving')}
+          />
+        );
+      }
     } else {
       // Expert: 0=Providers, 1=Models, 2=Personality, 3=Memory, 4=Sensors, 5=Tools, 6=Complete
-      if (current === 0) return <LLMForm quickMode={false} view="providers" onValidationChange={setLlmValidationIssues} />;
+      if (current === 0) {
+        return <LLMForm quickMode={false} view="providers" onValidationChange={setLlmValidationIssues} />;
+      }
       if (current === 1) return renderLLMModelStep(false);
       if (current === 2) return <PersonalityForm quickMode={false} language={language} />;
       if (current === 3) return <MemoryForm />;
       if (current === 4) return <SensorSelection onInstallStatusChange={setSensorInstallStatus} />;
-      if (current === 5) return <ToolsForm />;
-      if (current === 6) return <CompletionScreen onFinish={handleFinish} />;
+      if (current === 5) return <ToolsForm validationIssues={toolValidationIssues} />;
+      if (current === 6) {
+        return (
+          <CompletionScreen
+            onFinish={handleFinish}
+            loading={saving || finishingRuntime}
+            loadingLabel={finishingRuntime ? t('actions.startingRuntime') : t('actions.saving')}
+          />
+        );
+      }
     }
 
     return null;
@@ -796,7 +848,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
               <Button variant="outline" onClick={handlePrev}>
                 {t('actions.previous')}
               </Button>
-              <Button onClick={handleNext} disabled={saving || sensorStepBlocksNext || llmStepBlocksNext}>
+              <Button
+                onClick={handleNext}
+                disabled={saving || sensorStepBlocksNext || llmStepBlocksNext || toolStepBlocksNext}
+              >
                 {saving
                   ? (finishingRuntime ? t('actions.startingRuntime') : t('actions.saving'))
                   : t('actions.next')}

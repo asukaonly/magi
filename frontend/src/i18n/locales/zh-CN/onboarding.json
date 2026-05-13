@@ -694,6 +694,11 @@
       "usePlaywright": "使用 Playwright 渲染",
       "usePlaywrightDesc": "对于需要 JavaScript 渲染的页面启用浏览器渲染。"
     },
+    "validation": {
+      "weatherApiKeyRequired": "请先填写天气服务的 API Key。",
+      "qweatherApiUrlRequired": "请先填写和风天气的 API URL。",
+      "webSearchApiKeyRequired": "请先填写 {{provider}} 的 API Key。"
+    },
     "skills": {
       "label": "技能",
       "desc": "{{count}} 个可用技能",

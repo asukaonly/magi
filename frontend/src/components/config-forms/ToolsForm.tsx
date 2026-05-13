@@ -6,6 +6,7 @@ import { SelectField } from './fields';
 import { Input } from '@/components/ui/input';
 import { skillsApi, SkillItem } from '../../api';
 import { cn } from '@/lib/utils';
+import type { ToolValidationField, ToolValidationIssue } from './tool-validation';
 
 /* ── Styled toggle switch (matches SensorConfigForm) ────────────── */
 const ToggleSwitch: React.FC<{
@@ -107,10 +108,27 @@ const FieldLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <span className="text-xs font-medium text-muted-foreground">{children}</span>
 );
 
-export const ToolsForm: React.FC = () => {
+const FieldError: React.FC<{ issue?: ToolValidationIssue }> = ({ issue }) => {
+  const { t } = useTranslation('onboarding');
+  if (!issue) {
+    return null;
+  }
+  return <p className="mt-1 text-xs text-destructive">{t(issue.messageKey, issue.values)}</p>;
+};
+
+interface ToolsFormProps {
+  validationIssues?: ToolValidationIssue[];
+}
+
+export const ToolsForm: React.FC<ToolsFormProps> = ({ validationIssues = [] }) => {
   const { t } = useTranslation('onboarding');
   const [skills, setSkills] = useState<SkillItem[]>([]);
-  const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
+  const [expandedTools, setExpandedTools] = useState<Set<string>>(
+    () => new Set(['weather', 'webSearch', 'webFetch'])
+  );
+
+  const issueFor = (field: ToolValidationField) =>
+    validationIssues.find((issue) => issue.field === field);
 
   useEffect(() => {
     const loadSkills = async () => {
@@ -138,6 +156,14 @@ export const ToolsForm: React.FC = () => {
     });
   };
 
+  const expandTool = (tool: string) => {
+    setExpandedTools((prev) => {
+      const next = new Set(prev);
+      next.add(tool);
+      return next;
+    });
+  };
+
   return (
     <Form.Item noStyle shouldUpdate>
       {({
@@ -153,6 +179,8 @@ export const ToolsForm: React.FC = () => {
         const weatherEnabled = builtIn.weather?.enabled ?? false;
         const webSearchEnabled = builtIn.webSearch?.enabled ?? false;
         const webFetchEnabled = builtIn.webFetch?.enabled ?? false;
+        const weatherProvider = builtIn.weather?.provider ?? 'qweather';
+        const webSearchProvider = builtIn.webSearch?.provider ?? 'duckduckgo';
 
         const patchTools = (updates: Record<string, any>) => {
           setFieldValue(['tools'], {
@@ -192,12 +220,8 @@ export const ToolsForm: React.FC = () => {
                       enabled: checked,
                     },
                   });
-                  if (!checked) {
-                    setExpandedTools((prev) => {
-                      const next = new Set(prev);
-                      next.delete('weather');
-                      return next;
-                    });
+                  if (checked) {
+                    expandTool('weather');
                   }
                 }}
                 onExpand={() => toggleExpand('weather')}
@@ -220,20 +244,18 @@ export const ToolsForm: React.FC = () => {
                     <Form.Item name={['tools', 'builtIn', 'weather', 'apiKey']} noStyle>
                       <Input type="password" placeholder={t('tools.weather.apiKeyPlaceholder')} />
                     </Form.Item>
+                    <FieldError issue={issueFor('weather.apiKey')} />
                   </div>
 
-                  <Form.Item noStyle shouldUpdate>
-                    {({ getFieldValue: getVal }: { getFieldValue: (name: any) => any }) =>
-                      getVal(['tools', 'builtIn', 'weather', 'provider']) === 'qweather' ? (
-                        <div>
-                          <FieldLabel>{t('tools.weather.apiUrl')}</FieldLabel>
-                          <Form.Item name={['tools', 'builtIn', 'weather', 'apiUrl']} noStyle>
-                            <Input placeholder={t('tools.weather.apiUrlPlaceholder')} />
-                          </Form.Item>
-                        </div>
-                      ) : null
-                    }
-                  </Form.Item>
+                  {weatherProvider === 'qweather' ? (
+                    <div>
+                      <FieldLabel>{t('tools.weather.apiUrl')}</FieldLabel>
+                      <Form.Item name={['tools', 'builtIn', 'weather', 'apiUrl']} noStyle>
+                        <Input placeholder={t('tools.weather.apiUrlPlaceholder')} />
+                      </Form.Item>
+                      <FieldError issue={issueFor('weather.apiUrl')} />
+                    </div>
+                  ) : null}
                 </div>
               </ExpandableToolCard>
 
@@ -251,12 +273,8 @@ export const ToolsForm: React.FC = () => {
                       enabled: checked,
                     },
                   });
-                  if (!checked) {
-                    setExpandedTools((prev) => {
-                      const next = new Set(prev);
-                      next.delete('webSearch');
-                      return next;
-                    });
+                  if (checked) {
+                    expandTool('webSearch');
                   }
                 }}
                 onExpand={() => toggleExpand('webSearch')}
@@ -276,18 +294,15 @@ export const ToolsForm: React.FC = () => {
                     </Form.Item>
                   </div>
 
-                  <Form.Item noStyle shouldUpdate>
-                    {({ getFieldValue: getVal }: { getFieldValue: (name: any) => any }) =>
-                      getVal(['tools', 'builtIn', 'webSearch', 'provider']) !== 'duckduckgo' ? (
-                        <div>
-                          <FieldLabel>{t('tools.webSearch.apiKey')}</FieldLabel>
-                          <Form.Item name={['tools', 'builtIn', 'webSearch', 'apiKey']} noStyle>
-                            <Input type="password" placeholder={t('tools.webSearch.apiKeyPlaceholder')} />
-                          </Form.Item>
-                        </div>
-                      ) : null
-                    }
-                  </Form.Item>
+                  {webSearchProvider !== 'duckduckgo' ? (
+                    <div>
+                      <FieldLabel>{t('tools.webSearch.apiKey')}</FieldLabel>
+                      <Form.Item name={['tools', 'builtIn', 'webSearch', 'apiKey']} noStyle>
+                        <Input type="password" placeholder={t('tools.webSearch.apiKeyPlaceholder')} />
+                      </Form.Item>
+                      <FieldError issue={issueFor('webSearch.apiKey')} />
+                    </div>
+                  ) : null}
                 </div>
               </ExpandableToolCard>
 
@@ -305,12 +320,8 @@ export const ToolsForm: React.FC = () => {
                       enabled: checked,
                     },
                   });
-                  if (!checked) {
-                    setExpandedTools((prev) => {
-                      const next = new Set(prev);
-                      next.delete('webFetch');
-                      return next;
-                    });
+                  if (checked) {
+                    expandTool('webFetch');
                   }
                 }}
                 onExpand={() => toggleExpand('webFetch')}
