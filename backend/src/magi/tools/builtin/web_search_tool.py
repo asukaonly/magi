@@ -253,6 +253,7 @@ class WebSearchTool(MultiProviderTool):
         if isinstance(date_range_applied, ToolResult):
             return date_range_applied
         executed_query = self._apply_date_range_to_query(query, date_range_applied)
+        proxy_url = get_config().network.proxy_url()
 
         # Check if any provider is available
         available_providers = self.get_available_providers()
@@ -298,6 +299,7 @@ class WebSearchTool(MultiProviderTool):
             {
                 "query": executed_query,
                 "num_results": parameters.get("num_results", 10),
+                "proxy_url": proxy_url,
             }
         )
 

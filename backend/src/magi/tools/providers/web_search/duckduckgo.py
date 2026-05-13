@@ -128,14 +128,15 @@ class DuckDuckGoSearchProvider(Provider):
         """Execute DuckDuckGo HTML search."""
         query = params["query"]
         num_results = params.get("num_results", 10)
+        proxy_url = str(params.get("proxy_url") or "").strip() or None
         url = config.base_url or "https://html.duckduckgo.com/html/"
         headers = {
             "User-Agent": "Magi/1.0 (+https://github.com/your-org/magi)",
             "Accept": "text/html,application/xhtml+xml",
         }
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, data={"q": query}, headers=headers) as response:
+        async with aiohttp.ClientSession(trust_env=False) as session:
+            async with session.post(url, data={"q": query}, headers=headers, proxy=proxy_url) as response:
                 html = await response.text()
                 if response.status != 200:
                     if self._is_challenge_response(response.status, html):

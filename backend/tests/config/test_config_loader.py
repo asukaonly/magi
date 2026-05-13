@@ -5,6 +5,7 @@ from pathlib import Path
 import yaml
 
 from magi.config.loader import ConfigLoader
+from magi.config.models import ProxyType
 
 
 def _patch_config_paths(monkeypatch, root: Path) -> None:
@@ -105,6 +106,22 @@ def test_loader_save_routes_plugin_updates_to_split_files(tmp_path: Path, monkey
     assert settings_data["sensors"]["photo_library"]["sync_interval_minutes"] == 120
     assert loader.load().plugins.packages["photo-library"].enabled is False
     assert loader.load().plugins.packages["photo-library"].settings["sensors"]["photo_library"]["sync_interval_minutes"] == 120
+
+
+def test_loader_save_rejects_invalid_config_without_writing(tmp_path: Path, monkeypatch) -> None:
+    _patch_config_paths(monkeypatch, tmp_path)
+
+    loader = ConfigLoader()
+    config = loader.load()
+    agent_file = tmp_path / "config" / "agent.yaml"
+    original_yaml = agent_file.read_text(encoding="utf-8")
+
+    saved = loader.save({"network.proxy_type": "none"})
+
+    assert config.network.proxy_type == ProxyType.HTTP
+    assert saved is False
+    assert agent_file.read_text(encoding="utf-8") == original_yaml
+    assert loader.load().network.proxy_type == ProxyType.HTTP
 
 
 def test_loader_default_photo_library_settings_live_in_the_dedicated_plugin(tmp_path: Path, monkeypatch) -> None:

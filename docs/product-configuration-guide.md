@@ -152,6 +152,7 @@ Current product expectations:
 - desktop users can choose whether closing the main window hides to tray or exits
 - packaged desktop builds should expose a manual update surface that checks the latest published stable GitHub Release, downloads signed updater artifacts, and prompts for restart after installation
 - packaged desktop builds should also run a delayed background update check shortly after startup and reuse the global network proxy settings when that proxy is enabled
+- built-in outbound request tools, including web search, web fetch, weather, and shell subprocess networking, should use the global network proxy only when it is enabled; disabled proxy settings must not imply the default `127.0.0.1:7890` endpoint
 - desktop chat surfaces should show the active conversation workspace and allow per-session overrides
 - when neither a global default nor a per-session override is set, desktop chat should fall back to a managed local workspace under `~/.magi/chat-workspace`
 - desktop chat attachments should be uploaded into managed local runtime storage before a turn is sent

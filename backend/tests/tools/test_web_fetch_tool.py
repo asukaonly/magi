@@ -1,11 +1,13 @@
 """
 Tests for web-fetch tool behavior and fallback logic.
 """
-from types import MethodType
+from types import MethodType, SimpleNamespace
 
 import pytest
 
 from magi.tools.builtin.web_fetch_tool import WebFetchTool
+from magi.tools.providers.base import ProviderConfig
+from magi.tools.providers.web_fetch.curl_fetch import CurlFetchProvider
 from magi.tools.schema import ToolExecutionContext, ToolResult, ToolErrorCode
 
 
@@ -138,3 +140,72 @@ async def test_default_output_is_markdown():
     assert result.success is True
     assert result.data["output_format"] == "markdown"
     assert "# Title" in result.data["content"]
+
+
+@pytest.mark.asyncio
+async def test_web_fetch_passes_configured_proxy_to_provider(monkeypatch):
+    tool = WebFetchTool()
+    captured = {}
+
+    monkeypatch.setattr(
+        "magi.tools.builtin.web_fetch_tool.get_config",
+        lambda: SimpleNamespace(network=SimpleNamespace(proxy_url=lambda: "socks5://127.0.0.1:7890")),
+    )
+
+    async def fake_execute_with_provider(self, provider_name, params):
+        captured["provider_name"] = provider_name
+        captured["params"] = params
+        return ToolResult(
+            success=True,
+            data={
+                "provider": provider_name,
+                "url": params["url"],
+                "final_url": params["url"],
+                "status_code": 200,
+                "content_type": "text/html",
+                "title": "Doc",
+                "html": "<html><body><p>ok</p></body></html>",
+                "rendered": False,
+            },
+        )
+
+    tool.execute_with_provider = MethodType(fake_execute_with_provider, tool)
+
+    result = await tool.execute({"url": "https://example.com", "mode": "http"}, _context())
+
+    assert result.success is True
+    assert captured["provider_name"] == "http"
+    assert captured["params"]["proxy_url"] == "socks5://127.0.0.1:7890"
+
+
+@pytest.mark.asyncio
+async def test_curl_fetch_ignores_environment_proxy_when_disabled(monkeypatch):
+    provider = CurlFetchProvider()
+    captured = {}
+
+    monkeypatch.setenv("HTTP_PROXY", "http://env-proxy:7890")
+
+    class FakeProcess:
+        returncode = 0
+
+        async def communicate(self):
+            return b"<html><body>ok</body></html>", b""
+
+    async def fake_create_subprocess_exec(*command, **kwargs):
+        captured["command"] = command
+        captured["env"] = kwargs["env"]
+        return FakeProcess()
+
+    monkeypatch.setattr(
+        "magi.tools.providers.web_fetch.curl_fetch.asyncio.create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
+
+    result = await provider.execute(
+        {"url": "https://example.com", "timeout_ms": 15000, "proxy_url": None},
+        ProviderConfig(),
+    )
+
+    assert result["provider"] == "curl"
+    assert "--noproxy" in captured["command"]
+    assert captured["env"].get("HTTP_PROXY") is None

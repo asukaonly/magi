@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import logging
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict
 
 from .diff_utils import deep_merge_dict, extract_dict_overrides
+from .models import AppConfig
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +27,68 @@ class ConfigLoaderPersistenceMixin:
     _lifecycle_config_file: Path
     _plugins_index_file: Path
     _config_signature: tuple[tuple[str, int, int], ...] | None
+
+    def _build_validation_payload(
+        self,
+        agent_yaml: Dict[str, Any],
+        llm_effective: Dict[str, Any],
+        lifecycle_payload: Dict[str, Any],
+        plugins_index: Dict[str, Any],
+        plugin_settings_updates: Dict[str, Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        payload = deepcopy(agent_yaml)
+        plugins_node = payload.setdefault("plugins", {})
+        if not isinstance(plugins_node, dict):
+            plugins_node = {}
+            payload["plugins"] = plugins_node
+
+        raw_packages = plugins_index.get("packages", {}) if isinstance(plugins_index, dict) else {}
+        packages = deepcopy(raw_packages) if isinstance(raw_packages, dict) else {}
+
+        def apply_settings_updates(
+            plugin_id: str,
+            settings_data: Dict[str, Any],
+            updates: Dict[str, Any],
+        ) -> Dict[str, Any]:
+            merged_settings = deepcopy(settings_data)
+            for relative_path, value in updates.items():
+                if relative_path:
+                    self._set_nested_yaml(merged_settings, relative_path, value)
+                elif isinstance(value, dict):
+                    merged_settings = dict(value)
+                else:
+                    raise ValueError(f"Plugin settings root must be a dict for {plugin_id}")
+            return merged_settings
+
+        seen_plugin_ids: set[str] = set(packages)
+        for plugin_file in sorted(self._plugins_config_dir().glob("*.yaml")):
+            if plugin_file.name == "index.yaml":
+                continue
+            plugin_id = plugin_file.stem
+            seen_plugin_ids.add(plugin_id)
+            package_entry = dict(packages.get(plugin_id, {}))
+            settings_data = self._load_yaml_file(plugin_file)
+            updates = plugin_settings_updates.get(plugin_id)
+            package_entry["settings"] = (
+                apply_settings_updates(plugin_id, settings_data, updates)
+                if updates
+                else settings_data
+            )
+            packages[plugin_id] = package_entry
+
+        for plugin_id, updates in plugin_settings_updates.items():
+            if plugin_id in seen_plugin_ids:
+                continue
+            package_entry = dict(packages.get(plugin_id, {}))
+            package_entry["settings"] = apply_settings_updates(plugin_id, {}, updates)
+            packages[plugin_id] = package_entry
+
+        if packages:
+            plugins_node["packages"] = packages
+
+        payload["llm"] = deepcopy(llm_effective)
+        payload["lifecycle"] = deepcopy(lifecycle_payload)
+        return payload
 
     def save(self, updates: Dict[str, Any]) -> bool:
         """
@@ -79,6 +143,15 @@ class ConfigLoaderPersistenceMixin:
                     continue
 
                 self._set_nested_yaml(agent_yaml, path, value)
+
+            validation_payload = self._build_validation_payload(
+                agent_yaml,
+                llm_effective,
+                lifecycle_payload,
+                plugins_index,
+                plugin_settings_updates,
+            )
+            AppConfig.model_validate(validation_payload)
 
             llm_overrides = extract_dict_overrides(llm_defaults, llm_effective)
 

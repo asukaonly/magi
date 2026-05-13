@@ -41,6 +41,7 @@ class TavilySearchProvider(Provider):
         """
         query = params["query"]
         num_results = params.get("num_results", 10)
+        proxy_url = str(params.get("proxy_url") or "").strip() or None
 
         if not config.api_key:
             raise ValueError("Tavily API key not configured")
@@ -57,8 +58,8 @@ class TavilySearchProvider(Provider):
             "include_raw_content": False,
         }
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, headers=headers, json=payload) as response:
+        async with aiohttp.ClientSession(trust_env=False) as session:
+            async with session.post(url, headers=headers, json=payload, proxy=proxy_url) as response:
                 if response.status != 200:
                     error_text = await response.text()
                     raise Exception(f"Tavily API error: {response.status} - {error_text}")

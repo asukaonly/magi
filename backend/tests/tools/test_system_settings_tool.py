@@ -5,6 +5,7 @@ from types import MethodType, SimpleNamespace
 
 import pytest
 
+from magi.config.models import ProxyType
 from magi.tools.builtin.system_settings_tool import SystemSettingsTool
 from magi.tools.builtin.weather_tool import WeatherTool
 from magi.tools.builtin.web_fetch_tool import WebFetchTool
@@ -63,6 +64,33 @@ async def test_set_app_path_uses_save_config_with_type_conversion(monkeypatch):
 
     assert result.success is True
     assert captured == {"llm.timeout": 120}
+
+
+@pytest.mark.asyncio
+async def test_set_app_enum_path_rejects_invalid_value(monkeypatch):
+    tool = SystemSettingsTool()
+
+    fake_config = SimpleNamespace(
+        network=SimpleNamespace(proxy_type=ProxyType.HTTP),
+    )
+
+    def fake_get_config():
+        return fake_config
+
+    def fake_save_config(_updates):
+        raise AssertionError("save_config should not be called for invalid enum values")
+
+    monkeypatch.setattr("magi.tools.builtin.system_settings_tool.get_config", fake_get_config)
+    monkeypatch.setattr("magi.tools.builtin.system_settings_tool.save_config", fake_save_config)
+
+    result = await tool.execute(
+        {"action": "set", "path": "app.network.proxy_type", "value": "none"},
+        _context(),
+    )
+
+    assert result.success is False
+    assert result.error_code == ToolErrorCode.TYPE_ERROR.value
+    assert "Type conversion failed" in result.error
 
 
 @pytest.mark.asyncio

@@ -40,6 +40,7 @@ class PlaywrightFetchProvider(Provider):
 
         url = str(params["url"]).strip()
         timeout_ms = int(params.get("timeout_ms", 15000))
+        proxy_url = str(params.get("proxy_url") or "").strip() or None
         wait_until = str(params.get("wait_until", "networkidle")).strip().lower()
         if wait_until not in {"domcontentloaded", "load", "networkidle"}:
             wait_until = "networkidle"
@@ -53,7 +54,10 @@ class PlaywrightFetchProvider(Provider):
         )
 
         async with async_playwright() as playwright:
-            browser = await playwright.chromium.launch(headless=True)
+            launch_options: Dict[str, Any] = {"headless": True}
+            if proxy_url:
+                launch_options["proxy"] = {"server": proxy_url}
+            browser = await playwright.chromium.launch(**launch_options)
             try:
                 page = await browser.new_page(user_agent=user_agent)
                 response = await page.goto(url, wait_until=wait_until, timeout=max(1, timeout_ms))

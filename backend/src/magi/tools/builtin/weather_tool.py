@@ -285,6 +285,7 @@ class WeatherTool(MultiProviderTool):
         mode = parameters.get("mode", "current")
         days = parameters.get("days", 3)
         provider_name = self._get_default_provider()
+        proxy_url = get_config().network.proxy_url()
 
         if mode not in {"current", "forecast"}:
             return ToolResult(
@@ -351,6 +352,7 @@ class WeatherTool(MultiProviderTool):
                 "lang": lang,
                 "mode": mode,
                 "days": days,
+                "proxy_url": proxy_url,
             }
         )
 

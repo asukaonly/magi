@@ -29,6 +29,7 @@ class HttpFetchProvider(Provider):
         """Execute direct HTTP fetch."""
         url = str(params["url"]).strip()
         timeout_ms = int(params.get("timeout_ms", 15000))
+        proxy_url = str(params.get("proxy_url") or "").strip() or None
         user_agent = str(
             params.get(
                 "user_agent",
@@ -44,8 +45,13 @@ class HttpFetchProvider(Provider):
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         }
 
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(url, headers=headers, allow_redirects=True) as response:
+        async with aiohttp.ClientSession(timeout=timeout, trust_env=False) as session:
+            async with session.get(
+                url,
+                headers=headers,
+                allow_redirects=True,
+                proxy=proxy_url,
+            ) as response:
                 html = await response.text(errors="ignore")
                 content_type = response.headers.get("Content-Type", "")
                 final_url = str(response.url)

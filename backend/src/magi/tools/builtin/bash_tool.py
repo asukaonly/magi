@@ -10,6 +10,18 @@ from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolPar
 from ._bash_grading import classify_command
 
 
+_PROXY_ENV_KEYS = (
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+    "no_proxy",
+)
+
+
 def _windows_code_page_encoding(function_name: str) -> str | None:
     if os.name != "nt":
         return None
@@ -76,6 +88,20 @@ def _build_subprocess_env() -> dict[str, str]:
     tools.
     """
     env = os.environ.copy()
+    for key in _PROXY_ENV_KEYS:
+        env.pop(key, None)
+
+    try:
+        from ...config import get_config
+
+        proxy_url = get_config().network.proxy_url()
+    except Exception:
+        proxy_url = None
+
+    if proxy_url:
+        for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
+            env[key] = proxy_url
+
     env.setdefault("PYTHONIOENCODING", "utf-8")
     env.setdefault("PYTHONUTF8", "1")
     if os.name != "nt":
@@ -103,6 +129,9 @@ class BashTool(Tool):
                 "directories or read file metadata — prefer the structured `file_list`, "
                 "`file_info`, `file_read`, `glob`, and `grep` tools, which return JSON "
                 "and avoid Windows console-encoding issues. "
+                "For outbound web requests, prefer `web-search`, `web-fetch`, or `weather`; "
+                "when shell networking is necessary, rely on the subprocess proxy environment "
+                "generated from Magi network settings and do not hardcode proxy hosts or ports. "
                 "Destructive commands (rm -rf, git push --force, git reset --hard, etc.) "
                 "are refused unless confirm_destructive=true is passed explicitly."
             ),

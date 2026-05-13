@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from types import SimpleNamespace
 
 from magi.tools.builtin.bash_tool import (
     _build_subprocess_env,
@@ -85,3 +86,30 @@ def test_build_subprocess_env_respects_existing_locale(monkeypatch):
         assert env["LANG"] == "ja_JP.eucJP"
         assert "LC_ALL" not in env
     assert env["PYTHONIOENCODING"] == "utf-8"
+
+
+def test_build_subprocess_env_removes_proxy_when_disabled(monkeypatch):
+    monkeypatch.setenv("HTTP_PROXY", "http://env-proxy:7890")
+    monkeypatch.setattr(
+        "magi.config.get_config",
+        lambda: SimpleNamespace(network=SimpleNamespace(proxy_url=lambda: None)),
+    )
+
+    env = _build_subprocess_env()
+
+    assert "HTTP_PROXY" not in env
+    assert "http_proxy" not in env
+
+
+def test_build_subprocess_env_uses_configured_proxy(monkeypatch):
+    monkeypatch.setattr(
+        "magi.config.get_config",
+        lambda: SimpleNamespace(
+            network=SimpleNamespace(proxy_url=lambda: "http://127.0.0.1:7890")
+        ),
+    )
+
+    env = _build_subprocess_env()
+
+    assert env["HTTP_PROXY"] == "http://127.0.0.1:7890"
+    assert env["HTTPS_PROXY"] == "http://127.0.0.1:7890"

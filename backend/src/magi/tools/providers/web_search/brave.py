@@ -41,6 +41,7 @@ class BraveSearchProvider(Provider):
         """
         query = params["query"]
         num_results = params.get("num_results", 10)
+        proxy_url = str(params.get("proxy_url") or "").strip() or None
 
         if not config.api_key:
             raise ValueError("Brave API key not configured")
@@ -56,8 +57,8 @@ class BraveSearchProvider(Provider):
             "count": num_results,
         }
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers, params=request_params) as response:
+        async with aiohttp.ClientSession(trust_env=False) as session:
+            async with session.get(url, headers=headers, params=request_params, proxy=proxy_url) as response:
                 if response.status != 200:
                     error_text = await response.text()
                     raise Exception(f"Brave API error: {response.status} - {error_text}")

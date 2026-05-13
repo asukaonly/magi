@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Any, Optional
 
 from ..schema import ToolErrorCode, ToolExecutionContext, ToolResult
@@ -295,6 +296,9 @@ class SystemSettingsActionsMixin:
 
         if target_type == float:
             return float(value)
+
+        if isinstance(current_value, Enum):
+            return target_type(value)
 
         if target_type == list:
             import json

@@ -133,6 +133,7 @@ class QWeatherProvider(Provider):
         days = 3
         if mode == "forecast":
             days = int(params.get("days", 3) or 3)
+        proxy_url = str(params.get("proxy_url") or "").strip() or None
 
         if not config.api_key:
             raise ValueError("QWeather API key not configured")
@@ -151,7 +152,7 @@ class QWeatherProvider(Provider):
         )
 
         # First, resolve location to LocationID if it's a city name
-        location_id = await self._resolve_location(location, credential, api_host)
+        location_id = await self._resolve_location(location, credential, api_host, proxy_url)
 
         if mode == "forecast":
             forecast_data = await self._query_forecast(
@@ -161,6 +162,7 @@ class QWeatherProvider(Provider):
                 lang=lang,
                 days=days,
                 auth_headers=auth_headers,
+                proxy_url=proxy_url,
             )
             return {
                 "location": location,
@@ -178,6 +180,7 @@ class QWeatherProvider(Provider):
             api_host=api_host,
             lang=lang,
             auth_headers=auth_headers,
+            proxy_url=proxy_url,
         )
         return {
             "location": location,
@@ -191,7 +194,8 @@ class QWeatherProvider(Provider):
         self,
         location: str,
         api_key: str,
-        api_host: str
+        api_host: str,
+        proxy_url: Optional[str] = None,
     ) -> str:
         """
         Resolve location to LocationID.
@@ -222,8 +226,8 @@ class QWeatherProvider(Provider):
             params,
         )
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers, params=params) as response:
+        async with aiohttp.ClientSession(trust_env=False) as session:
+            async with session.get(url, headers=headers, params=params, proxy=proxy_url) as response:
                 if response.status != 200:
                     error_text = await response.text()
                     logger.warning(
@@ -261,6 +265,7 @@ class QWeatherProvider(Provider):
         api_host: str,
         lang: str,
         auth_headers: Optional[Dict[str, str]] = None,
+        proxy_url: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Query current weather from QWeather API."""
         url = f"https://{api_host}/v7/weather/now"
@@ -275,8 +280,8 @@ class QWeatherProvider(Provider):
             params,
         )
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers, params=params) as response:
+        async with aiohttp.ClientSession(trust_env=False) as session:
+            async with session.get(url, headers=headers, params=params, proxy=proxy_url) as response:
                 if response.status != 200:
                     error_text = await response.text()
                     logger.warning(
@@ -329,6 +334,7 @@ class QWeatherProvider(Provider):
         lang: str,
         days: int,
         auth_headers: Optional[Dict[str, str]] = None,
+        proxy_url: Optional[str] = None,
     ) -> list[Dict[str, Any]]:
         """Query daily forecast from QWeather API."""
         url = f"https://{api_host}/v7/weather/7d"
@@ -344,8 +350,8 @@ class QWeatherProvider(Provider):
             days,
         )
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers, params=params) as response:
+        async with aiohttp.ClientSession(trust_env=False) as session:
+            async with session.get(url, headers=headers, params=params, proxy=proxy_url) as response:
                 if response.status != 200:
                     error_text = await response.text()
                     logger.warning(

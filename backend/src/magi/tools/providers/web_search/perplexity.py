@@ -41,6 +41,7 @@ class PerplexitySearchProvider(Provider):
         """
         query = params["query"]
         num_results = params.get("num_results", 10)
+        proxy_url = str(params.get("proxy_url") or "").strip() or None
 
         if not config.api_key:
             raise ValueError("Perplexity API key not configured")
@@ -65,8 +66,8 @@ class PerplexitySearchProvider(Provider):
             "max_tokens": 2000,
         }
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, headers=headers, json=payload) as response:
+        async with aiohttp.ClientSession(trust_env=False) as session:
+            async with session.post(url, headers=headers, json=payload, proxy=proxy_url) as response:
                 if response.status != 200:
                     error_text = await response.text()
                     raise Exception(f"Perplexity API error: {response.status} - {error_text}")

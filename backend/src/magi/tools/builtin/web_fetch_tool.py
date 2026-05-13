@@ -218,6 +218,7 @@ class WebFetchTool(MultiProviderTool):
             "url": url,
             "timeout_ms": timeout_ms,
             "wait_until": wait_until,
+            "proxy_url": get_config().network.proxy_url(),
         }
 
         if mode != "auto":
