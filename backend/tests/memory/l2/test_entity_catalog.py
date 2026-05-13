@@ -137,10 +137,36 @@ async def test_record_mention_preserves_surface_form_and_evidence_event_ids():
 
 @pytest.mark.asyncio
 async def test_list_entities_returns_canonical_names_and_aliases():
+    from magi.core.sqlite import sqlite_connection_async
     from magi.memory.l2.entities.catalog import L2EntityCatalog
 
     with tempfile.TemporaryDirectory() as temp_dir:
         db_path = str(Path(temp_dir) / "memory.db")
+        async with sqlite_connection_async(db_path) as db:
+            await db.executescript(
+                """
+                CREATE TABLE entity_catalog (
+                    entity_id TEXT PRIMARY KEY,
+                    canonical_name TEXT NOT NULL,
+                    entity_type TEXT NOT NULL,
+                    embedding_status TEXT NOT NULL DEFAULT 'disabled',
+                    embedding_profile_id TEXT,
+                    last_embedded_at REAL,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL
+                );
+                CREATE TABLE entity_aliases (
+                    alias_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    entity_id TEXT NOT NULL,
+                    alias_text TEXT NOT NULL,
+                    normalized_alias TEXT NOT NULL,
+                    confidence REAL NOT NULL DEFAULT 1.0,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL,
+                    UNIQUE(entity_id, normalized_alias)
+                );
+                """
+            )
         catalog = L2EntityCatalog(db_path=db_path)
         await catalog.initialize()
 
@@ -150,17 +176,20 @@ async def test_list_entities_returns_canonical_names_and_aliases():
 
         entities = await catalog.list_entities(limit=10)
 
-        assert entities == [
-            {
-                "entity_id": "place:shanghai",
-                "canonical_name": "Shanghai",
-                "entity_type": "place",
-                "embedding_status": "disabled",
-                "embedding_profile_id": None,
-                "last_embedded_at": None,
-                "aliases": ["上海", "魔都"],
-            }
-        ]
+        assert len(entities) == 1
+        assert entities[0] == {
+            "entity_id": "place:shanghai",
+            "canonical_name": "Shanghai",
+            "entity_type": "place",
+            "embedding_status": "disabled",
+            "embedding_profile_id": None,
+            "last_embedded_at": None,
+            "created_at": entities[0]["created_at"],
+            "updated_at": entities[0]["updated_at"],
+            "aliases": ["上海", "魔都"],
+        }
+        assert entities[0]["created_at"] > 0
+        assert entities[0]["updated_at"] > 0
 
 
 @pytest.mark.asyncio

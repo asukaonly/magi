@@ -203,6 +203,8 @@ export interface L2Entity {
   entity_id: string;
   canonical_name: string;
   entity_type: string;
+  created_at?: number | null;
+  updated_at?: number | null;
   aliases: string[];
 }
 

@@ -398,10 +398,17 @@ const formatConfidence = (value: number | null | undefined) => {
 };
 
 const formatEventTime = (timestamp: number | null | undefined) => {
-  if (typeof timestamp !== 'number' || !Number.isFinite(timestamp)) {
+  if (typeof timestamp !== 'number' || !Number.isFinite(timestamp) || timestamp <= 0) {
     return null;
   }
   return new Date(timestamp * 1000).toLocaleString();
+};
+
+const latestPositiveTimestamp = (...timestamps: Array<number | null | undefined>) => {
+  const positiveTimestamps = timestamps.filter(
+    (timestamp): timestamp is number => typeof timestamp === 'number' && Number.isFinite(timestamp) && timestamp > 0
+  );
+  return positiveTimestamps.length > 0 ? Math.max(...positiveTimestamps) : null;
 };
 
 const isRecordValue = (value: unknown): value is Record<string, unknown> => (
@@ -787,6 +794,7 @@ export const L2Tab: React.FC<L2TabProps> = ({
       items: KnowledgeItem[];
       relationIds: Set<string>;
       assertionIds: Set<string>;
+      lastUpdatedAt: number | null;
     };
 
     const drafts = new Map<string, EntityDraft>();
@@ -799,6 +807,13 @@ export const L2Tab: React.FC<L2TabProps> = ({
         existing.sourceEntityIds.add(entityId);
         existing.entityType = existing.entityType || entity?.entity_type || snapshot?.entity_type || entityType || null;
         existing.snapshot = existing.snapshot || snapshot;
+        existing.lastUpdatedAt = latestPositiveTimestamp(
+          existing.lastUpdatedAt,
+          entity?.updated_at,
+          entity?.created_at,
+          snapshot?.last_interaction_at,
+          snapshot?.last_updated_at
+        );
         return existing;
       }
       const draft: EntityDraft = {
@@ -809,6 +824,12 @@ export const L2Tab: React.FC<L2TabProps> = ({
         items: [],
         relationIds: new Set<string>(),
         assertionIds: new Set<string>(),
+        lastUpdatedAt: latestPositiveTimestamp(
+          entity?.updated_at,
+          entity?.created_at,
+          snapshot?.last_interaction_at,
+          snapshot?.last_updated_at
+        ),
       };
       drafts.set(overviewKey, draft);
       return draft;
@@ -845,9 +866,11 @@ export const L2Tab: React.FC<L2TabProps> = ({
           draft.assertionIds.size,
           getRecordNumber(currentContext, 'active_assertion_count') ?? 0
         );
-        const lastUpdatedAt = snapshot?.last_interaction_at || snapshot?.last_updated_at || Math.max(
-          0,
-          ...draft.items.map((item) => item.updatedAt || 0)
+        const lastUpdatedAt = latestPositiveTimestamp(
+          snapshot?.last_interaction_at,
+          snapshot?.last_updated_at,
+          draft.lastUpdatedAt,
+          ...draft.items.map((item) => item.updatedAt)
         );
         const interactionCount = snapshot?.interaction_count ?? getRecordNumber(currentContext, 'interaction_count') ?? 0;
         const score = reviewItems.length * 6 + activeItems.length * 3 + relationCount + assertionCount + interactionCount * 0.1 + (lastUpdatedAt ? lastUpdatedAt / 1_000_000_000 : 0);

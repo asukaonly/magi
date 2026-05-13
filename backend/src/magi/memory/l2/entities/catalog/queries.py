@@ -342,7 +342,8 @@ class L2EntityCatalogQueryMixin:
     ) -> list[dict[str, Any]]:
         host = self._query_host()
         query = """
-            SELECT entity_id, canonical_name, entity_type, embedding_status, embedding_profile_id, last_embedded_at
+            SELECT entity_id, canonical_name, entity_type, embedding_status, embedding_profile_id,
+                   last_embedded_at, created_at, updated_at
             FROM entity_catalog
         """
         args: list[Any] = []
@@ -394,6 +395,8 @@ class L2EntityCatalogQueryMixin:
                 "last_embedded_at": float(row["last_embedded_at"])
                 if row["last_embedded_at"] is not None
                 else None,
+                "created_at": float(row["created_at"]),
+                "updated_at": float(row["updated_at"]),
                 "aliases": aliases_by_entity.get(str(row["entity_id"]), []),
             }
             for row in entities
