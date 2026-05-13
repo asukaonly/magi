@@ -408,6 +408,251 @@ async fn native_message_routes_return_history_versions() {
 }
 
 #[tokio::test]
+async fn native_delete_session_route_removes_related_chat_data() {
+    let home = isolated_home("delete-session");
+    let magi_root = home.path().join(".magi");
+    let chat_dir = magi_root.join("data").join("chat");
+    let memory_dir = magi_root.join("data").join("memory");
+    let runtime_dir = magi_root.join("runtime");
+    std::fs::create_dir_all(&chat_dir).unwrap();
+    std::fs::create_dir_all(&memory_dir).unwrap();
+    std::fs::create_dir_all(&runtime_dir).unwrap();
+
+    let conn = rusqlite::Connection::open(chat_dir.join("chat.db")).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE chat_sessions (
+            session_id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            title_overridden INTEGER NOT NULL DEFAULT 0,
+            summary TEXT NOT NULL DEFAULT '',
+            created_at_ms INTEGER NOT NULL,
+            updated_at_ms INTEGER NOT NULL,
+            last_message_at_ms INTEGER,
+            last_user_message_at_ms INTEGER,
+            last_message_preview TEXT NOT NULL DEFAULT '',
+            last_user_message_preview TEXT NOT NULL DEFAULT '',
+            message_count INTEGER NOT NULL DEFAULT 0,
+            history_version INTEGER NOT NULL DEFAULT 0,
+            workspace_path TEXT,
+            archived_at_ms INTEGER,
+            deleted_at_ms INTEGER
+        );
+        CREATE TABLE chat_messages (
+            message_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            turn_id TEXT,
+            user_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            message_kind TEXT NOT NULL,
+            content_text TEXT,
+            payload_json TEXT,
+            is_final INTEGER NOT NULL DEFAULT 1,
+            is_visible INTEGER NOT NULL DEFAULT 1,
+            created_at_ms INTEGER NOT NULL,
+            sequence_no INTEGER NOT NULL DEFAULT 0,
+            replaces_message_id TEXT,
+            replaced_by_message_id TEXT,
+            persona_id TEXT,
+            reply_to_message_id TEXT,
+            label_json TEXT
+        );
+        CREATE TABLE chat_attachments (
+            attachment_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            message_id TEXT,
+            user_id TEXT NOT NULL,
+            mime_type TEXT,
+            original_name TEXT,
+            storage_rel_path TEXT
+        );
+        CREATE TABLE chat_turns (
+            turn_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            ux_plan_json TEXT
+        );
+        INSERT INTO chat_sessions (
+            session_id, user_id, title, title_overridden, summary, created_at_ms, updated_at_ms,
+            last_message_at_ms, last_user_message_at_ms, last_message_preview,
+            last_user_message_preview, message_count, history_version, workspace_path,
+            archived_at_ms, deleted_at_ms
+        ) VALUES (
+            's-delete', 'u1', 'Delete Me', 0, '', 1000, 2000,
+            2000, 1000, 'bye', 'hello', 1, 4, NULL, NULL, NULL
+        );
+        INSERT INTO chat_messages (
+            message_id, session_id, turn_id, user_id, role, message_kind,
+            content_text, payload_json, is_final, is_visible, created_at_ms, sequence_no,
+            replaces_message_id, replaced_by_message_id, persona_id, reply_to_message_id, label_json
+        ) VALUES (
+            'msg-delete', 's-delete', 'turn-delete', 'u1', 'user', 'user_text',
+            'hello', '{}', 1, 1, 1000, 1, NULL, NULL, NULL, NULL, NULL
+        );
+        INSERT INTO chat_attachments (
+            attachment_id, session_id, message_id, user_id, mime_type, original_name, storage_rel_path
+        ) VALUES (
+            'att-delete', 's-delete', 'msg-delete', 'u1', 'text/plain', 'note.txt', 'attachments/note.txt'
+        );
+        INSERT INTO chat_turns (turn_id, session_id, user_id, ux_plan_json) VALUES (
+            'turn-delete', 's-delete', 'u1', '{}'
+        );",
+    )
+    .unwrap();
+    drop(conn);
+
+    let l1_conn = rusqlite::Connection::open(memory_dir.join("l1_events.db")).unwrap();
+    l1_conn
+        .execute_batch(
+            "CREATE TABLE fact_events (
+                id INTEGER PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                session_id TEXT,
+                deleted_at INTEGER
+            );
+            INSERT INTO fact_events (id, user_id, session_id, deleted_at)
+            VALUES (1, 'u1', 's-delete', NULL);",
+        )
+        .unwrap();
+    drop(l1_conn);
+
+    let trace_conn = rusqlite::Connection::open(runtime_dir.join("runtime_trace.db")).unwrap();
+    trace_conn
+        .execute_batch(
+            "CREATE TABLE trace_turns (
+                trace_id TEXT PRIMARY KEY,
+                turn_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                user_id TEXT NOT NULL
+            );
+            CREATE TABLE trace_spans (
+                span_id TEXT PRIMARY KEY,
+                turn_id TEXT NOT NULL
+            );
+            CREATE TABLE trace_llm_calls (
+                call_id TEXT PRIMARY KEY,
+                turn_id TEXT NOT NULL
+            );
+            CREATE TABLE trace_tools (
+                tool_call_id TEXT PRIMARY KEY,
+                turn_id TEXT NOT NULL
+            );
+            CREATE TABLE trace_intent_resolutions (
+                resolution_id TEXT PRIMARY KEY,
+                turn_id TEXT NOT NULL
+            );
+            INSERT INTO trace_turns (trace_id, turn_id, session_id, user_id)
+            VALUES ('trace-1', 'turn-delete', 's-delete', 'u1');
+            INSERT INTO trace_spans (span_id, turn_id) VALUES ('span-1', 'turn-delete');
+            INSERT INTO trace_llm_calls (call_id, turn_id) VALUES ('llm-1', 'turn-delete');
+            INSERT INTO trace_tools (tool_call_id, turn_id) VALUES ('tool-1', 'turn-delete');
+            INSERT INTO trace_intent_resolutions (resolution_id, turn_id)
+            VALUES ('intent-1', 'turn-delete');",
+        )
+        .unwrap();
+    drop(trace_conn);
+
+    let state = test_state().await;
+    let router = api::build_router(state);
+    let (status, response) = request_json(
+        router.clone(),
+        "DELETE",
+        "/api/messages/session/s-delete?user_id=u1",
+        None,
+    )
+    .await;
+
+    assert_eq!(status, 200, "response={response:?} home={:?}", home.path());
+    assert_eq!(response["success"], true);
+    assert_eq!(response["deleted_session_id"], "s-delete");
+
+    let conn = rusqlite::Connection::open(chat_dir.join("chat.db")).unwrap();
+    let deleted_at_ms: Option<i64> = conn
+        .query_row(
+            "SELECT deleted_at_ms FROM chat_sessions WHERE session_id = 's-delete'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let history_version: i64 = conn
+        .query_row(
+            "SELECT history_version FROM chat_sessions WHERE session_id = 's-delete'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let message_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM chat_messages WHERE session_id = 's-delete'", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    let attachment_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM chat_attachments WHERE session_id = 's-delete'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let turn_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM chat_turns WHERE session_id = 's-delete'", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    drop(conn);
+
+    assert!(deleted_at_ms.is_some());
+    assert_eq!(history_version, 5);
+    assert_eq!(message_count, 0);
+    assert_eq!(attachment_count, 0);
+    assert_eq!(turn_count, 0);
+
+    let l1_conn = rusqlite::Connection::open(memory_dir.join("l1_events.db")).unwrap();
+    let l1_count: i64 = l1_conn
+        .query_row(
+            "SELECT COUNT(*) FROM fact_events WHERE session_id = 's-delete'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    drop(l1_conn);
+    assert_eq!(l1_count, 0);
+
+    let trace_conn = rusqlite::Connection::open(runtime_dir.join("runtime_trace.db")).unwrap();
+    let trace_turn_count: i64 = trace_conn
+        .query_row(
+            "SELECT COUNT(*) FROM trace_turns WHERE session_id = 's-delete'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let trace_span_count: i64 = trace_conn
+        .query_row("SELECT COUNT(*) FROM trace_spans", [], |row| row.get(0))
+        .unwrap();
+    let trace_llm_count: i64 = trace_conn
+        .query_row("SELECT COUNT(*) FROM trace_llm_calls", [], |row| row.get(0))
+        .unwrap();
+    let trace_tool_count: i64 = trace_conn
+        .query_row("SELECT COUNT(*) FROM trace_tools", [], |row| row.get(0))
+        .unwrap();
+    let trace_intent_count: i64 = trace_conn
+        .query_row("SELECT COUNT(*) FROM trace_intent_resolutions", [], |row| row.get(0))
+        .unwrap();
+    drop(trace_conn);
+
+    assert_eq!(trace_turn_count, 0);
+    assert_eq!(trace_span_count, 0);
+    assert_eq!(trace_llm_count, 0);
+    assert_eq!(trace_tool_count, 0);
+    assert_eq!(trace_intent_count, 0);
+
+    let (status, sessions) = request_json(router, "GET", "/api/messages/sessions?user_id=u1", None).await;
+    assert_eq!(status, 200, "sessions={sessions:?} home={:?}", home.path());
+    assert_eq!(sessions["count"], 0);
+    assert_eq!(sessions["sessions"].as_array().unwrap().len(), 0);
+    drop(home);
+}
+
+#[tokio::test]
 async fn native_task_create_persists_owned_product_fields() {
     let home = isolated_home("task-create");
     let runtime_dir = home.path().join(".magi").join("runtime");

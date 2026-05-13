@@ -459,3 +459,141 @@ fn do_hide_message(session_id: &str, message_id: &str, user_id: &str) -> bool {
         false
     }
 }
+
+#[derive(Deserialize)]
+pub struct DeleteSessionQuery {
+    pub user_id: Option<String>,
+}
+
+/// DELETE /api/messages/session/:session_id — delete a session and related chat data.
+pub async fn delete_session(
+    Path(session_id): Path<String>,
+    Query(q): Query<DeleteSessionQuery>,
+) -> (StatusCode, Json<Value>) {
+    let user_id = q.user_id.unwrap_or_else(|| DEFAULT_USER_ID.to_string());
+    let sid = session_id.clone();
+    let uid = user_id.clone();
+    let result = tokio::task::spawn_blocking(move || do_delete_session(&uid, &sid))
+        .await
+        .unwrap_or(None);
+
+    match result {
+        Some(()) => (
+            StatusCode::OK,
+            Json(json!({
+                "success": true,
+                "user_id": user_id,
+                "deleted_session_id": session_id,
+            })),
+        ),
+        None => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"detail": "Failed to delete session"})),
+        ),
+    }
+}
+
+fn do_delete_session(user_id: &str, session_id: &str) -> Option<()> {
+    delete_l1_fact_rows(user_id, session_id);
+    delete_runtime_trace_rows(user_id, session_id);
+
+    let mut conn = match open_chat_db_rw() {
+        Some(connection) => connection,
+        None => return Some(()),
+    };
+    let tx = conn.transaction().ok()?;
+
+    if table_exists(&tx, "chat_messages") {
+        tx.execute(
+            "DELETE FROM chat_messages WHERE user_id = ?1 AND session_id = ?2",
+            rusqlite::params![user_id, session_id],
+        )
+        .ok()?;
+    }
+
+    if table_exists(&tx, "chat_attachments") {
+        tx.execute(
+            "DELETE FROM chat_attachments WHERE user_id = ?1 AND session_id = ?2",
+            rusqlite::params![user_id, session_id],
+        )
+        .ok()?;
+    }
+
+    if table_exists(&tx, "chat_turns") {
+        tx.execute(
+            "DELETE FROM chat_turns WHERE user_id = ?1 AND session_id = ?2",
+            rusqlite::params![user_id, session_id],
+        )
+        .ok()?;
+    }
+
+    if table_exists(&tx, "chat_sessions") {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()?
+            .as_millis() as i64;
+        tx.execute(
+            "UPDATE chat_sessions \
+             SET deleted_at_ms = ?1, updated_at_ms = ?1, history_version = history_version + 1 \
+             WHERE user_id = ?2 AND session_id = ?3 AND deleted_at_ms IS NULL",
+            rusqlite::params![now_ms, user_id, session_id],
+        )
+        .ok()?;
+    }
+
+    tx.commit().ok()?;
+    Some(())
+}
+
+fn delete_l1_fact_rows(user_id: &str, session_id: &str) {
+    let Some(conn) = db::open_readwrite(&db::l1_events_db_path()) else {
+        return;
+    };
+    if !table_exists(&conn, "fact_events") {
+        return;
+    }
+    conn.execute(
+        "DELETE FROM fact_events WHERE user_id = ?1 AND session_id = ?2",
+        rusqlite::params![user_id, session_id],
+    )
+    .ok();
+}
+
+fn delete_runtime_trace_rows(user_id: &str, session_id: &str) {
+    let Some(conn) = db::open_readwrite(&db::runtime_trace_db_path()) else {
+        return;
+    };
+    if !table_exists(&conn, "trace_turns") {
+        return;
+    }
+
+    conn.execute(
+        "DELETE FROM trace_turns WHERE user_id = ?1 AND session_id = ?2",
+        rusqlite::params![user_id, session_id],
+    )
+    .ok();
+
+    for table_name in [
+        "trace_spans",
+        "trace_llm_calls",
+        "trace_tools",
+        "trace_intent_resolutions",
+    ] {
+        if !table_exists(&conn, table_name) {
+            continue;
+        }
+        let sql = format!(
+            "DELETE FROM {table_name} WHERE turn_id NOT IN (SELECT turn_id FROM trace_turns)"
+        );
+        conn.execute(&sql, []).ok();
+    }
+}
+
+fn table_exists(conn: &Connection, table_name: &str) -> bool {
+    conn.query_row(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1 LIMIT 1",
+        rusqlite::params![table_name],
+        |_| Ok(()),
+    )
+    .is_ok()
+}

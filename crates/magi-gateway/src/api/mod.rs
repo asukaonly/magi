@@ -75,7 +75,8 @@ pub fn build_router(state: ApiState) -> Router {
         )
         .route(
             "/api/messages/session/{session_id}",
-            axum::routing::patch(messages::rename_session),
+            axum::routing::patch(messages::rename_session)
+                .delete(messages::delete_session),
         )
         .route("/api/messages/trace", axum::routing::get(trace::get_trace))
         // Tasks
