@@ -78,8 +78,17 @@ cargo test -p magi-gateway
 - Add or update tests when behavior changes. If automated coverage is not practical, document the validation you performed.
 - Prefer direct fixes over compatibility shims.
 - Use English for commit messages, code comments, docstrings, logs, and error messages.
-- Use Conventional Commits for commit subjects when possible.
+- Use Conventional Commits for commit subjects.
 - Do not mix unrelated changes in the same pull request.
+- Avoid refactor-only pull requests unless the refactor is required to ship a concrete fix, feature, or documented cleanup.
+
+## Before you open a pull request
+
+- For larger features, architecture changes, plugin contract changes, or workflow changes, start with an Issue or Discussion first.
+- Run the narrowest relevant validation locally before asking for review.
+- Update docs in the same pull request when product behavior, setup steps, runtime boundaries, or repository ownership change.
+- Keep the pull request focused on one problem or one independently reviewable change.
+- For UI changes, include screenshots or a short recording.
 
 ## Pull requests
 
@@ -87,6 +96,33 @@ cargo test -p magi-gateway
 - Include a concise description of the problem, the approach, and the validation you ran.
 - Include screenshots or recordings for UI changes when helpful.
 - Link related issues or discussions when relevant.
+
+## Commit message guidelines
+
+Use Conventional Commits:
+
+- `feat`: new user-facing behavior or capability
+- `fix`: bug fix or regression repair
+- `refactor`: internal restructuring without changing behavior
+- `perf`: performance improvement
+- `docs`: documentation-only changes
+- `test`: tests added or updated
+- `chore`: maintenance or tooling work
+- `revert`: revert a previous commit
+
+Recommended rules:
+
+- Write the subject in English and imperative mood.
+- Keep the subject concise. `type: short summary` is the preferred format.
+- Commit one independently reversible task at a time.
+- Add a body for non-trivial commits to explain why, scope, and impact.
+- Do not include tool or model branding in commit messages.
+
+Examples:
+
+- `feat: add schedule execution history panel`
+- `fix: preserve session workspace on rename`
+- `docs: clarify plugin repository ownership`
 
 ## Plugin contributions
 
