@@ -791,15 +791,16 @@ def test_discover_llm_models_returns_clear_error_for_unsupported_format():
     app.include_router(llm_router, prefix="/llm")
     client = TestClient(app)
 
-    response = client.post(
-        "/llm/providers/discover-models",
-        json={
-            "provider_type": "custom",
-            "base_url": "https://proxy.example.com/v1",
-            "api_key": "sk-test",
-            "api_format": "custom",
-        },
-    )
+    with language_context("en"):
+        response = client.post(
+            "/llm/providers/discover-models",
+            json={
+                "provider_type": "custom",
+                "base_url": "https://proxy.example.com/v1",
+                "api_key": "sk-test",
+                "api_format": "custom",
+            },
+        )
 
     assert response.status_code == 400
     assert "Unsupported" in response.json()["detail"]
@@ -1293,4 +1294,4 @@ def test_complete_onboarding_quick_mode_uses_scenario_seed_personality(
     response = client.post("/config/onboarding-complete", json=payload.model_dump(mode="json"))
 
     assert response.status_code == 200
-    assert captured["name"] == "Jinx"
+    assert captured["name"] == "Halberd"

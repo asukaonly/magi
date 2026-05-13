@@ -88,8 +88,8 @@
         "desc": "Warmer and better suited for long-running companionship and life logging over time."
       },
       "knowledgePartner": {
-        "name": "Jinx",
-        "desc": "Sharper and more skeptical, well suited for breaking down ideas, research, and deeper analysis."
+        "name": "Halberd",
+        "desc": "More direct and demanding, well suited for pressure-testing ideas, research, and deeper analysis."
       },
       "default": {
         "name": "Nova",

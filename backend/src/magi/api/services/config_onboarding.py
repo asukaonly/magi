@@ -18,20 +18,20 @@ logger = get_logger(__name__)
 
 QUICK_MODE_PERSONALITY_SEEDS: dict[str, dict[str, str]] = {
     "chat_assistant": {
-        "zh": "echo_ai_assistant",
-        "en": "nova_assistant",
+        "zh": "echo",
+        "en": "nova",
     },
     "life_monitor": {
-        "zh": "sumen_listener",
-        "en": "ember_listener",
+        "zh": "sumen",
+        "en": "ember",
     },
     "knowledge_partner": {
-        "zh": "seven_hacker",
-        "en": "jinx_hacker",
+        "zh": "sichen",
+        "en": "halberd",
     },
     "default": {
-        "zh": "echo_ai_assistant",
-        "en": "nova_assistant",
+        "zh": "echo",
+        "en": "nova",
     },
 }
 

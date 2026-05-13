@@ -294,15 +294,15 @@ describe('OnboardingFlow', () => {
       success: true,
       data: [
         {
-          seed_slug: 'jinx_hacker',
-          name: 'Jinx',
+          seed_slug: 'halberd',
+          name: 'Halberd',
           description: '',
           avatar: '',
           group: 'general',
-          order: 2,
+          order: 4,
         },
         {
-          seed_slug: 'nova_assistant',
+          seed_slug: 'nova',
           name: 'Nova',
           description: '',
           avatar: '',
@@ -315,20 +315,20 @@ describe('OnboardingFlow', () => {
       success: true,
       data: [
         {
-          persona_id: 'uuid-jinx',
-          name: 'Jinx',
-          slug: 'jinx_hacker',
+          persona_id: 'uuid-halberd',
+          name: 'Halberd',
+          slug: 'halberd',
           locale: 'en',
           avatar_path: '',
           group_name: 'general',
-          sort_order: 2,
+          sort_order: 4,
           is_builtin: true,
           description: '',
         },
         {
           persona_id: 'uuid-nova',
           name: 'Nova',
-          slug: 'nova_assistant',
+          slug: 'nova',
           locale: 'en',
           avatar_path: '',
           group_name: 'general',
@@ -338,7 +338,7 @@ describe('OnboardingFlow', () => {
         },
       ],
     } as any);
-    vi.spyOn(personasApi, 'setActive').mockResolvedValue({ success: true, persona_id: 'uuid-jinx' });
+    vi.spyOn(personasApi, 'setActive').mockResolvedValue({ success: true, persona_id: 'uuid-halberd' });
     vi.spyOn(apiClient, 'get').mockResolvedValue({
       data: {
         success: true,
@@ -355,7 +355,7 @@ describe('OnboardingFlow', () => {
 
     await user.click(await screen.findByRole('button', { name: 'actions.enterApp' }));
 
-    await waitFor(() => expect(personasApi.setActive).toHaveBeenCalledWith('uuid-jinx'));
+    await waitFor(() => expect(personasApi.setActive).toHaveBeenCalledWith('uuid-halberd'));
     expect(personasApi.seedPreviews).toHaveBeenCalledWith('en');
   });
 

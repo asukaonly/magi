@@ -130,22 +130,26 @@ export const ScenarioSelection: React.FC<ScenarioSelectionProps> = ({ value, onC
                 onClick={() => onChange(scenario.id)}
                 aria-pressed={selected}
                 className={cn(
-                  'flex h-full w-full flex-col items-center rounded-lg border bg-background px-3 py-3.5 text-center transition',
+                  'flex h-full w-full flex-col rounded-lg border bg-background px-3 py-3.5 text-center transition',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
                   selected
                     ? 'border-primary bg-primary/5 shadow-sm'
                     : 'border-border hover:border-primary/40'
                 )}
               >
-                <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                  <Icon className="h-4 w-4" />
+                <div className="flex flex-1 flex-col items-center">
+                  <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <Icon className="h-4 w-4" />
+                  </div>
+                  <div className="text-sm font-semibold">{t(scenario.labelKey)}</div>
+                  <p className="mt-0.5 text-xs leading-snug text-muted-foreground">
+                    {t(scenario.descKey)}
+                  </p>
                 </div>
-                <div className="text-sm font-semibold">{t(scenario.labelKey)}</div>
-                <p className="mt-0.5 text-xs leading-snug text-muted-foreground">
-                  {t(scenario.descKey)}
-                </p>
-                <div className="mt-2 inline-flex rounded-full border border-border/70 bg-muted/55 px-2 py-1 text-[11px] font-medium text-muted-foreground">
-                  {t('scenario.personaBadge')}: {t(personalityMeta.nameKey)}
+                <div className="mt-auto flex w-full justify-center pt-3">
+                  <div className="inline-flex min-h-7 items-center rounded-md border border-border/70 bg-muted/55 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+                    {t('scenario.personaBadge')}: {t(personalityMeta.nameKey)}
+                  </div>
                 </div>
               </button>
             </motion.div>
