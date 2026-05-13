@@ -134,7 +134,7 @@ class L1EventEmbeddingMixin(
                 [
                     (
                         event.event_id,
-                        EMBEDDING_STATUS_FAILED,
+                        embedding_status_code(EMBEDDING_STATUS_FAILED),
                         self._initial_embedding_profile_id(event),
                         0,
                         None,
@@ -143,7 +143,7 @@ class L1EventEmbeddingMixin(
                 ]
             )
             return
-        state_updates: list[tuple[str, str, str | None, int, float | None]] = []
+        state_updates: list[tuple[str, int, str | None, int, float | None]] = []
         profiles_by_id: dict[str, EmbeddingProfile] = {}
         successful_events: list[
             tuple[MemoryEvent, list[ChunkedText], list[Any], EmbeddingProfile]

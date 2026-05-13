@@ -69,44 +69,77 @@ class L1EventFtsMixin:
         async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
             try:
                 phase = "none"
-                time_kw = {"start_time": start_time, "end_time": end_time}
-                query_kw = {
-                    **time_kw,
-                    "limit": limit,
-                    "user_id": user_id,
-                    "l1_retrieval_scopes": l1_retrieval_scopes,
-                }
                 rows: list[tuple[Any, Any]] = []
                 stemmed = ""
                 if strict:
                     exact = build_exact_fts_query(escaped)
                     if exact:
-                        rows = await self._run_bm25_query(db, exact, **query_kw)
+                        rows = await self._run_bm25_query(
+                            db,
+                            exact,
+                            limit=limit,
+                            user_id=user_id,
+                            start_time=start_time,
+                            end_time=end_time,
+                            l1_retrieval_scopes=l1_retrieval_scopes,
+                        )
                         if rows:
                             phase = "exact_and"
                 if not rows:
                     stemmed = build_stemmed_fts_query(escaped)
                     if stemmed:
-                        rows = await self._run_bm25_query(db, stemmed, **query_kw)
+                        rows = await self._run_bm25_query(
+                            db,
+                            stemmed,
+                            limit=limit,
+                            user_id=user_id,
+                            start_time=start_time,
+                            end_time=end_time,
+                            l1_retrieval_scopes=l1_retrieval_scopes,
+                        )
                         if rows:
                             phase = "stemmed_and"
                     else:
                         stemmed = ""
                 if not rows:
-                    rows = await self._run_bm25_query(db, escaped, **query_kw)
+                    rows = await self._run_bm25_query(
+                        db,
+                        escaped,
+                        limit=limit,
+                        user_id=user_id,
+                        start_time=start_time,
+                        end_time=end_time,
+                        l1_retrieval_scopes=l1_retrieval_scopes,
+                    )
                     if rows:
                         phase = "original_and"
                 if not strict:
                     if not rows:
                         for fallback_query in self._build_relaxed_fts_queries(query):
-                            rows = await self._run_bm25_query(db, fallback_query, **query_kw)
+                            rows = await self._run_bm25_query(
+                                db,
+                                fallback_query,
+                                limit=limit,
+                                user_id=user_id,
+                                start_time=start_time,
+                                end_time=end_time,
+                                l1_retrieval_scopes=l1_retrieval_scopes,
+                            )
                             if rows:
                                 phase = "relaxed_phrase"
                                 break
                     if not rows:
                         or_query = build_or_fts_query(escaped)
                         if or_query and or_query != escaped:
-                            rows = await self._run_bm25_query(db, or_query, **query_kw)
+                            rows = await self._run_bm25_query(
+                                db,
+                                or_query,
+                                limit=limit,
+                                user_id=user_id,
+                                start_time=start_time,
+                                end_time=end_time,
+                                l1_retrieval_scopes=l1_retrieval_scopes,
+                            )
                             if rows:
                                 phase = "or_fallback"
                 logger.info(
