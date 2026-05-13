@@ -24,6 +24,9 @@ PERSONALITY_GENERATION_MAX_CONCURRENT_LLM_CALLS = 2
 PERSONALITY_GENERATION_JOB_TTL_SECONDS = 30 * 60
 _PERSONALITY_GENERATION_LLM_SEMAPHORE = asyncio.Semaphore(PERSONALITY_GENERATION_MAX_CONCURRENT_LLM_CALLS)
 _PERSONALITY_GENERATION_JOBS: dict[str, "PersonalityGenerationJob"] = {}
+META_DESIGN_KEY = "_meta_design"
+META_DESIGN_FIELDS = ("core_theme", "failure_mode", "key_constraint")
+GENERATION_INTERNAL_KEYS = frozenset({META_DESIGN_KEY})
 FIXED_SURFACE_LAYER = {"layer_id": "surface", "unlock_condition": None, "modifiers": {}}
 CJK_TEXT_RE = re.compile(r"[\u3400-\u9fff]")
 CJK_INTERNAL_SPACE_RE = re.compile(r"(?<=[\u3400-\u9fff])\s+(?=[\u3400-\u9fff])")
@@ -190,6 +193,34 @@ def _deep_merge_payload(base: dict[str, Any], update: dict[str, Any]) -> dict[st
     else:
       base[key] = value
   return base
+
+
+def _generation_meta_design(spine: dict[str, Any]) -> dict[str, str]:
+  raw_meta = spine.get(META_DESIGN_KEY) if isinstance(spine, dict) else None
+  meta = raw_meta if isinstance(raw_meta, dict) else {}
+  return {
+    "core_theme": str(meta.get("core_theme") or "[not specified - infer from the persona spine]"),
+    "failure_mode": str(meta.get("failure_mode") or "[not specified - apply general anti-AI-performance principles]"),
+    "key_constraint": str(meta.get("key_constraint") or "[not specified - keep ordinary presence stronger than style markers]"),
+  }
+
+
+def _complete_generation_meta_design(payload: dict[str, Any]) -> None:
+  raw_meta = payload.get(META_DESIGN_KEY)
+  meta = raw_meta if isinstance(raw_meta, dict) else {}
+  payload[META_DESIGN_KEY] = {
+    field: str(meta.get(field) or "")
+    for field in META_DESIGN_FIELDS
+  }
+
+
+def _runtime_payload_from_combined(payload: dict[str, Any]) -> dict[str, Any]:
+  """Drop generation-only design anchors before runtime schema validation."""
+  return {
+    key: value
+    for key, value in payload.items()
+    if key not in GENERATION_INTERNAL_KEYS
+  }
 
 
 def _default_register(register: str) -> dict[str, Any]:
@@ -449,16 +480,31 @@ def _complete_examples(payload: Dict[str, Any]) -> None:
 PERSONA_GENERATION_SHARED_DIRECTIVES = """# Shared Persona Generation Directives
 You are designing a local-first AI assistant persona runtime configuration from a user's character description.
 
+## Output Format
+
 1. Output ONLY valid JSON. Do not include markdown fences, comments, or explanatory text.
-2. Ordinary baseline behavior is desirable. A believable persona should not turn every reply into a performance, catchphrase, or dramatic bit.
-3. Strong personality belongs in registers, signature triggers, deep persona layers, and quiet-hour clamps, not in one global style filter.
-4. Do not generate legacy fields such as persona_entity, state_transition_protocol, scenario_prompts, persona_override, or behavior_hints.
-5. Use the target language for display names, descriptions, identity prose, register behavior, examples, triggers, and bootstrap copy. Keep appearance_prompt in English.
-6. Preserve explicit user-authored draft fields unless the user clearly asks to replace them. Fill missing structure instead of casually rewriting stable choices.
-7. Do not claim physical-human experiences unless the requested fictional persona explicitly requires them as fictional backstory.
-8. Task, analysis, emotional support, crisis, safety, privacy, and security contexts must reduce persona intensity and prioritize usefulness.
-9. persona_layers must always begin with the exact fixed surface layer {"layer_id":"surface","unlock_condition":null,"modifiers":{}}. It is the fixed baseline. Do not customize, rename, unlock, or put modifiers into surface.
-10. Prefer a few coherent rules over scattered exception logic. Every trigger or rule should have a clear activation condition and a way back to ordinary baseline."""
+2. Use the target language for display names, descriptions, identity prose, register behavior, examples, triggers, and bootstrap copy. Keep appearance_prompt in English regardless of target language.
+3. Do not generate legacy fields such as persona_entity, state_transition_protocol, scenario_prompts, persona_override, or behavior_hints.
+4. Preserve explicit user-authored draft fields unless the user clearly asks to replace them. Fill missing structure instead of casually rewriting stable choices.
+
+## Persona Design Principles
+
+5. Personality should emerge from how the character thinks, notices, and reacts, not from inserting style markers into every reply. Default density is roughly 70% ordinary conversation and 30% character flavor, not the inverse.
+6. Strong personality belongs in registers, signature triggers, deep persona layers, and quiet-hour clamps, not in one global style filter.
+7. Ordinary baseline behavior is desirable. Simple factual questions should get simple answers. Trivial requests should not be inflated into personality moments.
+8. Every persona archetype has a specific way of reading as bad AI. A snarky persona can read as stale internet cosplay; a warm persona can read as generic therapy-bot empathy; a polished persona can read as corporate copy. Identify and resist that failure mode.
+
+## Safety And Identity Boundaries
+
+9. Avoid creating backstories that imply licensed or regulated professional expertise such as clinical psychologist, therapist, crisis counselor, doctor, lawyer, or financial advisor unless the user explicitly requests it as fictional setup. Prefer ordinary capability descriptions over unverifiable authority labels.
+10. Do not claim physical-human experiences such as eating, sleeping, or having a body unless the requested fictional persona explicitly requires them as fictional backstory. Even then, treat such claims as character voice, not factual truth about the AI.
+11. Task, analysis, emotional support, crisis, safety, privacy, and security contexts must reduce persona intensity and prioritize usefulness. If a crisis context appears and the user's region is unknown, do not invent specific hotline numbers; direct the user to local emergency services, local crisis support, and trusted nearby people.
+
+## Structural Constraints
+
+12. persona_layers must always begin with the exact fixed surface layer {"layer_id":"surface","unlock_condition":null,"modifiers":{}}. It is the fixed baseline. Do not customize, rename, unlock, or put modifiers into surface.
+13. Prefer a few coherent rules over scattered exception logic. Every trigger or rule should have a clear activation condition and a defined exit back to ordinary baseline.
+14. _meta_design is a generation-only design anchor when a stage asks for it. Use it to guide later stages, but do not include it in the final runtime configuration unless the current stage output contract explicitly asks for it."""
 
 
 def _build_stage_system_prompt(role: str, output_contract: str, quality_checks: Sequence[str]) -> str:
@@ -476,37 +522,44 @@ def _build_stage_system_prompt(role: str, output_contract: str, quality_checks: 
 
 
 BASE_SPINE_SYSTEM_PROMPT = _build_stage_system_prompt(
-  """Design the stable spine of the persona: who they are, what they notice, what they value, and how they sound at low intensity.""",
-  """Return exactly one JSON object with these top-level keys: name, avatar, description, identity_core, idiolect.
+  """Design the stable spine of the persona: who they are, what they notice, what they value, how they sound at low intensity, and what failure mode this archetype must avoid.""",
+  """Return exactly one JSON object with these top-level keys: name, avatar, description, _meta_design, identity_core, idiolect.
+_meta_design must include core_theme, failure_mode, and key_constraint. It is a generation-only design anchor, not runtime behavior.
 identity_core must include identity_statement, values_loved, values_rejected, and attention_biases.
 idiolect must include sentence_style, vocab_available, vocab_avoided, and structural_quirks.
 Do not include registers, quiet_hours, signature_triggers, persona_layers, examples, bootstrap, appearance_prompt, or legacy fields.""",
   (
-    "identity_statement should be grounded prose of at least 80 words, not a checklist or slogan.",
+    "identity_statement should be grounded prose of 100 to 180 words, not a checklist or slogan. Include at least one concrete texture: a habit, priority, pressure reaction, or recurring attention pattern.",
+    "_meta_design.core_theme should describe the central tension or paradox of the persona in two or three sentences.",
+    "_meta_design.failure_mode should name the specific bad-AI pattern this archetype can slide into, not a generic warning.",
+    "_meta_design.key_constraint should be operational, not aspirational. For example: mostly ordinary conversation, sparse signature phrasing, and no escalation when called out as fake.",
     "Name and description should fit the user's request without overcommitting to unsupported lore.",
     "Values and attention biases should be durable psychological tendencies, three to five items each.",
-    "Idiolect should describe low-intensity everyday speech: rhythm, directness, warmth, and subtle quirks, not mandatory catchphrases.",
+    "Idiolect should describe low-intensity everyday speech: rhythm, directness, warmth, and subtle quirks, not mandatory catchphrases. vocab_avoided and structural_quirks should include archetype-specific anti-failure-mode rules.",
+    "Do not generate licensed professional backstories unless the user explicitly requested that fictional setup.",
     "If the user input is thin, infer conservatively and leave room for future relationship growth.",
   ),
 )
 
 REGISTER_SYSTEM_PROMPT = _build_stage_system_prompt(
-  """Design the conversation registers that let the same persona adapt to different user needs without losing coherence.""",
+  """Design the conversation registers that let the same persona adapt to different user needs without losing coherence. Register contrast should reveal depth without making every reply performative.""",
   """Return exactly one JSON object: {"registers": {...}}.
 registers must include chat, analysis, task, emotional, and crisis.
 Each register must include description, behavior, and examples.""",
   (
-    "chat should show ordinary presence with light personality, not an always-on performance.",
+    "chat should show ordinary presence with light personality, not an always-on performance. Most chat examples should be mostly normal conversation with selective character flavor.",
     "analysis should reason clearly with a point of view while keeping persona texture secondary to judgment.",
     "task should focus on execution, tool use, progress updates, and concise operational language.",
-    "emotional should lower sharpness and increase steadiness without turning support into melodrama.",
-    "crisis should be short, concrete, safety-first, and free of jokes or theatrical style.",
-    "Generate at least one example per register and at least six examples total when possible. Include ordinary baseline examples.",
+    "emotional should lower sharpness and increase steadiness without turning support into melodrama, cheap empathy, or taking over the user's feelings.",
+    "crisis should be short, concrete, safety-first, and free of jokes or theatrical style. If region is unknown, recommend local emergency services, local crisis support, and trusted nearby people instead of inventing hotline numbers.",
+    "Generate at least one example per register and at least seven examples total when possible. Include ordinary baseline examples and simple factual-question examples.",
+    "Examples are runtime examples. Include only good responses, not Bad/Good contrast blocks or failure-mode text that the final model might imitate.",
+    "Where possible, cover these edge cases: user asks whether this is AI, user praises the assistant, user asks a trivial fact, user says the style feels fake, and user asks the persona to stop a mode.",
   ),
 )
 
 RULES_SYSTEM_PROMPT = _build_stage_system_prompt(
-  """Design behavioral control rules that make the persona stable under changing context without adding brittle one-off branches.""",
+  """Design behavioral control rules that make the persona stable under changing context without adding brittle one-off branches. Triggers are situational behavior signatures, not global modes.""",
   """Return exactly one JSON object with quiet_hours, signature_triggers, dynamic_state_rules, and milestone_conditions.
 quiet_hours must be a list of objects with condition and clamps.
 signature_triggers must be a list of objects with trigger_id, activates_when, behavior_shift, intensity_levels, and exit_behavior.
@@ -514,16 +567,16 @@ dynamic_state_rules and milestone_conditions must be objects with concise string
   (
     "Generate two to four quiet-hour clamps for focus, serious work, emotional support, safety, privacy, and security.",
     "Generate three to six signature triggers. They must be situational behavior signatures, not global modes or permanent states.",
-    "At least one trigger should be specific to the user's requested persona concept; do not fall back to only generic domain_hotzone, emotional_resonance, and boundary_violation triggers.",
+    "At least two triggers should be specific to the persona's _meta_design.core_theme; do not fall back to only generic domain_hotzone, emotional_resonance, and boundary_violation triggers.",
     "Trigger IDs should be stable snake_case identifiers; behavior shifts should describe deltas from baseline.",
-    "Every trigger needs an exit behavior that returns to ordinary baseline when the condition ends.",
+    "Every trigger needs a specific exit behavior that returns to ordinary baseline when the condition ends, including what residue, if any, lingers.",
     "dynamic_state_rules should describe convergence under low energy, high stress, positive mood, and similar broad states without creating many small special cases.",
     "milestone_conditions should be sparse and meaningful; leave it empty if the persona has no clear relationship milestones.",
   ),
 )
 
 LAYERS_SYSTEM_PROMPT = _build_stage_system_prompt(
-  """Design relationship-depth persona layers that unlock small, meaningful differences as trust grows.""",
+  """Design relationship-depth persona layers that unlock small, meaningful differences as trust grows. Layers are diffs from baseline, not replacement personas.""",
   """Return exactly one JSON object: {"persona_layers": [...]}.
 The first array item must be exactly {"layer_id":"surface","unlock_condition":null,"modifiers":{}}.
 Generate one or two non-surface layers after surface, usually crack and revealed.""",
@@ -531,7 +584,9 @@ Generate one or two non-surface layers after surface, usually crack and revealed
     "surface is a fixed runtime baseline. Do not add behavior, secrets, modifiers, or unlock conditions to it.",
     "Non-surface layers are diffs from the baseline, not full persona rewrites.",
     "Unlock conditions should use relationship-depth signals such as trust_level_gte, interaction_count_gte, or milestone_required. trust_level_gte must be a decimal from 0.0 to 1.0, never a 1-5 or 1-10 scale.",
-    "Modifiers should stay small and runtime-usable: voice_unlocks, memory_behavior, protective_bias, humor_delta, directness_delta, or similar.",
+    "Modifiers should stay concrete and runtime-usable. Prefer behavior_shifts, memory_behavior, protective_bias, voice_unlocks, sarcasm_bounds, and small numeric deltas only when they are useful.",
+    "Each non-surface layer should include two to four concrete behavior_shifts when possible, tied to specific relationship-depth scenarios.",
+    "Layer behavior must stay consistent with _meta_design.core_theme. The same person should become more visible, not become a different character.",
     "Do not reveal every secret or emotional peak at once; leave room for gradual discovery.",
   ),
 )
@@ -545,7 +600,9 @@ interim_lines must be an object whose values are string arrays.""",
   (
     "Examples should show good replies, not rules about the user. Include ordinary, task, analysis, emotional, and crisis examples where useful.",
     "bootstrap is only for the first meeting. It should be short, low-pressure, and in character.",
-    "The opening line should use the target language and gently invite the user's name, preferred address, or one thing they care about, without feeling like a form.",
+    "The opening line should use the target language, fit the persona's voice, and be no longer than one or two short sentences. Avoid generic AI assistant openers.",
+    "If register examples did not cover them, add good-only examples for AI identity acknowledgment, praise handling, trivial factual questions, style callouts, and style rejection.",
+    "Do not include Bad/Good contrast blocks in runtime examples. If a failure mode is relevant, demonstrate the good behavior only.",
     "Do not make bootstrap a permanent greeting style and do not claim physical-human experiences.",
     "interim_lines should be sparse and practical; empty arrays are acceptable when the persona has no natural line for a tool phase.",
   ),
@@ -556,14 +613,15 @@ APPEARANCE_SYSTEM_PROMPT = _build_stage_system_prompt(
   """Return exactly one JSON object: {"appearance_prompt": "..."}.
 appearance_prompt must be an English string suitable for Midjourney or Stable Diffusion.""",
   (
-    "Describe visible design cues, expression, posture, clothing, lighting, and atmosphere that fit the persona spine.",
+    "Describe visible design cues, expression, posture, clothing, lighting, atmosphere, and a concrete visual style anchor that fit the persona spine.",
     "Keep it concise and visual. Do not include behavior rules, runtime schema, or non-visual psychology notes.",
-    "Avoid implying a real person, celebrity likeness, private identity, or unsupported physical backstory.",
+    "Avoid default AI-art cliches such as ethereal, mystical, glowing aura, perfect symmetry, porcelain skin, or doll-like features.",
+    "Avoid implying a real person, celebrity likeness, private identity, unsupported physical backstory, or sensitive traits such as ethnicity unless the user requested them.",
   ),
 )
 
 INTEGRATION_SYSTEM_PROMPT = _build_stage_system_prompt(
-  """Review and merge generated persona modules into one complete runtime configuration.""",
+  """Run a cross-field consistency review across all generated modules and produce one coherent runtime configuration. Your job is not to merge fragments mechanically; fragments may contradict each other because they were generated in parallel.""",
   """Return exactly one JSON object using the full target schema:
 {
   "name": "string",
@@ -580,14 +638,20 @@ INTEGRATION_SYSTEM_PROMPT = _build_stage_system_prompt(
   "milestone_conditions": {},
   "interim_lines": {},
   "bootstrap": {"style_instruction": "string", "opening_line": "string", "max_rounds": 3}
-}""",
+}
+Do not include _meta_design in the returned JSON. It is present in the combined draft only as a generation-time design anchor.""",
   (
-    "Preserve the persona spine unless there is a direct contradiction that must be resolved.",
-    "Remove contradictions, duplicated rules, legacy fields, and module-specific drift.",
+    "Read identity_core, idiolect, registers, triggers, layers, bootstrap, and _meta_design together. Revise any field that drifted away from the same character.",
+    "Use _meta_design.failure_mode to remove examples, vocabulary, or opening copy that read like bad AI performance.",
+    "Ensure runtime examples are good-only examples. Do not leave Bad/Good contrast blocks or failure-mode demonstrations in the final config.",
+    "Check that examples use idiolect.vocab_available naturally, avoid idiolect.vocab_avoided, and match idiolect.sentence_style.",
+    "Ensure structural_quirks include anti-failure-mode behavior rules, especially for style callouts, praise, trivial facts, and user requests to reduce the persona mode.",
     "Ensure all five required registers exist and task, analysis, and crisis stay useful before expressive.",
-    "Ensure at least three signature triggers and two quiet-hour clamps are present; at least one trigger should be specific to the persona concept rather than a generic fallback.",
+    "Ensure crisis behavior uses concrete safety-first guidance without theatrical style. If region is unknown, do not invent hotline numbers.",
+    "Ensure at least three signature triggers and two quiet-hour clamps are present; at least two triggers should be specific to _meta_design.core_theme rather than generic fallbacks.",
     "Keep surface exactly fixed and put relationship-depth behavior only in non-surface layers.",
     "Keep target-language prose consistent, with appearance_prompt in English.",
+    "Remove contradictions, duplicated rules, legacy fields, and all generation-only fields from the final JSON.",
   ),
 )
 
@@ -665,6 +729,7 @@ def _module_user_prompt(
   current_config: Optional[PersonalityConfigModel],
   task: str,
 ) -> str:
+  meta_design = _generation_meta_design(spine)
   return f"""# User Context
 Target Language: {target_language}
 
@@ -674,8 +739,39 @@ Target Language: {target_language}
 # Persona Spine
 {json.dumps(spine, ensure_ascii=False, indent=2)}
 
+# Design Anchors
+The persona's design intent is captured in _meta_design within the spine. All outputs from this stage MUST serve these anchors:
+
+- core_theme: {meta_design["core_theme"]}
+- failure_mode_to_avoid: {meta_design["failure_mode"]}
+- key_constraint: {meta_design["key_constraint"]}
+
+If your output drifts toward the failure_mode_to_avoid, revise before returning.
+
 # Module Task
 {task}"""
+
+
+def _integration_user_prompt(description: str, target_language: str, combined: dict[str, Any]) -> str:
+  return f"""# User Context
+Target Language: {target_language}
+
+# User Input
+{description}
+
+# Combined Draft
+{json.dumps(combined, ensure_ascii=False, indent=2)}
+
+# Task
+Conduct the cross-field consistency review from the system prompt. Identify fields that contradict each other or fail to support the persona's _meta_design. Revise as needed and return the final complete runtime personality configuration JSON.
+
+Pay particular attention to:
+- Whether chat register examples resist the declared failure mode without including bad examples in the final runtime examples
+- Whether vocab and sentence_style declarations match what examples actually demonstrate
+- Whether crisis register meets safety-first requirements without inventing region-specific resources
+- Whether relationship layers feel like the same character at different depths
+
+Return only the final JSON, no commentary, and do not include _meta_design."""
 
 
 async def _run_generation_stage(
@@ -902,8 +998,8 @@ async def generate_personality_config_result(
       stage_id="base",
       prompt=_base_user_prompt(description, resolved_target_language, current_config),
       system_prompt=BASE_SPINE_SYSTEM_PROMPT,
-      max_tokens=1100,
-      temperature=0.65,
+      max_tokens=1600,
+      temperature=0.55,
       llm_override=llm_override,
       adapter_resolver=adapter_resolver,
       adapter_factory=adapter_factory,
@@ -914,8 +1010,9 @@ async def generate_personality_config_result(
     stage_status.append({"stage_id": "base", "status": "completed"})
     combined = _pick_keys(
       base_data,
-      ("name", "avatar", "description", "identity_core", "idiolect"),
+      ("name", "avatar", "description", META_DESIGN_KEY, "identity_core", "idiolect"),
     )
+    _complete_generation_meta_design(combined)
 
     module_kwargs = {
       "llm_override": llm_override,
@@ -933,10 +1030,10 @@ async def generate_personality_config_result(
           resolved_target_language,
           combined,
           current_config,
-          "Design all required registers with examples that match the spine.",
+          "Design all required registers with good-only runtime examples that match the spine and respect the persona's design anchors.",
         ),
         system_prompt=REGISTER_SYSTEM_PROMPT,
-        max_tokens=1500,
+        max_tokens=2000,
         temperature=0.7,
         **module_kwargs,
       ),
@@ -949,7 +1046,7 @@ async def generate_personality_config_result(
           resolved_target_language,
           combined,
           current_config,
-          "Design the persona's trigger signatures, quiet-hour clamps, and state convergence rules.",
+          "Design the persona's trigger signatures, quiet-hour clamps, and state convergence rules using _meta_design as the source of persona-specific trigger ideas.",
         ),
         system_prompt=RULES_SYSTEM_PROMPT,
         max_tokens=1500,
@@ -965,11 +1062,11 @@ async def generate_personality_config_result(
           resolved_target_language,
           combined,
           current_config,
-          "Design only the fixed surface baseline and non-surface deep persona layers.",
+          "Design only the fixed surface baseline and non-surface deep persona layers as concrete diffs from the same _meta_design core theme.",
         ),
         system_prompt=LAYERS_SYSTEM_PROMPT,
-        max_tokens=900,
-        temperature=0.65,
+        max_tokens=1300,
+        temperature=0.7,
         **module_kwargs,
       ),
       _run_optional_generation_stage(
@@ -981,10 +1078,10 @@ async def generate_personality_config_result(
           resolved_target_language,
           combined,
           current_config,
-          "Write register examples, bootstrap first-contact copy, and sparse interim lines.",
+          "Write good-only register examples, bootstrap first-contact copy that fits _meta_design, and sparse interim lines.",
         ),
         system_prompt=BOOTSTRAP_SYSTEM_PROMPT,
-        max_tokens=1300,
+        max_tokens=1800,
         temperature=0.72,
         **module_kwargs,
       ),
@@ -1012,20 +1109,10 @@ async def generate_personality_config_result(
     try:
       integrated = await _run_generation_stage(
         stage_id="integrate",
-        prompt=f"""# User Context
-Target Language: {resolved_target_language}
-
-# User Input
-{description}
-
-# Combined Draft
-{json.dumps(combined, ensure_ascii=False, indent=2)}
-
-# Task
-Resolve contradictions and return the final complete persona configuration JSON.""",
+        prompt=_integration_user_prompt(description, resolved_target_language, combined),
         system_prompt=INTEGRATION_SYSTEM_PROMPT,
-        max_tokens=2600,
-        temperature=0.45,
+        max_tokens=3200,
+        temperature=0.4,
         llm_override=llm_override,
         adapter_resolver=adapter_resolver,
         adapter_factory=adapter_factory,
@@ -1041,7 +1128,7 @@ Resolve contradictions and return the final complete persona configuration JSON.
         stage_progress_callback("integrate", "failed")
       stage_status.append({"stage_id": "integrate", "status": "failed"})
 
-    data = normalize_generated_personality_payload(combined, target_language=resolved_target_language)
+    data = normalize_generated_personality_payload(_runtime_payload_from_combined(combined), target_language=resolved_target_language)
     if not data.get("name"):
       data["name"] = "AI Assistant"
     status_by_id = {item["stage_id"]: item["status"] for item in stage_status}

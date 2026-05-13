@@ -19,13 +19,41 @@ class _FakeLLMAdapter:
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
 
+    def _capture_chat_call(self, kwargs: dict[str, object]) -> dict[str, object]:
+        messages = kwargs.get("messages") if isinstance(kwargs.get("messages"), list) else []
+        system_prompt = ""
+        prompt = ""
+        if messages:
+            first = messages[0]
+            if isinstance(first, dict) and first.get("role") == "system":
+                system_prompt = str(first.get("content") or "")
+            last = messages[-1]
+            if isinstance(last, dict):
+                prompt = str(last.get("content") or "")
+        captured = dict(kwargs)
+        captured["system_prompt"] = system_prompt
+        captured["prompt"] = prompt
+        return captured
+
+    async def chat(self, **kwargs):  # type: ignore[no-untyped-def]
+        self.calls.append(self._capture_chat_call(kwargs))
+        return self._content()
+
     async def generate(self, **kwargs):  # type: ignore[no-untyped-def]
         self.calls.append(kwargs)
+        return self._content()
+
+    def _content(self) -> str:
         return """
         {
                     "name": "Astra",
                     "description": "Helpful",
                     "avatar": "",
+                    "_meta_design": {
+                        "core_theme": "Calm steadiness with a practical edge.",
+                        "failure_mode": "Generic assistant politeness with no recognizable center.",
+                        "key_constraint": "Keep most replies ordinary and let precision carry the personality."
+                    },
                     "identity_core": {
                         "identity_statement": "A calm assistant shaped by careful observation and consistent support for users in difficult moments.",
                         "values_loved": ["clarity"],
@@ -40,8 +68,7 @@ class _FakeLLMAdapter:
 
 
 class _NumericAgeLLMAdapter(_FakeLLMAdapter):
-    async def generate(self, **kwargs):  # type: ignore[no-untyped-def]
-        _ = kwargs
+    def _content(self) -> str:
         return """
         {
                     "name": 14,
@@ -76,13 +103,12 @@ class _ConcurrencyTrackingAdapter(_FakeLLMAdapter):
         self.active_calls = 0
         self.max_active_calls = 0
 
-    async def generate(self, **kwargs):  # type: ignore[no-untyped-def]
-        self.calls.append(kwargs)
+    async def chat(self, **kwargs):  # type: ignore[no-untyped-def]
         self.active_calls += 1
         self.max_active_calls = max(self.max_active_calls, self.active_calls)
         try:
             await asyncio.sleep(0.01)
-            return await super().generate(**kwargs)
+            return await super().chat(**kwargs)
         finally:
             self.active_calls -= 1
 
@@ -107,6 +133,7 @@ async def test_ai_generate_personality_uses_core_scenario(monkeypatch) -> None:
     assert len(result.signature_triggers) >= 3
     assert result.persona_layers[0].layer_id == "surface"
     assert result.bootstrap is not None
+    assert "_meta_design" not in result.model_dump()
     assert len(resolver.requested) >= 3
     assert set(resolver.requested) == {LLMScenario.CORE}
 
@@ -223,9 +250,13 @@ async def test_ai_generate_personality_passes_current_draft_to_prompt(monkeypatc
     assert result.name == "Astra"
     prompt = adapter.calls[0]["prompt"]
     system_prompts = "\n".join(str(call["system_prompt"]) for call in adapter.calls)
+    prompts = "\n".join(str(call["prompt"]) for call in adapter.calls)
     assert "# Existing Draft Config" in prompt
     assert "Draft Persona" in prompt
     assert "Keep this explicit draft core" in prompt
+    assert "# Design Anchors" in prompts
+    assert "failure_mode_to_avoid" in prompts
+    assert "Generic assistant politeness" in prompts
     assert "fixed baseline" in system_prompts
     assert "Do not customize, rename, unlock, or put modifiers into surface" in system_prompts
 
@@ -444,9 +475,96 @@ def test_personality_generation_stage_prompts_share_directives() -> None:
         assert "state_transition_protocol" in prompt
 
     assert not hasattr(personality_generation, "PERSONALITY_GENERATION_SYSTEM_PROMPT")
+    assert "generation-only design anchor" in personality_generation.BASE_SPINE_SYSTEM_PROMPT
+    assert "licensed or regulated professional expertise" in personality_generation.PERSONA_GENERATION_SHARED_DIRECTIVES
     assert "Do not add behavior, secrets, modifiers" in personality_generation.LAYERS_SYSTEM_PROMPT
-    assert "at least six examples total" in personality_generation.REGISTER_SYSTEM_PROMPT
+    assert "at least seven examples total" in personality_generation.REGISTER_SYSTEM_PROMPT
+    assert "Include only good responses" in personality_generation.REGISTER_SYSTEM_PROMPT
     assert "few coherent rules" in personality_generation.RULES_SYSTEM_PROMPT
+    assert "cross-field consistency review" in personality_generation.INTEGRATION_SYSTEM_PROMPT
+    assert "Do not include _meta_design" in personality_generation.INTEGRATION_SYSTEM_PROMPT
+
+
+def test_personality_generation_module_prompt_injects_meta_design_anchors() -> None:
+    from magi.api.services import personality_generation
+
+    prompt = personality_generation._module_user_prompt(
+        "一个锋利但可靠的人格",
+        "Chinese",
+        {
+            "name": "Seven",
+            "_meta_design": {
+                "core_theme": "Sharp outside, curious inside.",
+                "failure_mode": "AI stacking stale snark to sound edgy.",
+                "key_constraint": "Use plain speech first; let critique appear only when useful.",
+            },
+        },
+        None,
+        "Design registers.",
+    )
+
+    assert "# Design Anchors" in prompt
+    assert "core_theme: Sharp outside, curious inside." in prompt
+    assert "failure_mode_to_avoid: AI stacking stale snark" in prompt
+    assert "key_constraint: Use plain speech first" in prompt
+
+
+def test_personality_generation_runtime_payload_drops_internal_meta_design() -> None:
+    from magi.api.services import personality_generation
+
+    runtime_payload = personality_generation._runtime_payload_from_combined({
+        "name": "Seven",
+        "_meta_design": {
+            "core_theme": "Sharp outside, curious inside.",
+            "failure_mode": "AI stacking stale snark to sound edgy.",
+            "key_constraint": "Use plain speech first.",
+        },
+        "identity_core": {"identity_statement": "Stable core."},
+    })
+
+    assert runtime_payload == {
+        "name": "Seven",
+        "identity_core": {"identity_statement": "Stable core."},
+    }
+
+
+def test_personality_generation_cleanup_uses_lifecycle_ttl(monkeypatch) -> None:
+    from magi.api.routers import personality_config  # noqa: F401
+
+    personality_generation = sys.modules["magi.api.services.personality_generation"]
+
+    monkeypatch.setattr(
+        "magi.config.get_config",
+        lambda: SimpleNamespace(
+            lifecycle=SimpleNamespace(
+                ephemeral_jobs=SimpleNamespace(personality_generation_ttl_seconds=10)
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        personality_generation,
+        "_PERSONALITY_GENERATION_JOBS",
+        {
+            "expired": personality_generation.PersonalityGenerationJob(
+                job_id="expired",
+                status="completed",
+                stages=[],
+                created_at=0,
+                updated_at=80,
+            ),
+            "recent": personality_generation.PersonalityGenerationJob(
+                job_id="recent",
+                status="completed",
+                stages=[],
+                created_at=0,
+                updated_at=95,
+            ),
+        },
+    )
+
+    personality_generation._cleanup_personality_generation_jobs(now=100)
+
+    assert set(personality_generation._PERSONALITY_GENERATION_JOBS) == {"recent"}
 
 
 def test_normalize_generated_personality_payload_keeps_surface_fixed() -> None:
@@ -530,42 +648,3 @@ def test_normalize_generated_personality_payload_prunes_unknown_layer_modifiers(
         "voice_unlocks": ["rare direct sincerity", "quiet admission"],
         "directness_delta": 0.2,
     }
-
-
-def test_personality_generation_cleanup_uses_lifecycle_ttl(monkeypatch) -> None:
-    from magi.api.routers import personality_config  # noqa: F401
-
-    personality_generation = sys.modules["magi.api.services.personality_generation"]
-
-    monkeypatch.setattr(
-        "magi.config.get_config",
-        lambda: SimpleNamespace(
-            lifecycle=SimpleNamespace(
-                ephemeral_jobs=SimpleNamespace(personality_generation_ttl_seconds=10)
-            )
-        ),
-    )
-    monkeypatch.setattr(
-        personality_generation,
-        "_PERSONALITY_GENERATION_JOBS",
-        {
-            "expired": personality_generation.PersonalityGenerationJob(
-                job_id="expired",
-                status="completed",
-                stages=[],
-                created_at=0,
-                updated_at=80,
-            ),
-            "recent": personality_generation.PersonalityGenerationJob(
-                job_id="recent",
-                status="completed",
-                stages=[],
-                created_at=0,
-                updated_at=95,
-            ),
-        },
-    )
-
-    personality_generation._cleanup_personality_generation_jobs(now=100)
-
-    assert set(personality_generation._PERSONALITY_GENERATION_JOBS) == {"recent"}
