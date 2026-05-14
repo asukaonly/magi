@@ -98,7 +98,10 @@ class MemoryQueryTool(Tool):
                     description=(
                         "Optional time-range constraint. Either {\"relative\": \"<n>d|<n>h|<n>w\"} "
                         "(e.g. {\"relative\": \"7d\"} for last week) or "
-                        "{\"start\": ISO8601, \"end\": ISO8601}. Omit when the user's intent is "
+                        "{\"start\": ISO8601|unix_seconds|common_date_text, \"end\": ISO8601|unix_seconds|common_date_text}. "
+                        "Common date text examples: YYYY/MM/DD, YYYY-MM-DD, YYYY-MM-DD HH:MM:SS. "
+                        "Date-only end boundaries expand to the end of that day. "
+                        "Omit when the user's intent is "
                         "lifetime/profile lookup."
                     ),
                     required=False,

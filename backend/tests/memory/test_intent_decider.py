@@ -272,6 +272,47 @@ class TestRawTimeRange:
         assert result.time_range.start == now - 3600
         assert result.time_range.end == now
 
+    def test_absolute_start_end_accepts_iso8601(self, decider: RuleBasedIntentDecider):
+        start = "2026-05-10T00:00:00+08:00"
+        end = "2026-05-10T23:59:59+08:00"
+        inp = IntentDeciderInput(query="something", raw_time_range={"start": start, "end": end})
+
+        result = decider.evaluate(inp)
+
+        assert result.time_range is not None
+        assert result.time_range.start == datetime.fromisoformat(start).timestamp()
+        assert result.time_range.end == datetime.fromisoformat(end).timestamp()
+
+    def test_absolute_start_end_accepts_common_date_strings(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(
+            query="something",
+            raw_time_range={
+                "start": "2026/05/10",
+                "end": "2026-05-10 12:34:56",
+            },
+        )
+
+        result = decider.evaluate(inp)
+
+        assert result.time_range is not None
+        assert result.time_range.start == datetime(2026, 5, 10, tzinfo=timezone.utc).timestamp()
+        assert result.time_range.end == datetime(2026, 5, 10, 12, 34, 56, tzinfo=timezone.utc).timestamp()
+
+    def test_end_date_only_expands_to_end_of_day(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(
+            query="something",
+            raw_time_range={
+                "start": "2026-05-10",
+                "end": "2026-05-10",
+            },
+        )
+
+        result = decider.evaluate(inp)
+
+        assert result.time_range is not None
+        assert result.time_range.start == datetime(2026, 5, 10, 0, 0, 0, tzinfo=timezone.utc).timestamp()
+        assert result.time_range.end == datetime(2026, 5, 10, 23, 59, 59, 999999, tzinfo=timezone.utc).timestamp()
+
     def test_relative_7d(self, decider: RuleBasedIntentDecider):
         inp = IntentDeciderInput(query="recent", raw_time_range={"relative": "7d"})
         result = decider.evaluate(inp)

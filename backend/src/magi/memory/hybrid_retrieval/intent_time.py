@@ -34,6 +34,13 @@ _WEEKDAY_SPECIFIC_RE = re.compile(
 _MONTH_HINT_RE = re.compile(r"month|月", re.IGNORECASE)
 _DAY_NUMBER_SUFFIX_RE = re.compile(r"\d+\s*[号日]|\d+(?:st|nd|rd|th)\b", re.IGNORECASE)
 _LEADING_PREP_RE = re.compile(r"^(?:in|at|on|for|from)\s+", re.IGNORECASE)
+_DATE_ONLY_BOUNDARY_RE = re.compile(r"^\d{4}[-/]\d{1,2}[-/]\d{1,2}$")
+_COMMON_BOUNDARY_FORMATS: tuple[str, ...] = (
+    "%Y/%m/%d",
+    "%Y-%m-%d",
+    "%Y/%m/%d %H:%M:%S",
+    "%Y-%m-%d %H:%M:%S",
+)
 
 
 def parse_time_range(query: str, raw_time_range: dict[str, Any] | None) -> TimeRange | None:
@@ -44,10 +51,58 @@ def parse_time_range(query: str, raw_time_range: dict[str, Any] | None) -> TimeR
     return parse_time_from_query(query)
 
 
+def _coerce_time_boundary(value: Any, *, boundary: str) -> float:
+    if isinstance(value, bool):
+        raise ValueError("Boolean values are not valid time boundaries")
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    text = str(value).strip()
+    if not text:
+        raise ValueError("Empty string is not a valid time boundary")
+
+    try:
+        return float(text)
+    except ValueError:
+        pass
+
+    normalized = f"{text[:-1]}+00:00" if text.endswith("Z") else text
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        parsed = None
+        for fmt in _COMMON_BOUNDARY_FORMATS:
+            try:
+                parsed = datetime.strptime(text, fmt)
+                break
+            except ValueError:
+                continue
+        if parsed is None:
+            try:
+                from dateparser import parse as dp_parse
+            except ImportError as exc:
+                raise ValueError(
+                    f"Invalid time boundary {value!r}; expected unix seconds, ISO8601, or common date/time text"
+                ) from exc
+
+            parsed = dp_parse(text, languages=["en", "zh"])
+            if parsed is None:
+                raise ValueError(
+                    f"Invalid time boundary {value!r}; expected unix seconds, ISO8601, or common date/time text"
+                )
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    if _DATE_ONLY_BOUNDARY_RE.fullmatch(text):
+        if boundary == "end":
+            return end_of_day(parsed)
+        return start_of_day(parsed)
+    return parsed.timestamp()
+
+
 def parse_raw_time_range(raw: dict[str, Any]) -> TimeRange | None:
     if "start" in raw or "end" in raw:
-        start = float(raw["start"]) if "start" in raw else None
-        end = float(raw["end"]) if "end" in raw else None
+        start = _coerce_time_boundary(raw["start"], boundary="start") if "start" in raw else None
+        end = _coerce_time_boundary(raw["end"], boundary="end") if "end" in raw else None
         return TimeRange(start=start, end=end)
 
     if "relative" in raw:
