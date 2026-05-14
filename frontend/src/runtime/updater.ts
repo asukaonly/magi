@@ -176,6 +176,12 @@ export async function checkForAppUpdate(options: UpdateCheckOptions = {}): Promi
   }
 
   try {
+    console.info('[updater] invoking native updater check command', {
+      currentVersion,
+      proxyConfigured: Boolean(proxy),
+      timeoutMs: timeout,
+    });
+
     const update = await check({ proxy, timeout });
 
     if (update) {
