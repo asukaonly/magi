@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -30,6 +31,27 @@ def _make_fake_claude(dir_path: Path, stdout: str, exit_code: int = 0) -> Path:
     )
     target.chmod(0o755)
     return target
+
+
+def _make_env_node_claude_launcher(root_dir: Path, stdout: str) -> Path:
+    node_bin = root_dir / "bin"
+    node_bin.mkdir(parents=True, exist_ok=True)
+    encoded = stdout.replace("\\", "\\\\").replace('"', '\\"')
+    node = node_bin / "node"
+    node.write_text(
+        "#!/bin/sh\n"
+        "cat > /dev/null\n"
+        f'printf "%s" "{encoded}"\n'
+        "exit 0\n"
+    )
+    node.chmod(0o755)
+
+    launcher_dir = root_dir / "lib" / "node_modules" / "@anthropic-ai" / "claude-code" / "bin"
+    launcher_dir.mkdir(parents=True, exist_ok=True)
+    launcher = launcher_dir / "claude"
+    launcher.write_text("#!/usr/bin/env node\n// fake claude launcher\n")
+    launcher.chmod(0o755)
+    return launcher
 
 
 def _request(tmp_path: Path) -> DelegateRequest:
@@ -328,3 +350,40 @@ async def test_claude_adapter_filters_system_events(tmp_path: Path) -> None:
         if e.kind == "status" and e.payload.get("event") == "system"
     ]
     assert len(system_statuses) == 0, "system events should be filtered"
+
+
+@pytest.mark.asyncio
+async def test_claude_adapter_runs_env_node_launcher_with_stripped_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transcript = json.dumps({
+        "type": "assistant",
+        "message": {"content": [{"type": "text", "text": "Done via env-node"}]},
+    }) + "\n"
+    transcript += json.dumps({
+        "type": "result",
+        "subtype": "success",
+        "total_cost_usd": 0.01,
+        "usage": {"input_tokens": 10, "output_tokens": 5},
+    }) + "\n"
+    launcher = _make_env_node_claude_launcher(
+        tmp_path / "nvm" / "versions" / "node" / "v25.5.0",
+        transcript,
+    )
+    monkeypatch.setenv("PATH", os.pathsep.join(["/usr/bin", "/bin"]))
+
+    adapter = ClaudeCodeAdapter()
+    outcome = await adapter.run(
+        _request(tmp_path),
+        cwd=tmp_path,
+        bundle_dir=tmp_path,
+        stdout_path=tmp_path / "stdout.log",
+        stderr_path=tmp_path / "stderr.log",
+        on_event=_noop_on_event,
+        cancel_token=CancelToken(),
+        binary_path=str(launcher),
+    )
+
+    assert outcome.exit_code == 0
+    assert outcome.summary == "Done via env-node"

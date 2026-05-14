@@ -36,6 +36,30 @@ def _make_fake_binary(dir_path: Path, name: str, exit_code: int = 0, stdout: str
     return target
 
 
+def _make_env_node_launcher(root_dir: Path, name: str, *, version_output: str) -> Path:
+    if sys.platform == "win32":
+        pytest.skip("env-node launcher regression test is POSIX-only")
+
+    node_bin = root_dir / "bin"
+    node_bin.mkdir(parents=True, exist_ok=True)
+    node = node_bin / "node"
+    encoded_output = version_output.replace("\\", "\\\\").replace('"', '\\"')
+    node.write_text(
+        "#!/bin/sh\n"
+        f'if [ "$2" = "--version" ]; then printf "%s\\n" "{encoded_output}"; exit 0; fi\n'
+        "echo unexpected invocation >&2\n"
+        "exit 1\n"
+    )
+    node.chmod(0o755)
+
+    launcher_dir = root_dir / "lib" / "node_modules" / "@openai" / name / "bin"
+    launcher_dir.mkdir(parents=True, exist_ok=True)
+    launcher = launcher_dir / name
+    launcher.write_text("#!/usr/bin/env node\n// fake launcher\n")
+    launcher.chmod(0o755)
+    return launcher
+
+
 def test_probe_one_finds_real_binary(
     isolated_magi_home: Path,
     tmp_path: Path,
@@ -87,6 +111,25 @@ def test_probe_one_settings_override_path_wins(
     assert result.installed
     assert result.binary_path == str(pinned.resolve())
     assert "9.9.9" in (result.version or "")
+
+
+def test_probe_one_supports_env_node_launcher_with_ancestor_runtime_bin(
+    isolated_magi_home: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    launcher = _make_env_node_launcher(
+        tmp_path / "nvm" / "versions" / "node" / "v25.5.0",
+        "codex",
+        version_output="codex 0.42.0",
+    )
+    monkeypatch.setenv("PATH", os.pathsep.join(["/usr/bin", "/bin"]))
+
+    result = probe_one("codex", binary_path_override=str(launcher))
+
+    assert result.installed
+    assert result.error is None
+    assert result.version == "codex 0.42.0"
 
 
 def test_probe_all_returns_both_adapters(

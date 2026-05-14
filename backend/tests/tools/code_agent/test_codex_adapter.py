@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -45,6 +46,38 @@ def _make_fake_codex(
     )
     target.chmod(0o755)
     return target
+
+
+def _make_env_node_codex_launcher(root_dir: Path) -> Path:
+    node_bin = root_dir / "bin"
+    node_bin.mkdir(parents=True, exist_ok=True)
+    node = node_bin / "node"
+    node.write_text(
+        "#!/bin/sh\n"
+        "out_file=\n"
+        "script_path=\"$1\"\n"
+        "shift\n"
+        "while [ \"$1\" != \"\" ]; do\n"
+        "  case \"$1\" in\n"
+        "    -o) out_file=\"$2\"; shift 2;;\n"
+        "    --output-last-message) out_file=\"$2\"; shift 2;;\n"
+        "    -) shift;;\n"
+        "    *) shift;;\n"
+        "  esac\n"
+        "done\n"
+        "cat > /dev/null\n"
+        "if [ -n \"$out_file\" ]; then printf \"%s\" \"Done from env-node shim.\" > \"$out_file\"; fi\n"
+        "printf '%s\\n' '{\"type\":\"task_finished\",\"ok\":true}'\n"
+        "exit 0\n"
+    )
+    node.chmod(0o755)
+
+    launcher_dir = root_dir / "lib" / "node_modules" / "@openai" / "codex" / "bin"
+    launcher_dir.mkdir(parents=True, exist_ok=True)
+    launcher = launcher_dir / "codex"
+    launcher.write_text("#!/usr/bin/env node\n// fake codex launcher\n")
+    launcher.chmod(0o755)
+    return launcher
 
 
 def _request(tmp_path: Path) -> DelegateRequest:
@@ -170,3 +203,29 @@ async def test_codex_adapter_surfaces_stderr_in_error(tmp_path: Path) -> None:
     error_events = [e for e in events if e.kind == "error"]
     assert error_events
     assert "workspace not allowed" in error_events[-1].payload.get("message", "")
+
+
+@pytest.mark.asyncio
+async def test_codex_adapter_runs_env_node_launcher_with_stripped_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    launcher = _make_env_node_codex_launcher(
+        tmp_path / "nvm" / "versions" / "node" / "v25.5.0"
+    )
+    monkeypatch.setenv("PATH", os.pathsep.join(["/usr/bin", "/bin"]))
+
+    adapter = CodexAdapter()
+    outcome = await adapter.run(
+        _request(tmp_path),
+        cwd=tmp_path,
+        bundle_dir=tmp_path,
+        stdout_path=tmp_path / "stdout.log",
+        stderr_path=tmp_path / "stderr.log",
+        on_event=_noop_on_event,
+        cancel_token=CancelToken(),
+        binary_path=str(launcher),
+    )
+
+    assert outcome.exit_code == 0
+    assert outcome.summary == "Done from env-node shim."

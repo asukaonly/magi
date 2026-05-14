@@ -22,6 +22,7 @@ from typing import Optional
 
 from .contracts import AdapterName, ProbeResult
 from ._user_paths import code_agent_probe_cache_path
+from .runtime_env import build_exec_env
 from ...agent.workspace_cache.atomic_io import atomic_write_text
 
 
@@ -102,6 +103,7 @@ def probe_one(
             capture_output=True,
             text=True,
             timeout=PROBE_TIMEOUT_S,
+            env=build_exec_env(binary),
         )
     except subprocess.TimeoutExpired:
         return ProbeResult(

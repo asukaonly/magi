@@ -22,6 +22,7 @@ from ..contracts import (
     RunEvent,
 )
 from ..probe import probe_one
+from ..runtime_env import build_exec_env
 from .base import AdapterRunOutcome, CancelToken, OnEvent
 
 
@@ -52,7 +53,7 @@ class ClaudeCodeAdapter:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(cwd),
-            env=self._build_env(),
+            env=self._build_env(binary_path),
         )
 
         prompt_blob = self._compose_stdin(req)
@@ -199,8 +200,8 @@ class ClaudeCodeAdapter:
             argv += ["--model", req.model]
         return argv
 
-    def _build_env(self) -> dict[str, str]:
-        env = os.environ.copy()
+    def _build_env(self, binary_path: str) -> dict[str, str]:
+        env = build_exec_env(binary_path, base_env=os.environ.copy())
         env.setdefault("PYTHONIOENCODING", "utf-8")
         return env
 
