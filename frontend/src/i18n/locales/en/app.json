@@ -1034,6 +1034,14 @@
     "toolsSkillsDesc": "Choose which skills the agent can use.",
     "toolsEmptyBuiltin": "No configurable built-in tools are available right now.",
     "toolsEmptyPlugins": "No plugin tools are installed right now.",
+    "toolsEmptyWithConfig": "No tools with configurable fields are available in this section.",
+    "toolsEmptyWithoutConfig": "No tools without configurable fields are available in this section.",
+    "toolsFilter": {
+      "label": "Filter",
+      "all": "All",
+      "withConfig": "Has Config",
+      "withoutConfig": "No Config"
+    },
     "actionsDesc": "Configure outbound action capabilities and their declarative settings.",
     "channelsDesc": "Connect external messaging platforms (e.g. Telegram) to chat with AI via the existing pipeline.",
     "channelsTelegramDesc": "Configure Telegram Bot integration, supporting both DM and group chat.",

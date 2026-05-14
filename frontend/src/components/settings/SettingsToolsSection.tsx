@@ -4,10 +4,12 @@ import { useTranslation } from 'react-i18next';
 import { skillsApi, type SkillItem } from '@/api/modules/skills';
 import type { ToolConfig } from '@/api/modules/tools';
 import { DynamicToolsConfig } from '@/components/config-forms/DynamicToolConfig';
+import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import type { ToolDraftMap } from '@/types/settings';
 
 type SettingsToolsView = 'builtin' | 'plugins' | 'skills';
+type ToolConfigFilter = 'all' | 'with-config' | 'without-config';
 
 interface SettingsToolsSectionProps {
   view: SettingsToolsView;
@@ -20,6 +22,9 @@ interface SettingsToolsSectionProps {
   onToolEnabledChange: (toolName: string, enabled: boolean) => void;
   onSelectedSkillsChange: (skills: string[]) => void;
 }
+
+const toolHasEditableConfig = (tool: ToolConfig): boolean =>
+  tool.config_specs.some((spec) => !spec.read_only);
 
 export function SettingsToolsSection({
   view,
@@ -36,6 +41,7 @@ export function SettingsToolsSection({
   const [skills, setSkills] = useState<SkillItem[]>([]);
   const [skillsLoading, setSkillsLoading] = useState(false);
   const [skillsError, setSkillsError] = useState<string | null>(null);
+  const [configFilter, setConfigFilter] = useState<ToolConfigFilter>('all');
 
   const visibleTools = useMemo(() => {
     if (view === 'builtin') {
@@ -46,6 +52,16 @@ export function SettingsToolsSection({
     }
     return [];
   }, [tools, view]);
+
+  const filteredVisibleTools = useMemo(() => {
+    if (configFilter === 'with-config') {
+      return visibleTools.filter(toolHasEditableConfig);
+    }
+    if (configFilter === 'without-config') {
+      return visibleTools.filter((tool) => !toolHasEditableConfig(tool));
+    }
+    return visibleTools;
+  }, [configFilter, visibleTools]);
 
   useEffect(() => {
     if (view !== 'skills') {
@@ -90,13 +106,43 @@ export function SettingsToolsSection({
     const description = view === 'plugins'
       ? t('settings.toolsPluginsDesc')
       : t('settings.toolsBuiltinDesc');
+    const filteredEmptyMessage = configFilter === 'with-config'
+      ? t('settings.toolsEmptyWithConfig')
+      : configFilter === 'without-config'
+        ? t('settings.toolsEmptyWithoutConfig')
+        : emptyMessage;
+    const filterOptions: Array<{ value: ToolConfigFilter; label: string }> = [
+      { value: 'all', label: t('settings.toolsFilter.all') },
+      { value: 'with-config', label: t('settings.toolsFilter.withConfig') },
+      { value: 'without-config', label: t('settings.toolsFilter.withoutConfig') },
+    ];
 
     return (
       <div className="space-y-6">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground/80">
+            {t('settings.toolsFilter.label')}
+          </span>
+          {filterOptions.map((option) => {
+            const isActive = configFilter === option.value;
+            return (
+              <Button
+                key={option.value}
+                type="button"
+                size="sm"
+                variant={isActive ? 'default' : 'outline'}
+                aria-pressed={isActive}
+                onClick={() => setConfigFilter(option.value)}
+              >
+                {option.label}
+              </Button>
+            );
+          })}
+        </div>
         <p className="text-sm leading-6 text-muted-foreground">{description}</p>
-        {visibleTools.length > 0 ? (
+        {filteredVisibleTools.length > 0 ? (
           <DynamicToolsConfig
-            tools={visibleTools}
+            tools={filteredVisibleTools}
             loading={toolsLoading}
             error={toolsError}
             drafts={draftToolDrafts}
@@ -111,7 +157,7 @@ export function SettingsToolsSection({
           </div>
         ) : (
           <div className="rounded-lg border border-[hsl(var(--settings-subnav-border)/0.6)] bg-[hsl(var(--settings-shell-elevated)/0.28)] px-4 py-3 text-sm text-muted-foreground">
-            {emptyMessage}
+            {filteredEmptyMessage}
           </div>
         )}
       </div>

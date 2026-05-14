@@ -110,7 +110,14 @@ vi.mock('@/components/config-forms/DynamicToolConfig', async () => {
   );
   return {
     ...actual,
-    DynamicToolsConfig: () => <div>tools-config</div>,
+    DynamicToolsConfig: ({ tools }: { tools: Array<{ name: string; display_name: string }> }) => (
+      <div>
+        <div>tools-config</div>
+        {tools.map((tool) => (
+          <div key={tool.name}>{tool.display_name}</div>
+        ))}
+      </div>
+    ),
   };
 });
 
@@ -468,9 +475,35 @@ const toolsFixture = {
       is_ready: true,
       is_multi_provider: false,
       providers: [],
+      config_specs: [
+        {
+          path: 'default_provider',
+          type: 'string',
+          description: 'Default weather provider',
+          sensitive: false,
+          read_only: false,
+          required: true,
+          enum: ['qweather'],
+          is_template: false,
+        },
+      ],
+      current_values: {
+        default_provider: 'qweather',
+      },
+    },
+    {
+      name: 'web-search',
+      display_name: 'Web Search',
+      description: 'Web search tool',
+      category: 'builtin',
+      version: '1.0.0',
+      enabled: true,
+      is_ready: true,
+      is_multi_provider: false,
+      providers: [],
       config_specs: [],
       current_values: {
-        api_key: '',
+        query: '',
       },
     },
     {
@@ -487,7 +520,7 @@ const toolsFixture = {
       current_values: {},
     },
   ],
-  total: 2,
+  total: 3,
 };
 
 const skillsFixture = [
@@ -1603,6 +1636,32 @@ describe('settings page draft saving', () => {
 
     expect(screen.getByRole('heading', { name: 'settings.tabs.toolsSkills' })).toBeInTheDocument();
     expect(await screen.findByText('browser')).toBeInTheDocument();
+  });
+
+  it('filters tools by whether they expose configurable fields', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    const toolsGroupButton = await screen.findByRole('button', { name: 'settings.tabs.tools' });
+    await user.click(toolsGroupButton);
+
+    expect(screen.getByText('Weather')).toBeInTheDocument();
+    expect(screen.getByText('Web Search')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'settings.toolsFilter.withConfig' }));
+
+    expect(screen.getByText('Weather')).toBeInTheDocument();
+    expect(screen.queryByText('Web Search')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'settings.toolsFilter.withoutConfig' }));
+
+    expect(screen.queryByText('Weather')).not.toBeInTheDocument();
+    expect(screen.getByText('Web Search')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'settings.toolsFilter.all' }));
+
+    expect(screen.getByText('Weather')).toBeInTheDocument();
+    expect(screen.getByText('Web Search')).toBeInTheDocument();
   });
 
 });

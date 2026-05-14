@@ -1033,6 +1033,14 @@
     "toolsSkillsDesc": "选择允许 Agent 使用的 skills。",
     "toolsEmptyBuiltin": "当前没有可配置的内置工具。",
     "toolsEmptyPlugins": "当前没有已安装的插件工具。",
+    "toolsEmptyWithConfig": "当前分组里没有带配置项的工具。",
+    "toolsEmptyWithoutConfig": "当前分组里没有不带配置项的工具。",
+    "toolsFilter": {
+      "label": "筛选",
+      "all": "全部",
+      "withConfig": "有配置项",
+      "withoutConfig": "无配置项"
+    },
     "actionsDesc": "配置 Agent 对外操作能力及其声明式参数。",
     "channelsDesc": "接入外部消息平台（如 Telegram），通过现有聊天链路与 AI 交互。",
     "channelsTelegramDesc": "配置 Telegram Bot 接入，支持私聊和群聊。",
