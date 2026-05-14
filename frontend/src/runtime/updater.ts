@@ -33,6 +33,32 @@ export interface StartupUpdateCheckOptions {
   onError?: (error: unknown) => void;
 }
 
+function serializeUpdaterError(error: unknown): Record<string, unknown> {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack ?? null,
+    };
+  }
+
+  return {
+    value: error,
+  };
+}
+
+function summarizeUpdate(update: Update | null): Record<string, unknown> | null {
+  if (!update) {
+    return null;
+  }
+
+  return {
+    version: update.version,
+    date: update.date ?? null,
+    bodyLength: update.body?.trim().length ?? 0,
+  };
+}
+
 function readLastAutoCheckAt(): number | null {
   if (typeof window === 'undefined') {
     return null;
@@ -69,6 +95,8 @@ function cancelScheduledStartupCheck(): void {
     return;
   }
 
+  console.info('[updater] cancelling scheduled startup update check');
+
   window.clearTimeout(scheduledStartupCheckTimer);
   scheduledStartupCheckTimer = null;
   scheduledStartupCheckPromise = null;
@@ -99,10 +127,20 @@ export function isUpdaterRuntimeAvailable(): boolean {
 
 export async function getCurrentAppVersion(): Promise<string | null> {
   if (!isUpdaterRuntimeAvailable()) {
+    console.info('[updater] current version unavailable because desktop runtime is not active');
     return null;
   }
 
-  return getVersion();
+  try {
+    const version = await getVersion();
+    console.info('[updater] resolved current app version', { currentVersion: version });
+    return version;
+  } catch (error) {
+    console.warn('[updater] failed to resolve current app version', {
+      error: serializeUpdaterError(error),
+    });
+    throw error;
+  }
 }
 
 export async function checkForAppUpdate(options: UpdateCheckOptions = {}): Promise<UpdateCheckResult> {
@@ -111,6 +149,7 @@ export async function checkForAppUpdate(options: UpdateCheckOptions = {}): Promi
   }
 
   if (!isUpdaterRuntimeAvailable()) {
+    console.info('[updater] skipping update check because desktop runtime is not active');
     return {
       currentVersion: null,
       update: null,
@@ -120,25 +159,65 @@ export async function checkForAppUpdate(options: UpdateCheckOptions = {}): Promi
   const proxy = options.proxy?.trim() || undefined;
   const timeout = options.timeoutMs ?? DEFAULT_UPDATE_CHECK_TIMEOUT_MS;
 
-  const [currentVersion, update] = await Promise.all([
-    getVersion(),
-    check({ proxy, timeout }),
-  ]);
+  console.info('[updater] checking for app update', {
+    proxy: proxy ?? null,
+    timeoutMs: timeout,
+  });
 
-  return {
-    currentVersion,
-    update,
-  };
+  let currentVersion: string | null = null;
+  try {
+    currentVersion = await getVersion();
+  } catch (error) {
+    console.warn('[updater] continuing update check after current version lookup failed', {
+      proxy: proxy ?? null,
+      timeoutMs: timeout,
+      error: serializeUpdaterError(error),
+    });
+  }
+
+  try {
+    const update = await check({ proxy, timeout });
+
+    if (update) {
+      console.info('[updater] update available', {
+        currentVersion,
+        proxy: proxy ?? null,
+        timeoutMs: timeout,
+        update: summarizeUpdate(update),
+      });
+    } else {
+      console.info('[updater] no update available', {
+        currentVersion,
+        proxy: proxy ?? null,
+        timeoutMs: timeout,
+      });
+    }
+
+    return {
+      currentVersion,
+      update,
+    };
+  } catch (error) {
+    console.error('[updater] update check failed', {
+      currentVersion,
+      proxy: proxy ?? null,
+      timeoutMs: timeout,
+      error: serializeUpdaterError(error),
+    });
+    throw error;
+  }
 }
 
 export function scheduleStartupUpdateCheck(
   options: StartupUpdateCheckOptions = {}
 ): Promise<UpdateCheckResult | null> | null {
   if (!isUpdaterRuntimeAvailable() || typeof window === 'undefined') {
+    console.info('[updater] skipping startup update scheduling because desktop runtime is not active');
     return null;
   }
 
   if (scheduledStartupCheckPromise) {
+    console.info('[updater] reusing existing scheduled startup update check');
     return scheduledStartupCheckPromise;
   }
 
@@ -147,6 +226,11 @@ export function scheduleStartupUpdateCheck(
   const cooldownMs = options.cooldownMs ?? DEFAULT_STARTUP_UPDATE_CHECK_COOLDOWN_MS;
 
   if (lastAutoCheckAt !== null && now >= lastAutoCheckAt && now - lastAutoCheckAt < cooldownMs) {
+    console.info('[updater] skipping startup update check because cooldown is still active', {
+      cooldownMs,
+      lastAutoCheckAt,
+      nextEligibleAt: lastAutoCheckAt + cooldownMs,
+    });
     return null;
   }
 
@@ -154,10 +238,22 @@ export function scheduleStartupUpdateCheck(
   const proxy = buildUpdaterProxyUrl(options.network);
   const timeoutMs = options.timeoutMs ?? DEFAULT_UPDATE_CHECK_TIMEOUT_MS;
 
+  console.info('[updater] scheduling startup update check', {
+    delayMs,
+    cooldownMs,
+    proxy: proxy ?? null,
+    timeoutMs,
+  });
+
   scheduledStartupCheckPromise = new Promise((resolve) => {
     scheduledStartupCheckTimer = window.setTimeout(() => {
       scheduledStartupCheckTimer = null;
       writeLastAutoCheckAt(Date.now());
+
+      console.info('[updater] running scheduled startup update check', {
+        proxy: proxy ?? null,
+        timeoutMs,
+      });
 
       void checkForAppUpdate({
         proxy,
@@ -165,12 +261,21 @@ export function scheduleStartupUpdateCheck(
         cancelScheduledStartupCheck: false,
       })
         .then((result) => {
+          console.info('[updater] scheduled startup update check completed', {
+            currentVersion: result.currentVersion,
+            update: summarizeUpdate(result.update),
+          });
           if (result.update) {
             options.onUpdateAvailable?.(result);
           }
           resolve(result);
         })
         .catch((error) => {
+          console.error('[updater] scheduled startup update check failed', {
+            proxy: proxy ?? null,
+            timeoutMs,
+            error: serializeUpdaterError(error),
+          });
           options.onError?.(error);
           resolve(null);
         })

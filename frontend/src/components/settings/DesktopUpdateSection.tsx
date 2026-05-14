@@ -32,6 +32,20 @@ function formatReleaseDate(value: string | undefined): string | null {
   return parsed.toLocaleString();
 }
 
+function serializeUpdaterError(error: unknown): Record<string, unknown> {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack ?? null,
+    };
+  }
+
+  return {
+    value: error,
+  };
+}
+
 export function DesktopUpdateSection({ networkConfig }: DesktopUpdateSectionProps) {
   const { t } = useTranslation('app');
   const desktopRuntime = isUpdaterRuntimeAvailable();
@@ -89,6 +103,13 @@ export function DesktopUpdateSection({ networkConfig }: DesktopUpdateSectionProp
       return;
     }
 
+    const proxy = buildUpdaterProxyUrl(networkConfig);
+    console.info('[updater] manual update check requested from settings', {
+      currentVersion,
+      proxy: proxy ?? null,
+      timeoutMs: DEFAULT_UPDATE_CHECK_TIMEOUT_MS,
+    });
+
     setChecking(true);
     setInstalledVersion(null);
     setDownloadedBytes(0);
@@ -96,7 +117,7 @@ export function DesktopUpdateSection({ networkConfig }: DesktopUpdateSectionProp
 
     try {
       const result = await checkForAppUpdate({
-        proxy: buildUpdaterProxyUrl(networkConfig),
+        proxy,
         timeoutMs: DEFAULT_UPDATE_CHECK_TIMEOUT_MS,
       });
       setCurrentVersion(result.currentVersion);
@@ -110,6 +131,11 @@ export function DesktopUpdateSection({ networkConfig }: DesktopUpdateSectionProp
         toast.success(t('settings.updates.upToDateToast'));
       }
     } catch (error: unknown) {
+      console.error('[updater] manual update check failed in settings', {
+        currentVersion,
+        proxy: proxy ?? null,
+        error: serializeUpdaterError(error),
+      });
       const message = error instanceof Error ? error.message : t('settings.errorUnknown');
       toast.error(t('settings.updates.checkFailed', { message }));
     } finally {
@@ -122,21 +148,60 @@ export function DesktopUpdateSection({ networkConfig }: DesktopUpdateSectionProp
       return;
     }
 
+    console.info('[updater] manual update install requested', {
+      currentVersion,
+      targetVersion: availableUpdate.version,
+      releaseDate: availableUpdate.date ?? null,
+    });
+
     setInstalling(true);
     setDownloadedBytes(0);
     setContentLength(null);
 
     try {
+      let totalDownloadedBytes = 0;
+      let expectedContentLength: number | null = null;
+      let lastLoggedProgressBucket = -1;
+
       await availableUpdate.downloadAndInstall((event) => {
         switch (event.event) {
           case 'Started':
             setDownloadedBytes(0);
             setContentLength(event.data.contentLength ?? null);
+            expectedContentLength = event.data.contentLength ?? null;
+            lastLoggedProgressBucket = -1;
+            console.info('[updater] update download started', {
+              targetVersion: availableUpdate.version,
+              contentLength: expectedContentLength,
+            });
             break;
           case 'Progress':
+            totalDownloadedBytes += event.data.chunkLength;
             setDownloadedBytes((value) => value + event.data.chunkLength);
+            if (expectedContentLength && expectedContentLength > 0) {
+              const progressPercent = Math.min(
+                100,
+                Math.round((totalDownloadedBytes / expectedContentLength) * 100)
+              );
+              const progressBucket = Math.floor(progressPercent / 10);
+
+              if (progressBucket > lastLoggedProgressBucket) {
+                lastLoggedProgressBucket = progressBucket;
+                console.info('[updater] update download progress', {
+                  targetVersion: availableUpdate.version,
+                  downloadedBytes: totalDownloadedBytes,
+                  contentLength: expectedContentLength,
+                  progressPercent,
+                });
+              }
+            }
             break;
           case 'Finished':
+            console.info('[updater] update download finished', {
+              targetVersion: availableUpdate.version,
+              downloadedBytes: totalDownloadedBytes,
+              contentLength: expectedContentLength,
+            });
             break;
         }
       });
@@ -147,8 +212,17 @@ export function DesktopUpdateSection({ networkConfig }: DesktopUpdateSectionProp
       setInstalledVersion(version);
       setDownloadedBytes(0);
       setContentLength(null);
+      console.info('[updater] update download and install completed', {
+        currentVersion,
+        installedVersion: version,
+      });
       toast.success(t('settings.updates.installSuccess', { version }));
     } catch (error: unknown) {
+      console.error('[updater] update download or install failed', {
+        currentVersion,
+        targetVersion: availableUpdate.version,
+        error: serializeUpdaterError(error),
+      });
       const message = error instanceof Error ? error.message : t('settings.errorUnknown');
       toast.error(t('settings.updates.installFailed', { message }));
     } finally {
@@ -158,8 +232,15 @@ export function DesktopUpdateSection({ networkConfig }: DesktopUpdateSectionProp
 
   const handleRestart = async () => {
     try {
+      console.info('[updater] relaunch requested to apply installed update', {
+        installedVersion,
+      });
       await restartToApplyUpdate();
     } catch (error: unknown) {
+      console.error('[updater] relaunch to apply update failed', {
+        installedVersion,
+        error: serializeUpdaterError(error),
+      });
       const message = error instanceof Error ? error.message : t('settings.errorUnknown');
       toast.error(t('settings.updates.restartFailed', { message }));
     }

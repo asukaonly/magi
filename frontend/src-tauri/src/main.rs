@@ -1152,6 +1152,11 @@ fn main() {
         .unwrap_or_else(|_| std::path::PathBuf::from("."))
         .join(".magi")
         .join("logs");
+    let log_level = if cfg!(debug_assertions) {
+        log::LevelFilter::Debug
+    } else {
+        log::LevelFilter::Info
+    };
 
     let app = tauri::Builder::default()
         .plugin(
@@ -1165,7 +1170,7 @@ fn main() {
                 .target(tauri_plugin_log::Target::new(
                     tauri_plugin_log::TargetKind::Stdout,
                 ))
-                .level(log::LevelFilter::Info)
+                .level(log_level)
                 .max_file_size(10 * 1024 * 1024) // 10 MB per file
                 .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(5))
                 .build(),
@@ -1183,8 +1188,12 @@ fn main() {
         .plugin(tauri_plugin_shell::init())
         .manage(BackendState::default())
         .manage(desktop_presence::DesktopPresenceState::default())
-        .setup(|app| {
-            log::info!("Magi desktop setup starting");
+        .setup(move |app| {
+            let current_version = app.package_info().version.to_string();
+            log::info!(
+                "Magi desktop setup starting (version={current_version}, log_level={log_level:?})"
+            );
+            log::info!("tauri updater plugin enabled for desktop runtime");
 
             #[cfg(target_os = "macos")]
             dmg_cleanup::detach_installer_volume_after_launch();
