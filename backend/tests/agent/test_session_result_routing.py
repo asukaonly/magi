@@ -19,6 +19,7 @@ from magi.agent.task_agents.common import (
     OrchestrationPlan,
     ToolSelection,
     UserMessagePayload,
+    WorkerUpdatePayload,
 )
 from magi.agent.task_agents.explore.contracts import ExploreRuntimeContext
 from magi.agent.task_agents.explore.postprocess_service import ExplorePostProcessService
@@ -408,8 +409,7 @@ def test_chat_prompt_service_aggregation_prompt_uses_request_shaped_axes() -> No
 
     assert "# Aggregation Task" in prompt
     assert "This is the final analysis synthesis step, not a casual back-and-forth chat turn." in prompt
-    assert "## Internal Evidence Dossier" in prompt
-    assert "### Completed Analyses" in prompt
+    assert "## Internal Evidence Dossier" not in prompt
     assert "First infer the main analysis axes from the user's request and the completed evidence" in prompt
     assert "For comparison requests, prefer the strongest dimensions of difference" in prompt
     assert "explicitly absorb the key findings, evidence, and trade-offs from the completed subtasks" in prompt
@@ -418,6 +418,103 @@ def test_chat_prompt_service_aggregation_prompt_uses_request_shaped_axes() -> No
     assert "Do not let failed subtasks erase or outweigh richer completed findings" in prompt
     assert "do not force a fixed template" in prompt
     assert "Internal results (JSON)" not in prompt
+
+    messages = service.build_aggregation_messages(
+        history_messages=[{"role": "user", "content": "previous turn"}],
+        state=SimpleNamespace(root_user_message="Compare Magi and Hindsight memory architecture"),
+        payload={
+            "user_request": "Compare Magi and Hindsight memory architecture",
+            "planner": "task_agent",
+            "completed_subtasks": [{"description": "Inspect Magi memory modules", "result": {}}],
+            "failed_subtasks": [
+                {
+                    "description": "Research Hindsight public docs",
+                    "failure_reason": "ALL_TOOLS_FAILED",
+                    "failure_details": {
+                        "tool_failures": [
+                            {
+                                "tool_name": "web-search",
+                                "error_code": "PROVIDER_CHALLENGE",
+                                "error": "DuckDuckGo challenge",
+                                "diagnostics": {
+                                    "next_action": "ask_user_to_configure_search_provider",
+                                    "user_message_template": "DuckDuckGo hit an anti-bot check.",
+                                },
+                            }
+                        ]
+                    },
+                }
+            ],
+        },
+    )
+
+    assert messages[0] == {"role": "user", "content": "previous turn"}
+    aggregation_input = messages[-1]["content"]
+    assert "## Original User Request" in aggregation_input
+    assert "## Internal Evidence Dossier" in aggregation_input
+    assert "Tool failure: web-search | PROVIDER_CHALLENGE | DuckDuckGo challenge" in aggregation_input
+    assert "Suggested user-facing explanation: DuckDuckGo hit an anti-bot check." in aggregation_input
+
+
+def test_worker_update_payload_preserves_tool_failures_for_aggregation() -> None:
+    payload = WorkerUpdatePayload.from_dict(
+        {
+            "user_id": "u1",
+            "session_id": "s1",
+            "worker_id": "worker-1",
+            "stage": "failed",
+            "orchestration_id": "orch-1",
+            "subtask_id": "subtask-1",
+            "failure_reason": "ALL_TOOLS_FAILED",
+            "error_text": "ALL_TOOLS_FAILED",
+            "tool_failures": [
+                {
+                    "tool_name": "web-search",
+                    "error_code": "PROVIDER_NOT_CONFIGURED",
+                    "error": "Requested web search provider Brave Search is not configured.",
+                    "diagnostics": {"requested_provider": "brave", "retryable": False},
+                }
+            ],
+        },
+        fallback_user_id="fallback",
+    )
+
+    assert payload.failure_reason == "ALL_TOOLS_FAILED"
+    assert payload.error_text == "ALL_TOOLS_FAILED"
+    assert payload.tool_failures[0]["tool_name"] == "web-search"
+    assert payload.tool_failures[0]["diagnostics"]["requested_provider"] == "brave"
+
+
+def test_chat_aggregation_payload_includes_failed_subtask_diagnostics() -> None:
+    service = ChatPromptService()
+    state = SimpleNamespace(
+        root_user_message="安排杭州行程",
+        planner="task_agent",
+        subtasks=[
+            SimpleNamespace(
+                subtask_id="subtask-1",
+                description="查询杭州地铁接驳",
+                status="failed",
+                worker_result=None,
+                failure_reason="ALL_TOOLS_FAILED",
+                failure_details={
+                    "tool_failures": [
+                        {
+                            "tool_name": "web-search",
+                            "error_code": "PROVIDER_CHALLENGE",
+                            "error": "DuckDuckGo challenge",
+                        }
+                    ]
+                },
+                attempt_count=1,
+            )
+        ],
+    )
+
+    payload = service.build_aggregation_payload(state)
+
+    assert payload["failed_subtasks"][0]["failure_reason"] == "ALL_TOOLS_FAILED"
+    assert payload["failed_subtasks"][0]["failure_details"]["tool_failures"][0]["error_code"] == "PROVIDER_CHALLENGE"
 
 
 @pytest.mark.asyncio

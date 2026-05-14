@@ -226,15 +226,7 @@ class FunctionCallingStepExecutor:
                     return FunctionCallingStepOutcome(status="cancelled", iteration=iteration)
                 if not result.success:
                     state.failed_tool_call_fingerprints.add(fingerprint)
-                    state.tool_failures.append(
-                        {
-                            "tool_call_id": result.tool_call_id,
-                            "tool_name": result.tool_name,
-                            "error": result.error or "unknown error",
-                            "error_code": result.error_code,
-                            "execution_time": round(result.execution_time, 3),
-                        }
-                    )
+                    state.tool_failures.append(self._build_tool_failure_summary(result))
                     terminal_error_code = str(result.error_code or "").strip()
                     if terminal_error_code in self._driver._SUPPRESS_TOOL_AFTER_ERROR_CODES:
                         state.suppressed_tool_names.add(result.tool_name)
@@ -480,3 +472,33 @@ class FunctionCallingStepExecutor:
             iteration=iteration,
             failure_reason="Unexpected function-calling response",
         )
+
+    def _build_tool_failure_summary(self, result: ToolCallResult) -> dict[str, Any]:
+        summary: dict[str, Any] = {
+            "tool_call_id": result.tool_call_id,
+            "tool_name": result.tool_name,
+            "error": result.error or "unknown error",
+            "error_code": result.error_code,
+            "execution_time": round(result.execution_time, 3),
+        }
+        if isinstance(result.data, dict):
+            diagnostic_keys = (
+                "next_action",
+                "retryable",
+                "terminal",
+                "requested_provider",
+                "actual_provider",
+                "available_providers",
+                "supported_providers",
+                "fallback_reason",
+                "user_message_template",
+                "config_tool",
+            )
+            diagnostics = {
+                key: result.data[key]
+                for key in diagnostic_keys
+                if key in result.data and result.data[key] not in (None, "", [], {})
+            }
+            if diagnostics:
+                summary["diagnostics"] = diagnostics
+        return summary

@@ -203,6 +203,7 @@ class TaskOrchestrationWorkerMixin:
         subtask.worker_id = worker_id
         subtask.status = "running"
         subtask.failure_reason = None
+        subtask.failure_details = None
         subtask.worker_result = None
         subtask.attempt_count = next_attempt
         subtask.updated_at = time.time()

@@ -135,12 +135,11 @@ class ChatPlanningService(ChatPlanningPromptMixin):
             state=state,
             payload=payload,
         )
-        messages = filtered_history or [
-            {
-                "role": "user",
-                "content": state.root_user_message,
-            }
-        ]
+        messages = self._prompt_service.build_aggregation_messages(
+            history_messages=filtered_history,
+            state=state,
+            payload=payload,
+        )
         try:
             if get_stream_sink() is not None:
                 chunks: list[str] = []

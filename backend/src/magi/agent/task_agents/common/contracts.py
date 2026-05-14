@@ -130,6 +130,8 @@ class WorkerUpdatePayload:
     worker_result: Optional[WorkerResult] = None
     error: Optional[str] = None
     failure_reason: Optional[str] = None
+    error_text: Optional[str] = None
+    tool_failures: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -158,11 +160,16 @@ class WorkerUpdatePayload:
             payload["error"] = self.error
         if self.failure_reason is not None:
             payload["failure_reason"] = self.failure_reason
+        if self.error_text is not None:
+            payload["error_text"] = self.error_text
+        if self.tool_failures:
+            payload["tool_failures"] = list(self.tool_failures)
         return payload
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any], *, fallback_user_id: str) -> "WorkerUpdatePayload":
         worker_result = payload.get("worker_result")
+        raw_tool_failures = payload.get("tool_failures")
         return cls(
             user_id=str(payload.get("user_id") or fallback_user_id),
             session_id=str(payload.get("session_id") or ""),
@@ -183,6 +190,12 @@ class WorkerUpdatePayload:
             worker_result=WorkerResult.from_dict(worker_result) if isinstance(worker_result, dict) else None,
             error=_optional_string(payload.get("error")),
             failure_reason=_optional_string(payload.get("failure_reason")),
+            error_text=_optional_string(payload.get("error_text")),
+            tool_failures=[
+                dict(item)
+                for item in (raw_tool_failures if isinstance(raw_tool_failures, list) else [])
+                if isinstance(item, dict)
+            ],
         )
 
 

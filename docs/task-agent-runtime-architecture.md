@@ -446,6 +446,14 @@ Tool-message context stays compact. Large listing-style tools, including
 bounded summaries to the LLM while leaving exact execution details in
 `runtime_trace.db`.
 
+Worker failures preserve a compact diagnostic chain for final aggregation:
+function-calling execution records failed tool name, error code, short error
+text, and selected provider guidance fields; worker failure facts carry that
+list internally; `TaskOrchestrator` persists it on the failed subtask as
+`failure_details`. Aggregation should use this to explain scoped gaps and next
+actions instead of reducing every worker failure to a generic
+`ALL_TOOLS_FAILED` label.
+
 Execution-time tool discovery remains bounded and append-only. When the
 execution model calls `find-relevant-tools`, the helper still starts from the
 runtime registry plus tool/skill metadata, but it now reranks tool candidates
@@ -479,6 +487,13 @@ Current responsibilities:
 - process worker progress, completion, and failure updates
 - apply retry policy
 - trigger final aggregation
+
+Final aggregation keeps instructions and evidence separate. The system prompt
+contains the aggregation role and response contract; the final user message
+contains the original user request plus the internal evidence dossier. Do not
+encode dynamic worker evidence or tool failure payloads into the system prompt,
+and do not use tool-role messages unless there is a provider-valid assistant
+tool-call message for them to answer.
 
 ### `WorkerAgentManager`
 

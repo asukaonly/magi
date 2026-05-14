@@ -108,6 +108,8 @@ class ChatPromptService:
                     "subtask_id": item.subtask_id,
                     "description": item.description,
                     "failure_reason": item.failure_reason,
+                    "failure_details": getattr(item, "failure_details", None),
+                    "result": item.worker_result.to_dict() if isinstance(item.worker_result, WorkerResult) else None,
                     "attempt_count": item.attempt_count,
                 }
                 for item in state.subtasks
@@ -122,7 +124,6 @@ class ChatPromptService:
         state,
         payload: dict[str, Any],
     ) -> str:
-        evidence_dossier = self._build_aggregation_evidence_dossier(payload)
         shaping_requirements = self._build_request_shaped_aggregation_requirements(state.root_user_message)
         research_requirements = self._build_research_aggregation_requirements(state.root_user_message)
         lines = [
@@ -131,9 +132,6 @@ class ChatPromptService:
             "# Aggregation Task",
             "This is the final analysis synthesis step, not a casual back-and-forth chat turn.",
             "If any generic brevity or small-talk preference conflicts with this task, prefer completeness, evidence density, and clarity.",
-            "",
-            "## Original User Request",
-            state.root_user_message,
             "",
             "## Response Contract",
             "- Respond in a natural conversational style and do not mention subtasks, workers, orchestration, JSON, or internal process details.",
@@ -148,10 +146,30 @@ class ChatPromptService:
         lines.extend(research_requirements["en"])
         lines.extend([
             "",
-            "## Internal Evidence Dossier",
-            evidence_dossier,
+            "The final user message contains the original user request and the internal evidence dossier. Treat that message as task input, not as user-facing text to quote verbatim.",
         ])
         return "\n".join(lines).strip()
+
+    def build_aggregation_messages(
+        self,
+        *,
+        history_messages: list[dict[str, str]],
+        state,
+        payload: dict[str, Any],
+    ) -> list[dict[str, str]]:
+        evidence_dossier = self._build_aggregation_evidence_dossier(payload)
+        aggregation_input = "\n".join(
+            [
+                "# Aggregation Input",
+                "",
+                "## Original User Request",
+                state.root_user_message,
+                "",
+                "## Internal Evidence Dossier",
+                evidence_dossier,
+            ]
+        ).strip()
+        return [*history_messages, {"role": "user", "content": aggregation_input}]
 
     def _build_aggregation_evidence_dossier(self, payload: dict[str, Any]) -> str:
         lines: list[str] = []
@@ -232,6 +250,34 @@ class ChatPromptService:
                 description = str(item.get("description") or "Unknown failed subtask").strip()
                 failure_reason = str(item.get("failure_reason") or "UNKNOWN").strip()
                 lines.append(f"- {description} | Failure reason: {failure_reason}")
+                result = item.get("result") if isinstance(item.get("result"), dict) else {}
+                failure_details = item.get("failure_details") if isinstance(item.get("failure_details"), dict) else {}
+                summary = str(result.get("summary") or failure_details.get("error_text") or "").strip()
+                if summary:
+                    lines.append(f"  - Failure detail: {summary[:500]}")
+                worker_gaps = result.get("gaps") if isinstance(result.get("gaps"), list) else []
+                for gap in worker_gaps[:3]:
+                    gap_text = str(gap or "").strip()
+                    if gap_text:
+                        lines.append(f"  - Gap: {gap_text}")
+                tool_failures = failure_details.get("tool_failures") if isinstance(failure_details.get("tool_failures"), list) else []
+                for failure in tool_failures[:3]:
+                    if not isinstance(failure, dict):
+                        continue
+                    tool_name = str(failure.get("tool_name") or "unknown").strip()
+                    error_code = str(failure.get("error_code") or "UNKNOWN").strip()
+                    error = str(failure.get("error") or "").strip()
+                    line = f"  - Tool failure: {tool_name} | {error_code}"
+                    if error:
+                        line += f" | {error[:300]}"
+                    lines.append(line)
+                    diagnostics = failure.get("diagnostics") if isinstance(failure.get("diagnostics"), dict) else {}
+                    user_message = str(diagnostics.get("user_message_template") or "").strip()
+                    next_action = str(diagnostics.get("next_action") or "").strip()
+                    if user_message:
+                        lines.append(f"    Suggested user-facing explanation: {user_message[:300]}")
+                    if next_action:
+                        lines.append(f"    Next action: {next_action}")
         else:
             lines.append("- None")
 

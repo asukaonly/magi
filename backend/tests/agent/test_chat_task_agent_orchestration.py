@@ -763,7 +763,8 @@ async def test_aggregate_orchestration_uses_analysis_prompt_without_tool_catalog
         }
         return "persona-system-prompt"
 
-    async def _fake_call_llm(*, system_prompt, messages, disable_thinking=True, thinking_depth=None):  # type: ignore[no-untyped-def]
+    async def _fake_call_llm(*, system_prompt, messages, disable_thinking=True, thinking_depth=None, **kwargs):  # type: ignore[no-untyped-def]
+        _ = (thinking_depth, kwargs)
         calls["call_llm"] = {
             "system_prompt": system_prompt,
             "messages": messages,
@@ -829,8 +830,7 @@ async def test_aggregate_orchestration_uses_analysis_prompt_without_tool_catalog
     assert isinstance(llm_call, dict)
     assert "persona-system-prompt" in llm_call["system_prompt"]
     assert "# Aggregation Task" in llm_call["system_prompt"]
-    assert "## Internal Evidence Dossier" in llm_call["system_prompt"]
-    assert "### Completed Analyses" in llm_call["system_prompt"]
+    assert "## Internal Evidence Dossier" not in llm_call["system_prompt"]
     assert "You must explicitly absorb the key findings, evidence, and trade-offs" in llm_call["system_prompt"]
     assert '"completed_subtasks"' not in llm_call["system_prompt"]
     assert "# Tool Information" not in llm_call["system_prompt"]
@@ -838,7 +838,10 @@ async def test_aggregate_orchestration_uses_analysis_prompt_without_tool_catalog
     messages = llm_call["messages"]
     assert isinstance(messages, list)
     assert messages[0] == {"role": "user", "content": "看下代码架构"}
-    assert messages[-1] == {"role": "user", "content": "搞错了，不用做了"}
+    assert messages[-2] == {"role": "user", "content": "搞错了，不用做了"}
+    assert "## Original User Request" in messages[-1]["content"]
+    assert "## Internal Evidence Dossier" in messages[-1]["content"]
+    assert "### Completed Analyses" in messages[-1]["content"]
 
 
 @pytest.mark.asyncio
@@ -1013,7 +1016,8 @@ async def test_chat_task_agent_renders_explore_dossier_with_analysis_prompt(monk
         }
         return "analysis-system-prompt"
 
-    async def _fake_call_llm(*, system_prompt, messages, disable_thinking=True, thinking_depth=None):  # type: ignore[no-untyped-def]
+    async def _fake_call_llm(*, system_prompt, messages, disable_thinking=True, thinking_depth=None, **kwargs):  # type: ignore[no-untyped-def]
+        _ = (thinking_depth, kwargs)
         calls["call_llm"] = {
             "system_prompt": system_prompt,
             "messages": messages,

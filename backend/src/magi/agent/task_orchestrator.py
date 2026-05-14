@@ -508,15 +508,18 @@ class TaskOrchestrator(
                 if not isinstance(worker_result, WorkerResult):
                     subtask.status = "failed"
                     subtask.failure_reason = "INVALID_WORKER_RESULT"
+                    subtask.failure_details = self._build_subtask_failure_details(payload)
                 elif worker_result.result_status == "failed":
                     subtask.worker_result = worker_result
                     subtask.failure_reason = (
                         worker_result.failure_reason or "WORKER_REPORTED_FAILURE"
                     )
+                    subtask.failure_details = self._build_subtask_failure_details(payload)
                     subtask.status = "failed"
                 else:
                     subtask.worker_result = worker_result
                     subtask.failure_reason = None
+                    subtask.failure_details = None
                     subtask.status = "completed"
                 subtask.updated_at = now
                 state.updated_at = now
@@ -532,6 +535,7 @@ class TaskOrchestrator(
             if not retried:
                 subtask.status = "failed"
                 subtask.failure_reason = failure_reason
+                subtask.failure_details = self._build_subtask_failure_details(payload)
             subtask.updated_at = now
             state.updated_at = now
             touched_states[state.orchestration_id] = state
@@ -619,6 +623,61 @@ class TaskOrchestrator(
             message_started_at=first.message_started_at,
             turn_id=first.turn_id,
         )
+
+    def _build_subtask_failure_details(self, payload: Any) -> dict[str, Any] | None:
+        if payload is None:
+            return None
+        details: dict[str, Any] = {}
+        error_text = str(
+            getattr(payload, "error_text", None) or getattr(payload, "error", None) or ""
+        ).strip()
+        if error_text:
+            details["error_text"] = error_text[:1000]
+        tool_failures = getattr(payload, "tool_failures", None)
+        if isinstance(tool_failures, list) and tool_failures:
+            details["tool_failures"] = [
+                self._compact_tool_failure_for_aggregation(item)
+                for item in tool_failures[:5]
+                if isinstance(item, dict)
+            ]
+        worker_result = getattr(payload, "worker_result", None)
+        if isinstance(worker_result, WorkerResult):
+            worker_payload = worker_result.to_dict()
+            details["worker_result"] = {
+                key: worker_payload.get(key)
+                for key in ("summary", "gaps", "next_steps", "failure_reason")
+                if worker_payload.get(key) not in (None, "", [], {})
+            }
+        return details or None
+
+    @staticmethod
+    def _compact_tool_failure_for_aggregation(item: dict[str, Any]) -> dict[str, Any]:
+        compact: dict[str, Any] = {}
+        for key in ("tool_name", "error_code", "error", "execution_time"):
+            value = item.get(key)
+            if value not in (None, "", [], {}):
+                compact[key] = str(value)[:1000] if key == "error" else value
+        diagnostics = item.get("diagnostics")
+        if isinstance(diagnostics, dict):
+            compact_diagnostics = {
+                key: diagnostics[key]
+                for key in (
+                    "next_action",
+                    "retryable",
+                    "terminal",
+                    "requested_provider",
+                    "actual_provider",
+                    "available_providers",
+                    "supported_providers",
+                    "fallback_reason",
+                    "user_message_template",
+                    "config_tool",
+                )
+                if key in diagnostics and diagnostics[key] not in (None, "", [], {})
+            }
+            if compact_diagnostics:
+                compact["diagnostics"] = compact_diagnostics
+        return compact
 
     async def cancel_run(
         self,

@@ -174,6 +174,7 @@ class SubtaskDefinition:
     status: str = "pending"
     worker_id: Optional[str] = None
     failure_reason: Optional[str] = None
+    failure_details: Optional[Dict[str, Any]] = None
     attempt_count: int = 0
     worker_result: Optional[WorkerResult] = None
     created_at: float = field(default_factory=time.time)
@@ -195,6 +196,11 @@ class SubtaskDefinition:
             status=str(payload.get("status", "pending")).strip() or "pending",
             worker_id=_optional_string(payload.get("worker_id")),
             failure_reason=_optional_string(payload.get("failure_reason")),
+            failure_details=(
+                dict(payload.get("failure_details"))
+                if isinstance(payload.get("failure_details"), dict)
+                else None
+            ),
             attempt_count=_safe_int(payload.get("attempt_count"), default=0),
             worker_result=(
                 WorkerResult.from_dict(payload.get("worker_result"))
