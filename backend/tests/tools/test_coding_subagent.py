@@ -1,4 +1,5 @@
 """Tests for the Coding subagent type."""
+
 from __future__ import annotations
 
 import pytest
@@ -20,9 +21,22 @@ class _FakeRegistry:
 
 
 _CODING_REGISTRY_TOOLS = [
-    "file_read", "file_edit", "file_write", "file_rollback", "file_diff",
-    "verify", "glob", "grep", "file_list", "file_info", "bash", "todo_write",
-    "agent", "memory_query", "web_search", "web_fetch",  # not in whitelist
+    "file_read",
+    "file_edit",
+    "file_write",
+    "file_rollback",
+    "file_diff",
+    "verify",
+    "glob",
+    "grep",
+    "file_list",
+    "file_info",
+    "bash",
+    "todo_write",
+    "agent",
+    "memory_query",
+    "web_search",
+    "web_fetch",  # not in whitelist
 ]
 
 
@@ -59,15 +73,24 @@ def test_agent_tool_constants_match_manager() -> None:
 def test_coding_tool_whitelist_filters_against_registry() -> None:
     mgr = _coding_manager()
     tools = mgr._resolve_tools_for_type(WorkerAgentManager.TYPE_CODING)
-    expected_present = {"file_read", "file_edit", "file_write", "file_rollback",
-                        "file_diff", "verify", "glob", "grep", "bash"}
-    assert expected_present.issubset(set(tools)), (
-        f"Coding whitelist missing: {expected_present - set(tools)}"
-    )
+    expected_present = {
+        "file_read",
+        "file_edit",
+        "file_write",
+        "file_rollback",
+        "file_diff",
+        "verify",
+        "glob",
+        "grep",
+        "bash",
+    }
+    assert expected_present.issubset(
+        set(tools)
+    ), f"Coding whitelist missing: {expected_present - set(tools)}"
     excluded = {"agent", "memory_query", "web_search", "web_fetch"}
-    assert excluded.isdisjoint(set(tools)), (
-        f"Coding whitelist must not include {excluded & set(tools)}"
-    )
+    assert excluded.isdisjoint(
+        set(tools)
+    ), f"Coding whitelist must not include {excluded & set(tools)}"
 
 
 def test_coding_system_prompt_mentions_role_and_workspace(tmp_path) -> None:
@@ -144,16 +167,46 @@ def test_non_coding_validators_unchanged() -> None:
         )
 
 
+def test_general_purpose_validator_accepts_external_findings_without_path() -> None:
+    mgr = WorkerAgentManager()
+    result = mgr._validate_worker_result(
+        subagent_type=WorkerAgentManager.TYPE_GENERAL,
+        content=(
+            '{"result_status":"success","summary":"ok",'
+            '"findings":[{"title":"Transit option","detail":"Metro plus short walk"}],'
+            '"evidence":[{"path":"https://example.com/route","detail":"route source"}],'
+            '"gaps":[],"next_steps":[],"failure_reason":null}'
+        ),
+    )
+    assert result.findings[0].path is None
+
+
+def test_code_explore_validator_still_requires_path_and_reason() -> None:
+    mgr = WorkerAgentManager()
+    with pytest.raises(ValueError, match="CodeExplore worker finding"):
+        mgr._validate_worker_result(
+            subagent_type=WorkerAgentManager.TYPE_EXPLORE,
+            content=(
+                '{"result_status":"success","summary":"ok",'
+                '"findings":[{"title":"Source fact","detail":"Needs a file path"}],'
+                '"evidence":[{"path":"/tmp/source.py","detail":"source"}],'
+                '"gaps":[],"next_steps":[],"failure_reason":null}'
+            ),
+        )
+
+
 @pytest.mark.asyncio
 async def test_agent_tool_validation_accepts_coding_launch_args() -> None:
     """Public validate_parameters must accept subagent_type=Coding."""
     tool = AgentTool()
-    ok, err = await tool.validate_parameters({
-        "action": "launch",
-        "subagent_type": "Coding",
-        "description": "Add max_retries arg",
-        "prompt": "Edit src/config.py to add a max_retries parameter, default 3.",
-    })
+    ok, err = await tool.validate_parameters(
+        {
+            "action": "launch",
+            "subagent_type": "Coding",
+            "description": "Add max_retries arg",
+            "prompt": "Edit src/config.py to add a max_retries parameter, default 3.",
+        }
+    )
     assert ok, f"validation rejected Coding launch: {err}"
 
 

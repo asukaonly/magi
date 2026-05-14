@@ -147,18 +147,6 @@ class WorkerAgentManager(
         )
 
         try:
-            # Prepend parent context summary to system prompt when inherited.
-            effective_system_prompt = worker_system_prompt
-            if run_state.parent_context_summary:
-                effective_system_prompt = (
-                    worker_system_prompt + "\n\n--- PARENT CONVERSATION CONTEXT ---\n"
-                    "The following is a summary of the parent agent's conversation "
-                    "that led to your creation. Use it for background context only; "
-                    "focus on your assigned task.\n\n"
-                    + run_state.parent_context_summary
-                    + "\n--- END PARENT CONTEXT ---\n"
-                )
-
             executor = FunctionCallingOrchestrator(
                 llm_adapter=self._llm_adapter,
                 tool_registry=self._tool_registry,
@@ -179,7 +167,7 @@ class WorkerAgentManager(
                         user_id=run_state.user_id,
                         session_id=run_state.session_id or run_state.worker_id,
                     ),
-                    system_prompt=effective_system_prompt,
+                    system_prompt=worker_system_prompt,
                     selected_tools=selected_tools,
                     user_id=run_state.user_id,
                     session_id=run_state.session_id or run_state.worker_id,
@@ -203,6 +191,7 @@ class WorkerAgentManager(
                     ),
                     final_response_json_mode=True,
                     cancel_token=run_state.cancel_token,
+                    ephemeral_context=run_state.parent_context_summary,
                 )
             run_state.completed_at = time.time()
             run_state.updated_at = run_state.completed_at

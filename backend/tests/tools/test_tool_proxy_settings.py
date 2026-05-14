@@ -12,6 +12,10 @@ def _context() -> ToolExecutionContext:
     return ToolExecutionContext(agent_id="test-agent")
 
 
+def _turn_context(turn_id: str = "turn_test", agent_id: str = "test-agent") -> ToolExecutionContext:
+    return ToolExecutionContext(agent_id=agent_id, env_vars={"turn_id": turn_id})
+
+
 def _fake_config(proxy_url: str | None):
     return SimpleNamespace(
         network=SimpleNamespace(proxy_url=lambda: proxy_url),
@@ -107,6 +111,74 @@ async def test_web_search_duckduckgo_challenge_guidance_uses_current_language(mo
     assert result.data["terminal"] is True
     assert "反机器人验证" in result.error
     assert "不要在同一个请求里反复重试 DuckDuckGo" in result.data["llm_guidance"]
+
+
+@pytest.mark.asyncio
+async def test_web_search_same_turn_duplicate_returns_compact_guidance(monkeypatch):
+    tool = WebSearchTool()
+    calls = 0
+
+    monkeypatch.setattr(
+        "magi.tools.builtin.web_search_tool.get_config",
+        lambda: _fake_config(None),
+    )
+    tool._get_default_provider = lambda: "duckduckgo"
+    tool.get_available_providers = lambda: ["duckduckgo"]
+
+    async def fake_execute_with_provider(self, provider_name, params):
+        nonlocal calls
+        calls += 1
+        _ = (self, provider_name, params)
+        return ToolResult(
+            success=True,
+            data={
+                "result_count": 1,
+                "results": [
+                    {
+                        "title": "Hangzhou Metro",
+                        "url": "https://example.com/metro",
+                        "description_preview": "route details",
+                    }
+                ],
+            },
+        )
+
+    tool.execute_with_provider = MethodType(fake_execute_with_provider, tool)
+
+    first = await tool.execute({"query": "杭州 西站 地铁", "num_results": 3}, _turn_context())
+    second = await tool.execute({"query": "杭州   西站 地铁", "num_results": 3}, _turn_context())
+
+    assert first.success is True
+    assert second.success is True
+    assert calls == 1
+    assert second.data["duplicate_query"] is True
+    assert "results" not in second.data
+
+
+@pytest.mark.asyncio
+async def test_web_search_duplicate_cache_is_scoped_to_execution_agent(monkeypatch):
+    tool = WebSearchTool()
+    calls = 0
+
+    monkeypatch.setattr(
+        "magi.tools.builtin.web_search_tool.get_config",
+        lambda: _fake_config(None),
+    )
+    tool._get_default_provider = lambda: "duckduckgo"
+    tool.get_available_providers = lambda: ["duckduckgo"]
+
+    async def fake_execute_with_provider(self, provider_name, params):
+        nonlocal calls
+        calls += 1
+        _ = (self, provider_name, params)
+        return ToolResult(success=True, data={"result_count": 1, "results": []})
+
+    tool.execute_with_provider = MethodType(fake_execute_with_provider, tool)
+
+    await tool.execute({"query": "杭州 西站 地铁", "num_results": 3}, _turn_context(agent_id="a"))
+    await tool.execute({"query": "杭州 西站 地铁", "num_results": 3}, _turn_context(agent_id="b"))
+
+    assert calls == 2
 
 
 @pytest.mark.asyncio

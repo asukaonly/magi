@@ -161,6 +161,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         session_origin: str | None = None,
         reply_context: Any | None = None,
         allow_attachment_grounding: bool = False,
+        ephemeral_context: str | None = None,
     ) -> FunctionCallingStepState:
         """Build the initial loop state for step-wise function calling."""
         normalized_selected_tools = list(dict.fromkeys(selected_tools))
@@ -171,13 +172,41 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
             session_origin=session_origin,
             reply_context=reply_context,
         )
+        ephemeral_context_message_index: int | None = None
+        ephemeral_context_original_content: Any | None = None
+        context_text = str(ephemeral_context or "").strip()
+        if context_text and messages and messages[-1].get("role") == "user":
+            ephemeral_context_message_index = len(messages) - 1
+            ephemeral_context_original_content = messages[-1].get("content")
+            messages[-1]["content"] = self._append_ephemeral_context_to_content(
+                ephemeral_context_original_content,
+                context_text,
+            )
         return FunctionCallingStepState(
             messages=messages,
             effective_system_prompt=self._augment_system_prompt(system_prompt),
             tools=self._build_tools_parameter(normalized_selected_tools),
             selected_tool_names=normalized_selected_tools,
             allow_attachment_grounding=allow_attachment_grounding,
+            ephemeral_context_message_index=ephemeral_context_message_index,
+            ephemeral_context_original_content=ephemeral_context_original_content,
         )
+
+    @staticmethod
+    def _append_ephemeral_context_to_content(content: Any, context_text: str) -> Any:
+        context_block = (
+            "--- LAUNCH CONTEXT SNAPSHOT ---\n"
+            "Use this snapshot only to understand why this run was started. "
+            "For later tool-loop decisions, rely on the assigned task and observed tool results.\n\n"
+            f"{context_text}\n"
+            "--- END LAUNCH CONTEXT SNAPSHOT ---"
+        )
+        if isinstance(content, list):
+            return [*content, {"type": "text", "text": context_block}]
+        text = str(content or "").strip()
+        if not text:
+            return context_block
+        return f"{text}\n\n{context_block}"
 
     def _apply_tool_expansion_from_results(
         self,
@@ -299,6 +328,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         session_summary: str | None = None,
         session_origin: str | None = None,
         reply_context: Any | None = None,
+        ephemeral_context: str | None = None,
         max_iterations: int = MAX_ITERATIONS,
         disable_thinking: bool = True,
         intent: str = "unknown",
@@ -332,6 +362,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
                 session_summary=session_summary,
                 session_origin=session_origin,
                 reply_context=reply_context,
+                ephemeral_context=ephemeral_context,
                 max_iterations=max_iterations,
                 thinking_depth=thinking_depth,
                 disable_thinking=disable_thinking,
@@ -361,6 +392,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         session_summary: str | None,
         session_origin: str | None,
         reply_context: Any | None,
+        ephemeral_context: str | None,
         max_iterations: int,
         thinking_depth: Optional[ThinkingDepth],
         disable_thinking: bool,
@@ -378,6 +410,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
             session_summary=session_summary,
             session_origin=session_origin,
             reply_context=reply_context,
+            ephemeral_context=ephemeral_context,
         )
         self._current_messages = state.messages
         depth = _coerce_thinking_depth(thinking_depth, disable_thinking)
@@ -411,6 +444,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
             if step_outcome.status == "continue":
                 if get_stream_sink() is not None:
                     await emit_stream_event(LLMStreamEvent(kind="text_flush"))
+                await self._drop_ephemeral_context(state)
                 await self._try_compact(state, system_prompt)
                 continue
             if step_outcome.status == "completed":
@@ -467,6 +501,27 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         result = await self._context_compactor.compact(state.messages, system_prompt)
         if result.compacted:
             state.messages[:] = result.messages
+
+    async def _drop_ephemeral_context(self, state: FunctionCallingStepState) -> None:
+        """Remove launch-only context after the first tool iteration."""
+        index = state.ephemeral_context_message_index
+        if index is None:
+            return
+        if index < 0 or index >= len(state.messages):
+            state.ephemeral_context_message_index = None
+            state.ephemeral_context_original_content = None
+            return
+        message = state.messages[index]
+        if message.get("role") == "user":
+            message["content"] = state.ephemeral_context_original_content
+            await self._emit_loop_event(
+                {
+                    "stage": "ephemeral_context_dropped",
+                    "iteration": state.iteration,
+                }
+            )
+        state.ephemeral_context_message_index = None
+        state.ephemeral_context_original_content = None
 
     async def apply_steer_messages(
         self,

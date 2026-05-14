@@ -44,9 +44,21 @@ class ChatPlanningPromptMixin:
     ) -> list[PlannedSubtask]:
         is_repo_architecture = any(
             keyword in user_message.lower()
-            for keyword in ["architecture", "codebase", "repo", "代码架构", "项目架构", "代码库", "目录结构"]
+            for keyword in [
+                "architecture",
+                "codebase",
+                "repo",
+                "代码架构",
+                "项目架构",
+                "代码库",
+                "目录结构",
+            ]
         )
-        leaf_type = default_leaf_type if default_leaf_type in LEAF_SUBAGENT_TYPES else CODE_EXPLORE_LEAF_TYPE
+        leaf_type = (
+            default_leaf_type
+            if default_leaf_type in LEAF_SUBAGENT_TYPES
+            else CODE_EXPLORE_LEAF_TYPE
+        )
         if request_profile == "research":
             return self._build_research_seed_subtasks(user_message)
         if is_repo_architecture:
@@ -218,18 +230,24 @@ class ChatPlanningPromptMixin:
     ) -> dict[str, Any]:
         if request_profile == "research":
             available_tools = list(self._WEB_TOOL_HINT_CANDIDATES)
+            hint_profile = "research"
         elif str(subagent_type or "").strip() == "general-purpose":
             available_tools = list(self._WEB_TOOL_HINT_CANDIDATES)
-        elif str(subagent_type or "").strip() == CODE_EXPLORE_LEAF_TYPE or self._looks_like_code_or_repo_request(
+            hint_profile = "research"
+        elif str(
+            subagent_type or ""
+        ).strip() == CODE_EXPLORE_LEAF_TYPE or self._looks_like_code_or_repo_request(
             root_user_message, subtask_prompt
         ):
             available_tools = list(self._FILE_TOOL_HINT_CANDIDATES)
+            hint_profile = request_profile
         else:
             available_tools = []
+            hint_profile = request_profile
         return self._tool_hint_resolver.resolve(
             user_message=root_user_message,
             available_tools=available_tools,
-            request_profile=request_profile,
+            request_profile=hint_profile,
         )
 
     def _candidate_file_tools(self, default_leaf_type: str, user_message: str) -> list[str]:
@@ -243,7 +261,9 @@ class ChatPlanningPromptMixin:
         normalized = str(workspace_root or "").strip()
         if not normalized:
             return None
-        workspace_name = re.sub(r"[^A-Za-z0-9._-]+", " ", normalized.rstrip("/").split("/")[-1]).strip()
+        workspace_name = re.sub(
+            r"[^A-Za-z0-9._-]+", " ", normalized.rstrip("/").split("/")[-1]
+        ).strip()
         return {
             "workspace_root": normalized,
             "workspace_name": workspace_name or normalized,
@@ -258,31 +278,43 @@ class ChatPlanningPromptMixin:
         ).strip()
         allow_parallel = bool(planning_prompt.get("allow_parallel", True))
 
-        lines.extend([
-            "## Planning Context",
-            f"- Planning profile: {planning_profile}",
-            f"- Default leaf type: {default_leaf_type}",
-            f"- Parallel execution allowed: {'yes' if allow_parallel else 'no'}",
-            "",
-        ])
+        lines.extend(
+            [
+                "## Planning Context",
+                f"- Planning profile: {planning_profile}",
+                f"- Default leaf type: {default_leaf_type}",
+                f"- Parallel execution allowed: {'yes' if allow_parallel else 'no'}",
+                "",
+            ]
+        )
 
-        target_language = str(planning_prompt.get("target_language") or llm_language_label()).strip()
-        lines.extend([
-            "## Response Language",
-            f"- Target language: {target_language}",
-            "- Keep all natural-language JSON values in this language unless preserving exact names, paths, commands, or source titles.",
-            "",
-        ])
+        target_language = str(
+            planning_prompt.get("target_language") or llm_language_label()
+        ).strip()
+        lines.extend(
+            [
+                "## Response Language",
+                f"- Target language: {target_language}",
+                "- Keep all natural-language JSON values in this language unless preserving exact names, paths, commands, or source titles.",
+                "",
+            ]
+        )
 
         user_request = str(planning_prompt.get("user_request") or "").strip()
         if user_request:
-            lines.extend([
-                "## User Request",
-                user_request,
-                "",
-            ])
+            lines.extend(
+                [
+                    "## User Request",
+                    user_request,
+                    "",
+                ]
+            )
 
-        recent_history = planning_prompt.get("recent_history") if isinstance(planning_prompt.get("recent_history"), list) else []
+        recent_history = (
+            planning_prompt.get("recent_history")
+            if isinstance(planning_prompt.get("recent_history"), list)
+            else []
+        )
         if recent_history:
             lines.append("## Recent History")
             for item in recent_history:
@@ -294,31 +326,49 @@ class ChatPlanningPromptMixin:
                     lines.append(f"- {role}: {content}")
             lines.append("")
 
-        workspace_context = planning_prompt.get("workspace_context") if isinstance(planning_prompt.get("workspace_context"), dict) else None
+        workspace_context = (
+            planning_prompt.get("workspace_context")
+            if isinstance(planning_prompt.get("workspace_context"), dict)
+            else None
+        )
         if workspace_context:
-            lines.extend([
-                "## Workspace Context",
-                f"- Workspace root: {str(workspace_context.get('workspace_root') or '').strip()}",
-                f"- Workspace name: {str(workspace_context.get('workspace_name') or '').strip()}",
-                "",
-            ])
+            lines.extend(
+                [
+                    "## Workspace Context",
+                    f"- Workspace root: {str(workspace_context.get('workspace_root') or '').strip()}",
+                    f"- Workspace name: {str(workspace_context.get('workspace_name') or '').strip()}",
+                    "",
+                ]
+            )
 
-        date_range_hint = planning_prompt.get("date_range_hint") if isinstance(planning_prompt.get("date_range_hint"), dict) else None
+        date_range_hint = (
+            planning_prompt.get("date_range_hint")
+            if isinstance(planning_prompt.get("date_range_hint"), dict)
+            else None
+        )
         if date_range_hint:
-            lines.extend([
-                "## Date Range Hint",
-                f"- Start date: {str(date_range_hint.get('start_date') or '').strip()}",
-                f"- End date: {str(date_range_hint.get('end_date') or '').strip()}",
-                "",
-            ])
+            lines.extend(
+                [
+                    "## Date Range Hint",
+                    f"- Start date: {str(date_range_hint.get('start_date') or '').strip()}",
+                    f"- End date: {str(date_range_hint.get('end_date') or '').strip()}",
+                    "",
+                ]
+            )
 
-        task_hint_lines = self._render_planning_task_hint_markdown(planning_prompt.get("task_hints"))
+        task_hint_lines = self._render_planning_task_hint_markdown(
+            planning_prompt.get("task_hints")
+        )
         if task_hint_lines:
             lines.append("## Task Hints")
             lines.extend(task_hint_lines)
             lines.append("")
 
-        seed_subtasks = planning_prompt.get("seed_subtasks") if isinstance(planning_prompt.get("seed_subtasks"), list) else []
+        seed_subtasks = (
+            planning_prompt.get("seed_subtasks")
+            if isinstance(planning_prompt.get("seed_subtasks"), list)
+            else []
+        )
         if seed_subtasks:
             lines.append("## Seed Subtasks")
             for index, item in enumerate(seed_subtasks, start=1):
@@ -338,7 +388,11 @@ class ChatPlanningPromptMixin:
                     lines.append(f"  Prompt: {prompt}")
             lines.append("")
 
-        requirements = planning_prompt.get("requirements") if isinstance(planning_prompt.get("requirements"), list) else []
+        requirements = (
+            planning_prompt.get("requirements")
+            if isinstance(planning_prompt.get("requirements"), list)
+            else []
+        )
         if requirements:
             lines.append("## Requirements")
             for item in requirements:
@@ -347,12 +401,14 @@ class ChatPlanningPromptMixin:
                     lines.append(f"- {requirement}")
             lines.append("")
 
-        lines.extend([
-            "## Output Contract",
-            "- Return ONLY valid JSON that matches the system prompt schema.",
-            "- Produce execution-ready leaf tasks rather than answering the user directly.",
-            "- Keep summary, description, prompt, findings, gaps, and next_steps values in the target language.",
-        ])
+        lines.extend(
+            [
+                "## Output Contract",
+                "- Return ONLY valid JSON that matches the system prompt schema.",
+                "- Produce execution-ready leaf tasks rather than answering the user directly.",
+                "- Keep summary, description, prompt, findings, gaps, and next_steps values in the target language.",
+            ]
+        )
         return "\n".join(lines).strip()
 
     @staticmethod
@@ -374,9 +430,13 @@ class ChatPlanningPromptMixin:
                 lines.append(f"- {label}: {value}")
 
         if "requires_clarification" in task_hint:
-            lines.append(f"- Requires clarification: {'yes' if bool(task_hint.get('requires_clarification')) else 'no'}")
+            lines.append(
+                f"- Requires clarification: {'yes' if bool(task_hint.get('requires_clarification')) else 'no'}"
+            )
 
-        tool_hints = task_hint.get("tool_hints") if isinstance(task_hint.get("tool_hints"), list) else []
+        tool_hints = (
+            task_hint.get("tool_hints") if isinstance(task_hint.get("tool_hints"), list) else []
+        )
         if tool_hints:
             lines.append("- Preferred tools:")
             for item in tool_hints:
@@ -432,7 +492,9 @@ class ChatPlanningPromptMixin:
         return looks_like_code_or_repo_request(user_message, subtask_prompt)
 
     def _classify_request_profile(self, *, user_message: str, default_leaf_type: str) -> str:
-        return classify_request_profile(user_message=user_message, default_leaf_type=default_leaf_type)
+        return classify_request_profile(
+            user_message=user_message, default_leaf_type=default_leaf_type
+        )
 
     def _is_complex_research_request(self, user_message: str) -> bool:
         return is_complex_research_request(user_message)

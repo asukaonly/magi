@@ -1,4 +1,5 @@
 """Execution coordination for chat task agents."""
+
 from __future__ import annotations
 
 import inspect
@@ -14,6 +15,7 @@ from ....core.logger import get_logger
 from ....personality.active_persona import get_current_personality_config
 from ....tools.context_decider import ContextDecider
 from ....tools.context_decider_context import ContextDeciderContext
+from ....tools.context_routing import should_decompose_external_request
 from ....tools.recommender import ToolRecommender
 from ....tools.schema import ToolExecutionContext
 from ....tools.tool_advisory_reranker import ToolAdvisoryReranker
@@ -36,16 +38,45 @@ from .contracts import (
 )
 from .attachment_context import resolve_effective_turn_attachments
 from .fact_classifier import ChatFactClassifier
+
 logger = get_logger(__name__)
 
 # Tools the execution LLM always has access to when tool-calling is active,
 # regardless of what the Context Decider selected.  This avoids the routing
 # LLM becoming a single point of failure for tool availability.
 _FALLBACK_TOOLS = ["web-search", "find-relevant-tools"]
+_CODE_OR_LOCAL_REQUEST_HINTS = (
+    "code",
+    "codebase",
+    "repo",
+    "repository",
+    "source",
+    "file",
+    "function",
+    "class",
+    "module",
+    "stack trace",
+    "traceback",
+    "bug",
+    "代码",
+    "代码库",
+    "仓库",
+    "源码",
+    "文件",
+    "函数",
+    "类",
+    "模块",
+    "报错",
+    "调用链",
+)
 
 IntentTraceCallback = Callable[[ChatRuntimeContext, IntentDecision], Awaitable[None] | None]
-ToolAdvisoryProvider = Callable[[str | None, list[str] | None, int], Awaitable[List[Dict[str, Any]]]]
-ToolSelectionTraceCallback = Callable[[ChatRuntimeContext, IntentDecision, ToolSelection], Awaitable[None] | None]
+ToolAdvisoryProvider = Callable[
+    [str | None, list[str] | None, int], Awaitable[List[Dict[str, Any]]]
+]
+ToolSelectionTraceCallback = Callable[
+    [ChatRuntimeContext, IntentDecision, ToolSelection], Awaitable[None] | None
+]
 
 
 class ChatExecutionCoordinator:
@@ -95,7 +126,8 @@ class ChatExecutionCoordinator:
     async def match_intent(self, context: ChatRuntimeContext) -> IntentDecision:
         planner_fact_kind = (
             context.planner_fact_kind
-            if context.planner_fact is not None or context.planner_fact_kind != IncomingFactKind.OTHER_FACT
+            if context.planner_fact is not None
+            or context.planner_fact_kind != IncomingFactKind.OTHER_FACT
             else context.incoming_fact_kind
         )
         if planner_fact_kind == IncomingFactKind.WORKER_UPDATE:
@@ -177,6 +209,10 @@ class ChatExecutionCoordinator:
         )
 
         decision = await self._context_decider.decide(context.latest_user_message, decision_context)
+        force_direct_external = self._should_force_direct_external_plan(
+            user_message=context.latest_user_message,
+            strategy=decision.orchestration_strategy,
+        )
         orchestration_plan = self._normalize_orchestration_plan(
             user_message=context.latest_user_message,
             strategy=decision.orchestration_strategy,
@@ -187,6 +223,8 @@ class ChatExecutionCoordinator:
             for item in effective_attachments
         )
         selected_tools = [] if has_image_attachments else list(decision.tools)
+        if not has_image_attachments and force_direct_external:
+            selected_tools = self._prefer_direct_external_tools(selected_tools)
         # Ensure fallback tools are always available when tool-assisted execution
         # is active.  The execution LLM is smarter than the routing LLM and can
         # decide on its own whether web-search is useful for the current task.
@@ -202,15 +240,19 @@ class ChatExecutionCoordinator:
         execution_mode = (
             ExecutionMode.DIRECT_LLM
             if has_image_attachments
-            else ExecutionMode.ORCHESTRATION_LAUNCH
-            if orchestration_plan.mode == "decompose"
-            else ExecutionMode.FUNCTION_CALLING
-            if selected_tools
-            else ExecutionMode.DIRECT_LLM
+            else (
+                ExecutionMode.ORCHESTRATION_LAUNCH
+                if orchestration_plan.mode == "decompose"
+                else ExecutionMode.FUNCTION_CALLING if selected_tools else ExecutionMode.DIRECT_LLM
+            )
         )
         intent_decision = IntentDecision(
             intent=decision.intent,
-            difficulty="hard" if decision.thinking_depth not in (ThinkingDepth.NONE, ThinkingDepth.LOW) else "normal",
+            difficulty=(
+                "hard"
+                if decision.thinking_depth not in (ThinkingDepth.NONE, ThinkingDepth.LOW)
+                else "normal"
+            ),
             execution_mode=execution_mode,
             ux_plan=self._build_turn_ux_plan(
                 user_message=context.latest_user_message,
@@ -236,14 +278,18 @@ class ChatExecutionCoordinator:
                 await callback_result
         return intent_decision
 
-    async def match_tools(self, context: ChatRuntimeContext, intent: IntentDecision) -> ToolSelection:
+    async def match_tools(
+        self, context: ChatRuntimeContext, intent: IntentDecision
+    ) -> ToolSelection:
         if intent.execution_mode in {
             ExecutionMode.ORCHESTRATION_LAUNCH,
             ExecutionMode.ORCHESTRATION_UPDATE,
             ExecutionMode.FACT_ONLY,
             ExecutionMode.EXPLORE_TASK_RENDER,
         }:
-            return ToolSelection(tools=[], reasoning=intent.reasoning, task_hint=dict(intent.task_hint or {}))
+            return ToolSelection(
+                tools=[], reasoning=intent.reasoning, task_hint=dict(intent.task_hint or {})
+            )
 
         recommendations = self._recommend_runtime_tools(context=context, intent=intent)
         if recommendations:
@@ -251,8 +297,14 @@ class ChatExecutionCoordinator:
                 task_context=context.latest_user_message,
                 recommendations=recommendations,
             )
-        recommended_names = [str(item.get("tool") or "").strip() for item in recommendations if str(item.get("tool") or "").strip()]
-        ordered_tools = recommended_names + [tool for tool in intent.tools if tool not in recommended_names]
+        recommended_names = [
+            str(item.get("tool") or "").strip()
+            for item in recommendations
+            if str(item.get("tool") or "").strip()
+        ]
+        ordered_tools = recommended_names + [
+            tool for tool in intent.tools if tool not in recommended_names
+        ]
         tool_selection = ToolSelection(
             tools=ordered_tools,
             reasoning=intent.reasoning,
@@ -294,10 +346,22 @@ class ChatExecutionCoordinator:
         plan = OrchestrationPlan(
             mode=str(strategy.get("mode", "direct") or "direct"),
             planner=str(strategy.get("planner", "task_agent") or "task_agent"),
-            default_leaf_type=str(strategy.get("default_leaf_type", "CodeExplore") or "CodeExplore"),
+            default_leaf_type=str(
+                strategy.get("default_leaf_type", "CodeExplore") or "CodeExplore"
+            ),
             allow_parallel=bool(strategy.get("allow_parallel", True)),
             route_to_explore_task_agent=False,
         )
+        if self._should_force_direct_external_plan(
+            user_message=user_message,
+            strategy=strategy,
+        ):
+            plan.mode = "direct"
+            plan.planner = "task_agent"
+            plan.default_leaf_type = "general-purpose"
+            plan.allow_parallel = False
+            plan.route_to_explore_task_agent = False
+            return plan
         if plan.mode == "decompose" and plan.default_leaf_type == "CodeExplore":
             lowered = user_message.lower()
             plan.route_to_explore_task_agent = any(
@@ -316,6 +380,36 @@ class ChatExecutionCoordinator:
             )
         return plan
 
+    @staticmethod
+    def _should_force_direct_external_plan(
+        *,
+        user_message: str,
+        strategy: dict[str, Any] | None,
+    ) -> bool:
+        if not isinstance(strategy, dict):
+            return False
+        if str(strategy.get("mode") or "").strip() != "decompose":
+            return False
+        if str(strategy.get("default_leaf_type") or "").strip() != "general-purpose":
+            return False
+        user_lower = str(user_message or "").lower()
+        if any(hint in user_lower for hint in _CODE_OR_LOCAL_REQUEST_HINTS):
+            return False
+        return not should_decompose_external_request(user_message)
+
+    def _prefer_direct_external_tools(self, selected_tools: list[str]) -> list[str]:
+        registered = set(self._context_decider.tool_registry.list_tools())
+        direct_tools = [tool for tool in selected_tools if tool != "agent"]
+        if "web-search" in registered and "web-search" not in direct_tools:
+            direct_tools.append("web-search")
+        if (
+            "web-fetch" in selected_tools
+            and "web-fetch" in registered
+            and "web-fetch" not in direct_tools
+        ):
+            direct_tools.append("web-fetch")
+        return direct_tools
+
     def _resolve_runtime_task_hint(
         self,
         *,
@@ -325,9 +419,16 @@ class ChatExecutionCoordinator:
     ) -> dict[str, Any]:
         if self._tool_hint_resolver is None or not selected_tools:
             return {}
-        request_profile = "research" if any(tool in {"web-search", "web-fetch"} for tool in selected_tools) else None
+        request_profile = (
+            "research"
+            if any(tool in {"web-search", "web-fetch"} for tool in selected_tools)
+            else None
+        )
         scope_hints: list[str] = []
-        if any(marker in user_message for marker in ["~/", "/", "\\", "src/", "backend/", "frontend/", "docs/"]):
+        if any(
+            marker in user_message
+            for marker in ["~/", "/", "\\", "src/", "backend/", "frontend/", "docs/"]
+        ):
             scope_hints.append("The request references an explicit path or subdirectory.")
         if execution_mode == ExecutionMode.ORCHESTRATION_LAUNCH:
             scope_hints.append("The request will be decomposed into orchestration work.")
@@ -338,7 +439,9 @@ class ChatExecutionCoordinator:
             scope_hints=scope_hints,
         )
 
-    def _recommend_runtime_tools(self, *, context: ChatRuntimeContext, intent: IntentDecision) -> list[dict[str, Any]]:
+    def _recommend_runtime_tools(
+        self, *, context: ChatRuntimeContext, intent: IntentDecision
+    ) -> list[dict[str, Any]]:
         if self._tool_recommender is None or not intent.tools:
             return []
         try:
@@ -356,7 +459,9 @@ class ChatExecutionCoordinator:
                 candidate_tools=list(intent.tools),
             )
         except Exception as exc:
-            logger.debug("Runtime tool recommendation failed, falling back to router order: %s", exc)
+            logger.debug(
+                "Runtime tool recommendation failed, falling back to router order: %s", exc
+            )
             return []
 
     async def _rerank_selected_tools(
@@ -447,8 +552,7 @@ class ChatExecutionCoordinator:
             )
         if execution_mode == ExecutionMode.ORCHESTRATION_LAUNCH:
             is_explore = bool(
-                orchestration_plan is not None
-                and orchestration_plan.route_to_explore_task_agent
+                orchestration_plan is not None and orchestration_plan.route_to_explore_task_agent
             )
             interim_text = self._resolve_interim_text(
                 mode_key="explore_task" if is_explore else "orchestration_launch",
@@ -461,7 +565,10 @@ class ChatExecutionCoordinator:
                 allow_trace_collapse=True,
                 interim_text=interim_text,
             )
-        if execution_mode in {ExecutionMode.ORCHESTRATION_UPDATE, ExecutionMode.EXPLORE_TASK_RENDER}:
+        if execution_mode in {
+            ExecutionMode.ORCHESTRATION_UPDATE,
+            ExecutionMode.EXPLORE_TASK_RENDER,
+        }:
             return TurnUXPlan(
                 assistant_surface_mode=AssistantSurfaceMode.FINAL_ONLY,
                 thinking_indicator=ThinkingIndicatorMode.HIDDEN,
@@ -512,9 +619,7 @@ class ChatExecutionCoordinator:
             persona_config = None
         persona_lines: List[str] = []
         if persona_config is not None:
-            persona_lines = list(
-                getattr(persona_config, "interim_lines", {}).get(mode_key, [])
-            )
+            persona_lines = list(getattr(persona_config, "interim_lines", {}).get(mode_key, []))
         if persona_lines:
             return random.choice(persona_lines)
         lang = self._detect_message_language(user_message)

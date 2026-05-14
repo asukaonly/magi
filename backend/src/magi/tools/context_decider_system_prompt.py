@@ -39,6 +39,7 @@ JSON structure:
 - Prefer `trace_query` when the user asks about exact recent tool calls, parameters, durations, or failures.
 - If the user wants to send already identified photos or assets, use the source resolver and attachment preparation tools.
 - Keep bounded advice and option comparison in the main chat path unless the user explicitly asks for fresh/current data, citations, links, or multi-source verification.
+- Decompose external-world work only when the user asks for broad research: many items, citations, links, source lists, multi-source comparison, verification, or report-style synthesis. Bounded planning/advice with a few current checks stays in direct tool-calling.
 - Always match tools and skills against the current available lists rather than inventing new ones.
 
 ### 4. Thinking Depth
@@ -63,7 +64,10 @@ User: "analyze this large repo and design a migration plan"
 JSON: {"intent": "planning", "tools": ["agent"], "thinking_depth": "high", "reasoning": "Large repo analysis should be decomposed into bounded workers.", "orchestration_strategy": {"mode": "decompose", "planner": "task_agent", "default_leaf_type": "CodeExplore", "allow_parallel": true}}
 
 User: "find the 10 most important Hangzhou news stories from the last 7 days and give me links"
-JSON: {"intent": "planning", "tools": ["web-search", "web-fetch"], "thinking_depth": "medium", "reasoning": "This is bounded multi-source research with a time window and source requirements.", "orchestration_strategy": {"mode": "decompose", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": true}}
+JSON: {"intent": "planning", "tools": ["agent"], "thinking_depth": "medium", "reasoning": "This asks for a collection with time bounds and source links, so worker decomposition is appropriate.", "orchestration_strategy": {"mode": "decompose", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": true}}
+
+User: "I arrive at Hangzhou West Station at 8 and have dinner at 7; plan a low-walking itinerary including metro"
+JSON: {"intent": "planning", "tools": ["web-search"], "thinking_depth": "low", "reasoning": "This is bounded external planning with a few current-place checks, so keep it in direct tool calling instead of decomposed research.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
 
 User: "what kind of weather do I like"
 JSON: {"intent": "chat", "tools": ["memory_query"], "thinking_depth": "none", "reasoning": "The user is asking about a stored preference, so memory recall is needed.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}

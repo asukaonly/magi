@@ -11,6 +11,7 @@ from .orchestration import default_orchestration_strategy, normalize_orchestrati
 from .research_guardrail import (
     is_complex_research_request,
     needs_fetch_for_request,
+    should_decompose_external_request,
 )
 
 __all__ = [
@@ -24,4 +25,5 @@ __all__ = [
     "is_complex_research_request",
     "needs_fetch_for_request",
     "normalize_orchestration_strategy",
+    "should_decompose_external_request",
 ]

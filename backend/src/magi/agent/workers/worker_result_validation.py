@@ -13,6 +13,7 @@ class WorkerResultValidationMixin:
 
     TYPE_PLAN: str
     TYPE_CODING: str
+    TYPE_EXPLORE: str
 
     def _validate_worker_result(self, subagent_type: str, content: str) -> WorkerResult:
         stripped = str(content or "").strip()
@@ -80,12 +81,12 @@ class WorkerResultValidationMixin:
             detail = item.detail.strip()
             if not title or not detail:
                 raise ValueError("Each worker finding requires non-empty title and detail")
-            if subagent_type != self.TYPE_PLAN:
+            if subagent_type == self.TYPE_EXPLORE:
                 path = (item.path or "").strip()
                 why_it_matters = (item.why_it_matters or "").strip()
                 if not path or not why_it_matters:
                     raise ValueError(
-                        "Each worker finding requires non-empty path and why_it_matters"
+                        "Each CodeExplore worker finding requires non-empty path and why_it_matters"
                     )
 
     @staticmethod

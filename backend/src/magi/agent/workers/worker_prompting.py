@@ -87,7 +87,10 @@ class WorkerPromptMixin:
             role_rules = (
                 "Act as a general-purpose leaf execution agent for one bounded task. "
                 "Return ONLY valid JSON with this schema: "
-                '{"result_status":"success|partial|failed","summary":"string","findings":[{"title":"string","detail":"string","path":"string","why_it_matters":"string"}],"evidence":[{"path":"string","detail":"string"}],"gaps":["string"],"next_steps":["string"],"failure_reason":"string|null"}. '
+                '{"result_status":"success|partial|failed","summary":"string","findings":[{"title":"string","detail":"string"}],"evidence":[{"path":"string","detail":"string"}],"gaps":["string"],"next_steps":["string"],"failure_reason":"string|null"}. '
+                "For external evidence, evidence.path should be the canonical URL or source label. "
+                "For local file evidence, evidence.path should be the verified file path. "
+                "Treat the iteration limit as a safety ceiling, not a target: stop as soon as the bounded task has enough evidence, and do not repeat equivalent searches. "
                 "Any response that is not a single valid JSON object will be treated as failure."
             )
         return "\n".join([base_rules, environment_rules, role_rules, language_rules, tool_rules])

@@ -190,13 +190,17 @@ flowchart TD
 
 Routing policy keeps worker decomposition for requests whose required
 evidence or implementation surface is genuinely larger than a single
-chat turn. Bounded advice and option-comparison prompts, including
-purchase or preference guidance, stay in the main chat path unless the
-user explicitly asks for fresh/current data, citations, links, many
-external sources, or cross-source verification. This policy prevents
-ordinary advisory follow-ups from becoming parent-task orchestration
-while preserving decomposition for news research, repository-wide
-analysis, migration plans, and other broad verification work.
+chat turn. External-world `general-purpose` decomposition is reserved
+for explicit broad research signals such as many requested items,
+citations, links, source lists, multi-source comparison, verification,
+or report-style synthesis. Bounded external planning, advice, and
+option comparison can still use direct function-calling with web tools;
+they should not become parallel worker orchestration simply because the
+domain is travel, food, transit, news, or local geography. This policy
+prevents ordinary advisory follow-ups from becoming parent-task
+orchestration while preserving decomposition for source-heavy news
+research, repository-wide analysis, migration plans, and other broad
+verification work.
 
   During function-calling turns, the execution LLM may also use a bounded
   tool-discovery helper to recover from missing-capability situations.
@@ -529,6 +533,13 @@ Workers remain leaf executors and do not recursively create other workers.
 They also do not own user-facing control state: worker tool profiles exclude
 `todo_write`, and function-calling execution rejects worker-originated
 `todo_write` calls even if a stale or custom profile exposes the tool.
+
+When a parent task passes conversation context into a worker, that inherited
+context is launch-only. The worker sees it on the first function-calling
+decision so it can disambiguate the assignment, then the loop drops it before
+subsequent tool iterations. Repeated tool-loop prompts keep the worker system
+contract, assigned task, and observed tool results, not the full parent
+conversation snapshot.
 
 `CodeExplore` workers are workspace/codebase inspectors with a deliberately
 narrow tool profile (`glob`, `grep`, `file_read`). This leaf worker type is for

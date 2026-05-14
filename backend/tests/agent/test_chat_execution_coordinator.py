@@ -185,6 +185,119 @@ async def test_coordinator_routes_decompose_explore_to_orchestration_launch() ->
 
 
 @pytest.mark.asyncio
+async def test_coordinator_keeps_bounded_external_plan_in_direct_web_tools() -> None:
+    decider = _FakeContextDecider(
+        _FakeContextDecision(
+            intent="planning",
+            tools=["agent"],
+            deep_thinking=True,
+            reasoning="router tried decomposition",
+            orchestration_strategy={
+                "mode": "decompose",
+                "planner": "task_agent",
+                "default_leaf_type": "general-purpose",
+                "allow_parallel": True,
+            },
+        ),
+        tool_registry=_FakeToolRegistry(
+            ["agent", "web-search", "web-fetch", "find-relevant-tools"]
+        ),
+    )
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+    )
+
+    message = "我8点到杭州西站，晚上7点约了人吃饭，中间帮我安排下行程，包括地铁"
+    fact = FactRecord(
+        agent_id="chat:u-chat",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u-chat", "session_id": "s-chat", "content": message},
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-chat",
+        agent_type="chat",
+        runtime_key="chat:u-chat",
+        user_id="u-chat",
+        session_id="s-chat",
+        history_key="u-chat::s-chat",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message=message,
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-chat"),
+    )
+
+    decision = await coordinator.match_intent(context)
+
+    assert decision.execution_mode == ExecutionMode.FUNCTION_CALLING
+    assert decision.orchestration_plan is not None
+    assert decision.orchestration_plan.mode == "direct"
+    assert "agent" not in decision.tools
+    assert "web-search" in decision.tools
+
+
+@pytest.mark.asyncio
+async def test_coordinator_allows_explicit_external_research_decomposition() -> None:
+    decider = _FakeContextDecider(
+        _FakeContextDecision(
+            intent="research",
+            tools=["agent"],
+            deep_thinking=True,
+            reasoning="source-heavy research",
+            orchestration_strategy={
+                "mode": "decompose",
+                "planner": "task_agent",
+                "default_leaf_type": "general-purpose",
+                "allow_parallel": True,
+            },
+        ),
+        tool_registry=_FakeToolRegistry(["agent", "web-search", "find-relevant-tools"]),
+    )
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+    )
+
+    message = "find the 10 most important Hangzhou news stories from the last 7 days and give links and sources"
+    fact = FactRecord(
+        agent_id="chat:u-chat",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u-chat", "session_id": "s-chat", "content": message},
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-chat",
+        agent_type="chat",
+        runtime_key="chat:u-chat",
+        user_id="u-chat",
+        session_id="s-chat",
+        history_key="u-chat::s-chat",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message=message,
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-chat"),
+    )
+
+    decision = await coordinator.match_intent(context)
+
+    assert decision.execution_mode == ExecutionMode.ORCHESTRATION_LAUNCH
+    assert decision.orchestration_plan is not None
+    assert decision.orchestration_plan.mode == "decompose"
+    assert "agent" in decision.tools
+
+
+@pytest.mark.asyncio
 async def test_coordinator_carries_intent_llm_trace_metrics() -> None:
     coordinator = ChatExecutionCoordinator(
         context_decider=_FakeContextDecider(
@@ -352,7 +465,11 @@ async def test_coordinator_match_tools_reorders_runtime_tools_with_task_hint() -
     fact = FactRecord(
         agent_id="chat:u-chat",
         event_type=EventTypes.USER_MESSAGE,
-        payload={"user_id": "u-chat", "session_id": "s-chat", "content": "分析 backend/src/magi/agent 的调用链路"},
+        payload={
+            "user_id": "u-chat",
+            "session_id": "s-chat",
+            "content": "分析 backend/src/magi/agent 的调用链路",
+        },
     )
     context = ChatRuntimeContext(
         latest_fact=fact,
@@ -409,7 +526,11 @@ async def test_coordinator_match_tools_applies_l4_advisory_rerank() -> None:
     fact = FactRecord(
         agent_id="chat:u-chat",
         event_type=EventTypes.USER_MESSAGE,
-        payload={"user_id": "u-chat", "session_id": "s-chat", "content": "分析 backend/src/magi/agent 的调用链路"},
+        payload={
+            "user_id": "u-chat",
+            "session_id": "s-chat",
+            "content": "分析 backend/src/magi/agent 的调用链路",
+        },
     )
     context = ChatRuntimeContext(
         latest_fact=fact,
@@ -463,7 +584,11 @@ async def test_coordinator_marks_ambiguous_external_reference_scope() -> None:
     fact = FactRecord(
         agent_id="chat:u-chat",
         event_type=EventTypes.USER_MESSAGE,
-        payload={"user_id": "u-chat", "session_id": "s-chat", "content": "详细对比下 Magi 和 AnotherProject 的记忆实现"},
+        payload={
+            "user_id": "u-chat",
+            "session_id": "s-chat",
+            "content": "详细对比下 Magi 和 AnotherProject 的记忆实现",
+        },
     )
     context = ChatRuntimeContext(
         latest_fact=fact,
@@ -678,7 +803,11 @@ async def test_coordinator_routes_complex_news_to_generic_orchestration_without_
     fact = FactRecord(
         agent_id="chat:u-chat",
         event_type=EventTypes.USER_MESSAGE,
-        payload={"user_id": "u-chat", "session_id": "s-chat", "content": "搜一下最近7天杭州有什么重要的新闻，给我来10条"},
+        payload={
+            "user_id": "u-chat",
+            "session_id": "s-chat",
+            "content": "搜一下最近7天杭州有什么重要的新闻，给我来10条",
+        },
     )
     context = ChatRuntimeContext(
         latest_fact=fact,
@@ -898,7 +1027,9 @@ async def test_coordinator_forces_direct_llm_for_image_attachments() -> None:
             "user_id": "u-chat",
             "session_id": "s-chat",
             "content": "这张图里是什么",
-            "attachments": [{"attachment_id": "att-image", "kind": "image", "original_name": "diagram.png"}],
+            "attachments": [
+                {"attachment_id": "att-image", "kind": "image", "original_name": "diagram.png"}
+            ],
         },
     )
     context = ChatRuntimeContext(
@@ -928,9 +1059,16 @@ async def test_coordinator_forces_direct_llm_for_image_attachments() -> None:
 async def test_coordinator_injects_tool_advisory_into_decision_context() -> None:
     """Advisory provider should populate ContextDeciderContext.tool_advisory."""
     fake_advisories = [
-        {"tool_name": "web_search", "available": True, "breaker_state": "closed",
-         "success_rate": 0.8, "total_attempts": 5, "strategy_hint": "use quotes",
-         "context_fit": None, "risk_note": None},
+        {
+            "tool_name": "web_search",
+            "available": True,
+            "breaker_state": "closed",
+            "success_rate": 0.8,
+            "total_attempts": 5,
+            "strategy_hint": "use quotes",
+            "context_fit": None,
+            "risk_note": None,
+        },
     ]
 
     async def advisory_provider(task_context=None, tool_names=None, limit=10):
@@ -945,9 +1083,12 @@ async def test_coordinator_injects_tool_advisory_into_decision_context() -> None
             tools=["web_search"],
             deep_thinking=False,
             reasoning="search",
-            orchestration_strategy={"mode": "direct", "planner": "task_agent",
-                                    "default_leaf_type": "general-purpose",
-                                    "allow_parallel": False},
+            orchestration_strategy={
+                "mode": "direct",
+                "planner": "task_agent",
+                "default_leaf_type": "general-purpose",
+                "allow_parallel": False,
+            },
         )
     )
     coordinator = ChatExecutionCoordinator(
@@ -1008,9 +1149,12 @@ async def test_coordinator_works_without_advisory_provider() -> None:
             tools=[],
             deep_thinking=False,
             reasoning="greeting",
-            orchestration_strategy={"mode": "direct", "planner": "task_agent",
-                                    "default_leaf_type": "general-purpose",
-                                    "allow_parallel": False},
+            orchestration_strategy={
+                "mode": "direct",
+                "planner": "task_agent",
+                "default_leaf_type": "general-purpose",
+                "allow_parallel": False,
+            },
         )
     )
     coordinator = ChatExecutionCoordinator(
@@ -1058,12 +1202,17 @@ async def test_coordinator_injects_fallback_tools_when_tools_active() -> None:
             tools=["bash"],
             deep_thinking=False,
             reasoning="run command",
-            orchestration_strategy={"mode": "direct", "planner": "task_agent",
-                                    "default_leaf_type": "general-purpose",
-                                    "allow_parallel": False},
+            orchestration_strategy={
+                "mode": "direct",
+                "planner": "task_agent",
+                "default_leaf_type": "general-purpose",
+                "allow_parallel": False,
+            },
         )
     )
-    decider.tool_registry = _FakeToolRegistry(["bash", "web-search", "find-relevant-tools", "file_read"])
+    decider.tool_registry = _FakeToolRegistry(
+        ["bash", "web-search", "find-relevant-tools", "file_read"]
+    )
 
     coordinator = ChatExecutionCoordinator(
         context_decider=decider,
@@ -1108,9 +1257,12 @@ async def test_coordinator_reranks_shortlist_and_skips_open_breaker_fallbacks() 
             tools=["bash", "web-search"],
             deep_thinking=False,
             reasoning="run command",
-            orchestration_strategy={"mode": "direct", "planner": "task_agent",
-                                    "default_leaf_type": "general-purpose",
-                                    "allow_parallel": False},
+            orchestration_strategy={
+                "mode": "direct",
+                "planner": "task_agent",
+                "default_leaf_type": "general-purpose",
+                "allow_parallel": False,
+            },
         )
     )
     decider.tool_registry = _FakeToolRegistry(["bash", "web-search", "find-relevant-tools"])
@@ -1196,9 +1348,12 @@ async def test_coordinator_does_not_inject_fallback_tools_for_chat() -> None:
             tools=[],
             deep_thinking=False,
             reasoning="greeting",
-            orchestration_strategy={"mode": "direct", "planner": "task_agent",
-                                    "default_leaf_type": "general-purpose",
-                                    "allow_parallel": False},
+            orchestration_strategy={
+                "mode": "direct",
+                "planner": "task_agent",
+                "default_leaf_type": "general-purpose",
+                "allow_parallel": False,
+            },
         )
     )
     decider.tool_registry = _FakeToolRegistry(["bash", "web-search"])

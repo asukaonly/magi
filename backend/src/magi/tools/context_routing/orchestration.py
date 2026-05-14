@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from .research_guardrail import is_complex_research_request
+from .research_guardrail import (
+    is_complex_research_request,
+    should_decompose_external_request,
+)
 
 
 def default_orchestration_strategy(
@@ -12,7 +15,7 @@ def default_orchestration_strategy(
     user_lower: str = "",
 ) -> dict[str, Any]:
     selected_tools = tools or []
-    if is_complex_research_request(user_lower):
+    if should_decompose_external_request(user_lower):
         return {
             "mode": "decompose",
             "planner": "task_agent",
@@ -20,7 +23,10 @@ def default_orchestration_strategy(
             "allow_parallel": True,
         }
     if "agent" in selected_tools:
-        if any(kw in user_lower for kw in ["migration", "migrate", "实施方案", "design doc", "implementation plan"]):
+        if any(
+            kw in user_lower
+            for kw in ["migration", "migrate", "实施方案", "design doc", "implementation plan"]
+        ):
             return {
                 "mode": "decompose",
                 "planner": "plan_worker",
@@ -29,7 +35,18 @@ def default_orchestration_strategy(
             }
         if any(
             kw in user_lower
-            for kw in ["架构", "architecture", "设计", "方案", "codebase", "repo", "代码结构", "代码库", "跨模块", "跨子系统"]
+            for kw in [
+                "架构",
+                "architecture",
+                "设计",
+                "方案",
+                "codebase",
+                "repo",
+                "代码结构",
+                "代码库",
+                "跨模块",
+                "跨子系统",
+            ]
         ):
             return {
                 "mode": "decompose",
@@ -47,12 +64,27 @@ def default_orchestration_strategy(
         if any(
             kw in user_lower
             for kw in [
-                "fix bug", "bug fix", "fix this bug", "fix the bug", "fix a bug",
+                "fix bug",
+                "bug fix",
+                "fix this bug",
+                "fix the bug",
+                "fix a bug",
                 "refactor",
-                "add function", "add a function", "add helper",
-                "implement function", "rename", "replace",
-                "改代码", "改一下", "修复", "修一下", "重构",
-                "加一个函数", "实现", "修 bug", "修一个 bug",
+                "add function",
+                "add a function",
+                "add helper",
+                "implement function",
+                "rename",
+                "replace",
+                "改代码",
+                "改一下",
+                "修复",
+                "修一下",
+                "重构",
+                "加一个函数",
+                "实现",
+                "修 bug",
+                "修一个 bug",
             ]
         ):
             return {

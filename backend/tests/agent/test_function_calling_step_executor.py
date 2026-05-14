@@ -75,6 +75,74 @@ def test_build_step_state_tracks_selected_tool_names() -> None:
 
 
 @pytest.mark.asyncio
+async def test_execute_with_tools_drops_ephemeral_context_after_first_tool_loop(monkeypatch) -> None:
+    orchestrator = _build_orchestrator()
+    llm_message_snapshots: list[str] = []
+
+    async def _fake_call_llm_with_tools(**kwargs):  # type: ignore[no-untyped-def]
+        llm_message_snapshots.append(json.dumps(kwargs["messages"], ensure_ascii=False))
+        if len(llm_message_snapshots) == 1:
+            return {
+                "assistant_message": {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "memory_query", "arguments": "{}"},
+                        }
+                    ],
+                },
+                "tool_calls": [ToolCall(id="call_1", name="memory_query", arguments={})],
+                "llm_trace": {"model": "fake-model"},
+            }
+        return {"content": "done", "llm_trace": {"model": "fake-model"}}
+
+    async def _fake_execute_tool_call(**kwargs):  # type: ignore[no-untyped-def]
+        tool_call = kwargs["tool_call"]
+        return ToolCallResult(
+            tool_call_id=tool_call.id,
+            tool_name=tool_call.name,
+            success=True,
+            data={"items": ["memory hit"]},
+            execution_time=0.01,
+        )
+
+    async def _noop_async(*args, **kwargs):  # type: ignore[no-untyped-def]
+        _ = (args, kwargs)
+        return None
+
+    monkeypatch.setattr(orchestrator, "_call_llm_with_tools", _fake_call_llm_with_tools)
+    monkeypatch.setattr(orchestrator, "_execute_tool_call", _fake_execute_tool_call)
+    monkeypatch.setattr(orchestrator, "_start_iteration_trace", _noop_async)
+    monkeypatch.setattr(orchestrator, "_complete_iteration_trace", _noop_async)
+    monkeypatch.setattr(orchestrator, "_emit_loop_event", _noop_async)
+    monkeypatch.setattr(orchestrator, "_emit_tool_result", _noop_async)
+    monkeypatch.setattr(orchestrator, "_persist_llm_trace", _noop_async)
+    monkeypatch.setattr(orchestrator, "_persist_tool_trace", _noop_async)
+
+    outcome = await orchestrator.execute_with_tools(
+        turn=UserTurnInput(text="Inspect the repository.", attachments=[], user_id=None, session_id=None),
+        system_prompt="system prompt",
+        selected_tools=["memory_query"],
+        user_id="u-chat",
+        session_id="s-chat",
+        turn_id="turn-ephemeral",
+        intent="worker_general-purpose",
+        execution_agent_id="worker_1",
+        ephemeral_context="large parent conversation snapshot",
+        max_iterations=3,
+    )
+
+    assert outcome.status == "completed"
+    assert len(llm_message_snapshots) == 2
+    assert "large parent conversation snapshot" in llm_message_snapshots[0]
+    assert "large parent conversation snapshot" not in llm_message_snapshots[1]
+    assert "Inspect the repository." in llm_message_snapshots[1]
+
+
+@pytest.mark.asyncio
 async def test_step_executor_executes_one_llm_decision_and_one_tool_batch(monkeypatch) -> None:
     orchestrator = _build_orchestrator()
     step_state = orchestrator.build_step_state(
@@ -225,7 +293,7 @@ async def test_step_executor_serializes_tool_messages_without_ascii_escaping(mon
     assert "用户喜欢下雨天" in tool_message["content"]
     assert "\\u7528\\u6237" not in tool_message["content"]
     payload = json.loads(tool_message["content"])
-    assert payload["data"]["historical_recall"]["summary"] == "用户喜欢下雨天"
+    assert "用户喜欢下雨天" in payload["data"]["historical_recall"]
     assert "debug" not in payload["data"]
 
 
@@ -724,8 +792,8 @@ async def test_step_executor_returns_control_after_one_step_until_called_again(m
     assert step_state.iteration == 2
 
 
-def test_replan_allowed_when_untried_tools_remain_despite_non_replan_error() -> None:
-    """Config errors should not block replan when the LLM has other tools to try."""
+def test_replan_blocked_for_terminal_provider_configuration_error() -> None:
+    """Terminal provider errors should stop the loop instead of chasing fallback tools."""
     orchestrator = _build_orchestrator()
 
     results = [
@@ -748,7 +816,7 @@ def test_replan_allowed_when_untried_tools_remain_despite_non_replan_error() -> 
         consecutive_failed_tool_iterations=1,
         available_tools=available_tools,
     )
-    assert allowed is True
+    assert allowed is False
 
 
 def test_replan_blocked_when_all_tools_have_non_replan_errors() -> None:

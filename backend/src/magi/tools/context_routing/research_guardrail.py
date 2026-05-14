@@ -10,6 +10,8 @@ final and is not second-guessed by this module.
 
 from __future__ import annotations
 
+import re
+
 
 def is_complex_research_request(user_lower: str) -> bool:
     has_research_domain = any(
@@ -61,6 +63,55 @@ def is_complex_research_request(user_lower: str) -> bool:
     return has_research_domain and has_complex_constraint
 
 
+def should_decompose_external_request(user_lower: str) -> bool:
+    """Return true when external evidence work deserves worker decomposition."""
+
+    lowered = str(user_lower or "").lower()
+    if is_complex_research_request(lowered):
+        return True
+
+    wants_source_breadth = any(
+        kw in lowered
+        for kw in [
+            "citation",
+            "citations",
+            "source list",
+            "multi-source",
+            "cross-source",
+            "sources",
+            "links",
+            "引用",
+            "来源",
+            "链接",
+            "多来源",
+            "交叉验证",
+            "完整链接",
+        ]
+    )
+    wants_research_work = any(
+        kw in lowered
+        for kw in [
+            "research",
+            "report",
+            "survey",
+            "verify",
+            "compare",
+            "调研",
+            "报告",
+            "汇总",
+            "核实",
+            "对比",
+        ]
+    )
+    asks_for_many_items = bool(
+        re.search(r"\b(?:top\s*)?\d{2,}\b", lowered)
+        or re.search(r"(?:前|来|给我)\s*(?:十|[1-9]\d+)\s*(?:条|个|篇|项|家|处)", lowered)
+    )
+    return (wants_source_breadth and wants_research_work) or (
+        wants_source_breadth and asks_for_many_items
+    )
+
+
 def needs_fetch_for_request(user_lower: str) -> bool:
     return any(
         kw in user_lower
@@ -81,4 +132,5 @@ def needs_fetch_for_request(user_lower: str) -> bool:
 __all__ = [
     "is_complex_research_request",
     "needs_fetch_for_request",
+    "should_decompose_external_request",
 ]
