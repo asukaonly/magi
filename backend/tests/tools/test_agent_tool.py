@@ -167,7 +167,7 @@ class _FakeFunctionCallingOrchestrator:
                 '{"result_status":"success","summary":"plan ready","findings":[{"title":"plan","detail":"created subtasks"}],'
                 '"evidence":[{"path":"/tmp/plan.json","detail":"planner output"}],'
                 '"gaps":[],"next_steps":["launch subtasks"],"failure_reason":null,'
-                '"subtasks":[{"description":"scan module","subagent_type":"Explore","prompt":"Inspect module layout","parallel_group":"g1"}]}'
+                '"subtasks":[{"description":"scan module","subagent_type":"CodeExplore","prompt":"Inspect module layout","parallel_group":"g1"}]}'
             )
         else:
             content = (
@@ -205,7 +205,7 @@ async def test_agent_tool_launch_foreground(monkeypatch):
     result = await tool.execute(
         parameters={
             "action": "launch",
-            "subagent_type": "Explore",
+            "subagent_type": "CodeExplore",
             "description": "scan auth flow",
             "prompt": "Locate token generation points",
             "run_in_background": False,
@@ -250,7 +250,7 @@ async def test_agent_tool_uses_30_iteration_default_for_workers(monkeypatch):
     result = await tool.execute(
         parameters={
             "action": "launch",
-            "subagent_type": "Explore",
+            "subagent_type": "CodeExplore",
             "description": "scan auth flow",
             "prompt": "Locate token generation points",
             "run_in_background": False,
@@ -306,7 +306,7 @@ async def test_agent_tool_persists_worker_trace_nodes_to_runtime_trace_store(
         result = await tool.execute(
             parameters={
                 "action": "launch",
-                "subagent_type": "Explore",
+                "subagent_type": "CodeExplore",
                 "description": "scan auth flow",
                 "prompt": "Locate token generation points",
                 "run_in_background": False,
@@ -417,7 +417,7 @@ async def test_agent_tool_batch_workers(monkeypatch):
             "action": "launch",
             "workers": [
                 {
-                    "subagent_type": "Explore",
+                    "subagent_type": "CodeExplore",
                     "description": "scan API routes",
                     "prompt": "List all API route files and summarize endpoints.",
                 },
@@ -497,6 +497,19 @@ async def test_agent_tool_explore_uses_structured_tools():
     assert "bash" not in selected_tools
     assert tool.schema is not None
     assert tool.schema.timeout == 300
+
+
+def test_agent_tool_schema_uses_code_explore_worker_type():
+    tool = AgentTool()
+
+    assert tool.TYPE_EXPLORE == "CodeExplore"
+    subagent_type_param = next(
+        param for param in tool.schema.parameters if param.name == "subagent_type"
+    )
+    assert "CodeExplore" in subagent_type_param.enum
+    assert "code-explore" in subagent_type_param.enum
+    assert "Explore" not in subagent_type_param.enum
+    assert "explore" not in subagent_type_param.enum
 
 
 def test_agent_tool_explore_prompt_includes_scan_guardrails():
@@ -765,7 +778,7 @@ async def test_empty_worker_result_is_marked_failed(monkeypatch):
     result = await tool.execute(
         parameters={
             "action": "launch",
-            "subagent_type": "Explore",
+            "subagent_type": "CodeExplore",
             "description": "scan auth flow",
             "prompt": "Locate token generation points",
             "run_in_background": False,
@@ -814,7 +827,7 @@ async def test_invalid_json_worker_result_is_marked_failed(monkeypatch):
     result = await tool.execute(
         parameters={
             "action": "launch",
-            "subagent_type": "Explore",
+            "subagent_type": "CodeExplore",
             "description": "scan auth flow",
             "prompt": "Locate token generation points",
             "run_in_background": False,
@@ -869,7 +882,7 @@ async def test_embedded_json_worker_result_is_accepted(monkeypatch):
     result = await tool.execute(
         parameters={
             "action": "launch",
-            "subagent_type": "Explore",
+            "subagent_type": "CodeExplore",
             "description": "scan auth flow",
             "prompt": "Locate token generation points",
             "run_in_background": False,
@@ -947,7 +960,7 @@ async def test_structured_failed_worker_result_is_not_marked_completed(monkeypat
     result = await tool.execute(
         parameters={
             "action": "launch",
-            "subagent_type": "Explore",
+            "subagent_type": "CodeExplore",
             "description": "map repo",
             "prompt": "Inspect repository layout",
             "run_in_background": False,

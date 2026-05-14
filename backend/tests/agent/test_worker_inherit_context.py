@@ -105,7 +105,7 @@ class TestNormalizeAgentLaunchArguments:
             {"role": "assistant", "content": "got it"},
         ]
         result = orch._normalize_agent_launch_arguments(
-            arguments={"subagent_type": "Explore", "inherit_context": False},
+            arguments={"subagent_type": "CodeExplore", "inherit_context": False},
             orchestration_strategy=None,
         )
         assert "parent_context_summary" not in result
@@ -118,7 +118,7 @@ class TestNormalizeAgentLaunchArguments:
             {"role": "assistant", "content": "I found it in src/auth/"},
         ]
         result = orch._normalize_agent_launch_arguments(
-            arguments={"subagent_type": "Explore", "inherit_context": True},
+            arguments={"subagent_type": "CodeExplore", "inherit_context": True},
             orchestration_strategy=None,
         )
         assert "parent_context_summary" in result
@@ -130,7 +130,7 @@ class TestNormalizeAgentLaunchArguments:
         orch = self._make_orchestrator()
         orch._current_messages = [{"role": "user", "content": "hi"}]
         result = orch._normalize_agent_launch_arguments(
-            arguments={"subagent_type": "Explore"},
+            arguments={"subagent_type": "CodeExplore"},
             orchestration_strategy=None,
         )
         assert "parent_context_summary" not in result
@@ -139,7 +139,7 @@ class TestNormalizeAgentLaunchArguments:
         orch = self._make_orchestrator()
         orch._current_messages = []
         result = orch._normalize_agent_launch_arguments(
-            arguments={"subagent_type": "Explore", "inherit_context": True},
+            arguments={"subagent_type": "CodeExplore", "inherit_context": True},
             orchestration_strategy=None,
         )
         # Empty messages → no summary injected
@@ -188,7 +188,7 @@ class TestWorkerContextInjection:
         result = await mgr.execute(
             parameters={
                 "action": "launch",
-                "subagent_type": "Explore",
+                "subagent_type": "CodeExplore",
                 "description": "test inherited",
                 "prompt": "do something",
                 "run_in_background": False,
@@ -242,7 +242,7 @@ class TestWorkerContextInjection:
         result = await mgr.execute(
             parameters={
                 "action": "launch",
-                "subagent_type": "Explore",
+                "subagent_type": "CodeExplore",
                 "description": "test no context",
                 "prompt": "do something",
                 "run_in_background": False,

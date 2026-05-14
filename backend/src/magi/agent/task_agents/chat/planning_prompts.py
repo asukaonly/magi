@@ -20,6 +20,10 @@ from .planning_heuristics import (
     needs_research_fetch,
 )
 
+CODE_EXPLORE_LEAF_TYPE = "CodeExplore"
+GENERAL_PURPOSE_LEAF_TYPE = "general-purpose"
+LEAF_SUBAGENT_TYPES = {CODE_EXPLORE_LEAF_TYPE, GENERAL_PURPOSE_LEAF_TYPE}
+
 
 class ChatPlanningPromptMixin:
     """Build fallback subtasks, leaf prompts, and planning tool contexts."""
@@ -42,38 +46,38 @@ class ChatPlanningPromptMixin:
             keyword in user_message.lower()
             for keyword in ["architecture", "codebase", "repo", "代码架构", "项目架构", "代码库", "目录结构"]
         )
-        leaf_type = default_leaf_type if default_leaf_type in {"Explore", "general-purpose"} else "Explore"
+        leaf_type = default_leaf_type if default_leaf_type in LEAF_SUBAGENT_TYPES else CODE_EXPLORE_LEAF_TYPE
         if request_profile == "research":
             return self._build_research_seed_subtasks(user_message)
         if is_repo_architecture:
             return [
                 PlannedSubtask(
                     description="Map repository layout",
-                    subagent_type="Explore",
+                    subagent_type=CODE_EXPLORE_LEAF_TYPE,
                     prompt="Analyze the top-level directory structure, major modules, and entry folders.",
                     parallel_group="group_a",
                 ),
                 PlannedSubtask(
                     description="Identify technology stack",
-                    subagent_type="Explore",
+                    subagent_type=CODE_EXPLORE_LEAF_TYPE,
                     prompt="Inspect dependency manifests and boot files to identify the backend, frontend, storage, and runtime stack.",
                     parallel_group="group_a",
                 ),
                 PlannedSubtask(
                     description="Analyze frontend structure",
-                    subagent_type="Explore",
+                    subagent_type=CODE_EXPLORE_LEAF_TYPE,
                     prompt="Focus on frontend organization, bootstrap flow, routing, and the main UI entry points.",
                     parallel_group="group_a",
                 ),
                 PlannedSubtask(
                     description="Analyze backend modules",
-                    subagent_type="Explore",
+                    subagent_type=CODE_EXPLORE_LEAF_TYPE,
                     prompt="Focus on backend module boundaries, runtime startup, task agent chain, and the main execution flow.",
                     parallel_group="group_a",
                 ),
                 PlannedSubtask(
                     description="Inspect project progress",
-                    subagent_type="Explore",
+                    subagent_type=CODE_EXPLORE_LEAF_TYPE,
                     prompt="Look for docs, progress trackers, release notes, or TODO-style files that indicate the current project status and recent progress.",
                     parallel_group="group_a",
                 ),
@@ -216,7 +220,9 @@ class ChatPlanningPromptMixin:
             available_tools = list(self._WEB_TOOL_HINT_CANDIDATES)
         elif str(subagent_type or "").strip() == "general-purpose":
             available_tools = list(self._WEB_TOOL_HINT_CANDIDATES)
-        elif str(subagent_type or "").strip() == "Explore" or self._looks_like_code_or_repo_request(root_user_message, subtask_prompt):
+        elif str(subagent_type or "").strip() == CODE_EXPLORE_LEAF_TYPE or self._looks_like_code_or_repo_request(
+            root_user_message, subtask_prompt
+        ):
             available_tools = list(self._FILE_TOOL_HINT_CANDIDATES)
         else:
             available_tools = []
@@ -227,7 +233,9 @@ class ChatPlanningPromptMixin:
         )
 
     def _candidate_file_tools(self, default_leaf_type: str, user_message: str) -> list[str]:
-        if default_leaf_type == "Explore" or self._looks_like_code_or_repo_request(user_message, ""):
+        if default_leaf_type == CODE_EXPLORE_LEAF_TYPE or self._looks_like_code_or_repo_request(
+            user_message, ""
+        ):
             return list(self._FILE_TOOL_HINT_CANDIDATES)
         return []
 
@@ -245,7 +253,9 @@ class ChatPlanningPromptMixin:
         lines: list[str] = ["# Planning Brief", ""]
 
         planning_profile = str(planning_prompt.get("planning_profile") or "generic").strip()
-        default_leaf_type = str(planning_prompt.get("default_leaf_type") or "Explore").strip()
+        default_leaf_type = str(
+            planning_prompt.get("default_leaf_type") or CODE_EXPLORE_LEAF_TYPE
+        ).strip()
         allow_parallel = bool(planning_prompt.get("allow_parallel", True))
 
         lines.extend([
@@ -389,16 +399,26 @@ class ChatPlanningPromptMixin:
         requested_subagent_type: str | None,
         default_leaf_type: str,
         request_profile: str,
+        root_user_message: str,
         description: str,
         subtask_prompt: str,
     ) -> str:
         subagent_type = str(requested_subagent_type or default_leaf_type).strip()
-        if subagent_type not in {"Explore", "general-purpose"}:
-            subagent_type = default_leaf_type if default_leaf_type in {"Explore", "general-purpose"} else "Explore"
+        if subagent_type not in LEAF_SUBAGENT_TYPES:
+            subagent_type = (
+                default_leaf_type
+                if default_leaf_type in LEAF_SUBAGENT_TYPES
+                else CODE_EXPLORE_LEAF_TYPE
+            )
         if request_profile == "research":
-            return "general-purpose"
-        if subagent_type == "Explore" and self._looks_like_external_evidence_subtask(description, subtask_prompt):
-            return "general-purpose"
+            return GENERAL_PURPOSE_LEAF_TYPE
+        if subagent_type == CODE_EXPLORE_LEAF_TYPE:
+            if self._looks_like_external_evidence_subtask(description, subtask_prompt):
+                return GENERAL_PURPOSE_LEAF_TYPE
+            if not self._looks_like_code_or_repo_request(
+                root_user_message, f"{description}\n{subtask_prompt}"
+            ):
+                return GENERAL_PURPOSE_LEAF_TYPE
         return subagent_type
 
     def _looks_like_external_evidence_subtask(self, description: str, subtask_prompt: str) -> bool:

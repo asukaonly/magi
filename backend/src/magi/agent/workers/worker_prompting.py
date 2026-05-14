@@ -73,7 +73,7 @@ class WorkerPromptMixin:
         elif subagent_type == host.TYPE_PLAN:
             role_rules = (
                 "Act as a software architect. Return ONLY valid JSON with this schema: "
-                '{"result_status":"success|partial|failed","summary":"string","findings":[{"title":"string","detail":"string"}],"evidence":[{"path":"string","detail":"string"}],"gaps":["string"],"next_steps":["string"],"failure_reason":"string|null","subtasks":[{"description":"string","subagent_type":"Explore|general-purpose","prompt":"string","parallel_group":"string"}]}. '
+                '{"result_status":"success|partial|failed","summary":"string","findings":[{"title":"string","detail":"string"}],"evidence":[{"path":"string","detail":"string"}],"gaps":["string"],"next_steps":["string"],"failure_reason":"string|null","subtasks":[{"description":"string","subagent_type":"CodeExplore|general-purpose","prompt":"string","parallel_group":"string"}]}. '
                 "The plan must be decision-complete, keep subtasks bounded, and not include any final user-facing aggregation. "
                 "Start from the most concrete anchor or owning code path you can identify, then split by neighboring responsibilities only when needed. "
                 "Prefer execution-ready subtasks organized around concrete entry points, interfaces, modules, or discriminating checks. "
@@ -137,7 +137,9 @@ class WorkerPromptMixin:
         lowered = description.lower()
         profile = self._select_explore_prompt_profile(lowered)
         common_rules = """
-Prioritize bounded exploration over exhaustive scans.
+Role: CodeExplore worker for current workspace, repository, source-code, and local-file evidence only.
+Do not handle web, current-world, travel, weather, restaurants, news, or other external evidence requests.
+Prioritize bounded code exploration over exhaustive scans.
 Common rules:
 1.Directionality: Start from the layer most likely to contain the answer. If unclear, follow: frontend -> backend -> ops -> docs.
     2.Anchor First: Identify the most concrete likely anchor first (entry file, symbol, route, config, or owning module) and investigate that before widening scope.

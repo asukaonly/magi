@@ -76,7 +76,7 @@ class ChatPlanningService(ChatPlanningPromptMixin):
             orchestration_plan = OrchestrationPlan(
                 mode=str(orchestration_plan.get("mode", "direct") or "direct"),
                 planner=str(orchestration_plan.get("planner", "task_agent") or "task_agent"),
-                default_leaf_type=str(orchestration_plan.get("default_leaf_type", "Explore") or "Explore"),
+                default_leaf_type=str(orchestration_plan.get("default_leaf_type", "CodeExplore") or "CodeExplore"),
                 allow_parallel=bool(orchestration_plan.get("allow_parallel", True)),
             )
         request_profile = self._classify_request_profile(
@@ -333,7 +333,7 @@ class ChatPlanningService(ChatPlanningPromptMixin):
                     "Favor parallel subtasks when there are no strong dependencies.",
                     "Workers gather evidence; the parent task agent synthesizes and writes the final answer.",
                     "If the request spans current-workspace evidence and targets or sources that are not guaranteed to exist locally, split the plan by evidence source.",
-                    "Use Explore for repo-local inspection and general-purpose for external or mixed-source evidence gathering when needed.",
+                    "Use CodeExplore only for current workspace or repository code inspection; use general-purpose for external, web, current-world, or mixed-source evidence.",
                     "Do not create a leaf worker whose job is to compare sibling outputs, merge sibling findings, or write the final answer.",
                     "For codebase architecture analysis, prefer separate subtasks for directory structure, tech stack, frontend, backend, and project progress when relevant.",
                 ],
@@ -344,7 +344,7 @@ class ChatPlanningService(ChatPlanningPromptMixin):
             system_prompt = (
                 "You are a parent task agent planning bounded leaf subtasks. "
                 "Return ONLY valid JSON with this schema: "
-                '{"summary":"string","subtasks":[{"description":"string","subagent_type":"Explore|general-purpose","prompt":"string","parallel_group":"string"}]}. '
+                '{"summary":"string","subtasks":[{"description":"string","subagent_type":"CodeExplore|general-purpose","prompt":"string","parallel_group":"string"}]}. '
                 "Do not answer the user request directly. Produce execution-ready leaf tasks only. "
                 f"Write summary, description, and prompt values in {target_language} unless preserving exact names, paths, or source titles. "
                 "Workers gather evidence; the parent task agent performs cross-subtask synthesis. "
@@ -424,7 +424,7 @@ class ChatPlanningService(ChatPlanningPromptMixin):
             self._resolve_planning_task_hint(
                 user_message=user_message,
                 request_profile="generic",
-                default_leaf_type="Explore",
+                default_leaf_type="CodeExplore",
             )
         )
         result = await self._tool_invocation_service.invoke(
@@ -482,7 +482,7 @@ class ChatPlanningService(ChatPlanningPromptMixin):
     def should_route_to_explore_task_agent(self, *, user_message: str, orchestration_plan: OrchestrationPlan) -> bool:
         if orchestration_plan.mode != "decompose":
             return False
-        if orchestration_plan.default_leaf_type != "Explore":
+        if orchestration_plan.default_leaf_type != "CodeExplore":
             return False
         lowered = user_message.lower()
         return any(
@@ -530,6 +530,7 @@ class ChatPlanningService(ChatPlanningPromptMixin):
                 requested_subagent_type=item.subagent_type,
                 default_leaf_type=default_leaf_type,
                 request_profile=request_profile,
+                root_user_message=user_message,
                 description=description,
                 subtask_prompt=subtask_prompt,
             )

@@ -294,11 +294,11 @@ class ChatExecutionCoordinator:
         plan = OrchestrationPlan(
             mode=str(strategy.get("mode", "direct") or "direct"),
             planner=str(strategy.get("planner", "task_agent") or "task_agent"),
-            default_leaf_type=str(strategy.get("default_leaf_type", "Explore") or "Explore"),
+            default_leaf_type=str(strategy.get("default_leaf_type", "CodeExplore") or "CodeExplore"),
             allow_parallel=bool(strategy.get("allow_parallel", True)),
             route_to_explore_task_agent=False,
         )
-        if plan.mode == "decompose" and plan.default_leaf_type == "Explore":
+        if plan.mode == "decompose" and plan.default_leaf_type == "CodeExplore":
             lowered = user_message.lower()
             plan.route_to_explore_task_agent = any(
                 keyword in lowered

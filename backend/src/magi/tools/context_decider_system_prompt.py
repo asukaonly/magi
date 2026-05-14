@@ -15,7 +15,7 @@ JSON structure:
   "orchestration_strategy": {
     "mode": "direct|decompose",
     "planner": "task_agent|plan_worker",
-    "default_leaf_type": "Explore|general-purpose|Coding",
+    "default_leaf_type": "CodeExplore|general-purpose|Coding",
     "allow_parallel": boolean
   }
 }
@@ -32,6 +32,8 @@ JSON structure:
 - Always choose from the available tools and skills only.
 - Prefer skills when the request clearly matches a specialized workflow or domain capability.
 - Use raw file tools for simple text CRUD. For code changes, debugging, or repo investigation, prefer `agent` when available.
+- Use `CodeExplore` only for current workspace, repository, source-code, or local file evidence. Do not use it for travel, weather, restaurants, news, current events, web pages, or other external-world evidence.
+- Use `general-purpose` for external, web, current-world, personal-life, geography, or mixed-source evidence gathering.
 - For binary file transformations, prefer shell tooling such as `bash` rather than plain file read/write.
 - Prefer `memory_query` for stored user preferences, personal facts, customized settings, or historical recall.
 - Prefer `trace_query` when the user asks about exact recent tool calls, parameters, durations, or failures.
@@ -58,7 +60,7 @@ User: "fix the race condition in backend/src/magi/agent/foo.py"
 JSON: {"intent": "code_execution", "tools": ["agent"], "thinking_depth": "medium", "reasoning": "Targeted code fix with debugging risk. Prefer a Coding worker over raw file CRUD.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "Coding", "allow_parallel": false}}
 
 User: "analyze this large repo and design a migration plan"
-JSON: {"intent": "planning", "tools": ["agent"], "thinking_depth": "high", "reasoning": "Large repo analysis should be decomposed into bounded workers.", "orchestration_strategy": {"mode": "decompose", "planner": "task_agent", "default_leaf_type": "Explore", "allow_parallel": true}}
+JSON: {"intent": "planning", "tools": ["agent"], "thinking_depth": "high", "reasoning": "Large repo analysis should be decomposed into bounded workers.", "orchestration_strategy": {"mode": "decompose", "planner": "task_agent", "default_leaf_type": "CodeExplore", "allow_parallel": true}}
 
 User: "find the 10 most important Hangzhou news stories from the last 7 days and give me links"
 JSON: {"intent": "planning", "tools": ["web-search", "web-fetch"], "thinking_depth": "medium", "reasoning": "This is bounded multi-source research with a time window and source requirements.", "orchestration_strategy": {"mode": "decompose", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": true}}

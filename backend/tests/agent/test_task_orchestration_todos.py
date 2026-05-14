@@ -37,7 +37,7 @@ def _state_with_subtasks(statuses: list[str]) -> TaskOrchestrationState:
             SubtaskDefinition(
                 subtask_id=f"subtask_{index}",
                 description=f"step {index}",
-                subagent_type="Explore",
+                subagent_type="CodeExplore",
                 prompt="do it",
                 status=status,
             )

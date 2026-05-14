@@ -26,7 +26,7 @@ class WorkerSchemaMixin:
             name="agent",
             description=(
                 "Launch a specialized worker agent for complex tasks. "
-                "Worker types: general-purpose, Explore, Plan. "
+                "Worker types: general-purpose, CodeExplore, Plan. "
                 "Supports foreground wait and background execution."
             ),
             category="agent",
@@ -57,13 +57,14 @@ class WorkerSchemaMixin:
                 ToolParameter(
                     name="subagent_type",
                     type=ParameterType.STRING,
-                    description="Worker type: general-purpose, Explore, or Plan",
+                    description="Worker type: general-purpose, CodeExplore, or Plan",
                     required=False,
                     enum=[
                         host.TYPE_GENERAL,
                         host.TYPE_EXPLORE,
                         host.TYPE_PLAN,
-                        "explore",
+                        "code-explore",
+                        "code_explore",
                         "plan",
                         "general",
                     ],
@@ -191,7 +192,7 @@ class WorkerSchemaMixin:
                 {
                     "input": {
                         "action": "launch",
-                        "subagent_type": "Explore",
+                        "subagent_type": "CodeExplore",
                         "description": "scan auth flow",
                         "prompt": "Find where JWT token is created and validated.",
                     },

@@ -51,7 +51,7 @@ class WorkerAgentManager(
     ACTION_AWAIT = "await"
 
     TYPE_GENERAL = "general-purpose"
-    TYPE_EXPLORE = "Explore"
+    TYPE_EXPLORE = "CodeExplore"
     TYPE_PLAN = "Plan"
     TYPE_CODING = "Coding"
 
@@ -59,8 +59,9 @@ class WorkerAgentManager(
         "general-purpose": TYPE_GENERAL,
         "general_purpose": TYPE_GENERAL,
         "general": TYPE_GENERAL,
-        "explore": TYPE_EXPLORE,
-        "Explore": TYPE_EXPLORE,
+        "code-explore": TYPE_EXPLORE,
+        "code_explore": TYPE_EXPLORE,
+        "CodeExplore": TYPE_EXPLORE,
         "plan": TYPE_PLAN,
         "Plan": TYPE_PLAN,
         "coding": TYPE_CODING,
@@ -190,7 +191,11 @@ class WorkerAgentManager(
                         if run_state.subagent_type == self.TYPE_PLAN
                         else ThinkingDepth.NONE
                     ),
-                    intent=f"worker_{run_state.subagent_type.lower()}",
+                    intent=(
+                        "worker_explore"
+                        if run_state.subagent_type == self.TYPE_EXPLORE
+                        else f"worker_{run_state.subagent_type.lower()}"
+                    ),
                     execution_agent_id=run_state.worker_id,
                     execution_workspace=execution_workspace,
                     llm_timeout_seconds=(

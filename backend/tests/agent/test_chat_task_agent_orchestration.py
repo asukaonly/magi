@@ -627,7 +627,7 @@ async def test_chat_task_agent_completes_orchestration_after_worker_fact(tmp_pat
             subtasks=[
                 PlannedSubtask(
                     description="scan backend",
-                    subagent_type="Explore",
+                    subagent_type="CodeExplore",
                     prompt="Inspect backend layout",
                     parallel_group="group_a",
                 )
@@ -786,7 +786,7 @@ async def test_aggregate_orchestration_uses_analysis_prompt_without_tool_catalog
             SubtaskDefinition(
                 subtask_id="subtask_1",
                 description="Analyze backend modules",
-                subagent_type="Explore",
+                subagent_type="CodeExplore",
                 prompt="Inspect backend",
                 status="completed",
                 worker_result=WorkerResult.from_dict(
@@ -962,7 +962,7 @@ async def test_chat_task_agent_routes_large_explore_to_explore_task_agent(monkey
             orchestration_plan=OrchestrationPlan(
                 mode="decompose",
                 planner="task_agent",
-                default_leaf_type="Explore",
+                default_leaf_type="CodeExplore",
                 allow_parallel=True,
                 route_to_explore_task_agent=True,
             ),
@@ -1209,7 +1209,7 @@ async def test_plan_with_task_agent_logs_empty_response(monkeypatch) -> None:
         user_message="Analyze repo architecture",
         history=[],
         orchestration_plan=OrchestrationPlan(
-            default_leaf_type="Explore",
+            default_leaf_type="CodeExplore",
             allow_parallel=True,
         ),
         request_profile="repo_architecture",
@@ -1238,7 +1238,7 @@ async def test_plan_with_task_agent_logs_non_executable_plan(monkeypatch) -> Non
         user_message="Analyze repo architecture",
         history=[],
         orchestration_plan=OrchestrationPlan(
-            default_leaf_type="Explore",
+            default_leaf_type="CodeExplore",
             allow_parallel=True,
         ),
         request_profile="repo_architecture",

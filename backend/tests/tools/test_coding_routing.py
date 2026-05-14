@@ -35,7 +35,7 @@ def test_normalize_still_rejects_unknown_leaf_type() -> None:
 
 
 def test_normalize_still_keeps_explore_and_general() -> None:
-    for leaf in ("Explore", "general-purpose"):
+    for leaf in ("CodeExplore", "general-purpose"):
         out = normalize_orchestration_strategy({"default_leaf_type": leaf})
         assert out["default_leaf_type"] == leaf
 
@@ -82,7 +82,7 @@ def test_existing_explore_branch_still_routes_explore() -> None:
         tools=["agent"],
         user_lower="please scan the codebase for unused imports",
     )
-    assert out["default_leaf_type"] == "Explore"
+    assert out["default_leaf_type"] == "CodeExplore"
 
 
 def test_existing_architecture_branch_still_routes_explore() -> None:
@@ -90,7 +90,7 @@ def test_existing_architecture_branch_still_routes_explore() -> None:
         tools=["agent"],
         user_lower="walk me through the architecture of this repo",
     )
-    assert out["default_leaf_type"] == "Explore"
+    assert out["default_leaf_type"] == "CodeExplore"
 
 
 def test_neutral_chat_falls_through_to_general() -> None:
@@ -104,7 +104,7 @@ def test_neutral_chat_falls_through_to_general() -> None:
 def test_system_prompt_advertises_coding_in_schema() -> None:
     from magi.tools.context_decider_system_prompt import CONTEXT_DECIDER_SYSTEM_PROMPT
     assert "Coding" in CONTEXT_DECIDER_SYSTEM_PROMPT
-    assert '"default_leaf_type": "Explore|general-purpose|Coding"' in CONTEXT_DECIDER_SYSTEM_PROMPT
+    assert '"default_leaf_type": "CodeExplore|general-purpose|Coding"' in CONTEXT_DECIDER_SYSTEM_PROMPT
 
 
 def test_system_prompt_has_coding_few_shot() -> None:

@@ -115,7 +115,7 @@ class WorkerLaunchMixin:
         if not subagent_type:
             return ToolResult(
                 success=False,
-                error="Unsupported subagent_type. Expected one of: general-purpose, Explore, Plan",
+                error="Unsupported subagent_type. Expected one of: general-purpose, CodeExplore, Plan",
                 error_code=ToolErrorCode.INVALID_PARAMETERS.value,
             )
 

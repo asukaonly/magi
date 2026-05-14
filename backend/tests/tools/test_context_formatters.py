@@ -33,7 +33,7 @@ def test_compact_agent_tool_data_keeps_worker_summary() -> None:
         {
             "worker_id": "worker_1",
             "status": "completed",
-            "subagent_type": "Explore",
+            "subagent_type": "CodeExplore",
             "description": "scan backend",
             "result": {
                 "summary": "backend analyzed",

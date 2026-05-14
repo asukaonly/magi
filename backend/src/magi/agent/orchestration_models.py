@@ -126,7 +126,7 @@ class PlannedSubtask:
             return None
         return cls(
             description=description,
-            subagent_type=str(payload.get("subagent_type", "Explore")).strip() or "Explore",
+            subagent_type=str(payload.get("subagent_type", "CodeExplore")).strip() or "CodeExplore",
             prompt=prompt,
             parallel_group=str(payload.get("parallel_group", "default")).strip() or "default",
         )

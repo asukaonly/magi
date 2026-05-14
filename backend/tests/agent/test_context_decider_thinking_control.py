@@ -186,12 +186,12 @@ def test_context_decider_parses_decompose_orchestration_strategy() -> None:
     decider = ContextDecider(tool_registry=_DummyToolRegistry(), llm_adapter=_DummyLLMAdapter())  # type: ignore[arg-type]
 
     decision = decider._parse_response(
-        '{"intent":"planning","tools":["agent"],"deep_thinking":true,"reasoning":"repo architecture","orchestration_strategy":{"mode":"decompose","planner":"task_agent","default_leaf_type":"Explore","allow_parallel":true}}'
+        '{"intent":"planning","tools":["agent"],"deep_thinking":true,"reasoning":"repo architecture","orchestration_strategy":{"mode":"decompose","planner":"task_agent","default_leaf_type":"CodeExplore","allow_parallel":true}}'
     )
 
     assert decision.orchestration_strategy["mode"] == "decompose"
     assert decision.orchestration_strategy["planner"] == "task_agent"
-    assert decision.orchestration_strategy["default_leaf_type"] == "Explore"
+    assert decision.orchestration_strategy["default_leaf_type"] == "CodeExplore"
     assert decision.orchestration_strategy["allow_parallel"] is True
 
 

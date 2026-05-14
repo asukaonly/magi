@@ -181,7 +181,7 @@ flowchart TD
     W --> O
     O --> C
 
-    X --> XW["Explore Workers"]
+    X --> XW["CodeExplore Leaf Workers"]
     XW --> XA["Dossier Aggregation"]
     XA --> C
 
@@ -530,11 +530,14 @@ They also do not own user-facing control state: worker tool profiles exclude
 `todo_write`, and function-calling execution rejects worker-originated
 `todo_write` calls even if a stale or custom profile exposes the tool.
 
-`Explore` workers are workspace/codebase inspectors with a deliberately narrow
-tool profile (`glob`, `grep`, `file_read`). Planning normalization must route
-external-life, local geography, travel, transit, weather, restaurant, and
-current-place evidence tasks to `general-purpose` workers so web-search or
-other external provider tools are available.
+`CodeExplore` workers are workspace/codebase inspectors with a deliberately
+narrow tool profile (`glob`, `grep`, `file_read`). This leaf worker type is for
+current repository, source-code, and local-file evidence only. `ExploreTaskAgent`
+is the higher-level codebase exploration orchestrator that can decompose a large
+repo request into multiple `CodeExplore` workers. Planning normalization must
+route external-life, local geography, travel, transit, weather, restaurant,
+news, current-place, and other web evidence tasks to `general-purpose` workers
+so web-search or other external provider tools are available.
 
 Worker outputs must still satisfy the typed worker-result contract, but the
 validator accepts a JSON object embedded in surrounding prose or a fenced code
@@ -1047,7 +1050,7 @@ For a large codebase exploration request, the path is:
 2. `ChatExecutionCoordinator` decides the request should decompose
 3. Chat routes the request to `ExploreTaskAgent`
 4. `ExploreTaskAgent` builds a `SubtaskPlan`
-5. `TaskOrchestrator` launches leaf Explore workers
+5. `TaskOrchestrator` launches leaf `CodeExplore` workers
 6. Workers return typed `WorkerResult`
 7. `ExploreAggregationService` builds a Markdown dossier
 8. `ExploreTaskAgent` emits an `ExploreTaskCompletedPayload`

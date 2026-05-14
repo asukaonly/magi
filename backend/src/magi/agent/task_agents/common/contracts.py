@@ -37,7 +37,7 @@ class OrchestrationPlan:
 
     mode: str = "direct"
     planner: str = "task_agent"
-    default_leaf_type: str = "Explore"
+    default_leaf_type: str = "CodeExplore"
     allow_parallel: bool = True
     route_to_explore_task_agent: bool = False
 

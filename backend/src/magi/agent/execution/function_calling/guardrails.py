@@ -85,7 +85,7 @@ class FunctionCallingGuardrailsMixin:
         if intent not in {"worker_explore", "worker_plan"}:
             return safe_args, None
 
-        scan_label = "Explore" if intent == "worker_explore" else "Plan"
+        scan_label = "CodeExplore" if intent == "worker_explore" else "Plan"
         if tool_name == "glob":
             pattern = str(safe_args.get("pattern", "")).strip()
             if not pattern:

@@ -196,7 +196,7 @@ async def test_task_orchestrator_launch_workers_targets_session_chat_agent_in_pa
             SubtaskDefinition(
                 subtask_id="subtask-1",
                 description="Inspect backend",
-                subagent_type="Explore",
+                subagent_type="CodeExplore",
                 prompt="Inspect backend",
             )
         ],
@@ -226,7 +226,7 @@ async def test_chat_planning_service_plan_worker_targets_session_chat_agent_in_p
                     "subtasks": [
                         {
                             "description": "Inspect backend",
-                            "subagent_type": "Explore",
+                            "subagent_type": "CodeExplore",
                             "prompt": "Inspect backend",
                             "parallel_group": "group-a",
                         }
@@ -275,7 +275,7 @@ async def test_chat_planning_service_plan_worker_uses_explicit_workspace_root() 
                     "subtasks": [
                         {
                             "description": "Inspect backend",
-                            "subagent_type": "Explore",
+                            "subagent_type": "CodeExplore",
                             "prompt": "Inspect backend",
                             "parallel_group": "group-a",
                         }
@@ -319,7 +319,7 @@ def test_chat_planning_service_generic_fallback_and_leaf_prompt_emphasize_anchor
 
     subtasks = service._fallback_subtask_plan(
         "分析检索链路",
-        "Explore",
+        "CodeExplore",
         request_profile="generic",
     )
 
@@ -351,9 +351,9 @@ async def test_chat_planning_service_mixed_evidence_prompt_preserves_external_le
             captured.update(kwargs)
             return (
                 '{"summary":"Mixed evidence plan","subtasks":['
-                '{"description":"Inspect Magi memory modules","subagent_type":"Explore","prompt":"Inspect backend/src/magi/memory module boundaries and storage paths","parallel_group":"g1"},'
+                '{"description":"Inspect Magi memory modules","subagent_type":"CodeExplore","prompt":"Inspect backend/src/magi/memory module boundaries and storage paths","parallel_group":"g1"},'
                 '{"description":"Research Hindsight public docs","subagent_type":"general-purpose","prompt":"Search official documentation and public sources for Hindsight memory architecture. Collect source links and dates.","parallel_group":"g1"},'
-                '{"description":"Synthesize sibling findings","subagent_type":"Explore","prompt":"Compare the findings from other subtasks and write the final answer for the user","parallel_group":"g2"}'
+                '{"description":"Synthesize sibling findings","subagent_type":"CodeExplore","prompt":"Compare the findings from other subtasks and write the final answer for the user","parallel_group":"g2"}'
                 ']}'
             )
 
@@ -370,7 +370,7 @@ async def test_chat_planning_service_mixed_evidence_prompt_preserves_external_le
     plan = await service.generate_subtask_plan(
         user_message="详细对比一下 magi 和 Hindsight 的 memory architecture",
         history=[],
-        orchestration_plan={"mode": "decompose", "default_leaf_type": "Explore", "allow_parallel": True},
+        orchestration_plan={"mode": "decompose", "default_leaf_type": "CodeExplore", "allow_parallel": True},
         user_id="user-1",
         session_id="session-1",
         workspace_root="/tmp/magi",
@@ -388,7 +388,7 @@ async def test_chat_planning_service_mixed_evidence_prompt_preserves_external_le
         "Inspect Magi memory modules",
         "Research Hindsight public docs",
     ]
-    assert [item.subagent_type for item in plan.subtasks] == ["Explore", "general-purpose"]
+    assert [item.subagent_type for item in plan.subtasks] == ["CodeExplore", "general-purpose"]
     assert "do not assume local files exist; use external discovery first" in plan.subtasks[1].prompt
     assert "do not depend on sibling worker outputs" in plan.subtasks[1].prompt
 
@@ -400,9 +400,9 @@ async def test_chat_planning_service_routes_local_travel_subtasks_to_general_wor
             _ = kwargs
             return (
                 '{"summary":"Hangzhou itinerary plan","subtasks":['
-                '{"description":"筛选杭州适合平地游览、不爬山的景点","subagent_type":"Explore","prompt":"查找适合平地游览的杭州景点，保留开放时间和交通信息","parallel_group":"g1"},'
-                '{"description":"查询杭州西站地铁交通及前往市区景点的路线","subagent_type":"Explore","prompt":"查询杭州西站到西湖和运河景点的地铁换乘路线","parallel_group":"g1"},'
-                '{"description":"推荐杭州适合晚上7点聚餐的餐厅或商圈","subagent_type":"Explore","prompt":"查询适合晚餐聚餐的餐厅或商圈","parallel_group":"g1"}'
+                '{"description":"筛选杭州适合平地游览、不爬山的景点","subagent_type":"CodeExplore","prompt":"查找适合平地游览的杭州景点，保留开放时间和交通信息","parallel_group":"g1"},'
+                '{"description":"查询杭州西站地铁交通及前往市区景点的路线","subagent_type":"CodeExplore","prompt":"查询杭州西站到西湖和运河景点的地铁换乘路线","parallel_group":"g1"},'
+                '{"description":"推荐杭州适合晚上7点聚餐的餐厅或商圈","subagent_type":"CodeExplore","prompt":"查询适合晚餐聚餐的餐厅或商圈","parallel_group":"g1"}'
                 "]}"
             )
 
@@ -421,7 +421,7 @@ async def test_chat_planning_service_routes_local_travel_subtasks_to_general_wor
         history=[],
         orchestration_plan={
             "mode": "decompose",
-            "default_leaf_type": "Explore",
+            "default_leaf_type": "CodeExplore",
             "allow_parallel": True,
         },
         user_id="user-1",
@@ -719,7 +719,7 @@ async def test_worker_completion_payload_targets_chat_session() -> None:
     now = time.time()
     run_state = WorkerRunState(
         worker_id="worker-1",
-        subagent_type="Explore",
+        subagent_type="CodeExplore",
         description="Inspect backend",
         prompt="Inspect backend",
         orchestration_id="orch-1",

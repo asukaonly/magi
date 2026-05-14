@@ -30,7 +30,7 @@ async def test_worker_manager_tags_result_facts_with_run_metadata() -> None:
     manager._task_agent_manager = _RecordingTaskAgentManager()
     run_state = WorkerRunState(
         worker_id="worker-1",
-        subagent_type="Explore",
+        subagent_type="CodeExplore",
         description="Inspect backend",
         prompt="Inspect backend",
         orchestration_id="orch-1",

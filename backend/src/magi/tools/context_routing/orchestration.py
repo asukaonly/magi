@@ -24,7 +24,7 @@ def default_orchestration_strategy(
             return {
                 "mode": "decompose",
                 "planner": "plan_worker",
-                "default_leaf_type": "Explore",
+                "default_leaf_type": "CodeExplore",
                 "allow_parallel": True,
             }
         if any(
@@ -34,14 +34,14 @@ def default_orchestration_strategy(
             return {
                 "mode": "decompose",
                 "planner": "task_agent",
-                "default_leaf_type": "Explore",
+                "default_leaf_type": "CodeExplore",
                 "allow_parallel": True,
             }
         if any(kw in user_lower for kw in ["explore", "scan", "搜索", "定位", "查找", "find"]):
             return {
                 "mode": "direct",
                 "planner": "task_agent",
-                "default_leaf_type": "Explore",
+                "default_leaf_type": "CodeExplore",
                 "allow_parallel": False,
             }
         if any(
@@ -81,7 +81,7 @@ def normalize_orchestration_strategy(payload: Any) -> dict[str, Any]:
         mode = strategy["mode"]
     if planner not in {"task_agent", "plan_worker"}:
         planner = strategy["planner"]
-    if default_leaf_type not in {"Explore", "general-purpose", "Coding"}:
+    if default_leaf_type not in {"CodeExplore", "general-purpose", "Coding"}:
         default_leaf_type = strategy["default_leaf_type"]
     if mode == "direct":
         allow_parallel = False

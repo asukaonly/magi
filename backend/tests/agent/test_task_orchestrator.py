@@ -90,14 +90,14 @@ async def test_publish_session_todos_uses_injected_control_session_store() -> No
             SubtaskDefinition(
                 subtask_id="subtask-1",
                 description="Inspect logs",
-                subagent_type="Explore",
+                subagent_type="CodeExplore",
                 prompt="Inspect logs",
                 status="running",
             ),
             SubtaskDefinition(
                 subtask_id="subtask-2",
                 description="Patch fix",
-                subagent_type="Explore",
+                subagent_type="CodeExplore",
                 prompt="Patch fix",
                 status="running",
             ),
@@ -255,7 +255,7 @@ async def test_rate_limit_retry_uses_extended_budget_and_backoff(monkeypatch: py
     subtask = SubtaskDefinition(
         subtask_id="subtask-1",
         description="Inspect backend modules",
-        subagent_type="Explore",
+        subagent_type="CodeExplore",
         prompt="Inspect backend modules",
         status="failed",
         worker_id="worker-1",
@@ -302,7 +302,7 @@ async def test_rate_limit_retry_stops_after_ten_retries(monkeypatch: pytest.Monk
     subtask = SubtaskDefinition(
         subtask_id="subtask-1",
         description="Inspect backend modules",
-        subagent_type="Explore",
+        subagent_type="CodeExplore",
         prompt="Inspect backend modules",
         status="failed",
         worker_id="worker-1",
@@ -335,7 +335,7 @@ async def test_start_orchestration_passes_workspace_root_to_planner(monkeypatch:
             subtasks=[
                 SimpleNamespace(
                     description="Inspect backend",
-                    subagent_type="Explore",
+                    subagent_type="CodeExplore",
                     prompt="Inspect backend",
                     parallel_group="group-a",
                 )
@@ -400,7 +400,7 @@ async def test_start_orchestration_discards_plan_when_cancelled_during_planning(
             subtasks=[
                 SimpleNamespace(
                     description="Inspect backend",
-                    subagent_type="Explore",
+                    subagent_type="CodeExplore",
                     prompt="Inspect backend",
                     parallel_group="group-a",
                 )
@@ -554,7 +554,7 @@ async def test_launch_workers_skips_when_orchestration_is_cancelling() -> None:
             SubtaskDefinition(
                 subtask_id="subtask-1",
                 description="Inspect backend",
-                subagent_type="Explore",
+                subagent_type="CodeExplore",
                 prompt="Inspect backend",
             )
         ],
@@ -611,7 +611,7 @@ async def test_process_worker_updates_does_not_aggregate_cancelling_orchestratio
             SubtaskDefinition(
                 subtask_id="subtask-1",
                 description="Inspect backend",
-                subagent_type="Explore",
+                subagent_type="CodeExplore",
                 prompt="Inspect backend",
                 status="running",
                 worker_id="worker-1",
@@ -670,7 +670,7 @@ async def test_cancel_run_marks_matching_orchestrations_cancelled() -> None:
             SubtaskDefinition(
                 subtask_id="subtask-1",
                 description="Inspect backend",
-                subagent_type="Explore",
+                subagent_type="CodeExplore",
                 prompt="Inspect backend",
                 status="running",
                 worker_id="worker-1",
@@ -690,7 +690,7 @@ async def test_cancel_run_marks_matching_orchestrations_cancelled() -> None:
             SubtaskDefinition(
                 subtask_id="subtask-2",
                 description="Inspect frontend",
-                subagent_type="Explore",
+                subagent_type="CodeExplore",
                 prompt="Inspect frontend",
                 status="running",
                 worker_id="worker-2",

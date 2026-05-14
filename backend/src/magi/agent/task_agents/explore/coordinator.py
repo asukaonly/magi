@@ -30,10 +30,10 @@ class ExploreExecutionCoordinator:
                 orchestration_plan=OrchestrationPlan(
                     mode="decompose",
                     planner="task_agent",
-                    default_leaf_type="Explore",
+                    default_leaf_type="CodeExplore",
                     allow_parallel=True,
                 ),
-                reasoning="Explore requests always launch bounded Explore worker subtasks.",
+                reasoning="Explore requests always launch bounded CodeExplore worker subtasks.",
             )
         return ExploreIntentDecision(
             intent="fact_only",

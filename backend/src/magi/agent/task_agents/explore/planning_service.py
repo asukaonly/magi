@@ -41,7 +41,7 @@ class ExplorePlanningService:
             orchestration_plan = OrchestrationPlan(
                 mode=str(orchestration_plan.get("mode", "decompose") or "decompose"),
                 planner=str(orchestration_plan.get("planner", "task_agent") or "task_agent"),
-                default_leaf_type="Explore",
+                default_leaf_type="CodeExplore",
                 allow_parallel=bool(orchestration_plan.get("allow_parallel", True)),
             )
         raw_plan = await self._plan_with_task_agent(
@@ -81,7 +81,7 @@ class ExplorePlanningService:
             "task_hints": task_hint,
             "seed_subtasks": [item.to_dict() for item in seed_subtasks],
             "requirements": [
-                "Decompose the exploration request into bounded Explore leaf subtasks only.",
+                "Decompose the exploration request into bounded CodeExplore leaf subtasks only.",
                 "Keep each subtask narrow enough for one worker to finish independently.",
                 "Prefer parallel subtasks whenever dependencies are weak.",
                 "Start from the most concrete likely anchor or owning code path, then split by neighboring responsibilities only when needed.",
@@ -95,10 +95,10 @@ class ExplorePlanningService:
             ],
         }
         system_prompt = (
-            "You are ExploreTaskAgent planning bounded Explore subtasks. "
+            "You are ExploreTaskAgent planning bounded CodeExplore subtasks. "
             "Return ONLY valid JSON with this schema: "
-            '{"summary":"string","subtasks":[{"description":"string","subagent_type":"Explore","prompt":"string","parallel_group":"string"}]}. '
-            "Do not answer the user directly. Produce execution-ready Explore leaf tasks only. "
+            '{"summary":"string","subtasks":[{"description":"string","subagent_type":"CodeExplore","prompt":"string","parallel_group":"string"}]}. '
+            "Do not answer the user directly. Produce execution-ready CodeExplore leaf tasks only. "
             "Prefer subtasks organized around concrete entry points, owning modules, and validating evidence from current files. "
             "When task_hints are present, use them to keep the first search pass efficient and bounded."
         )
@@ -133,7 +133,7 @@ class ExplorePlanningService:
             normalized.append(
                 PlannedSubtask(
                     description=description,
-                    subagent_type="Explore",
+                    subagent_type="CodeExplore",
                     prompt=self.build_leaf_prompt(user_message, description, prompt),
                     parallel_group=str(item.parallel_group or "default").strip() or "default",
                 )
@@ -144,7 +144,7 @@ class ExplorePlanningService:
             normalized = [
                 PlannedSubtask(
                     description=item.description,
-                    subagent_type="Explore",
+                    subagent_type="CodeExplore",
                     prompt=self.build_leaf_prompt(user_message, item.description, item.prompt),
                     parallel_group=item.parallel_group,
                 )
@@ -175,7 +175,7 @@ class ExplorePlanningService:
         return [
             PlannedSubtask(
                 description="Map repository layout",
-                subagent_type="Explore",
+                subagent_type="CodeExplore",
                 prompt=self.build_leaf_prompt(
                     user_message,
                     "Map repository layout",
@@ -185,7 +185,7 @@ class ExplorePlanningService:
             ),
             PlannedSubtask(
                 description="Identify technology stack",
-                subagent_type="Explore",
+                subagent_type="CodeExplore",
                 prompt=self.build_leaf_prompt(
                     user_message,
                     "Identify technology stack",
@@ -195,7 +195,7 @@ class ExplorePlanningService:
             ),
             PlannedSubtask(
                 description="Analyze frontend structure",
-                subagent_type="Explore",
+                subagent_type="CodeExplore",
                 prompt=self.build_leaf_prompt(
                     user_message,
                     "Analyze frontend structure",
@@ -205,7 +205,7 @@ class ExplorePlanningService:
             ),
             PlannedSubtask(
                 description="Analyze backend modules",
-                subagent_type="Explore",
+                subagent_type="CodeExplore",
                 prompt=self.build_leaf_prompt(
                     user_message,
                     "Analyze backend modules",
@@ -215,7 +215,7 @@ class ExplorePlanningService:
             ),
             PlannedSubtask(
                 description="Inspect project progress",
-                subagent_type="Explore",
+                subagent_type="CodeExplore",
                 prompt=self.build_leaf_prompt(
                     user_message,
                     "Inspect project progress",
@@ -229,7 +229,7 @@ class ExplorePlanningService:
         return [
             PlannedSubtask(
                 description="Map backend scope",
-                subagent_type="Explore",
+                subagent_type="CodeExplore",
                 prompt=self.build_leaf_prompt(
                     user_message,
                     "Map backend scope",
@@ -239,7 +239,7 @@ class ExplorePlanningService:
             ),
             PlannedSubtask(
                 description="Trace backend execution flow",
-                subagent_type="Explore",
+                subagent_type="CodeExplore",
                 prompt=self.build_leaf_prompt(
                     user_message,
                     "Trace backend execution flow",
@@ -249,7 +249,7 @@ class ExplorePlanningService:
             ),
             PlannedSubtask(
                 description="Summarize backend gaps",
-                subagent_type="Explore",
+                subagent_type="CodeExplore",
                 prompt=self.build_leaf_prompt(
                     user_message,
                     "Summarize backend gaps",
@@ -263,7 +263,7 @@ class ExplorePlanningService:
         return [
             PlannedSubtask(
                 description="Map frontend scope",
-                subagent_type="Explore",
+                subagent_type="CodeExplore",
                 prompt=self.build_leaf_prompt(
                     user_message,
                     "Map frontend scope",
@@ -273,7 +273,7 @@ class ExplorePlanningService:
             ),
             PlannedSubtask(
                 description="Trace frontend bootstrap and routing",
-                subagent_type="Explore",
+                subagent_type="CodeExplore",
                 prompt=self.build_leaf_prompt(
                     user_message,
                     "Trace frontend bootstrap and routing",
@@ -283,7 +283,7 @@ class ExplorePlanningService:
             ),
             PlannedSubtask(
                 description="Summarize frontend gaps",
-                subagent_type="Explore",
+                subagent_type="CodeExplore",
                 prompt=self.build_leaf_prompt(
                     user_message,
                     "Summarize frontend gaps",
@@ -297,7 +297,7 @@ class ExplorePlanningService:
         return [
             PlannedSubtask(
                 description="Map requested scope",
-                subagent_type="Explore",
+                subagent_type="CodeExplore",
                 prompt=self.build_leaf_prompt(
                     user_message,
                     "Map requested scope",
@@ -307,7 +307,7 @@ class ExplorePlanningService:
             ),
             PlannedSubtask(
                 description="Inspect scope implementation",
-                subagent_type="Explore",
+                subagent_type="CodeExplore",
                 prompt=self.build_leaf_prompt(
                     user_message,
                     "Inspect scope implementation",
@@ -317,7 +317,7 @@ class ExplorePlanningService:
             ),
             PlannedSubtask(
                 description="Summarize scope risks and gaps",
-                subagent_type="Explore",
+                subagent_type="CodeExplore",
                 prompt=self.build_leaf_prompt(
                     user_message,
                     "Summarize scope risks and gaps",
@@ -348,7 +348,7 @@ class ExplorePlanningService:
         return [
             PlannedSubtask(
                 description="Locate the primary anchor",
-                subagent_type="Explore",
+                subagent_type="CodeExplore",
                 prompt=self.build_leaf_prompt(
                     user_message,
                     "Locate the primary anchor",
@@ -358,7 +358,7 @@ class ExplorePlanningService:
             ),
             PlannedSubtask(
                 description="Trace the owning implementation path",
-                subagent_type="Explore",
+                subagent_type="CodeExplore",
                 prompt=self.build_leaf_prompt(
                     user_message,
                     "Trace the owning implementation path",
@@ -368,7 +368,7 @@ class ExplorePlanningService:
             ),
             PlannedSubtask(
                 description="Validate gaps and edge cases",
-                subagent_type="Explore",
+                subagent_type="CodeExplore",
                 prompt=self.build_leaf_prompt(
                     user_message,
                     "Validate gaps and edge cases",

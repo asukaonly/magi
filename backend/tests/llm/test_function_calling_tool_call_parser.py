@@ -267,7 +267,7 @@ def test_build_tool_message_payload_keeps_structured_worker_result() -> None:
             data={
                 "worker_id": "worker_1",
                 "status": "completed",
-                "subagent_type": "Explore",
+                "subagent_type": "CodeExplore",
                 "description": "scan backend",
                 "result": {
                     "summary": "backend analyzed",
@@ -427,7 +427,7 @@ def test_build_tool_message_payload_compacts_agent_run_state() -> None:
             data={
                 "worker_id": "worker_123",
                 "status": "completed",
-                "subagent_type": "Explore",
+                "subagent_type": "CodeExplore",
                 "description": "scan auth flow",
                 "created_at": 1.0,
                 "updated_at": 2.0,
@@ -825,7 +825,7 @@ async def test_agent_launch_uses_orchestration_default_leaf_type() -> None:
         orchestration_strategy={
             "mode": "decompose",
             "planner": "task_agent",
-            "default_leaf_type": "Explore",
+            "default_leaf_type": "CodeExplore",
             "allow_parallel": True,
         },
     )
@@ -839,7 +839,7 @@ async def test_agent_launch_uses_orchestration_default_leaf_type() -> None:
                 "description": "Analyze repo architecture",
                 "prompt": "Analyze the repo and split work.",
                 "run_in_background": True,
-                "subagent_type": "Explore",
+                "subagent_type": "CodeExplore",
             },
         )
     ]

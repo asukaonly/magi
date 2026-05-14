@@ -1,4 +1,5 @@
 """Agent tool facade for launching specialized worker agents."""
+
 from __future__ import annotations
 
 from typing import Any, Callable, Dict, Optional
@@ -29,7 +30,7 @@ class AgentTool(Tool):
     ACTION_AWAIT = "await"
 
     TYPE_GENERAL = "general-purpose"
-    TYPE_EXPLORE = "Explore"
+    TYPE_EXPLORE = "CodeExplore"
     TYPE_PLAN = "Plan"
     TYPE_CODING = "Coding"
 
@@ -37,8 +38,9 @@ class AgentTool(Tool):
         "general-purpose": TYPE_GENERAL,
         "general_purpose": TYPE_GENERAL,
         "general": TYPE_GENERAL,
-        "explore": TYPE_EXPLORE,
-        "Explore": TYPE_EXPLORE,
+        "code-explore": TYPE_EXPLORE,
+        "code_explore": TYPE_EXPLORE,
+        "CodeExplore": TYPE_EXPLORE,
         "plan": TYPE_PLAN,
         "Plan": TYPE_PLAN,
         "coding": TYPE_CODING,
@@ -55,7 +57,7 @@ class AgentTool(Tool):
             name="agent",
             description=(
                 "Launch a specialized worker agent for complex tasks. "
-                "Worker types: general-purpose, Explore, Plan. "
+                "Worker types: general-purpose, CodeExplore, Plan. "
                 "Supports foreground wait and background execution."
             ),
             category="agent",
@@ -86,14 +88,15 @@ class AgentTool(Tool):
                 ToolParameter(
                     name="subagent_type",
                     type=ParameterType.STRING,
-                    description="Worker type: general-purpose, Explore, Plan, or Coding",
+                    description="Worker type: general-purpose, CodeExplore, Plan, or Coding",
                     required=False,
                     enum=[
                         self.TYPE_GENERAL,
                         self.TYPE_EXPLORE,
                         self.TYPE_PLAN,
                         self.TYPE_CODING,
-                        "explore",
+                        "code-explore",
+                        "code_explore",
                         "plan",
                         "coding",
                         "general",
@@ -216,7 +219,7 @@ class AgentTool(Tool):
                 {
                     "input": {
                         "action": "launch",
-                        "subagent_type": "Explore",
+                        "subagent_type": "CodeExplore",
                         "description": "scan auth flow",
                         "prompt": "Find where JWT token is created and validated.",
                     },
@@ -274,7 +277,11 @@ class AgentTool(Tool):
         worker_ids = parameters.get("worker_ids")
         has_worker_ids = isinstance(worker_ids, list) and len(worker_ids) > 0
         has_worker_id = bool(str(parameters.get("worker_id", "")).strip())
-        if action in {self.ACTION_STATUS, self.ACTION_AWAIT} and not has_worker_id and not has_worker_ids:
+        if (
+            action in {self.ACTION_STATUS, self.ACTION_AWAIT}
+            and not has_worker_id
+            and not has_worker_ids
+        ):
             return False, "worker_id or worker_ids is required for status/await actions"
 
         if action == self.ACTION_LAUNCH:
@@ -330,7 +337,9 @@ class AgentTool(Tool):
         )
 
     async def _await_worker(self, worker_id: str, timeout_seconds: int) -> ToolResult:
-        return await self._manager._await_worker(worker_id=worker_id, timeout_seconds=timeout_seconds)
+        return await self._manager._await_worker(
+            worker_id=worker_id, timeout_seconds=timeout_seconds
+        )
 
 
 __all__ = [

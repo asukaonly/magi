@@ -1,4 +1,5 @@
 """Pure heuristics used by chat task planning."""
+
 from __future__ import annotations
 
 import re
@@ -133,6 +134,15 @@ def looks_like_code_or_repo_request(user_message: str, subtask_prompt: str) -> b
             "backend",
             "frontend",
             "module",
+            "code",
+            "source",
+            "file",
+            "function",
+            "class",
+            "method",
+            "implementation",
+            "bug",
+            "traceback",
             "runtime",
             "router",
             "src/",
@@ -141,6 +151,15 @@ def looks_like_code_or_repo_request(user_message: str, subtask_prompt: str) -> b
             "代码架构",
             "项目架构",
             "目录结构",
+            "代码",
+            "源码",
+            "文件",
+            "函数",
+            "方法",
+            "实现",
+            "修复",
+            "报错",
+            "日志",
             "后端",
             "前端",
         ]
@@ -149,9 +168,17 @@ def looks_like_code_or_repo_request(user_message: str, subtask_prompt: str) -> b
 
 def classify_request_profile(*, user_message: str, default_leaf_type: str) -> str:
     lowered = user_message.lower()
-    if default_leaf_type == "Explore" and any(
+    if default_leaf_type == "CodeExplore" and any(
         keyword in lowered
-        for keyword in ["architecture", "codebase", "repo", "代码架构", "项目架构", "代码库", "目录结构"]
+        for keyword in [
+            "architecture",
+            "codebase",
+            "repo",
+            "代码架构",
+            "项目架构",
+            "代码库",
+            "目录结构",
+        ]
     ):
         return "repo_architecture"
     if is_complex_research_request(user_message):
@@ -216,7 +243,17 @@ def needs_research_fetch(user_message: str) -> bool:
     lowered = user_message.lower()
     return any(
         keyword in lowered
-        for keyword in ["详情", "展开", "全文", "原文", "核实", "verify", "交叉验证", "具体看", "深挖"]
+        for keyword in [
+            "详情",
+            "展开",
+            "全文",
+            "原文",
+            "核实",
+            "verify",
+            "交叉验证",
+            "具体看",
+            "深挖",
+        ]
     )
 
 
@@ -224,9 +261,7 @@ def build_research_seed_subtasks(user_message: str) -> list[PlannedSubtask]:
     date_range_hint = extract_date_range_hint(user_message)
     date_suffix = ""
     if date_range_hint:
-        date_suffix = (
-            f" Keep the work inside {date_range_hint['start_date']} to {date_range_hint['end_date']} (inclusive)."
-        )
+        date_suffix = f" Keep the work inside {date_range_hint['start_date']} to {date_range_hint['end_date']} (inclusive)."
     subtasks = [
         PlannedSubtask(
             description="Search official and local-source coverage",

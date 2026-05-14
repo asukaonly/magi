@@ -38,7 +38,7 @@ async def test_explore_task_agent_repo_plan_falls_back_to_canonical_when_planner
     plan = await agent._planning_service.generate_subtask_plan(
         user_message="看下~/code/magi下的代码，分析下代码架构",
         history=[],
-        orchestration_plan={"mode": "decompose", "default_leaf_type": "Explore", "allow_parallel": True},
+        orchestration_plan={"mode": "decompose", "default_leaf_type": "CodeExplore", "allow_parallel": True},
         user_id="u-chat",
         session_id="s-chat",
     )
@@ -51,7 +51,7 @@ async def test_explore_task_agent_repo_plan_falls_back_to_canonical_when_planner
         "Analyze backend modules",
         "Inspect project progress",
     ]
-    assert all(item.subagent_type == "Explore" for item in plan.subtasks)
+    assert all(item.subagent_type == "CodeExplore" for item in plan.subtasks)
 
 
 @pytest.mark.asyncio
@@ -78,9 +78,9 @@ async def test_explore_planning_service_prefers_llm_plan_for_scoped_request() ->
             captured.update(kwargs)
             return (
                 '{"summary":"Scoped backend analysis plan","subtasks":['
-                '{"description":"Map agent scope","subagent_type":"Explore","prompt":"Inspect backend/src/magi/agent boundaries","parallel_group":"g1"},'
-                '{"description":"Trace task orchestration flow","subagent_type":"Explore","prompt":"Trace task agent and worker orchestration in backend/src/magi/agent","parallel_group":"g1"},'
-                '{"description":"Summarize orchestration risks","subagent_type":"Explore","prompt":"Summarize risks and open questions inside backend/src/magi/agent","parallel_group":"g2"}'
+                '{"description":"Map agent scope","subagent_type":"CodeExplore","prompt":"Inspect backend/src/magi/agent boundaries","parallel_group":"g1"},'
+                '{"description":"Trace task orchestration flow","subagent_type":"CodeExplore","prompt":"Trace task agent and worker orchestration in backend/src/magi/agent","parallel_group":"g1"},'
+                '{"description":"Summarize orchestration risks","subagent_type":"CodeExplore","prompt":"Summarize risks and open questions inside backend/src/magi/agent","parallel_group":"g2"}'
                 ']}'
             )
 
@@ -101,7 +101,7 @@ async def test_explore_planning_service_prefers_llm_plan_for_scoped_request() ->
     plan = await service.generate_subtask_plan(
         user_message="看下 backend/src/magi/agent 的代码结构和任务编排",
         history=[],
-        orchestration_plan={"mode": "decompose", "default_leaf_type": "Explore", "allow_parallel": True},
+        orchestration_plan={"mode": "decompose", "default_leaf_type": "CodeExplore", "allow_parallel": True},
         user_id="u-chat",
         session_id="s-chat",
     )
@@ -119,7 +119,7 @@ async def test_explore_planning_service_prefers_llm_plan_for_scoped_request() ->
     assert planning_payload["task_hints"]["tool_hints"][0]["tool"] in {"glob", "grep"}
     assert captured["json_mode"] is True
     assert captured["timeout_seconds"] == 180.0
-    assert all(item.subagent_type == "Explore" for item in plan.subtasks)
+    assert all(item.subagent_type == "CodeExplore" for item in plan.subtasks)
     assert all("Parent user request:" in item.prompt for item in plan.subtasks)
     assert all("# Tool Guidance" in item.prompt for item in plan.subtasks)
 
@@ -137,7 +137,7 @@ async def test_explore_planning_service_uses_scope_fallback_for_backend_request(
     plan = await service.generate_subtask_plan(
         user_message="分析 backend/src/magi/agent 里的任务编排实现",
         history=[],
-        orchestration_plan={"mode": "decompose", "default_leaf_type": "Explore", "allow_parallel": True},
+        orchestration_plan={"mode": "decompose", "default_leaf_type": "CodeExplore", "allow_parallel": True},
         user_id="u-chat",
         session_id="s-chat",
     )
@@ -193,7 +193,7 @@ async def test_explore_task_agent_builds_markdown_dossier_and_emits_upstream_fac
             SubtaskDefinition(
                 subtask_id="sub_1",
                 description="Analyze backend modules",
-                subagent_type="Explore",
+                subagent_type="CodeExplore",
                 prompt="Inspect backend modules",
                 status="completed",
                 worker_result=WorkerResult.from_dict(
@@ -219,7 +219,7 @@ async def test_explore_task_agent_builds_markdown_dossier_and_emits_upstream_fac
             SubtaskDefinition(
                 subtask_id="sub_2",
                 description="Analyze frontend structure",
-                subagent_type="Explore",
+                subagent_type="CodeExplore",
                 prompt="Inspect frontend",
                 status="failed",
                 failure_reason="PATH_NOT_FOUND",

@@ -58,7 +58,7 @@ def _run_state() -> WorkerRunState:
     now = time.time()
     return WorkerRunState(
         worker_id="worker-1",
-        subagent_type="Explore",
+        subagent_type="CodeExplore",
         description="scan auth flow",
         prompt="Locate token generation points",
         orchestration_id="orch-1",

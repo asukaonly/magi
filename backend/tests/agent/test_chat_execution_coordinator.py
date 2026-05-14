@@ -134,7 +134,7 @@ async def test_coordinator_routes_decompose_explore_to_orchestration_launch() ->
                 orchestration_strategy={
                     "mode": "decompose",
                     "planner": "task_agent",
-                    "default_leaf_type": "Explore",
+                    "default_leaf_type": "CodeExplore",
                     "allow_parallel": True,
                 },
             )
@@ -309,7 +309,7 @@ async def test_coordinator_marks_tool_and_orchestration_turns_as_prominent_trace
             orchestration_strategy={
                 "mode": "decompose",
                 "planner": "task_agent",
-                "default_leaf_type": "Explore",
+                "default_leaf_type": "CodeExplore",
                 "allow_parallel": True,
             },
         )
