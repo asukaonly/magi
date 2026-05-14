@@ -28,6 +28,61 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENTITLEMENTS="${ROOT_DIR}/scripts/sidecar.entitlements.plist"
 RUNTIME_SIGNER="${ROOT_DIR}/scripts/sign-runtime-root-macos.sh"
 
+detach_stale_dmg_mounts() {
+  local volume_path="/Volumes/${APP_NAME}"
+  local found_mount=0
+
+  while IFS= read -r mounted_path; do
+    [[ -z "$mounted_path" ]] && continue
+    found_mount=1
+    echo "==> Detaching stale mounted volume ${mounted_path} ..."
+    hdiutil detach "$mounted_path" -force || true
+  done < <(mount | awk -v volume_path="$volume_path" '$3 == volume_path { print $3 }')
+
+  if [[ $found_mount -eq 0 ]]; then
+    echo "==> No stale mounted volume found for ${volume_path}"
+  fi
+
+  if [[ -d "$volume_path" ]] \
+    && ! mount | awk -v volume_path="$volume_path" '$3 == volume_path { found=1 } END { exit found ? 0 : 1 }'; then
+    rmdir "$volume_path" 2>/dev/null || true
+  fi
+}
+
+create_dmg_with_retry() {
+  local source_folder="$1"
+  local output_path="$2"
+  local max_attempts=5
+  local attempt=1
+  local exit_code=1
+
+  while (( attempt <= max_attempts )); do
+    detach_stale_dmg_mounts
+    rm -f "$output_path" 2>/dev/null || true
+
+    echo "==> Creating DMG (attempt ${attempt}/${max_attempts}) ..."
+    if hdiutil create -volname "${APP_NAME}" \
+      -srcfolder "${source_folder}" \
+      -ov -format UDZO \
+      "$output_path"; then
+      return 0
+    else
+      exit_code=$?
+    fi
+
+    if (( attempt == max_attempts )); then
+      break
+    fi
+
+    echo "WARNING: hdiutil create failed with exit code ${exit_code}; retrying after disk image cleanup ..."
+    sleep $((attempt * 2))
+    attempt=$((attempt + 1))
+  done
+
+  echo "ERROR: Failed to create DMG after ${max_attempts} attempts."
+  return "$exit_code"
+}
+
 # ── Locate build artifacts ──────────────────────────────────────
 BUNDLE_DIR="${ROOT_DIR}/target/${TARGET}/release/bundle"
 MACOS_DIR="${BUNDLE_DIR}/macos"
@@ -309,18 +364,19 @@ OLD_DMG=$(find "${DMG_DIR}" -name "*.dmg" -type f 2>/dev/null | head -1)
 if [[ -n "$OLD_DMG" ]]; then
   DMG_NAME=$(basename "$OLD_DMG")
   DMG_STAGING="$(mktemp -d "${RUNNER_TEMP:-/tmp}/magi-dmg-staging.XXXXXX")"
-  trap 'rm -rf "${DMG_STAGING:-}"' EXIT
+  DMG_OUTPUT_DIR="$(mktemp -d "${RUNNER_TEMP:-/tmp}/magi-dmg-output.XXXXXX")"
+  DMG_TEMP_PATH="${DMG_OUTPUT_DIR}/${DMG_NAME}"
+  trap 'rm -rf "${DMG_STAGING:-}" "${DMG_OUTPUT_DIR:-}"' EXIT
 
   rm -f "$OLD_DMG"
   cp -a "${APP_PATH}" "${DMG_STAGING}/"
   ln -s /Applications "${DMG_STAGING}/Applications"
 
-  hdiutil create -volname "${APP_NAME}" \
-    -srcfolder "${DMG_STAGING}" \
-    -ov -format UDZO \
-    "${DMG_DIR}/${DMG_NAME}"
+  create_dmg_with_retry "${DMG_STAGING}" "${DMG_TEMP_PATH}"
 
-  rm -rf "${DMG_STAGING}"
+  mv "${DMG_TEMP_PATH}" "${DMG_DIR}/${DMG_NAME}"
+
+  rm -rf "${DMG_STAGING}" "${DMG_OUTPUT_DIR}"
   trap - EXIT
 
   codesign --force --sign "${APPLE_SIGNING_IDENTITY}" \
