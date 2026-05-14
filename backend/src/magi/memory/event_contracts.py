@@ -396,7 +396,14 @@ def _classify_event(event: Event) -> Dict[str, Any]:
             "importance": 0.8,
         }
 
-    if event_type in {"WORKER_AGENT_PROGRESS", EventTypes.LOOP_STARTED, EventTypes.LOOP_PHASE_STARTED, "Heartbeat"}:
+    if event_type in {
+        "WORKER_AGENT_PROGRESS",
+        "WORKER_AGENT_COMPLETED",
+        "WORKER_AGENT_FAILED",
+        EventTypes.LOOP_STARTED,
+        EventTypes.LOOP_PHASE_STARTED,
+        "Heartbeat",
+    }:
         return {
             "memory_domain": MemoryDomain.RUNTIME_TELEMETRY if event_type == "WORKER_AGENT_PROGRESS" else MemoryDomain.SYSTEM_CONTROL,
             "ingest_target": IngestTarget.L0_ONLY,

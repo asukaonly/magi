@@ -42,6 +42,26 @@ def test_runtime_progress_event_defaults_to_l0_only():
     assert normalized.retention_class == RetentionClass.DISPOSABLE
 
 
+def test_worker_completion_events_default_to_l0_only():
+    from magi.memory.event_contracts import normalize_runtime_event
+
+    for event_type in ("WORKER_AGENT_COMPLETED", "WORKER_AGENT_FAILED"):
+        event = Event(
+            type=event_type,
+            data={"worker_id": "worker-1", "status": "done"},
+            source="worker",
+            level=EventLevel.INFO,
+            correlation_id=f"corr-{event_type.lower()}",
+        )
+
+        normalized = normalize_runtime_event(event)
+
+        assert normalized.ingest_target == IngestTarget.L0_ONLY
+        assert normalized.memory_domain == MemoryDomain.SYSTEM_CONTROL
+        assert normalized.cognition_eligible is False
+        assert normalized.retention_class == RetentionClass.DISPOSABLE
+
+
 def test_task_completed_event_defaults_to_l0_and_l1():
     from magi.memory.event_contracts import normalize_runtime_event
 

@@ -47,6 +47,7 @@ class _FakeL1Store:
         user_id=None,
         event_id=None,
         event_type=None,
+        exclude_event_types=None,
         query=None,
         source_filters=None,
         source_item_id=None,
@@ -63,6 +64,7 @@ class _FakeL1Store:
             "user_id": user_id,
             "event_id": event_id,
             "event_type": event_type,
+            "exclude_event_types": exclude_event_types,
             "query": query,
             "source_filters": source_filters,
             "source_item_id": source_item_id,
@@ -1622,6 +1624,26 @@ def test_memory_l1_events_api_returns_canonical_user_and_content(monkeypatch):
     assert body["total"] == 12
 
 
+def test_memory_l1_events_api_excludes_worker_agent_events_by_default(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    memory = _FakeUnifiedMemory()
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: memory)
+    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
+
+    client = TestClient(app)
+    response = client.get("/api/memory/l1/events")
+
+    assert response.status_code == 200
+    assert memory.l1.last_query_kwargs is not None
+    assert memory.l1.last_query_kwargs["exclude_event_types"] == [
+        "WORKER_AGENT_PROGRESS",
+        "WORKER_AGENT_COMPLETED",
+        "WORKER_AGENT_FAILED",
+    ]
+
+
 def test_memory_l1_events_api_forwards_search_filters(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
@@ -1645,12 +1667,34 @@ def test_memory_l1_events_api_forwards_search_filters(monkeypatch):
     assert memory.l1.last_query_kwargs is not None
     assert memory.l1.last_query_kwargs["query"] == "lake"
     assert memory.l1.last_query_kwargs["source_filters"] == ["chat_projector"]
+    assert memory.l1.last_query_kwargs["exclude_event_types"] == [
+        "WORKER_AGENT_PROGRESS",
+        "WORKER_AGENT_COMPLETED",
+        "WORKER_AGENT_FAILED",
+    ]
     assert memory.l1.last_query_kwargs["limit"] == 50
     assert memory.l1.last_query_kwargs["include_metadata_json"] is True
     assert memory.l1.last_query_kwargs["include_embedding_fields"] is True
     assert isinstance(memory.l1.last_query_kwargs["start_time"], float)
     assert isinstance(memory.l1.last_query_kwargs["end_time"], float)
     assert memory.l1.last_query_kwargs["end_time"] > memory.l1.last_query_kwargs["start_time"]
+
+
+def test_memory_l1_events_api_keeps_direct_event_lookup_unfiltered(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    memory = _FakeUnifiedMemory()
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: memory)
+    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
+
+    client = TestClient(app)
+    response = client.get("/api/memory/l1/events", params={"event_id": "evt-worker-1"})
+
+    assert response.status_code == 200
+    assert memory.l1.last_query_kwargs is not None
+    assert memory.l1.last_query_kwargs["event_id"] == "evt-worker-1"
+    assert memory.l1.last_query_kwargs["exclude_event_types"] is None
 
 
 def test_memory_l1_events_api_forwards_identity_filters(monkeypatch):

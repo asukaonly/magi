@@ -84,6 +84,26 @@ class TestMemoryIntegrationWorkerEvents(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(stored)
 
+    async def test_worker_completion_events_are_not_stored_in_l1(self):
+        integration = MemoryIntegrationModule(
+            unified_memory=_FakeUnifiedMemory(),
+            message_bus=_FakeBus(),
+            config=MemoryIntegrationConfig(),
+        )
+
+        for event_type in ("WORKER_AGENT_COMPLETED", "WORKER_AGENT_FAILED"):
+            event = Event(
+                type=event_type,
+                data={"user_id": "u1", "session_id": "s1", "worker_id": "worker_abc"},
+                source="test",
+                level=EventLevel.INFO,
+                correlation_id=f"{event_type.lower()}-worker_abc",
+            )
+
+            stored = await integration._maybe_store_l1(event)
+
+            self.assertFalse(stored)
+
     async def test_task_completed_event_can_be_routed_to_l1(self):
         integration = MemoryIntegrationModule(
             unified_memory=_FakeUnifiedMemory(),

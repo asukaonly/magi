@@ -19,6 +19,7 @@ class L1EventFilterMixin:
         memory_domain: Optional[str] = None,
         event_id: Optional[str] = None,
         event_type: Optional[str] = None,
+        exclude_event_types: Optional[List[str]] = None,
         query: Optional[str] = None,
         source_filters: Optional[List[str]] = None,
         source_item_id: Optional[str] = None,
@@ -48,6 +49,10 @@ class L1EventFilterMixin:
         if event_type:
             parts.append("event_type = ?")
             args.append(event_type)
+        if exclude_event_types:
+            placeholders = ", ".join("?" for _ in exclude_event_types)
+            parts.append(f"event_type NOT IN ({placeholders})")
+            args.extend(exclude_event_types)
         if query:
             parts.append("LOWER(content) LIKE ?")
             args.append(f"%{str(query).strip().lower()}%")

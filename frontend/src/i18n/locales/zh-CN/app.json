@@ -2903,7 +2903,12 @@
       "user_message": "用户消息",
       "ai_response": "助手回复",
       "assistant_final": "助手回复",
-      "user_text": "用户文本"
+      "user_text": "用户文本",
+      "task_completed": "任务完成",
+      "task_failed": "任务失败",
+      "worker_agent_progress": "子任务执行中",
+      "worker_agent_completed": "子任务已完成",
+      "worker_agent_failed": "子任务失败"
     },
     "l0": {
       "activeSessions": "活跃会话",

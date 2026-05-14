@@ -318,6 +318,57 @@ describe('L2Tab lab', () => {
     expect(screen.queryByText('user_self_report')).not.toBeInTheDocument();
   });
 
+  it('merges local user aliases into the self entity overview', () => {
+    render(
+      <L2Tab
+        section="overview"
+        stats={{
+          canonical_self_id: 'user:self',
+          identity_link_count: 1,
+          relation_count: 0,
+          assertion_count: 0,
+        }}
+        relations={[]}
+        assertions={[]}
+        identityLinks={[
+          {
+            namespace: 'desktop',
+            runtime_user_id: 'local_user',
+            memory_owner_id: 'user:self',
+            link_type: 'runtime_account',
+          },
+        ]}
+        entities={[
+          {
+            entity_id: 'user:self',
+            canonical_name: 'You',
+            entity_type: 'user',
+            aliases: [],
+          },
+          {
+            entity_id: 'person:shadow-local-user',
+            canonical_name: 'local user',
+            entity_type: 'user',
+            aliases: [],
+          },
+        ]}
+        mentions={[]}
+        snapshots={[]}
+        conflictRules={[]}
+        events={[]}
+        actionLoading={false}
+        onSubmitManualEvent={vi.fn().mockResolvedValue(undefined)}
+        onReplayExtraction={vi.fn().mockResolvedValue(undefined)}
+        onRunReconcile={vi.fn().mockResolvedValue(undefined)}
+        onRunSnapshotRefresh={vi.fn().mockResolvedValue(undefined)}
+        onUpsertGraphConflictRule={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+
+    expect(screen.getAllByText('memory.pages.knowledge.entities.self')).toHaveLength(1);
+    expect(screen.queryByText('local user')).not.toBeInTheDocument();
+  });
+
   it('renders a filtered grouped knowledge-base browser', async () => {
     const user = userEvent.setup();
     const onSubmitAssertionFeedback = vi.fn().mockResolvedValue(undefined);

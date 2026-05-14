@@ -173,6 +173,45 @@ const normalizeLabelKey = (value: string) => value
   .replace(/^_+|_+$/g, '')
   .toLowerCase();
 
+const collectEntityAliasCandidates = (value: string | null | undefined) => {
+  const rawValue = String(value || '').trim().toLowerCase();
+  if (!rawValue) {
+    return [] as string[];
+  }
+  const variants = new Set<string>([rawValue]);
+  const suffix = rawValue.includes(':') ? rawValue.split(':').pop() : null;
+  if (suffix) {
+    variants.add(suffix);
+  }
+  return Array.from(variants)
+    .map((item) => item.replace(/[^\p{L}\p{N}]+/gu, ''))
+    .filter(Boolean);
+};
+
+const buildSelfEntityAliasSet = (
+  canonicalSelfId: string | null | undefined,
+  identityLinks: MemoryIdentityLink[]
+) => {
+  const aliases = new Set<string>();
+  const addAlias = (value: string | null | undefined) => {
+    collectEntityAliasCandidates(value).forEach((candidate) => aliases.add(candidate));
+  };
+
+  addAlias('user:self');
+  addAlias(`user:${DEFAULT_USER_ID}`);
+  addAlias(DEFAULT_USER_ID);
+  addAlias('local user');
+  addAlias(canonicalSelfId);
+
+  identityLinks.forEach((link) => {
+    addAlias(link.memory_owner_id);
+    addAlias(link.runtime_user_id);
+    addAlias(`user:${link.runtime_user_id}`);
+  });
+
+  return aliases;
+};
+
 const humanizeToken = (value: string) => {
   const text = value.split(':').pop() || value;
   return text
@@ -305,28 +344,38 @@ const getReadableEntityType = (t: MemoryTranslateFn, entityType: string | null |
   return translateOptional(t, `memory.pages.knowledge.entityTypes.${normalizeLabelKey(entityType)}`) || humanizeToken(entityType);
 };
 
-const getReadableEntityName = (t: MemoryTranslateFn, entityId: string, entity?: L2Entity) => {
+const isSelfEntity = (
+  entityId: string,
+  entity: L2Entity | undefined,
+  selfEntityAliases: Set<string>
+) => {
+  const candidates = [
+    entityId,
+    entity?.canonical_name,
+    ...(Array.isArray(entity?.aliases) ? entity.aliases : []),
+  ];
+  return candidates.some((candidate) => collectEntityAliasCandidates(candidate).some((alias) => selfEntityAliases.has(alias)));
+};
+
+const getReadableEntityName = (
+  t: MemoryTranslateFn,
+  entityId: string,
+  entity: L2Entity | undefined,
+  selfEntityAliases: Set<string>
+) => {
   const canonicalName = entity?.canonical_name?.trim();
-  const normalizedId = entityId.toLowerCase();
-  const normalizedName = canonicalName?.toLowerCase();
-  if (
-    normalizedId === 'user:local_user' ||
-    normalizedId === 'user:self' ||
-    normalizedName === 'local_user'
-  ) {
+  if (isSelfEntity(entityId, entity, selfEntityAliases)) {
     return t('memory.pages.knowledge.entities.self');
   }
   return canonicalName || humanizeToken(entityId);
 };
 
-const isSelfEntity = (entityId: string, entity?: L2Entity) => {
-  const normalizedId = entityId.trim().toLowerCase();
-  const normalizedName = entity?.canonical_name?.trim().toLowerCase();
-  return normalizedId === 'user:self' || normalizedId === 'user:local_user' || normalizedName === 'local_user';
-};
-
-const getEntityOverviewKey = (entityId: string, entity?: L2Entity) => (
-  isSelfEntity(entityId, entity) ? 'user:self' : entityId
+const getEntityOverviewKey = (
+  entityId: string,
+  entity: L2Entity | undefined,
+  selfEntityAliases: Set<string>
+) => (
+  isSelfEntity(entityId, entity, selfEntityAliases) ? 'user:self' : entityId
 );
 
 const getReadableTraitLabel = (t: MemoryTranslateFn, traitName: string) => (
@@ -491,6 +540,7 @@ export const L2Tab: React.FC<L2TabProps> = ({
   stats,
   relations,
   assertions,
+  identityLinks,
   entities,
   mentions,
   snapshots,
@@ -540,6 +590,11 @@ export const L2Tab: React.FC<L2TabProps> = ({
   const entityById = useMemo(
     () => new Map(entities.map((entity) => [entity.entity_id, entity] as const)),
     [entities]
+  );
+
+  const selfEntityAliases = useMemo(
+    () => buildSelfEntityAliasSet(stats.canonical_self_id, identityLinks),
+    [identityLinks, stats.canonical_self_id]
   );
 
   const visibleEventById = useMemo(
@@ -595,8 +650,8 @@ export const L2Tab: React.FC<L2TabProps> = ({
 
   const getEntityName = useCallback((entityId: string) => {
     const entity = entityById.get(entityId);
-    return getReadableEntityName(t, entityId, entity);
-  }, [entityById, t]);
+    return getReadableEntityName(t, entityId, entity, selfEntityAliases);
+  }, [entityById, selfEntityAliases, t]);
 
   const getEntityType = useCallback(
     (entityId: string, fallback?: string | null) => entityById.get(entityId)?.entity_type || fallback || null,
@@ -800,8 +855,10 @@ export const L2Tab: React.FC<L2TabProps> = ({
     const drafts = new Map<string, EntityDraft>();
     const ensureDraft = (entityId: string, entityType?: string | null) => {
       const entity = entityById.get(entityId);
-      const overviewKey = getEntityOverviewKey(entityId, entity);
-      const snapshot = snapshots.find((item) => getEntityOverviewKey(item.entity_id, entityById.get(item.entity_id)) === overviewKey);
+      const overviewKey = getEntityOverviewKey(entityId, entity, selfEntityAliases);
+      const snapshot = snapshots.find(
+        (item) => getEntityOverviewKey(item.entity_id, entityById.get(item.entity_id), selfEntityAliases) === overviewKey
+      );
       const existing = drafts.get(overviewKey);
       if (existing) {
         existing.sourceEntityIds.add(entityId);
@@ -902,7 +959,7 @@ export const L2Tab: React.FC<L2TabProps> = ({
         };
       })
       .sort((left, right) => right.score - left.score || left.name.localeCompare(right.name));
-  }, [entities, entityById, getEntityName, getEntityTypeLabel, knowledgeItems, snapshots, t]);
+  }, [entities, entityById, getEntityName, getEntityTypeLabel, knowledgeItems, selfEntityAliases, snapshots, t]);
   const reviewItems = reviewKnowledgeItems.slice(0, 6);
   const overviewEntities = entityOverviewItems.slice(0, 8);
 

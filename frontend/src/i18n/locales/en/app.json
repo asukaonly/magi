@@ -2837,7 +2837,12 @@
       "user_message": "User message",
       "ai_response": "Assistant reply",
       "assistant_final": "Assistant reply",
-      "user_text": "User text"
+      "user_text": "User text",
+      "task_completed": "Task completed",
+      "task_failed": "Task failed",
+      "worker_agent_progress": "Worker running",
+      "worker_agent_completed": "Worker completed",
+      "worker_agent_failed": "Worker failed"
     },
     "l0": {
       "activeSessions": "Active Sessions",
