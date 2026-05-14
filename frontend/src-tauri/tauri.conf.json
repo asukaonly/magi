@@ -39,10 +39,7 @@
       "icons/icon.ico"
     ],
     "targets": "all",
-    "resources": [
-      "sidecar-dist/",
-      "plugin-python/"
-    ],
+    "resources": ["sidecar-dist/", "plugin-python/"],
     "macOS": {
       "dmg": {
         "windowSize": {
@@ -63,9 +60,7 @@
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhFRUI3MUU2NDg5QjkzMTUKUldRVms1dEk1bkhyanZLRmJ1WjVuQnlYekRGVE90ZFZjUDhzSzdHMHY3WXk3a2ZzOVdDa2N1ZFkK",
-      "endpoints": [
-        "https://github.com/asukaonly/magi/releases/latest/download/latest.json"
-      ]
+      "endpoints": ["https://github.com/asukaonly/magi/releases/latest/download/latest.json"]
     }
   }
 }
