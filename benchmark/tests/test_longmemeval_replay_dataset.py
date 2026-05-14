@@ -7,7 +7,7 @@ import json
 from dataclasses import asdict, dataclass
 
 from benchmark.common.io import read_jsonl
-from benchmark.longmemeval.replay_dataset import replay_longmemeval_rows
+from benchmark.longmemeval.replay_dataset import parse_args, replay_longmemeval_rows
 
 
 @dataclass
@@ -168,3 +168,19 @@ def test_replay_script_writes_records_and_manifest(tmp_path) -> None:
     assert post_replay["background_pending"]["all_idle"] is True
     assert service.l2_stats_calls == 2
     assert service.background_pending_calls == 2
+
+
+def test_parse_args_accepts_request_timeout_and_poll_interval() -> None:
+    args = parse_args(
+        [
+            "--dataset",
+            "/tmp/longmemeval.json",
+            "--request-timeout",
+            "42.5",
+            "--poll-interval-seconds",
+            "1.5",
+        ]
+    )
+
+    assert args.request_timeout == 42.5
+    assert args.poll_interval_seconds == 1.5

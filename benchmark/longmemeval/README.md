@@ -105,6 +105,8 @@ python benchmark/longmemeval/query_dataset.py \
 ```
 
 This mode reuses the memory runtime already initialized by the backend service, including its provider and LLM configuration.
+The `--backend-url` value should point at the Magi gateway HTTP address. In the current architecture `backend/run_server.py`
+starts an IPC worker only; it is not the benchmark HTTP entrypoint.
 
 Official QA scoring wrapper:
 

@@ -243,10 +243,11 @@ async def _run_cli(args: argparse.Namespace) -> LongMemEvalReplayArtifacts:
     backend_url = args.backend_url or resolve_backend_url()
     return await replay_longmemeval_rows(
         rows=rows,
-        eval_service=BackendEvalService(backend_url),
+        eval_service=BackendEvalService(backend_url, timeout_seconds=args.request_timeout),
         run_id=args.run_id,
         output_root=args.output_root,
         progress_reporter=print_replay_progress,
+        poll_interval_seconds=args.poll_interval_seconds,
     )
 
 
@@ -257,6 +258,18 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--run-id", default="smoke", help="Logical run identifier.")
     parser.add_argument("--limit", type=int, default=None, help="Optional sample limit for quick runs.")
     parser.add_argument("--backend-url", default=None, help="Magi backend base URL (auto-detected if omitted).")
+    parser.add_argument(
+        "--request-timeout",
+        type=float,
+        default=600.0,
+        help="HTTP timeout in seconds for replay and finalize requests.",
+    )
+    parser.add_argument(
+        "--poll-interval-seconds",
+        type=float,
+        default=5.0,
+        help="Polling interval while waiting for L2 and background queues to drain.",
+    )
     return parser.parse_args(argv)
 
 

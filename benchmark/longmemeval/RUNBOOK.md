@@ -31,6 +31,7 @@ cargo run -p magi-gateway-cli
 ```
 
 The desktop app and gateway CLI write the active gateway port to `~/.magi/runtime/gateway.port`, which the benchmark scripts can auto-discover.
+`backend/run_server.py` no longer exposes the benchmark HTTP API directly, so `--backend-url` must target the gateway URL.
 
 ## 2. Confirm the Backend Is Reachable
 
@@ -85,6 +86,10 @@ python benchmark/longmemeval/replay_dataset.py \
   --dataset "$LONGMEM_DATA" \
   --output-root "$LONGMEM_OUT" \
   --run-id "$LONGMEM_RUN"
+
+# Optional: fail faster on a stuck gateway, or poll drain state more/less often
+#   --request-timeout 900
+#   --poll-interval-seconds 2
 ```
 
 Expected output:
