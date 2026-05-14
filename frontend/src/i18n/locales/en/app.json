@@ -1629,6 +1629,7 @@
           "direct": "Direct subagent call",
           "taskDecomposition": "Task decomposition",
           "multiResultSynthesis": "Multi-result synthesis",
+          "failureStatus": "Failure status",
           "execution": "Explore execution",
           "resultRendering": "Result rendering",
           "backgroundDecision": "Background decision",

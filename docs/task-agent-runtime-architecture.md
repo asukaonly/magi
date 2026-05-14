@@ -495,6 +495,13 @@ encode dynamic worker evidence or tool failure payloads into the system prompt,
 and do not use tool-role messages unless there is a provider-valid assistant
 tool-call message for them to answer.
 
+If every subtask failed and no completed worker evidence exists, chat should
+bypass full aggregation and use the lightweight failure-status path instead.
+That path uses the core model with thinking disabled, sends only the original
+request plus attempted/failed step diagnostics, and asks for an intermediate
+status update rather than a final conclusion. This avoids spending a full
+analysis synthesis round when there is no evidence to synthesize.
+
 ### `WorkerAgentManager`
 
 Leaf worker lifecycle manager in `agent/workers/worker_manager.py`.

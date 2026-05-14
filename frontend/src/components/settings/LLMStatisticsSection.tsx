@@ -32,6 +32,7 @@ const REQUEST_KIND_DISPLAY_KEYS: Record<string, { scenario: string; stage: strin
   'task_agent:chat_direct': { scenario: 'generalChat', stage: 'directReply' },
   'task_agent:planner': { scenario: 'taskPlanning', stage: 'taskDecomposition' },
   'task_agent:aggregator': { scenario: 'taskAggregation', stage: 'multiResultSynthesis' },
+  'task_agent:failure_status': { scenario: 'taskAggregation', stage: 'failureStatus' },
   'task_agent:explore-task': { scenario: 'exploreTask', stage: 'execution' },
   'task_agent:explore_render': { scenario: 'exploreTask', stage: 'resultRendering' },
   'task_agent:background_dispatcher': { scenario: 'backgroundTask', stage: 'backgroundDecision' },

@@ -130,6 +130,13 @@ class ChatPlanningService(ChatPlanningPromptMixin):
             include_tool_catalog=False,
             persona_id=str(state.metadata.get("persona_id") or "").strip() or None,
         )
+        if self._prompt_service.should_use_failure_status_path(payload):
+            return await self._render_failure_status(
+                state=state,
+                payload=payload,
+                base_system_prompt=system_prompt,
+                filtered_history=filtered_history,
+            )
         system_prompt = self._prompt_service.build_aggregation_system_prompt(
             base_system_prompt=system_prompt,
             state=state,
@@ -184,6 +191,67 @@ class ChatPlanningService(ChatPlanningPromptMixin):
             len(payload.get("failed_subtasks", [])),
         )
         return self._prompt_service.build_aggregation_fallback(state)
+
+    async def _render_failure_status(
+        self,
+        *,
+        state: TaskOrchestrationState,
+        payload: dict[str, Any],
+        base_system_prompt: str,
+        filtered_history: list[dict[str, str]],
+    ) -> str:
+        system_prompt = self._prompt_service.build_failure_status_system_prompt(
+            base_system_prompt=base_system_prompt,
+            state=state,
+        )
+        messages = self._prompt_service.build_failure_status_messages(
+            history_messages=filtered_history,
+            state=state,
+            payload=payload,
+        )
+        try:
+            if get_stream_sink() is not None:
+                chunks: list[str] = []
+                async with stream_source("failure_status"):
+                    async for event in self._prompt_service.call_llm_stream(
+                        system_prompt=system_prompt,
+                        messages=messages,
+                        disable_thinking=True,
+                        event_context={
+                            "request_kind": "task_agent:failure_status",
+                            "agent_id": self._agent_id,
+                            "session_id": state.session_id,
+                        },
+                    ):
+                        if event.kind == "text_delta" and event.text:
+                            chunks.append(event.text)
+                response = "".join(chunks)
+            else:
+                response = await self._prompt_service.call_llm(
+                    system_prompt=system_prompt,
+                    messages=messages,
+                    disable_thinking=True,
+                    event_context={
+                        "request_kind": "task_agent:failure_status",
+                        "agent_id": self._agent_id,
+                        "session_id": state.session_id,
+                    },
+                )
+        except Exception as exc:
+            logger.warning(
+                "Parent failure-status LLM call failed | orchestration_id=%s error=%s",
+                state.orchestration_id,
+                exc,
+            )
+            response = ""
+        if response.strip():
+            return response.strip()
+        logger.warning(
+            "Parent failure-status returned empty response | orchestration_id=%s failed_subtasks=%s",
+            state.orchestration_id,
+            len(payload.get("failed_subtasks", [])),
+        )
+        return self._prompt_service.build_failure_status_fallback(state, payload)
 
     async def _plan_with_task_agent(
         self,

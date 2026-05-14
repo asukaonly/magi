@@ -1627,6 +1627,7 @@
           "direct": "子代理直连",
           "taskDecomposition": "任务拆解",
           "multiResultSynthesis": "多结果汇总",
+          "failureStatus": "失败状态说明",
           "execution": "探索执行",
           "resultRendering": "结果渲染",
           "backgroundDecision": "后台判定",

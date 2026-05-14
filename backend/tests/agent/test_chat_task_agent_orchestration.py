@@ -845,6 +845,89 @@ async def test_aggregate_orchestration_uses_analysis_prompt_without_tool_catalog
 
 
 @pytest.mark.asyncio
+async def test_aggregate_orchestration_uses_fast_failure_status_when_all_subtasks_fail(monkeypatch) -> None:
+    agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
+    agent._history_service.append_user_message("u-chat::s-chat", "帮我安排杭州行程")
+    calls: dict[str, object] = {}
+
+    async def _fake_build_system_prompt(  # type: ignore[no-untyped-def]
+        *,
+        user_id=None,
+        session_id=None,
+        user_message="",
+        task_category="chat",
+        scenario="chat",
+        tools=None,
+        recent_tool_errors=None,
+        include_tool_catalog=True,
+        persona_id=None,
+    ):
+        _ = (tools, recent_tool_errors)
+        return "persona-system-prompt"
+
+    async def _fake_call_llm(*, system_prompt, messages, disable_thinking=True, thinking_depth=None, **kwargs):  # type: ignore[no-untyped-def]
+        _ = thinking_depth
+        calls["call_llm"] = {
+            "system_prompt": system_prompt,
+            "messages": messages,
+            "disable_thinking": disable_thinking,
+            "event_context": kwargs.get("event_context"),
+        }
+        return "我刚才尝试查询地铁和低强度路线，但搜索工具失败了。请先配置搜索提供商后我再继续。"
+
+    monkeypatch.setattr(agent._context_service, "build_system_prompt", _fake_build_system_prompt)
+    monkeypatch.setattr(agent._prompt_service, "call_llm", _fake_call_llm)
+
+    state = TaskOrchestrationState(
+        orchestration_id="orch_failed",
+        user_id="u-chat",
+        session_id="s-chat",
+        root_user_message="帮我安排杭州行程",
+        planner="task_agent",
+        subtasks=[
+            SubtaskDefinition(
+                subtask_id="subtask_1",
+                description="查询杭州西站到市区地铁接驳",
+                subagent_type="general-purpose",
+                prompt="Search metro route",
+                status="failed",
+                failure_reason="ALL_TOOLS_FAILED",
+                failure_details={
+                    "tool_failures": [
+                        {
+                            "tool_name": "web-search",
+                            "error_code": "PROVIDER_CHALLENGE",
+                            "error": "DuckDuckGo challenge",
+                            "diagnostics": {
+                                "next_action": "ask_user_to_configure_search_provider",
+                                "user_message_template": "DuckDuckGo hit an anti-bot check this time.",
+                            },
+                        }
+                    ]
+                },
+                attempt_count=1,
+            )
+        ],
+    )
+
+    response = await agent._planning_service.aggregate_orchestration(state)
+
+    assert response.startswith("我刚才尝试查询")
+    llm_call = calls["call_llm"]
+    assert isinstance(llm_call, dict)
+    assert "# Interrupted Task Status" in llm_call["system_prompt"]
+    assert "# Aggregation Task" not in llm_call["system_prompt"]
+    assert "Response Contract" not in llm_call["system_prompt"]
+    assert llm_call["disable_thinking"] is True
+    assert llm_call["event_context"]["request_kind"] == "task_agent:failure_status"
+    messages = llm_call["messages"]
+    assert isinstance(messages, list)
+    assert "## Attempted Steps And Failures" in messages[-1]["content"]
+    assert "Tool failure: web-search | PROVIDER_CHALLENGE" in messages[-1]["content"]
+    assert "Next action: ask_user_to_configure_search_provider" in messages[-1]["content"]
+
+
+@pytest.mark.asyncio
 async def test_chat_task_agent_routes_large_explore_to_explore_task_agent(monkeypatch) -> None:
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
     captured = {}

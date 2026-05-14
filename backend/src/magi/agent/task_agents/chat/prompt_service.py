@@ -171,6 +171,84 @@ class ChatPromptService:
         ).strip()
         return [*history_messages, {"role": "user", "content": aggregation_input}]
 
+    def should_use_failure_status_path(self, payload: dict[str, Any]) -> bool:
+        completed = payload.get("completed_subtasks") if isinstance(payload.get("completed_subtasks"), list) else []
+        failed = payload.get("failed_subtasks") if isinstance(payload.get("failed_subtasks"), list) else []
+        return not completed and bool(failed)
+
+    def build_failure_status_system_prompt(self, *, base_system_prompt: str, state) -> str:
+        return "\n".join(
+            [
+                base_system_prompt.strip(),
+                "",
+                "# Interrupted Task Status",
+                "The planned evidence-gathering steps all failed before producing verified evidence.",
+                "Do not answer the original request as if the evidence were complete.",
+                "Return a brief intermediate status update in the user's language.",
+                "Explain what was attempted, what failed, and what user action or retry condition is needed.",
+                "Do not mention workers, orchestration, JSON, prompts, or internal implementation details.",
+                "Avoid broad analysis sections and do not invent itinerary details, citations, files, routes, or facts that were not verified.",
+                "The final user message contains the original user request and compact failure details.",
+            ]
+        ).strip()
+
+    def build_failure_status_messages(
+        self,
+        *,
+        history_messages: list[dict[str, str]],
+        state,
+        payload: dict[str, Any],
+    ) -> list[dict[str, str]]:
+        status_input = "\n".join(
+            [
+                "# Interrupted Task Status Input",
+                "",
+                "## Original User Request",
+                state.root_user_message,
+                "",
+                "## Attempted Steps And Failures",
+                self._build_failure_status_dossier(payload),
+            ]
+        ).strip()
+        return [*history_messages, {"role": "user", "content": status_input}]
+
+    def build_failure_status_fallback(self, state, payload: dict[str, Any]) -> str:
+        failed = payload.get("failed_subtasks") if isinstance(payload.get("failed_subtasks"), list) else []
+        if self.prefers_chinese_response(state.root_user_message):
+            lines = [
+                "这次还没拿到足够可靠的信息，所以我先不直接给最终结论。",
+                "",
+                "已经尝试但失败的部分：",
+            ]
+            for item in failed[:5]:
+                if not isinstance(item, dict):
+                    continue
+                description = str(item.get("description") or "未命名步骤").strip()
+                reason = self._summarize_failed_subtask_for_user(item)
+                lines.append(f"- {description}{f'：{reason}' if reason else ''}")
+            lines.extend([
+                "",
+                "你可以先检查相关工具或网络配置，配置恢复后我再继续完成这个请求。",
+            ])
+            return "\n".join(lines).strip()
+
+        lines = [
+            "I do not have enough reliable evidence to answer the request yet.",
+            "",
+            "Attempted but failed:",
+        ]
+        for item in failed[:5]:
+            if not isinstance(item, dict):
+                continue
+            description = str(item.get("description") or "Unnamed step").strip()
+            reason = self._summarize_failed_subtask_for_user(item)
+            lines.append(f"- {description}{f': {reason}' if reason else ''}")
+        lines.extend([
+            "",
+            "Please check the related tool or network configuration, then I can retry the request.",
+        ])
+        return "\n".join(lines).strip()
+
     def _build_aggregation_evidence_dossier(self, payload: dict[str, Any]) -> str:
         lines: list[str] = []
 
@@ -282,6 +360,56 @@ class ChatPromptService:
             lines.append("- None")
 
         return "\n".join(line for line in lines if line is not None).strip()
+
+    def _build_failure_status_dossier(self, payload: dict[str, Any]) -> str:
+        failed = payload.get("failed_subtasks") if isinstance(payload.get("failed_subtasks"), list) else []
+        if not failed:
+            return "- No failed steps were recorded."
+        lines: list[str] = []
+        for index, item in enumerate(failed, start=1):
+            if not isinstance(item, dict):
+                continue
+            description = str(item.get("description") or f"Step {index}").strip()
+            failure_reason = str(item.get("failure_reason") or "UNKNOWN").strip()
+            lines.append(f"{index}. {description}")
+            lines.append(f"   - Failure reason: {failure_reason}")
+            user_summary = self._summarize_failed_subtask_for_user(item)
+            if user_summary:
+                lines.append(f"   - User-facing summary: {user_summary}")
+            failure_details = item.get("failure_details") if isinstance(item.get("failure_details"), dict) else {}
+            tool_failures = failure_details.get("tool_failures") if isinstance(failure_details.get("tool_failures"), list) else []
+            for failure in tool_failures[:3]:
+                if not isinstance(failure, dict):
+                    continue
+                tool_name = str(failure.get("tool_name") or "unknown").strip()
+                error_code = str(failure.get("error_code") or "UNKNOWN").strip()
+                error = str(failure.get("error") or "").strip()
+                lines.append(f"   - Tool failure: {tool_name} | {error_code}{f' | {error[:240]}' if error else ''}")
+                diagnostics = failure.get("diagnostics") if isinstance(failure.get("diagnostics"), dict) else {}
+                next_action = str(diagnostics.get("next_action") or "").strip()
+                if next_action:
+                    lines.append(f"     Next action: {next_action}")
+        return "\n".join(lines).strip()
+
+    def _summarize_failed_subtask_for_user(self, item: dict[str, Any]) -> str:
+        result = item.get("result") if isinstance(item.get("result"), dict) else {}
+        failure_details = item.get("failure_details") if isinstance(item.get("failure_details"), dict) else {}
+        tool_failures = failure_details.get("tool_failures") if isinstance(failure_details.get("tool_failures"), list) else []
+        for failure in tool_failures:
+            if not isinstance(failure, dict):
+                continue
+            diagnostics = failure.get("diagnostics") if isinstance(failure.get("diagnostics"), dict) else {}
+            user_message = str(diagnostics.get("user_message_template") or "").strip()
+            if user_message:
+                return user_message[:300]
+            error_code = str(failure.get("error_code") or "").strip()
+            error = str(failure.get("error") or "").strip()
+            if error_code or error:
+                return " | ".join(part for part in [error_code, error[:220]] if part)
+        summary = str(result.get("summary") or failure_details.get("error_text") or "").strip()
+        if summary:
+            return summary[:300]
+        return str(item.get("failure_reason") or "").strip()[:120]
 
     def build_explore_render_message(self, root_user_message: str, dossier: str) -> str:
         if self.prefers_chinese_response(root_user_message):
