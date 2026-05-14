@@ -597,6 +597,7 @@ class TaskOrchestrator(
                         orchestration_id=state.orchestration_id,
                         message_started_at=state.created_at,
                         turn_id=state.turn_id,
+                        streamed=bool(state.metadata.get("aggregation_streamed")),
                     )
                 )
 
@@ -622,6 +623,7 @@ class TaskOrchestrator(
             ),
             message_started_at=first.message_started_at,
             turn_id=first.turn_id,
+            streamed=any(item.streamed for item in completed_payloads),
         )
 
     def _build_subtask_failure_details(self, payload: Any) -> dict[str, Any] | None:

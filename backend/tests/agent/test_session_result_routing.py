@@ -393,6 +393,53 @@ async def test_chat_planning_service_mixed_evidence_prompt_preserves_external_le
     assert "do not depend on sibling worker outputs" in plan.subtasks[1].prompt
 
 
+@pytest.mark.asyncio
+async def test_chat_planning_service_routes_local_travel_subtasks_to_general_worker() -> None:
+    class _FakePromptService:
+        async def call_llm(self, **kwargs):  # type: ignore[no-untyped-def]
+            _ = kwargs
+            return (
+                '{"summary":"Hangzhou itinerary plan","subtasks":['
+                '{"description":"筛选杭州适合平地游览、不爬山的景点","subagent_type":"Explore","prompt":"查找适合平地游览的杭州景点，保留开放时间和交通信息","parallel_group":"g1"},'
+                '{"description":"查询杭州西站地铁交通及前往市区景点的路线","subagent_type":"Explore","prompt":"查询杭州西站到西湖和运河景点的地铁换乘路线","parallel_group":"g1"},'
+                '{"description":"推荐杭州适合晚上7点聚餐的餐厅或商圈","subagent_type":"Explore","prompt":"查询适合晚餐聚餐的餐厅或商圈","parallel_group":"g1"}'
+                "]}"
+            )
+
+    service = ChatPlanningService(
+        agent_id="user-1",
+        runtime_key="chat:user-1",
+        context_service=SimpleNamespace(),
+        prompt_service=_FakePromptService(),
+        history_service=SimpleNamespace(),
+        tool_registry=_registry_with_file_tools(),
+        parent_task_agent_type="chat",
+    )
+
+    plan = await service.generate_subtask_plan(
+        user_message="我不怎么运动，帮我安排明天杭州一天行程，包括地铁和晚餐商圈",
+        history=[],
+        orchestration_plan={
+            "mode": "decompose",
+            "default_leaf_type": "Explore",
+            "allow_parallel": True,
+        },
+        user_id="user-1",
+        session_id="session-1",
+        workspace_root="/tmp/magi",
+    )
+
+    assert [item.subagent_type for item in plan.subtasks] == [
+        "general-purpose",
+        "general-purpose",
+        "general-purpose",
+    ]
+    assert (
+        "do not assume local files exist; use external discovery first" in plan.subtasks[0].prompt
+    )
+    assert "When you reference external evidence" in plan.subtasks[1].prompt
+
+
 def test_chat_prompt_service_aggregation_prompt_uses_request_shaped_axes() -> None:
     service = ChatPromptService()
 

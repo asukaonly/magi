@@ -148,6 +148,7 @@ class OrchestrationLaunchHandler(BaseExecutionHandler):
             orchestration_id=raw_result.orchestration_id,
             message_started_at=raw_result.message_started_at,
             turn_id=raw_result.turn_id,
+            streamed=raw_result.streamed,
             ux_plan=_serialize_ux_plan(request),
         )
 
@@ -176,5 +177,6 @@ class OrchestrationUpdateHandler(BaseExecutionHandler):
             orchestration_id=raw_result.orchestration_id,
             message_started_at=raw_result.message_started_at,
             turn_id=raw_result.turn_id,
+            streamed=raw_result.streamed,
             ux_plan=_serialize_ux_plan(request),
         )

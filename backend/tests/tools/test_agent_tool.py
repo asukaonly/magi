@@ -918,6 +918,13 @@ async def test_structured_failed_worker_result_is_not_marked_completed(monkeypat
                     '"next_steps":["Verify the repository path"],'
                     '"failure_reason":"PATH_NOT_FOUND"}'
                 ),
+                tool_failures=[
+                    {
+                        "tool_name": "web-search",
+                        "error_code": "PROVIDER_NOT_CONFIGURED",
+                        "error": "Requested search provider is not configured.",
+                    }
+                ],
                 iterations=1,
             )
 
@@ -930,8 +937,10 @@ async def test_structured_failed_worker_result_is_not_marked_completed(monkeypat
     published_events = []
 
     async def _fake_publish(run_state, event_type, internal_payload, public_payload=None):
-        _ = (internal_payload, public_payload)
-        published_events.append((event_type, run_state.failure_reason, run_state.status))
+        _ = public_payload
+        published_events.append(
+            (event_type, run_state.failure_reason, run_state.status, internal_payload)
+        )
 
     monkeypatch.setattr(tool._manager, "_publish_worker_fact", _fake_publish)
 
@@ -954,4 +963,5 @@ async def test_structured_failed_worker_result_is_not_marked_completed(monkeypat
     assert result.success is False
     assert result.data["status"] == "failed"
     assert result.data["failure_reason"] == "PATH_NOT_FOUND"
-    assert published_events[-1] == ("WORKER_AGENT_FAILED", "PATH_NOT_FOUND", "failed")
+    assert published_events[-1][:3] == ("WORKER_AGENT_FAILED", "PATH_NOT_FOUND", "failed")
+    assert published_events[-1][3]["tool_failures"][0]["error_code"] == "PROVIDER_NOT_CONFIGURED"

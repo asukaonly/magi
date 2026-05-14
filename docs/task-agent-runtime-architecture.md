@@ -454,6 +454,11 @@ list internally; `TaskOrchestrator` persists it on the failed subtask as
 actions instead of reducing every worker failure to a generic
 `ALL_TOOLS_FAILED` label.
 
+Structured worker failures must preserve the same diagnostic chain even when
+the worker model returns a typed `result_status="failed"` payload. The
+worker-authored failure reason is useful context, but it must not replace the
+tool-layer provider errors needed for user-facing recovery guidance.
+
 Execution-time tool discovery remains bounded and append-only. When the
 execution model calls `find-relevant-tools`, the helper still starts from the
 runtime registry plus tool/skill metadata, but it now reranks tool candidates
@@ -502,6 +507,12 @@ request plus attempted/failed step diagnostics, and asks for an intermediate
 status update rather than a final conclusion. This avoids spending a full
 analysis synthesis round when there is no evidence to synthesize.
 
+Final aggregation and lightweight failure-status rendering are user-visible
+stream sources when a stream sink is active. Planner and worker text/reasoning
+streams remain hidden, but `aggregator` and `failure_status` text/reasoning
+deltas may flow into the chat bubble and mark the orchestration result as
+streamed so the final notification is not duplicated.
+
 ### `WorkerAgentManager`
 
 Leaf worker lifecycle manager in `agent/workers/worker_manager.py`.
@@ -518,6 +529,12 @@ Workers remain leaf executors and do not recursively create other workers.
 They also do not own user-facing control state: worker tool profiles exclude
 `todo_write`, and function-calling execution rejects worker-originated
 `todo_write` calls even if a stale or custom profile exposes the tool.
+
+`Explore` workers are workspace/codebase inspectors with a deliberately narrow
+tool profile (`glob`, `grep`, `file_read`). Planning normalization must route
+external-life, local geography, travel, transit, weather, restaurant, and
+current-place evidence tasks to `general-purpose` workers so web-search or
+other external provider tools are available.
 
 Worker outputs must still satisfy the typed worker-result contract, but the
 validator accepts a JSON object embedded in surrounding prose or a fenced code

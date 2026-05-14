@@ -249,6 +249,8 @@ class WorkerAgentManager(
                         internal_payload={
                             "stage": "failed",
                             "error": run_state.error,
+                            "error_text": getattr(outcome, "error_text", None),
+                            "tool_failures": list(getattr(outcome, "tool_failures", []) or []),
                             "worker_result": validated_result.to_dict(),
                         },
                         public_payload={

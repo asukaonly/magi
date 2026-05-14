@@ -97,15 +97,17 @@ def get_stream_source() -> Optional[str]:
 _USER_VISIBLE_TEXT_KINDS: frozenset[str] = frozenset(
     {"text_delta", "text_flush", "reasoning_delta"}
 )
-_USER_VISIBLE_SOURCE = "chat"
+_USER_VISIBLE_SOURCES: frozenset[str] = frozenset(
+    {"chat", "aggregator", "failure_status"}
+)
 
 
 async def emit_stream_event(event: LLMStreamEvent) -> None:
     """Forward ``event`` to the sink bound to the current context.
 
     Adds the contextual ``source`` label when the event does not already
-    carry one. Drops user-visible text events whose source is not the
-    user-facing chat stream so that planner/aggregator/worker LLM output
+    carry one. Drops user-visible text events whose source is not one of
+    the user-facing final response streams so planner/worker LLM output
     cannot leak into the assistant bubble. Sink failures are swallowed
     since streaming is best-effort: a misbehaving consumer must not
     break the LLM call.
@@ -118,9 +120,10 @@ async def emit_stream_event(event: LLMStreamEvent) -> None:
         source = _STREAM_SOURCE.get()
         if source is not None:
             event.source = source
-    if event.kind in _USER_VISIBLE_TEXT_KINDS and event.source not in (
-        None,
-        _USER_VISIBLE_SOURCE,
+    if (
+        event.kind in _USER_VISIBLE_TEXT_KINDS
+        and event.source is not None
+        and event.source not in _USER_VISIBLE_SOURCES
     ):
         return
     try:

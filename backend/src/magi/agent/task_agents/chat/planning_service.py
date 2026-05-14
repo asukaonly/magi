@@ -118,6 +118,7 @@ class ChatPlanningService(ChatPlanningPromptMixin):
         )
 
     async def aggregate_orchestration(self, state: TaskOrchestrationState) -> str:
+        state.metadata["aggregation_streamed"] = False
         payload = self._prompt_service.build_aggregation_payload(state)
         history = await self._history_service.get_or_load_history(state.user_id, state.session_id)
         filtered_history = self._prompt_service.filter_history_for_aggregation(history)
@@ -164,6 +165,7 @@ class ChatPlanningService(ChatPlanningPromptMixin):
                         if event.kind == "text_delta" and event.text:
                             chunks.append(event.text)
                 response = "".join(chunks)
+                state.metadata["aggregation_streamed"] = bool(response.strip())
             else:
                 response = await self._prompt_service.call_llm(
                     system_prompt=system_prompt,
@@ -184,6 +186,7 @@ class ChatPlanningService(ChatPlanningPromptMixin):
             response = ""
         if response.strip():
             return response.strip()
+        state.metadata["aggregation_streamed"] = False
         logger.warning(
             "Parent aggregation returned empty response | orchestration_id=%s completed_subtasks=%s failed_subtasks=%s",
             state.orchestration_id,
@@ -226,6 +229,7 @@ class ChatPlanningService(ChatPlanningPromptMixin):
                         if event.kind == "text_delta" and event.text:
                             chunks.append(event.text)
                 response = "".join(chunks)
+                state.metadata["aggregation_streamed"] = bool(response.strip())
             else:
                 response = await self._prompt_service.call_llm(
                     system_prompt=system_prompt,
@@ -246,6 +250,7 @@ class ChatPlanningService(ChatPlanningPromptMixin):
             response = ""
         if response.strip():
             return response.strip()
+        state.metadata["aggregation_streamed"] = False
         logger.warning(
             "Parent failure-status returned empty response | orchestration_id=%s failed_subtasks=%s",
             state.orchestration_id,

@@ -46,6 +46,27 @@ async def test_emit_drops_text_delta_when_source_is_planner() -> None:
 
 
 @pytest.mark.asyncio
+async def test_emit_keeps_aggregation_text_sources_visible() -> None:
+    captured: List[LLMStreamEvent] = []
+
+    async def sink(event: LLMStreamEvent) -> None:
+        captured.append(event)
+
+    async with stream_scope(sink, source="chat"):
+        async with stream_source("aggregator"):
+            await emit_stream_event(LLMStreamEvent(kind="text_delta", text="final"))
+            await emit_stream_event(LLMStreamEvent(kind="reasoning_delta", text="thinking"))
+        async with stream_source("failure_status"):
+            await emit_stream_event(LLMStreamEvent(kind="text_delta", text="failed"))
+
+    assert [(event.kind, event.source, event.text) for event in captured] == [
+        ("text_delta", "aggregator", "final"),
+        ("reasoning_delta", "aggregator", "thinking"),
+        ("text_delta", "failure_status", "failed"),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_emit_keeps_status_update_for_non_chat_source() -> None:
     captured: List[LLMStreamEvent] = []
 
