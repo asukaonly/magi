@@ -11,10 +11,16 @@ const {
   confirmExitAppMock,
   cancelExitRequestMock,
   registerDesktopShellHandlersMock,
+  syncSkipQuitConfirmationPreferenceMock,
+  configApiGetMock,
+  configApiUpdateMock,
 } = vi.hoisted(() => ({
   confirmExitAppMock: vi.fn(),
   cancelExitRequestMock: vi.fn(),
   registerDesktopShellHandlersMock: vi.fn(),
+  syncSkipQuitConfirmationPreferenceMock: vi.fn(),
+  configApiGetMock: vi.fn(),
+  configApiUpdateMock: vi.fn(),
 }));
 
 let desktopHandlers: {
@@ -46,7 +52,20 @@ vi.mock('@/runtime/desktop', () => ({
   registerDesktopShellHandlers: registerDesktopShellHandlersMock,
   confirmExitApp: confirmExitAppMock,
   cancelExitRequest: cancelExitRequestMock,
+  syncSkipQuitConfirmationPreference: syncSkipQuitConfirmationPreferenceMock,
 }));
+
+vi.mock('@/api/modules/config', async () => {
+  const actual = await vi.importActual<typeof import('@/api/modules/config')>('@/api/modules/config');
+  return {
+    ...actual,
+    configApi: {
+      ...actual.configApi,
+      get: configApiGetMock,
+      update: configApiUpdateMock,
+    },
+  };
+});
 
 describe('shell overlays', () => {
   beforeEach(() => {
@@ -54,6 +73,9 @@ describe('shell overlays', () => {
     confirmExitAppMock.mockReset();
     cancelExitRequestMock.mockReset();
     registerDesktopShellHandlersMock.mockReset();
+    syncSkipQuitConfirmationPreferenceMock.mockReset();
+    configApiGetMock.mockReset();
+    configApiUpdateMock.mockReset();
     registerDesktopShellHandlersMock.mockImplementation(async (handlers: typeof desktopHandlers) => {
       desktopHandlers = handlers;
       return vi.fn();
@@ -130,6 +152,35 @@ describe('shell overlays', () => {
     });
 
     await user.click(screen.getByRole('button', { name: 'desktop.quitConfirm.confirm' }));
+    expect(confirmExitAppMock).toHaveBeenCalledTimes(1);
+    expect(syncSkipQuitConfirmationPreferenceMock).not.toHaveBeenCalled();
+  });
+
+  it('persists the skip-confirmation preference when the user opts out', async () => {
+    const user = userEvent.setup();
+    configApiGetMock.mockResolvedValue({
+      data: { preferences: { skip_quit_confirmation: false } },
+    });
+    configApiUpdateMock.mockResolvedValue({ data: { preferences: { skip_quit_confirmation: true } } });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShellOverlays />
+      </MemoryRouter>
+    );
+
+    await act(async () => {
+      desktopHandlers?.onRequestQuit();
+    });
+
+    const checkbox = await screen.findByRole('checkbox', { name: 'desktop.quitConfirm.dontAskAgain' });
+    await user.click(checkbox);
+    await user.click(screen.getByRole('button', { name: 'desktop.quitConfirm.confirm' }));
+
+    expect(syncSkipQuitConfirmationPreferenceMock).toHaveBeenCalledWith(true);
+    expect(configApiUpdateMock).toHaveBeenCalledTimes(1);
+    const updateArg = configApiUpdateMock.mock.calls[0][0];
+    expect(updateArg.preferences.skip_quit_confirmation).toBe(true);
     expect(confirmExitAppMock).toHaveBeenCalledTimes(1);
   });
 });

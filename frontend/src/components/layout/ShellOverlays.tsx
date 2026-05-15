@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { configApi } from '@/api/modules/config';
 import { useChatShellStore } from '@/stores';
 import { Button } from '@/components/ui/button';
 import {
@@ -14,6 +15,7 @@ import {
   cancelExitRequest,
   confirmExitApp,
   registerDesktopShellHandlers,
+  syncSkipQuitConfirmationPreference,
 } from '@/runtime/desktop';
 import SettingsCenterDialog from './SettingsCenterDialog';
 
@@ -23,6 +25,7 @@ const ShellOverlays = () => {
   const setActivePanel = useChatShellStore((state) => state.setActivePanel);
   const clearSettingsNavigationIntent = useChatShellStore((state) => state.clearSettingsNavigationIntent);
   const [quitConfirmOpen, setQuitConfirmOpen] = useState(false);
+  const [skipFutureConfirm, setSkipFutureConfirm] = useState(false);
 
   const handleSettingsOpenChange = useCallback((open: boolean) => {
     if (open) {
@@ -43,6 +46,7 @@ const ShellOverlays = () => {
           setActivePanel('settings');
         },
         onRequestQuit: () => {
+          setSkipFutureConfirm(false);
           setQuitConfirmOpen(true);
         },
       });
@@ -61,9 +65,25 @@ const ShellOverlays = () => {
   }, []);
 
   const handleConfirmQuit = useCallback(async () => {
+    if (skipFutureConfirm) {
+      // Update the in-process Rust state first so we always honor the choice,
+      // then best-effort persist to backend config so it survives restart.
+      await syncSkipQuitConfirmationPreference(true);
+      try {
+        const response = await configApi.get();
+        const current = response.data;
+        if (current) {
+          const next = structuredClone(current);
+          next.preferences.skip_quit_confirmation = true;
+          await configApi.update(next);
+        }
+      } catch {
+        // Backend may already be shutting down; in-process state still applies.
+      }
+    }
     await confirmExitApp();
     setQuitConfirmOpen(false);
-  }, []);
+  }, [skipFutureConfirm]);
 
   return (
     <>
@@ -78,6 +98,14 @@ const ShellOverlays = () => {
             <DialogTitle>{t('desktop.quitConfirm.title')}</DialogTitle>
             <DialogDescription>{t('desktop.quitConfirm.description')}</DialogDescription>
           </DialogHeader>
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={skipFutureConfirm}
+              onChange={(event) => setSkipFutureConfirm(event.target.checked)}
+            />
+            <span>{t('desktop.quitConfirm.dontAskAgain')}</span>
+          </label>
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => void handleCancelQuit()}>
               {t('desktop.quitConfirm.cancel')}

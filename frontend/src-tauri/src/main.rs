@@ -1116,6 +1116,14 @@ fn set_start_minimized(
 }
 
 #[tauri::command]
+fn set_skip_quit_confirmation(
+    state: State<'_, desktop_presence::DesktopPresenceState>,
+    enabled: bool,
+) -> Result<(), String> {
+    state.set_skip_quit_confirmation(enabled)
+}
+
+#[tauri::command]
 fn apply_start_minimized(
     app: AppHandle,
     state: State<'_, desktop_presence::DesktopPresenceState>,
@@ -1136,6 +1144,79 @@ fn confirm_exit_app(app: AppHandle, backend_state: State<'_, BackendState>) -> R
 #[tauri::command]
 fn cancel_exit_request() -> Result<(), String> {
     Ok(())
+}
+
+#[cfg(windows)]
+mod dwm_caption {
+    use std::ffi::c_void;
+
+    pub const DWMWA_BORDER_COLOR: u32 = 34;
+    pub const DWMWA_CAPTION_COLOR: u32 = 35;
+    pub const DWMWA_TEXT_COLOR: u32 = 36;
+
+    #[link(name = "dwmapi")]
+    unsafe extern "system" {
+        pub fn DwmSetWindowAttribute(
+            hwnd: *mut c_void,
+            attribute: u32,
+            pv_attribute: *const c_void,
+            cb_attribute: u32,
+        ) -> i32;
+    }
+}
+
+#[cfg(windows)]
+fn apply_caption_color(window: &tauri::WebviewWindow, r: u8, g: u8, b: u8) -> Result<(), String> {
+    use std::ffi::c_void;
+
+    let raw = window.hwnd().map_err(|e| format!("hwnd: {e}"))?;
+    let hwnd: *mut c_void = raw.0 as *mut c_void;
+
+    let caption: u32 = ((b as u32) << 16) | ((g as u32) << 8) | (r as u32);
+    // Relative luminance to pick legible caption text color.
+    let lum = 0.299 * (r as f32) + 0.587 * (g as f32) + 0.114 * (b as f32);
+    let text: u32 = if lum >= 140.0 { 0x00202020 } else { 0x00E8E8E8 };
+
+    unsafe {
+        let size = std::mem::size_of::<u32>() as u32;
+        dwm_caption::DwmSetWindowAttribute(
+            hwnd,
+            dwm_caption::DWMWA_CAPTION_COLOR,
+            &caption as *const _ as *const c_void,
+            size,
+        );
+        dwm_caption::DwmSetWindowAttribute(
+            hwnd,
+            dwm_caption::DWMWA_TEXT_COLOR,
+            &text as *const _ as *const c_void,
+            size,
+        );
+        dwm_caption::DwmSetWindowAttribute(
+            hwnd,
+            dwm_caption::DWMWA_BORDER_COLOR,
+            &caption as *const _ as *const c_void,
+            size,
+        );
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn set_window_caption_color(
+    window: tauri::WebviewWindow,
+    r: u8,
+    g: u8,
+    b: u8,
+) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        return apply_caption_color(&window, r, g, b);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (window, r, g, b);
+        Ok(())
+    }
 }
 
 fn stop_backend_for_app_exit(app: &AppHandle) {
@@ -1218,6 +1299,10 @@ fn main() {
                         api.prevent_close();
                         let _ = desktop_presence::hide_main_window(window.app_handle());
                     }
+                    Ok(desktop_presence::CloseAction::QuitImmediately) => {
+                        api.prevent_close();
+                        window.app_handle().exit(0);
+                    }
                     Ok(desktop_presence::CloseAction::RequestQuitConfirmation) => {
                         api.prevent_close();
                         let _ = desktop_presence::emit_quit_requested(window.app_handle());
@@ -1239,9 +1324,11 @@ fn main() {
             get_backend_base_url,
             set_close_to_tray_enabled,
             set_start_minimized,
+            set_skip_quit_confirmation,
             apply_start_minimized,
             confirm_exit_app,
-            cancel_exit_request
+            cancel_exit_request,
+            set_window_caption_color
         ])
         .build(tauri::generate_context!())
         .expect("failed to build Magi desktop application");

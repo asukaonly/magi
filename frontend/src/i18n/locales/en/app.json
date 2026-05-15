@@ -34,10 +34,6 @@
     "newChatTitle": "New Session",
     "loadingSessions": "Loading sessions...",
     "emptySessions": "No conversation yet. Start with a new chat.",
-    "searchSessions": "Search conversations",
-    "searchSessionsAction": "Focus conversation search",
-    "searchSessionsPlaceholder": "Search conversations",
-    "searchSessionsEmpty": "No matching conversations yet. Try another keyword.",
     "sessionActions": "Session actions",
     "renameSession": "Rename",
     "deleteSession": "Delete",
@@ -917,6 +913,7 @@
       "saving": "Saving…"
     },
     "closeToTrayLabel": "Minimize to tray on close",
+    "skipQuitConfirmationLabel": "Skip quit confirmation",
     "startupSettings": "Startup",
     "autoStartLabel": "Launch at login",
     "startMinimizedLabel": "Start minimized to tray",
@@ -1163,9 +1160,13 @@
     "theme": {
       "light": "Light",
       "dark": "Dark",
-      "system": "System"
+      "system": "System",
+      "warm-neutral": "Warm Neutral",
+      "cool-studio": "Cool Studio",
+      "soft-paper": "Soft Paper",
+      "sage": "Sage"
     },
-    "themeDesc": "Choose interface color scheme, light or dark mode",
+    "themeDesc": "Choose an interface palette, preview it, then save",
     "actions": {
       "configure": "Configure",
       "clearMemory": "Clear Memory",
@@ -3101,7 +3102,8 @@
       "title": "Quit Magi?",
       "description": "Quitting will stop backend tasks and shut down the local runtime.",
       "cancel": "Keep Running",
-      "confirm": "Quit"
+      "confirm": "Quit",
+      "dontAskAgain": "Don't ask again"
     },
     "health": {
       "degraded": "Backend services are running but may need attention.",

@@ -44,6 +44,7 @@ export interface UserPreferences {
   close_to_tray_enabled: boolean;
   auto_start_enabled: boolean;
   start_minimized: boolean;
+  skip_quit_confirmation: boolean;
   default_chat_workspace_path: string | null;
   streaming_chat_enabled: boolean;
   conversation_rhythm_enabled: boolean;
@@ -732,6 +733,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     close_to_tray_enabled: true,
     auto_start_enabled: false,
     start_minimized: false,
+    skip_quit_confirmation: false,
     default_chat_workspace_path: '~/.magi/chat-workspace',
     streaming_chat_enabled: false,
     conversation_rhythm_enabled: true,

@@ -6,7 +6,7 @@ import { DesktopUpdateSection } from '@/components/settings/DesktopUpdateSection
 import { SettingsGroup, SettingsSectionShell } from '@/components/settings/SettingsSectionPrimitives';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
-import type { ThemeMode } from '@/stores/theme';
+import { THEME_MODE_OPTIONS, type ThemeMode } from '@/stores/theme';
 
 interface SettingsPreferencesSectionProps {
   draftConfig: SystemConfig;
@@ -48,25 +48,36 @@ export function SettingsPreferencesSection({
           label=""
           ariaLabel={t('settings.fields.theme')}
           value={draftThemeMode}
-          options={[
-            { label: t('settings.theme.light'), value: 'light' },
-            { label: t('settings.theme.dark'), value: 'dark' },
-            { label: t('settings.theme.system'), value: 'system' },
-          ]}
+          options={THEME_MODE_OPTIONS.map((mode) => ({
+            label: t(`settings.theme.${mode}`),
+            value: mode,
+          }))}
           onChange={(value) => onThemePreviewChange(value as ThemeMode)}
         />
       </SettingsGroup>
 
       <SettingsGroup title={t('settings.fields.windowSettings')}>
-        <div className="flex items-center justify-between gap-4">
-          <span className="text-sm">{t('settings.closeToTrayLabel')}</span>
-          <Switch
-            aria-label={t('settings.closeToTrayLabel')}
-            checked={draftConfig.preferences.close_to_tray_enabled}
-            onCheckedChange={(checked) => patchDraftConfig((draft) => {
-              draft.preferences.close_to_tray_enabled = checked;
-            })}
-          />
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-sm">{t('settings.closeToTrayLabel')}</span>
+            <Switch
+              aria-label={t('settings.closeToTrayLabel')}
+              checked={draftConfig.preferences.close_to_tray_enabled}
+              onCheckedChange={(checked) => patchDraftConfig((draft) => {
+                draft.preferences.close_to_tray_enabled = checked;
+              })}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-sm">{t('settings.skipQuitConfirmationLabel')}</span>
+            <Switch
+              aria-label={t('settings.skipQuitConfirmationLabel')}
+              checked={draftConfig.preferences.skip_quit_confirmation}
+              onCheckedChange={(checked) => patchDraftConfig((draft) => {
+                draft.preferences.skip_quit_confirmation = checked;
+              })}
+            />
+          </div>
         </div>
       </SettingsGroup>
 

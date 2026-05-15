@@ -19,6 +19,7 @@ pub const QUIT_REQUESTED_EVENT: &str = "desktop-presence://quit-requested";
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CloseAction {
     HideToTray,
+    QuitImmediately,
     RequestQuitConfirmation,
 }
 
@@ -26,6 +27,7 @@ pub enum CloseAction {
 struct DesktopPresenceRuntime {
     close_to_tray_enabled: bool,
     start_minimized: bool,
+    skip_quit_confirmation: bool,
 }
 
 impl Default for DesktopPresenceRuntime {
@@ -33,6 +35,7 @@ impl Default for DesktopPresenceRuntime {
         Self {
             close_to_tray_enabled: true,
             start_minimized: false,
+            skip_quit_confirmation: false,
         }
     }
 }
@@ -69,6 +72,23 @@ impl DesktopPresenceState {
         Ok(runtime.start_minimized)
     }
 
+    pub fn set_skip_quit_confirmation(&self, enabled: bool) -> Result<(), String> {
+        let mut runtime = self
+            .runtime
+            .lock()
+            .map_err(|_| "Failed to acquire desktop presence lock".to_string())?;
+        runtime.skip_quit_confirmation = enabled;
+        Ok(())
+    }
+
+    pub fn should_skip_quit_confirmation(&self) -> Result<bool, String> {
+        let runtime = self
+            .runtime
+            .lock()
+            .map_err(|_| "Failed to acquire desktop presence lock".to_string())?;
+        Ok(runtime.skip_quit_confirmation)
+    }
+
     pub fn close_action(&self) -> Result<CloseAction, String> {
         let runtime = self
             .runtime
@@ -76,6 +96,8 @@ impl DesktopPresenceState {
             .map_err(|_| "Failed to acquire desktop presence lock".to_string())?;
         Ok(if runtime.close_to_tray_enabled {
             CloseAction::HideToTray
+        } else if runtime.skip_quit_confirmation {
+            CloseAction::QuitImmediately
         } else {
             CloseAction::RequestQuitConfirmation
         })
@@ -190,7 +212,16 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: &MenuEvent) {
             let _ = emit_open_settings(app);
         }
         MENU_QUIT_ID => {
-            let _ = emit_quit_requested(app);
+            let skip = app
+                .state::<DesktopPresenceState>()
+                .should_skip_quit_confirmation()
+                .unwrap_or(false);
+            if skip {
+                app.exit(0);
+            } else {
+                let _ = restore_main_window(app);
+                let _ = emit_quit_requested(app);
+            }
         }
         _ => {}
     }
@@ -234,6 +265,25 @@ mod tests {
             state.close_action().unwrap(),
             CloseAction::RequestQuitConfirmation
         );
+    }
+
+    #[test]
+    fn desktop_presence_skips_confirmation_when_user_opted_out() {
+        let state = DesktopPresenceState::default();
+        state.set_close_to_tray_enabled(false).unwrap();
+        state.set_skip_quit_confirmation(true).unwrap();
+
+        assert_eq!(state.close_action().unwrap(), CloseAction::QuitImmediately);
+        assert!(state.should_skip_quit_confirmation().unwrap());
+    }
+
+    #[test]
+    fn desktop_presence_skip_flag_does_not_override_hide_to_tray() {
+        let state = DesktopPresenceState::default();
+        state.set_skip_quit_confirmation(true).unwrap();
+
+        // close_to_tray_enabled defaults to true, so window close still hides to tray.
+        assert_eq!(state.close_action().unwrap(), CloseAction::HideToTray);
     }
 
     #[cfg(target_os = "macos")]

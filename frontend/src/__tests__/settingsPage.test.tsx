@@ -137,6 +137,7 @@ vi.mock('@/runtime/desktop', () => ({
   syncCloseToTrayPreference: syncCloseToTrayPreferenceMock,
   syncAutoStartPreference: syncAutoStartPreferenceMock,
   syncStartMinimizedPreference: syncStartMinimizedPreferenceMock,
+  syncSkipQuitConfirmationPreference: vi.fn(),
   pickDirectory: pickDirectoryMock,
 }));
 
