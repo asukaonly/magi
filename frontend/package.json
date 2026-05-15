@@ -1,6 +1,6 @@
 {
   "name": "magi-ui",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Magi AI Agent Framework - Web UI",
   "type": "module",
   "scripts": {
