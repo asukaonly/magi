@@ -42,7 +42,7 @@ export const TranscriptBubbleTop = ({
       {hasReplyStrip && replyTo ? (
         <div
           className={align === 'user'
-            ? 'mb-3 rounded-lg border border-white/70 bg-white/72 px-3 py-2 text-left text-[#5f3427] shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] backdrop-blur-sm'
+            ? 'mb-3 rounded-lg border border-border/45 bg-background/80 px-3 py-2 text-left text-foreground'
             : 'mb-3 rounded-lg border border-border/45 bg-background/80 px-3 py-2 text-left text-foreground'}
         >
           <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
@@ -73,7 +73,7 @@ export const TranscriptBubbleTop = ({
                 }}
                 aria-label={t('chat.attachments.openPreview')}
                 className={align === 'user'
-                  ? 'group block w-[340px] max-w-full overflow-hidden rounded-xl bg-[#f8eee8] text-left shadow-[0_10px_26px_rgba(138,73,47,0.10)] transition hover:brightness-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 sm:w-[380px]'
+                  ? 'group block w-[340px] max-w-full overflow-hidden rounded-xl border border-border/45 bg-background text-left shadow-sm transition hover:border-border/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 sm:w-[380px]'
                   : 'group block w-[340px] max-w-full overflow-hidden rounded-xl border border-border/45 bg-background text-left shadow-sm transition hover:border-border/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 sm:w-[380px]'}
               >
                 {previewUrl ? (
@@ -101,7 +101,7 @@ export const TranscriptBubbleTop = ({
               <div
                 key={attachment.attachment_id}
                 className={align === 'user'
-                  ? 'flex min-w-[180px] max-w-[260px] items-center gap-3 rounded-xl border border-accent-foreground/10 bg-background/90 px-3 py-2 text-foreground'
+                  ? 'flex min-w-[180px] max-w-[260px] items-center gap-3 rounded-xl border border-border/55 bg-background px-3 py-2 text-foreground'
                   : 'flex min-w-[180px] max-w-[260px] items-center gap-3 rounded-xl border border-border/55 bg-background px-3 py-2 text-foreground'}
               >
                 {previewUrl ? (

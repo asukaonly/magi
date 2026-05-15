@@ -29,7 +29,7 @@ export const TraceEntryButton = ({
         event.stopPropagation();
         onOpenTraceDrawer(turnId);
       }}
-      className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground transition-colors hover:text-primary"
+      className="inline-flex items-center text-[11px] font-medium text-muted-foreground/55 transition-colors hover:text-muted-foreground"
     >
       {label}
     </button>

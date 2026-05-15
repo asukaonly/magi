@@ -11,7 +11,7 @@ import ShellOverlays from './ShellOverlays';
 import { PermissionModalHost, AskDialog } from '@/components/control';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 
-const SHELL_DRAG_STRIP_LEFT = '84px';
+const SHELL_DRAG_STRIP_LEFT = '56px';
 
 const PageContentErrorFallback = () => {
   const { t } = useTranslation('app');
@@ -90,7 +90,7 @@ const MainLayout: React.FC = () => {
   return (
     <AppShellProviders>
       <div className="h-screen w-screen overflow-hidden">
-        <div className="desktop-surface relative grid h-full w-full grid-cols-[320px_minmax(0,1fr)] grid-rows-[minmax(0,1fr)] overflow-hidden">
+        <div className="desktop-surface relative grid h-full w-full grid-cols-[auto_minmax(0,1fr)] grid-rows-[minmax(0,1fr)] overflow-hidden">
           {/* Keep an invisible drag strip for macOS overlay mode without rendering a detached title bar */}
           <div
             className="absolute right-0 top-0 z-40 h-4"

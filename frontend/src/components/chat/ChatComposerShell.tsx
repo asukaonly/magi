@@ -83,7 +83,7 @@ export const ChatComposerShell = ({
   return (
     <div
       ref={composerRef}
-      className="rounded-2xl border border-border/45 bg-background shadow-[0_8px_24px_rgba(15,23,42,0.04)]"
+      className="rounded-xl border border-[hsl(var(--composer-border))] bg-[hsl(var(--composer-background))] shadow-sm"
     >
       {replyTarget ? (
         <ComposerReplyPreview
@@ -139,7 +139,7 @@ export const ChatComposerShell = ({
             type="button"
             onClick={onPrimaryAction}
             disabled={sendingMessage}
-            className="flex h-[34px] w-[34px] items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
+            className="flex h-[34px] w-[34px] items-center justify-center rounded-lg border border-border/65 bg-muted/80 text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-muted-foreground/25 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
             aria-label={waitingForReply ? t('chat.stop') : t('chat.send')}
             title={waitingForReply ? t('chat.stop') : t('chat.send')}
           >

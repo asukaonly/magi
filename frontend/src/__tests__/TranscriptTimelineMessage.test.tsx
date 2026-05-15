@@ -61,4 +61,34 @@ describe('TranscriptTimelineMessage', () => {
     expect(orderedList).not.toBeNull();
     expect(orderedList).toHaveAttribute('start', '2');
   });
+
+  it('orders user message header actions before time and name', () => {
+    const message: ChatTimelineMessage = {
+      id: 'msg-user-header-order',
+      role: 'user',
+      kind: 'user',
+      content: 'hello',
+      timestamp: 1,
+    };
+
+    render(
+      <TranscriptTimelineMessage
+        message={message}
+        assistantName="Magi"
+        userNameLabel="You"
+        timestampLabel="16:20"
+        shouldReduceMotion
+        avatar={null}
+        headerExtras={<button type="button">Reply</button>}
+      />,
+    );
+
+    const header = screen.getByRole('button', { name: 'Reply' }).closest('div');
+    expect(header).not.toBeNull();
+    expect(Array.from(header!.children).map((child) => child.textContent)).toEqual([
+      'Reply',
+      '16:20',
+      'You',
+    ]);
+  });
 });

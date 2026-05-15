@@ -1,5 +1,5 @@
 import React from 'react';
-import { Database, ScrollText, Settings2, Sparkles } from 'lucide-react';
+import { Activity, Brain, Settings2, Sparkles } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
@@ -39,7 +39,7 @@ const Header: React.FC = () => {
           onClick={() => openPanel('timeline')}
           aria-label={t('shell.timeline')}
         >
-          <ScrollText className="h-4 w-4" />
+          <Activity className="h-4 w-4" />
         </Button>
         <Button
           variant="ghost"
@@ -48,7 +48,7 @@ const Header: React.FC = () => {
           onClick={() => openPanel('memory')}
           aria-label={t('shell.memory')}
         >
-          <Database className="h-4 w-4" />
+          <Brain className="h-4 w-4" />
         </Button>
         <Button
           variant="ghost"

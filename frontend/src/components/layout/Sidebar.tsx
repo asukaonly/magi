@@ -1,20 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  ChevronDown,
-  ChevronRight,
-  Database,
+  Activity,
+  Brain,
   ListChecks,
-  MessageSquare,
+  MessageCircle,
   MoreHorizontal,
   Plus,
-  Search,
-  ScrollText,
-  Settings2,
+  Settings,
 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
-import { configApi, messagesApi, type ChatSessionListItem } from '@/api';
+import { messagesApi, type ChatSessionListItem } from '@/api';
 import { CHAT_SESSION_KEY, DEFAULT_USER_ID } from '@/constants';
 import { Button } from '@/components/ui/button';
 import {
@@ -25,7 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { useChatShellStore, useConversationStore } from '@/stores';
+import { useChatShellStore, useConversationStore, type ChatPanelType } from '@/stores';
 import { useBackgroundTaskStore } from '@/stores/background-tasks';
 import { formatChatClockTime } from '@/domain/chat/timestamps';
 
@@ -36,6 +33,8 @@ interface SidebarProps {
   collapsed?: boolean;
 }
 
+type ActivityPanel = Exclude<ChatPanelType, 'none'>;
+
 const MEMORY_DESTINATIONS = [
   { key: 'overview', path: '/memory/overview' },
   { key: 'workbench', path: '/memory/workbench' },
@@ -44,8 +43,6 @@ const MEMORY_DESTINATIONS = [
   { key: 'reflection', path: '/memory/reflection' },
   { key: 'skills', path: '/memory/skills' },
 ] as const;
-
-const QUICK_MODE_MEMORY_DESTINATIONS = MEMORY_DESTINATIONS.filter((item) => item.key === 'overview');
 
 const formatSessionTime = (timestamp: number, locale: string): string => {
   return formatChatClockTime(timestamp, locale);
@@ -60,15 +57,6 @@ const getSessionDisplayLabel = (
   }
   return session.last_user_message_preview || session.title || fallbackTitle;
 };
-
-const getSessionSearchText = (session: ChatSessionListItem) =>
-  [
-    session.title || '',
-    session.last_user_message_preview || '',
-    session.last_message_preview || '',
-  ]
-    .join(' ')
-    .toLowerCase();
 
 export default function Sidebar({ collapsed = false }: SidebarProps) {
   const { t, i18n } = useTranslation('app');
@@ -88,11 +76,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const isConversationRoute = location.pathname === '/' || location.pathname === '/chat';
   const isMemoryRoute = location.pathname === '/events' || location.pathname.startsWith('/memory');
   const shouldRefreshSessions = isConversationRoute;
-  const [expandedSection, setExpandedSection] = useState<'conversation' | 'memory' | null>(
-    isMemoryRoute ? 'memory' : isConversationRoute ? 'conversation' : null
-  );
-  const [conversationSearch, setConversationSearch] = useState('');
-  const conversationSearchInputRef = useRef<HTMLInputElement>(null);
+  const [openPanel, setOpenPanel] = useState<ActivityPanel | null>(null);
   const [sessionMenu, setSessionMenu] = useState<{
     sessionId: string;
     x: number;
@@ -102,7 +86,6 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const [deleteTargetSession, setDeleteTargetSession] = useState<ChatSessionListItem | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [actionPending, setActionPending] = useState(false);
-  const [userMode, setUserMode] = useState<'quick' | 'expert' | null>(null);
   const sessionMenuRef = useRef<HTMLDivElement>(null);
   const sessionCreatingRef = useRef(false);
 
@@ -199,40 +182,6 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   }, [refreshSessions, shouldRefreshSessions]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    const loadUserMode = async () => {
-      try {
-        const response = await configApi.get();
-        if (!cancelled) {
-          setUserMode(response.data?.preferences?.user_mode ?? null);
-        }
-      } catch {
-        if (!cancelled) {
-          setUserMode(null);
-        }
-      }
-    };
-
-    void loadUserMode();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (isMemoryRoute) {
-      setExpandedSection('memory');
-      return;
-    }
-    if (isConversationRoute) {
-      setExpandedSection('conversation');
-      return;
-    }
-    setExpandedSection(null);
-  }, [isConversationRoute, isMemoryRoute]);
-
-  useEffect(() => {
     if (!sessionMenu) {
       return undefined;
     }
@@ -266,7 +215,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
         window.localStorage.setItem(CHAT_SESSION_KEY(USER_ID), result.session_id);
         await refreshSessions(result.session_id);
         setActivePanel('conversation');
-        setExpandedSection('conversation');
+        setOpenPanel('conversation');
         navigate('/chat');
       }
     } catch {
@@ -312,7 +261,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
       await messagesApi.deleteSession(USER_ID, deleteTargetSession.session_id);
       await refreshSessions();
       setDeleteTargetSession(null);
-      setExpandedSection('conversation');
+      setOpenPanel('conversation');
       setActivePanel('conversation');
       navigate('/chat');
     } finally {
@@ -340,20 +289,6 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
     return [];
   }, [currentSessionId, orderedSessionIds, sessionsById, t]);
 
-  const filteredSessionRows = useMemo(() => {
-    const normalizedQuery = conversationSearch.trim().toLowerCase();
-    if (!normalizedQuery) {
-      return sessionRows;
-    }
-    return sessionRows.filter((session) => {
-      return getSessionSearchText(session).includes(normalizedQuery);
-    });
-  }, [conversationSearch, sessionRows]);
-
-  const visibleMemoryDestinations = userMode === 'quick'
-    ? QUICK_MODE_MEMORY_DESTINATIONS
-    : MEMORY_DESTINATIONS;
-
   const tasksActiveCount = useBackgroundTaskStore((state) => state.activeCount);
 
   if (collapsed) {
@@ -365,39 +300,269 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const memoryActive = activePanel === 'memory' || isMemoryRoute;
   const settingsActive = activePanel === 'settings';
   const tasksActive = activePanel === 'tasks' || location.pathname === '/tasks';
-  const conversationExpanded = expandedSection === 'conversation';
-  const memoryExpanded = expandedSection === 'memory';
   const sessionMenuSession = sessionMenu ? sessionsById[sessionMenu.sessionId] : null;
-
-  const primaryButtonClass = (active: boolean) => cn(
-    'flex w-full items-center gap-3 rounded-md px-4 py-3 text-left transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.25)]',
-    active
-      ? 'bg-[hsl(var(--sidebar-active))] text-[hsl(var(--sidebar-active-foreground))]'
-      : 'text-[hsl(var(--sidebar-foreground))] hover:bg-[hsl(var(--sidebar-hover))] hover:text-[hsl(var(--sidebar-active-foreground))]'
-  );
-
-  const iconWrapClass = (active: boolean) => cn(
-    'flex h-5 w-5 shrink-0 items-center justify-center transition-colors duration-150',
-    active
-      ? 'text-[hsl(var(--sidebar-active-foreground))]'
-      : 'text-[hsl(var(--sidebar-muted))]'
-  );
-
-  const nestedRailClass = 'mt-2 ml-5 flex flex-col gap-1.5';
-
-  const secondaryButtonClass = (active: boolean) => cn(
-    'flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-left text-sm transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.22)]',
-    active
-      ? 'bg-[hsl(var(--sidebar-subactive))] text-[hsl(var(--sidebar-active-foreground))]'
-      : 'text-[hsl(var(--sidebar-foreground))] hover:bg-[hsl(var(--sidebar-hover))] hover:text-[hsl(var(--sidebar-active-foreground))]'
-  );
 
   const toolButtonClass =
     'flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[hsl(var(--sidebar-tool))] text-[hsl(var(--sidebar-muted))] transition-colors duration-150 ease-out hover:bg-[hsl(var(--sidebar-tool-hover))] hover:text-[hsl(var(--sidebar-active-foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.18)]';
 
+  const panelNavButtonClass = (active: boolean) => cn(
+    'relative flex h-8 w-full items-center gap-2 rounded-[5px] px-2.5 text-left text-[13px] transition-colors duration-150 ease-out before:pointer-events-none before:absolute before:bottom-1.5 before:left-0 before:top-1.5 before:w-[2px] before:rounded-full before:bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.18)]',
+    active
+      ? 'bg-[hsl(var(--sidebar-active)/0.32)] text-[hsl(var(--sidebar-active-foreground))] before:bg-[hsl(var(--primary))]'
+      : 'text-[hsl(var(--sidebar-foreground))] hover:bg-[hsl(var(--sidebar-hover)/0.62)] hover:text-[hsl(var(--sidebar-active-foreground))]'
+  );
+
+  const activityButtonClass = (active: boolean, open: boolean) => cn(
+    'relative flex h-11 w-11 items-center justify-center rounded-md text-[hsl(var(--sidebar-muted))] transition-colors duration-150 ease-out before:pointer-events-none before:absolute before:bottom-2 before:left-[-6px] before:top-2 before:w-[2px] before:rounded-full before:bg-transparent hover:bg-[hsl(var(--sidebar-hover)/0.58)] hover:text-[hsl(var(--sidebar-active-foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.2)]',
+    active && 'text-[hsl(var(--sidebar-active-foreground))] before:bg-[hsl(var(--primary))]',
+    open && 'bg-[hsl(var(--sidebar-active)/0.34)]'
+  );
+
+  const handleActivityClick = (panel: ActivityPanel) => {
+    if (panel === 'settings') {
+      clearSettingsNavigationIntent();
+      setActivePanel('settings');
+      return;
+    }
+
+    if (openPanel === panel) {
+      setOpenPanel(null);
+      return;
+    }
+
+    setOpenPanel(panel);
+
+    if (panel === 'conversation') {
+      setActivePanel('conversation');
+      if (!isConversationRoute) {
+        navigate('/chat');
+      }
+      return;
+    }
+
+    if (panel === 'timeline') {
+      setActivePanel('timeline');
+      if (location.pathname !== '/timeline') {
+        navigate('/timeline');
+      }
+      return;
+    }
+
+    if (panel === 'memory') {
+      setActivePanel('memory');
+      if (!isMemoryRoute) {
+        navigate('/memory/overview');
+      }
+      return;
+    }
+
+    if (panel === 'tasks') {
+      setActivePanel('tasks');
+      if (location.pathname !== '/tasks') {
+        navigate('/tasks');
+      }
+      return;
+    }
+  };
+
+  const renderActivityButton = (
+    panel: ActivityPanel,
+    label: string,
+    icon: ReactNode,
+    active: boolean,
+    badgeCount?: number,
+  ) => {
+    const open = openPanel === panel;
+    return (
+      <button
+        type="button"
+        onClick={() => handleActivityClick(panel)}
+        aria-label={label}
+        aria-current={active ? 'page' : undefined}
+        aria-expanded={open}
+        title={label}
+        className={activityButtonClass(active, open)}
+      >
+        {icon}
+        {typeof badgeCount === 'number' && badgeCount > 0 ? (
+          <span className="absolute right-1 top-1 inline-flex min-w-4 items-center justify-center rounded-full bg-[hsl(var(--sidebar-badge))] px-1 text-[9px] font-medium leading-4 text-[hsl(var(--sidebar-badge-foreground))]">
+            {Math.min(badgeCount, 99)}
+          </span>
+        ) : null}
+      </button>
+    );
+  };
+
+  const renderConversationPanel = () => (
+    <div className="flex min-h-0 flex-1 flex-col" data-testid="sidebar-conversation-rail">
+      <div className="flex h-11 shrink-0 items-center justify-between border-b border-[hsl(var(--sidebar-border))] px-3">
+        <span className="text-[11px] font-semibold uppercase text-[hsl(var(--sidebar-muted))]">
+          {t('shell.conversation')}
+        </span>
+        <button
+          type="button"
+          onClick={() => {
+            void handleCreateSession();
+          }}
+          className={toolButtonClass}
+          aria-label={t('shell.newChat')}
+          title={t('shell.newChat')}
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      <div className="flex min-h-0 flex-1 flex-col px-2.5 py-2.5">
+        <div className="min-h-0 flex-1 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
+          {sessionRows.length === 0 ? (
+            <div className="rounded-md bg-[hsl(var(--sidebar-tool))] px-3 py-2.5 text-xs leading-5 text-[hsl(var(--sidebar-muted))]">
+              {loading ? t('shell.loadingSessions') : t('shell.emptySessions')}
+            </div>
+          ) : (
+            <div className="space-y-0.5">
+              {sessionRows.map((session) => {
+                const active = currentSessionId === session.session_id;
+                const unreadCount = unreadBySession[session.session_id] || 0;
+                const displayLabel = getSessionDisplayLabel(session, t('shell.newChatTitle'));
+                return (
+                  <div
+                    key={session.session_id}
+                    className={cn(
+                      'group/session relative flex h-8 items-center gap-1 rounded-[5px] transition-colors duration-150 ease-out before:pointer-events-none before:absolute before:bottom-1.5 before:left-0 before:top-1.5 before:w-[2px] before:rounded-full before:bg-transparent',
+                      active
+                        ? 'bg-[hsl(var(--sidebar-active)/0.32)] text-[hsl(var(--sidebar-active-foreground))] before:bg-[hsl(var(--primary))]'
+                        : 'text-[hsl(var(--sidebar-foreground))] hover:bg-[hsl(var(--sidebar-hover)/0.62)] hover:text-[hsl(var(--sidebar-active-foreground))]'
+                    )}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        window.localStorage.setItem(CHAT_SESSION_KEY(USER_ID), session.session_id);
+                        setCurrentSessionId(session.session_id);
+                        setActivePanel('conversation');
+                        navigate('/chat');
+                      }}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        openSessionMenu(session.session_id, event.clientX, event.clientY);
+                      }}
+                      aria-label={displayLabel}
+                      aria-current={active ? 'page' : undefined}
+                      className="flex min-w-0 flex-1 items-center gap-2 rounded-[5px] px-2 text-left text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.18)]"
+                      title={displayLabel}
+                    >
+                      <span className="min-w-0 flex-1 truncate font-medium">{displayLabel}</span>
+                      {unreadCount > 0 ? (
+                        <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-[hsl(var(--sidebar-badge))] px-1.5 py-0.5 text-[10px] font-medium text-[hsl(var(--sidebar-badge-foreground))]">
+                          {Math.min(unreadCount, 99)}
+                        </span>
+                      ) : null}
+                      <span className="shrink-0 text-[10px] text-[hsl(var(--sidebar-muted))]">
+                        {formatSessionTime(session.last_timestamp, i18n.language)}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        openSessionMenu(session.session_id, rect.right - 176, rect.bottom + 6);
+                      }}
+                      className={cn(
+                        'mr-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[hsl(var(--sidebar-muted))] opacity-0 transition-all duration-150 ease-out focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.18)] group-hover/session:opacity-100',
+                        active
+                          ? 'hover:bg-[hsl(var(--sidebar-subactive))] hover:text-[hsl(var(--sidebar-active-foreground))]'
+                          : 'hover:bg-[hsl(var(--sidebar-tool-hover))] hover:text-[hsl(var(--sidebar-active-foreground))]'
+                      )}
+                      aria-label={t('shell.sessionActions')}
+                      title={t('shell.sessionActions')}
+                    >
+                      <MoreHorizontal className="h-4 w-4" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderMemoryPanel = () => (
+    <div className="flex min-h-0 flex-1 flex-col" data-testid="sidebar-memory-panel">
+      <div className="flex h-11 shrink-0 items-center border-b border-[hsl(var(--sidebar-border))] px-3">
+        <span className="text-[11px] font-semibold uppercase text-[hsl(var(--sidebar-muted))]">
+          {t('shell.memory')}
+        </span>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-2.5 py-2.5 pr-3 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
+        <div className="space-y-0.5">
+          {MEMORY_DESTINATIONS.map((item) => {
+            const destinationActive =
+              location.pathname === item.path ||
+              (item.path === '/memory/overview' && location.pathname === '/events');
+            return (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => {
+                  setActivePanel('memory');
+                  navigate(item.path);
+                }}
+                aria-label={t(`memory.nav.${item.key}`)}
+                aria-current={destinationActive ? 'page' : undefined}
+                className={panelNavButtonClass(destinationActive)}
+              >
+                <span className="min-w-0 flex-1 truncate font-medium">
+                  {t(`memory.nav.${item.key}`)}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderPanelContent = () => {
+    if (openPanel === 'conversation') {
+      return renderConversationPanel();
+    }
+
+    if (openPanel === 'memory') {
+      return renderMemoryPanel();
+    }
+
+    if (!openPanel) {
+      return null;
+    }
+
+    const titleByPanel: Record<ActivityPanel, string> = {
+      conversation: t('shell.conversation'),
+      timeline: t('shell.timeline'),
+      memory: t('shell.memory'),
+      tasks: t('shell.tasks'),
+      settings: t('shell.settings'),
+    };
+
+    return (
+      <div className="flex min-h-0 flex-1 flex-col" data-testid={`sidebar-${openPanel}-panel`}>
+        <div className="flex h-11 shrink-0 items-center border-b border-[hsl(var(--sidebar-border))] px-3">
+          <span className="text-[11px] font-semibold uppercase text-[hsl(var(--sidebar-muted))]">
+            {titleByPanel[openPanel]}
+          </span>
+        </div>
+        <div className="min-h-0 flex-1" />
+      </div>
+    );
+  };
+
   return (
     <aside
-      className="relative flex h-full min-h-0 flex-col overflow-hidden border-r border-[hsl(var(--sidebar-border))] bg-[linear-gradient(180deg,hsl(var(--sidebar-background-start))_0%,hsl(var(--sidebar-background-end))_100%)] pt-7"
+      className={cn(
+        'relative flex h-full min-h-0 overflow-hidden border-r border-[hsl(var(--sidebar-border))] bg-[linear-gradient(180deg,hsl(var(--sidebar-background-start))_0%,hsl(var(--sidebar-background-end))_100%)] transition-[width] duration-150 ease-out',
+        openPanel ? 'w-[284px]' : 'w-14'
+      )}
     >
       {sessionMenu && sessionMenuSession ? (
         <div
@@ -428,279 +593,50 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
           </button>
         </div>
       ) : null}
-      <div className="flex min-h-0 flex-1 flex-col px-4 py-3">
-        <div className="flex min-h-0 flex-1 flex-col gap-2.5">
-          <section className="shrink-0">
-            <button
-              type="button"
-              onClick={() => {
-                setActivePanel('conversation');
-                if (!isConversationRoute) {
-                  setExpandedSection('conversation');
-                  navigate('/chat');
-                  return;
-                }
-                setExpandedSection((current) => (current === 'conversation' ? null : 'conversation'));
-              }}
-              aria-label={t('shell.conversation')}
-              aria-current={conversationActive ? 'page' : undefined}
-              aria-expanded={conversationExpanded}
-              className={primaryButtonClass(conversationActive)}
-            >
-              <span className={iconWrapClass(conversationActive)}>
-                <MessageSquare className="h-4 w-4" />
-              </span>
-              <span className="min-w-0 flex-1 text-sm font-medium">{t('shell.conversation')}</span>
-              {conversationExpanded ? (
-                <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-              ) : (
-                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-              )}
-            </button>
-
-            {conversationExpanded ? (
-              <div
-                className={nestedRailClass}
-                data-testid="sidebar-conversation-rail"
-              >
-                <div
-                  className="flex items-center gap-1"
-                  data-testid="sidebar-conversation-tools"
-                >
-                <div className="flex min-w-0 flex-1 items-center rounded-md bg-[hsl(var(--sidebar-tool))] px-2.5">
-                  <input
-                      ref={conversationSearchInputRef}
-                      type="search"
-                      value={conversationSearch}
-                      onChange={(event) => setConversationSearch(event.target.value)}
-                      placeholder={t('shell.searchSessionsPlaceholder')}
-                      aria-label={t('shell.searchSessions')}
-                      className="h-7 w-full bg-transparent text-[11px] text-[hsl(var(--sidebar-foreground))] outline-none placeholder:text-[hsl(var(--sidebar-muted))]"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      conversationSearchInputRef.current?.focus();
-                      conversationSearchInputRef.current?.select();
-                    }}
-                    className={toolButtonClass}
-                    aria-label={t('shell.searchSessionsAction')}
-                    title={t('shell.searchSessionsAction')}
-                  >
-                    <Search className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void handleCreateSession();
-                    }}
-                    className={toolButtonClass}
-                    aria-label={t('shell.newChat')}
-                    title={t('shell.newChat')}
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-
-                <div className="max-h-[22rem] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
-                  {sessionRows.length === 0 ? (
-                    <div className="bg-[hsl(var(--sidebar-tool))] px-3 py-2.5 text-xs leading-5 text-[hsl(var(--sidebar-muted))]">
-                      {loading ? t('shell.loadingSessions') : t('shell.emptySessions')}
-                    </div>
-                  ) : filteredSessionRows.length === 0 ? (
-                    <div className="bg-[hsl(var(--sidebar-tool))] px-3 py-2.5 text-xs leading-5 text-[hsl(var(--sidebar-muted))]">
-                      {t('shell.searchSessionsEmpty')}
-                    </div>
-                  ) : (
-                    <div className="space-y-0.5">
-                      {filteredSessionRows.map((session) => {
-                        const active = currentSessionId === session.session_id;
-                        const unreadCount = unreadBySession[session.session_id] || 0;
-                        const displayLabel = getSessionDisplayLabel(session, t('shell.newChatTitle'));
-                        return (
-                          <div
-                            key={session.session_id}
-                            className={cn(
-                              'group/session flex items-center gap-1 rounded-md transition-colors duration-150 ease-out',
-                              active
-                                ? 'bg-[hsl(var(--sidebar-active))] text-[hsl(var(--sidebar-active-foreground))]'
-                                : 'text-[hsl(var(--sidebar-foreground))] hover:bg-[hsl(var(--sidebar-hover))] hover:text-[hsl(var(--sidebar-active-foreground))]'
-                            )}
-                          >
-                            <button
-                              type="button"
-                              onClick={() => {
-                                window.localStorage.setItem(CHAT_SESSION_KEY(USER_ID), session.session_id);
-                                setCurrentSessionId(session.session_id);
-                                setActivePanel('conversation');
-                                navigate('/chat');
-                              }}
-                              onContextMenu={(event) => {
-                                event.preventDefault();
-                                openSessionMenu(session.session_id, event.clientX, event.clientY);
-                              }}
-                              aria-label={displayLabel}
-                              aria-current={active ? 'page' : undefined}
-                              className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.18)]"
-                              title={displayLabel}
-                            >
-                              <span className="min-w-0 flex-1 truncate font-medium">{displayLabel}</span>
-                              {unreadCount > 0 ? (
-                                <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-[hsl(var(--sidebar-badge))] px-1.5 py-0.5 text-[10px] font-medium text-[hsl(var(--sidebar-badge-foreground))]">
-                                  {Math.min(unreadCount, 99)}
-                                </span>
-                              ) : null}
-                              <span className="shrink-0 text-[11px] text-[hsl(var(--sidebar-muted))]">
-                                {formatSessionTime(session.last_timestamp, i18n.language)}
-                              </span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                const rect = event.currentTarget.getBoundingClientRect();
-                                openSessionMenu(session.session_id, rect.right - 176, rect.bottom + 6);
-                              }}
-                              className={cn(
-                                'mr-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[hsl(var(--sidebar-muted))] opacity-0 transition-all duration-150 ease-out focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.18)] group-hover/session:opacity-100',
-                                active
-                                  ? 'hover:bg-[hsl(var(--sidebar-subactive))] hover:text-[hsl(var(--sidebar-active-foreground))]'
-                                  : 'hover:bg-[hsl(var(--sidebar-tool-hover))] hover:text-[hsl(var(--sidebar-active-foreground))]'
-                              )}
-                              aria-label={t('shell.sessionActions')}
-                              title={t('shell.sessionActions')}
-                            >
-                              <MoreHorizontal className="h-4 w-4" />
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : null}
-          </section>
-
-          <button
-            type="button"
-            onClick={() => {
-              setExpandedSection(null);
-              setActivePanel('timeline');
-              navigate('/timeline');
-            }}
-            aria-label={t('shell.timeline')}
-            aria-current={timelineActive ? 'page' : undefined}
-            className={cn(primaryButtonClass(timelineActive), 'shrink-0')}
-          >
-            <span className={iconWrapClass(timelineActive)}>
-              <ScrollText className="h-4 w-4" />
-            </span>
-            <span className="text-sm font-medium">{t('shell.timeline')}</span>
-          </button>
-
-          <section className={cn('shrink-0', memoryExpanded && 'flex min-h-0 flex-1 flex-col')}>
-            <button
-              type="button"
-              onClick={() => {
-                setActivePanel('memory');
-                if (!isMemoryRoute) {
-                  setExpandedSection('memory');
-                  navigate('/memory/overview');
-                  return;
-                }
-                setExpandedSection((current) => (current === 'memory' ? null : 'memory'));
-              }}
-              aria-label={t('shell.memory')}
-              aria-current={memoryActive ? 'page' : undefined}
-              aria-expanded={memoryExpanded}
-              className={primaryButtonClass(memoryActive)}
-            >
-              <span className={iconWrapClass(memoryActive)}>
-                <Database className="h-4 w-4" />
-              </span>
-              <span className="min-w-0 flex-1 text-sm font-medium">{t('shell.memory')}</span>
-              {memoryExpanded ? (
-                <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-              ) : (
-                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-              )}
-            </button>
-
-            {memoryExpanded ? (
-              <div
-                className={cn(nestedRailClass, 'min-h-0 flex-1')}
-                data-testid="sidebar-memory-rail"
-              >
-                <div className="min-h-0 flex-1 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
-                  <div className="space-y-1">
-                  {visibleMemoryDestinations.map((item) => {
-                    const destinationActive =
-                      location.pathname === item.path ||
-                      (item.path === '/memory/overview' && location.pathname === '/events');
-                    return (
-                      <button
-                        key={item.key}
-                        type="button"
-                        onClick={() => {
-                          setExpandedSection('memory');
-                          setActivePanel('memory');
-                          navigate(item.path);
-                        }}
-                        aria-label={t(`memory.nav.${item.key}`)}
-                        aria-current={destinationActive ? 'page' : undefined}
-                        className={secondaryButtonClass(destinationActive)}
-                      >
-                        {t(`memory.nav.${item.key}`)}
-                      </button>
-                    );
-                  })}
-                  </div>
-                </div>
-              </div>
-            ) : null}
-          </section>
+      <div className="flex w-14 shrink-0 flex-col border-r border-[hsl(var(--sidebar-border))] px-1.5 py-3" data-testid="sidebar-activity-bar">
+        <div className="flex min-h-0 flex-1 flex-col items-center gap-1">
+          {renderActivityButton(
+            'conversation',
+            t('shell.conversation'),
+            <MessageCircle className="h-[18px] w-[18px]" />,
+            conversationActive,
+          )}
+          {renderActivityButton(
+            'timeline',
+            t('shell.timeline'),
+            <Activity className="h-[18px] w-[18px]" />,
+            timelineActive,
+          )}
+          {renderActivityButton(
+            'memory',
+            t('shell.memory'),
+            <Brain className="h-[18px] w-[18px]" />,
+            memoryActive,
+          )}
         </div>
 
-        <div className="shrink-0 pt-2">
-          <button
-            type="button"
-            onClick={() => {
-              setExpandedSection(null);
-              setActivePanel('tasks');
-              navigate('/tasks');
-            }}
-            aria-label={t('shell.tasks')}
-            aria-current={tasksActive ? 'page' : undefined}
-            className={primaryButtonClass(tasksActive)}
-          >
-            <span className={iconWrapClass(tasksActive)}>
-              <ListChecks className="h-4 w-4" />
-            </span>
-            <span className="min-w-0 flex-1 text-sm font-medium">{t('shell.tasks')}</span>
-            {tasksActiveCount > 0 ? (
-              <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-[hsl(var(--sidebar-badge))] px-1.5 py-0.5 text-[10px] font-medium text-[hsl(var(--sidebar-badge-foreground))]">
-                {Math.min(tasksActiveCount, 99)}
-              </span>
-            ) : null}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              clearSettingsNavigationIntent();
-              setActivePanel('settings');
-            }}
-            aria-label={t('shell.settings')}
-            aria-current={settingsActive ? 'page' : undefined}
-            className={cn(primaryButtonClass(settingsActive), 'mt-1')}
-          >
-            <span className={iconWrapClass(settingsActive)}>
-              <Settings2 className="h-4 w-4" />
-            </span>
-            <span className="text-sm font-medium">{t('shell.settings')}</span>
-          </button>
+        <div className="flex shrink-0 flex-col items-center gap-1">
+          {renderActivityButton(
+            'tasks',
+            t('shell.tasks'),
+            <ListChecks className="h-[18px] w-[18px]" />,
+            tasksActive,
+            tasksActiveCount,
+          )}
+          {renderActivityButton(
+            'settings',
+            t('shell.settings'),
+            <Settings className="h-[18px] w-[18px]" />,
+            settingsActive,
+          )}
         </div>
       </div>
+
+      {openPanel ? (
+        <div className="flex min-h-0 w-[228px] shrink-0 flex-col bg-[hsl(var(--sidebar-background-end)/0.72)]">
+          {renderPanelContent()}
+        </div>
+      ) : null}
 
       <Dialog
         open={Boolean(renameTargetSession)}

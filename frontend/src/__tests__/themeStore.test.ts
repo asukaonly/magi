@@ -33,4 +33,24 @@ describe('theme store initialization', () => {
     expect(document.documentElement.classList.contains('light')).toBe(true);
     expect(document.documentElement.classList.contains('dark')).toBe(false);
   });
+
+  it('applies a custom light palette class from stored theme mode', async () => {
+    vi.stubGlobal(
+      'localStorage',
+      {
+        getItem: vi.fn(() => 'warm-neutral'),
+        setItem: vi.fn(),
+      }
+    );
+    vi.stubGlobal('matchMedia', createMatchMedia(false));
+
+    const { useThemeStore } = await import('@/stores/theme');
+    const state = useThemeStore.getState();
+
+    expect(state.mode).toBe('warm-neutral');
+    expect(state.resolvedTheme).toBe('light');
+    expect(document.documentElement.classList.contains('light')).toBe(true);
+    expect(document.documentElement.classList.contains('theme-warm-neutral')).toBe(true);
+    expect(document.documentElement.classList.contains('dark')).toBe(false);
+  });
 });

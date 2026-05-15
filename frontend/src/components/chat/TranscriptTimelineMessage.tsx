@@ -109,6 +109,19 @@ export const TranscriptTimelineMessage = ({
 }: TranscriptTimelineMessageProps) => {
   const renderedContent = typeof content === 'string' ? content : message.content;
   const showStreamingCaret = Boolean(message.streaming && !String(renderedContent || '').trim());
+  const isUserMessage = message.role === 'user';
+  const displayName = isUserMessage ? userNameLabel : assistantName;
+  const headerActions = headerExtras ? (
+    <span className="pointer-events-none inline-flex items-center gap-2 opacity-0 transition-opacity duration-150 group-hover/message:pointer-events-auto group-hover/message:opacity-100 group-focus-within/message:pointer-events-auto group-focus-within/message:opacity-100">
+      {headerExtras}
+    </span>
+  ) : null;
+  const headerTime = <span className="text-[11px] text-muted-foreground">{timestampLabel}</span>;
+  const headerName = (
+    <span className="text-xs font-medium text-muted-foreground">
+      {displayName}
+    </span>
+  );
 
   return (
   <motion.div
@@ -116,23 +129,31 @@ export const TranscriptTimelineMessage = ({
     initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
     animate={{ opacity: 1, y: 0 }}
     transition={{ duration: shouldReduceMotion ? 0 : 0.2, ease: 'easeOut' }}
-    className={message.role === 'user' ? 'mb-5 flex justify-end' : 'mb-5 flex justify-start'}
+    className={isUserMessage ? 'group/message mb-5 flex justify-end' : 'group/message mb-5 flex justify-start'}
   >
-    <div className={message.role === 'user' ? 'flex max-w-[75%] flex-row-reverse gap-3' : 'flex max-w-[75%] gap-3'}>
+    <div className={isUserMessage ? 'flex max-w-[75%] flex-row-reverse gap-3' : 'flex max-w-[75%] gap-3'}>
       {avatar}
-      <div className={message.role === 'user' ? 'flex flex-col items-end' : 'flex flex-col items-start'}>
+      <div className={isUserMessage ? 'flex flex-col items-end' : 'flex flex-col items-start'}>
         <div className="mb-1 flex items-center gap-2">
-          <span className="text-xs font-medium text-muted-foreground">
-            {message.role === 'user' ? userNameLabel : assistantName}
-          </span>
-          <span className="text-[11px] text-muted-foreground">{timestampLabel}</span>
-          {headerExtras}
+          {isUserMessage ? (
+            <>
+              {headerActions}
+              {headerTime}
+              {headerName}
+            </>
+          ) : (
+            <>
+              {headerName}
+              {headerTime}
+              {headerActions}
+            </>
+          )}
         </div>
         <div
           onContextMenu={onContextMenu}
-          className={message.role === 'user'
-            ? 'w-fit max-w-full rounded-xl rounded-tr-sm border border-transparent bg-[#f6e7de] px-4 py-2.5 text-[#6f3f2d] shadow-[0_14px_34px_rgba(168,93,62,0.09),inset_0_1px_0_rgba(255,255,255,0.42)]'
-            : 'w-fit max-w-full rounded-xl rounded-tl-sm border border-border/35 bg-muted/35 px-4 py-2.5'}
+          className={isUserMessage
+            ? 'w-fit max-w-full rounded-xl rounded-tr-sm border border-border/55 bg-card px-4 py-2.5 text-foreground shadow-sm'
+            : 'w-fit max-w-full rounded-xl rounded-tl-sm border border-border/55 bg-card px-4 py-2.5 shadow-sm'}
         >
           {bubbleTop}
           {message.role === 'assistant' ? (

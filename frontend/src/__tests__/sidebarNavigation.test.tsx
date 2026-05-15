@@ -70,17 +70,27 @@ describe('sidebar navigation', () => {
   });
 
   it('renders conversation, timeline, memory, and settings actions without a personality button', async () => {
+    const user = userEvent.setup();
+
     render(
       <MemoryRouter initialEntries={['/chat']}>
         <Sidebar />
       </MemoryRouter>
     );
 
-    expect(await screen.findByRole('button', { name: 'shell.conversation' })).toBeInTheDocument();
+    const conversationButton = await screen.findByRole('button', { name: 'shell.conversation' });
+    expect(conversationButton).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'shell.memory' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'shell.settings' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'shell.timeline' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'shell.tasks' })).toBeInTheDocument();
+    expect(screen.queryByTestId('sidebar-conversation-rail')).not.toBeInTheDocument();
+
+    await user.click(conversationButton);
+    expect(screen.getByTestId('sidebar-conversation-rail')).toBeInTheDocument();
+
+    await user.click(conversationButton);
+    expect(screen.queryByTestId('sidebar-conversation-rail')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'shell.personality' })).not.toBeInTheDocument();
   });
 
@@ -96,7 +106,26 @@ describe('sidebar navigation', () => {
     expect(messagesApi.createNewSession).not.toHaveBeenCalled();
   });
 
-  it('shows conversation search tools and filters visible sessions locally', async () => {
+  it('opens settings without replacing the current activity side panel', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <Sidebar />
+      </MemoryRouter>
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'shell.conversation' }));
+    expect(screen.getByTestId('sidebar-conversation-rail')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'shell.settings' }));
+
+    expect(useChatShellStore.getState().activePanel).toBe('settings');
+    expect(screen.getByTestId('sidebar-conversation-rail')).toBeInTheDocument();
+    expect(screen.queryByTestId('sidebar-settings-panel')).not.toBeInTheDocument();
+  });
+
+  it('renders conversation sessions without search controls', async () => {
     const user = userEvent.setup();
     vi.mocked(messagesApi.listSessions).mockResolvedValueOnce({
       sessions: [
@@ -148,13 +177,11 @@ describe('sidebar navigation', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByLabelText('shell.searchSessions')).toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: 'shell.conversation' }));
     expect(screen.getByRole('button', { name: 'shell.newChat' })).toBeInTheDocument();
-
-    await user.type(screen.getByLabelText('shell.searchSessions'), '西湖');
-
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '杭州天气' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '西湖路线' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '杭州天气' })).not.toBeInTheDocument();
   });
 
 
@@ -187,6 +214,7 @@ describe('sidebar navigation', () => {
       </MemoryRouter>
     );
 
+    await userEvent.click(await screen.findByRole('button', { name: 'shell.conversation' }));
     await screen.findByRole('button', { name: '西湖路线' });
     await waitFor(() => {
       expect(useConversationStore.getState().currentSessionId).toBe('session-b');
@@ -241,6 +269,7 @@ describe('sidebar navigation', () => {
       </MemoryRouter>
     );
 
+    await user.click(await screen.findByRole('button', { name: 'shell.conversation' }));
     await screen.findByRole('button', { name: '旧会话' });
 
     await user.click(screen.getByRole('button', { name: 'shell.newChat' }));
@@ -289,6 +318,7 @@ describe('sidebar navigation', () => {
       </MemoryRouter>
     );
 
+    await user.click(await screen.findByRole('button', { name: 'shell.conversation' }));
     await user.click(await screen.findByRole('button', { name: 'shell.sessionActions' }));
 
     expect(await screen.findByRole('button', { name: 'shell.renameSession' })).toBeInTheDocument();
@@ -370,6 +400,7 @@ describe('sidebar navigation', () => {
       </MemoryRouter>
     );
 
+    await user.click(await screen.findByRole('button', { name: 'shell.conversation' }));
     const actionButtons = await screen.findAllByRole('button', { name: 'shell.sessionActions' });
     await user.click(actionButtons[0]);
     await user.click(await screen.findByRole('button', { name: 'shell.renameSession' }));
@@ -459,6 +490,7 @@ describe('sidebar navigation', () => {
       </MemoryRouter>
     );
 
+    await user.click(await screen.findByRole('button', { name: 'shell.conversation' }));
     const actionButtons = await screen.findAllByRole('button', { name: 'shell.sessionActions' });
     await user.click(actionButtons[0]);
     await user.click(await screen.findByRole('button', { name: 'shell.deleteSession' }));
@@ -508,7 +540,7 @@ describe('sidebar navigation', () => {
     expect(useChatShellStore.getState().activePanel).toBe('timeline');
   });
 
-  it('expands memory destinations and routes to the selected memory page', async () => {
+  it('renders memory destinations and routes to the selected memory page', async () => {
     const user = userEvent.setup();
 
     render(
@@ -521,6 +553,7 @@ describe('sidebar navigation', () => {
     await user.click(await screen.findByRole('button', { name: 'shell.memory' }));
     await user.click(screen.getByRole('button', { name: 'memory.nav.knowledge' }));
 
+    expect(screen.getByTestId('sidebar-memory-panel')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.nav.overview' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.nav.workbench' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.nav.events' })).toBeInTheDocument();
@@ -531,7 +564,7 @@ describe('sidebar navigation', () => {
     expect(useChatShellStore.getState().activePanel).toBe('memory');
   });
 
-  it('keeps quick-mode memory navigation focused on the overview destination', async () => {
+  it('renders all memory destinations without loading user mode', async () => {
     const user = userEvent.setup();
     vi.mocked(configApi.get).mockResolvedValue({
       data: {
@@ -548,15 +581,16 @@ describe('sidebar navigation', () => {
       </MemoryRouter>
     );
 
-    await waitFor(() => expect(configApi.get).toHaveBeenCalled());
     await user.click(await screen.findByRole('button', { name: 'shell.memory' }));
 
+    expect(configApi.get).not.toHaveBeenCalled();
+    expect(screen.getByTestId('sidebar-memory-panel')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.nav.overview' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'memory.nav.workbench' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'memory.nav.events' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'memory.nav.knowledge' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'memory.nav.reflection' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'memory.nav.skills' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.workbench' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.events' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.knowledge' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.reflection' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.skills' })).toBeInTheDocument();
   });
 
   it('renders unread badges for inactive chat sessions', async () => {
@@ -611,6 +645,7 @@ describe('sidebar navigation', () => {
       </MemoryRouter>
     );
 
+    await userEvent.click(await screen.findByRole('button', { name: 'shell.conversation' }));
     expect(await screen.findByText('3')).toBeInTheDocument();
   });
 

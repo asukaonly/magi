@@ -934,7 +934,7 @@ describe('ChatPage', () => {
     expect(screen.getByText('notes.md')).toBeInTheDocument();
   });
 
-  it('renders a quieter editor-style composer shell', async () => {
+  it('renders a theme-aware editor-style composer shell', async () => {
     render(<ChatPage />);
 
     const composerInput = await screen.findByTestId('chat-composer-input');
@@ -944,12 +944,19 @@ describe('ChatPage', () => {
     const sendButton = screen.getByRole('button', { name: 'chat.send' });
     const textarea = screen.getByPlaceholderText('chat.inputPlaceholder') as HTMLTextAreaElement;
 
-    expect(composerRoot).toHaveClass('rounded-2xl');
+    expect(composerRoot).toHaveClass('rounded-xl', 'bg-[hsl(var(--composer-background))]');
+    expect(composerRoot).toHaveClass('border-[hsl(var(--composer-border))]');
     expect(composerRoot).not.toHaveClass('rounded-[28px]');
     expect(toolbar).not.toHaveClass('border-t');
     expect(toolbar).toHaveClass('items-end', 'px-2', 'pb-2');
     expect(primaryAction).not.toHaveClass('pb-2');
-    expect(sendButton).toHaveClass('h-[34px]', 'w-[34px]', 'bg-primary', 'text-primary-foreground');
+    expect(sendButton).toHaveClass(
+      'h-[34px]',
+      'w-[34px]',
+      'border-border/65',
+      'bg-muted/80',
+      'text-foreground',
+    );
     expect(textarea.style.height).toBe('88px');
   });
 
@@ -1282,7 +1289,7 @@ describe('ChatPage', () => {
     expect(screen.queryByTestId('chat-composer-reply-preview')).not.toBeInTheDocument();
   });
 
-  it('renders a softer user bubble surface without a thin outline and keeps the layered reply card', async () => {
+  it('renders a neutral user bubble surface and keeps the layered reply card', async () => {
     useConversationStore.getState().receiveHistory(
       'session-1',
       normalizeHistoryMessages([
@@ -1309,9 +1316,13 @@ describe('ChatPage', () => {
     const userBubble = screen.getByText('你觉得喜欢什么天气').parentElement;
     const replyStrip = screen.getByText('引用条预览').parentElement;
 
-    expect(userBubble).toHaveClass('bg-[#f6e7de]', 'text-[#6f3f2d]', 'border-transparent');
-    expect(userBubble?.className).not.toContain('border-[#ddb29f]/60');
-    expect(replyStrip).toHaveClass('bg-white/72', 'border-white/70', 'text-[#5f3427]');
+    expect(userBubble).toHaveClass(
+      'bg-card',
+      'text-foreground',
+      'border-border/55',
+    );
+    expect(userBubble?.className).not.toContain('bg-[#f6e7de]');
+    expect(replyStrip).toHaveClass('bg-background/80', 'border-border/45', 'text-foreground');
   });
 
   it('merges a durable user reply event and does not request history again on terminal trace updates', async () => {

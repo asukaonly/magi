@@ -41,7 +41,7 @@ export const QuickLabelAction = ({
         aria-label={t('chat.label.action')}
         title={t('chat.label.action')}
         onClick={onToggle}
-        className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground transition-colors hover:text-primary"
+        className="inline-flex items-center text-[11px] font-medium text-muted-foreground/55 transition-colors hover:text-muted-foreground"
       >
         {t('chat.label.action')}
       </button>

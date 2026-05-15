@@ -1,14 +1,36 @@
 import { create } from 'zustand';
 
-export type ThemeMode = 'dark' | 'light' | 'system';
+export const THEME_MODE_OPTIONS = [
+  'light',
+  'dark',
+  'system',
+  'warm-neutral',
+  'cool-studio',
+  'soft-paper',
+  'sage',
+] as const;
+
+export type ThemeMode = typeof THEME_MODE_OPTIONS[number];
+export type ResolvedTheme = 'dark' | 'light';
 
 export interface ThemeState {
   mode: ThemeMode;
-  resolvedTheme: 'dark' | 'light';
+  resolvedTheme: ResolvedTheme;
   setMode: (mode: ThemeMode, options?: { persist?: boolean }) => void;
 }
 
 const STORAGE_KEY = 'magi-theme-mode';
+const THEME_CLASS_NAMES = ['light', 'dark', ...THEME_MODE_OPTIONS.map((mode) => `theme-${mode}`)] as const;
+const CUSTOM_THEME_CLASS_BY_MODE: Partial<Record<ThemeMode, string>> = {
+  'warm-neutral': 'theme-warm-neutral',
+  'cool-studio': 'theme-cool-studio',
+  'soft-paper': 'theme-soft-paper',
+  sage: 'theme-sage',
+};
+
+const isThemeMode = (value: string | null): value is ThemeMode => (
+  Boolean(value) && THEME_MODE_OPTIONS.includes(value as ThemeMode)
+);
 
 const safeGetItem = (key: string): string | null => {
   try {
@@ -32,36 +54,54 @@ const safeSetItem = (key: string, value: string): void => {
   }
 };
 
-const getSystemTheme = (): 'dark' | 'light' => {
+const getSystemTheme = (): ResolvedTheme => {
   if (typeof window === 'undefined' || !window.matchMedia) {
     return 'light';
   }
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 };
 
-const resolveTheme = (mode: ThemeMode): 'dark' | 'light' => {
+const resolveTheme = (mode: ThemeMode): ResolvedTheme => {
   if (mode === 'system') {
     return getSystemTheme();
   }
-  return mode;
+  return mode === 'dark' ? 'dark' : 'light';
 };
 
-const applyTheme = (theme: 'dark' | 'light'): void => {
+const syncDesktopCaptionColor = (): void => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  void import('@/runtime/desktop')
+    .then(({ syncWindowCaptionColor }) => syncWindowCaptionColor())
+    .catch(() => {
+      // desktop runtime unavailable (web build)
+    });
+};
+
+const applyTheme = (mode: ThemeMode, resolvedTheme = resolveTheme(mode)): void => {
   if (typeof document === 'undefined') {
     return;
   }
   const root = document.documentElement;
-  root.classList.remove('light', 'dark');
-  root.classList.add(theme);
+  root.classList.remove(...THEME_CLASS_NAMES);
+  root.classList.add(resolvedTheme);
+
+  const customClassName = CUSTOM_THEME_CLASS_BY_MODE[mode];
+  if (customClassName) {
+    root.classList.add(customClassName);
+  }
+
+  syncDesktopCaptionColor();
 };
 
-export const initializeTheme = (): { mode: ThemeMode; resolvedTheme: 'dark' | 'light' } => {
-  const storedMode = safeGetItem(STORAGE_KEY) as ThemeMode | null;
-  const mode: ThemeMode = storedMode || 'system';
+export const initializeTheme = (): { mode: ThemeMode; resolvedTheme: ResolvedTheme } => {
+  const storedMode = safeGetItem(STORAGE_KEY);
+  const mode: ThemeMode = isThemeMode(storedMode) ? storedMode : 'system';
   const resolvedTheme = resolveTheme(mode);
 
   if (typeof window !== 'undefined') {
-    applyTheme(resolvedTheme);
+    applyTheme(mode, resolvedTheme);
   }
 
   return { mode, resolvedTheme };
@@ -78,7 +118,7 @@ export const useThemeStore = create<ThemeState>((set) => {
       if (options?.persist !== false) {
         safeSetItem(STORAGE_KEY, mode);
       }
-      applyTheme(resolved);
+      applyTheme(mode, resolved);
       set({ mode, resolvedTheme: resolved });
     },
   };
@@ -91,7 +131,7 @@ if (typeof window !== 'undefined' && window.matchMedia) {
     const state = useThemeStore.getState();
     if (state.mode === 'system') {
       const resolved = e.matches ? 'dark' : 'light';
-      applyTheme(resolved);
+      applyTheme(state.mode, resolved);
       useThemeStore.setState({ resolvedTheme: resolved });
     }
   });

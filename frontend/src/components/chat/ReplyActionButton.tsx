@@ -1,4 +1,3 @@
-import { CornerUpLeft } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 type ReplyActionButtonProps = {
@@ -14,9 +13,8 @@ export const ReplyActionButton = ({ onClick }: ReplyActionButtonProps) => {
       aria-label={t('chat.reply.action')}
       title={t('chat.reply.action')}
       onClick={onClick}
-      className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground transition-colors hover:text-primary"
+      className="inline-flex items-center text-[11px] font-medium text-muted-foreground/55 transition-colors hover:text-muted-foreground"
     >
-      <CornerUpLeft className="h-3 w-3" />
       {t('chat.reply.action')}
     </button>
   );
