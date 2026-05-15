@@ -150,6 +150,8 @@ stress, mood, engagement, trigger, relationship_shift, group_atmosphere, public_
       history context, or a one-off task request.
 6. Custom graph predicates are allowed only for stable, reusable facts not covered by the core predicate list. Do NOT emit dialogue/query predicates such as ASKED_ABOUT, QUESTIONED_ABOUT, MENTIONED, TALKED_ABOUT, REFERRED_TO, LOOKED_AT, WANTS_TO_KNOW, or NEEDS_HELP_WITH.
 7. Do NOT emit graph edges whose object is an unresolved pronoun or vague placeholder such as "他", "她", "它", "这个", "那个", generic "app", generic "PDF", "file", "document", or "image". Resolve them to a concrete existing entity/asset first, or omit the graph edge.
+8. For `graph_edges.object_ref`, use ONLY concrete entity IDs shown in `### Entities Found` or `## Existing Knowledge Graph`. If Phase 1 gives a surface text plus an entity_id hint, copy the entity_id exactly. Do NOT invent entity IDs.
+9. Preserve original language/script in evidence and user-facing values. Do NOT translate, romanize, transliterate, slugify, or combine non-Latin names into ASCII IDs such as pinyin or romaji.
 
 ## Output Format
 Return JSON only:
@@ -320,8 +322,13 @@ def render_phase2_integrate_prompt(
             etype = entity.get("entity_type", "")
             specificity = entity.get("specificity", "concrete")
             resolved_id = entity.get("resolved_id")
-            status = f"resolved={resolved_id}" if resolved_id else "new"
-            parts.append(f"- **{surface}** [{etype}, {specificity}] ({status})")
+        entity_status = "new" if entity.get("is_new", True) else "existing"
+        status = (
+          f"entity_id={resolved_id}, status={entity_status}"
+          if resolved_id
+          else "unresolved_new_surface"
+        )
+        parts.append(f"- **{surface}** -> {resolved_id or 'NO_ENTITY_ID'} [{etype}, {specificity}] ({status})")
         parts.append("")
 
     fact_claims = phase1_result.get("fact_claims", [])
@@ -335,8 +342,14 @@ def render_phase2_integrate_prompt(
             specificity = claim.get("specificity", "concrete")
             conf = claim.get("confidence", 0.0)
             evidence = claim.get("evidence_text", "")
+            object_id_hint = _find_phase1_entity_id_for_claim(
+              object_ref=obj,
+              object_type=obj_type,
+              entities=entities,
+            )
+            hint_text = f", entity_id: {object_id_hint}" if object_id_hint else ""
             parts.append(
-                f"{i}. {subj} → {pred} → {obj} [{obj_type}, {specificity}] (confidence: {conf})"
+              f"{i}. {subj} → {pred} → {obj} [{obj_type}, {specificity}{hint_text}] (confidence: {conf})"
             )
             if evidence:
                 parts.append(f'   Evidence: "{evidence}"')
@@ -399,6 +412,33 @@ def render_phase2_integrate_prompt(
     parts.append("")
 
     return "\n".join(parts)
+
+
+def _find_phase1_entity_id_for_claim(
+    *,
+    object_ref: Any,
+    object_type: Any,
+    entities: list[dict[str, Any]],
+) -> str | None:
+    object_text = str(object_ref or "").strip().casefold()
+    object_type_text = str(object_type or "").strip().casefold()
+    if not object_text:
+        return None
+    for entity in entities:
+        resolved_id = str(entity.get("resolved_id") or "").strip()
+        if not resolved_id:
+            continue
+        entity_type = str(entity.get("entity_type") or "").strip().casefold()
+        if object_type_text and entity_type and entity_type != object_type_text:
+            continue
+        surfaces = {
+            str(entity.get("surface") or "").strip().casefold(),
+            str(entity.get("normalized_name") or "").strip().casefold(),
+            resolved_id.casefold(),
+        }
+        if object_text in surfaces:
+            return resolved_id
+    return None
 
 
 __all__ = [

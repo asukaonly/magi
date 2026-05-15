@@ -118,17 +118,25 @@ class L2EntityResolutionHelperMixin:
         return True
 
     async def _build_catalog_name_index(self) -> dict[str, str]:
-        """Build a casefold(canonical_name) -> entity_id lookup from the catalog."""
+        """Build casefold(name/alias/id) -> entity_id lookup from the catalog."""
         host = self._entity_helper_host()
         if host._entity_catalog is None:
             return {}
         entities = await host._entity_catalog.list_entities(limit=1000)
         index: dict[str, str] = {}
+
+        def add_key(raw_value: object, entity_id: str) -> None:
+            key = str(raw_value or "").strip().casefold()
+            if key and entity_id and key not in index:
+                index[key] = entity_id
+
         for entity in entities:
             name = str(entity.get("canonical_name", "")).strip().casefold()
             entity_id = str(entity.get("entity_id", ""))
-            if name and entity_id and name not in index:
-                index[name] = entity_id
+            add_key(entity_id, entity_id)
+            add_key(name, entity_id)
+            for alias in entity.get("aliases", []) or []:
+                add_key(alias, entity_id)
         return index
 
     @classmethod

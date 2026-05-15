@@ -4,6 +4,7 @@ import json
 import tempfile
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,7 +14,19 @@ from magi.memory.l2.entities.maintenance import L2EntityMaintenance, _canonical_
 from magi.memory.l2.store import L2CognitionStore
 
 
+def _migrate_memory_shared_schema(db_path: str) -> None:
+    from alembic import command
+
+    from magi.db.runner import MIGRATION_TARGETS, _build_config
+
+    memory_shared_target = next(
+        target for target in MIGRATION_TARGETS if target.name == "memory_shared"
+    )
+    command.upgrade(_build_config(memory_shared_target, Path(db_path)), "head")
+
+
 async def _init_schema(db_path: str) -> None:
+    _migrate_memory_shared_schema(db_path)
     store = L2CognitionStore(db_path=db_path)
     await store.initialize()
     catalog = L2EntityCatalog(db_path=db_path)
@@ -74,6 +87,63 @@ async def test_ghost_object_id_rewrites_to_catalog_entity() -> None:
                 row = await cur.fetchone()
         assert row is not None
         assert row[0] == "software:twitter-handle"
+
+
+@pytest.mark.asyncio
+async def test_ghost_object_id_rewrites_by_evidence_text() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "m.db")
+        await _init_schema(db_path)
+        catalog = L2EntityCatalog(db_path=db_path)
+        await catalog.upsert_entity(
+            entity_id="media:1ee3b9131dd8",
+            canonical_name="归潮",
+            entity_type="media",
+        )
+        now = time.time()
+        async with sqlite_connection_async(db_path) as db:
+            await db.execute(
+                """
+                INSERT INTO knowledge_graph(
+                    triple_id, subject_id, subject_type, predicate, object_id, object_type,
+                    confidence, evidence_event_ids, observation_count,
+                    first_observed_at, last_observed_at, created_at, updated_at, status,
+                    evidence_text, natural_summary
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "triple_guichao_ghost",
+                    "user:self",
+                    "user",
+                    "LISTENED",
+                    "media:guichao-caimingxi",
+                    "media",
+                    1.0,
+                    json.dumps(["evt-guichao"]),
+                    1,
+                    now,
+                    now,
+                    now,
+                    now,
+                    "active",
+                    "在网易云音乐听了蔡明希（不才）的《归潮》...播放了4分钟",
+                    "user:self LISTENED media:guichao-caimingxi",
+                ),
+            )
+            await db.commit()
+
+        maint = L2EntityMaintenance(db_path=db_path)
+        stats = await maint.run(min_mentions_to_keep=99, merge_fragments=False, prune_orphans=False)
+        assert stats.ghost_edges_rewritten >= 1
+
+        async with sqlite_connection_async(db_path) as db:
+            async with db.execute(
+                "SELECT object_id FROM knowledge_graph WHERE triple_id = ?",
+                ("triple_guichao_ghost",),
+            ) as cur:
+                row = await cur.fetchone()
+        assert row is not None
+        assert row[0] == "media:1ee3b9131dd8"
 
 
 @pytest.mark.asyncio
@@ -331,6 +401,10 @@ async def test_embed_pending_edges_calls_pipeline_and_updates_status() -> None:
         mock_result = MagicMock()
         mock_result.parent_id = tid
         mock_result.embedded_at = time.time()
+        mock_result.embeddings = [[0.1, 0.2, 0.3]]
+        mock_embedding_service.profile_from_result.return_value = SimpleNamespace(
+            profile_id="test-profile"
+        )
 
         mock_pipeline_cls = AsyncMock()
         mock_pipeline_cls.upsert_items = AsyncMock(return_value=[mock_result])

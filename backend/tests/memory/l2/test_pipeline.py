@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from magi.events.events import Event, EventLevel, EventTypes
-from magi.memory import UnifiedMemoryStore
+from magi.memory import UnifiedMemoryStore as _RuntimeUnifiedMemoryStore
 from magi.memory.event_contracts import normalize_runtime_event
 from magi_plugin_sdk import ExtractionProfileSpec
 
@@ -121,6 +121,30 @@ class _FakeScenarioPool:
         return self.adapter
 
 
+def _migrate_memory_shared_schema(db_path: str) -> None:
+    from alembic import command
+
+    from magi.db.runner import MIGRATION_TARGETS, _build_config
+
+    memory_shared_target = next(
+        target for target in MIGRATION_TARGETS if target.name == "memory_shared"
+    )
+    command.upgrade(_build_config(memory_shared_target, Path(db_path)), "head")
+
+
+_MIGRATED_MEMORY_DBS: set[str] = set()
+
+
+class UnifiedMemoryStore(_RuntimeUnifiedMemoryStore):
+    async def initialize(self) -> None:
+        if self.l2 is not None:
+            db_path = self.l2.db_path
+            if db_path not in _MIGRATED_MEMORY_DBS:
+                _migrate_memory_shared_schema(db_path)
+                _MIGRATED_MEMORY_DBS.add(db_path)
+        await super().initialize()
+
+
 async def _build_pipeline(*, temp_dir: str, batch_flush_interval_seconds: int = 60):
     from magi.memory.l2.entities.catalog import L2EntityCatalog
     from magi.memory.l2.llm_service import L2LLMService
@@ -128,6 +152,7 @@ async def _build_pipeline(*, temp_dir: str, batch_flush_interval_seconds: int = 
     from magi.memory.l2.store import L2CognitionStore
 
     memory_db = str(Path(temp_dir) / "memory.db")
+    _migrate_memory_shared_schema(memory_db)
     cognition_store = L2CognitionStore(db_path=memory_db)
     await cognition_store.initialize()
     entity_catalog = L2EntityCatalog(db_path=memory_db)
@@ -1242,6 +1267,54 @@ async def test_build_focal_entities_returns_typed_refs():
 
             assert [item.entity_id for item in focal_entities] == ["user:u1", "place:shanghai"]
             assert all(isinstance(item, L2FocalEntityRef) for item in focal_entities)
+        finally:
+            await pipeline.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_write_event_entity_links_uses_mention_scoped_event_ids():
+    from magi.memory.l2.models import ResolvedEntityMention
+
+    class _RecordingL1Store:
+        def __init__(self) -> None:
+            self.mappings: list[tuple[str, str | None, str | None, float | None]] = []
+
+        async def write_event_entities(self, mappings):  # type: ignore[no-untyped-def]
+            self.mappings.extend(mappings)
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
+        l1_store = _RecordingL1Store()
+        pipeline._l1_store = l1_store
+        try:
+            event = _make_memory_event(event_id="evt-batch-last", content="batch")
+            await pipeline._write_event_entity_links(
+                event=event,
+                batch_event_ids=["evt-song-a", "evt-song-b"],
+                resolved_mentions=[
+                    ResolvedEntityMention(
+                        mention_text="归潮",
+                        normalized_surface="归潮",
+                        entity_type="media",
+                        resolved_entity_id="media:1ee3b9131dd8",
+                        confidence=0.95,
+                        evidence_event_ids=["evt-song-a"],
+                    ),
+                    ResolvedEntityMention(
+                        mention_text="旅人の唄",
+                        normalized_surface="旅人の唄",
+                        entity_type="media",
+                        resolved_entity_id="media:2ab5d1f0285f",
+                        confidence=0.95,
+                        evidence_event_ids=["evt-song-b"],
+                    ),
+                ],
+            )
+
+            assert l1_store.mappings == [
+                ("evt-song-a", "media:1ee3b9131dd8", "media", 0.95),
+                ("evt-song-b", "media:2ab5d1f0285f", "media", 0.95),
+            ]
         finally:
             await pipeline.shutdown()
 
@@ -2762,7 +2835,7 @@ async def test_unified_extraction_normalizes_food_and_persists_dislikes_edge():
                             "subject_ref": "user:u1",
                             "subject_type": "user",
                             "predicate": "DISLIKES",
-                            "object_ref": "food:west-lake-vinegar-fish",
+                            "object_ref": "西湖醋鱼",
                             "object_type": "dish",
                             "fact_kind": "stable_preference",
                             "polarity": "negative",
@@ -2959,7 +3032,7 @@ async def test_unified_extraction_keeps_higher_order_assertions_alongside_graph_
                             "subject_ref": "user:u1",
                             "subject_type": "user",
                             "predicate": "DISLIKES",
-                            "object_ref": "food:xi-hu-cu-yu",
+                            "object_ref": "西湖醋鱼",
                             "object_type": "dish",
                             "fact_kind": "stable_preference",
                             "polarity": "negative",
@@ -4076,6 +4149,49 @@ class TestExtractionInstructions:
         )
         assert "## Source-Specific Instructions" not in prompt
 
+    def test_phase2_prompt_includes_resolved_entity_ids(self):
+        from magi.memory.l2.models import L2EventWindow
+        from magi.memory.l2.pipeline.prompts import (
+            PHASE2_INTEGRATE_SYSTEM_PROMPT,
+            render_phase2_integrate_prompt,
+        )
+
+        phase2_prompt = render_phase2_integrate_prompt(
+            phase1_result={
+                "entities": [
+                    {
+                        "surface": "归潮",
+                        "normalized_name": "归潮",
+                        "entity_type": "media",
+                        "specificity": "concrete",
+                        "resolved_id": "media:1ee3b9131dd8",
+                        "is_new": True,
+                    }
+                ],
+                "fact_claims": [
+                    {
+                        "subject_ref": "user:self",
+                        "predicate": "LISTENED",
+                        "object_ref": "归潮",
+                        "object_type": "media",
+                        "specificity": "concrete",
+                        "confidence": 1.0,
+                    }
+                ],
+            },
+            existing_graph_edges=[],
+            existing_assertions=[],
+            event_window=L2EventWindow(
+                events=[{"event_id": "evt-song", "content": "听了《归潮》", "timestamp": 1.0}]
+            ),
+            focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
+        )
+
+        assert "**归潮** -> media:1ee3b9131dd8" in phase2_prompt
+        assert "entity_id: media:1ee3b9131dd8" in phase2_prompt
+        assert "Do NOT invent entity IDs" in PHASE2_INTEGRATE_SYSTEM_PROMPT
+        assert "romanize" in PHASE2_INTEGRATE_SYSTEM_PROMPT
+
     def test_override_replaces_extraction_instructions(self):
         from magi.memory.l2.extraction_profiles import ExtractionProfile, _apply_overrides
         profile = ExtractionProfile(profile_id="test", extraction_instructions="original")
@@ -4721,6 +4837,90 @@ class TestPhase2CatalogNameIndex:
         )
         assert result == "software:mention-resolved"
 
+    @pytest.mark.asyncio
+    async def test_rejects_invented_colon_id_when_catalog_index_is_available(self):
+        from magi.memory.l2.models import L2Phase1Result, L2Phase2GraphEdge
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pipeline = await _build_pipeline(temp_dir=temp_dir)
+            event = _make_memory_event(
+                event_id="evt-guichao",
+                content="在网易云音乐听了蔡明希（不才）的《归潮》",
+            )
+            phase1_result = L2Phase1Result.from_dict({
+                "entities": [
+                    {
+                        "surface": "归潮",
+                        "normalized_name": "归潮",
+                        "entity_type": "media",
+                        "confidence": 0.95,
+                    }
+                ],
+                "fact_claims": [],
+                "resolved_refs": [],
+            })
+            resolved_mentions = await pipeline._resolve_phase1_entities(
+                event,
+                phase1_result,
+                evidence_event_ids=[event.event_id],
+                evidence_events=[event],
+            )
+            catalog_name_index = await pipeline._build_catalog_name_index()
+
+            class _FakeProfile:
+                allow_graph = True
+                effective_structured_allowed_entity_types = frozenset({"media"})
+                effective_structured_allowed_predicates = frozenset({"LISTENED"})
+
+            class _FakePolicy:
+                allow_graph_write = True
+                graph_scope = "full"
+
+            invented_edge = L2Phase2GraphEdge(
+                subject_ref="user:u1",
+                subject_type="user",
+                predicate="LISTENED",
+                object_ref="media:guichao-caimingxi",
+                object_type="media",
+                confidence=1.0,
+                supporting_event_ids=[event.event_id],
+            )
+            prepared, _, rejected = pipeline._validate_phase2_graph_edges(
+                event=event,
+                profile=_FakeProfile(),
+                policy=_FakePolicy(),
+                resolved_mentions=resolved_mentions,
+                evidence_event_ids=[event.event_id],
+                phase2_edges=[invented_edge],
+                catalog_name_index=catalog_name_index,
+            )
+
+            assert prepared == []
+            assert rejected == 1
+
+            surface_edge = L2Phase2GraphEdge(
+                subject_ref="user:u1",
+                subject_type="user",
+                predicate="LISTENED",
+                object_ref="归潮",
+                object_type="media",
+                confidence=1.0,
+                supporting_event_ids=[event.event_id],
+            )
+            prepared, _, rejected = pipeline._validate_phase2_graph_edges(
+                event=event,
+                profile=_FakeProfile(),
+                policy=_FakePolicy(),
+                resolved_mentions=resolved_mentions,
+                evidence_event_ids=[event.event_id],
+                phase2_edges=[surface_edge],
+                catalog_name_index=catalog_name_index,
+            )
+
+            assert rejected == 0
+            assert prepared[0]["object_id"] == phase1_result.entities[0].resolved_id
+            assert prepared[0]["object_id"] == resolved_mentions[0].resolved_entity_id
+
 
 class TestCatalogFindByCanonicalName:
     """Tests for L2EntityCatalog.find_by_canonical_name."""
@@ -4731,6 +4931,7 @@ class TestCatalogFindByCanonicalName:
 
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = str(Path(temp_dir) / "test.db")
+            _migrate_memory_shared_schema(db_path)
             catalog = L2EntityCatalog(db_path=db_path)
             await catalog.initialize()
             await catalog.upsert_entity(
@@ -4749,6 +4950,7 @@ class TestCatalogFindByCanonicalName:
 
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = str(Path(temp_dir) / "test.db")
+            _migrate_memory_shared_schema(db_path)
             catalog = L2EntityCatalog(db_path=db_path)
             await catalog.initialize()
             await catalog.upsert_entity(
@@ -4765,6 +4967,7 @@ class TestCatalogFindByCanonicalName:
 
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = str(Path(temp_dir) / "test.db")
+            _migrate_memory_shared_schema(db_path)
             catalog = L2EntityCatalog(db_path=db_path)
             await catalog.initialize()
             await catalog.upsert_entity(
@@ -4790,6 +4993,7 @@ class TestCatalogFindByCanonicalName:
 
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = str(Path(temp_dir) / "test.db")
+            _migrate_memory_shared_schema(db_path)
             catalog = L2EntityCatalog(db_path=db_path)
             await catalog.initialize()
             results = await catalog.find_by_canonical_name("NonExistent")
@@ -5138,6 +5342,7 @@ async def test_can_fast_track_simple_claims():
 
         class _FakeProfile:
             allow_graph = True
+            allow_assertion = True
             effective_structured_allowed_entity_types = frozenset({"food"})
             effective_structured_allowed_predicates = frozenset({"LIKES"})
 

@@ -158,6 +158,7 @@ class L2PipelineExtractionMixin:
 
         existing_entities: list[dict[str, Any]] = []
         if self._entity_catalog is not None:
+            await self._upsert_structured_hint_entities(stored_event)
             existing_entities = await self._entity_catalog.list_entities(limit=30)
 
         self._inject_structured_entity_hints(stored_event, existing_entities)
@@ -209,6 +210,7 @@ class L2PipelineExtractionMixin:
                 stored_event,
                 phase1_result,
                 evidence_event_ids=batch_event_ids,
+                evidence_events=[item[0] for item in eligible_events],
                 allowed_entity_types=extraction_profile.allowed_entity_types,
                 profile_signal_object_refs=profile_signal_object_refs,
             )
@@ -280,6 +282,7 @@ class L2PipelineExtractionMixin:
             existing_graph_edges=existing_graph_edges,
             profile=extraction_profile,
             policy=policy,
+            catalog_name_index=catalog_name_index,
         ):
             fast_track_candidates = self._fast_track_claims_to_candidates(
                 phase1_result=phase1_result,

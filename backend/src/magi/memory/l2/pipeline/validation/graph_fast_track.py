@@ -22,6 +22,7 @@ class L2GraphFastTrackMixin:
         existing_graph_edges: list[dict[str, Any]],
         profile: ExtractionProfile,
         policy: Any,
+        catalog_name_index: dict[str, str] | None = None,
     ) -> bool:
         """Return True when Phase 1 output is simple enough to skip Phase 2."""
         if not phase1_result.fact_claims:
@@ -47,7 +48,7 @@ class L2GraphFastTrackMixin:
                 raw_object_ref=claim.object_ref,
                 object_type=object_type,
                 resolved_mentions=resolved_mentions,
-                catalog_name_index=None,
+                catalog_name_index=catalog_name_index,
             )
             if not object_id:
                 return False

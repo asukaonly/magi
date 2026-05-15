@@ -41,6 +41,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         phase1_result: L2Phase1Result,
         *,
         evidence_event_ids: list[str],
+        evidence_events: list[MemoryEvent] | None = None,
         allowed_entity_types: frozenset[str] | None = None,
         profile_signal_object_refs: set[str] | None = None,
     ) -> list[ResolvedEntityMention]:
@@ -57,8 +58,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         # ── Pass 1: filter, alias-resolve, collect LLM candidates ──
         # Each item: (entity, mention_text, normalized_surface, entity_type, confidence,
         #             resolved_id, resolved_confidence, needs_llm)
-        _PendingEntity = tuple  # just a type alias for readability
-        pending: list[_PendingEntity] = []
+        pending: list[tuple[Any, ...]] = []
         llm_batch_items: list[L2BatchEntityResolutionItem] = []
 
         for entity in phase1_result.entities:
@@ -287,17 +287,24 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
 
             # Ensure the entity exists in the catalog before recording the mention (FK constraint)
             if resolved_entity_id:
+                entity.resolved_id = resolved_entity_id
                 await self._entity_catalog.upsert_entity(
                     canonical_name=normalized_surface,
                     entity_type=entity_type,
                     entity_id=resolved_entity_id,
                 )
 
+            mention_event_ids = self._resolve_entity_mention_event_ids(
+                mention_text=mention_text,
+                normalized_surface=normalized_surface,
+                evidence_events=evidence_events,
+                fallback_event_ids=evidence_event_ids,
+            )
             await self._entity_catalog.record_mention(
                 mention_text=mention_text,
                 normalized_surface=normalized_surface,
                 entity_type=entity_type,
-                evidence_event_ids=normalize_event_ids(evidence_event_ids),
+                evidence_event_ids=mention_event_ids,
                 evidence_text=mention_text,
                 resolved_entity_id=resolved_entity_id,
                 confidence=resolved_confidence,
@@ -309,9 +316,32 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
                     entity_type=entity_type,
                     resolved_entity_id=resolved_entity_id,
                     confidence=resolved_confidence,
+                    evidence_event_ids=mention_event_ids,
                 )
             )
         return resolved_mentions
+
+    def _resolve_entity_mention_event_ids(
+        self,
+        *,
+        mention_text: str,
+        normalized_surface: str,
+        evidence_events: list[MemoryEvent] | None,
+        fallback_event_ids: list[str],
+    ) -> list[str]:
+        matched_event_ids: list[str] = []
+        mention_candidates = {
+            text.strip()
+            for text in (mention_text, normalized_surface)
+            if str(text or "").strip()
+        }
+        for evidence_event in evidence_events or []:
+            content = str(getattr(evidence_event, "content", "") or "")
+            if any(candidate in content for candidate in mention_candidates):
+                event_id = str(getattr(evidence_event, "event_id", "") or "").strip()
+                if event_id:
+                    matched_event_ids.append(event_id)
+        return normalize_event_ids(matched_event_ids or fallback_event_ids)
 
     async def _resolve_mentions(
         self,
@@ -369,6 +399,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
                     entity_type=entity_type,
                     resolved_entity_id=resolved_entity_id,
                     confidence=resolved_confidence,
+                    evidence_event_ids=normalize_event_ids(evidence_event_ids or [event.event_id]),
                 )
             )
         return resolved_mentions

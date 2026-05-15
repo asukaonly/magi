@@ -284,6 +284,15 @@ pronouns and vague placeholders such as “那个”, “他”, generic “app�
 “PDF” may help resolve references, but should not become canonical L2 entities
 unless they resolve to a concrete named entity or asset.
 
+Knowledge graph endpoints must resolve through the entity catalog before they are
+persisted. The L2 pipeline may ask an LLM to compare or integrate facts, but the
+LLM is not an authority for inventing `entity_id` values. Phase 2 graph edges
+must reference catalog IDs produced by Phase 1 entity resolution, existing graph
+context, or source-owned structured hints that have first been registered in the
+catalog. Non-Latin entity names keep their original script in catalog names and
+aliases; ASCII slugs are storage identifiers only and must not replace the
+source-language name in user-facing evidence.
+
 `user_profile_projection` in `memory.db` is the product-facing read model for the
 local user profile. It is rebuilt from current L2 profile assertions, records
 field sources/conflicts, and derives deterministic fields such as `birth_year`

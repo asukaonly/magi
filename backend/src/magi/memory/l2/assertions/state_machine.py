@@ -35,6 +35,12 @@ def derive_validation_state(
         stability_kind = "temporary_state" if is_temporary else "stable_trait"
         return ("stable", max(current_confidence, 0.85), stability_kind)
 
+    if current_state == "user_rejected":
+        return ("user_rejected", min(current_confidence, 0.10), "volatile_pattern")
+
+    if current_state == "expired":
+        return ("expired", min(current_confidence, 0.30), "volatile_pattern")
+
     if current_state == "contradicted":
         return ("contradicted", min(current_confidence, 0.35), "volatile_pattern")
 

@@ -91,9 +91,71 @@ class L2EntityGhostGraphMaintenanceMixin(L2EntityGhostHostMixin):
                 matches.append(cid)
         if len(matches) == 1:
             return matches[0]
+        evidence_match = await self._resolve_ghost_by_evidence_text(
+            ghost_id=ghost_id,
+            entity_type=entity_type,
+        )
+        if evidence_match:
+            return evidence_match
         if not matches:
             return None
         return await self._pick_entity_by_mention_count(matches)
+
+    async def _resolve_ghost_by_evidence_text(
+        self,
+        *,
+        ghost_id: str,
+        entity_type: str,
+    ) -> str | None:
+        host = self._catalog_maintenance_host()
+        async with sqlite_connection_async(host._db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """
+                SELECT evidence_text, natural_summary
+                FROM knowledge_graph
+                WHERE object_id = ? OR subject_id = ?
+                """,
+                (ghost_id, ghost_id),
+            ) as cur:
+                evidence_rows = await cur.fetchall()
+            async with db.execute(
+                """
+                SELECT c.entity_id, c.canonical_name, a.alias_text
+                FROM entity_catalog c
+                LEFT JOIN entity_aliases a ON a.entity_id = c.entity_id
+                WHERE c.entity_type = ?
+                """,
+                (entity_type,),
+            ) as cur:
+                catalog_rows = await cur.fetchall()
+
+        evidence_blob = "\n".join(
+            f"{row['evidence_text'] or ''}\n{row['natural_summary'] or ''}"
+            for row in evidence_rows
+        ).casefold()
+        if not evidence_blob.strip():
+            return None
+
+        scored_matches: dict[str, int] = {}
+        for row in catalog_rows:
+            entity_id = str(row["entity_id"])
+            for raw_name in (row["canonical_name"], row["alias_text"]):
+                name = str(raw_name or "").strip()
+                if len(name) < 2:
+                    continue
+                if name.casefold() in evidence_blob:
+                    scored_matches[entity_id] = max(scored_matches.get(entity_id, 0), len(name))
+
+        if not scored_matches:
+            return None
+        best_score = max(scored_matches.values())
+        best_matches = [
+            entity_id for entity_id, score in scored_matches.items() if score == best_score
+        ]
+        if len(best_matches) == 1:
+            return best_matches[0]
+        return await self._pick_entity_by_mention_count(best_matches)
 
     async def _pick_entity_by_mention_count(self, entity_ids: list[str]) -> str:
         host = self._catalog_maintenance_host()

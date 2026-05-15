@@ -29,6 +29,7 @@ class ResolvedEntityMention:
     entity_type: str | None
     resolved_entity_id: str | None
     confidence: float | None
+    evidence_event_ids: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.mention_text = _non_empty_text(self.mention_text, field_name="mention_text")
@@ -39,6 +40,9 @@ class ResolvedEntityMention:
         self.entity_type = _optional_text(self.entity_type)
         self.resolved_entity_id = _optional_text(self.resolved_entity_id)
         self.confidence = None if self.confidence is None else float(self.confidence)
+        self.evidence_event_ids = [
+            str(event_id).strip() for event_id in self.evidence_event_ids if str(event_id).strip()
+        ]
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

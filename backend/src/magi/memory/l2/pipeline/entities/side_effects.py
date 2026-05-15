@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Protocol, cast
 from .....core.logger import get_logger
 from ....event_contracts import MemoryEvent
 from ...models import ResolvedEntityMention
+from ...storage.utils import normalize_event_ids
 
 if TYPE_CHECKING:
     from ....hybrid_retrieval.entity_semantic_builder import EntityScopedSemanticBuilder
@@ -34,12 +35,15 @@ class L2EntitySideEffectMixin:
         if not resolved_mentions or host._l1_store is None:
             return
 
-        entity_mappings = [
-            (event_id, mention.resolved_entity_id, mention.entity_type, mention.confidence)
-            for mention in resolved_mentions
-            if mention.resolved_entity_id
-            for event_id in batch_event_ids
-        ]
+        entity_mappings = []
+        for mention in resolved_mentions:
+            if not mention.resolved_entity_id:
+                continue
+            scoped_event_ids = normalize_event_ids(mention.evidence_event_ids or batch_event_ids)
+            for event_id in scoped_event_ids:
+                entity_mappings.append(
+                    (event_id, mention.resolved_entity_id, mention.entity_type, mention.confidence)
+                )
         if not entity_mappings:
             return
 
