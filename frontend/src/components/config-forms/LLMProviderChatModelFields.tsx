@@ -22,6 +22,7 @@ const selectTriggerClassName =
 const VENDOR_OPTIONS: ReadonlyArray<{ value: ModelVendor; labelKey: string }> = [
   { value: 'generic', labelKey: 'llm.modelFields.vendorOptions.generic' },
   { value: 'openai', labelKey: 'llm.modelFields.vendorOptions.openai' },
+  { value: 'deepseek', labelKey: 'llm.modelFields.vendorOptions.deepseek' },
   { value: 'anthropic', labelKey: 'llm.modelFields.vendorOptions.anthropic' },
   { value: 'glm', labelKey: 'llm.modelFields.vendorOptions.glm' },
   { value: 'dashscope', labelKey: 'llm.modelFields.vendorOptions.dashscope' },

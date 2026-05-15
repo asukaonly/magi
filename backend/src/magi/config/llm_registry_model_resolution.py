@@ -428,7 +428,7 @@ def _infer_custom_vendor(
 # out of this map — their dialect is decided per-model.
 _BUILTIN_PROVIDER_VENDOR: dict[str, ModelVendor] = {
     "openai": ModelVendor.OPENAI,
-    "deepseek": ModelVendor.OPENAI,
+    "deepseek": ModelVendor.DEEPSEEK,
     "local": ModelVendor.OPENAI,
     "anthropic": ModelVendor.ANTHROPIC,
     "glm": ModelVendor.GLM,

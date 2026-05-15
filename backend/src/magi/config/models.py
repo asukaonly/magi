@@ -47,6 +47,7 @@ class ModelVendor(str, Enum):
     """
 
     OPENAI = "openai"
+    DEEPSEEK = "deepseek"
     ANTHROPIC = "anthropic"
     GLM = "glm"
     DASHSCOPE = "dashscope"

@@ -3,8 +3,11 @@
 Different model vendors express the "how much reasoning to spend" knob
 in incompatible payload shapes:
 
-- OpenAI / DeepSeek / OpenAI-compatible gateways use
-  ``reasoning_effort: "low" | "medium" | "high"`` as a top-level kwarg.
+- OpenAI / OpenAI-compatible gateways use
+    ``reasoning_effort`` as a top-level kwarg when reasoning is enabled.
+- DeepSeek uses ``extra_body.thinking: {type: "enabled"|"disabled"}``
+    plus top-level ``reasoning_effort: "high" | "max"`` when thinking is
+    enabled.
 - Anthropic uses ``thinking: {type: "enabled", budget_tokens: N}`` as a
   top-level kwarg with provider-specific token budgets per depth.
 - Alibaba DashScope / Bailian (vendor=DASHSCOPE) uses
@@ -35,6 +38,7 @@ class ReasoningDialect(str, Enum):
 
     NONE = "none"
     OPENAI_EFFORT = "openai_effort"
+    DEEPSEEK_THINKING = "deepseek_thinking"
     ANTHROPIC_BUDGET = "anthropic_budget"
     DASHSCOPE_ENABLE = "dashscope_enable"
     GLM_TOGGLE = "glm_toggle"
@@ -43,11 +47,12 @@ class ReasoningDialect(str, Enum):
 # vendor → dialect. ``GENERIC`` and ``GROK`` map to ``NONE`` because
 # neither has a public reasoning-control payload at the moment; if they
 # add one in the future, add the dialect here without touching call
-# sites. DeepSeek is intentionally not its own vendor — its hosted API is
-# OpenAI-compatible and uses ``reasoning_effort``, so ``ModelVendor.OPENAI``
-# is the correct classification.
+# sites. DeepSeek is its own vendor because although its transport is
+# OpenAI-compatible, its thinking mode also requires
+# ``extra_body.thinking`` toggles.
 _VENDOR_TO_DIALECT: Dict[ModelVendor, "ReasoningDialect"] = {
     ModelVendor.OPENAI: ReasoningDialect.OPENAI_EFFORT,
+    ModelVendor.DEEPSEEK: ReasoningDialect.DEEPSEEK_THINKING,
     ModelVendor.ANTHROPIC: ReasoningDialect.ANTHROPIC_BUDGET,
     ModelVendor.DASHSCOPE: ReasoningDialect.DASHSCOPE_ENABLE,
     ModelVendor.GLM: ReasoningDialect.GLM_TOGGLE,
@@ -85,14 +90,32 @@ def _none_builder(_depth: ThinkingDepth) -> Dict[str, Any]:
 
 
 def _openai_effort_builder(depth: ThinkingDepth) -> Dict[str, Any]:
+    if depth == ThinkingDepth.NONE:
+        return {}
+
     mapping = {
-        ThinkingDepth.NONE: "none",
         ThinkingDepth.LOW: "low",
         ThinkingDepth.MEDIUM: "medium",
         ThinkingDepth.HIGH: "high",
         ThinkingDepth.MAX: "high",
     }
     return {"_kwargs": {"reasoning_effort": mapping.get(depth, "medium")}}
+
+
+def _deepseek_thinking_builder(depth: ThinkingDepth) -> Dict[str, Any]:
+    if depth == ThinkingDepth.NONE:
+        return {"_extra_body": {"thinking": {"type": "disabled"}}}
+
+    effort_map = {
+        ThinkingDepth.LOW: "high",
+        ThinkingDepth.MEDIUM: "high",
+        ThinkingDepth.HIGH: "high",
+        ThinkingDepth.MAX: "max",
+    }
+    return {
+        "_kwargs": {"reasoning_effort": effort_map.get(depth, "high")},
+        "_extra_body": {"thinking": {"type": "enabled"}},
+    }
 
 
 def _anthropic_budget_builder(depth: ThinkingDepth) -> Dict[str, Any]:
@@ -126,6 +149,7 @@ def _glm_toggle_builder(depth: ThinkingDepth) -> Dict[str, Any]:
 _BUILDERS: Dict[ReasoningDialect, Callable[[ThinkingDepth], Dict[str, Any]]] = {
     ReasoningDialect.NONE: _none_builder,
     ReasoningDialect.OPENAI_EFFORT: _openai_effort_builder,
+    ReasoningDialect.DEEPSEEK_THINKING: _deepseek_thinking_builder,
     ReasoningDialect.ANTHROPIC_BUDGET: _anthropic_budget_builder,
     ReasoningDialect.DASHSCOPE_ENABLE: _dashscope_enable_builder,
     ReasoningDialect.GLM_TOGGLE: _glm_toggle_builder,

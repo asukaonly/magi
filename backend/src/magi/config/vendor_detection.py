@@ -52,12 +52,19 @@ _VENDOR_HINTS: tuple[tuple[ModelVendor, tuple[str, ...], tuple[str, ...]], ...] 
         ("grok-", "grok_"),
         ("api.x.ai", "x.ai"),
     ),
-    # OpenAI family + DeepSeek (which is OpenAI-compatible and uses the
-    # same reasoning_effort knob; intentionally classified as OPENAI).
+    # DeepSeek family. Its transport is OpenAI-compatible, but the
+    # thinking controls are vendor-specific (extra_body.thinking +
+    # reasoning_effort), so it needs its own vendor classification.
+    (
+        ModelVendor.DEEPSEEK,
+        ("deepseek",),
+        ("api.deepseek.com",),
+    ),
+    # OpenAI family.
     (
         ModelVendor.OPENAI,
-        ("gpt-", "o1-", "o3-", "o4-", "deepseek"),
-        ("api.openai.com", "api.deepseek.com"),
+        ("gpt-", "o1-", "o3-", "o4-"),
+        ("api.openai.com",),
     ),
 )
 

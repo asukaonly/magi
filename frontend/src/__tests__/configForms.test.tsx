@@ -369,7 +369,10 @@ vi.mock('../api/modules/config', async () => {
     if (needleModel.includes('grok-') || needleModel.includes('grok_')) {
       return 'grok';
     }
-    if (needleModel.includes('gpt-') || needleModel.includes('o1-') || needleModel.includes('o3-') || needleModel.includes('o4-') || needleModel.includes('deepseek')) {
+    if (needleModel.includes('deepseek')) {
+      return 'deepseek';
+    }
+    if (needleModel.includes('gpt-') || needleModel.includes('o1-') || needleModel.includes('o3-') || needleModel.includes('o4-')) {
       return 'openai';
     }
 
@@ -385,7 +388,10 @@ vi.mock('../api/modules/config', async () => {
     if (needleUrl.includes('api.x.ai') || needleUrl.includes('x.ai')) {
       return 'grok';
     }
-    if (needleUrl.includes('api.openai.com') || needleUrl.includes('api.deepseek.com')) {
+    if (needleUrl.includes('api.deepseek.com')) {
+      return 'deepseek';
+    }
+    if (needleUrl.includes('api.openai.com')) {
       return 'openai';
     }
 
@@ -394,7 +400,7 @@ vi.mock('../api/modules/config', async () => {
 
   const builtinProviderVendor: Record<string, string> = {
     openai: 'openai',
-    deepseek: 'openai',
+    deepseek: 'deepseek',
     local: 'openai',
     anthropic: 'anthropic',
     glm: 'glm',

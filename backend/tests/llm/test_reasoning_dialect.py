@@ -16,6 +16,7 @@ from magi.llm.reasoning_dialect import (
 class TestResolveDialect:
     def test_known_vendors(self) -> None:
         assert resolve_dialect(ModelVendor.OPENAI) == ReasoningDialect.OPENAI_EFFORT
+        assert resolve_dialect(ModelVendor.DEEPSEEK) == ReasoningDialect.DEEPSEEK_THINKING
         assert resolve_dialect(ModelVendor.ANTHROPIC) == ReasoningDialect.ANTHROPIC_BUDGET
         assert resolve_dialect(ModelVendor.DASHSCOPE) == ReasoningDialect.DASHSCOPE_ENABLE
         assert resolve_dialect(ModelVendor.GLM) == ReasoningDialect.GLM_TOGGLE
@@ -35,17 +36,20 @@ class TestResolveDialect:
 
 
 class TestOpenAIEffortBuilder:
+    def test_none_depth_emits_nothing(self) -> None:
+        payload = build_reasoning_payload(ReasoningDialect.OPENAI_EFFORT, ThinkingDepth.NONE)
+        assert payload == {}
+
     @pytest.mark.parametrize(
         "depth,expected",
         [
-            (ThinkingDepth.NONE, "none"),
             (ThinkingDepth.LOW, "low"),
             (ThinkingDepth.MEDIUM, "medium"),
             (ThinkingDepth.HIGH, "high"),
             (ThinkingDepth.MAX, "high"),
         ],
     )
-    def test_effort_mapping(self, depth: ThinkingDepth, expected: str) -> None:
+    def test_enabled_depth_effort_mapping(self, depth: ThinkingDepth, expected: str) -> None:
         payload = build_reasoning_payload(ReasoningDialect.OPENAI_EFFORT, depth)
         assert payload == {"_kwargs": {"reasoning_effort": expected}}
 
@@ -68,6 +72,30 @@ class TestAnthropicBudgetBuilder:
 
     def test_none_depth_emits_nothing(self) -> None:
         assert build_reasoning_payload(ReasoningDialect.ANTHROPIC_BUDGET, ThinkingDepth.NONE) == {}
+
+
+class TestDeepSeekThinkingBuilder:
+    def test_none_depth_disables_thinking(self) -> None:
+        payload = build_reasoning_payload(ReasoningDialect.DEEPSEEK_THINKING, ThinkingDepth.NONE)
+        assert payload == {"_extra_body": {"thinking": {"type": "disabled"}}}
+
+    @pytest.mark.parametrize(
+        "depth,expected_effort",
+        [
+            (ThinkingDepth.LOW, "high"),
+            (ThinkingDepth.MEDIUM, "high"),
+            (ThinkingDepth.HIGH, "high"),
+            (ThinkingDepth.MAX, "max"),
+        ],
+    )
+    def test_enabled_depths_enable_thinking_and_set_effort(
+        self, depth: ThinkingDepth, expected_effort: str
+    ) -> None:
+        payload = build_reasoning_payload(ReasoningDialect.DEEPSEEK_THINKING, depth)
+        assert payload == {
+            "_kwargs": {"reasoning_effort": expected_effort},
+            "_extra_body": {"thinking": {"type": "enabled"}},
+        }
 
 
 class TestDashScopeEnableBuilder:

@@ -27,14 +27,15 @@ from magi.config.vendor_detection import detect_vendor_from_hints
         # Grok
         ("grok-2", ModelVendor.GROK),
         ("grok-beta", ModelVendor.GROK),
-        # OpenAI family + DeepSeek (intentionally OPENAI vendor)
+        # DeepSeek family
+        ("deepseek-chat", ModelVendor.DEEPSEEK),
+        ("deepseek-reasoner", ModelVendor.DEEPSEEK),
+        # OpenAI family
         ("gpt-4o-mini", ModelVendor.OPENAI),
         ("gpt-5", ModelVendor.OPENAI),
         ("o1-preview", ModelVendor.OPENAI),
         ("o3-mini", ModelVendor.OPENAI),
         ("o4-mini", ModelVendor.OPENAI),
-        ("deepseek-chat", ModelVendor.OPENAI),
-        ("deepseek-reasoner", ModelVendor.OPENAI),
         # Unknown
         ("totally-mystery-model", ModelVendor.GENERIC),
         ("", ModelVendor.GENERIC),
@@ -73,7 +74,7 @@ def test_model_id_overrides_url_when_both_present() -> None:
         ("https://open.bigmodel.cn/api/paas/v4", ModelVendor.GLM),
         ("https://dashscope.aliyuncs.com/compatible-mode/v1", ModelVendor.DASHSCOPE),
         ("https://api.x.ai/v1", ModelVendor.GROK),
-        ("https://api.deepseek.com/v1", ModelVendor.OPENAI),
+        ("https://api.deepseek.com/v1", ModelVendor.DEEPSEEK),
     ],
 )
 def test_detect_vendor_falls_back_to_url_when_model_id_unknown(

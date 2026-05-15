@@ -326,7 +326,8 @@
       },
       "vendorOptions": {
         "generic": "Generic OpenAI-compatible (no vendor extensions)",
-        "openai": "OpenAI / DeepSeek (reasoning_effort)",
+        "openai": "OpenAI (reasoning_effort)",
+        "deepseek": "DeepSeek (thinking + reasoning_effort)",
         "anthropic": "Anthropic (thinking budget_tokens)",
         "glm": "Zhipu GLM (thinking toggle)",
         "dashscope": "Alibaba DashScope / Bailian (enable_thinking)",

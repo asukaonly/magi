@@ -327,7 +327,8 @@
       },
       "vendorOptions": {
         "generic": "通用 OpenAI 兼容（无厂商扩展）",
-        "openai": "OpenAI / DeepSeek（reasoning_effort）",
+        "openai": "OpenAI（reasoning_effort）",
+        "deepseek": "DeepSeek（thinking + reasoning_effort）",
         "anthropic": "Anthropic（thinking budget_tokens）",
         "glm": "智谱 GLM（thinking 开关）",
         "dashscope": "阿里 DashScope / 百炼（enable_thinking）",

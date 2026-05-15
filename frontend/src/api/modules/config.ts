@@ -169,6 +169,7 @@ export interface LLMModelCost {
 
 export type ModelVendor =
   | 'openai'
+  | 'deepseek'
   | 'anthropic'
   | 'glm'
   | 'dashscope'
