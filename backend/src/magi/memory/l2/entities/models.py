@@ -65,7 +65,16 @@ class L2FocalEntityRef:
 
 @dataclass(slots=True)
 class L2KnowledgeEdgeWrite:
-    """Normalized knowledge-edge payload ready for L2 persistence."""
+    """Normalized knowledge-edge payload ready for L2 persistence.
+
+    ``valid_from`` / ``valid_to`` describe the temporal validity window of
+    the asserted fact (None means "unbounded on that side"); when no
+    ``valid_from`` is supplied the persistence layer defaults to
+    ``observed_at`` so a freshly-asserted fact is at least valid from the
+    moment it was first observed. ``privacy_scope`` controls visibility for
+    sharing/forgetting decisions and defaults to ``"private"`` per the L2
+    contract.
+    """
 
     subject_id: str
     subject_type: str
@@ -77,6 +86,9 @@ class L2KnowledgeEdgeWrite:
     observed_at: float = 0.0
     source_type: str = "unknown"
     extraction_method: str = "rule"
+    valid_from: float | None = None
+    valid_to: float | None = None
+    privacy_scope: str = "private"
 
     def __post_init__(self) -> None:
         self.subject_id = _non_empty_text(self.subject_id, field_name="subject_id")
@@ -91,6 +103,9 @@ class L2KnowledgeEdgeWrite:
         self.observed_at = float(self.observed_at or 0.0)
         self.source_type = _optional_text(self.source_type) or "unknown"
         self.extraction_method = _optional_text(self.extraction_method) or "rule"
+        self.valid_from = float(self.valid_from) if self.valid_from is not None else None
+        self.valid_to = float(self.valid_to) if self.valid_to is not None else None
+        self.privacy_scope = _optional_text(self.privacy_scope) or "private"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

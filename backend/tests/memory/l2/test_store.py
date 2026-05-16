@@ -3316,3 +3316,177 @@ async def test_assertion_row_includes_status_columns(tmp_path):
     assert "superseded_at" in a
     assert "privacy_scope" in a
     assert a["privacy_scope"] == "private"
+
+
+@pytest.mark.asyncio
+async def test_knowledge_edge_persists_temporal_and_privacy_defaults(tmp_path):
+    """upsert_knowledge_edge writes valid_from / valid_to / privacy_scope.
+
+    Without explicit callers, valid_from defaults to observed_at, valid_to
+    stays NULL (unbounded), and privacy_scope defaults to 'private'.
+    """
+    import aiosqlite
+
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=_migrated_l2_db_path(tmp_path))
+    await store.initialize()
+
+    observed_at = 1710000000.0
+    triple_id = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="LIKES",
+        object_id="topic:tea",
+        object_type="topic",
+        fact_kind="stable_preference",
+        evidence_event_ids=["evt-1"],
+        confidence=0.7,
+        observed_at=observed_at,
+        source_type="chat",
+    )
+
+    async with aiosqlite.connect(store.db_path) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT valid_from, valid_to, privacy_scope FROM knowledge_graph WHERE triple_id = ?",
+            (triple_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+
+    assert row is not None
+    assert row["valid_from"] == observed_at
+    assert row["valid_to"] is None
+    assert row["privacy_scope"] == "private"
+
+
+@pytest.mark.asyncio
+async def test_knowledge_edge_records_explicit_valid_range_and_privacy(tmp_path):
+    """Callers may pin a temporal window and a non-default privacy scope.
+
+    Explicit valid_from / valid_to / privacy_scope flow through to the
+    knowledge_graph row exactly as supplied.
+    """
+    import aiosqlite
+
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=_migrated_l2_db_path(tmp_path))
+    await store.initialize()
+
+    valid_from = 1710000000.0
+    valid_to = 1717776000.0
+    triple_id = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="WORKS_AT",
+        object_id="org:acme",
+        object_type="organization",
+        fact_kind="explicit_fact",
+        evidence_event_ids=["evt-2"],
+        confidence=0.9,
+        observed_at=valid_from,
+        source_type="chat",
+        valid_from=valid_from,
+        valid_to=valid_to,
+        privacy_scope="shared",
+    )
+
+    async with aiosqlite.connect(store.db_path) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT valid_from, valid_to, privacy_scope FROM knowledge_graph WHERE triple_id = ?",
+            (triple_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+
+    assert row is not None
+    assert row["valid_from"] == valid_from
+    assert row["valid_to"] == valid_to
+    assert row["privacy_scope"] == "shared"
+
+
+@pytest.mark.asyncio
+async def test_knowledge_edge_update_preserves_valid_range_and_privacy(tmp_path):
+    """A follow-up upsert without override keeps the original window/scope.
+
+    The first insert sets explicit valid_to and privacy_scope; the second
+    insert provides only fresh evidence and must not blank those fields.
+    Supplying new values on the third call overrides them.
+    """
+    import aiosqlite
+
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=_migrated_l2_db_path(tmp_path))
+    await store.initialize()
+
+    triple_id = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="WORKS_AT",
+        object_id="org:acme",
+        object_type="organization",
+        fact_kind="explicit_fact",
+        evidence_event_ids=["evt-1"],
+        confidence=0.6,
+        observed_at=1710000000.0,
+        source_type="chat",
+        valid_from=1710000000.0,
+        valid_to=1717776000.0,
+        privacy_scope="shared",
+    )
+
+    await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="WORKS_AT",
+        object_id="org:acme",
+        object_type="organization",
+        fact_kind="explicit_fact",
+        evidence_event_ids=["evt-2"],
+        confidence=0.7,
+        observed_at=1710001000.0,
+        source_type="chat",
+    )
+
+    async with aiosqlite.connect(store.db_path) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT valid_from, valid_to, privacy_scope FROM knowledge_graph WHERE triple_id = ?",
+            (triple_id,),
+        ) as cursor:
+            preserved = await cursor.fetchone()
+
+    assert preserved is not None
+    assert preserved["valid_from"] == 1710000000.0
+    assert preserved["valid_to"] == 1717776000.0
+    assert preserved["privacy_scope"] == "shared"
+
+    await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="WORKS_AT",
+        object_id="org:acme",
+        object_type="organization",
+        fact_kind="explicit_fact",
+        evidence_event_ids=["evt-3"],
+        confidence=0.8,
+        observed_at=1710002000.0,
+        source_type="chat",
+        valid_to=1720000000.0,
+        privacy_scope="private",
+    )
+
+    async with aiosqlite.connect(store.db_path) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT valid_from, valid_to, privacy_scope FROM knowledge_graph WHERE triple_id = ?",
+            (triple_id,),
+        ) as cursor:
+            overridden = await cursor.fetchone()
+
+    assert overridden is not None
+    assert overridden["valid_from"] == 1710000000.0
+    assert overridden["valid_to"] == 1720000000.0
+    assert overridden["privacy_scope"] == "private"

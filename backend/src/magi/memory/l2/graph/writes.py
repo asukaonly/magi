@@ -70,6 +70,9 @@ class L2StoreGraphWriteMixin:
         extraction_method: str = "rule",
         evidence_text: str = "",
         expires_at: float | None = None,
+        valid_from: float | None = None,
+        valid_to: float | None = None,
+        privacy_scope: str | None = None,
     ) -> str:
         """Insert or refresh a knowledge-graph edge."""
         host = cast(_GraphWriteHostProtocol, self)
@@ -92,6 +95,9 @@ class L2StoreGraphWriteMixin:
                 extraction_method=extraction_method,
                 evidence_text=evidence_text,
                 expires_at=expires_at,
+                valid_from=valid_from,
+                valid_to=valid_to,
+                privacy_scope=privacy_scope,
             )
             await db.commit()
         return triple_id
@@ -129,6 +135,21 @@ class L2StoreGraphWriteMixin:
                             if edge_write.get("expires_at") is not None
                             else None
                         ),
+                        valid_from=(
+                            float(edge_write["valid_from"])
+                            if edge_write.get("valid_from") is not None
+                            else None
+                        ),
+                        valid_to=(
+                            float(edge_write["valid_to"])
+                            if edge_write.get("valid_to") is not None
+                            else None
+                        ),
+                        privacy_scope=(
+                            str(edge_write["privacy_scope"]).strip() or None
+                            if edge_write.get("privacy_scope") is not None
+                            else None
+                        ),
                     )
                 )
             await db.commit()
@@ -151,6 +172,9 @@ class L2StoreGraphWriteMixin:
         extraction_method: str = "rule",
         evidence_text: str = "",
         expires_at: float | None = None,
+        valid_from: float | None = None,
+        valid_to: float | None = None,
+        privacy_scope: str | None = None,
     ) -> str:
         host = cast(_GraphWriteHostProtocol, self)
         normalized_subject_type = normalize_store_entity_type(subject_type) or subject_type
@@ -166,6 +190,21 @@ class L2StoreGraphWriteMixin:
         effective_expires_at = expires_at
         if normalized_fact_kind == "future_intent" and effective_expires_at is None:
             effective_expires_at = float(observed_at) + DEFAULT_FUTURE_INTENT_TTL_SECONDS
+
+        # ``valid_from`` defaults to ``observed_at`` so a freshly-asserted
+        # fact has a concrete lower bound for temporal queries / forgetting.
+        # ``valid_to`` stays None (unbounded) unless the caller provides one.
+        effective_valid_from = (
+            float(valid_from) if valid_from is not None else float(observed_at)
+        )
+        effective_valid_to = float(valid_to) if valid_to is not None else None
+        # privacy_scope is non-NULL in schema; on INSERT default to "private",
+        # on UPDATE only override when the caller passed a non-empty value.
+        normalized_privacy_scope: str | None = None
+        if privacy_scope is not None:
+            stripped_privacy = str(privacy_scope).strip()
+            if stripped_privacy:
+                normalized_privacy_scope = stripped_privacy
 
         effective_predicate = predicate
         async with db.execute(
@@ -232,6 +271,8 @@ class L2StoreGraphWriteMixin:
                     first_observed_at = ?, last_observed_at = ?, last_confirmed_at = ?, source_type = ?,
                     extraction_method = ?, evidence_text = ?, natural_summary = ?,
                     embedding_status = 'pending', expires_at = COALESCE(?, expires_at),
+                    valid_from = COALESCE(?, valid_from), valid_to = COALESCE(?, valid_to),
+                    privacy_scope = COALESCE(?, privacy_scope),
                     updated_at = ?, status = 'active'
                 WHERE triple_id = ?
                 """,
@@ -248,6 +289,11 @@ class L2StoreGraphWriteMixin:
                     effective_evidence_text,
                     natural_summary,
                     effective_expires_at,
+                    # On UPDATE, only override when the caller supplied a value
+                    # (COALESCE keeps the existing column otherwise).
+                    float(valid_from) if valid_from is not None else None,
+                    effective_valid_to,
+                    normalized_privacy_scope,
                     now,
                     triple_id,
                 ),
@@ -260,8 +306,8 @@ class L2StoreGraphWriteMixin:
                     fact_kind, confidence, evidence_event_ids, observation_count, first_observed_at,
                     last_observed_at, last_confirmed_at, source_type, extraction_method,
                     evidence_text, natural_summary, embedding_status, expires_at,
-                    status, privacy_scope, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, 'active', 'private', ?, ?)
+                    valid_from, valid_to, status, privacy_scope, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, 'active', ?, ?, ?)
                 """,
                 (
                     triple_id,
@@ -282,6 +328,9 @@ class L2StoreGraphWriteMixin:
                     effective_evidence_text,
                     natural_summary,
                     effective_expires_at,
+                    effective_valid_from,
+                    effective_valid_to,
+                    normalized_privacy_scope or "private",
                     now,
                     now,
                 ),
