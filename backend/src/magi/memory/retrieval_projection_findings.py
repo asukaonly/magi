@@ -211,6 +211,44 @@ _CHAT_PROJECTION_SOURCES = frozenset(
 
 _CHAT_SOURCE_FILTERS = frozenset({"chat", "chat_projector"})
 
+# Evidence classes whose events are conversational artifacts rather than
+# durable factual evidence. The L1 evidence governance contract already pins
+# their ``l1_retrieval_scope`` to ``conversation_only``, so they would not
+# reach this projection in fact-like modes; this set is the explicit answer
+# to "which evidence classes must we drop if they slip through". Keep this
+# in sync with ``backend/src/magi/memory/evidence/policy.py``.
+_CONVERSATIONAL_EVIDENCE_CLASSES = frozenset(
+    {
+        "assistant_freeform",
+        "assistant_runtime_derivation",
+        "user_question",
+        "user_request",
+    }
+)
+
+# Evidence classes treated as factual evidence even in chat sources. Listed
+# explicitly so that adding a new class fails loud here instead of silently
+# falling through the conversational filter.
+_FACTUAL_EVIDENCE_CLASSES = frozenset(
+    {
+        "user_self_report",
+        "user_report_about_others",
+        "assistant_tool_grounded",
+        "external_observation",
+    }
+)
+
+# Evidence classes that are conservatively treated as non-factual (filtered)
+# whenever they slip into a fact-like projection. ``assistant_quote`` is a
+# verbatim restatement; ``system_runtime`` is runtime telemetry; both are
+# never new factual evidence for the user profile.
+_NON_FACTUAL_EVIDENCE_CLASSES = frozenset(
+    {
+        "assistant_quote",
+        "system_runtime",
+    }
+)
+
 _CHINESE_QUESTION_MARKERS = (
     "什么时候",
     "什么时间",
@@ -292,12 +330,31 @@ def _is_answer_facing_chat_artifact(
     mode: str,
     explicit_chat_source: bool,
 ) -> bool:
-    """Return True for chat artifacts that are not factual recall evidence."""
+    """Return True for chat artifacts that are not factual recall evidence.
+
+    Source of truth is the ``evidence_class`` column written by L1 evidence
+    governance: when present and recognized, it is trusted verbatim and no
+    string heuristic runs. The legacy author/source/content-string heuristic
+    is kept strictly as a fallback for rows whose ``evidence_class`` is
+    missing or ``unknown`` (older data not yet swept by the L1 evidence
+    backfill, or events ingested through a path that bypasses the classifier).
+    """
     if explicit_chat_source:
         return False
     if mode not in _FACT_LIKE_QUERY_MODES:
         return False
 
+    evidence_class = _normalized(item.get("evidence_class"))
+    if evidence_class and evidence_class != "unknown":
+        if evidence_class in _CONVERSATIONAL_EVIDENCE_CLASSES:
+            return True
+        if evidence_class in _NON_FACTUAL_EVIDENCE_CLASSES:
+            return True
+        return False
+
+    # Fallback: legacy chat-shape heuristic for rows without a usable
+    # evidence annotation. Kept narrow and best-effort; backfill is expected
+    # to retire this branch in steady state.
     author_type = _normalized(item.get("author_type"))
     source = _normalized(item.get("source"))
     event_type = _normalized(item.get("event_type"))

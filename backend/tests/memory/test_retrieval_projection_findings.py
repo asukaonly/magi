@@ -227,6 +227,111 @@ class TestEchoFiltering:
         assert findings[0]["statement"] == "我一般下午看坤的真爱粉直播。"
 
 
+class TestEvidenceClassDrivenFiltering:
+    """``evidence_class`` is the source of truth, with the legacy heuristic
+    kept strictly as a fallback for rows without a usable annotation."""
+
+    def test_evidence_class_user_question_filtered_regardless_of_content(self):
+        """Sentences that lack a question mark but are marked as user_question
+        by L1 governance must still be dropped from fact-like recall."""
+        payload = _make_payload(
+            l1_events=[
+                {
+                    "event_id": "evt-question-no-mark",
+                    "event_type": "UserMessage",
+                    "source": "chat_projector",
+                    "author_type": "user",
+                    "content_type": "text",
+                    "evidence_class": "user_question",
+                    "content": "请告诉我我一般在什么时候看坤的真爱粉直播",
+                    "score": 0.9,
+                    "timestamp": 2.0,
+                },
+                {
+                    "event_id": "evt-chrome-history",
+                    "event_type": "SENSOR_EVENT",
+                    "source": "chrome_history",
+                    "author_type": "external",
+                    "content_type": "observation",
+                    "evidence_class": "external_observation",
+                    "content": "Chrome 浏览 坤的真爱粉的抖音直播间（访问 11 次）",
+                    "score": 0.7,
+                    "timestamp": 1.0,
+                },
+            ],
+        )
+
+        findings = build_findings(
+            payload,
+            _make_query(query="我通常几点打开坤的真爱粉直播间", mode="exact_fact"),
+        )
+
+        statements = [finding["statement"] for finding in findings]
+        assert statements == ["Chrome 浏览 坤的真爱粉的抖音直播间（访问 11 次）"]
+
+    def test_evidence_class_user_self_report_kept_even_when_string_looks_like_question(self):
+        """When evidence_class is trusted, the legacy string heuristic must
+        not fire — a user_self_report that incidentally ends with a question
+        mark stays as factual evidence."""
+        payload = _make_payload(
+            l1_events=[
+                {
+                    "event_id": "evt-self-report",
+                    "event_type": "UserMessage",
+                    "source": "chat_projector",
+                    "author_type": "user",
+                    "content_type": "text",
+                    "evidence_class": "user_self_report",
+                    "content": "我一般下午看坤的真爱粉直播？",
+                    "score": 0.9,
+                    "timestamp": 1.0,
+                }
+            ],
+        )
+
+        findings = build_findings(
+            payload,
+            _make_query(query="我什么时候看坤的真爱粉直播", mode="exact_fact"),
+        )
+
+        assert findings[0]["statement"] == "我一般下午看坤的真爱粉直播？"
+
+    def test_evidence_class_unknown_falls_back_to_legacy_heuristic(self):
+        """Rows without a usable evidence_class must still be filtered by the
+        legacy author/source/content shape, otherwise unbackfilled data leaks
+        into fact-like recall."""
+        payload = _make_payload(
+            l1_events=[
+                {
+                    "event_id": "evt-legacy-assistant",
+                    "event_type": "AIResponse",
+                    "source": "chat_projector",
+                    "author_type": "assistant",
+                    "content_type": "text",
+                    "evidence_class": "unknown",
+                    "content": "根据浏览记录，你访问该直播间主要集中在下午时段。",
+                    "score": 0.95,
+                    "timestamp": 2.0,
+                },
+                {
+                    "event_id": "evt-legacy-chrome",
+                    "event_type": "SENSOR_EVENT",
+                    "source": "chrome_history",
+                    "author_type": "external",
+                    "content_type": "observation",
+                    "content": "Chrome 浏览 该直播间（访问 11 次）",
+                    "score": 0.7,
+                    "timestamp": 1.0,
+                },
+            ],
+        )
+
+        findings = build_findings(payload, _make_query(query="什么时候看", mode="exact_fact"))
+
+        statements = [finding["statement"] for finding in findings]
+        assert statements == ["Chrome 浏览 该直播间（访问 11 次）"]
+
+
 class TestPredicateBonus:
     """Predicate-aware sorting for preference queries."""
 
