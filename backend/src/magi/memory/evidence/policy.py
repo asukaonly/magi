@@ -127,6 +127,38 @@ _POLICY_MATRIX: dict[EvidenceClass, PolicyDecision] = {
         require_source_backlink=False,
         skip_reason="system_runtime",
     ),
+    EvidenceClass.USER_QUESTION: PolicyDecision(
+        # Asking is a conversation act, not new user-profile evidence. The
+        # event is still retrievable as conversation context but never feeds
+        # graph/assertion writes and is not authoritative for fact recall.
+        allow_entity_extraction=False,
+        allow_graph_write=False,
+        allow_assertion_write=False,
+        allow_snapshot_impact=False,
+        l1_retrieval_scope=L1RetrievalScope.CONVERSATION_ONLY.label,
+        graph_scope=GraphScope.NONE.label,
+        assertion_scope=AssertionScope.NONE.label,
+        evidence_weight=0.0,
+        count_as_new_evidence=False,
+        require_source_backlink=False,
+        skip_reason="user_question",
+    ),
+    EvidenceClass.USER_REQUEST: PolicyDecision(
+        # Imperatives describe what the user wants done now; they are not
+        # durable self-reports about the user themselves. Treat them as
+        # conversation-only context for the same reasons as USER_QUESTION.
+        allow_entity_extraction=False,
+        allow_graph_write=False,
+        allow_assertion_write=False,
+        allow_snapshot_impact=False,
+        l1_retrieval_scope=L1RetrievalScope.CONVERSATION_ONLY.label,
+        graph_scope=GraphScope.NONE.label,
+        assertion_scope=AssertionScope.NONE.label,
+        evidence_weight=0.0,
+        count_as_new_evidence=False,
+        require_source_backlink=False,
+        skip_reason="user_request",
+    ),
 }
 
 

@@ -60,6 +60,8 @@ class EvidenceClass(_LabeledIntEnum):
     ASSISTANT_RUNTIME_DERIVATION = 7
     EXTERNAL_OBSERVATION = 8
     SYSTEM_RUNTIME = 9
+    USER_QUESTION = 10
+    USER_REQUEST = 11
 
     @classmethod
     def _labels(cls) -> dict["EvidenceClass", str]:
@@ -73,6 +75,8 @@ class EvidenceClass(_LabeledIntEnum):
             cls.ASSISTANT_RUNTIME_DERIVATION: "assistant_runtime_derivation",
             cls.EXTERNAL_OBSERVATION: "external_observation",
             cls.SYSTEM_RUNTIME: "system_runtime",
+            cls.USER_QUESTION: "user_question",
+            cls.USER_REQUEST: "user_request",
         }
 
 
@@ -120,7 +124,7 @@ class AssertionScope(_LabeledIntEnum):
         }
 
 
-EVIDENCE_RULE_VERSION = 1
+EVIDENCE_RULE_VERSION = 2
 
 
 @dataclass(slots=True)

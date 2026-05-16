@@ -7,7 +7,12 @@ import time
 import pytest
 
 from magi.events.events import Event, EventLevel, EventTypes
-from magi.memory.evidence import EvidenceClass, EvidenceStatus, L1RetrievalScope
+from magi.memory.evidence import (
+    EVIDENCE_RULE_VERSION,
+    EvidenceClass,
+    EvidenceStatus,
+    L1RetrievalScope,
+)
 from magi.memory.event_contracts import author_type_code, content_type_code
 from magi.memory.l1.chat_sessions import CHAT_SESSIONS_TABLE
 from magi.memory.event_contracts import IngestTarget, MemoryDomain, RetentionClass, TomDepth, normalize_runtime_event, MemoryEvent
@@ -165,13 +170,13 @@ async def test_l1_event_store_persists_evidence_annotation(tmp_path):
         assert fetched_user["evidence_status"] == "classified"
         assert fetched_user["evidence_class"] == "user_self_report"
         assert fetched_user["l1_retrieval_scope"] == "fact_authoritative"
-        assert fetched_user["evidence_rule_version"] == 1
+        assert fetched_user["evidence_rule_version"] == EVIDENCE_RULE_VERSION
 
         assert fetched_assistant is not None
         assert fetched_assistant["evidence_status"] == "classified"
         assert fetched_assistant["evidence_class"] == "assistant_freeform"
         assert fetched_assistant["l1_retrieval_scope"] == "conversation_only"
-        assert fetched_assistant["evidence_rule_version"] == 1
+        assert fetched_assistant["evidence_rule_version"] == EVIDENCE_RULE_VERSION
     finally:
         await store.shutdown()
 
@@ -218,7 +223,7 @@ async def test_l1_event_store_keeps_raw_event_when_evidence_classification_fails
         assert fetched["evidence_status"] == "classification_error"
         assert fetched["evidence_class"] == "unknown"
         assert fetched["l1_retrieval_scope"] == "none"
-        assert fetched["evidence_rule_version"] == 1
+        assert fetched["evidence_rule_version"] == EVIDENCE_RULE_VERSION
     finally:
         await store.shutdown()
 

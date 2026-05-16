@@ -117,6 +117,108 @@ def test_classifier_maps_user_self_report():
     assert classification.reason_code == "user_default"
 
 
+def test_classifier_maps_user_question_english_wh_word():
+    from magi.memory.evidence import classify_event_evidence
+
+    classification = classify_event_evidence(
+        normalize_runtime_event(_build_user_message(message="What time is the meeting?"))
+    )
+
+    assert classification.evidence_class == "user_question"
+    assert classification.reason_code == "user_question_lead_or_mark"
+
+
+def test_classifier_maps_user_question_trailing_mark_only():
+    from magi.memory.evidence import classify_event_evidence
+
+    classification = classify_event_evidence(
+        normalize_runtime_event(_build_user_message(message="I have a doubt."))
+    )
+
+    assert classification.evidence_class == "user_self_report"
+
+    classification_with_mark = classify_event_evidence(
+        normalize_runtime_event(_build_user_message(message="I have a doubt?"))
+    )
+
+    assert classification_with_mark.evidence_class == "user_question"
+
+
+def test_classifier_maps_user_question_chinese_yes_no_particle():
+    from magi.memory.evidence import classify_event_evidence
+
+    classification = classify_event_evidence(
+        normalize_runtime_event(_build_user_message(message="今天会下雨吗"))
+    )
+
+    assert classification.evidence_class == "user_question"
+
+
+def test_classifier_maps_user_request_chinese_imperative_lead():
+    from magi.memory.evidence import classify_event_evidence
+
+    classification = classify_event_evidence(
+        normalize_runtime_event(_build_user_message(message="请帮我把这段翻译成英文。"))
+    )
+
+    assert classification.evidence_class == "user_request"
+    assert classification.reason_code == "user_request_imperative_lead"
+
+
+def test_classifier_maps_user_request_english_please_lead():
+    from magi.memory.evidence import classify_event_evidence
+
+    classification = classify_event_evidence(
+        normalize_runtime_event(_build_user_message(message="Please summarize the meeting notes."))
+    )
+
+    assert classification.evidence_class == "user_request"
+
+
+def test_user_question_policy_blocks_l2_writes():
+    from magi.memory.evidence import (
+        EvidenceClass,
+        EvidenceClassification,
+        resolve_l2_policy,
+    )
+
+    decision = resolve_l2_policy(
+        EvidenceClassification(
+            evidence_class=EvidenceClass.USER_QUESTION.label,
+            reason_code="user_question_lead_or_mark",
+        )
+    )
+
+    assert decision.allow_graph_write is False
+    assert decision.allow_assertion_write is False
+    assert decision.allow_entity_extraction is False
+    assert decision.count_as_new_evidence is False
+    assert decision.l1_retrieval_scope == "conversation_only"
+    assert decision.skip_reason == "user_question"
+
+
+def test_user_request_policy_blocks_l2_writes():
+    from magi.memory.evidence import (
+        EvidenceClass,
+        EvidenceClassification,
+        resolve_l2_policy,
+    )
+
+    decision = resolve_l2_policy(
+        EvidenceClassification(
+            evidence_class=EvidenceClass.USER_REQUEST.label,
+            reason_code="user_request_imperative_lead",
+        )
+    )
+
+    assert decision.allow_graph_write is False
+    assert decision.allow_assertion_write is False
+    assert decision.allow_entity_extraction is False
+    assert decision.count_as_new_evidence is False
+    assert decision.l1_retrieval_scope == "conversation_only"
+    assert decision.skip_reason == "user_request"
+
+
 def test_classifier_maps_assistant_tool_grounded():
     from magi.memory.evidence import classify_event_evidence
 
