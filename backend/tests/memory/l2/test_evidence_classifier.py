@@ -300,3 +300,54 @@ def test_classifier_maps_assistant_runtime_derivation():
 
     assert classification.evidence_class == "assistant_runtime_derivation"
     assert classification.reason_code == "runtime_chat_response_action"
+
+
+def test_normalize_promotes_chat_response_action_to_assistant_runtime_derivation():
+    """ChatResponseAction normalize override sets the runtime_derivation shape.
+
+    The evidence governance contract treats a runtime-emitted ChatResponseAction
+    as assistant speech (``conversation_only`` retrieval scope) rather than as
+    a tool result. Normalize must materialize that shape directly so the
+    classifier and downstream consumers do not have to re-detect it from
+    ``event_type`` / ``source`` / ``source_item_id``.
+    """
+    memory_event = normalize_runtime_event(_build_chat_response_action_event())
+
+    assert memory_event.author_type == "assistant"
+    assert memory_event.content_type == "runtime_derivation"
+
+
+def test_classifier_external_plugin_source_classifies_as_external_observation():
+    """Plugin-supplied sources land in external_observation via author_type.
+
+    The classifier no longer carries a hand-maintained source-name allowlist;
+    the only signal it consults for external/sensor events is ``author_type``,
+    which ``normalize_runtime_event`` already sets correctly for plugin
+    emitters regardless of the exact source label.
+    """
+    from magi.events.events import Event, EventLevel, EventTypes
+    from magi.memory.evidence import classify_event_evidence
+
+    event = Event(
+        type="SENSOR_EVENT",
+        data={"user_id": "u1", "summary": "Chrome visit"},
+        source="chrome_history",
+        level=EventLevel.INFO,
+        correlation_id="evt-plugin-chrome-1",
+        timestamp=1710000050.0,
+    )
+    classification = classify_event_evidence(normalize_runtime_event(event))
+
+    assert classification.evidence_class == "external_observation"
+    assert classification.reason_code == "external_source"
+
+
+def test_classifier_evidence_rule_version_is_three():
+    """Bumping EVIDENCE_RULE_VERSION triggers stale-row backfill.
+
+    The version is part of the L1 backfill contract: any rule semantics
+    change must bump this constant so existing rows are re-classified.
+    """
+    from magi.memory.evidence import EVIDENCE_RULE_VERSION
+
+    assert EVIDENCE_RULE_VERSION == 3

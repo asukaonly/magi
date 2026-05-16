@@ -124,7 +124,7 @@ class AssertionScope(_LabeledIntEnum):
         }
 
 
-EVIDENCE_RULE_VERSION = 2
+EVIDENCE_RULE_VERSION = 3
 
 
 @dataclass(slots=True)

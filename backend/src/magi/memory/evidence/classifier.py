@@ -1,22 +1,37 @@
-"""Deterministic evidence classification for memory governance."""
+"""Deterministic evidence classification for memory governance.
+
+The classifier is intentionally a small, ordered table of declarative rules
+matched against a normalized ``ClassificationContext``. Each rule has a
+stable ``name`` which is surfaced as ``EvidenceClassification.reason_code``,
+so the wire-level provenance for "why was this event placed in this
+evidence class" stays one-to-one with the rule that fired.
+
+Adding a new evidence class should normally mean:
+
+* add the enum value and label in ``models.py``,
+* add a ``PolicyDecision`` row in ``policy.py``,
+* add a new ``EvidenceRule`` entry to ``EVIDENCE_RULES`` below.
+
+Nothing else in this module needs to change.
+"""
 
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
+from typing import Callable
 
 from ..event_contracts import MemoryDomain, MemoryEvent
 from .models import EvidenceClass, EvidenceClassification
-
-_EXTERNAL_SOURCES = {"timeline", "sensor", "calendar", "location", "external_feed", "external"}
 
 # Sentence-final question markers in common locales.
 _QUESTION_MARK_CHARS = ("?", "？")
 
 # Leading interrogative tokens. Matched case-insensitively against the first
 # whitespace-separated token (Latin scripts) or character window (CJK scripts).
-# Only stable, low-ambiguity markers are listed; ambiguous tokens like "is",
-# "do", "have" intentionally stay out so that statements like "I have a cat"
-# remain classified as user_self_report.
+# Only stable, low-ambiguity markers are listed; ambiguous tokens like ``is``,
+# ``do``, ``have`` intentionally stay out so that statements like
+# ``"I have a cat"`` remain classified as ``user_self_report``.
 _QUESTION_LEAD_LATIN = (
     "what",
     "why",
@@ -79,144 +94,184 @@ _REQUEST_LEAD_CJK = (
 )
 
 _WHITESPACE_RE = re.compile(r"\s+")
+_LEADING_TRIM_CHARS = "\"'`“”‘’（(《<【 "
+
+
+@dataclass(frozen=True)
+class _ClassificationContext:
+    """Normalized facts that rules match against.
+
+    Encapsulates the small amount of pre-computation (lowercasing, trimming,
+    grounding type derivation) so each rule body is a one-liner.
+    """
+
+    event: MemoryEvent
+    author_role: str | None
+    grounding_type: str | None
+    semantic_owner: str | None
+    content_type: str | None
+    memory_domain: MemoryDomain
+    user_intent: str | None  # "question" | "request" | None, only computed for user
+
+
+@dataclass(frozen=True)
+class _EvidenceRule:
+    """One declarative classification rule.
+
+    ``name`` becomes the ``reason_code`` on the resulting classification, so
+    keep it stable across releases (it is part of the observability /
+    backfill contract).
+    """
+
+    name: str
+    evidence_class: EvidenceClass
+    matches: Callable[[_ClassificationContext], bool]
+
+
+def _is_user(ctx: _ClassificationContext) -> bool:
+    return ctx.author_role == "user"
+
+
+def _is_assistant(ctx: _ClassificationContext) -> bool:
+    return ctx.author_role == "assistant"
+
+
+# Ordered list of evidence rules. First match wins.
+#
+# Order matters: ``runtime_chat_response_action`` precedes ``runtime_domain``
+# because an ``ActionExecuted`` wrapping ``ChatResponseAction`` has
+# ``memory_domain=runtime_telemetry`` but should be treated as assistant
+# speech (with retrieval scope ``conversation_only``), not as audit-only
+# runtime telemetry.
+EVIDENCE_RULES: tuple[_EvidenceRule, ...] = (
+    _EvidenceRule(
+        name="runtime_chat_response_action",
+        evidence_class=EvidenceClass.ASSISTANT_RUNTIME_DERIVATION,
+        matches=lambda ctx: _is_assistant(ctx) and ctx.content_type == "runtime_derivation",
+    ),
+    _EvidenceRule(
+        name="runtime_domain",
+        evidence_class=EvidenceClass.SYSTEM_RUNTIME,
+        matches=lambda ctx: ctx.memory_domain == MemoryDomain.RUNTIME_TELEMETRY
+        or ctx.author_role == "system",
+    ),
+    _EvidenceRule(
+        name="external_source",
+        evidence_class=EvidenceClass.EXTERNAL_OBSERVATION,
+        matches=lambda ctx: ctx.author_role in {"external", "sensor"},
+    ),
+    _EvidenceRule(
+        name="assistant_content_type",
+        evidence_class=EvidenceClass.ASSISTANT_TOOL_GROUNDED,
+        matches=lambda ctx: _is_assistant(ctx) and ctx.content_type == "tool_result",
+    ),
+    _EvidenceRule(
+        name="user_question_lead_or_mark",
+        evidence_class=EvidenceClass.USER_QUESTION,
+        matches=lambda ctx: _is_user(ctx) and ctx.user_intent == "question",
+    ),
+    _EvidenceRule(
+        name="user_request_imperative_lead",
+        evidence_class=EvidenceClass.USER_REQUEST,
+        matches=lambda ctx: _is_user(ctx) and ctx.user_intent == "request",
+    ),
+    _EvidenceRule(
+        name="user_default",
+        evidence_class=EvidenceClass.USER_SELF_REPORT,
+        matches=_is_user,
+    ),
+    _EvidenceRule(
+        name="assistant_default",
+        evidence_class=EvidenceClass.ASSISTANT_FREEFORM,
+        matches=_is_assistant,
+    ),
+)
 
 
 def classify_event_evidence(event: MemoryEvent) -> EvidenceClassification:
-    """Classify a normalized event into an evidence class."""
+    """Classify a normalized event into an evidence class.
 
-    speaker_role = _normalized(event.author_type)
-    grounding_type = _grounding_type(event, speaker_role)
-    semantic_owner = _semantic_owner(speaker_role)
-    originality_type = "primary"
-    source_event_ids: list[str] = []
-    normalized_source = _normalized(event.source)
-
-    if _is_assistant_runtime_derivation(event):
-        return EvidenceClassification(
-            evidence_class=EvidenceClass.ASSISTANT_RUNTIME_DERIVATION.label,
-            reason_code="runtime_chat_response_action",
-            speaker_role=speaker_role,
-            grounding_type=grounding_type,
-            semantic_owner=semantic_owner,
-            originality_type=originality_type,
-            source_event_ids=source_event_ids,
-        )
-
-    if event.memory_domain == MemoryDomain.RUNTIME_TELEMETRY or speaker_role == "system":
-        return EvidenceClassification(
-            evidence_class=EvidenceClass.SYSTEM_RUNTIME.label,
-            reason_code="runtime_domain",
-            speaker_role=speaker_role,
-            grounding_type=grounding_type,
-            semantic_owner=semantic_owner,
-            originality_type=originality_type,
-            source_event_ids=source_event_ids,
-        )
-
-    if speaker_role in {"external", "sensor"} or normalized_source in _EXTERNAL_SOURCES:
-        return EvidenceClassification(
-            evidence_class=EvidenceClass.EXTERNAL_OBSERVATION.label,
-            reason_code="external_source",
-            speaker_role=speaker_role,
-            grounding_type=grounding_type,
-            semantic_owner=semantic_owner,
-            originality_type=originality_type,
-            source_event_ids=source_event_ids,
-        )
-
-    if speaker_role == "assistant" and grounding_type == "tool_grounded":
-        return EvidenceClassification(
-            evidence_class=EvidenceClass.ASSISTANT_TOOL_GROUNDED.label,
-            reason_code="assistant_content_type",
-            speaker_role=speaker_role,
-            grounding_type=grounding_type,
-            semantic_owner=semantic_owner,
-            originality_type=originality_type,
-            source_event_ids=source_event_ids,
-        )
-
-    if speaker_role == "assistant":
-        return EvidenceClassification(
-            evidence_class=EvidenceClass.ASSISTANT_FREEFORM.label,
-            reason_code="assistant_default",
-            speaker_role=speaker_role,
-            grounding_type=grounding_type,
-            semantic_owner=semantic_owner,
-            originality_type=originality_type,
-            source_event_ids=source_event_ids,
-        )
-
-    if speaker_role == "user":
-        user_intent = _detect_user_intent(event.content)
-        if user_intent == "question":
-            return EvidenceClassification(
-                evidence_class=EvidenceClass.USER_QUESTION.label,
-                reason_code="user_question_lead_or_mark",
-                speaker_role=speaker_role,
-                grounding_type=grounding_type,
-                semantic_owner=semantic_owner,
-                originality_type=originality_type,
-                source_event_ids=source_event_ids,
+    The decision is a first-match scan of ``EVIDENCE_RULES``. When no rule
+    fires (a degenerate event with an unrecognized author role and a
+    non-runtime memory domain), the fallback is ``external_observation``
+    with ``reason_code='fallback_external'`` so audit pipelines can spot
+    the gap without raising.
+    """
+    ctx = _build_context(event)
+    for rule in EVIDENCE_RULES:
+        if rule.matches(ctx):
+            return _build_classification(
+                rule.evidence_class,
+                reason_code=rule.name,
+                ctx=ctx,
             )
-        if user_intent == "request":
-            return EvidenceClassification(
-                evidence_class=EvidenceClass.USER_REQUEST.label,
-                reason_code="user_request_imperative_lead",
-                speaker_role=speaker_role,
-                grounding_type=grounding_type,
-                semantic_owner=semantic_owner,
-                originality_type=originality_type,
-                source_event_ids=source_event_ids,
-            )
-        return EvidenceClassification(
-            evidence_class=EvidenceClass.USER_SELF_REPORT.label,
-            reason_code="user_default",
-            speaker_role=speaker_role,
-            grounding_type=grounding_type,
-            semantic_owner=semantic_owner,
-            originality_type=originality_type,
-            source_event_ids=source_event_ids,
-        )
-
-    return EvidenceClassification(
-        evidence_class=EvidenceClass.EXTERNAL_OBSERVATION.label,
+    return _build_classification(
+        EvidenceClass.EXTERNAL_OBSERVATION,
         reason_code="fallback_external",
-        speaker_role=speaker_role,
-        grounding_type=grounding_type,
-        semantic_owner=semantic_owner,
-        originality_type=originality_type,
-        source_event_ids=source_event_ids,
+        ctx=ctx,
     )
 
 
-def _grounding_type(event: MemoryEvent, speaker_role: str | None) -> str | None:
-    if speaker_role == "user":
+def _build_context(event: MemoryEvent) -> _ClassificationContext:
+    author_role = _normalized(event.author_type)
+    content_type = _normalized(event.content_type)
+    user_intent = _detect_user_intent(event.content) if author_role == "user" else None
+    return _ClassificationContext(
+        event=event,
+        author_role=author_role,
+        grounding_type=_grounding_type(event, author_role, content_type),
+        semantic_owner=_semantic_owner(author_role),
+        content_type=content_type,
+        memory_domain=event.memory_domain,
+        user_intent=user_intent,
+    )
+
+
+def _build_classification(
+    evidence_class: EvidenceClass,
+    *,
+    reason_code: str,
+    ctx: _ClassificationContext,
+) -> EvidenceClassification:
+    return EvidenceClassification(
+        evidence_class=evidence_class.label,
+        reason_code=reason_code,
+        speaker_role=ctx.author_role,
+        grounding_type=ctx.grounding_type,
+        semantic_owner=ctx.semantic_owner,
+        originality_type="primary",
+        source_event_ids=[],
+    )
+
+
+def _grounding_type(
+    event: MemoryEvent,
+    author_role: str | None,
+    content_type: str | None,
+) -> str | None:
+    if author_role == "user":
         return "self_reported"
-    if speaker_role == "assistant":
-        return "tool_grounded" if _normalized(event.content_type) == "tool_result" else "freeform_generated"
-    if event.memory_domain == MemoryDomain.RUNTIME_TELEMETRY or speaker_role == "system":
+    if author_role == "assistant":
+        if content_type == "tool_result":
+            return "tool_grounded"
+        if content_type == "runtime_derivation":
+            return "runtime_derived"
+        return "freeform_generated"
+    if event.memory_domain == MemoryDomain.RUNTIME_TELEMETRY or author_role == "system":
         return "observed"
-    if speaker_role in {"external", "sensor", "tool"}:
+    if author_role in {"external", "sensor", "tool"}:
         return "observed"
     return "observed"
 
 
-def _semantic_owner(speaker_role: str | None) -> str | None:
-    if speaker_role == "user":
+def _semantic_owner(author_role: str | None) -> str | None:
+    if author_role == "user":
         return "user"
-    if speaker_role == "assistant":
+    if author_role == "assistant":
         return "assistant"
-    if speaker_role in {"external", "sensor", "system", "tool"}:
+    if author_role in {"external", "sensor", "system", "tool"}:
         return "world"
     return None
-
-
-def _is_assistant_runtime_derivation(event: MemoryEvent) -> bool:
-    if str(event.event_type).strip() != "ActionExecuted":
-        return False
-    if _normalized(event.source) != "runtime_event_emitter":
-        return False
-    return _normalized(event.source_item_id) == "chatresponseaction"
 
 
 def _normalized(value: str | None) -> str | None:
@@ -230,7 +285,7 @@ def _detect_user_intent(content: str | None) -> str | None:
     """Heuristically detect whether a user message is a question or request.
 
     Returns ``"question"``, ``"request"``, or ``None`` (treat as
-    user_self_report). Detection intentionally favors specificity over
+    ``user_self_report``). Detection intentionally favors specificity over
     recall so that ordinary user statements such as ``"I have a cat"`` keep
     flowing through ``user_self_report``; only sentences with a clear
     interrogative marker or an explicit imperative lead are reclassified.
@@ -244,14 +299,11 @@ def _detect_user_intent(content: str | None) -> str | None:
     if text.endswith(_QUESTION_MARK_CHARS):
         return "question"
 
-    # Trim leading punctuation/quotes/spaces before head matching.
-    leading_strip = "\"'`“”‘’（(《<【 "
-    head = text.lstrip(leading_strip)
+    head = text.lstrip(_LEADING_TRIM_CHARS)
     if not head:
         return None
     head_lower = head.lower()
 
-    # Latin first-token interrogative.
     first_token_match = _WHITESPACE_RE.split(head_lower, maxsplit=1)
     first_token = first_token_match[0] if first_token_match else ""
     first_token = first_token.rstrip(",.;:!?")
@@ -261,11 +313,9 @@ def _detect_user_intent(content: str | None) -> str | None:
     if any(head.startswith(lead) for lead in _QUESTION_LEAD_CJK):
         return "question"
 
-    # CJK final particles that strongly imply a yes/no question.
     if any(text.endswith(tail) or text.endswith(tail + "。") for tail in _QUESTION_TAIL_CJK):
         return "question"
 
-    # Imperative leads (request/command).
     if any(head_lower.startswith(lead) for lead in _REQUEST_LEAD_LATIN):
         return "request"
     if any(head.startswith(lead) for lead in _REQUEST_LEAD_CJK):

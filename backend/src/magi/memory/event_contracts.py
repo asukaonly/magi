@@ -132,6 +132,7 @@ class ContentType(_LabeledIntEnum):
     TOOL_RESULT = 2
     OBSERVATION = 3
     UNKNOWN = 4
+    RUNTIME_DERIVATION = 5
 
     @classmethod
     def _labels(cls) -> dict["ContentType", str]:
@@ -140,6 +141,7 @@ class ContentType(_LabeledIntEnum):
             cls.TOOL_RESULT: "tool_result",
             cls.OBSERVATION: "observation",
             cls.UNKNOWN: "unknown",
+            cls.RUNTIME_DERIVATION: "runtime_derivation",
         }
 
 
@@ -348,6 +350,15 @@ def _resolve_source_item_id(event: Event, *, payload: dict[str, Any], metadata: 
 
 
 def _resolve_author_type(event: Event, *, payload: dict[str, Any], metadata: dict[str, Any]) -> str:
+    # Runtime emits the assistant's own chat reply as an ActionExecuted event
+    # wrapping a ChatResponseAction. Upstream emitters label it ``tool`` because
+    # it travels through the action loop, but for evidence governance and
+    # conversation retrieval it is assistant-authored. Detect and override
+    # here so the classifier and downstream consumers see a single coherent
+    # ``(assistant, runtime_derivation)`` shape instead of having every
+    # consumer re-match on event_type + source + source_item_id.
+    if _is_runtime_chat_response(event, payload):
+        return AuthorType.ASSISTANT.label
     author_type = _first_non_empty(payload.get("author_type"), metadata.get("author_type"))
     if author_type is not None:
         return author_type_label(author_type)
@@ -368,6 +379,8 @@ def _resolve_author_type(event: Event, *, payload: dict[str, Any], metadata: dic
 
 
 def _resolve_content_type(event: Event, *, payload: dict[str, Any], metadata: dict[str, Any]) -> str:
+    if _is_runtime_chat_response(event, payload):
+        return ContentType.RUNTIME_DERIVATION.label
     content_type = _first_non_empty(payload.get("content_type"), metadata.get("content_type"))
     if content_type is not None:
         return content_type_label(content_type)
@@ -379,6 +392,24 @@ def _resolve_content_type(event: Event, *, payload: dict[str, Any], metadata: di
     if event_type in TRACE_RUNTIME_EVENT_TYPES:
         return ContentType.OBSERVATION.label
     return ContentType.TEXT.label
+
+
+def _is_runtime_chat_response(event: Event, payload: dict[str, Any]) -> bool:
+    """Return True when the event is an ActionExecuted wrapping a ChatResponseAction.
+
+    The runtime event emitter wraps the assistant's chat reply as an
+    ``ActionExecuted`` event with ``action_type=ChatResponseAction`` so that
+    it shares the same action-loop telemetry plumbing as tool executions.
+    For evidence governance and L1 conversation retrieval the durable shape
+    is assistant authored, not tool, so normalize promotes it before any
+    downstream consumer.
+    """
+    if str(event.type).strip() != EventTypes.ACTION_EXECUTED:
+        return False
+    if str(event.source or "").strip().lower() != "runtime_event_emitter":
+        return False
+    action_type = payload.get("action_type") if isinstance(payload, dict) else None
+    return str(action_type or "").strip().lower() == "chatresponseaction"
 
 
 def _classify_event(event: Event) -> Dict[str, Any]:
