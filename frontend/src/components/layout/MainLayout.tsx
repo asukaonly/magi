@@ -3,11 +3,15 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useChatShellStore, useConversationStore } from '@/stores';
 import { useBackendHealth } from '@/hooks/useBackendHealth';
+import { useActivePersona } from '@/hooks/useActivePersona';
 import { panelByPathname } from '@/pages/chat-route-helpers';
+import { DEFAULT_USER_ID } from '@/constants';
 import AppShellProviders from './AppShellProviders';
 import BackendHealthBanner from './BackendHealthBanner';
 import Sidebar from './Sidebar';
 import ShellOverlays from './ShellOverlays';
+import { MemoryPortraitRail } from '@/components/chat/MemoryPortraitRail';
+import { PortraitFloater } from '@/components/chat/portrait/PortraitFloater';
 import { PermissionModalHost, AskDialog } from '@/components/control';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 
@@ -76,10 +80,29 @@ const ShellOverlayErrorFallback = () => {
   );
 };
 
+const PortraitRailHost: React.FC = () => {
+  const portraitRailOpen = useChatShellStore((s) => s.portraitRailOpen);
+  const viewportIsNarrow = useChatShellStore((s) => s.viewportIsNarrow);
+  const currentSessionId = useConversationStore((s) => s.currentSessionId);
+  const { persona } = useActivePersona();
+  if (!portraitRailOpen || !currentSessionId || !persona) {
+    return null;
+  }
+  const props = {
+    sessionId: currentSessionId,
+    userId: DEFAULT_USER_ID,
+    personaId: persona.personaId,
+  };
+  return viewportIsNarrow ? <PortraitFloater {...props} /> : <MemoryPortraitRail {...props} />;
+};
+
 const MainLayout: React.FC = () => {
   const location = useLocation();
   const activePanel = useChatShellStore((state) => state.activePanel);
   const setActivePanel = useChatShellStore((state) => state.setActivePanel);
+  const setViewportIsNarrow = useChatShellStore((state) => state.setViewportIsNarrow);
+  const viewportIsNarrow = useChatShellStore((state) => state.viewportIsNarrow);
+  const portraitRailOpen = useChatShellStore((state) => state.portraitRailOpen);
   const currentSessionId = useConversationStore((state) => state.currentSessionId);
   useBackendHealth();
 
@@ -87,10 +110,27 @@ const MainLayout: React.FC = () => {
     setActivePanel(panelByPathname(location.pathname));
   }, [location.pathname, setActivePanel]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return;
+    }
+    const mql = window.matchMedia('(max-width: 1279px)');
+    const apply = (matches: boolean) => setViewportIsNarrow(matches);
+    apply(mql.matches);
+    const listener = (e: MediaQueryListEvent) => apply(e.matches);
+    mql.addEventListener('change', listener);
+    return () => mql.removeEventListener('change', listener);
+  }, [setViewportIsNarrow]);
+
+  const railColumnVisible = portraitRailOpen && !viewportIsNarrow;
+  const gridColsClass = railColumnVisible
+    ? 'grid-cols-[auto_minmax(0,1fr)_auto]'
+    : 'grid-cols-[auto_minmax(0,1fr)]';
+
   return (
     <AppShellProviders>
       <div className="h-screen w-screen overflow-hidden">
-        <div className="desktop-surface relative grid h-full w-full grid-cols-[auto_minmax(0,1fr)] grid-rows-[minmax(0,1fr)] overflow-hidden">
+        <div className={`desktop-surface relative grid h-full w-full ${gridColsClass} grid-rows-[minmax(0,1fr)] overflow-hidden`}>
           {/* Keep an invisible drag strip for macOS overlay mode without rendering a detached title bar */}
           <div
             className="absolute right-0 top-0 z-40 h-4"
@@ -113,6 +153,16 @@ const MainLayout: React.FC = () => {
               </div>
             </main>
           </div>
+          {railColumnVisible ? (
+            <ErrorBoundary resetKey={currentSessionId} fallback={null}>
+              <PortraitRailHost />
+            </ErrorBoundary>
+          ) : null}
+          {viewportIsNarrow && portraitRailOpen ? (
+            <ErrorBoundary resetKey={currentSessionId} fallback={null}>
+              <PortraitRailHost />
+            </ErrorBoundary>
+          ) : null}
           <ErrorBoundary resetKey={activePanel} fallback={<ShellOverlayErrorFallback />}>
             <ShellOverlays />
           </ErrorBoundary>
