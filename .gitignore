@@ -106,3 +106,6 @@ docs/dev/
 outputs/
 backend/magi-backend.spec
 /.magi/
+
+# Cursor
+.cursor/
