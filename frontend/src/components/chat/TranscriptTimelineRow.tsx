@@ -5,7 +5,7 @@ import type { ProjectedChatTimelineMessage } from '@/domain/chat/presentation';
 import { formatChatClockTime } from '@/domain/chat/timestamps';
 import { useConversationStore } from '@/stores/conversation-store';
 import { useDelegationsStore, type DelegationCardState } from '@/stores/delegations-store';
-import { ChatRoleAvatar } from './ChatRoleAvatar';
+import { ChatRoleAvatar, type ChatAvatarState } from './ChatRoleAvatar';
 import { DelegationCard } from './DelegationCard';
 import { MessageLabelBadge } from './MessageLabelBadge';
 import type {
@@ -163,6 +163,17 @@ export const TranscriptTimelineRow = ({
   const messageAssistant = message.role === 'assistant'
     ? resolveAssistantIdentity(assistant, message.personaId)
     : assistant;
+  // Only the latest assistant turn signals lifecycle through its avatar so
+  // historical bubbles stay visually quiet. The mapping deliberately treats
+  // unknown run states as "idle" rather than "static" — a finished but
+  // current turn should still feel alive instead of frozen.
+  const avatarState: ChatAvatarState = message.role !== 'assistant' || !isLastAssistant
+    ? 'static'
+    : message.streaming || message.runState?.state === 'running'
+      ? 'streaming'
+      : message.runState?.state === 'failed' || message.runState?.state === 'cancelled'
+        ? 'failed'
+        : 'idle';
 
   // Check if this message has an associated delegation (running or finished)
   const hasAssociatedDelegation = Boolean(matchingDelegation);
@@ -249,7 +260,7 @@ export const TranscriptTimelineRow = ({
           userNameLabel={t('chat.you')}
           timestampLabel={formatChatClockTime(message.timestamp, i18n.language)}
           shouldReduceMotion={shouldReduceMotion}
-          avatar={<ChatRoleAvatar role={message.role} assistantName={messageAssistant.name} assistantAvatar={messageAssistant.avatar} />}
+          avatar={<ChatRoleAvatar role={message.role} assistantName={messageAssistant.name} assistantAvatar={messageAssistant.avatar} avatarState={avatarState} />}
           headerExtras={(
             <>
               <AskTranscriptBadge message={message} />

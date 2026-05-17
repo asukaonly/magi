@@ -691,6 +691,66 @@
   }
 }
 
+/* Assistant avatar lifecycle animations.
+ *
+ * The chat shell signals "AI is alive / busy / failed" by toggling
+ * `[data-avatar-state]` on the avatar container. The image inside is whatever
+ * persona artwork the user picked; the shell is what carries the lifecycle
+ * hint. We deliberately keep idle visually silent (a barely perceptible
+ * scale, no colored halo) so it never competes with persona artwork that
+ * already has its own background. Halos are reserved for explicit states:
+ * streaming reads as "thinking right now", failed reads as "something went
+ * wrong". Halo lives on a ::after pseudo-element so the avatar artwork
+ * never inherits the colored ring directly.
+ */
+@keyframes chat-avatar-idle-breathe {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.006); }
+}
+
+@keyframes chat-avatar-streaming-halo {
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50%      { opacity: 0.85; transform: scale(1.06); }
+}
+
+.chat-avatar-shell {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-self: flex-start;
+  border-radius: 9999px;
+  transform-origin: center;
+  will-change: transform;
+}
+
+.chat-avatar-shell::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 9999px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 220ms ease-out;
+}
+
+.chat-avatar-shell[data-avatar-state="idle"] {
+  animation: chat-avatar-idle-breathe 5s ease-in-out infinite;
+}
+
+.chat-avatar-shell[data-avatar-state="streaming"] {
+  animation: chat-avatar-idle-breathe 2.4s ease-in-out infinite;
+}
+
+.chat-avatar-shell[data-avatar-state="streaming"]::after {
+  border: 1.5px solid hsl(var(--primary) / 0.55);
+  animation: chat-avatar-streaming-halo 2.4s ease-in-out infinite;
+}
+
+.chat-avatar-shell[data-avatar-state="failed"]::after {
+  border: 1.5px solid hsl(var(--destructive) / 0.55);
+  opacity: 1;
+}
+
 /* Reduced motion support for accessibility */
 @media (prefers-reduced-motion: reduce) {
   *,

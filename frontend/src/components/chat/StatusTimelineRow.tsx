@@ -25,7 +25,7 @@ export const StatusTimelineRow = ({
     <RuntimeStatusCard
       message={message}
       shouldReduceMotion={shouldReduceMotion}
-      avatar={<ChatRoleAvatar role="assistant" assistantName={assistant.name} assistantAvatar={assistant.avatar} />}
+      avatar={<ChatRoleAvatar role="assistant" assistantName={assistant.name} assistantAvatar={assistant.avatar} avatarState="streaming" />}
       executionPanel={(
         <TimelineExecutionPanel
           executionProgress={projectedMessage.executionProgress}
