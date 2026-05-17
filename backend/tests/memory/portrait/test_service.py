@@ -31,9 +31,13 @@ def deps():
         "topic_extractor": MagicMock(),
         "renderer": MagicMock(),
         "snippet_fetcher": AsyncMock(),
-        "persona_loader": MagicMock(),
+        "persona_loader": AsyncMock(),
         "message_loader": AsyncMock(),
     }
+
+
+def _async_returning(value):
+    return AsyncMock(return_value=value)
 
 
 @pytest.mark.asyncio
@@ -46,7 +50,7 @@ async def test_cold_start_when_no_snippets(deps):
     deps["snippet_fetcher"].return_value = []
     deps["renderer"].render = AsyncMock(return_value=[])
 
-    service = PortraitService(**deps, active_persona_resolver=lambda: "p1",
+    service = PortraitService(**deps, active_persona_resolver=_async_returning("p1"),
                               random_seed=42)
     payload = await service.get_portrait(user_id="u1", session_id="s1")
 
@@ -69,7 +73,7 @@ async def test_full_flow_returns_observations(deps):
                             basis_summary="1 条", basis_refs=["m1"]),
     ])
 
-    service = PortraitService(**deps, active_persona_resolver=lambda: "p1")
+    service = PortraitService(**deps, active_persona_resolver=_async_returning("p1"))
     payload = await service.get_portrait(user_id="u1", session_id="s1")
 
     assert payload.is_cold_start is False
@@ -90,7 +94,7 @@ async def test_cache_hit_skips_llm(deps):
         PortraitObservation(kind="reflection", text="o1", basis_count=1,
                             basis_summary="1", basis_refs=["m1"]),
     ])
-    service = PortraitService(**deps, active_persona_resolver=lambda: "p1")
+    service = PortraitService(**deps, active_persona_resolver=_async_returning("p1"))
     await service.get_portrait(user_id="u1", session_id="s1")
     # second call should hit cache
     deps["topic_extractor"].extract.reset_mock()
@@ -113,7 +117,7 @@ async def test_force_refresh_bypasses_cache(deps):
         PortraitObservation(kind="reflection", text="o1", basis_count=1,
                             basis_summary="1", basis_refs=["m1"]),
     ])
-    service = PortraitService(**deps, active_persona_resolver=lambda: "p1")
+    service = PortraitService(**deps, active_persona_resolver=_async_returning("p1"))
     await service.get_portrait(user_id="u1", session_id="s1")
     deps["topic_extractor"].extract.reset_mock()
     await service.get_portrait(user_id="u1", session_id="s1", force=True)
@@ -122,7 +126,7 @@ async def test_force_refresh_bypasses_cache(deps):
 
 @pytest.mark.asyncio
 async def test_no_active_persona_returns_empty_cold_start(deps):
-    service = PortraitService(**deps, active_persona_resolver=lambda: None)
+    service = PortraitService(**deps, active_persona_resolver=_async_returning(None))
     payload = await service.get_portrait(user_id="u1", session_id="s1")
     assert payload.is_cold_start is True
     assert payload.persona_id == ""

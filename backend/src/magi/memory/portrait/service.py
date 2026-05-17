@@ -21,8 +21,8 @@ logger = logging.getLogger(__name__)
 
 SnippetFetcher = Callable[[str, TopicResult], Awaitable[list[RawMemorySnippet]]]
 MessageLoader = Callable[[str, str], Awaitable[list[dict[str, str]]]]
-PersonaLoader = Callable[[str], dict[str, Any] | None]
-ActivePersonaResolver = Callable[[], str | None]
+PersonaLoader = Callable[[str], Awaitable[dict[str, Any] | None]]
+ActivePersonaResolver = Callable[[], Awaitable[str | None]]
 
 
 class PortraitService:
@@ -58,7 +58,7 @@ class PortraitService:
         session_id: str,
         force: bool = False,
     ) -> PortraitPayload:
-        persona_id = self._active_persona_resolver() or ""
+        persona_id = (await self._active_persona_resolver()) or ""
         if not persona_id:
             return self._build_cold_start(session_id, persona_id="", cold_line="")
 
@@ -82,9 +82,9 @@ class PortraitService:
         topic_result = await self._topic_extractor.extract(messages)
         snippets = await self._snippet_fetcher(user_id, topic_result)
         if not snippets:
-            return self._cold_start_for_persona(session_id, persona_id)
+            return await self._cold_start_for_persona(session_id, persona_id)
 
-        persona_detail = self._persona_loader(persona_id)
+        persona_detail = await self._persona_loader(persona_id)
         persona_config = (persona_detail or {}).get("config") or {}
 
         recent_excerpt = self._last_user_message(messages)
@@ -96,7 +96,7 @@ class PortraitService:
         )
 
         if not observations:
-            return self._cold_start_for_persona(session_id, persona_id)
+            return await self._cold_start_for_persona(session_id, persona_id)
 
         payload = PortraitPayload(
             session_id=session_id,
@@ -132,8 +132,8 @@ class PortraitService:
                 return str(msg.get("content") or "")
         return ""
 
-    def _cold_start_for_persona(self, session_id: str, persona_id: str) -> PortraitPayload:
-        detail = self._persona_loader(persona_id) or {}
+    async def _cold_start_for_persona(self, session_id: str, persona_id: str) -> PortraitPayload:
+        detail = (await self._persona_loader(persona_id)) or {}
         config = detail.get("config") or {}
         interim_lines = (config.get("interim_lines") or {}).get("portrait_cold_start") or []
         line = ""
