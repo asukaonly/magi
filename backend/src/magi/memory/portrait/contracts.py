@@ -41,6 +41,14 @@ class PortraitPayload:
     observations: list[PortraitObservation] = field(default_factory=list)
     is_cold_start: bool = False
     cold_start_line: str | None = None
+    # Diagnostic: which branch produced cold-start. One of:
+    #   "no_persona"          — no active persona configured
+    #   "no_messages"         — chat history loader returned empty
+    #   "topic_empty"         — topic extractor produced no topic
+    #   "no_snippets"         — L2/L3/L4 retrieval returned nothing
+    #   "no_observations"     — renderer LLM produced no observations
+    #   None                  — not a cold start, or unset
+    cold_start_reason: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -51,6 +59,7 @@ class PortraitPayload:
             "observations": [o.to_dict() for o in self.observations],
             "is_cold_start": self.is_cold_start,
             "cold_start_line": self.cold_start_line,
+            "cold_start_reason": self.cold_start_reason,
         }
 
 

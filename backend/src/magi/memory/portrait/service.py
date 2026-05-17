@@ -60,11 +60,19 @@ class PortraitService:
     ) -> PortraitPayload:
         persona_id = (await self._active_persona_resolver()) or ""
         if not persona_id:
-            return self._build_cold_start(session_id, persona_id="", cold_line="")
+            logger.info("portrait cold-start: no_persona session=%s", session_id)
+            return self._build_cold_start(
+                session_id, persona_id="", cold_line="", reason="no_persona",
+            )
 
         messages = await self._message_loader(user_id, session_id)
         if len(messages) > self._message_window:
             messages = messages[-self._message_window:]
+        if not messages:
+            logger.info("portrait cold-start: no_messages session=%s", session_id)
+            return await self._cold_start_for_persona(
+                session_id, persona_id, reason="no_messages",
+            )
 
         # Cache key uses a hash of recent user-message text, not the
         # LLM-extracted topic — otherwise we'd burn a topic-extraction LLM
@@ -80,9 +88,24 @@ class PortraitService:
                 return cached
 
         topic_result = await self._topic_extractor.extract(messages)
+        if topic_result.is_empty():
+            logger.info(
+                "portrait cold-start: topic_empty session=%s messages=%d",
+                session_id, len(messages),
+            )
+            return await self._cold_start_for_persona(
+                session_id, persona_id, reason="topic_empty",
+            )
+
         snippets = await self._snippet_fetcher(user_id, topic_result)
         if not snippets:
-            return await self._cold_start_for_persona(session_id, persona_id)
+            logger.info(
+                "portrait cold-start: no_snippets session=%s topic=%r entities=%s",
+                session_id, topic_result.topic, topic_result.entities,
+            )
+            return await self._cold_start_for_persona(
+                session_id, persona_id, reason="no_snippets",
+            )
 
         persona_detail = await self._persona_loader(persona_id)
         persona_config = (persona_detail or {}).get("config") or {}
@@ -96,7 +119,13 @@ class PortraitService:
         )
 
         if not observations:
-            return await self._cold_start_for_persona(session_id, persona_id)
+            logger.info(
+                "portrait cold-start: no_observations session=%s topic=%r snippets=%d",
+                session_id, topic_result.topic, len(snippets),
+            )
+            return await self._cold_start_for_persona(
+                session_id, persona_id, reason="no_observations",
+            )
 
         payload = PortraitPayload(
             session_id=session_id,
@@ -132,7 +161,13 @@ class PortraitService:
                 return str(msg.get("content") or "")
         return ""
 
-    async def _cold_start_for_persona(self, session_id: str, persona_id: str) -> PortraitPayload:
+    async def _cold_start_for_persona(
+        self,
+        session_id: str,
+        persona_id: str,
+        *,
+        reason: str,
+    ) -> PortraitPayload:
         detail = (await self._persona_loader(persona_id)) or {}
         config = detail.get("config") or {}
         interim_lines = (config.get("interim_lines") or {}).get("portrait_cold_start") or []
@@ -142,7 +177,9 @@ class PortraitService:
         else:
             name = config.get("name") or "AI"
             line = f"{name} 还在认识你 · 跟我多聊聊"
-        return self._build_cold_start(session_id, persona_id=persona_id, cold_line=line)
+        return self._build_cold_start(
+            session_id, persona_id=persona_id, cold_line=line, reason=reason,
+        )
 
     def _build_cold_start(
         self,
@@ -150,6 +187,7 @@ class PortraitService:
         *,
         persona_id: str,
         cold_line: str,
+        reason: str,
     ) -> PortraitPayload:
         return PortraitPayload(
             session_id=session_id,
@@ -159,4 +197,5 @@ class PortraitService:
             observations=[],
             is_cold_start=True,
             cold_start_line=cold_line or None,
+            cold_start_reason=reason,
         )
