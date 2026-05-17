@@ -11,6 +11,7 @@ import {
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
+import { isMacPlatform } from '@/lib/platform';
 import { messagesApi, type ChatSessionListItem } from '@/api';
 import { CHAT_SESSION_KEY, DEFAULT_USER_ID } from '@/constants';
 import { Button } from '@/components/ui/button';
@@ -290,6 +291,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   }, [currentSessionId, orderedSessionIds, sessionsById, t]);
 
   const tasksActiveCount = useBackgroundTaskStore((state) => state.activeCount);
+  const isMac = useMemo(() => isMacPlatform(), []);
 
   if (collapsed) {
     return null;
@@ -593,7 +595,13 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
           </button>
         </div>
       ) : null}
-      <div className="flex w-14 shrink-0 flex-col border-r border-[hsl(var(--sidebar-border))] px-1.5 py-3" data-testid="sidebar-activity-bar">
+      <div
+        className={cn(
+          'flex w-14 shrink-0 flex-col border-r border-[hsl(var(--sidebar-border))] px-1.5 pb-3',
+          isMac ? 'pt-9' : 'pt-3'
+        )}
+        data-testid="sidebar-activity-bar"
+      >
         <div className="flex min-h-0 flex-1 flex-col items-center gap-1">
           {renderActivityButton(
             'conversation',
