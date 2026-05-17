@@ -3,7 +3,6 @@
 
 mod desktop_presence;
 mod dmg_cleanup;
-mod frontmost_app_monitor;
 
 use magi_gateway::{api, ipc, notification_bridge};
 
@@ -1282,11 +1281,6 @@ fn main() {
             if let Err(err) = desktop_presence::setup(app.handle()) {
                 log::warn!(
                     "Optional desktop presence setup is unavailable; continuing without tray integration: {err}"
-                );
-            }
-            if let Err(err) = frontmost_app_monitor::setup_monitor() {
-                log::warn!(
-                    "Optional frontmost app monitor is unavailable; continuing without activation tracking: {err}"
                 );
             }
             Ok(())

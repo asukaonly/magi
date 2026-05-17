@@ -460,11 +460,11 @@ async def test_runtime_trace_store_claims_and_updates_plugin_ingress_events(tmp_
             StoredPluginIngressEventRecord(
                 event_id=0,
                 source_kind="desktop",
-                producer="frontmost_app_monitor",
-                plugin_target="screen_time",
-                event_type="frontmost_app_activated",
+                producer="example_producer",
+                plugin_target="example_target",
+                event_type="example_event",
                 occurred_at_ms=1_711_523_200_000,
-                payload_json='{"bundle_id":"com.apple.Safari","app_name":"Safari"}',
+                payload_json='{"foo":"bar"}',
                 created_at_ms=1_711_523_200_050,
             )
         )
@@ -485,11 +485,11 @@ async def test_runtime_trace_store_claims_and_updates_plugin_ingress_events(tmp_
             StoredPluginIngressEventRecord(
                 event_id=0,
                 source_kind="desktop",
-                producer="frontmost_app_monitor",
-                plugin_target="screen_time",
-                event_type="frontmost_app_activated",
+                producer="example_producer",
+                plugin_target="example_target",
+                event_type="example_event",
                 occurred_at_ms=1_711_523_500_000,
-                payload_json='{"bundle_id":"com.apple.Terminal","app_name":"Terminal"}',
+                payload_json='{"foo":"baz"}',
                 created_at_ms=1_711_523_500_010,
             )
         )

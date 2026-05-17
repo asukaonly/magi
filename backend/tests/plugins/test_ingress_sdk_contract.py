@@ -13,9 +13,9 @@ from magi_plugin_sdk.ingress import PluginIngressHandlerRegistration as SdkPlugi
 class StubIngressEvent:
     event_id = 1
     source_kind = "sensor"
-    producer = "screen_time"
-    plugin_target = "screen_time"
-    event_type = "frontmost_app_activated"
+    producer = "example_producer"
+    plugin_target = "example_target"
+    event_type = "example_event"
     occurred_at_ms = 1234567890
     payload_json = "{}"
     cursor_key = None
@@ -42,9 +42,9 @@ def test_runtime_trace_keeps_storage_record_alias() -> None:
     record = StoredPluginIngressEventRecord(
         event_id=1,
         source_kind="sensor",
-        producer="screen_time",
-        plugin_target="screen_time",
-        event_type="frontmost_app_activated",
+        producer="example_producer",
+        plugin_target="example_target",
+        event_type="example_event",
         occurred_at_ms=1234567890,
     )
 
@@ -62,8 +62,8 @@ def test_ingress_protocols_accept_structural_plugin_types() -> None:
     assert plugin.get_plugin_ingress_registrations(runtime_paths=object()) == []
 
     registration = SdkPluginIngressHandlerRegistration(
-        plugin_target="screen_time",
-        event_type="frontmost_app_activated",
+        plugin_target="example_target",
+        event_type="example_event",
         handler=handler,
     )
-    assert registration.plugin_target == "screen_time"
+    assert registration.plugin_target == "example_target"
