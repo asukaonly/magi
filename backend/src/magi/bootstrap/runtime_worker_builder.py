@@ -46,6 +46,7 @@ from ..plugins.lifecycle import PluginSystemModule
 from ..runtime_trace import RuntimeTraceStore
 from ..runtime_trace.lifecycle import RuntimeTraceSubscriberModule
 from ..scheduler.lifecycle import SchedulerModule
+from ..hooks.lifecycle import HooksModule
 from ..skills.lifecycle import SkillsModule
 from ..timeline.lifecycle import TimelineModule
 from ..tools.lifecycle import ToolsModule
@@ -127,6 +128,7 @@ def _build_stateful_service_modules(context: RuntimeBootstrapContext) -> list[Li
         ChatProjectorModule(context),
         _build_runtime_trace_module(context),
         RuntimeTraceSubscriberModule(context),
+        HooksModule(context),
         ToolsModule(context),
         SkillsModule(context),
         MCPModule(context),

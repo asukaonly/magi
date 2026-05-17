@@ -713,6 +713,7 @@
       "kindIteration": "处理轮次",
       "kindIntent": "意图识别",
       "kindLlm": "LLM 调用",
+      "kindSkill": "技能调用",
       "kindResponse": "结果输出",
       "kindRhythm": "自然节奏处理",
       "kindDispatch": "子任务启动",
@@ -773,7 +774,12 @@
       "taskOperation": "任务操作",
       "routerTools": "路由工具顺序",
       "selectedTools": "最终工具顺序",
-      "recommendedTools": "推荐工具排序"
+      "recommendedTools": "推荐工具排序",
+      "skillName": "技能",
+      "skillForkMode": "执行模式",
+      "skillForkOn": "子代理执行",
+      "skillForkOff": "内联执行",
+      "skillAllowedTools": "技能可用工具"
     },
     "worker": {
       "started": "Worker {{workerId}} 已启动（{{subagentType}}）：{{description}}",
@@ -857,7 +863,18 @@
       "channels": "接入渠道",
       "channelsTelegram": "Telegram",
       "control": "控制面",
+      "hooks": "Hooks",
       "system": "系统"
+    },
+    "hooks": {
+      "title": "已注册 Hooks",
+      "description": "展示当前生效的 Hook，包括来自 ~/.claude/settings.json 和插件贡献的 Hook。",
+      "totalCount": "共 {{count}} 个 Hook",
+      "handlerCount": "{{count}} 个处理器",
+      "empty": "暂无注册的 Hook。在 ~/.claude/settings.json 配置即可生效。",
+      "loadError": "加载失败：{{error}}",
+      "sourceUnknown": "未知来源",
+      "matcherPrefix": "匹配"
     },
     "preferencesDesc": "配置界面语言、主题和桌面行为",
     "personalProfileDesc": "管理 Magi 用来称呼和理解你的个人资料。",

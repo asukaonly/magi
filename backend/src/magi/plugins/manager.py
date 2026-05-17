@@ -106,6 +106,7 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
         self._plugin_instances: dict[str, Plugin] = {}
         self._registered_tools: dict[str, list[str]] = {}
         self._registered_sensors: dict[str, list[str]] = {}
+        self._registered_hooks: dict[str, list[tuple[Any, Any]]] = {}
 
     @property
     def search_paths(self) -> list[Path]:
@@ -283,6 +284,18 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
                     )
                 )
 
+            # Phase 4: optional hook contributions. Defensively wrapped — a plugin
+            # without get_hooks() (older SDK) simply contributes nothing.
+            hook_ids: list[tuple[str, Any]] = []
+            try:
+                hook_specs = list(plugin_instance.get_hooks() or [])
+            except AttributeError:
+                hook_specs = []
+            except Exception:
+                hook_specs = []
+            if hook_specs:
+                self._register_plugin_hooks(plugin_id, hook_specs, registered_contributions)
+
             state.loaded = True
             state.healthy = True
             state.last_error = None
@@ -297,6 +310,72 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
             self.unload_plugin(plugin_id)
             raise
 
+    def _resolve_hook_registry(self):
+        """Best-effort resolve of the shared HookRegistry."""
+        try:
+            from ..core.container import get_container
+
+            registry = get_container().hook_registry()
+        except Exception:
+            return None
+        if registry is None or type(registry).__name__ == "object":
+            return None
+        return registry
+
+    def _register_plugin_hooks(
+        self,
+        plugin_id: str,
+        hook_specs: list[tuple[Any, ...]],
+        registered_contributions: list[PluginContribution],
+    ) -> None:
+        registry = self._resolve_hook_registry()
+        if registry is None:
+            return
+        try:
+            from ..hooks.contracts import HookEventType
+        except Exception:
+            return
+
+        recorded: list[tuple[Any, Any]] = []
+        for raw_index, spec in enumerate(hook_specs):
+            if not isinstance(spec, tuple) or len(spec) < 2:
+                continue
+            event_value = spec[0]
+            handler = spec[1]
+            matcher = spec[2] if len(spec) >= 3 else None
+            try:
+                event_type = HookEventType(event_value)
+            except ValueError:
+                continue
+            try:
+                registry.register(
+                    event_type,
+                    handler,
+                    matcher=str(matcher) if matcher else None,
+                    source=f"plugin:{plugin_id}",
+                )
+            except TypeError:
+                # Sync handler — skip without crashing the plugin load.
+                continue
+            recorded.append((event_type, handler))
+            contribution_id = f"{plugin_id}:hook:{event_type.value}:{raw_index}"
+            registered_contributions.append(
+                PluginContribution(
+                    plugin_id=plugin_id,
+                    contribution_id=contribution_id,
+                    contribution_type=ContributionType.HOOK,
+                    display_name=f"{event_type.value} hook",
+                    description=f"Hook contributed by {plugin_id}",
+                    surface="extensions",
+                    metadata={
+                        "event_type": event_type.value,
+                        "matcher": matcher,
+                    },
+                )
+            )
+        if recorded:
+            self._registered_hooks[plugin_id] = recorded
+
     def unload_plugin(self, plugin_id: str) -> None:
         """Unload a plugin and unregister its contributions."""
 
@@ -304,6 +383,15 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
             self._tool_registry.unregister(tool_name)
         for sensor_id in self._registered_sensors.pop(plugin_id, []):
             self._sensor_registry.unregister(sensor_id)
+        hook_entries = self._registered_hooks.pop(plugin_id, [])
+        if hook_entries:
+            registry = self._resolve_hook_registry()
+            if registry is not None:
+                for event_type, handler in hook_entries:
+                    try:
+                        registry.unregister(event_type, handler)
+                    except Exception:
+                        pass
         self._plugin_instances.pop(plugin_id, None)
         state = self._package_states.get(plugin_id)
         if state is not None:

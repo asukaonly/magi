@@ -714,6 +714,7 @@
       "kindIteration": "Processing round",
       "kindIntent": "Intent resolution",
       "kindLlm": "LLM call",
+      "kindSkill": "Skill call",
       "kindResponse": "Response emission",
       "kindRhythm": "Response rhythm",
       "kindDispatch": "Subtask launch",
@@ -774,7 +775,12 @@
       "taskOperation": "Task Operation",
       "routerTools": "Router Tool Order",
       "selectedTools": "Final Tool Order",
-      "recommendedTools": "Recommended Tool Ranking"
+      "recommendedTools": "Recommended Tool Ranking",
+      "skillName": "Skill",
+      "skillForkMode": "Execution Mode",
+      "skillForkOn": "Sub-agent",
+      "skillForkOff": "Inline",
+      "skillAllowedTools": "Skill Allowed Tools"
     },
     "worker": {
       "started": "Worker {{workerId}} started ({{subagentType}}): {{description}}",
@@ -858,7 +864,18 @@
       "channels": "Channels",
       "channelsTelegram": "Telegram",
       "control": "Control Plane",
+      "hooks": "Hooks",
       "system": "System"
+    },
+    "hooks": {
+      "title": "Registered Hooks",
+      "description": "Hooks currently loaded — sourced from ~/.claude/settings.json and plugin contributions.",
+      "totalCount": "{{count}} hook(s) total",
+      "handlerCount": "{{count}} handler(s)",
+      "empty": "No hooks are registered. Configure them in ~/.claude/settings.json to enable.",
+      "loadError": "Failed to load: {{error}}",
+      "sourceUnknown": "Unknown source",
+      "matcherPrefix": "matcher"
     },
     "preferencesDesc": "Configure interface language, theme, and desktop behavior",
     "personalProfileDesc": "Manage the profile Magi uses to address and understand you.",

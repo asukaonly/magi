@@ -14,6 +14,7 @@ from magi.events.events import Event, EventLevel, EventTypes
 from magi.events.domain_payloads import (
     AssistantResponseProduced,
     SensorEventEmitted,
+    SkillInvocationCompleted,
     SpanCompleted,
     TaskCompleted,
     TaskContext,
@@ -326,6 +327,47 @@ def _span_to_task_lifecycle_memory(event: Event, sp: SpanCompleted) -> Optional[
     return _from_task_failed(synthetic)
 
 
+def _from_skill_invocation(event: Event) -> MemoryEvent:
+    """Translate a SkillInvocationCompleted into an ACTION_EXECUTED-shaped memory event.
+
+    Skills behave as tool-like actions from the agent's perspective; reusing the
+    tool-invocation memory shape keeps a single timeline of executed actions.
+    """
+    p: SkillInvocationCompleted = event.data
+    if p.context.session_id is None:
+        logger.debug("translate: skill invocation without session_id (skill=%s)", p.skill_name)
+    action_type = f"skill:{p.skill_name}"
+    legacy_data = {
+        **_ctx_dict(p.context),
+        "action_type": action_type,
+        "content": action_type,
+    }
+    legacy_level = EventLevel.ERROR if not p.success else event.level
+    legacy = Event(
+        type=EventTypes.ACTION_EXECUTED,
+        data=legacy_data,
+        timestamp=event.timestamp,
+        source=str(event.source or "skill_runner"),
+        level=legacy_level,
+        correlation_id=event.correlation_id,
+        metadata=dict(event.metadata or {}),
+    )
+    me = normalize_runtime_event(legacy)
+    me.metadata_json = {
+        "duration_ms": p.duration_ms,
+        "input": p.args_summary,
+        "output": p.result_summary,
+        "error": p.error.message if p.error else None,
+        "tool_category": "skill",
+        "skill_name": p.skill_name,
+        "fork_mode": p.fork_mode,
+        "allowed_tools": list(p.allowed_tools) if p.allowed_tools else None,
+        "started_at": p.started_at,
+        "finished_at": p.finished_at,
+    }
+    return me
+
+
 _DISPATCH: dict[str, EventTranslator] = {
     EventTypes.TOOL_INVOCATION_COMPLETED: _from_tool_invocation,
     EventTypes.SPAN_COMPLETED: _from_span_completed,
@@ -335,6 +377,7 @@ _DISPATCH: dict[str, EventTranslator] = {
     EventTypes.TASK_STARTED: _from_task_started,
     EventTypes.TASK_COMPLETED: _from_task_completed,
     EventTypes.TASK_FAILED: _from_task_failed,
+    EventTypes.SKILL_INVOCATION_COMPLETED: _from_skill_invocation,
 }
 
 

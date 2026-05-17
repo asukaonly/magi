@@ -54,6 +54,9 @@ export type {
 export { skillsApi } from './modules/skills';
 export type { SkillItem } from './modules/skills';
 
+export { hooksApi } from './modules/hooks';
+export type { HookEntry, HooksListResponse } from './modules/hooks';
+
 export { memoryApi } from './modules/memory';
 export type { ModelDownloadStatus } from './modules/memory';
 

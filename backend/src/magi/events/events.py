@@ -187,3 +187,4 @@ class EventTypes:
     ASSISTANT_RESPONSE_PRODUCED = "AssistantResponseProduced"
     SENSOR_EVENT_EMITTED = "SensorEventEmitted"
     SPAN_COMPLETED = "SpanCompleted"
+    SKILL_INVOCATION_COMPLETED = "SkillInvocationCompleted"

@@ -109,6 +109,29 @@ class Plugin(ABC):
         """Return declarative settings fields for the optional channel contribution."""
         return []
 
+    def get_hooks(self) -> list[tuple[str, Any, str | None]]:
+        """Return ``(event_type, handler, matcher)`` tuples contributed by this plugin.
+
+        ``event_type`` must be a valid ``HookEventType`` value (the string form, e.g.
+        ``"PreToolUse"``). ``handler`` is an ``async def handler(ctx) -> HookDecision``.
+        ``matcher`` is an optional substring used to filter the dispatch matcher key
+        (e.g. ``"Bash"`` to only run on the Bash tool); pass ``None`` to receive
+        every dispatch.
+
+        Plugins that do not contribute hooks should leave the default empty list.
+        """
+        return []
+
+    def get_skills(self) -> list[tuple[str, Path]]:
+        """Return ``(skill_id, path_to_skill_dir)`` tuples contributed by this plugin.
+
+        Each path must point at a directory containing a ``SKILL.md`` file. The host
+        runtime is responsible for invoking the indexer on the returned paths.
+
+        Plugins that do not contribute skills should leave the default empty list.
+        """
+        return []
+
     def get_settings_resources(self) -> list[PluginSettingsResourceSpec]:
         """Return read-only resource descriptors consumed by dynamic settings UI."""
         return []

@@ -82,6 +82,8 @@ class Container(containers.DeclarativeContainer):
     permission_rule_store: providers.Singleton[Any] = providers.Singleton(object)
     control_interaction_broker: providers.Singleton[Any] = providers.Singleton(object)
     pending_permission_registry: providers.Singleton[Any] = providers.Singleton(object)
+    hook_gateway: providers.Singleton[Any] = providers.Singleton(object)
+    hook_registry: providers.Singleton[Any] = providers.Singleton(object)
 
     # Container-owned read services and lightweight service providers.
     chat_read_service: providers.Singleton[ChatReadService] = providers.Singleton(

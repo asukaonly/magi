@@ -62,8 +62,39 @@ class ToolInvocationService:
         self._tool_registry = tool_registry
 
     async def invoke(self, call: ToolCall, ctx: InvocationContext):
+        from magi.hooks.contracts import HookEventType, HookOutcome
+        from magi.hooks.dispatch import dispatch_hook
+
         started_at = time.time()
         started_mono = time.monotonic()
+
+        session_id = ctx.task_context.session_id if ctx.task_context else None
+        turn_id_raw = ctx.task_context.turn_id if ctx.task_context else None
+        user_id_raw = ctx.task_context.user_id if ctx.task_context else None
+        workspace_raw = getattr(ctx.execution_context, "workspace", None)
+
+        pre_decision = await dispatch_hook(
+            HookEventType.PRE_TOOL_USE,
+            session_id=session_id,
+            turn_id=turn_id_raw,
+            user_id=user_id_raw,
+            workspace=workspace_raw,
+            tool_name=call.name,
+            arguments=dict(call.args),
+        )
+        if pre_decision.outcome == HookOutcome.DENY:
+            from magi.agent.execution.function_calling.types import ToolCallResult
+            return ToolCallResult(
+                tool_call_id="",
+                tool_name=call.name,
+                success=False,
+                error=pre_decision.reason or "Tool call denied by hook",
+                error_code="HOOK_DENIED",
+                execution_time=0.0,
+            )
+        if pre_decision.outcome == HookOutcome.MODIFY and pre_decision.modified_arguments is not None:
+            call = ToolCall(name=call.name, args=dict(pre_decision.modified_arguments))
+
         args_summary = _summarize(dict(call.args))
         arguments_json = _safe_json_dumps(dict(call.args))
 
@@ -141,6 +172,22 @@ class ToolInvocationService:
                         type=err_code or "ToolFailure",
                         message=err_msg or "",
                     )
+                await dispatch_hook(
+                    HookEventType.POST_TOOL_USE,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    user_id=user_id,
+                    workspace=workspace_raw,
+                    tool_name=call.name,
+                    arguments=dict(call.args),
+                    extra={
+                        "success": success,
+                        "duration_ms": duration_ms,
+                        "result_summary": result_summary,
+                        "error_code": str(getattr(result, "error_code", "") or "") or None,
+                        "error_message": str(getattr(result, "error", "") or "")[:1000] or None,
+                    },
+                )
                 return result
             except Exception as exc:
                 duration_ms = int((time.monotonic() - started_mono) * 1000)

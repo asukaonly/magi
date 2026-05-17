@@ -14,6 +14,7 @@ import {
   RuntimeStatisticsSection,
 } from '@/components/settings';
 import { SettingsControlSection } from '@/components/settings/SettingsControlSection';
+import { HooksSection } from '@/components/settings/HooksSection';
 import { SettingsConversationSection } from '@/components/settings/SettingsConversationSection';
 import { SettingsIntegrationsSection, type SettingsIntegrationsSectionId } from '@/components/settings/SettingsIntegrationsSection';
 import { SettingsLlmSection } from '@/components/settings/SettingsLlmSection';
@@ -353,6 +354,9 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             patchDraftControlSettings={patchDraftControlSettings}
           />
         );
+
+      case 'hooks':
+        return <HooksSection />;
 
       default:
         return null;

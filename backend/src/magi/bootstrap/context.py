@@ -117,6 +117,19 @@ class SkillsBootstrapState:
 
 
 @dataclass
+class HooksBootstrapState:
+    """Programmable hooks subsystem state slice.
+
+    Lives next to skills/permission so the agent runtime can resolve a
+    single ``HookGateway`` instance regardless of which subsystem triggered
+    the dispatch.
+    """
+
+    registry: Any = None
+    gateway: Any = None
+
+
+@dataclass
 class PersonalityBootstrapState:
     """L8 Personality Layer state slice."""
 
@@ -194,6 +207,7 @@ class RuntimeBootstrapContext:
     llm: LLMBootstrapState = field(default_factory=LLMBootstrapState)
     memory: MemoryBootstrapState = field(default_factory=MemoryBootstrapState)
     skills: SkillsBootstrapState = field(default_factory=SkillsBootstrapState)
+    hooks: HooksBootstrapState = field(default_factory=HooksBootstrapState)
     personality: PersonalityBootstrapState = field(default_factory=PersonalityBootstrapState)
     context: ContextBootstrapState = field(default_factory=ContextBootstrapState)
     agent_runtime: AgentRuntimeBootstrapState = field(default_factory=AgentRuntimeBootstrapState)

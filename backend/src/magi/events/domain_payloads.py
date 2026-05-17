@@ -116,3 +116,18 @@ class SpanCompleted:
     result_preview: Optional[str]
     turn_id: Optional[str]
     attributes: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class SkillInvocationCompleted:
+    skill_name: str
+    success: bool
+    duration_ms: float
+    started_at: float
+    finished_at: float
+    fork_mode: bool
+    args_summary: Optional[str]
+    result_summary: Optional[str]
+    allowed_tools: Optional[tuple[str, ...]]
+    error: Optional[ToolError]
+    context: TaskContext
