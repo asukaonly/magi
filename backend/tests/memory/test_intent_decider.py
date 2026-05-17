@@ -85,6 +85,50 @@ class TestTimeParsingStatic:
         seven_days_ago = now - 7 * 86400
         assert abs(result.time_range.start - seven_days_ago) < 5
 
+    def test_recent_n_hours_zh_does_not_collapse_to_7_days(self, decider: RuleBasedIntentDecider):
+        """`最近 N 小时` must keep hour precision instead of being widened to 7 days."""
+        inp = IntentDeciderInput(query="看看我最近1小时在玩什么")
+        result = decider.evaluate(inp)
+        assert result.time_range is not None
+        now = time.time()
+        assert abs(result.time_range.end - now) < 5
+        assert abs(result.time_range.start - (now - 3600)) < 5
+
+    def test_recent_n_minutes_zh(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="最近30分钟我做了什么")
+        result = decider.evaluate(inp)
+        assert result.time_range is not None
+        now = time.time()
+        assert abs(result.time_range.start - (now - 1800)) < 5
+
+    def test_recent_n_days_zh(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="最近3天的活动总结")
+        result = decider.evaluate(inp)
+        assert result.time_range is not None
+        now = time.time()
+        assert abs(result.time_range.start - (now - 3 * 86400)) < 5
+
+    def test_recent_n_weeks_zh(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="最近2周做了哪些项目")
+        result = decider.evaluate(inp)
+        assert result.time_range is not None
+        now = time.time()
+        assert abs(result.time_range.start - (now - 2 * 604800)) < 5
+
+    def test_recent_n_hours_en(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="what did I do in the past 2 hours")
+        result = decider.evaluate(inp)
+        assert result.time_range is not None
+        now = time.time()
+        assert abs(result.time_range.start - (now - 7200)) < 5
+
+    def test_recent_n_days_en(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="summarize the last 5 days")
+        result = decider.evaluate(inp)
+        assert result.time_range is not None
+        now = time.time()
+        assert abs(result.time_range.start - (now - 5 * 86400)) < 5
+
     def test_day_before_yesterday(self, decider: RuleBasedIntentDecider):
         inp = IntentDeciderInput(query="前天聊了什么")
         result = decider.evaluate(inp)

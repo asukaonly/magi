@@ -14,6 +14,29 @@ logger = logging.getLogger(__name__)
 
 _RECENTLY_KEYWORDS: list[str] = ["最近", "recently", "近期"]
 
+# Precise "最近 N 单位 / past N units" patterns. They take priority over the
+# bare "最近 → 7 days" fallback so "最近 1 小时" stops collapsing to a week.
+_ZH_RECENT_QUANTITY_RE = re.compile(
+    r"最近\s*(\d+)\s*(分钟|小时|天|周|个月|月)"
+)
+_EN_RECENT_QUANTITY_RE = re.compile(
+    r"(?:in\s+the\s+)?(?:past|last|recent(?:ly)?)\s+(\d+)\s+(minute|hour|day|week|month)s?",
+    re.IGNORECASE,
+)
+_RECENT_QUANTITY_UNIT_SECONDS: dict[str, int] = {
+    "分钟": 60,
+    "小时": 3600,
+    "天": 86400,
+    "周": 604800,
+    "月": 2592000,
+    "个月": 2592000,
+    "minute": 60,
+    "hour": 3600,
+    "day": 86400,
+    "week": 604800,
+    "month": 2592000,
+}
+
 _ZH_YEAR_MONTH_RE = re.compile(r"(?<!\d)(\d{4})\s*年\s*(\d{1,2})\s*月(?!\s*\d\s*[号日])")
 _ZH_RELATIVE_RE = re.compile(r"\d+\s*(?:天|小时|周|个?月)前")
 _ZH_DATE_RE = re.compile(r"(\d{1,2})\s*月\s*(\d{1,2})\s*[号日]")
@@ -121,6 +144,10 @@ def parse_time_from_query(query: str) -> TimeRange | None:
     query_lower = query.lower()
     now = datetime.now(tz=timezone.utc)
 
+    explicit_recent = _parse_recent_quantity(query, now)
+    if explicit_recent is not None:
+        return explicit_recent
+
     if any(keyword in query_lower for keyword in _RECENTLY_KEYWORDS):
         return TimeRange(
             start=(now - timedelta(days=7)).timestamp(),
@@ -172,6 +199,33 @@ def parse_time_from_query(query: str) -> TimeRange | None:
         start=min(r.start for r in all_ranges if r.start is not None),
         end=max(r.end for r in all_ranges if r.end is not None),
     )
+
+
+def _parse_recent_quantity(query: str, now: datetime) -> TimeRange | None:
+    """Resolve "最近 N 单位" / "in the past N units" into a TimeRange.
+
+    Returns None when no precise quantity is found so callers can fall
+    back to broader keyword rules. Only digit quantities are recognized;
+    spellings like "最近一周" intentionally fall through to the bare
+    "最近" → 7-day default to keep the rule surface narrow.
+    """
+    for pattern in (_ZH_RECENT_QUANTITY_RE, _EN_RECENT_QUANTITY_RE):
+        match = pattern.search(query)
+        if match is None:
+            continue
+        try:
+            amount = int(match.group(1))
+        except (TypeError, ValueError):
+            continue
+        if amount <= 0:
+            continue
+        unit_key = match.group(2).lower()
+        seconds = _RECENT_QUANTITY_UNIT_SECONDS.get(unit_key)
+        if seconds is None:
+            continue
+        end_ts = now.timestamp()
+        return TimeRange(start=end_ts - amount * seconds, end=end_ts)
+    return None
 
 
 def try_chinese_temporal(query: str, now: datetime) -> TimeRange | None:
