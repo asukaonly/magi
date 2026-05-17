@@ -51,6 +51,14 @@
     "timeline": "时间线",
     "tasks": "任务",
     "settings": "设置",
+    "personaCompanion": {
+      "firstDay": "今天初次见面",
+      "yesterday": "昨天起",
+      "companionDays_one": "陪伴 {{count}} 天",
+      "companionDays_other": "陪伴 {{count}} 天",
+      "companionYears": "陪伴 {{years}} 年 {{days}} 天",
+      "tooltip": "{{name}} · 创建于 {{date}}"
+    },
     "contentErrorTitle": "此页面遇到错误",
     "contentErrorDescription": "Magi 的其他部分仍可使用。如果这个页面持续失败，请重新加载应用。",
     "sidebarErrorTitle": "导航遇到错误",
@@ -455,6 +463,17 @@
       "idle": "今天还没有传感器数据",
       "retry": "重新加载",
       "tooltip": "今日感知 · 共 {{total}} 条来自 {{count}} 个来源"
+    },
+    "portrait": {
+      "title": "我对你的看法",
+      "coldStartFallback": "我还在认识你，多聊聊。",
+      "toggleAria": "切换画像板",
+      "kinds": {
+        "reflection": "反思",
+        "assertion": "事实",
+        "relationship": "关系",
+        "procedure": "经验"
+      }
     },
     "recalledMemories": {
       "summary_one": "调用了 {{count}} 条记忆",

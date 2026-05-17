@@ -51,6 +51,14 @@
     "timeline": "Timeline",
     "tasks": "Tasks",
     "settings": "Settings",
+    "personaCompanion": {
+      "firstDay": "First met today",
+      "yesterday": "Since yesterday",
+      "companionDays_one": "Together for 1 day",
+      "companionDays_other": "Together for {{count}} days",
+      "companionYears": "Together for {{years}}y {{days}}d",
+      "tooltip": "{{name}} · created {{date}}"
+    },
     "contentErrorTitle": "This page encountered an error",
     "contentErrorDescription": "The rest of Magi is still available. Reload the app if this page keeps failing.",
     "sidebarErrorTitle": "Navigation encountered an error",
@@ -455,6 +463,17 @@
       "idle": "No sensor activity today yet",
       "retry": "Reload",
       "tooltip": "Today's awareness · {{total}} events across {{count}} sources"
+    },
+    "portrait": {
+      "title": "How I see you",
+      "coldStartFallback": "Still getting to know you. Tell me more.",
+      "toggleAria": "Toggle portrait rail",
+      "kinds": {
+        "reflection": "Reflection",
+        "assertion": "Fact",
+        "relationship": "Relation",
+        "procedure": "Procedure"
+      }
     },
     "recalledMemories": {
       "summary_one": "Used {{count}} memory",
