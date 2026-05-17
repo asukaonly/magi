@@ -27,18 +27,14 @@ _QUERY_MODE_DESCRIPTION = (
 )
 
 
-_DEFAULT_SUMMARY_CATEGORY_HINT = (
-    "browser_activity, media_listening, coding_activity"
-)
-
-
 def _build_summary_categories_description(plugin_manager: Optional[Any]) -> str:
     """Compose the ``summary_categories`` parameter description.
 
-    When the host plugin manager is bound, prefer its merged summary profile
-    catalog so the LLM sees the categories that actually exist in this
-    deployment. Otherwise fall back to a static hint that lists the
-    categories shipped by the bundled plugins.
+    The catalog is always derived from the live plugin manager so the LLM
+    never sees categories that are not actually registered by a loaded
+    plugin. When no categories are available (early boot, no plugins
+    contribute summary profiles), the description tells the model to omit
+    the field rather than guess from a stale hint.
     """
 
     categories: list[str] = []
@@ -53,12 +49,20 @@ def _build_summary_categories_description(plugin_manager: Optional[Any]) -> str:
                 category = getattr(profile, "summary_category", None)
                 if isinstance(category, str) and category and category not in categories:
                     categories.append(category)
-    catalog = ", ".join(categories) if categories else _DEFAULT_SUMMARY_CATEGORY_HINT
+    if categories:
+        catalog = ", ".join(categories)
+        return (
+            "Optional summary category filter for activity_summary or summary modes. "
+            f"Available categories in this deployment: {catalog}. "
+            "Pick the one that matches the user's activity. "
+            "Omit this field if none of the available categories clearly fit; "
+            "the retrieval pipeline will still rank candidates across all sources."
+        )
     return (
         "Optional summary category filter for activity_summary or summary modes. "
-        f"Available categories in this deployment: {catalog}. "
-        "Pick the one that matches the user's activity (e.g. browser_activity for "
-        "browsing recall, media_listening for music/podcast recall)."
+        "No category profiles are currently registered in this deployment. "
+        "Omit this field; the retrieval pipeline will rank candidates across "
+        "all available sources."
     )
 
 

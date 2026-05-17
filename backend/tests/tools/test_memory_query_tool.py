@@ -57,6 +57,42 @@ class TestMemoryQueryTool:
         assert "personal facts" in schema.description
         assert "customized settings" in schema.description
 
+    def test_summary_categories_description_lists_only_registered_categories(self):
+        """Should never advertise summary categories that no plugin actually registers."""
+        from magi.tools.builtin.memory_query_tool import _build_summary_categories_description
+
+        class _Profile:
+            def __init__(self, summary_category: str) -> None:
+                self.summary_category = summary_category
+
+        class _PluginManager:
+            def iter_merged_summary_profiles(self) -> list[_Profile]:
+                return [_Profile("browser_activity")]
+
+        description = _build_summary_categories_description(_PluginManager())
+
+        assert "browser_activity" in description
+        # The ghost categories from the previous static fallback must not leak
+        # into the tool schema once the plugin manager is bound.
+        assert "media_listening" not in description
+        assert "coding_activity" not in description
+
+    def test_summary_categories_description_when_no_plugin_registers(self):
+        """Should tell the model to omit the field instead of listing fake categories."""
+        from magi.tools.builtin.memory_query_tool import _build_summary_categories_description
+
+        class _EmptyManager:
+            def iter_merged_summary_profiles(self) -> list[object]:
+                return []
+
+        for manager in (None, _EmptyManager()):
+            description = _build_summary_categories_description(manager)
+            assert "Omit this field" in description
+            # No invented categories may appear when none are actually registered.
+            assert "browser_activity" not in description
+            assert "media_listening" not in description
+            assert "coding_activity" not in description
+
     def test_tool_uses_runtime_hybrid_retrieval_binding(self, monkeypatch):
         """Should resolve the shared runtime retrieval service."""
         import magi.tools.builtin.memory_query_tool as memory_query_module
