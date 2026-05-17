@@ -135,25 +135,38 @@ class _BridgeJsonAdapter:
     """Adapt :class:`LLMProviderBridge` to a simple ``complete_json`` interface.
 
     Carries a ``thinking_depth`` setting so callers can pick how hard the
-    model reasons per scenario (e.g. topic extraction stays at NONE, persona
-    lens rendering uses MEDIUM). Also explicitly passes ``timeout_seconds``
-    to override the LLM provider config default (60s) — the portrait
-    pipeline runs in a background task and tolerates longer LLM calls,
-    especially when MEDIUM thinking is in play.
+    model reasons per scenario, and an explicit ``timeout_seconds`` that
+    overrides the LLM provider config default (60s) — the portrait
+    pipeline runs in a background task and tolerates longer LLM calls.
+
+    Logging follows the same pattern as ``LLMIntentDecider``:
+
+    - INFO on every call with metadata (model, elapsed_ms, thinking,
+      prompt_len, response_len).
+    - WARNING on failure with full system_prompt + user_prompt + exc_info.
+    - Optional INFO dump of full prompts and response when
+      ``MAGI_PORTRAIT_LLM_DEBUG=1`` is set.
+
+    ``label`` distinguishes the two pipeline stages in the logs
+    ("topic" or "lens").
     """
 
     def __init__(
         self,
         bridge: Any,
         *,
+        label: str,
         thinking_depth: Any = None,
         timeout_seconds: float | None = None,
     ) -> None:
         self._bridge = bridge
+        self._label = label
         self._thinking_depth = thinking_depth
         self._timeout_seconds = timeout_seconds
 
     async def complete_json(self, *, system_prompt: str, user_prompt: str) -> dict:
+        import time as _time
+
         kwargs: dict[str, Any] = {
             "system_prompt": system_prompt,
             "messages": [{"role": "user", "content": user_prompt}],
@@ -165,20 +178,53 @@ class _BridgeJsonAdapter:
         if self._timeout_seconds is not None:
             kwargs["timeout_seconds"] = self._timeout_seconds
 
+        model = getattr(getattr(self._bridge, "llm", None), "model_name", "unknown")
+        base_url = str(getattr(getattr(self._bridge, "llm", None), "base_url", "unknown"))
         debug = _llm_debug_enabled()
+
         if debug:
             logger.info(
-                "portrait LLM ▶ system_prompt=%r user_prompt=%r thinking=%s timeout=%s",
-                system_prompt, user_prompt, self._thinking_depth, self._timeout_seconds,
+                "portrait %s LLM ▶ model=%s thinking=%s timeout=%s"
+                "\n  system_prompt:\n%s"
+                "\n  user_prompt:\n%s",
+                self._label, model, self._thinking_depth, self._timeout_seconds,
+                system_prompt, user_prompt,
             )
-        text = await self._bridge.chat(**kwargs)
-        if debug:
-            logger.info("portrait LLM ◀ raw_response=%r", text)
+
+        t0 = _time.monotonic()
         try:
-            return json.loads(text)
-        except (json.JSONDecodeError, TypeError, ValueError):
-            if debug:
-                logger.info("portrait LLM ◀ JSON parse failed; returning {}")
+            text = await self._bridge.chat(**kwargs)
+        except Exception:
+            elapsed_ms = (_time.monotonic() - t0) * 1000
+            logger.warning(
+                "portrait %s LLM failed model=%s base_url=%s elapsed_ms=%.1f"
+                " timeout=%s prompt_len=%d"
+                "\n  system_prompt:\n%s"
+                "\n  user_prompt:\n%s",
+                self._label, model, base_url, elapsed_ms,
+                self._timeout_seconds, len(user_prompt),
+                system_prompt, user_prompt,
+                exc_info=True,
+            )
+            return {}
+
+        elapsed_ms = (_time.monotonic() - t0) * 1000
+        response_text = text or ""
+        logger.info(
+            "portrait %s LLM completed model=%s base_url=%s elapsed_ms=%.1f"
+            " timeout=%s prompt_len=%d response_len=%d",
+            self._label, model, base_url, elapsed_ms,
+            self._timeout_seconds, len(user_prompt), len(response_text),
+        )
+        if debug:
+            logger.info("portrait %s LLM ◀ raw_response:\n%s", self._label, response_text)
+        try:
+            return json.loads(response_text)
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            logger.warning(
+                "portrait %s LLM returned non-JSON (%s); raw=%r",
+                self._label, exc, response_text,
+            )
             return {}
 
 
@@ -200,6 +246,7 @@ def build_portrait_service():
     repo = PersonaRepository()
 
     def _build_bridge(
+        label: str,
         scenarios: tuple[LLMScenario, ...],
         thinking_depth,
         *,
@@ -220,6 +267,7 @@ def build_portrait_service():
                 continue
             return _BridgeJsonAdapter(
                 LLMProviderBridge(adapter),
+                label=label,
                 thinking_depth=thinking_depth,
                 timeout_seconds=timeout_seconds,
             )
@@ -229,6 +277,7 @@ def build_portrait_service():
     # 25s inner timeout < 30s outer wait_for in TopicExtractor.
     def topic_bridge_factory():
         return _build_bridge(
+            "topic",
             (LLMScenario.CONTEXT_DECIDER, LLMScenario.CORE),
             ThinkingDepth.NONE,
             timeout_seconds=25.0,
@@ -239,6 +288,7 @@ def build_portrait_service():
     # 220s inner timeout < 240s outer wait_for in PersonaLensRenderer.
     def render_bridge_factory():
         return _build_bridge(
+            "lens",
             (LLMScenario.MEMORY_SUMMARIZER, LLMScenario.CORE),
             ThinkingDepth.MEDIUM,
             timeout_seconds=220.0,
