@@ -41,7 +41,7 @@ class PersonaLensRenderer:
         self,
         *,
         bridge_factory: Callable[[], Any | None],
-        timeout_seconds: float = 120.0,
+        timeout_seconds: float = 240.0,
     ) -> None:
         self._bridge_factory = bridge_factory
         self._timeout = float(timeout_seconds)
@@ -69,10 +69,23 @@ class PersonaLensRenderer:
                 ),
                 timeout=self._timeout,
             )
-        except Exception as exc:
-            logger.debug("portrait lens render failed: %s", exc)
+        except asyncio.TimeoutError:
+            logger.warning(
+                "portrait lens render timed out after %.0fs (snippets=%d topic=%r)",
+                self._timeout, len(snippets), topic,
+            )
             return []
-        return self._parse(payload)
+        except Exception as exc:
+            logger.warning("portrait lens render failed: %s", exc, exc_info=True)
+            return []
+        observations = self._parse(payload)
+        if not observations:
+            logger.warning(
+                "portrait lens render returned no usable observations "
+                "(raw=%r snippets=%d topic=%r)",
+                payload, len(snippets), topic,
+            )
+        return observations
 
     def _build_system_prompt(self, persona: dict[str, Any], topic: str) -> str:
         identity = persona.get("identity_core") or {}

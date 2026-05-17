@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import asdict, is_dataclass
 from typing import Any, Awaitable, Callable
 
@@ -21,6 +22,11 @@ logger = logging.getLogger(__name__)
 
 
 _MAX_SNIPPETS = 15
+
+
+def _llm_debug_enabled() -> bool:
+    """Toggle full prompt + response dumps via MAGI_PORTRAIT_LLM_DEBUG=1."""
+    return os.environ.get("MAGI_PORTRAIT_LLM_DEBUG", "").strip() not in ("", "0", "false", "False")
 
 
 def build_snippet_fetcher(
@@ -146,10 +152,21 @@ class _BridgeJsonAdapter:
         }
         if self._thinking_depth is not None:
             kwargs["thinking_depth"] = self._thinking_depth
+
+        debug = _llm_debug_enabled()
+        if debug:
+            logger.info(
+                "portrait LLM ▶ system_prompt=%r user_prompt=%r thinking=%s",
+                system_prompt, user_prompt, self._thinking_depth,
+            )
         text = await self._bridge.chat(**kwargs)
+        if debug:
+            logger.info("portrait LLM ◀ raw_response=%r", text)
         try:
             return json.loads(text)
         except (json.JSONDecodeError, TypeError, ValueError):
+            if debug:
+                logger.info("portrait LLM ◀ JSON parse failed; returning {}")
             return {}
 
 

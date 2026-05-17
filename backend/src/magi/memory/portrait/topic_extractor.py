@@ -53,8 +53,14 @@ class TopicExtractor:
                 ),
                 timeout=self._timeout,
             )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "portrait topic extraction timed out after %.0fs (messages=%d)",
+                self._timeout, len(messages),
+            )
+            return TopicResult(topic="", entities=[])
         except Exception as exc:
-            logger.debug("portrait topic extraction failed: %s", exc)
+            logger.warning("portrait topic extraction failed: %s", exc, exc_info=True)
             return TopicResult(topic="", entities=[])
         return self._parse(payload)
 
