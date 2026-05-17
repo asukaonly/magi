@@ -1,4 +1,4 @@
-import { Check, ChevronDown, FolderOpen, RotateCcw } from 'lucide-react';
+import { Check, ChevronDown, FolderOpen, RotateCcw, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   DropdownMenu,
@@ -7,6 +7,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { useChatShellStore } from '@/stores';
+import { cn } from '@/lib/utils';
 import { ChatTodayStrip } from './ChatTodayStrip';
 
 type ChatWorkspaceStatusBarProps = {
@@ -34,6 +36,8 @@ export const ChatWorkspaceStatusBar = ({
 }: ChatWorkspaceStatusBarProps) => {
   const { t } = useTranslation('app');
   const normalizedCurrentWorkspace = String(currentWorkspacePath || '').trim();
+  const portraitRailOpen = useChatShellStore((state) => state.portraitRailOpen);
+  const setPortraitRailOpen = useChatShellStore((state) => state.setPortraitRailOpen);
 
   if (!visible) {
     return null;
@@ -104,6 +108,21 @@ export const ChatWorkspaceStatusBar = ({
                 )}
               </DropdownMenuContent>
           </DropdownMenu>
+          <button
+            type="button"
+            onClick={() => setPortraitRailOpen(!portraitRailOpen)}
+            aria-label={t('chat.portrait.toggleAria')}
+            aria-pressed={portraitRailOpen}
+            title={t('chat.portrait.toggleAria')}
+            data-testid="chat-portrait-toggle"
+            className={cn(
+              'flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-background/96 text-muted-foreground transition-colors',
+              'hover:bg-background hover:text-foreground/92 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+              portraitRailOpen && 'text-foreground/92',
+            )}
+          >
+            <Sparkles className="h-4 w-4" />
+          </button>
         </div>
       </div>
     </div>

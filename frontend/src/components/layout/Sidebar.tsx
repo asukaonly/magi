@@ -7,7 +7,6 @@ import {
   MoreHorizontal,
   Plus,
   Settings,
-  Sparkles,
 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -74,8 +73,6 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const activePanel = useChatShellStore((state) => state.activePanel);
   const setActivePanel = useChatShellStore((state) => state.setActivePanel);
   const clearSettingsNavigationIntent = useChatShellStore((state) => state.clearSettingsNavigationIntent);
-  const portraitRailOpen = useChatShellStore((state) => state.portraitRailOpen);
-  const setPortraitRailOpen = useChatShellStore((state) => state.setPortraitRailOpen);
 
   const [loading, setLoading] = useState(false);
   const isConversationRoute = location.pathname === '/' || location.pathname === '/chat';
@@ -613,16 +610,6 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
         </div>
 
         <div className="flex shrink-0 flex-col items-center gap-1">
-          <button
-            type="button"
-            onClick={() => setPortraitRailOpen(!portraitRailOpen)}
-            aria-label={t('chat.portrait.toggleAria')}
-            aria-pressed={portraitRailOpen}
-            title={t('chat.portrait.toggleAria')}
-            className={activityButtonClass(false, portraitRailOpen)}
-          >
-            <Sparkles className="h-[18px] w-[18px]" />
-          </button>
           {renderActivityButton(
             'tasks',
             t('shell.tasks'),
