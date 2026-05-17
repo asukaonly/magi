@@ -159,6 +159,9 @@ class FunctionCallingResponseMixin:
                     direct_payload["asset_refs"] = [
                         dict(item) for item in recall_asset_refs if isinstance(item, dict)
                     ]
+                recalled_memories = self._compact_recalled_memories(historical_recall)
+                if recalled_memories:
+                    direct_payload["recalled_memories"] = recalled_memories
             payload = self._merge_assistant_message_payload(payload, direct_payload)
 
             nested_payload = result.data.get("assistant_payload")
@@ -168,6 +171,50 @@ class FunctionCallingResponseMixin:
                     normalize_asset_ref_payload(nested_payload),
                 )
         return payload
+
+    def _compact_recalled_memories(
+        self,
+        historical_recall: dict[str, Any],
+        *,
+        limit: int = 6,
+    ) -> list[dict[str, Any]]:
+        """Project a historical recall payload into the compact UI-facing form.
+
+        Only the fields the chat shell needs to render the "called memories"
+        row and its detail popover are surfaced here. Heavy fields like the
+        full LLM-facing summary or trace metadata are intentionally dropped
+        to keep the message payload small enough for SQLite/JSON
+        round-tripping.
+        """
+        findings = historical_recall.get("findings")
+        if not isinstance(findings, list):
+            return []
+        compact: list[dict[str, Any]] = []
+        for finding in findings:
+            if not isinstance(finding, dict):
+                continue
+            statement = str(finding.get("statement") or "").strip()
+            if not statement:
+                continue
+            entry: dict[str, Any] = {
+                "kind": str(finding.get("kind") or "event"),
+                "source_layer": str(finding.get("source_layer") or "L1"),
+                "statement": statement,
+                "topic": str(finding.get("topic") or "").strip() or statement,
+            }
+            confidence = finding.get("confidence")
+            if isinstance(confidence, (int, float)):
+                entry["confidence"] = float(confidence)
+            occurred_at = finding.get("occurred_at")
+            if isinstance(occurred_at, (int, float)):
+                entry["occurred_at"] = float(occurred_at)
+            evidence_text = str(finding.get("evidence_text") or "").strip()
+            if evidence_text:
+                entry["evidence_text"] = evidence_text
+            compact.append(entry)
+            if len(compact) >= limit:
+                break
+        return compact
 
     def _merge_assistant_message_payload(
         self,

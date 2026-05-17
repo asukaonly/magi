@@ -42,7 +42,23 @@ export interface ChatTimelineMessage {
   runtimeStatuses?: RuntimeStatusTrace[];
   reasoning?: ReasoningTrace[];
   toolCalls?: ToolCallTrace[];
+  recalledMemories?: RecalledMemory[];
   payload?: Record<string, unknown> | null;
+}
+
+/**
+ * Compact record of a memory finding the assistant pulled in to ground its
+ * reply. Surfaced in the bubble's "called memories" row and the click-through
+ * popover; the full retrieval trace stays inside the assistant runtime panel.
+ */
+export interface RecalledMemory {
+  kind: string;
+  sourceLayer: string;
+  statement: string;
+  topic: string;
+  confidence?: number | null;
+  occurredAt?: number | null;
+  evidenceText?: string | null;
 }
 
 export interface RuntimeStatusTrace {
@@ -418,6 +434,44 @@ export const normalizeTurnUxPlan = (raw: unknown): NormalizedTurnUxPlan | null =
   };
 };
 
+const normalizeRecalledMemories = (raw: unknown): RecalledMemory[] | undefined => {
+  if (!Array.isArray(raw)) {
+    return undefined;
+  }
+  const items: RecalledMemory[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+    const record = entry as Record<string, unknown>;
+    const statement = String(record.statement || '').trim();
+    if (!statement) {
+      continue;
+    }
+    const confidenceRaw = record.confidence;
+    const confidence = typeof confidenceRaw === 'number' && Number.isFinite(confidenceRaw)
+      ? confidenceRaw
+      : null;
+    const occurredAtRaw = record.occurred_at;
+    const occurredAt = typeof occurredAtRaw === 'number' && Number.isFinite(occurredAtRaw)
+      ? occurredAtRaw
+      : null;
+    const evidenceText = typeof record.evidence_text === 'string'
+      ? record.evidence_text.trim() || null
+      : null;
+    items.push({
+      kind: String(record.kind || 'event'),
+      sourceLayer: String(record.source_layer || 'L1'),
+      statement,
+      topic: String(record.topic || statement),
+      confidence,
+      occurredAt,
+      evidenceText,
+    });
+  }
+  return items.length > 0 ? items : undefined;
+};
+
 export const normalizeHistoryMessages = (messages: ChatHistoryMessage[]): ChatTimelineMessage[] => {
   const normalizedMessages: ChatTimelineMessage[] = [];
 
@@ -443,6 +497,11 @@ export const normalizeHistoryMessages = (messages: ChatHistoryMessage[]): ChatTi
       traceSummary,
       traceAvailable: Boolean(message.trace_available || traceSummary?.traceAvailable),
       runState: message.run_state || null,
+      recalledMemories: normalizeRecalledMemories(
+        message.payload && typeof message.payload === 'object'
+          ? (message.payload as Record<string, unknown>).recalled_memories
+          : null,
+      ),
       payload:
         message.payload && typeof message.payload === 'object'
           ? (message.payload as Record<string, unknown>)
@@ -759,6 +818,11 @@ export const applyAgentResponse = (
     runtimeStatuses: existing?.runtimeStatuses,
     reasoning: existing?.reasoning,
     toolCalls: existing?.toolCalls,
+    recalledMemories: normalizeRecalledMemories(
+      payload.payload && typeof payload.payload === 'object'
+        ? (payload.payload as Record<string, unknown>).recalled_memories
+        : null,
+    ) ?? existing?.recalledMemories,
     payload: payload.payload ?? null,
   });
 

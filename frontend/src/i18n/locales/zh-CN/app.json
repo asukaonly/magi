@@ -456,6 +456,20 @@
       "retry": "重新加载",
       "tooltip": "今日感知 · 共 {{total}} 条来自 {{count}} 个来源"
     },
+    "recalledMemories": {
+      "summary_one": "调用了 {{count}} 条记忆",
+      "summary_other": "调用了 {{count}} 条记忆",
+      "summary": "调用了 {{count}} 条记忆",
+      "close": "收起记忆详情",
+      "confidence": "置信度 {{value}}",
+      "kinds": {
+        "relationship": "关系",
+        "assertion": "事实",
+        "event": "事件",
+        "reflection": "反思",
+        "procedure": "程序经验"
+      }
+    },
     "delegation": {
       "title": "已委派给 {{adapter}}",
       "loading": "加载委派中…",

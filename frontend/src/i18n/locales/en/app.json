@@ -456,6 +456,20 @@
       "retry": "Reload",
       "tooltip": "Today's awareness · {{total}} events across {{count}} sources"
     },
+    "recalledMemories": {
+      "summary_one": "Used {{count}} memory",
+      "summary_other": "Used {{count}} memories",
+      "summary": "Used {{count}} memories",
+      "close": "Close memory detail",
+      "confidence": "confidence {{value}}",
+      "kinds": {
+        "relationship": "Relation",
+        "assertion": "Fact",
+        "event": "Event",
+        "reflection": "Reflection",
+        "procedure": "Procedure"
+      }
+    },
     "delegation": {
       "title": "Delegated to {{adapter}}",
       "loading": "Loading delegation…",

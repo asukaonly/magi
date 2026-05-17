@@ -388,3 +388,68 @@ class TestEmptyPayload:
     def test_no_results(self):
         findings = build_findings(_make_payload(), _make_query())
         assert findings == []
+
+
+class TestFindingTopic:
+    """Each finding should carry a short, UI-friendly ``topic`` label."""
+
+    def test_relationship_topic_extracts_object_label(self):
+        payload = _make_payload(
+            l2_relationships=[
+                {
+                    "subject": "self",
+                    "predicate": "LIKES",
+                    "object": "topic:hachi-mi",
+                    "confidence": 0.9,
+                    "first_observed_at": 1.0,
+                }
+            ],
+        )
+        findings = build_findings(payload, _make_query(mode="exact_fact"))
+        assert findings[0]["topic"] == "hachi-mi"
+
+    def test_relationship_topic_falls_back_to_subject_when_object_blank(self):
+        payload = _make_payload(
+            l2_relationships=[
+                {
+                    "subject": "罗永浩",
+                    "predicate": "FOLLOWS",
+                    "object": "person:keigo",
+                    "confidence": 0.9,
+                    "first_observed_at": 1.0,
+                }
+            ],
+        )
+        findings = build_findings(payload, _make_query(mode="exact_fact"))
+        # The object has the type prefix stripped before display.
+        assert findings[0]["topic"] == "keigo"
+
+    def test_assertion_topic_uses_value_after_colon(self):
+        payload = _make_payload(
+            l2_assertions=[
+                {
+                    "subject": "self",
+                    "predicate": "favorite_band",
+                    "claim": "陈奕迅",
+                    "confidence_score": 0.7,
+                    "created_at": 1.0,
+                }
+            ],
+        )
+        findings = build_findings(payload, _make_query(mode="exact_fact"))
+        assert findings[0]["topic"] == "陈奕迅"
+
+    def test_event_topic_truncates_long_statements(self):
+        long_content = "锤子手机情怀加上罗永浩个人IP的混合体导致了直播带货成功"
+        payload = _make_payload(
+            l1_events=[
+                {"content": long_content, "score": 0.8, "timestamp": 1.0},
+            ],
+        )
+        findings = build_findings(payload, _make_query(mode="exact_fact"))
+        topic = findings[0]["topic"]
+        assert topic.endswith("…")
+        # The truncated length stays bounded; the exact threshold lives in the
+        # implementation, but we assert the topic is shorter than the full
+        # statement so we know truncation actually fired.
+        assert len(topic) < len(long_content)

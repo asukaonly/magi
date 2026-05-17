@@ -6,6 +6,7 @@ import { formatChatClockTime } from '@/domain/chat/timestamps';
 import { useConversationStore } from '@/stores/conversation-store';
 import { useDelegationsStore, type DelegationCardState } from '@/stores/delegations-store';
 import { ChatRoleAvatar, type ChatAvatarState } from './ChatRoleAvatar';
+import { RecalledMemoriesRow } from './RecalledMemoriesRow';
 import { DelegationCard } from './DelegationCard';
 import { MessageLabelBadge } from './MessageLabelBadge';
 import type {
@@ -297,13 +298,20 @@ export const TranscriptTimelineRow = ({
               onOpenImagePreview={interactions.onOpenImagePreview}
             />
           )}
-          bubbleFooter={transcript.showExecutionBubbleFooter ? (
-            <TimelineExecutionPanel
-              executionProgress={transcript.executionProgress}
-              variant="bubble"
-              execution={execution}
-            />
-          ) : null}
+          bubbleFooter={(
+            <>
+              {message.role === 'assistant' && Array.isArray(message.recalledMemories) && message.recalledMemories.length > 0 ? (
+                <RecalledMemoriesRow memories={message.recalledMemories} />
+              ) : null}
+              {transcript.showExecutionBubbleFooter ? (
+                <TimelineExecutionPanel
+                  executionProgress={transcript.executionProgress}
+                  variant="bubble"
+                  execution={execution}
+                />
+              ) : null}
+            </>
+          )}
           belowBubble={(
             <>
               {transcript.belowBubble.showReactionBadge && (

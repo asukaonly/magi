@@ -84,7 +84,79 @@ def build_findings(payload: RetrievalPayload, request: RetrievalQuery) -> list[d
     candidates.sort(key=lambda x: -float(x.get("_score", 0.0)))
 
     limit = max(int(request.limit or 10), 1)
-    return candidates[:limit]
+    selected = candidates[:limit]
+    for finding in selected:
+        finding["topic"] = _derive_finding_topic(finding)
+    return selected
+
+
+# ---------------------------------------------------------------------------
+# Human-readable topic synthesis
+# ---------------------------------------------------------------------------
+
+_TOPIC_MAX_CHARS = 14
+_TOPIC_TRAILING_ELLIPSIS = "…"
+
+
+def _derive_finding_topic(finding: dict[str, Any]) -> str:
+    """Return a short, UI-friendly label that names what was recalled.
+
+    The chat shell renders this on the assistant bubble's "called memories"
+    row. We optimize for *the most concrete object* of each finding rather
+    than just truncating the long-form statement, so users can scan the row
+    and recognize the topic at a glance ("哈基米", "锤子手机情怀") instead
+    of seeing the raw subject-predicate-object form.
+    """
+    kind = str(finding.get("kind") or "").strip()
+    if kind == "relationship":
+        candidate = _extract_relationship_topic(finding)
+    elif kind == "assertion":
+        candidate = _extract_assertion_topic(finding)
+    elif kind == "procedure":
+        candidate = _extract_procedure_topic(finding)
+    else:
+        candidate = str(finding.get("statement") or "").strip()
+    return _truncate_topic(candidate)
+
+
+def _extract_relationship_topic(finding: dict[str, Any]) -> str:
+    statement = str(finding.get("statement") or "").strip()
+    if not statement:
+        return ""
+    subject, _predicate, obj = split_relationship_statement(statement)
+    # Strip the optional "type:" prefix injected by L2 entity ids
+    # (e.g. "topic:hachi-mi" → "hachi-mi") so users see plain labels.
+    obj_label = obj.split(":", 1)[1] if ":" in obj else obj
+    if obj_label.strip():
+        return obj_label.strip()
+    if subject.strip():
+        return subject.strip()
+    return statement
+
+
+def _extract_assertion_topic(finding: dict[str, Any]) -> str:
+    statement = str(finding.get("statement") or "").strip()
+    if not statement:
+        return ""
+    # Assertions are formatted as "subject predicate: value"; keep the value
+    # on the right of the last colon since it's the concrete answer.
+    if ": " in statement:
+        return statement.rsplit(": ", 1)[1].strip() or statement
+    return statement
+
+
+def _extract_procedure_topic(finding: dict[str, Any]) -> str:
+    statement = str(finding.get("statement") or "").strip()
+    return statement
+
+
+def _truncate_topic(text: str) -> str:
+    normalized = " ".join(str(text or "").split())
+    if not normalized:
+        return ""
+    if len(normalized) <= _TOPIC_MAX_CHARS:
+        return normalized
+    return normalized[: _TOPIC_MAX_CHARS - 1].rstrip() + _TOPIC_TRAILING_ELLIPSIS
 
 
 # ---------------------------------------------------------------------------
