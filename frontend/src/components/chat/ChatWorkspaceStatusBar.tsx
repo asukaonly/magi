@@ -7,10 +7,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { ChatTodayStrip } from './ChatTodayStrip';
 
 type ChatWorkspaceStatusBarProps = {
   visible: boolean;
-  messageCount: number;
   workspaceDisplayPath: string;
   currentWorkspacePath: string | null;
   recentWorkspaces: string[];
@@ -23,7 +23,6 @@ type ChatWorkspaceStatusBarProps = {
 
 export const ChatWorkspaceStatusBar = ({
   visible,
-  messageCount,
   workspaceDisplayPath,
   currentWorkspacePath,
   recentWorkspaces,
@@ -42,14 +41,9 @@ export const ChatWorkspaceStatusBar = ({
 
   return (
     <div className="mb-2 shrink-0 px-2 py-1">
-      <div className="flex flex-col gap-2 text-sm text-muted-foreground lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex items-center gap-2">
-          <span data-testid="chat-workspace-message-count" className="font-medium text-foreground/80">
-            {messageCount}
-          </span>
-          <span>{t('chat.workspace.messageCount')}</span>
-        </div>
-        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+      <div className="flex min-w-0 flex-row items-center justify-between gap-3 text-sm text-muted-foreground">
+        <ChatTodayStrip />
+        <div className="flex shrink-0 items-center gap-2">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button

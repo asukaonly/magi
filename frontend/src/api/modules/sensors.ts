@@ -45,9 +45,32 @@ export interface SensorSourceAuthorizationResponse {
   message?: string | null;
 }
 
+export interface SensorTodaySummaryEntry {
+  source_name: string;
+  plugin_id: string | null;
+  display_name: string;
+  enabled: boolean;
+  count: number;
+  last_event_at: number | null;
+}
+
+export interface SensorTodaySummaryResponse {
+  date: string;
+  weekday: number;
+  sources: SensorTodaySummaryEntry[];
+}
+
 export const sensorsApi = {
   getStatus: async (): Promise<SensorSourceStatusResponse> => {
     const response = await api.get<SensorSourceStatusResponse>('/sensors/status');
+    return unwrapGatewayPayload(response);
+  },
+
+  getTodaySummary: async (day?: string): Promise<SensorTodaySummaryResponse> => {
+    const response = await api.get<SensorTodaySummaryResponse>(
+      '/sensors/today-summary',
+      day ? { params: { day } } : undefined,
+    );
     return unwrapGatewayPayload(response);
   },
 

@@ -449,6 +449,13 @@
     "connected": "Connected",
     "disconnected": "Disconnected",
     "clear": "Clear Chat",
+    "today": {
+      "label": "Today",
+      "loading": "Summarizing today's signals…",
+      "idle": "No sensor activity today yet",
+      "retry": "Reload",
+      "tooltip": "Today's awareness · {{total}} events across {{count}} sources"
+    },
     "delegation": {
       "title": "Delegated to {{adapter}}",
       "loading": "Loading delegation…",

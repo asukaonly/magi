@@ -2,16 +2,18 @@
 from __future__ import annotations
 
 import inspect
+from datetime import date, datetime, time as datetime_time
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from ...config import get_config
 from ...core.runtime_bindings import require_runtime_command_queue
 from ...events.contracts import SensorStateFlushCommand, SensorSyncCommand
 from ... import i18n as core_i18n
+from ...memory.provider import get_unified_memory
 from ...plugins.provider import resolve_plugin_manager, resolve_sensor_registry
 from ...scheduler import ScheduledTargetType
 from ...scheduler.contracts import build_sensor_schedule_id, build_sensor_target_key
@@ -337,3 +339,128 @@ async def authorize_sensor_source(source_name: str, request: SensorSourceAuthori
             ),
         )
     return result
+
+
+def _resolve_day_range(day_value: str | None) -> tuple[date, float, float]:
+    """Parse an optional ``YYYY-MM-DD`` string into a server-local day range."""
+    normalized = str(day_value or "").strip()
+    if not normalized:
+        target_day = date.today()
+    else:
+        try:
+            target_day = date.fromisoformat(normalized)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=core_i18n.t(
+                    "sensors.errors.invalid_date",
+                    fallback="Invalid date value: {value}",
+                    value=normalized,
+                ),
+            ) from exc
+    start_time = datetime.combine(target_day, datetime_time.min).timestamp()
+    end_time = datetime.combine(target_day, datetime_time.max).timestamp()
+    return target_day, start_time, end_time
+
+
+@sensors_router.get("/today-summary")
+async def get_sensor_today_summary(
+    day: str | None = Query(default=None, description="Optional ISO date (YYYY-MM-DD); defaults to server-local today."),
+):
+    """Return per-source L1 event counts for the requested day.
+
+    Powers the chat shell's "today context strip". Joins the day's L1 event
+    count grouped by ``source`` with sensor contribution metadata so the UI
+    can render human-friendly labels without a second round trip.
+    """
+    target_day, start_time, end_time = _resolve_day_range(day)
+
+    try:
+        unified_memory = get_unified_memory()
+    except RuntimeError:
+        unified_memory = None
+
+    counts_by_source: dict[str, int] = {}
+    last_event_by_source: dict[str, float | None] = {}
+    if unified_memory is not None and unified_memory.l1:
+        rows = await unified_memory.l1.summarize_event_sources(
+            start_time=start_time,
+            end_time=end_time,
+        )
+        for row in rows:
+            source_name = str(row.get("source") or "").strip()
+            if not source_name:
+                continue
+            counts_by_source[source_name] = int(row.get("event_count") or 0)
+            max_ts = row.get("max_timestamp")
+            last_event_by_source[source_name] = float(max_ts) if max_ts is not None else None
+
+    sensor_metadata: dict[str, dict[str, Any]] = {}
+    try:
+        manager = resolve_plugin_manager()
+    except RuntimeError:
+        manager = None
+    if manager is not None:
+        sensor_registry = resolve_sensor_registry()
+        packages = {state.manifest.plugin_id: state for state in manager.list_packages()}
+        for item in sensor_registry.list_contributions():
+            source_name = str(item.metadata.get("source_type") or item.contribution_id.split(".")[-1])
+            current_settings = (
+                packages.get(item.plugin_id).current_settings
+                if packages.get(item.plugin_id) is not None
+                else {}
+            )
+            enabled = bool(
+                _get_nested_value(
+                    current_settings,
+                    f"sensors.{source_name}.enabled",
+                    item.metadata.get("default_settings", {}).get("enabled", True),
+                )
+            )
+            sensor_metadata[source_name] = {
+                "plugin_id": item.plugin_id,
+                "display_name": item.display_name,
+                "enabled": enabled,
+            }
+
+    sources: list[dict[str, Any]] = []
+    seen_source_names: set[str] = set()
+    for source_name, count in counts_by_source.items():
+        meta = sensor_metadata.get(source_name, {})
+        sources.append(
+            {
+                "source_name": source_name,
+                "plugin_id": meta.get("plugin_id"),
+                "display_name": meta.get("display_name") or source_name,
+                "enabled": bool(meta.get("enabled", True)),
+                "count": count,
+                "last_event_at": last_event_by_source.get(source_name),
+            }
+        )
+        seen_source_names.add(source_name)
+
+    # Surface enabled sensors with zero events so the UI can decide whether to
+    # show a quiet placeholder rather than hide the sensor entirely.
+    for source_name, meta in sensor_metadata.items():
+        if source_name in seen_source_names:
+            continue
+        if not meta.get("enabled", True):
+            continue
+        sources.append(
+            {
+                "source_name": source_name,
+                "plugin_id": meta.get("plugin_id"),
+                "display_name": meta.get("display_name") or source_name,
+                "enabled": True,
+                "count": 0,
+                "last_event_at": None,
+            }
+        )
+
+    sources.sort(key=lambda entry: (-int(entry["count"]), str(entry["source_name"])))
+
+    return {
+        "date": target_day.isoformat(),
+        "weekday": target_day.weekday(),
+        "sources": sources,
+    }

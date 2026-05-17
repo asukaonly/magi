@@ -236,3 +236,92 @@ def test_trigger_sensor_source_sync_returns_localized_not_found(monkeypatch):
 
     assert response.status_code == 404
     assert response.json()["detail"] == "未找到传感器来源"
+
+
+def test_get_sensor_today_summary_aggregates_counts(monkeypatch):
+    client, _, _ = _build_client(monkeypatch)
+
+    summarize_calls: list[dict] = []
+
+    class _FakeL1:
+        async def summarize_event_sources(self, **kwargs):
+            summarize_calls.append(kwargs)
+            return [
+                {
+                    "source": "screen_time",
+                    "event_count": 17,
+                    "avg_importance": 0.5,
+                    "min_timestamp": 1710000000.0,
+                    "max_timestamp": 1710003600.0,
+                },
+                {
+                    "source": "git_activity",
+                    "event_count": 3,
+                    "avg_importance": 0.8,
+                    "min_timestamp": 1710000200.0,
+                    "max_timestamp": 1710001100.0,
+                },
+            ]
+
+    class _FakeUnifiedMemory:
+        l1 = _FakeL1()
+
+    monkeypatch.setattr(
+        "magi.api.routers.sensors.get_unified_memory",
+        lambda: _FakeUnifiedMemory(),
+    )
+
+    response = client.get("/api/sensors/today-summary")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert isinstance(body["date"], str)
+    assert body["weekday"] in range(7)
+    assert {entry["source_name"] for entry in body["sources"]} == {"screen_time", "git_activity"}
+    screen_time = next(entry for entry in body["sources"] if entry["source_name"] == "screen_time")
+    assert screen_time["count"] == 17
+    assert screen_time["display_name"] == "App Usage"
+    assert screen_time["plugin_id"] == "screen-time"
+    assert screen_time["last_event_at"] == 1710003600.0
+    # screen_time has the higher count, so it must come first.
+    assert body["sources"][0]["source_name"] == "screen_time"
+    # The endpoint should have asked the L1 layer for today's window.
+    assert summarize_calls and "start_time" in summarize_calls[0] and "end_time" in summarize_calls[0]
+    assert summarize_calls[0]["start_time"] < summarize_calls[0]["end_time"]
+
+
+def test_get_sensor_today_summary_accepts_explicit_day(monkeypatch):
+    client, _, _ = _build_client(monkeypatch)
+
+    class _FakeL1:
+        async def summarize_event_sources(self, **kwargs):
+            return []
+
+    class _FakeUnifiedMemory:
+        l1 = _FakeL1()
+
+    monkeypatch.setattr(
+        "magi.api.routers.sensors.get_unified_memory",
+        lambda: _FakeUnifiedMemory(),
+    )
+
+    response = client.get("/api/sensors/today-summary", params={"day": "2025-04-01"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["date"] == "2025-04-01"
+    # Empty L1 + one enabled sensor → emit a quiet zero-count placeholder.
+    assert any(entry["source_name"] == "screen_time" and entry["count"] == 0 for entry in body["sources"])
+
+
+def test_get_sensor_today_summary_rejects_invalid_day(monkeypatch):
+    client, _, _ = _build_client(monkeypatch)
+
+    monkeypatch.setattr(
+        "magi.api.routers.sensors.get_unified_memory",
+        lambda: (_ for _ in ()).throw(RuntimeError("memory unavailable")),
+    )
+
+    response = client.get("/api/sensors/today-summary", params={"day": "not-a-date"})
+
+    assert response.status_code == 422

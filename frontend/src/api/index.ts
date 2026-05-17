@@ -65,6 +65,8 @@ export type {
   SensorSourceAuthorizationResponse,
   SensorSourceStatusItem,
   SensorSourceStatusResponse,
+  SensorTodaySummaryEntry,
+  SensorTodaySummaryResponse,
 } from './modules/sensors';
 
 export { timelineApi } from './modules/timeline';

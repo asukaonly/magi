@@ -145,6 +145,13 @@ vi.mock('@/api', () => ({
     sendMessage: vi.fn().mockResolvedValue({ success: true, message: 'ok', data: { user_id: 'local_user', session_id: 'session-1', message_length: 0, timestamp: Date.now() / 1000 } }),
     getHistory: vi.fn().mockReturnValue(new Promise(() => {})),
   },
+  sensorsApi: {
+    getStatus: vi.fn().mockResolvedValue({ sources: [] }),
+    getTodaySummary: vi.fn().mockResolvedValue({ date: '2026-05-16', weekday: 5, sources: [] }),
+    requestSync: vi.fn(),
+    requestStateFlush: vi.fn(),
+    requestAuthorization: vi.fn(),
+  },
 }));
 
 vi.mock('@/components/chat/ToolchainDrawer', () => ({
@@ -234,7 +241,7 @@ describe('ChatPage', () => {
     useConversationStore.getState().setCurrentSessionId('session-1');
   });
 
-  it('shows a lightweight workspace status bar with count and path', async () => {
+  it('shows a lightweight workspace status bar with the today strip and path', async () => {
     useConversationStore.getState().hydrateSessions([
       {
         session_id: 'session-1',
@@ -262,7 +269,8 @@ describe('ChatPage', () => {
     expect(screen.getByTestId('chat-workspace-trigger')).not.toHaveClass('border');
     expect(screen.getByTestId('chat-workspace-trigger')).not.toHaveClass('ring-1');
     expect(screen.getByTestId('chat-workspace-path')).toHaveTextContent('/tmp/magi-workspace');
-    expect(screen.getByTestId('chat-workspace-message-count')).toHaveTextContent('2');
+    expect(screen.getByTestId('chat-today-strip')).toBeInTheDocument();
+    expect(screen.queryByTestId('chat-workspace-message-count')).not.toBeInTheDocument();
     expect(screen.getByText('hello').parentElement).toHaveClass('rounded-xl', 'rounded-tr-sm');
     expect(screen.getByText('world').parentElement?.parentElement).toHaveClass('rounded-xl', 'rounded-tl-sm');
   });

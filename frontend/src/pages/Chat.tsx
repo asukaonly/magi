@@ -28,7 +28,6 @@ import { useChatComposerCommands } from '@/hooks/useChatComposerCommands';
 import { commandsApi, messagesApi, type CommandDescriptor, type SkillCommandDescriptor } from '@/api';
 import { DEFAULT_USER_ID } from '@/constants';
 import { toast } from 'sonner';
-import { isTranscriptMessage } from '@/domain/chat/presentation';
 import type { ChatTimelineMessage } from '@/domain/chat/state';
 
 const DEFAULT_CHAT_WORKSPACE_DISPLAY = '~/.magi/chat-workspace';
@@ -617,7 +616,6 @@ export const ChatPage: React.FC = () => {
     translate: t,
   });
 
-  const visibleMessageCount = messages.filter(isTranscriptMessage).length;
   const workspaceDisplayPath = getWorkspaceDisplayPath(currentSession?.workspace_path);
   const hasSessionWorkspaceOverride = Boolean(String(currentSession?.workspace_path || '').trim());
 
@@ -631,7 +629,6 @@ export const ChatPage: React.FC = () => {
     >
       <ChatWorkspaceStatusBar
         visible={Boolean(currentSessionId)}
-        messageCount={visibleMessageCount}
         workspaceDisplayPath={workspaceDisplayPath}
         currentWorkspacePath={currentSession?.workspace_path ?? null}
         recentWorkspaces={recentWorkspaces}

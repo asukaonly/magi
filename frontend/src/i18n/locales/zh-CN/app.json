@@ -449,6 +449,13 @@
     "connected": "已连接",
     "disconnected": "未连接",
     "clear": "清空对话",
+    "today": {
+      "label": "今日",
+      "loading": "正在汇总今日感知…",
+      "idle": "今天还没有传感器数据",
+      "retry": "重新加载",
+      "tooltip": "今日感知 · 共 {{total}} 条来自 {{count}} 个来源"
+    },
     "delegation": {
       "title": "已委派给 {{adapter}}",
       "loading": "加载委派中…",
