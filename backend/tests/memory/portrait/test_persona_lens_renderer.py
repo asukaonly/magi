@@ -33,6 +33,7 @@ _SNIPPETS = [
 
 @pytest.mark.asyncio
 async def test_render_returns_observations_from_llm_json():
+    """LLM uses M-tokens (M1, M2) — renderer maps them back to real ids."""
     mock_bridge = AsyncMock()
     mock_bridge.complete_json = AsyncMock(return_value={
         "observations": [
@@ -41,7 +42,7 @@ async def test_render_returns_observations_from_llm_json():
                 "text": "你又开始想那些没做成的事了？",
                 "basis_count": 1,
                 "basis_summary": "1 条反思",
-                "basis_refs": ["mem_a"],
+                "basis_refs": ["M1"],
             },
         ],
     })
@@ -56,6 +57,36 @@ async def test_render_returns_observations_from_llm_json():
     assert isinstance(observations[0], PortraitObservation)
     assert observations[0].kind == "reflection"
     assert "你" in observations[0].text
+    # M1 was mapped back to mem_a.
+    assert observations[0].basis_refs == ["mem_a"]
+
+
+@pytest.mark.asyncio
+async def test_render_strips_m_tokens_from_text_if_llm_leaks_them():
+    """Defense in depth: even when the LLM disobeys and dumps the token
+    into the visible text, it is stripped before reaching the UI."""
+    mock_bridge = AsyncMock()
+    mock_bridge.complete_json = AsyncMock(return_value={
+        "observations": [
+            {
+                "kind": "assertion",
+                "text": "你不喜欢直播 (M2 记录过)",
+                "basis_count": 1,
+                "basis_summary": "1 条事实",
+                "basis_refs": ["M2"],
+            },
+        ],
+    })
+    renderer = PersonaLensRenderer(bridge_factory=lambda: mock_bridge)
+    observations = await renderer.render(
+        persona_config=_PERSONA_CONFIG,
+        snippets=_SNIPPETS,
+        recent_message_excerpt="x",
+        topic="t",
+    )
+    assert len(observations) == 1
+    assert "M2" not in observations[0].text
+    assert observations[0].basis_refs == ["mem_b"]
 
 
 @pytest.mark.asyncio
@@ -92,7 +123,7 @@ async def test_render_drops_invalid_kind():
             {"kind": "garbage", "text": "x", "basis_count": 0,
              "basis_summary": "", "basis_refs": []},
             {"kind": "assertion", "text": "你不喜欢直播", "basis_count": 1,
-             "basis_summary": "1 条事实", "basis_refs": ["mem_b"]},
+             "basis_summary": "1 条事实", "basis_refs": ["M2"]},
         ],
     })
     renderer = PersonaLensRenderer(bridge_factory=lambda: mock_bridge)
