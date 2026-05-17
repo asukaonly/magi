@@ -136,12 +136,22 @@ class _BridgeJsonAdapter:
 
     Carries a ``thinking_depth`` setting so callers can pick how hard the
     model reasons per scenario (e.g. topic extraction stays at NONE, persona
-    lens rendering uses MEDIUM).
+    lens rendering uses MEDIUM). Also explicitly passes ``timeout_seconds``
+    to override the LLM provider config default (60s) — the portrait
+    pipeline runs in a background task and tolerates longer LLM calls,
+    especially when MEDIUM thinking is in play.
     """
 
-    def __init__(self, bridge: Any, *, thinking_depth: Any = None) -> None:
+    def __init__(
+        self,
+        bridge: Any,
+        *,
+        thinking_depth: Any = None,
+        timeout_seconds: float | None = None,
+    ) -> None:
         self._bridge = bridge
         self._thinking_depth = thinking_depth
+        self._timeout_seconds = timeout_seconds
 
     async def complete_json(self, *, system_prompt: str, user_prompt: str) -> dict:
         kwargs: dict[str, Any] = {
@@ -152,12 +162,14 @@ class _BridgeJsonAdapter:
         }
         if self._thinking_depth is not None:
             kwargs["thinking_depth"] = self._thinking_depth
+        if self._timeout_seconds is not None:
+            kwargs["timeout_seconds"] = self._timeout_seconds
 
         debug = _llm_debug_enabled()
         if debug:
             logger.info(
-                "portrait LLM ▶ system_prompt=%r user_prompt=%r thinking=%s",
-                system_prompt, user_prompt, self._thinking_depth,
+                "portrait LLM ▶ system_prompt=%r user_prompt=%r thinking=%s timeout=%s",
+                system_prompt, user_prompt, self._thinking_depth, self._timeout_seconds,
             )
         text = await self._bridge.chat(**kwargs)
         if debug:
@@ -187,7 +199,12 @@ def build_portrait_service():
 
     repo = PersonaRepository()
 
-    def _build_bridge(scenarios: tuple[LLMScenario, ...], thinking_depth):
+    def _build_bridge(
+        scenarios: tuple[LLMScenario, ...],
+        thinking_depth,
+        *,
+        timeout_seconds: float,
+    ):
         """Try scenarios in order; return a bridge adapter or None."""
         try:
             pool = get_scenario_llm_pool()
@@ -202,23 +219,29 @@ def build_portrait_service():
                 logger.debug("portrait bridge: scenario %s unavailable (%s)", scenario.value, exc)
                 continue
             return _BridgeJsonAdapter(
-                LLMProviderBridge(adapter), thinking_depth=thinking_depth,
+                LLMProviderBridge(adapter),
+                thinking_depth=thinking_depth,
+                timeout_seconds=timeout_seconds,
             )
         return None
 
     # Topic extraction is essentially intent recognition: no reasoning needed.
+    # 25s inner timeout < 30s outer wait_for in TopicExtractor.
     def topic_bridge_factory():
         return _build_bridge(
             (LLMScenario.CONTEXT_DECIDER, LLMScenario.CORE),
             ThinkingDepth.NONE,
+            timeout_seconds=25.0,
         )
 
     # Persona-lens rendering needs to interpret raw memory through the
     # persona's voice — medium reasoning effort is appropriate.
+    # 220s inner timeout < 240s outer wait_for in PersonaLensRenderer.
     def render_bridge_factory():
         return _build_bridge(
             (LLMScenario.MEMORY_SUMMARIZER, LLMScenario.CORE),
             ThinkingDepth.MEDIUM,
+            timeout_seconds=220.0,
         )
 
     async def active_persona_resolver():
