@@ -41,6 +41,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/search": {"POST"},
         "/procedures": {"GET"},
         "/tom/{entity_id}": {"GET"},
+        "/portrait": {"GET"},
     },
 
     "messages": {
