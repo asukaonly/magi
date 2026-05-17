@@ -126,18 +126,27 @@ def _safe_float(value: Any) -> float | None:
 
 
 class _BridgeJsonAdapter:
-    """Adapt :class:`LLMProviderBridge` to a simple ``complete_json`` interface."""
+    """Adapt :class:`LLMProviderBridge` to a simple ``complete_json`` interface.
 
-    def __init__(self, bridge: Any) -> None:
+    Carries a ``thinking_depth`` setting so callers can pick how hard the
+    model reasons per scenario (e.g. topic extraction stays at NONE, persona
+    lens rendering uses MEDIUM).
+    """
+
+    def __init__(self, bridge: Any, *, thinking_depth: Any = None) -> None:
         self._bridge = bridge
+        self._thinking_depth = thinking_depth
 
     async def complete_json(self, *, system_prompt: str, user_prompt: str) -> dict:
-        text = await self._bridge.chat(
-            system_prompt=system_prompt,
-            messages=[{"role": "user", "content": user_prompt}],
-            json_mode=True,
-            temperature=0.2,
-        )
+        kwargs: dict[str, Any] = {
+            "system_prompt": system_prompt,
+            "messages": [{"role": "user", "content": user_prompt}],
+            "json_mode": True,
+            "temperature": 0.2,
+        }
+        if self._thinking_depth is not None:
+            kwargs["thinking_depth"] = self._thinking_depth
+        text = await self._bridge.chat(**kwargs)
         try:
             return json.loads(text)
         except (json.JSONDecodeError, TypeError, ValueError):
@@ -150,6 +159,7 @@ def build_portrait_service():
     Imports are local so this module can be imported without pulling in the
     full memory/persona stack at import time (e.g. during isolated tests).
     """
+    from ...config.models import ThinkingDepth
     from ...llm import LLMProviderBridge, LLMScenario
     from ...llm.provider import get_scenario_llm_pool
     from ...personality.persona_repository import PersonaRepository
@@ -160,19 +170,39 @@ def build_portrait_service():
 
     repo = PersonaRepository()
 
-    def bridge_factory():
+    def _build_bridge(scenarios: tuple[LLMScenario, ...], thinking_depth):
+        """Try scenarios in order; return a bridge adapter or None."""
         try:
             pool = get_scenario_llm_pool()
         except RuntimeError:
             return None
         if pool is None:
             return None
-        try:
-            adapter = pool.get(LLMScenario.MEMORY_SUMMARIZER)
-        except Exception as exc:
-            logger.debug("portrait bridge unavailable: %s", exc)
-            return None
-        return _BridgeJsonAdapter(LLMProviderBridge(adapter))
+        for scenario in scenarios:
+            try:
+                adapter = pool.get(scenario)
+            except Exception as exc:
+                logger.debug("portrait bridge: scenario %s unavailable (%s)", scenario.value, exc)
+                continue
+            return _BridgeJsonAdapter(
+                LLMProviderBridge(adapter), thinking_depth=thinking_depth,
+            )
+        return None
+
+    # Topic extraction is essentially intent recognition: no reasoning needed.
+    def topic_bridge_factory():
+        return _build_bridge(
+            (LLMScenario.CONTEXT_DECIDER, LLMScenario.CORE),
+            ThinkingDepth.NONE,
+        )
+
+    # Persona-lens rendering needs to interpret raw memory through the
+    # persona's voice — medium reasoning effort is appropriate.
+    def render_bridge_factory():
+        return _build_bridge(
+            (LLMScenario.MEMORY_SUMMARIZER, LLMScenario.CORE),
+            ThinkingDepth.MEDIUM,
+        )
 
     async def active_persona_resolver():
         try:
@@ -212,8 +242,8 @@ def build_portrait_service():
     )
 
     return PortraitService(
-        topic_extractor=TopicExtractor(bridge_factory=bridge_factory),
-        renderer=PersonaLensRenderer(bridge_factory=bridge_factory),
+        topic_extractor=TopicExtractor(bridge_factory=topic_bridge_factory),
+        renderer=PersonaLensRenderer(bridge_factory=render_bridge_factory),
         snippet_fetcher=snippet_fetcher,
         persona_loader=persona_loader,
         message_loader=message_loader,

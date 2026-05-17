@@ -14,6 +14,14 @@ export interface PortraitObservation {
   basis_refs: string[];
 }
 
+export type ColdStartReason =
+  | 'no_persona'
+  | 'no_messages'
+  | 'topic_empty'
+  | 'no_snippets'
+  | 'no_observations'
+  | 'computing';
+
 export interface PortraitPayload {
   session_id: string;
   persona_id: string;
@@ -22,6 +30,7 @@ export interface PortraitPayload {
   observations: PortraitObservation[];
   is_cold_start: boolean;
   cold_start_line: string | null;
+  cold_start_reason: ColdStartReason | null;
 }
 
 export const memoryPortraitApi = {

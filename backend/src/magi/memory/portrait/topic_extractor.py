@@ -33,7 +33,7 @@ class TopicExtractor:
         self,
         *,
         bridge_factory: Callable[[], Any | None],
-        timeout_seconds: float = 4.0,
+        timeout_seconds: float = 30.0,
     ) -> None:
         self._bridge_factory = bridge_factory
         self._timeout = float(timeout_seconds)
