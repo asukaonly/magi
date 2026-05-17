@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from .handler_base import RRFSearchHandler
 from .models import L3Conditions, RetrievalConfig, TimeRange
@@ -25,22 +25,76 @@ class L3Handler(RRFSearchHandler):
         conditions: L3Conditions,
         time_range: Optional[TimeRange] = None,
     ) -> List[Dict[str, Any]]:
-        """Query L3 using BM25 + vector + keyword, fused via RRF."""
+        """Query L3 using BM25 + vector + keyword, fused via RRF.
+
+        ``summary_type`` is still applied as a hard filter — types are a
+        narrow controlled vocabulary the host owns and a wrong value
+        almost certainly means the caller asked for a different store
+        shape. ``summary_category`` is applied as a *soft* preference:
+        the chat LLM may pick an imperfect category for a query, so we
+        retrieve broadly and then boost matching items during reranking.
+        This keeps recall intact when the LLM mis-classifies.
+        """
         if not conditions.content_query:
             return []
         summary_type = conditions.summary_types[0] if conditions.summary_types else None
         summary_category = conditions.summary_categories[0] if conditions.summary_categories else None
         cfg = self._config
+
         fetch_k = max(conditions.limit * cfg.rrf_over_fetch_multiplier, cfg.rrf_over_fetch_minimum)
+        adjuster: Optional[Callable[[List[Dict[str, Any]], Dict[str, float]], Dict[str, float]]] = None
+        fetch_k_multiplier = 1.0
+        if summary_category:
+            adjuster = self._build_category_booster(
+                summary_category, cfg.l3_category_soft_boost
+            )
+            fetch_k_multiplier = cfg.l3_category_fetch_k_multiplier
         return await self._rrf_execute(
             content_query=conditions.content_query,
             limit=conditions.limit,
-            bm25_coro=self._bm25_path(conditions.content_query, summary_type, summary_category, fetch_k),
-            vector_coro=self._vector_path(conditions.content_query, summary_type, summary_category, fetch_k),
-            keyword_coro=self._keyword_path(conditions.content_query, summary_type, summary_category, fetch_k),
-            hydrate_coro_fn=lambda ids: self._fetch_by_ids(ids, summary_type, summary_category),
+            bm25_coro=self._bm25_path(conditions.content_query, summary_type, None, fetch_k),
+            vector_coro=self._vector_path(conditions.content_query, summary_type, None, fetch_k),
+            keyword_coro=self._keyword_path(conditions.content_query, summary_type, None, fetch_k),
+            hydrate_coro_fn=lambda ids: self._fetch_by_ids(ids, summary_type, None),
             time_range=time_range,
+            fetch_k_multiplier=fetch_k_multiplier,
+            fused_score_adjuster=adjuster,
         )
+
+    @staticmethod
+    def _build_category_booster(
+        requested_category: str,
+        boost_factor: float,
+    ) -> Callable[[List[Dict[str, Any]], Dict[str, float]], Dict[str, float]]:
+        """Return an adjuster that multiplies fused score for category matches.
+
+        Why not pre-filter? When the chat LLM mis-classifies (e.g. picks
+        ``browser_activity`` for a gaming query), a hard WHERE filter
+        zeros out the entire L3 path and forces a noisier L1 fallback.
+        A multiplicative boost keeps every candidate visible to the
+        reranker while still moving correct-category matches up.
+        """
+
+        target = str(requested_category)
+        scale = max(boost_factor, 1.0)
+
+        def adjust(
+            results: List[Dict[str, Any]],
+            scores: Dict[str, float],
+        ) -> Dict[str, float]:
+            if scale == 1.0 or not target:
+                return scores
+            adjusted = dict(scores)
+            for item in results:
+                category = str(item.get("summary_category") or "")
+                if category != target:
+                    continue
+                summary_id = str(item.get("summary_id") or "")
+                if summary_id and summary_id in adjusted:
+                    adjusted[summary_id] = adjusted[summary_id] * scale
+            return adjusted
+
+        return adjust
 
     async def _bm25_path(
         self,

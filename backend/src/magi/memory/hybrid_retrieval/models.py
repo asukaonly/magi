@@ -271,3 +271,12 @@ class RetrievalConfig:
 
     # Token estimation
     char_per_token_ratio: float = 3.0
+
+    # L3 category soft preference (see L3Handler._build_category_booster).
+    # When the chat LLM picks a ``summary_category`` we no longer use it
+    # as a hard WHERE filter; instead we widen recall and multiply the
+    # fused RRF score for category-matching items by this factor. Values
+    # > ~3.0 effectively re-create a hard filter; 1.0 disables the
+    # preference entirely.
+    l3_category_soft_boost: float = 1.8
+    l3_category_fetch_k_multiplier: float = 1.5

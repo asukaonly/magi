@@ -5,7 +5,7 @@ from __future__ import annotations
 import abc
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from .models import RetrievalConfig, TimeRange
 from .reranker import build_retrieval_reranker
@@ -65,13 +65,28 @@ class RRFSearchHandler(abc.ABC):
         keyword_coro,
         hydrate_coro_fn,
         time_range: Optional[TimeRange] = None,
+        fetch_k_multiplier: float = 1.0,
+        fused_score_adjuster: Optional[
+            Callable[[List[Dict[str, Any]], Dict[str, float]], Dict[str, float]]
+        ] = None,
     ) -> List[Dict[str, Any]]:
-        """Shared RRF fusion skeleton used by all subclasses."""
+        """Shared RRF fusion skeleton used by all subclasses.
+
+        ``fetch_k_multiplier`` widens the hydration window without changing
+        the final ``limit``. Use it when the caller relaxed a filter at
+        search time and needs more candidates to rerank against.
+
+        ``fused_score_adjuster`` receives the hydrated results and the
+        post-RRF score map and returns a new score map. Use it for soft
+        boosts (e.g. category preference) instead of pre-search hard
+        filters that would suppress recall on imperfect classifications.
+        """
         if not content_query:
             return []
 
         cfg = self._config
-        fetch_k = max(limit * cfg.rrf_over_fetch_multiplier, cfg.rrf_over_fetch_minimum)
+        base_fetch_k = max(limit * cfg.rrf_over_fetch_multiplier, cfg.rrf_over_fetch_minimum)
+        fetch_k = max(base_fetch_k, int(round(base_fetch_k * max(fetch_k_multiplier, 1.0))))
 
         results_or_errors = await asyncio.gather(
             bm25_coro, vector_coro, keyword_coro, return_exceptions=True,
@@ -88,7 +103,6 @@ class RRFSearchHandler(abc.ABC):
         if not bm25_ids and not vec_ids and not kw_ids:
             return []
 
-        cfg = self._config
         fused = rrf_fuse(
             [bm25_ids, vec_ids, kw_ids],
             [cfg.rrf_weight_bm25, cfg.rrf_weight_vector, cfg.rrf_weight_keyword],
@@ -104,11 +118,20 @@ class RRFSearchHandler(abc.ABC):
         if time_range and results:
             results = self._filter_by_time(results, time_range)
 
+        fused_scores = dict(fused)
+        if fused_score_adjuster is not None and results:
+            try:
+                fused_scores = fused_score_adjuster(results, fused_scores)
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning(
+                    "%s fused_score_adjuster failed: %s", self.layer_name, exc
+                )
+
         reranked = await self._reranker.rerank(
             layer=self.layer_name,
             results=results,
             query=content_query,
-            fused_scores=dict(fused),
+            fused_scores=fused_scores,
         )
         return reranked[:limit]
 
