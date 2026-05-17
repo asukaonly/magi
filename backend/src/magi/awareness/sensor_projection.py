@@ -93,7 +93,15 @@ def build_sensor_projection(
         projection_metadata["activity"]["qualifiers"] = dict(output.activity.qualifiers)
     if embedding_head and embedding_head != summary:
         projection_metadata["projection"]["embedding_head"] = embedding_head
-    retrieval_terms = _normalize_retrieval_terms(metadata.tags if metadata else [])
+    # Retrieval terms feed the L1 FTS index, so anything we want BM25 /
+    # keyword paths to match must land here. Both producer-side tags
+    # (``output.tags``, e.g. ``app_category:gaming`` from screen-time)
+    # and host-attached metadata tags qualify. Previously only metadata
+    # tags were promoted, which silently dropped every tag a plugin set
+    # on its own output and made tag-based recall a no-op.
+    host_metadata_tags = list(metadata.tags) if metadata else []
+    sensor_output_tags = list(output.tags or [])
+    retrieval_terms = _normalize_retrieval_terms(sensor_output_tags + host_metadata_tags)
     if retrieval_terms:
         projection_metadata["projection"]["retrieval_terms"] = retrieval_terms
 
