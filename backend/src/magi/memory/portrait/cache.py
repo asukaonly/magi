@@ -18,7 +18,14 @@ CacheKey = Tuple[str, str, str]
 
 
 class PortraitCache:
-    """Thread-safe LRU + TTL cache for portraits."""
+    """Thread-safe LRU cache supporting stale-while-revalidate.
+
+    Every successful payload is stored with a timestamp:
+    - :meth:`get` returns the payload only if it is within TTL ("fresh").
+    - :meth:`get_stale` returns the payload regardless of TTL, as long as
+      it has not been LRU-evicted. Callers use this to keep displaying the
+      previous portrait while a background task computes the next one.
+    """
 
     def __init__(self, *, ttl_seconds: float = 300.0, max_entries: int = 256) -> None:
         self._ttl = float(ttl_seconds)
@@ -33,10 +40,20 @@ class PortraitCache:
                 return None
             ts, payload = entry
             if time.monotonic() - ts > self._ttl:
-                self._data.pop(key, None)
+                # Expired — fresh lookup must miss, but keep the entry for
+                # stale-while-revalidate fallback.
                 return None
             self._data.move_to_end(key)
             return payload
+
+    def get_stale(self, key: CacheKey) -> PortraitPayload | None:
+        """Return the entry ignoring TTL. ``None`` only if never set or evicted."""
+        with self._lock:
+            entry = self._data.get(key)
+            if entry is None:
+                return None
+            self._data.move_to_end(key)
+            return entry[1]
 
     def set(self, key: CacheKey, payload: PortraitPayload) -> None:
         with self._lock:

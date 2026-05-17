@@ -16,9 +16,12 @@ _VALID_KINDS = {"reflection", "assertion", "relationship", "procedure"}
 
 
 _SYSTEM_PROMPT_TEMPLATE = (
-    "You are {name}. Your identity: {identity}. "
+    "You are {name}. Your identity: {identity}.\n"
+    "{values_block}"
+    "{biases_block}"
     "Speak in this style: {style}. "
-    "Vocabulary you use: {vocab_avail}. Vocabulary you avoid: {vocab_avoid}.\n\n"
+    "Vocabulary you use: {vocab_avail}. Vocabulary you avoid: {vocab_avoid}."
+    "{quirks_block}\n\n"
     "Below are memories you have recorded about the user over time. Each is "
     "labeled with a short token (M1, M2, M3, ...). "
     "The user is currently talking about: '{topic}'.\n\n"
@@ -103,12 +106,38 @@ class PersonaLensRenderer:
     def _build_system_prompt(self, persona: dict[str, Any], topic: str) -> str:
         identity = persona.get("identity_core") or {}
         idiolect = persona.get("idiolect") or {}
+
+        loved = [str(v) for v in (identity.get("values_loved") or []) if str(v).strip()]
+        rejected = [str(v) for v in (identity.get("values_rejected") or []) if str(v).strip()]
+        biases = [str(v) for v in (identity.get("attention_biases") or []) if str(v).strip()]
+        quirks = [str(v) for v in (idiolect.get("structural_quirks") or []) if str(v).strip()]
+
+        values_block = ""
+        if loved or rejected:
+            parts = []
+            if loved:
+                parts.append("You value: " + "; ".join(loved) + ".")
+            if rejected:
+                parts.append("You reject: " + "; ".join(rejected) + ".")
+            values_block = " ".join(parts) + "\n"
+
+        biases_block = ""
+        if biases:
+            biases_block = "You naturally pay attention to: " + "; ".join(biases) + ".\n"
+
+        quirks_block = ""
+        if quirks:
+            quirks_block = " Structural quirks: " + "; ".join(quirks) + "."
+
         return _SYSTEM_PROMPT_TEMPLATE.format(
             name=persona.get("name") or "AI",
             identity=str(identity.get("identity_statement") or ""),
+            values_block=values_block,
+            biases_block=biases_block,
             style=str(idiolect.get("sentence_style") or ""),
             vocab_avail=", ".join(idiolect.get("vocab_available") or []) or "(none)",
             vocab_avoid=", ".join(idiolect.get("vocab_avoided") or []) or "(none)",
+            quirks_block=quirks_block,
             topic=topic or "(unspecified)",
         )
 

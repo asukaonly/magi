@@ -152,6 +152,41 @@ async def test_force_refresh_spawns_new_task(deps):
 
 
 @pytest.mark.asyncio
+async def test_stale_while_revalidate_after_ttl(deps):
+    """After TTL expiry the next request must still surface the previous
+    observations (is_stale=True) instead of regressing to cold-start."""
+    deps["message_loader"].return_value = [{"role": "user", "content": "你怎么看罗永浩"}]
+    deps["persona_loader"].return_value = _persona_detail()
+    deps["topic_extractor"].extract = AsyncMock(return_value=TopicResult(topic="t", entities=["e"]))
+    deps["snippet_fetcher"].return_value = [
+        RawMemorySnippet(id="m1", kind="reflection", layer="L3", statement="x"),
+    ]
+    deps["renderer"].render = AsyncMock(return_value=[
+        PortraitObservation(kind="reflection", text="你又在想老罗", basis_count=1,
+                            basis_summary="1 条", basis_refs=["m1"]),
+    ])
+
+    from magi.memory.portrait.cache import PortraitCache
+    cache = PortraitCache(ttl_seconds=0.01, max_entries=10)
+    service = PortraitService(**deps, active_persona_resolver=_async_returning("p1"),
+                              cache=cache)
+
+    # Warm the cache.
+    await service.get_portrait(user_id="u1", session_id="s1")
+    await service.wait_for_pending()
+
+    # Let TTL expire.
+    await asyncio.sleep(0.02)
+
+    # Next request finds fresh cache empty, spawns a new task, but should
+    # serve the previous payload flagged is_stale=True.
+    next_resp = await service.get_portrait(user_id="u1", session_id="s1")
+    assert next_resp.is_cold_start is False
+    assert next_resp.is_stale is True
+    assert next_resp.observations[0].text == "你又在想老罗"
+
+
+@pytest.mark.asyncio
 async def test_no_active_persona_returns_empty_cold_start(deps):
     service = PortraitService(**deps, active_persona_resolver=_async_returning(None))
     payload = await service.get_portrait(user_id="u1", session_id="s1")

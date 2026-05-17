@@ -47,8 +47,13 @@ class PortraitPayload:
     #   "topic_empty"         — topic extractor produced no topic
     #   "no_snippets"         — L2/L3/L4 retrieval returned nothing
     #   "no_observations"     — renderer LLM produced no observations
+    #   "computing"           — background task spawned, no warm payload yet
     #   None                  — not a cold start, or unset
     cold_start_reason: str | None = None
+    # True when the payload was served from cache past its TTL while a
+    # fresh recompute is in flight. UI keeps showing observations; the hook
+    # continues polling until a fresh payload arrives.
+    is_stale: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -60,6 +65,7 @@ class PortraitPayload:
             "is_cold_start": self.is_cold_start,
             "cold_start_line": self.cold_start_line,
             "cold_start_reason": self.cold_start_reason,
+            "is_stale": self.is_stale,
         }
 
 

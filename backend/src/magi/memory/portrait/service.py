@@ -129,6 +129,25 @@ class PortraitService:
                     session_id, persona_id,
                 )
 
+        # Stale-while-revalidate: if we have a previous successful payload
+        # for this key, return it (flagged is_stale) so the UI keeps the
+        # last-known portrait visible while the background task computes
+        # the next one. Without this the rail would briefly flash back to
+        # the cold-start placeholder every TTL cycle.
+        stale = self._cache.get_stale(key)
+        if stale is not None:
+            return PortraitPayload(
+                session_id=stale.session_id,
+                persona_id=stale.persona_id,
+                topic=stale.topic,
+                generated_at=stale.generated_at,
+                observations=list(stale.observations),
+                is_cold_start=False,
+                cold_start_line=None,
+                cold_start_reason=None,
+                is_stale=True,
+            )
+
         return await self._cold_start_for_persona(
             session_id, persona_id, reason="computing",
         )

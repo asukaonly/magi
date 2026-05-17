@@ -67,7 +67,13 @@ export function useMemoryPortrait({
   const schedulePollIfComputing = useCallback(
     (latest: PortraitPayload | null) => {
       clearPollTimer();
-      if (!latest || latest.cold_start_reason !== 'computing') {
+      // Keep polling whenever the backend is still working: either the
+      // initial "computing" cold-start, or a stale-while-revalidate
+      // response where a background recompute is in flight.
+      const stillComputing =
+        !!latest &&
+        (latest.cold_start_reason === 'computing' || latest.is_stale === true);
+      if (!stillComputing) {
         pollAttemptsRef.current = 0;
         return;
       }

@@ -31,6 +31,13 @@ export interface PortraitPayload {
   is_cold_start: boolean;
   cold_start_line: string | null;
   cold_start_reason: ColdStartReason | null;
+  /**
+   * True when the backend served a previously-cached payload past its TTL
+   * while a fresh recompute is in flight. UI should keep showing the
+   * existing observations; the hook continues polling until a fresh
+   * (is_stale=false) payload arrives.
+   */
+  is_stale: boolean;
 }
 
 export const memoryPortraitApi = {
