@@ -57,27 +57,36 @@ export const AppTitleBar = () => {
   const currentSessionId = useConversationStore((s) => s.currentSessionId);
   const chatChromeVisible = isChatRoute(location.pathname) && Boolean(currentSessionId);
 
+  // Tauri 2 drag detection: searches `.closest('[data-tauri-drag-region]')`
+  // on mousedown. CSS `app-region` is NOT honored in Tauri's webview, so
+  // interactive children must opt out with `data-tauri-drag-region="false"`
+  // (the CSS no-drag we had before silently did nothing).
   return (
     <div
       className={cn(
         'relative z-30 flex shrink-0 items-center border-b border-border/30 bg-background/95 backdrop-blur',
         TITLE_BAR_HEIGHT_CLASS,
       )}
-      style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       data-tauri-drag-region
     >
       {/* macOS traffic-light reserve (left). Windows/Linux: small left padding. */}
-      <div className={cn('shrink-0', isMac ? 'w-[72px]' : 'w-3')} />
+      <div className={cn('shrink-0', isMac ? 'w-[72px]' : 'w-3')} data-tauri-drag-region />
 
       {/* Center / left content: route-specific chrome. */}
-      <div className="flex min-w-0 flex-1 items-center gap-2">
+      <div
+        className="flex min-w-0 flex-1 items-center gap-2"
+        data-tauri-drag-region
+      >
         {chatChromeVisible ? <ChatTodayStrip /> : null}
       </div>
 
-      {/* Right content: route-specific actions. */}
+      {/* Right content: route-specific actions. Each interactive child opts
+          out of the drag region individually; the container itself stays
+          draggable so empty gaps between buttons still let you grab the
+          window. */}
       <div
         className="flex shrink-0 items-center gap-2 pr-2"
-        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        data-tauri-drag-region
       >
         {chatChromeVisible ? (
           <>
@@ -89,6 +98,7 @@ export const AppTitleBar = () => {
               aria-pressed={portraitRailOpen}
               title={t('chat.portrait.toggleAria')}
               data-testid="chat-portrait-toggle"
+              data-tauri-drag-region="false"
               className={cn(
                 'flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors',
                 'hover:bg-muted hover:text-foreground',

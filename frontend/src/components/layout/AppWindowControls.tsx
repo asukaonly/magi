@@ -64,10 +64,7 @@ export const AppWindowControls = ({ className }: { className?: string }) => {
   }
 
   return (
-    <div
-      className={cn('flex h-full items-stretch', className)}
-      style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-    >
+    <div className={cn('flex h-full items-stretch', className)}>
       <WindowButton onClick={handleMinimize} aria-label="Minimize">
         <Minus className="h-3.5 w-3.5" />
       </WindowButton>
@@ -94,6 +91,7 @@ const WindowButton = ({
   <button
     type="button"
     onClick={onClick}
+    data-tauri-drag-region="false"
     className={cn(
       'flex w-11 items-center justify-center text-muted-foreground transition-colors',
       variant === 'close'

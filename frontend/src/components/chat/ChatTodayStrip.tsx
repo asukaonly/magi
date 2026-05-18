@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Calendar, Loader2, RefreshCw } from 'lucide-react';
+import { Loader2, RefreshCw } from 'lucide-react';
 import { sensorsApi, type SensorTodaySummaryEntry, type SensorTodaySummaryResponse } from '@/api';
 import { cn } from '@/lib/utils';
 
@@ -130,7 +130,6 @@ export const ChatTodayStrip = () => {
       }
     >
       <span className="inline-flex shrink-0 items-center gap-1.5 font-medium text-foreground/85">
-        <Calendar className="h-3.5 w-3.5" aria-hidden="true" />
         <span>{t('chat.today.label', { defaultValue: '今日' })}</span>
         {weekday ? (
           <>
@@ -158,6 +157,7 @@ export const ChatTodayStrip = () => {
         <button
           type="button"
           onClick={refresh}
+          data-tauri-drag-region="false"
           className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] text-destructive transition-colors hover:bg-destructive/10"
           aria-label={t('chat.today.retry', { defaultValue: '重新加载今日感知' })}
         >
