@@ -91,7 +91,6 @@ const WindowButton = ({
   <button
     type="button"
     onClick={onClick}
-    data-tauri-drag-region="false"
     className={cn(
       'flex w-11 items-center justify-center text-muted-foreground transition-colors',
       variant === 'close'

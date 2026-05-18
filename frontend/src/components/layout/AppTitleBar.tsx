@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useChatShellStore, useConversationStore } from '@/stores';
 import { isMacPlatform } from '@/lib/platform';
@@ -8,6 +8,15 @@ import { Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { ChatWorkspacePicker } from './ChatWorkspacePicker';
 import { AppWindowControls } from './AppWindowControls';
+
+/**
+ * Selector for elements that should NOT trigger window-drag when clicked.
+ * Buttons, links, inputs, dropdown menus, and anything explicitly opted out
+ * via `data-no-drag`. `closest()` against this list makes background-vs-
+ * interactive detection robust regardless of where the click lands within
+ * the title bar.
+ */
+const NO_DRAG_SELECTOR = 'button, a, input, select, textarea, [data-no-drag], [role="menu"], [role="combobox"]';
 
 /**
  * App-wide title bar. Sits as the first row of MainLayout and spans the
@@ -57,37 +66,56 @@ export const AppTitleBar = () => {
   const currentSessionId = useConversationStore((s) => s.currentSessionId);
   const chatChromeVisible = isChatRoute(location.pathname) && Boolean(currentSessionId);
 
-  // Tauri 2 drag detection: searches `.closest('[data-tauri-drag-region]')`
-  // on mousedown. CSS `app-region` is NOT honored in Tauri's webview, so
-  // interactive children must opt out with `data-tauri-drag-region="false"`
-  // (the CSS no-drag we had before silently did nothing).
+  // Programmatic drag: more reliable than relying on Tauri's
+  // data-tauri-drag-region attribute resolution, which has subtle
+  // failure modes around nested wrappers and text-node click targets.
+  // We listen for mousedown on the title bar, bail if the click landed
+  // on any interactive element, otherwise call window.startDragging().
+  const handleMouseDown = useCallback(async (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement | null;
+    if (target?.closest?.(NO_DRAG_SELECTOR)) return;
+    try {
+      const mod = await import('@tauri-apps/api/window');
+      await mod.getCurrentWindow().startDragging();
+    } catch {
+      /* not in Tauri (e.g. pure browser dev preview) */
+    }
+  }, []);
+
+  // Standard desktop behavior: double-click the title bar to toggle
+  // maximize/restore.
+  const handleDoubleClick = useCallback(async (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement | null;
+    if (target?.closest?.(NO_DRAG_SELECTOR)) return;
+    try {
+      const mod = await import('@tauri-apps/api/window');
+      await mod.getCurrentWindow().toggleMaximize();
+    } catch {
+      /* not in Tauri */
+    }
+  }, []);
+
   return (
     <div
       className={cn(
-        'relative z-30 flex shrink-0 items-center border-b border-border/30 bg-background/95 backdrop-blur',
+        'relative z-30 flex shrink-0 items-center border-b border-border/30 bg-background/95 backdrop-blur select-none',
         TITLE_BAR_HEIGHT_CLASS,
       )}
-      data-tauri-drag-region
+      onMouseDown={handleMouseDown}
+      onDoubleClick={handleDoubleClick}
     >
       {/* macOS traffic-light reserve (left). Windows/Linux: small left padding. */}
-      <div className={cn('shrink-0', isMac ? 'w-[72px]' : 'w-3')} data-tauri-drag-region />
+      <div className={cn('shrink-0', isMac ? 'w-[72px]' : 'w-3')} />
 
       {/* Center / left content: route-specific chrome. */}
-      <div
-        className="flex min-w-0 flex-1 items-center gap-2"
-        data-tauri-drag-region
-      >
+      <div className="flex min-w-0 flex-1 items-center gap-2">
         {chatChromeVisible ? <ChatTodayStrip /> : null}
       </div>
 
-      {/* Right content: route-specific actions. Each interactive child opts
-          out of the drag region individually; the container itself stays
-          draggable so empty gaps between buttons still let you grab the
-          window. */}
-      <div
-        className="flex shrink-0 items-center gap-2 pr-2"
-        data-tauri-drag-region
-      >
+      {/* Right content: route-specific actions. handleMouseDown bails when
+          the click lands on a button so these still work normally. */}
+      <div className="flex shrink-0 items-center gap-2 pr-2">
         {chatChromeVisible ? (
           <>
             <ChatWorkspacePicker />
@@ -98,7 +126,6 @@ export const AppTitleBar = () => {
               aria-pressed={portraitRailOpen}
               title={t('chat.portrait.toggleAria')}
               data-testid="chat-portrait-toggle"
-              data-tauri-drag-region="false"
               className={cn(
                 'flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors',
                 'hover:bg-muted hover:text-foreground',

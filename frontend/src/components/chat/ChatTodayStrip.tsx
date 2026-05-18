@@ -157,7 +157,6 @@ export const ChatTodayStrip = () => {
         <button
           type="button"
           onClick={refresh}
-          data-tauri-drag-region="false"
           className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] text-destructive transition-colors hover:bg-destructive/10"
           aria-label={t('chat.today.retry', { defaultValue: '重新加载今日感知' })}
         >

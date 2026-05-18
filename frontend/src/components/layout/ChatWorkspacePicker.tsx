@@ -39,7 +39,6 @@ export const ChatWorkspacePicker = () => {
         <button
           type="button"
           data-testid="chat-workspace-trigger"
-          data-tauri-drag-region="false"
           disabled={updatingWorkspace}
           aria-label={t('chat.workspace.recentMenu')}
           title={workspaceDisplayPath}
