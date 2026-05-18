@@ -66,33 +66,32 @@ export const AppTitleBar = () => {
   const currentSessionId = useConversationStore((s) => s.currentSessionId);
   const chatChromeVisible = isChatRoute(location.pathname) && Boolean(currentSessionId);
 
-  // Programmatic drag: more reliable than relying on Tauri's
-  // data-tauri-drag-region attribute resolution, which has subtle
-  // failure modes around nested wrappers and text-node click targets.
-  // We listen for mousedown on the title bar, bail if the click landed
-  // on any interactive element, otherwise call window.startDragging().
+  // Drag + double-click maximize are both handled in mousedown.
+  //
+  // We cannot use a separate onDoubleClick handler here: as soon as the
+  // first mousedown calls `startDragging()` the OS captures the mouse
+  // and React never sees a paired click — so dblclick is never emitted
+  // for the kind of slow native gesture we'd want it for.
+  //
+  // Instead we look at `MouseEvent.detail` on the mousedown itself.
+  // The browser increments it for every press within the platform's
+  // double-click time window, so detail === 2 means the user pressed
+  // twice in rapid succession on the same spot. That maps to
+  // toggleMaximize; anything else starts a normal window drag.
   const handleMouseDown = useCallback(async (e: React.MouseEvent) => {
     if (e.button !== 0) return;
     const target = e.target as HTMLElement | null;
     if (target?.closest?.(NO_DRAG_SELECTOR)) return;
     try {
       const mod = await import('@tauri-apps/api/window');
-      await mod.getCurrentWindow().startDragging();
+      const win = mod.getCurrentWindow();
+      if (e.detail >= 2) {
+        await win.toggleMaximize();
+      } else {
+        await win.startDragging();
+      }
     } catch {
       /* not in Tauri (e.g. pure browser dev preview) */
-    }
-  }, []);
-
-  // Standard desktop behavior: double-click the title bar to toggle
-  // maximize/restore.
-  const handleDoubleClick = useCallback(async (e: React.MouseEvent) => {
-    const target = e.target as HTMLElement | null;
-    if (target?.closest?.(NO_DRAG_SELECTOR)) return;
-    try {
-      const mod = await import('@tauri-apps/api/window');
-      await mod.getCurrentWindow().toggleMaximize();
-    } catch {
-      /* not in Tauri */
     }
   }, []);
 
@@ -103,7 +102,6 @@ export const AppTitleBar = () => {
         TITLE_BAR_HEIGHT_CLASS,
       )}
       onMouseDown={handleMouseDown}
-      onDoubleClick={handleDoubleClick}
     >
       {/* macOS traffic-light reserve (left). Windows/Linux: small left padding. */}
       <div className={cn('shrink-0', isMac ? 'w-[72px]' : 'w-3')} />
