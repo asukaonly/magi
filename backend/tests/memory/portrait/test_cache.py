@@ -52,3 +52,17 @@ def test_lru_eviction_when_over_capacity():
     assert cache.get(("s2", "h", "p1")) is None
     assert cache.get(("s1", "h", "p1")) is not None
     assert cache.get(("s3", "h", "p1")) is not None
+
+
+def test_disk_persistence_roundtrip(tmp_path):
+    """Entries written through one cache instance must be visible through
+    a fresh instance pointed at the same file."""
+    path = tmp_path / "cache.json"
+    writer = PortraitCache(ttl_seconds=300, max_entries=10, persistence_path=path)
+    writer.set(("s1", "h", "p1"), _payload("s1", "p1"))
+
+    reader = PortraitCache(ttl_seconds=300, max_entries=10, persistence_path=path)
+    restored = reader.get_stale(("s1", "h", "p1"))
+    assert restored is not None
+    assert restored.session_id == "s1"
+    assert restored.persona_id == "p1"

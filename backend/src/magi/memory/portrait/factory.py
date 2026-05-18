@@ -238,12 +238,19 @@ def build_portrait_service():
     from ...llm import LLMProviderBridge, LLMScenario
     from ...llm.provider import get_scenario_llm_pool
     from ...personality.persona_repository import PersonaRepository
+    from ...utils.runtime import get_runtime_paths
     from ..provider import get_hybrid_retrieval_service
+    from .cache import PortraitCache
     from .persona_lens_renderer import PersonaLensRenderer
     from .service import PortraitService
     from .topic_extractor import TopicExtractor
 
     repo = PersonaRepository()
+
+    # Disk persistence so the rail survives a backend restart instead of
+    # flashing back to the cold-start placeholder for the first ~25s.
+    portrait_cache_path = get_runtime_paths().cache_dir / "portrait" / "cache.json"
+    portrait_cache = PortraitCache(persistence_path=portrait_cache_path)
 
     def _build_bridge(
         label: str,
@@ -338,6 +345,7 @@ def build_portrait_service():
         persona_loader=persona_loader,
         message_loader=message_loader,
         active_persona_resolver=active_persona_resolver,
+        cache=portrait_cache,
     )
 
 
