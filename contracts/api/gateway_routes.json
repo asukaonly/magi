@@ -468,6 +468,11 @@
       "owner_file": "backend/src/magi/api/routers/control.py"
     },
     {
+      "prefix": "/api/hooks",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/hooks.py"
+    },
+    {
       "prefix": "/api/llm",
       "owner": "python-ipc",
       "owner_file": "backend/src/magi/api/routers/llm.py"
