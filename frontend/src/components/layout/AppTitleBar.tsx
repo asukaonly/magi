@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import { ChatTodayStrip } from '@/components/chat/ChatTodayStrip';
 import { Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { shouldRenderChatWorkspace } from '@/pages/chat-route-helpers';
 import { ChatWorkspacePicker } from './ChatWorkspacePicker';
 import { AppWindowControls } from './AppWindowControls';
 
@@ -29,9 +30,6 @@ const NO_DRAG_SELECTOR = 'button, a, input, select, textarea, [data-no-drag], [r
  */
 
 const TITLE_BAR_HEIGHT_CLASS = 'h-9'; // 36px
-
-const isChatRoute = (pathname: string): boolean =>
-  pathname === '/' || pathname === '/chat';
 
 export const AppTitleBar = () => {
   const { t } = useTranslation('app');
@@ -64,7 +62,7 @@ export const AppTitleBar = () => {
   const portraitRailOpen = useChatShellStore((s) => s.portraitRailOpen);
   const setPortraitRailOpen = useChatShellStore((s) => s.setPortraitRailOpen);
   const currentSessionId = useConversationStore((s) => s.currentSessionId);
-  const chatChromeVisible = isChatRoute(location.pathname) && Boolean(currentSessionId);
+  const chatChromeVisible = shouldRenderChatWorkspace(location.pathname) && Boolean(currentSessionId);
 
   // Drag + double-click maximize are both handled in mousedown.
   //

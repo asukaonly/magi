@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useChatShellStore, useConversationStore } from '@/stores';
 import { useBackendHealth } from '@/hooks/useBackendHealth';
 import { useActivePersona } from '@/hooks/useActivePersona';
-import { panelByPathname } from '@/pages/chat-route-helpers';
+import { panelByPathname, shouldRenderChatWorkspace } from '@/pages/chat-route-helpers';
 import { DEFAULT_USER_ID } from '@/constants';
 import AppShellProviders from './AppShellProviders';
 import { AppTitleBar } from './AppTitleBar';
@@ -122,7 +122,12 @@ const MainLayout: React.FC = () => {
     return () => mql.removeEventListener('change', listener);
   }, [setViewportIsNarrow]);
 
-  const railColumnVisible = portraitRailOpen && !viewportIsNarrow;
+  // Portrait rail is chat-shell scoped. Hide it (and collapse the grid
+  // back to two columns) whenever the user navigates to timeline, memory,
+  // settings, or any other non-chat route.
+  const isChatRoute = shouldRenderChatWorkspace(location.pathname);
+  const railVisible = isChatRoute && portraitRailOpen;
+  const railColumnVisible = railVisible && !viewportIsNarrow;
   const gridColsClass = railColumnVisible
     ? 'grid-cols-[auto_minmax(0,1fr)_auto]'
     : 'grid-cols-[auto_minmax(0,1fr)]';
@@ -151,7 +156,7 @@ const MainLayout: React.FC = () => {
                 <PortraitRailHost />
               </ErrorBoundary>
             ) : null}
-            {viewportIsNarrow && portraitRailOpen ? (
+            {viewportIsNarrow && railVisible ? (
               <ErrorBoundary resetKey={currentSessionId} fallback={null}>
                 <PortraitRailHost />
               </ErrorBoundary>
