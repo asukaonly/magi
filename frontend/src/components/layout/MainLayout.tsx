@@ -7,6 +7,7 @@ import { useActivePersona } from '@/hooks/useActivePersona';
 import { panelByPathname } from '@/pages/chat-route-helpers';
 import { DEFAULT_USER_ID } from '@/constants';
 import AppShellProviders from './AppShellProviders';
+import { AppTitleBar } from './AppTitleBar';
 import BackendHealthBanner from './BackendHealthBanner';
 import Sidebar from './Sidebar';
 import ShellOverlays from './ShellOverlays';
@@ -14,8 +15,7 @@ import { MemoryPortraitRail } from '@/components/chat/MemoryPortraitRail';
 import { PortraitFloater } from '@/components/chat/portrait/PortraitFloater';
 import { PermissionModalHost, AskDialog } from '@/components/control';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
-
-const SHELL_DRAG_STRIP_LEFT = '56px';
+import { ChatWorkspaceProvider } from '@/stores/chat-workspace-context';
 
 const PageContentErrorFallback = () => {
   const { t } = useTranslation('app');
@@ -129,45 +129,39 @@ const MainLayout: React.FC = () => {
 
   return (
     <AppShellProviders>
-      <div className="h-screen w-screen overflow-hidden">
-        <div className={`desktop-surface relative grid h-full w-full ${gridColsClass} grid-rows-[minmax(0,1fr)] overflow-hidden`}>
-          {/* Keep an invisible drag strip for macOS overlay mode without rendering a detached title bar */}
-          <div
-            className="absolute right-0 top-0 z-40 h-4"
-            style={{
-              left: SHELL_DRAG_STRIP_LEFT,
-              WebkitAppRegion: 'drag'
-            } as React.CSSProperties}
-            data-tauri-drag-region
-          />
-          <ErrorBoundary resetKey={location.pathname} fallback={<SidebarErrorFallback />}>
-            <Sidebar />
-          </ErrorBoundary>
-          <div className="col-start-2 flex min-h-0 min-w-0 flex-col">
-            <BackendHealthBanner />
-            <main className="min-h-0 flex-1 overflow-hidden">
-              <div className="page-enter h-full overflow-hidden">
-                <ErrorBoundary resetKey={location.pathname} fallback={<PageContentErrorFallback />}>
-                  <Outlet />
-                </ErrorBoundary>
-              </div>
-            </main>
+      <ChatWorkspaceProvider>
+        <div className="flex h-screen w-screen flex-col overflow-hidden">
+          <AppTitleBar />
+          <div className={`desktop-surface relative grid min-h-0 w-full flex-1 ${gridColsClass} grid-rows-[minmax(0,1fr)] overflow-hidden`}>
+            <ErrorBoundary resetKey={location.pathname} fallback={<SidebarErrorFallback />}>
+              <Sidebar />
+            </ErrorBoundary>
+            <div className="col-start-2 flex min-h-0 min-w-0 flex-col">
+              <BackendHealthBanner />
+              <main className="min-h-0 flex-1 overflow-hidden">
+                <div className="page-enter h-full overflow-hidden">
+                  <ErrorBoundary resetKey={location.pathname} fallback={<PageContentErrorFallback />}>
+                    <Outlet />
+                  </ErrorBoundary>
+                </div>
+              </main>
+            </div>
+            {railColumnVisible ? (
+              <ErrorBoundary resetKey={currentSessionId} fallback={null}>
+                <PortraitRailHost />
+              </ErrorBoundary>
+            ) : null}
+            {viewportIsNarrow && portraitRailOpen ? (
+              <ErrorBoundary resetKey={currentSessionId} fallback={null}>
+                <PortraitRailHost />
+              </ErrorBoundary>
+            ) : null}
+            <ErrorBoundary resetKey={activePanel} fallback={<ShellOverlayErrorFallback />}>
+              <ShellOverlays />
+            </ErrorBoundary>
           </div>
-          {railColumnVisible ? (
-            <ErrorBoundary resetKey={currentSessionId} fallback={null}>
-              <PortraitRailHost />
-            </ErrorBoundary>
-          ) : null}
-          {viewportIsNarrow && portraitRailOpen ? (
-            <ErrorBoundary resetKey={currentSessionId} fallback={null}>
-              <PortraitRailHost />
-            </ErrorBoundary>
-          ) : null}
-          <ErrorBoundary resetKey={activePanel} fallback={<ShellOverlayErrorFallback />}>
-            <ShellOverlays />
-          </ErrorBoundary>
         </div>
-      </div>
+      </ChatWorkspaceProvider>
       <ErrorBoundary resetKey={currentSessionId} fallback={null}>
         {/* Control-plane hosts mirror pending interactions into the active chat. */}
         <PermissionModalHost sessionId={currentSessionId} intervalMs={0} />

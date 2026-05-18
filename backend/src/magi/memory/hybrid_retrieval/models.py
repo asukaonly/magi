@@ -24,6 +24,10 @@ class RetrievalQuery:
     domain_filters: List[str] = field(default_factory=list)
     summary_categories: List[str] = field(default_factory=list)
     limit: int = 10
+    # Original user message text for the current turn. Used by echo filtering
+    # so the L1 event of the just-typed user message is suppressed even when
+    # the LLM rephrases ``query``. Empty/None disables the extra filter.
+    exclude_user_text: Optional[str] = None
 
 
 @dataclass

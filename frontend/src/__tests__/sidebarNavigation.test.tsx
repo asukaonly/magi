@@ -32,6 +32,40 @@ vi.mock('@/api', () => ({
   },
 }));
 
+vi.mock('@/api/modules/personas', async () => {
+  const actual = await vi.importActual<typeof import('@/api/modules/personas')>(
+    '@/api/modules/personas',
+  );
+  // PersonaHeader (host of the new chat "+" button after the title-bar
+  // refactor) only renders when there's an active persona — so the test
+  // mock must surface one or every sidebar test loses access to the
+  // create-chat button.
+  return {
+    ...actual,
+    personasApi: {
+      ...actual.personasApi,
+      getActive: vi.fn().mockResolvedValue({ success: true, persona_id: 'p1' }),
+      get: vi.fn().mockResolvedValue({
+        success: true,
+        data: {
+          persona_id: 'p1',
+          name: 'Test',
+          slug: 'test',
+          locale: 'en',
+          config: { name: 'Test' },
+          avatar_path: '',
+          group_name: 'general',
+          sort_order: 0,
+          is_builtin: false,
+          seed_slug: null,
+          created_at: 0,
+          updated_at: 0,
+        },
+      }),
+    },
+  };
+});
+
 describe('sidebar navigation', () => {
   const storage = new Map<string, string>();
 

@@ -194,6 +194,7 @@ class FunctionCallingToolExecutionMixin:
                     "trace_id": f"trace:{normalized_turn_id}" if normalized_turn_id else "",
                     "trace_parent_span_id": trace_parent_span_id,
                     "trace_tool_call_id": tool_call.id,
+                    "current_user_text": user_message or "",
                 },
                 permissions=permissions,
                 cancellation=token,

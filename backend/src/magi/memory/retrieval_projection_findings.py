@@ -79,7 +79,14 @@ def build_findings(payload: RetrievalPayload, request: RetrievalQuery) -> list[d
     for c in candidates:
         _attach_score(c, mode=mode, answer_kind=answer_kind, polarity=polarity)
 
-    candidates = [c for c in candidates if not is_echo_finding(c, request.query)]
+    echo_texts = [request.query]
+    if request.exclude_user_text:
+        echo_texts.append(request.exclude_user_text)
+    candidates = [
+        c
+        for c in candidates
+        if not any(is_echo_finding(c, text) for text in echo_texts if text)
+    ]
 
     candidates.sort(key=lambda x: -float(x.get("_score", 0.0)))
 

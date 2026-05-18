@@ -26,6 +26,8 @@ describe('MemoryPortraitRail', () => {
       ],
       is_cold_start: false,
       cold_start_line: null,
+      cold_start_reason: null,
+      is_stale: false,
     });
     render(<MemoryPortraitRail sessionId="s1" userId="u1" personaId="p1" />);
     const cards = await screen.findAllByTestId('portrait-card');
@@ -37,6 +39,7 @@ describe('MemoryPortraitRail', () => {
     vi.mocked(memoryPortraitApi.get).mockResolvedValue({
       session_id: 's1', persona_id: 'p1', topic: '', generated_at: 0,
       observations: [], is_cold_start: true, cold_start_line: 'hi',
+      cold_start_reason: 'computing', is_stale: false,
     });
     render(<MemoryPortraitRail sessionId="s1" userId="u1" personaId="p1" />);
     await waitFor(() => expect(screen.getByTestId('portrait-cold-start')).toBeInTheDocument());

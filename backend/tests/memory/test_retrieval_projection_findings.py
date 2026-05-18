@@ -142,6 +142,29 @@ class TestEchoFiltering:
         assert "我喜欢什么音乐" not in statements
         assert "Chrome browsed Spotify" in statements
 
+    def test_exclude_user_text_filters_rephrased_query(self):
+        """When the LLM rephrases the query, the user's original message
+        text (passed via exclude_user_text) should still be filtered out."""
+        payload = _make_payload(
+            l1_events=[
+                {"content": "5月14我听了什么歌", "score": 0.9, "timestamp": 1.0},
+                {"content": "Primal Scream - Movin' on Up", "score": 0.7, "timestamp": 2.0},
+            ],
+        )
+        query = RetrievalQuery(
+            query="5月14日听的音乐",  # LLM-rephrased; does not match the original
+            user_id="u1",
+            session_id="s1",
+            time_range={},
+            query_mode="exact_fact",
+            limit=10,
+            exclude_user_text="5月14我听了什么歌",
+        )
+        findings = build_findings(payload, query)
+        statements = [f["statement"] for f in findings]
+        assert "5月14我听了什么歌" not in statements
+        assert "Primal Scream - Movin' on Up" in statements
+
     def test_fact_recall_filters_prior_memory_qa_artifacts(self):
         payload = _make_payload(
             l1_events=[

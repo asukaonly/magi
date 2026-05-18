@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Brain, X } from 'lucide-react';
 import type { RecalledMemory } from '@/domain/chat/state';
@@ -48,9 +48,16 @@ type RecalledMemoriesRowProps = {
 export const RecalledMemoriesRow = ({ memories }: RecalledMemoriesRowProps) => {
   const { t, i18n } = useTranslation('app');
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
+  const detailRef = useRef<HTMLDivElement | null>(null);
 
   const visibleChips = useMemo(() => memories.slice(0, MAX_INLINE_CHIPS), [memories]);
   const overflowCount = Math.max(0, memories.length - visibleChips.length);
+
+  useEffect(() => {
+    if (expandedIndex !== null && detailRef.current) {
+      detailRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [expandedIndex]);
 
   if (memories.length === 0) {
     return null;
@@ -92,7 +99,7 @@ export const RecalledMemoriesRow = ({ memories }: RecalledMemoriesRowProps) => {
           const isExpanded = expandedIndex === index;
           return (
             <button
-              key={`${memory.sourceLayer}-${memory.topic}-${index}`}
+              key={`${memory.kind}-${memory.topic}-${index}`}
               type="button"
               onClick={() => toggleExpand(index)}
               aria-expanded={isExpanded}
@@ -101,10 +108,10 @@ export const RecalledMemoriesRow = ({ memories }: RecalledMemoriesRowProps) => {
                 'hover:bg-foreground/5 hover:text-foreground/90',
                 isExpanded && 'bg-foreground/5 text-foreground/95',
               )}
-              title={`${memory.sourceLayer} · ${kindLabel} · ${memory.statement}`}
+              title={`${kindLabel} · ${memory.statement}`}
             >
-              <span className="shrink-0 font-semibold tracking-[0.04em] text-foreground/70 group-hover:text-foreground/90">
-                {memory.sourceLayer}
+              <span className="shrink-0 text-foreground/70 group-hover:text-foreground/90">
+                {kindLabel}
               </span>
               <span className="truncate">{memory.topic}</span>
             </button>
@@ -118,15 +125,15 @@ export const RecalledMemoriesRow = ({ memories }: RecalledMemoriesRowProps) => {
       </div>
       {expandedMemory ? (
         <div
+          ref={detailRef}
           className="flex flex-col gap-1.5 rounded-md border border-border/45 bg-background/60 px-2.5 py-2 text-[11.5px] leading-5"
           data-testid="recalled-memories-detail"
         >
           <div className="flex items-start justify-between gap-2">
             <div className="flex flex-wrap items-center gap-1.5 text-muted-foreground">
-              <span className="rounded-sm bg-primary/10 px-1.5 py-px font-mono text-[10px] font-semibold tracking-[0.04em] text-primary">
-                {expandedMemory.sourceLayer}
+              <span className="rounded-sm bg-primary/10 px-1.5 py-px text-[10px] font-medium text-primary">
+                {expandedKindLabel}
               </span>
-              <span className="text-foreground/75">{expandedKindLabel}</span>
               {expandedRelative ? <span aria-hidden="true">·</span> : null}
               {expandedRelative ? <span>{expandedRelative}</span> : null}
               {typeof expandedMemory.confidence === 'number' ? (

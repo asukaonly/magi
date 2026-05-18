@@ -201,6 +201,7 @@ class MemoryQueryTool(Tool):
             # Persistent memory recall should not inherit the current chat session
             # unless a caller explicitly opts into session-local lookup.
             session_id = parameters.get("session_id")
+            current_user_text = context.env_vars.get("current_user_text") or None
             request = build_query(
                 query=parameters["query"],
                 user_id=user_id,
@@ -211,6 +212,7 @@ class MemoryQueryTool(Tool):
                 domain_filters=parameters.get("domains", []) or [],
                 summary_categories=parameters.get("summary_categories", []) or [],
                 limit=parameters.get("limit", 20),
+                exclude_user_text=current_user_text,
             )
             payload = await self._get_service().query(request)
             payload_dict = asdict(payload) if hasattr(payload, "__dataclass_fields__") else {

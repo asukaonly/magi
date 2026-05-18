@@ -20,6 +20,8 @@ describe('useMemoryPortrait', () => {
       observations: [],
       is_cold_start: true,
       cold_start_line: 'hi',
+      cold_start_reason: null,
+      is_stale: false,
     });
   });
 
@@ -78,11 +80,13 @@ describe('useMemoryPortrait', () => {
         session_id: 's1', persona_id: 'p1', topic: '', generated_at: 0,
         observations: [], is_cold_start: true,
         cold_start_line: 'computing', cold_start_reason: 'computing',
+        is_stale: false,
       })
       .mockResolvedValueOnce({
         session_id: 's1', persona_id: 'p1', topic: 't', generated_at: 0,
         observations: [{ kind: 'reflection', text: 'x', basis_count: 1, basis_summary: '', basis_refs: [] }],
         is_cold_start: false, cold_start_line: null, cold_start_reason: null,
+        is_stale: false,
       });
 
     renderHook(() =>
@@ -102,6 +106,7 @@ describe('useMemoryPortrait', () => {
       session_id: 's1', persona_id: 'p1', topic: 't', generated_at: 0,
       observations: [], is_cold_start: false,
       cold_start_line: null, cold_start_reason: null,
+      is_stale: false,
     });
 
     renderHook(() =>

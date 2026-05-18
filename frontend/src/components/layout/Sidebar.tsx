@@ -5,13 +5,11 @@ import {
   ListChecks,
   MessageCircle,
   MoreHorizontal,
-  Plus,
   Settings,
 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
-import { isMacPlatform } from '@/lib/platform';
 import { messagesApi, type ChatSessionListItem } from '@/api';
 import { CHAT_SESSION_KEY, DEFAULT_USER_ID } from '@/constants';
 import { Button } from '@/components/ui/button';
@@ -292,7 +290,6 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   }, [currentSessionId, orderedSessionIds, sessionsById, t]);
 
   const tasksActiveCount = useBackgroundTaskStore((state) => state.activeCount);
-  const isMac = useMemo(() => isMacPlatform(), []);
 
   if (collapsed) {
     return null;
@@ -394,23 +391,8 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   };
 
   const renderConversationPanel = () => (
-    <div className="relative flex min-h-0 flex-1 flex-col" data-testid="sidebar-conversation-rail">
-      <button
-        type="button"
-        onClick={() => {
-          void handleCreateSession();
-        }}
-        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-        className="absolute right-2 top-2 z-50 flex h-6 w-6 items-center justify-center rounded-md text-[hsl(var(--sidebar-muted))] transition-colors hover:bg-[hsl(var(--sidebar-tool-hover))] hover:text-[hsl(var(--sidebar-active-foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.18)]"
-        aria-label={t('shell.newChat')}
-        title={t('shell.newChat')}
-      >
-        <Plus className="h-3.5 w-3.5" />
-      </button>
-
-      <div className={cn('shrink-0', isMac ? 'pt-9' : 'pt-3')}>
-        <PersonaHeader />
-      </div>
+    <div className="flex min-h-0 flex-1 flex-col" data-testid="sidebar-conversation-rail">
+      <PersonaHeader onCreateChat={() => { void handleCreateSession(); }} />
 
       <div className="flex min-h-0 flex-1 flex-col px-2.5 py-2.5">
         <div className="min-h-0 flex-1 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
@@ -490,7 +472,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
 
   const renderMemoryPanel = () => (
     <div
-      className={cn('flex min-h-0 flex-1 flex-col', isMac ? 'pt-9' : 'pt-3')}
+      className="flex min-h-0 flex-1 flex-col pt-2"
       data-testid="sidebar-memory-panel"
     >
       <div className="min-h-0 flex-1 overflow-y-auto px-2.5 py-2.5 pr-3 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
@@ -537,7 +519,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
 
     return (
       <div
-        className={cn('flex min-h-0 flex-1 flex-col', isMac ? 'pt-9' : 'pt-3')}
+        className="flex min-h-0 flex-1 flex-col pt-2"
         data-testid={`sidebar-${openPanel}-panel`}
       >
         <div className="min-h-0 flex-1" />
@@ -582,10 +564,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
         </div>
       ) : null}
       <div
-        className={cn(
-          'flex w-14 shrink-0 flex-col border-r border-[hsl(var(--sidebar-border))] px-1.5 pb-3',
-          isMac ? 'pt-9' : 'pt-3'
-        )}
+        className="flex w-14 shrink-0 flex-col border-r border-[hsl(var(--sidebar-border))] px-1.5 pb-3 pt-3"
         data-testid="sidebar-activity-bar"
       >
         <div className="flex min-h-0 flex-1 flex-col items-center gap-1">
