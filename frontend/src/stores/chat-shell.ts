@@ -26,7 +26,7 @@ export const useChatShellStore = create<DesktopShellState>((set) => ({
   currentSessionId: null,
   activePanel: 'none',
   settingsNavigationIntent: null,
-  portraitRailOpen: true,
+  portraitRailOpen: false,
   viewportIsNarrow: false,
   setCurrentSessionId: (currentSessionId) => set({ currentSessionId }),
   setActivePanel: (activePanel) => set({ activePanel }),
