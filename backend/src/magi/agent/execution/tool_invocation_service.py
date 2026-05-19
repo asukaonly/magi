@@ -64,6 +64,7 @@ class ToolInvocationService:
     async def invoke(self, call: ToolCall, ctx: InvocationContext):
         from magi.hooks.contracts import HookEventType, HookOutcome
         from magi.hooks.dispatch import dispatch_hook
+        from magi.skills.active_restrictions import disallowed_reason
 
         started_at = time.time()
         started_mono = time.monotonic()
@@ -72,6 +73,26 @@ class ToolInvocationService:
         turn_id_raw = ctx.task_context.turn_id if ctx.task_context else None
         user_id_raw = ctx.task_context.user_id if ctx.task_context else None
         workspace_raw = getattr(ctx.execution_context, "workspace", None)
+
+        # Enforce skill ``allowed-tools`` restrictions before anything else
+        # runs — this is a built-in policy, not a user hook, so it short
+        # circuits ahead of the HookGateway.
+        skill_block_reason = disallowed_reason(call.name)
+        if skill_block_reason is not None:
+            from magi.agent.execution.function_calling.types import ToolCallResult
+            logger.info(
+                "[ToolInvocation] Blocked by skill allowed-tools: %s | reason=%s",
+                call.name,
+                skill_block_reason,
+            )
+            return ToolCallResult(
+                tool_call_id="",
+                tool_name=call.name,
+                success=False,
+                error=skill_block_reason,
+                error_code="SKILL_ALLOWED_TOOLS_VIOLATION",
+                execution_time=0.0,
+            )
 
         pre_decision = await dispatch_hook(
             HookEventType.PRE_TOOL_USE,

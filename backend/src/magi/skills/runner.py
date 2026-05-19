@@ -183,12 +183,38 @@ class SkillRunner:
         Execute skill directly in current agent context
 
         This mode is for skills that provide instructions but don't
-        require a separate agent execution context.
+        require a separate agent execution context. The returned
+        ``content`` becomes the tool-call result the model observes, so
+        the SKILL.md body is injected as instructions the model then
+        follows on subsequent iterations of the function-calling loop.
+
+        To stop the model from "escaping" the skill's declared
+        ``allowed-tools`` whitelist on those subsequent iterations we
+        push the whitelist onto the active-restriction stack
+        (intersected with any outer stack frames). The push has no
+        explicit pop — the contextvar is task-scoped, so the
+        restriction dies when the current turn finishes.
         """
         _ = context
+        allowed = skill.frontmatter.allowed_tools
+        if allowed:
+            from .active_restrictions import push_restriction
+
+            push_restriction(allowed)
+
+        prologue = ""
+        if allowed:
+            tool_list = ", ".join(allowed)
+            prologue = (
+                f"[skill={skill.name}] This skill restricts tool usage. "
+                f"Only the following tools are permitted for the remainder "
+                f"of this turn: {tool_list}. Attempts to call other tools "
+                f"will be rejected.\n\n"
+            )
+
         return SkillResult(
             success=True,
-            content=prompt,
+            content=prologue + prompt,
             metadata={
                 "mode": "direct",
                 "skill_name": skill.name,
@@ -204,10 +230,25 @@ class SkillRunner:
     ) -> SkillResult:
         """
         Execute skill using a dedicated SkillSubagent.
+
+        Like the direct path, this pushes the skill's ``allowed-tools``
+        whitelist onto the active-restriction stack so tool calls
+        originating inside the subagent are still gated by
+        ``tool_invocation_service``. ``SkillSubagent`` already filters
+        the *list* of tools surfaced to the model — this is a
+        defense-in-depth pin so the runtime can't be tricked by a tool
+        name that wasn't filtered at registration time (e.g. a tool
+        added late).
         """
         if not self.llm:
             logger.warning("LLM adapter not available, falling back to direct mode")
             return await self._execute_direct(skill, prompt, context)
+
+        allowed = skill.frontmatter.allowed_tools
+        if allowed:
+            from .active_restrictions import push_restriction
+
+            push_restriction(allowed)
 
         subagent = create_skill_subagent(
             skill=skill,

@@ -18,6 +18,24 @@ from .indexer import SkillIndexer
 
 logger = logging.getLogger(__name__)
 
+# Hard upper bound on the body of a single SKILL.md after frontmatter is
+# stripped. Anything larger is truncated with a warning to avoid blowing the
+# model context window from a misbehaving or hostile skill file.
+MAX_SKILL_BODY_BYTES = 256 * 1024  # 256 KiB
+
+# ``!`command``` references inside SKILL.md auto-execute shell at load time.
+# That is *not* part of the Claude Code Skills spec and is a clear RCE vector
+# when a SKILL.md comes from an untrusted source (shared org skill repo,
+# downloaded skill pack, plugin contribution, …). The capability is therefore
+# disabled by default; opt back in via the environment variable when a
+# trusted-source workflow needs it.
+_ALLOW_COMMAND_RESOLUTION_ENV = "MAGI_SKILLS_ALLOW_COMMAND_RESOLUTION"
+
+
+def _command_resolution_enabled() -> bool:
+    value = os.environ.get(_ALLOW_COMMAND_RESOLUTION_ENV, "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
 
 class SkillLoader:
     """
@@ -71,6 +89,8 @@ class SkillLoader:
 
             # Parse frontmatter and body
             frontmatter, body = self._split_frontmatter(content)
+
+            body = self._enforce_body_size_limit(body, skill_file)
 
             # Resolve references
             processed_body = self._resolve_references(body, metadata.directory)
@@ -139,9 +159,34 @@ class SkillLoader:
             )
             return frontmatter, body
 
-        except yaml.YAMLerror as e:
+        except yaml.YAMLError as e:
             logger.warning(f"Failed to parse frontmatter: {e}")
             return SkillFrontmatter(name="", description=""), body
+
+    def _enforce_body_size_limit(self, body: str, skill_file: Path) -> str:
+        """Cap the SKILL.md body so a runaway file cannot exhaust the model context.
+
+        The limit is measured in UTF-8 bytes (closer to what the LLM
+        tokenizer cares about than character count for non-ASCII text).
+        When exceeded, the body is truncated and a marker is appended so
+        the model can see the cut happened — silent truncation would hide
+        the problem.
+        """
+        encoded = body.encode("utf-8")
+        if len(encoded) <= MAX_SKILL_BODY_BYTES:
+            return body
+        logger.warning(
+            "SKILL.md body %s exceeds %d bytes (got %d); truncating",
+            skill_file,
+            MAX_SKILL_BODY_BYTES,
+            len(encoded),
+        )
+        # Truncate on a UTF-8 boundary by decoding with errors='ignore'.
+        truncated = encoded[:MAX_SKILL_BODY_BYTES].decode("utf-8", errors="ignore")
+        return (
+            truncated
+            + f"\n\n<!-- SKILL.md truncated at {MAX_SKILL_BODY_BYTES} bytes by magi -->\n"
+        )
 
     def _resolve_references(self, content: str, skill_dir: Path) -> str:
         """
@@ -171,21 +216,43 @@ class SkillLoader:
 
     def _resolve_command_references(self, content: str) -> str:
         """
-        Resolve shell command references
+        Resolve shell command references at load time.
 
-        pattern: !`command`
-        Example: !`git rev-parse --short HEAD`
+        Pattern: ``!`command``` — for example ``!`git rev-parse --short HEAD```.
 
-        Args:
-            content: Content with command references
+        This auto-executes shell on the host whenever a SKILL.md is loaded,
+        which is an RCE vector when the SKILL.md is sourced from an
+        untrusted location. The capability is therefore **disabled by
+        default**. Set ``MAGI_SKILLS_ALLOW_COMMAND_RESOLUTION=1`` to
+        re-enable for trusted workflows; references are then executed with
+        a hard 5-second timeout per match.
 
-        Returns:
-            Content with commands executed and replaced
+        When the capability is disabled and a ``!`command``` reference is
+        present, the literal text is preserved unchanged so the model still
+        sees the intent (and can choose to run it via the Bash tool, which
+        is permission-gated).
         """
         pattern = r'!`([^`]+)`'
 
+        if not _command_resolution_enabled():
+            if pattern_matches := re.findall(pattern, content):
+                logger.warning(
+                    "SKILL.md contains %d shell-execution reference(s); "
+                    "auto-execution is disabled (set %s=1 to enable). "
+                    "Leaving the literals in place — the model can run them "
+                    "via the Bash tool if needed. samples=%s",
+                    len(pattern_matches),
+                    _ALLOW_COMMAND_RESOLUTION_ENV,
+                    pattern_matches[:3],
+                )
+            return content
+
         def replace_command(match):
             command = match.group(1)
+            logger.warning(
+                "Executing !`command` from SKILL.md at load time: %s",
+                command,
+            )
             try:
                 result = subprocess.run(
                     command,
@@ -209,7 +276,12 @@ class SkillLoader:
         Resolve file references
 
         pattern: [filename](filename) or [alt text](filename)
-        Only resolves if the file exists in the skill directory.
+        Only resolves if the file exists inside the skill directory.
+
+        Paths that escape ``skill_dir`` (via ``..``, absolute paths, or
+        symlinks that resolve outside the directory) are rejected — the
+        original markdown text is kept unchanged so the rest of the body
+        is unaffected.
 
         Args:
             content: Content with file references
@@ -219,6 +291,7 @@ class SkillLoader:
             Content with file references replaced by their content
         """
         pattern = r'\[([^\]]*)\]\(([^)]+)\)'
+        skill_dir_resolved = skill_dir.resolve()
 
         def replace_file(match):
             alt_text = match.group(1)
@@ -228,20 +301,50 @@ class SkillLoader:
             if filename.startswith(('http://', 'https://', 'mailto:')):
                 return match.group(0)
 
-            # Resolve relative to skill directory
-            file_path = skill_dir / filename
-            if not file_path.exists():
-                # Keep original if file doesn't exist
+            # Reject absolute paths up front — they could only ever escape.
+            try:
+                candidate = Path(filename)
+            except (ValueError, OSError):
+                return match.group(0)
+            if candidate.is_absolute():
+                logger.warning(
+                    "Rejecting absolute SKILL.md file reference: %s (skill_dir=%s)",
+                    filename,
+                    skill_dir_resolved,
+                )
+                return match.group(0)
+
+            # Resolve relative to skill_dir and verify the result stays
+            # inside the directory (defeats ``../../`` and symlink escapes).
+            file_path = (skill_dir / filename)
+            try:
+                resolved = file_path.resolve()
+            except (OSError, RuntimeError) as exc:
+                logger.warning("SKILL.md file reference unresolvable: %s (%s)", filename, exc)
+                return match.group(0)
+            try:
+                resolved.relative_to(skill_dir_resolved)
+            except ValueError:
+                logger.warning(
+                    "Rejecting out-of-tree SKILL.md file reference: %s -> %s (skill_dir=%s)",
+                    filename,
+                    resolved,
+                    skill_dir_resolved,
+                )
+                return match.group(0)
+
+            if not resolved.is_file():
+                # Keep original if file doesn't exist or isn't a regular file.
                 return match.group(0)
 
             try:
-                file_content = file_path.read_text(encoding="utf-8")
+                file_content = resolved.read_text(encoding="utf-8")
                 # Format as code block for markdown files
                 if filename.endswith('.md'):
                     return f"\n```\n{file_content}\n```\n"
                 return file_content
             except Exception as e:
-                logger.warning(f"Failed to read file {file_path}: {e}")
+                logger.warning(f"Failed to read file {resolved}: {e}")
                 return match.group(0)
 
         return re.sub(pattern, replace_file, content)
