@@ -132,9 +132,20 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
         outcome: InteractionOutcome,
         user_engagement: EngagementLevel = EngagementLevel.MEDIUM,
         complexity: float = 0.5,
-        description: str = ""
+        description: str = "",
+        *,
+        triggered_emotion_impacts: list[dict[str, float]] | None = None,
     ) -> EmotionalState:
-        """Update mood/energy/stress after an interaction and persist the new state."""
+        """Update mood/energy/stress after an interaction and persist the new state.
+
+        ``triggered_emotion_impacts`` carries per-trigger deltas from
+        signature triggers that fired this turn (see
+        ``trigger_emotion_impact.resolve_emotion_impacts_for_ids``). Each
+        impact is a dict like ``{"mood": +0.10, "stress": -0.05}``; values
+        are summed on top of the outcome-based deltas so a persona's
+        configured triggers drive mood divergence between personas that
+        share the same outcome math.
+        """
         state = await self.get_current_state()
 
         # recordoldState
@@ -148,6 +159,20 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
 
         stress_change = self._calculate_stress_change(outcome, complexity)
 
+        trigger_mood_delta = 0.0
+        trigger_energy_delta = 0.0
+        trigger_stress_delta = 0.0
+        for impact in triggered_emotion_impacts or []:
+            try:
+                trigger_mood_delta += float(impact.get("mood", 0.0) or 0.0)
+                trigger_energy_delta += float(impact.get("energy", 0.0) or 0.0)
+                trigger_stress_delta += float(impact.get("stress", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                continue
+        mood_change += trigger_mood_delta
+        energy_change += trigger_energy_delta
+        stress_change += trigger_stress_delta
+
         state.current_mood = self._apply_mood_change(state.current_mood, mood_change)
         state.mood_intensity = max(0.0, min(1.0, state.mood_intensity + abs(mood_change) * 0.3))
         state.energy_level = max(0.0, min(1.0, state.energy_level + energy_change))
@@ -159,6 +184,9 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
 
         state.social_state = self._determine_social_state(user_engagement, state.social_state)
 
+        cause = f"Interaction: {outcome.value}, engagement: {user_engagement.value}"
+        if triggered_emotion_impacts:
+            cause += f", triggers_applied={len(triggered_emotion_impacts)}"
         # recordevent
         await self._record_event(
             event_type="interaction",
@@ -167,7 +195,7 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
             mood_delta=mood_change,
             energy_delta=energy_change,
             stress_delta=stress_change,
-            cause=f"Interaction: {outcome.value}, engagement: {user_engagement.value}"
+            cause=cause,
         )
 
         # saveState
