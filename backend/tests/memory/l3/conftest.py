@@ -43,6 +43,7 @@ async def _apply_memory_shared_schema(db_path: str) -> None:
         "0002_user_profile_projection.py",
         "0003_l2_episode_immersive_columns.py",
         "0004_l3_summary_essence_prose.py",
+        "0005_daily_mood_aggregate.py",
     ):
         sql = _extract_schema_sql(filename)
         async with aiosqlite.connect(db_path) as db:
