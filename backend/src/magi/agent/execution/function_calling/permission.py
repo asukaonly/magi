@@ -70,6 +70,31 @@ class FunctionCallingPermissionMixin:
             else ToolOrigin.CHAT
         )
 
+        # Claude Code spec: a skill's ``allowed-tools`` field
+        # pre-approves matching tool calls. If any currently-active
+        # skill pre-approves this call we skip the permission gateway
+        # entirely (no prompt, no kill-list check, no cached-rule
+        # lookup) — semantics match the spec's "without asking
+        # permission" wording.
+        try:
+            from ....skills.active_restrictions import (
+                is_call_preapproved,
+                matched_rule,
+            )
+        except Exception:
+            is_call_preapproved = None  # type: ignore[assignment]
+            matched_rule = None  # type: ignore[assignment]
+        if is_call_preapproved is not None and is_call_preapproved(tool_name, arguments):
+            if matched_rule is not None:
+                rule = matched_rule(tool_name, arguments)
+                logger.info(
+                    "[FunctionCalling] permission skipped by skill pre-approval "
+                    "tool=%s rule=%s",
+                    tool_name,
+                    rule.display if rule else "<unknown>",
+                )
+            return None
+
         try:
             gate = gateway if gateway is not None else self._resolve_permission_gateway()
             if gate is None:

@@ -127,29 +127,18 @@ class SkillSubagent:
 
     def _build_available_tools(self) -> List[str]:
         """
-        Build list of available tools based on allowed_tools restriction.
+        Return the full tool list available to this subagent.
 
-        Returns:
-            List of tool names available to this subagent
+        Per the Claude Code Skills spec, ``allowed-tools`` is a
+        *pre-approval* list, not a restriction on which tools can be
+        called. The subagent therefore sees every registered tool; the
+        skill's allowed-tools rules are used only to skip permission
+        prompts for matching calls (see
+        :mod:`magi.skills.active_restrictions`).
+
+        ``self.allowed_tools`` is retained for telemetry / logging only.
         """
-        registry = _get_tool_registry()
-        all_tools = registry.list_tools()  # Returns list of tool names
-
-        if self.allowed_tools is None:
-            return all_tools
-
-        # Filter to only allowed tools
-        available = [t for t in all_tools if t in self.allowed_tools]
-
-        # Always include bash for script execution
-        if "bash" not in available and self.allowed_tools is not None:
-            # Check if skill has scripts - if so, bash should be available
-            scripts = self.skill.supporting_data.get("scripts", [])
-            if scripts:
-                available.append("bash")
-                logger.info(f"Auto-including 'bash' tool for skill with scripts: {self.skill.name}")
-
-        return available
+        return _get_tool_registry().list_tools()
 
     async def execute(
         self,

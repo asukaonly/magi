@@ -1,4 +1,9 @@
-"""Tests for the skill ``allowed-tools`` enforcement layer."""
+"""Tests for the skill ``allowed-tools`` pre-approval layer.
+
+Per the Claude Code Skills spec, ``allowed-tools`` *grants* permission
+to matching calls (skipping the permission prompt). It does *not*
+restrict tool availability. These tests check that semantic.
+"""
 
 from __future__ import annotations
 
@@ -7,82 +12,127 @@ import asyncio
 import pytest
 
 from magi.skills.active_restrictions import (
-    current_restrictions,
-    disallowed_reason,
+    current_preapproval_frames,
+    is_call_preapproved,
+    matched_rule,
+    push_skill_rules,
+    pop_skill_rules,
+    skill_preapproval,
+    # Back-compat shims — should still import and behave permissively.
     is_tool_allowed,
-    push_restriction,
-    pop_restriction,
-    skill_restriction,
+    disallowed_reason,
 )
+from magi.skills.allowed_tools_rules import ToolRule
 
 
-def test_no_restriction_allows_everything():
-    assert current_restrictions() == ()
-    assert is_tool_allowed("anything")
-    assert disallowed_reason("anything") is None
+# ---------------------------------------------------------------------------
+# Core pre-approval semantics
+# ---------------------------------------------------------------------------
 
 
-def test_push_and_check():
-    token = push_restriction({"Bash", "Read"})
+def test_no_active_frames_means_nothing_preapproved():
+    assert current_preapproval_frames() == ()
+    assert not is_call_preapproved("Bash", {"command": "rm -rf /"})
+    assert matched_rule("Bash", {}) is None
+
+
+def test_bare_rule_preapproves_any_call_to_that_tool():
+    with skill_preapproval(["Read"]):
+        assert is_call_preapproved("Read", {"path": "/anything"})
+        # Tool name mismatch — not pre-approved.
+        assert not is_call_preapproved("Write", {"path": "/anything"})
+
+
+def test_pattern_rule_matches_bash_command():
+    with skill_preapproval(["Bash(git add *)"]):
+        assert is_call_preapproved("Bash", {"command": "git add foo.txt"})
+        assert not is_call_preapproved("Bash", {"command": "git commit -m hi"})
+
+
+def test_pattern_rule_with_colon_pattern():
+    """Reproduce the ``agent-browser`` case from the wild."""
+    with skill_preapproval(
+        ["Bash(agent-browser:*)", "Bash(npx agent-browser:*)"]
+    ):
+        assert is_call_preapproved("Bash", {"command": "agent-browser:run --headless"})
+        assert is_call_preapproved("Bash", {"command": "npx agent-browser:test"})
+        assert not is_call_preapproved("Bash", {"command": "rm -rf /"})
+
+
+def test_stacked_frames_union():
+    """If any active frame pre-approves, the call is pre-approved."""
+    with skill_preapproval(["Read"]):
+        with skill_preapproval(["Bash(git *)"]):
+            # Inner frame approves Bash(git ...), outer frame approves any Read.
+            assert is_call_preapproved("Read", {"path": "/x"})
+            assert is_call_preapproved("Bash", {"command": "git status"})
+            # Nothing approves Write.
+            assert not is_call_preapproved("Write", {"path": "/x"})
+
+
+def test_matched_rule_returns_first_match():
+    with skill_preapproval(["Bash(git add *)", "Bash(git commit *)"]):
+        rule = matched_rule("Bash", {"command": "git commit -m x"})
+        assert rule is not None
+        assert rule.display == "Bash(git commit *)"
+
+
+def test_none_rules_is_noop():
+    token = push_skill_rules(None)
     try:
-        assert is_tool_allowed("Bash")
-        assert is_tool_allowed("Read")
-        assert not is_tool_allowed("Write")
-        reason = disallowed_reason("Write")
-        assert reason is not None
-        assert "allowed-tools" in reason
+        assert not is_call_preapproved("Bash", {"command": "anything"})
     finally:
-        pop_restriction(token)
-    # State restored after pop.
-    assert is_tool_allowed("Write")
+        pop_skill_rules(token)
 
 
-def test_nested_restrictions_intersect():
-    with skill_restriction({"Bash", "Read", "Write"}):
-        with skill_restriction({"Bash", "Read"}):
-            assert is_tool_allowed("Bash")
-            assert is_tool_allowed("Read")
-            # 'Write' is in the outer set but not the inner — must be blocked.
-            assert not is_tool_allowed("Write")
-        # After inner pops, outer set governs again.
-        assert is_tool_allowed("Write")
-
-
-def test_none_allowed_tools_is_noop():
-    token = push_restriction(None)
+def test_empty_list_is_noop():
+    token = push_skill_rules([])
     try:
-        assert is_tool_allowed("anything")
+        assert not is_call_preapproved("Read", {})
     finally:
-        pop_restriction(token)
+        pop_skill_rules(token)
+
+
+def test_accepts_toolrule_objects_directly():
+    rule = ToolRule(tool="Read", pattern="src/*")
+    with skill_preapproval([rule]):
+        assert is_call_preapproved("Read", {"path": "src/main.py"})
+        assert not is_call_preapproved("Read", {"path": "tests/test.py"})
+
+
+# ---------------------------------------------------------------------------
+# Contextvar lifecycle
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_restriction_propagates_into_child_task():
-    """A child awaited inside the same task sees the restriction; a sibling task does not."""
-    seen_in_child = []
-    seen_in_sibling = []
+async def test_preapproval_propagates_into_awaited_child_and_task():
+    seen_child = []
+    seen_sibling = []
 
     async def child():
-        seen_in_child.append(is_tool_allowed("Forbidden"))
+        seen_child.append(is_call_preapproved("Bash", {"command": "anything"}))
 
     async def sibling():
-        # asyncio.create_task captures the current context at scheduling
-        # time, so this task DOES inherit the push by default.
-        seen_in_sibling.append(is_tool_allowed("Forbidden"))
+        seen_sibling.append(is_call_preapproved("Bash", {"command": "anything"}))
 
-    with skill_restriction({"Bash"}):
+    with skill_preapproval(["Bash"]):
         await child()
-        task = asyncio.create_task(sibling())
-        await task
+        await asyncio.create_task(sibling())
 
-    assert seen_in_child == [False]
-    # create_task inherits the contextvar snapshot — both children see deny.
-    assert seen_in_sibling == [False]
+    assert seen_child == [True]
+    # create_task inherits the contextvar snapshot.
+    assert seen_sibling == [True]
 
 
-def test_disallowed_reason_truncates_long_list():
-    big = {f"tool_{i}" for i in range(20)}
-    with skill_restriction(big):
-        reason = disallowed_reason("missing")
-        assert reason is not None
-        assert "(+15 more)" in reason
+# ---------------------------------------------------------------------------
+# Back-compat shims
+# ---------------------------------------------------------------------------
+
+
+def test_legacy_is_tool_allowed_is_permissive():
+    """The old hard-deny API now always returns True (spec alignment)."""
+    with skill_preapproval(["Bash"]):
+        assert is_tool_allowed("Bash") is True
+        assert is_tool_allowed("Write") is True  # Not "denied" — just not pre-approved.
+        assert disallowed_reason("Write") is None

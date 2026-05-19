@@ -188,28 +188,31 @@ class SkillRunner:
         the SKILL.md body is injected as instructions the model then
         follows on subsequent iterations of the function-calling loop.
 
-        To stop the model from "escaping" the skill's declared
-        ``allowed-tools`` whitelist on those subsequent iterations we
-        push the whitelist onto the active-restriction stack
-        (intersected with any outer stack frames). The push has no
-        explicit pop — the contextvar is task-scoped, so the
-        restriction dies when the current turn finishes.
+        Per the Claude Code Skills spec, the skill's declared
+        ``allowed-tools`` is a *pre-approval* list — tool calls matching
+        any entry skip the normal permission prompt; tools outside the
+        list remain callable and go through the usual permission flow.
+        We push the parsed rules onto a task-scoped contextvar so the
+        permission gateway can short-circuit on a match. No explicit
+        pop: the contextvar dies with the asyncio task that runs the
+        turn.
         """
         _ = context
         allowed = skill.frontmatter.allowed_tools
         if allowed:
-            from .active_restrictions import push_restriction
+            from .active_restrictions import push_skill_rules
 
-            push_restriction(allowed)
+            push_skill_rules(allowed)
 
         prologue = ""
         if allowed:
             tool_list = ", ".join(allowed)
             prologue = (
-                f"[skill={skill.name}] This skill restricts tool usage. "
-                f"Only the following tools are permitted for the remainder "
-                f"of this turn: {tool_list}. Attempts to call other tools "
-                f"will be rejected.\n\n"
+                f"[skill={skill.name}] The following tool patterns are "
+                f"pre-approved for this skill — calls matching them run "
+                f"without asking for permission: {tool_list}. Other tools "
+                f"remain available but will go through the normal "
+                f"permission flow.\n\n"
             )
 
         return SkillResult(
@@ -232,13 +235,11 @@ class SkillRunner:
         Execute skill using a dedicated SkillSubagent.
 
         Like the direct path, this pushes the skill's ``allowed-tools``
-        whitelist onto the active-restriction stack so tool calls
-        originating inside the subagent are still gated by
-        ``tool_invocation_service``. ``SkillSubagent`` already filters
-        the *list* of tools surfaced to the model — this is a
-        defense-in-depth pin so the runtime can't be tricked by a tool
-        name that wasn't filtered at registration time (e.g. a tool
-        added late).
+        rules onto the active pre-approval stack so subagent-originated
+        tool calls matching the rules can skip the permission gateway
+        prompt. Calls that don't match still pass through the gateway
+        normally — pre-approval grants permission, it does not
+        restrict.
         """
         if not self.llm:
             logger.warning("LLM adapter not available, falling back to direct mode")
@@ -246,9 +247,9 @@ class SkillRunner:
 
         allowed = skill.frontmatter.allowed_tools
         if allowed:
-            from .active_restrictions import push_restriction
+            from .active_restrictions import push_skill_rules
 
-            push_restriction(allowed)
+            push_skill_rules(allowed)
 
         subagent = create_skill_subagent(
             skill=skill,

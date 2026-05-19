@@ -13,6 +13,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from .allowed_tools_rules import parse_allowed_tools, rules_to_strings
 from .schema import SkillContent, SkillFrontmatter, SkillMetadata
 from .indexer import SkillIndexer
 
@@ -140,6 +141,8 @@ class SkillLoader:
             if not isinstance(data, dict):
                 data = {}
 
+            parsed_rules = parse_allowed_tools(data.get("allowed-tools"))
+            allowed_tools = rules_to_strings(parsed_rules) if parsed_rules else None
             frontmatter = SkillFrontmatter(
                 name=data.get("name", ""),
                 description=data.get("description", ""),
@@ -154,7 +157,7 @@ class SkillLoader:
                 # Claude Code Skills spec fields
                 license=data.get("license"),
                 compatibility=data.get("compatibility"),
-                allowed_tools=data.get("allowed-tools"),
+                allowed_tools=allowed_tools,
                 metadata=data.get("metadata", {}),
             )
             return frontmatter, body
