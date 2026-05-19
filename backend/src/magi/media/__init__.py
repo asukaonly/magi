@@ -9,5 +9,6 @@ contribute through one registration path. See:
 
 from .source_registry import MediaSource, MediaSourceRegistry
 from .selector import MediaSelector
+from .resolver import AssetResolver
 
-__all__ = ["MediaSource", "MediaSourceRegistry", "MediaSelector"]
+__all__ = ["MediaSource", "MediaSourceRegistry", "MediaSelector", "AssetResolver"]
