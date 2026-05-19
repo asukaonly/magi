@@ -110,6 +110,11 @@ async def test_update_episode_immersive_fields(l2_store_with_schema):
     eid = "ep-rt-2"
     await store.create_episode(episode_id=eid, time_start=0.0, time_end=1.0)
 
+    # Sanity: new episode created with defaults reads magi_standout as False
+    pre = await store.get_episode(episode_id=eid)
+    assert pre["magi_standout"] is False
+    assert pre["standout_score"] == pytest.approx(0.0)
+
     ok = await store.update_episode(
         episode_id=eid,
         magi_standout=True,
@@ -124,3 +129,6 @@ async def test_update_episode_immersive_fields(l2_store_with_schema):
     assert got["standout_score"] == pytest.approx(0.9)
     assert got["slice_narrative"] == "一个新的切片叙事。"
     assert got["representative_asset_ref"] == "ref://abc"
+    # Codec returns empty string for NULL on immersive text fields (matches EpisodeWrite contract)
+    assert got["slice_sensory_detail"] == ""
+    assert got["standout_reason"] == ""

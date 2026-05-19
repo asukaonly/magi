@@ -44,6 +44,7 @@ class L2EpisodeStoreBaseMixin:
             "created_at": float(row["created_at"]),
             "updated_at": float(row["updated_at"]),
             "last_recomputed_at": float(row["last_recomputed_at"]) if row["last_recomputed_at"] else None,
+            # Immersive text fields: empty string (not None) to match EpisodeWrite.__post_init__ contract.
             "slice_narrative": str(row["slice_narrative"]) if row["slice_narrative"] else "",
             "slice_sensory_detail": str(row["slice_sensory_detail"]) if row["slice_sensory_detail"] else "",
             "magi_standout": bool(row["magi_standout"]),

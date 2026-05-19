@@ -37,7 +37,10 @@ def _extract_schema_sql(filename: str) -> str:
 async def _apply_memory_shared_schema(db_path: str) -> None:
     """Apply all memory_shared migrations to a fresh sqlite file."""
     statements: list[str] = []
-    # Apply migrations in order. As Plan 1 lands, 0004 and 0005 will be added.
+    # MAINTENANCE: add each new memory_shared migration filename here in order,
+    # synchronized with backend/src/magi/db/migrations/memory_shared/versions/.
+    # Plan 1 will add 0004 (L3 summary essence) and 0005 (daily_mood_aggregate);
+    # update this tuple in those tasks.
     for filename in (
         "0001_initial.py",
         "0002_user_profile_projection.py",
@@ -47,8 +50,8 @@ async def _apply_memory_shared_schema(db_path: str) -> None:
 
     async with aiosqlite.connect(db_path) as db:
         for sql in statements:
+            # executescript runs its own implicit COMMIT — no explicit commit needed.
             await db.executescript(sql)
-        await db.commit()
 
 
 @pytest_asyncio.fixture
