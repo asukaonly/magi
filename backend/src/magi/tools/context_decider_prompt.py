@@ -47,6 +47,9 @@ def build_context_decider_prompt(
     if context and context.tool_advisory:
         prompt += _build_tool_advisory_block(context.tool_advisory)
 
+    if context and context.persona_routing_brief:
+        prompt += "\n" + context.persona_routing_brief.rstrip() + "\n"
+
     prompt += "\nRespond with ONLY the JSON object."
     return prompt
 def _build_environment_block(*, context: ContextDeciderContext, user_message: str) -> str:

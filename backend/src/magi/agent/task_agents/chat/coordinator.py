@@ -13,6 +13,8 @@ from ....agent.message_utils import build_recent_messages
 from ....config.models import ThinkingDepth
 from ....core.logger import get_logger
 from ....personality.active_persona import get_current_personality_config
+from ....personality.persona_routing_brief import build_persona_routing_brief
+from ....personality.turn_planner import PersonaRoutingHint
 from ....tools.context_decider import ContextDecider
 from ....tools.context_decider_context import ContextDeciderContext
 from ....tools.context_routing import should_decompose_external_request
@@ -40,6 +42,29 @@ from .attachment_context import resolve_effective_turn_attachments
 from .fact_classifier import ChatFactClassifier
 
 logger = get_logger(__name__)
+
+
+def _build_persona_routing_hint(decision: Any) -> PersonaRoutingHint | None:
+    """Lift the ContextDecider's per-persona routing fields into a hint.
+
+    Returns ``None`` when the decision carries no persona-routing payload
+    (rule-based fallback path, decider unavailable, or LLM omitted the
+    fields). Downstream PersonaTurnPlanner falls back to its keyword
+    classifier in that case.
+    """
+    register = getattr(decision, "register", None)
+    trigger_ids = tuple(getattr(decision, "active_trigger_ids", ()) or ())
+    quiet_hints = tuple(getattr(decision, "quiet_hour_hints", ()) or ())
+    situation_strength = str(getattr(decision, "situation_strength", "ordinary") or "ordinary")
+    if not register and not trigger_ids and not quiet_hints and situation_strength == "ordinary":
+        return None
+    return PersonaRoutingHint(
+        register=register if isinstance(register, str) and register else None,
+        active_trigger_ids=trigger_ids,
+        situation_strength=situation_strength,
+        quiet_hour_hints=quiet_hints,
+    )
+
 
 # Tools the execution LLM always has access to when tool-calling is active,
 # regardless of what the Context Decider selected.  This avoids the routing
@@ -189,6 +214,7 @@ class ChatExecutionCoordinator:
             recent_messages=recent_messages,
             recent_tool_errors=list(context.recent_tool_errors),
             recent_tool_state=list(context.recent_tool_state),
+            persona_routing_brief=build_persona_routing_brief(get_current_personality_config()),
         )
 
         # Inject L4 procedural-memory advisory if provider is available.
@@ -246,6 +272,7 @@ class ChatExecutionCoordinator:
                 else ExecutionMode.FUNCTION_CALLING if selected_tools else ExecutionMode.DIRECT_LLM
             )
         )
+        persona_routing_hint = _build_persona_routing_hint(decision)
         intent_decision = IntentDecision(
             intent=decision.intent,
             difficulty=(
@@ -271,6 +298,7 @@ class ChatExecutionCoordinator:
                 selected_tools=selected_tools,
                 execution_mode=execution_mode,
             ),
+            persona_routing_hint=persona_routing_hint,
         )
         if self._intent_trace_callback is not None:
             callback_result = self._intent_trace_callback(context, intent_decision)

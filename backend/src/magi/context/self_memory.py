@@ -7,7 +7,11 @@ from typing import Any, Dict, List, Optional
 from ..personality.feature_flags import get_personality_feature_flags
 from ..personality.loader import PersonalityConfig
 from ..personality.persona_journal_service import PersonaJournalService
-from ..personality.turn_planner import PersonaTurnPlan, PersonaTurnPlanner
+from ..personality.turn_planner import (
+    PersonaRoutingHint,
+    PersonaTurnPlan,
+    PersonaTurnPlanner,
+)
 from .schema import (
     ProfileMemoryContext,
     RetrievalMemoryContext,
@@ -34,6 +38,7 @@ class PromptSelfMemoryMixin:
         retrieved_memory_payload: Optional[Dict[str, Any]],
         persona_turn_plan: "Optional[PersonaTurnPlan]" = None,
         persona_name: str,
+        persona_routing_hint: Optional[PersonaRoutingHint] = None,
     ) -> SelfMemoryContext:
         payload = retrieved_memory_payload or {}
         preference_memory = payload.get("preference_memory", {})
@@ -72,6 +77,7 @@ class PromptSelfMemoryMixin:
                 task_category=task_category,
                 scenario=scenario,
                 selected_tools=selected_tools,
+                routing_hint=persona_routing_hint,
             )
 
         return SelfMemoryContext(
@@ -89,6 +95,7 @@ class PromptSelfMemoryMixin:
         task_category: str,
         scenario: str,
         selected_tools: List[str],
+        routing_hint: Optional[PersonaRoutingHint] = None,
     ) -> PersonaTurnPlan:
         config = PersonalityConfig()
         emotional_state = None
@@ -114,6 +121,7 @@ class PromptSelfMemoryMixin:
             relationship=relationship,
             emotional_state=emotional_state,
             milestones=milestones,
+            routing_hint=routing_hint,
         )
 
     async def _build_profile_memory_context(self, *, self_memory, user_id: str) -> ProfileMemoryContext:

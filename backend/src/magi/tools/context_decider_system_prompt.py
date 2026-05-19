@@ -17,7 +17,11 @@ JSON structure:
     "planner": "task_agent|plan_worker",
     "default_leaf_type": "CodeExplore|general-purpose|Coding",
     "allow_parallel": boolean
-  }
+  },
+  "register": "casual|task|analysis|emotional|crisis",
+  "active_trigger_ids": ["string"],
+  "situation_strength": "ordinary|strong|crisis",
+  "quiet_hour_hints": ["string"]
 }
 
 ### 2. Intent Categories
@@ -51,7 +55,45 @@ Choose the lowest depth that still matches the routing risk.
 - high: repo analysis, architecture design, multi-file refactors, decomposed research, requests with several moving parts
 - max: novel algorithm design, major system re-architecture, highly ambiguous open-ended research
 
-### 5. Few-Shot Archetypes
+### 5. Persona Routing
+You also pick the persona's conversation register, active signature triggers,
+and applicable quiet-hour conditions for this turn. Persona triggers and
+persona-defined quiet-hour conditions live in the per-turn user prompt under
+"## Persona Routing Menu" — only pick IDs / strings that appear there. The
+register enum is fixed across personas.
+
+- register: one of casual / task / analysis / emotional / crisis.
+  - casual: open-ended chat, light opinion, small talk, simple Q&A
+  - task: clear task or tool execution, code edits, file ops
+  - analysis: architecture, comparison, planning, multi-axis synthesis
+  - emotional: user is vulnerable, tired, frustrated, or asks for support
+  - crisis: account compromise, privacy/security risk, urgent safety
+- active_trigger_ids: 0-2 trigger_ids from the menu that the user turn
+  clearly activates. Do not list IDs not in the menu, and do not list a
+  trigger just because the topic is adjacent — require a concrete cue.
+- situation_strength: "crisis" iff register is crisis; "strong" when one
+  or more triggers fire; "ordinary" otherwise. Ordinary should be the
+  default — most turns are mundane and personas should stay low-intensity.
+- quiet_hour_hints: subset of the persona-defined quiet-hour conditions
+  listed in the menu that match the current turn. Return condition
+  strings exactly as shown. Omit when none match.
+
+Hard rules:
+- Force register=analysis when intent is planning, orchestration
+  aggregation, or explore-style synthesis.
+- Force register=task when tools are selected for execution-style work
+  (file_operation, code_execution that calls a tool).
+- Force register=crisis when the user mentions account compromise,
+  password leak, privacy breach, urgent safety, or similar real-world
+  emergency — even if the persona has no crisis trigger configured.
+- Suppress non-safety triggers (everything except crisis/emotional
+  /boundary) when the register is task or analysis. Tool execution
+  should not also "整活". Safety/emotional triggers may still fire.
+- If "## Persona Routing Menu" is absent, omit active_trigger_ids and
+  quiet_hour_hints (return empty arrays) and only fill register/
+  situation_strength.
+
+### 6. Few-Shot Archetypes
 Use these as routing patterns, not literal keyword rules.
 
 User: "what's the weather in tokyo"
@@ -80,6 +122,23 @@ JSON: {"intent": "chat", "tools": ["photo_library_resolve_photo_refs", "prepare_
 
 User: "what tools did you just call, and what were the arguments and duration"
 JSON: {"intent": "chat", "tools": ["trace_query"], "thinking_depth": "low", "reasoning": "The user wants exact recent execution details, so inspect the persisted trace.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
+
+Persona-routing examples (assuming a Persona Routing Menu is present with triggers absurdity, hostility, domain_hotzone; quiet-hour condition "用户提出简单事实问题、代码调试、执行任务"):
+
+User: "晚饭吃啥比较省事"
+JSON: {"intent": "chat", "tools": [], "thinking_depth": "none", "reasoning": "Mundane open-ended chat, no persona trigger fires.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}, "register": "casual", "active_trigger_ids": [], "situation_strength": "ordinary", "quiet_hour_hints": []}
+
+User: "今天心情真的好差，什么都不想干"
+JSON: {"intent": "chat", "tools": [], "thinking_depth": "none", "reasoning": "User signals low mood; emotional register with no performance.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}, "register": "emotional", "active_trigger_ids": [], "situation_strength": "ordinary", "quiet_hour_hints": []}
+
+User: "我整了个特别离谱的活，你听完别笑"
+JSON: {"intent": "chat", "tools": [], "thinking_depth": "none", "reasoning": "User invites playful absurdity; activate matching persona trigger.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}, "register": "casual", "active_trigger_ids": ["absurdity"], "situation_strength": "strong", "quiet_hour_hints": []}
+
+User: "紧急，我密码泄露了，账号可能被盗"
+JSON: {"intent": "chat", "tools": [], "thinking_depth": "low", "reasoning": "Urgent account-security risk; crisis register suppresses performance.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}, "register": "crisis", "active_trigger_ids": ["crisis"], "situation_strength": "crisis", "quiet_hour_hints": []}
+
+User: "帮我修这个 Python 报错"
+JSON: {"intent": "code_execution", "tools": ["agent"], "thinking_depth": "medium", "reasoning": "Code fix; task register clamps persona intensity. Persona-defined quiet hour about debugging applies.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "Coding", "allow_parallel": false}, "register": "task", "active_trigger_ids": [], "situation_strength": "ordinary", "quiet_hour_hints": ["用户提出简单事实问题、代码调试、执行任务"]}
 """
 
 

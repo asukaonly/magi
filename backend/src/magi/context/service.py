@@ -8,6 +8,7 @@ from typing import Any, Callable
 
 from ..core.logger import get_logger
 from ..personality.models import EmotionalState
+from ..personality.turn_planner import PersonaRoutingHint
 from .assembler import PromptContextAssembler, PromptContextRenderer
 from .contracts import PromptPackage
 from .policy import ContextPolicy
@@ -86,6 +87,7 @@ class ContextAssemblyService:
         workspace_path: str | None = None,
         include_tool_catalog: bool = True,
         persona_id: str | None = None,
+        persona_routing_hint: PersonaRoutingHint | None = None,
     ) -> PromptPackage:
         policy = self._policy.decide(
             user_message=user_message,
@@ -122,6 +124,7 @@ class ContextAssemblyService:
             user_message=user_message,
             workspace_path=resolved_workspace_path,
             attachments=list(attachments or []),
+            persona_routing_hint=persona_routing_hint,
         )
         if resolved_persona_id:
             prompt_context.metadata["persona_id"] = resolved_persona_id
@@ -152,6 +155,7 @@ class ContextAssemblyService:
         workspace_path: str | None = None,
         include_tool_catalog: bool = True,
         persona_id: str | None = None,
+        persona_routing_hint: PersonaRoutingHint | None = None,
     ):
         package = await self.build_prompt_package(
             user_id=user_id,
@@ -165,6 +169,7 @@ class ContextAssemblyService:
             workspace_path=workspace_path,
             include_tool_catalog=include_tool_catalog,
             persona_id=persona_id,
+            persona_routing_hint=persona_routing_hint,
         )
         return package.prompt_context
 
@@ -182,6 +187,7 @@ class ContextAssemblyService:
         workspace_path: str | None = None,
         include_tool_catalog: bool = True,
         persona_id: str | None = None,
+        persona_routing_hint: PersonaRoutingHint | None = None,
     ) -> str:
         package = await self.build_prompt_package(
             user_id=user_id,
@@ -195,6 +201,7 @@ class ContextAssemblyService:
             workspace_path=workspace_path,
             include_tool_catalog=include_tool_catalog,
             persona_id=persona_id,
+            persona_routing_hint=persona_routing_hint,
         )
         return package.system_prompt
 

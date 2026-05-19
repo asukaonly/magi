@@ -6,7 +6,7 @@ import re
 from dataclasses import asdict, dataclass, field, is_dataclass
 from typing import Any
 
-from .loader import PersonalityConfig, Register
+from .loader import PersonalityConfig, Register, SignatureTrigger
 
 
 _CRISIS_TERMS = (
@@ -106,6 +106,22 @@ class ActivePersonaTrigger:
     reason: str = ""
 
 
+@dataclass(slots=True, frozen=True)
+class PersonaRoutingHint:
+    """Per-persona routing decisions supplied by the unified ContextDecider.
+
+    Carried separately from ``ContextDecision`` so the personality and context
+    layers do not need a structural dependency on ``tools/context_routing``.
+    Build one from a ContextDecision at the chat-coordinator boundary; pass
+    it through context-assembly layers to the planner.
+    """
+
+    register: str | None = None
+    active_trigger_ids: tuple[str, ...] = ()
+    situation_strength: str = "ordinary"
+    quiet_hour_hints: tuple[str, ...] = ()
+
+
 @dataclass(slots=True)
 class PersonaTurnPlan:
     """Persona behavior plan consumed by prompt rendering for one model call."""
@@ -140,7 +156,18 @@ class PersonaTurnPlanner:
         relationship: dict[str, Any] | None = None,
         emotional_state: Any | None = None,
         milestones: list[dict[str, Any]] | None = None,
+        routing_hint: "PersonaRoutingHint | None" = None,
     ) -> PersonaTurnPlan:
+        """Build a per-turn persona behavior plan.
+
+        ``routing_hint`` carries the unified ContextDecider's per-persona
+        routing output (register / active_trigger_ids / quiet_hour_hints).
+        When the hint provides a field, the planner consumes it directly
+        instead of running its built-in keyword classifier. When the hint
+        is None or a field is missing, the keyword fallback runs so the
+        planner remains usable in tests, offline contexts, and any code
+        path that has not yet been wired through ContextDecider.
+        """
         persona_config = config or PersonalityConfig()
         normalized_message = str(user_message or "")
         selected_tools = [str(tool) for tool in (tools or []) if str(tool).strip()]
@@ -150,6 +177,7 @@ class PersonaTurnPlanner:
             scenario=scenario,
             task_category=task_category,
             tools=selected_tools,
+            routing_hint=routing_hint,
         )
         register = persona_config.registers.get(register_name) or Register()
         active_layer, layer_modifiers = self._select_layer(
@@ -168,6 +196,7 @@ class PersonaTurnPlanner:
             scenario=scenario,
             task_category=task_category,
             tools=selected_tools,
+            routing_hint=routing_hint,
         )
         quiet_hours = self._select_quiet_hours(
             config=persona_config,
@@ -176,15 +205,18 @@ class PersonaTurnPlanner:
             scenario=scenario,
             task_category=task_category,
             tools=selected_tools,
+            routing_hint=routing_hint,
         )
         persona_intensity = self._persona_intensity(
             register=register_name,
             active_triggers=active_triggers,
             quiet_hours=quiet_hours,
         )
-        situation_strength = "strong" if active_triggers else "ordinary"
-        if register_name in {"task", "analysis", "crisis"}:
-            situation_strength = register_name
+        situation_strength = self._resolve_situation_strength(
+            register=register_name,
+            active_triggers=active_triggers,
+            routing_hint=routing_hint,
+        )
 
         return PersonaTurnPlan(
             persona_name=persona_config.name,
@@ -203,6 +235,20 @@ class PersonaTurnPlanner:
             selected_examples=list(register.examples[:2]),
         )
 
+    @staticmethod
+    def _resolve_situation_strength(
+        *,
+        register: str,
+        active_triggers: list["ActivePersonaTrigger"],
+        routing_hint: "PersonaRoutingHint | None",
+    ) -> str:
+        hinted = getattr(routing_hint, "situation_strength", "") if routing_hint else ""
+        if isinstance(hinted, str) and hinted.strip().lower() in {"ordinary", "strong", "crisis"}:
+            return hinted.strip().lower()
+        if register == "crisis":
+            return "crisis"
+        return "strong" if active_triggers else "ordinary"
+
     def _select_register(
         self,
         *,
@@ -211,7 +257,28 @@ class PersonaTurnPlanner:
         scenario: str,
         task_category: str,
         tools: list[str],
+        routing_hint: "PersonaRoutingHint | None" = None,
     ) -> str:
+        # Unified router (LLM) decides the register when wired through
+        # ContextDecider. Keyword fallback below is the offline/testing path
+        # and the safety net when the LLM omits or invalidates the field.
+        hinted = getattr(routing_hint, "register", None) if routing_hint else None
+        if isinstance(hinted, str) and hinted.strip().lower() in {
+            "casual", "chat", "task", "analysis", "emotional", "crisis"
+        }:
+            normalized_hint = hinted.strip().lower()
+            # The product enum is the same 5 across personas, but persona
+            # presets may have inherited a "chat" alias. Resolve to whichever
+            # actually exists in this persona's register dict.
+            if normalized_hint == "casual":
+                return self._first_available(config, ("casual", "chat"))
+            if normalized_hint == "chat":
+                return self._first_available(config, ("chat", "casual"))
+            return self._first_available(
+                config,
+                (normalized_hint, "task", "analysis", "chat", "casual"),
+            )
+
         if self._contains_any(user_message, _CRISIS_TERMS):
             return self._first_available(config, ("crisis", "task", "analysis", "chat", "casual"))
         normalized_scenario = str(scenario or "").lower()
@@ -237,8 +304,49 @@ class PersonaTurnPlanner:
         scenario: str,
         task_category: str,
         tools: list[str],
+        routing_hint: "PersonaRoutingHint | None" = None,
     ) -> list[ActivePersonaTrigger]:
-        selected: list[ActivePersonaTrigger] = []
+        hinted_ids = list(getattr(routing_hint, "active_trigger_ids", []) or []) if routing_hint else []
+        if hinted_ids:
+            # Unified-router path: trigger IDs are entirely config-driven. The
+            # planner only looks up the matching SignatureTrigger objects in
+            # the persona config; it does not maintain a hardcoded ID
+            # whitelist anymore. New trigger IDs in JSON Just Work.
+            by_id: dict[str, SignatureTrigger] = {
+                str(t.trigger_id or "").strip(): t
+                for t in config.signature_triggers
+                if str(t.trigger_id or "").strip()
+            }
+            selected: list[ActivePersonaTrigger] = []
+            for raw_id in hinted_ids:
+                trigger_id = str(raw_id or "").strip()
+                if not trigger_id:
+                    continue
+                trigger = by_id.get(trigger_id)
+                if trigger is None:
+                    # LLM hallucinated an ID outside the menu; ignore and rely
+                    # on its other choices.
+                    continue
+                if self._should_suppress_trigger_for_execution(trigger_id=trigger_id, tools=tools):
+                    continue
+                selected.append(
+                    ActivePersonaTrigger(
+                        trigger_id=trigger_id,
+                        intensity=self._trigger_intensity(trigger.intensity_levels),
+                        behavior_shift=trigger.behavior_shift,
+                        reason="routing_hint",
+                    )
+                )
+                if len(selected) >= 2:
+                    break
+            return selected
+
+        # Keyword fallback path: no LLM hint present (offline / tests / not
+        # yet wired). The hand-rolled matcher recognizes a handful of well-
+        # known trigger IDs and otherwise falls back to bag-of-words overlap
+        # against ``activates_when``. Less accurate than the LLM path but
+        # safe for tests.
+        selected = []
         for trigger in config.signature_triggers:
             trigger_id = str(trigger.trigger_id or "").strip()
             if not trigger_id:
@@ -319,7 +427,11 @@ class PersonaTurnPlanner:
         scenario: str,
         task_category: str,
         tools: list[str],
+        routing_hint: "PersonaRoutingHint | None" = None,
     ) -> list[dict[str, Any]]:
+        # Register-derived built-in clamps are deterministic and run on every
+        # turn regardless of routing source: task/analysis tighten focus,
+        # emotional softens, crisis zeros out performance.
         quiet_hours: list[dict[str, Any]] = []
         if register in {"task", "analysis"} or tools:
             quiet_hours.append({
@@ -348,21 +460,35 @@ class PersonaTurnPlanner:
                     "answer_style": "brief_operational",
                 },
             })
-        if self._contains_any(user_message, _SERIOUS_TERMS):
-            quiet_hours.append({
-                "condition": "user_requested_seriousness",
-                "clamps": {
-                    "persona_intensity_max": 1,
-                    "jokes": "none",
-                },
-            })
 
-        for quiet_hour in config.quiet_hours:
-            if self._condition_overlap(user_message, quiet_hour.condition):
+        # Persona-defined quiet-hour conditions. Two ways to pick them:
+        # 1) Unified router supplied condition strings that match this
+        #    persona's configured quiet_hours.
+        # 2) Keyword fallback when there is no LLM hint.
+        hinted_conditions = list(getattr(routing_hint, "quiet_hour_hints", []) or []) if routing_hint else []
+        if hinted_conditions:
+            normalized_hints = {str(h).strip() for h in hinted_conditions if str(h).strip()}
+            for quiet_hour in config.quiet_hours:
+                if quiet_hour.condition in normalized_hints:
+                    quiet_hours.append({
+                        "condition": quiet_hour.condition,
+                        "clamps": dict(quiet_hour.clamps),
+                    })
+        else:
+            if self._contains_any(user_message, _SERIOUS_TERMS):
                 quiet_hours.append({
-                    "condition": quiet_hour.condition,
-                    "clamps": dict(quiet_hour.clamps),
+                    "condition": "user_requested_seriousness",
+                    "clamps": {
+                        "persona_intensity_max": 1,
+                        "jokes": "none",
+                    },
                 })
+            for quiet_hour in config.quiet_hours:
+                if self._condition_overlap(user_message, quiet_hour.condition):
+                    quiet_hours.append({
+                        "condition": quiet_hour.condition,
+                        "clamps": dict(quiet_hour.clamps),
+                    })
         _ = (scenario, task_category)
         return quiet_hours
 
@@ -477,6 +603,7 @@ def _tokenize_for_overlap(text: str) -> list[str]:
 
 __all__ = [
     "ActivePersonaTrigger",
+    "PersonaRoutingHint",
     "PersonaTurnPlan",
     "PersonaTurnPlanner",
 ]

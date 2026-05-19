@@ -6,6 +6,7 @@ from enum import Enum
 from typing import Any
 
 from ....agent.runtime.contracts import FactRecord
+from ....personality.turn_planner import PersonaRoutingHint
 from ..common import BaseIntentDecision, BaseRuntimeContext, GenericFactPayload, IncomingFactKind, TaskFactPayload
 from .run_contracts import ActiveRun, PendingTurn
 from ....config.models import ThinkingDepth
@@ -111,6 +112,11 @@ class IntentDecision(BaseIntentDecision):
     memory_route: str = "none"
     task_hint: dict[str, Any] = field(default_factory=dict)
     recommended_tools: list[dict[str, Any]] = field(default_factory=list)
+    # Per-persona routing hint extracted from the unified ContextDecider.
+    # None when the LLM router did not produce persona-routing fields (rule
+    # fallback path, offline tests, etc.); planner then runs its keyword
+    # selection. See personality.turn_planner.PersonaRoutingHint.
+    persona_routing_hint: PersonaRoutingHint | None = None
 
 
 @dataclass(slots=True)
