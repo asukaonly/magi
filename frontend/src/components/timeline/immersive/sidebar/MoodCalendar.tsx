@@ -75,7 +75,7 @@ export const MoodCalendar: React.FC<MoodCalendarProps> = ({
       >
         <span className="relative z-10">{day}</span>
         {isToday && (
-          <span className="absolute inset-0 rounded-sm ring-[1.5px] ring-foreground/80 ring-inset" />
+          <span className="absolute bottom-0.5 left-1/2 z-10 h-1 w-1 -translate-x-1/2 rounded-full bg-foreground/80" aria-hidden="true" />
         )}
       </button>
     );

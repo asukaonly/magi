@@ -47,13 +47,16 @@ async def test_scheduler_contrib_registers_handler():
 
 @pytest.mark.asyncio
 async def test_handler_calls_orchestrator_for_yesterday_day_window():
+    from datetime import datetime, timedelta
+
     from magi.timeline.narrative.scheduler_contrib import DiaryNarrativeSchedulerContrib
 
     orchestrator = AsyncMock()
     orchestrator.generate_for_window = AsyncMock(return_value=None)
 
     contrib = DiaryNarrativeSchedulerContrib(orchestrator=orchestrator)
-    # triggered_at = 2024-05-21 12:00 UTC → yesterday is 2024-05-20 UTC
+    # triggered_at = 2024-05-21 12:00 UTC (1716292800)
+    # The scheduler now uses local time, so "yesterday" depends on the host TZ.
     triggered_at = 1716292800.0
     context = _make_context(triggered_at)
 
@@ -61,14 +64,19 @@ async def test_handler_calls_orchestrator_for_yesterday_day_window():
 
     assert isinstance(result, ScheduledExecutionResult)
     assert result.success is True
-    # Orchestrator called for yesterday (UTC day before triggered_at)
+
+    # Compute the expected values using the same local-time logic as the handler.
+    triggered_dt = datetime.fromtimestamp(triggered_at)  # local time
+    expected_yesterday = triggered_dt.date() - timedelta(days=1)
+    expected_start_dt = datetime(expected_yesterday.year, expected_yesterday.month, expected_yesterday.day)
+    expected_end_dt = expected_start_dt + timedelta(days=1)
+
     orchestrator.generate_for_window.assert_awaited_once()
     call_kwargs = orchestrator.generate_for_window.call_args.kwargs
     assert call_kwargs["scale"] == "day"
-    assert call_kwargs["insight_key"] == "diary-day-2024-05-20"
-    # Window covers yesterday in UTC
-    assert call_kwargs["period_start"] == pytest.approx(1716163200.0)  # 2024-05-20 00:00 UTC
-    assert call_kwargs["period_end"] == pytest.approx(1716249600.0)    # 2024-05-21 00:00 UTC
+    assert call_kwargs["insight_key"] == f"diary-day-{expected_yesterday.isoformat()}"
+    assert call_kwargs["period_start"] == pytest.approx(expected_start_dt.timestamp())
+    assert call_kwargs["period_end"] == pytest.approx(expected_end_dt.timestamp())
 
 
 @pytest.mark.asyncio

@@ -124,6 +124,7 @@ export const TimelinePage: React.FC = () => {
   const [draftQuery, setDraftQuery] = useState("");
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
+  const [firstLoad, setFirstLoad] = useState(true);
   const [pendingAction, setPendingAction] = useState<Record<string, "pin" | "hide" | null>>({});
 
   const viewportEnd = getPeriodEnd(scale, viewportStart);
@@ -132,7 +133,10 @@ export const TimelinePage: React.FC = () => {
   const dateLabel = formatWindowLabel(scale, viewportStart, viewportEnd, timelineLocale);
 
   const loadViewport = useCallback(async () => {
-    setLoading(true);
+    // Only show the full-page spinner on the very first load. Subsequent
+    // refetches (scale/date switch) keep the previous viewport visible so
+    // the page doesn't flash through an empty state.
+    if (firstLoad) setLoading(true);
     try {
       const response = await timelineApi.getViewport({
         scale,
@@ -152,8 +156,9 @@ export const TimelinePage: React.FC = () => {
       );
     } finally {
       setLoading(false);
+      setFirstLoad(false);
     }
-  }, [scale, viewportStart, viewportEnd, query, timelineLocale, t]);
+  }, [scale, viewportStart, viewportEnd, query, timelineLocale, t, firstLoad]);
 
   const loadSidebar = useCallback(async () => {
     const month = monthKeyForDate(viewportStart);
@@ -324,7 +329,7 @@ export const TimelinePage: React.FC = () => {
   return (
     <main className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
       <div className="flex min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
-        {loading ? (
+        {loading && !viewport ? (
           <div className="flex h-full w-full items-center justify-center gap-2 text-sm text-muted-foreground">
             <LoadingSpinner className="h-4 w-4" />
             {t("timeline.loading", { defaultValue: "加载中" })}

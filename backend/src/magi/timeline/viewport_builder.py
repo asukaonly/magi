@@ -302,13 +302,15 @@ class TimelineViewportBuilder:
 
         Returns the prose string or empty string when no matching summary exists.
         """
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         if self._l3 is None:
             return ""
 
-        # Plan 2 writes insight_key = f"diary-{scale}-{YYYY-MM-DD}" using UTC date
-        period_date = datetime.fromtimestamp(period_start, tz=timezone.utc).date().isoformat()
+        # period_start is a local-day boundary timestamp set by the frontend using
+        # local-time arithmetic. To recover the matching calendar date, use local
+        # time (no tz arg) so it agrees with what the user sees in the UI.
+        period_date = datetime.fromtimestamp(period_start).date().isoformat()
         insight_key = f"diary-{scale}-{period_date}"
 
         try:

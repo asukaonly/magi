@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Protocol
 
 from ...core.logger import get_logger
@@ -69,11 +69,13 @@ class DiaryNarrativeSchedulerContrib:
     ) -> ScheduledExecutionResult:
         triggered_at = float(getattr(context, "triggered_at", 0.0) or 0.0)
         if triggered_at <= 0:
-            triggered_at = datetime.now(tz=timezone.utc).timestamp()
+            triggered_at = datetime.now().timestamp()
 
-        triggered_dt = datetime.fromtimestamp(triggered_at, tz=timezone.utc)
+        # Use local time so "yesterday" and the window boundaries align with
+        # what the user sees in the UI (which uses local-time arithmetic).
+        triggered_dt = datetime.fromtimestamp(triggered_at)  # local time
         yesterday = triggered_dt.date() - timedelta(days=1)
-        period_start_dt = datetime(yesterday.year, yesterday.month, yesterday.day, tzinfo=timezone.utc)
+        period_start_dt = datetime(yesterday.year, yesterday.month, yesterday.day)  # local midnight
         period_end_dt = period_start_dt + timedelta(days=1)
 
         period_start = period_start_dt.timestamp()

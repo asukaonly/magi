@@ -9,6 +9,8 @@ import { useTranslation } from 'react-i18next';
 import { shouldRenderChatWorkspace } from '@/pages/chat-route-helpers';
 import { ChatWorkspacePicker } from './ChatWorkspacePicker';
 import { AppWindowControls } from './AppWindowControls';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 const SCALE_LABEL: Record<string, string> = { month: "月", week: "周", day: "日", hour: "时" };
 
@@ -63,7 +65,7 @@ const TimelineTitleBarSlot: React.FC = () => {
             onClick={() => panel.onScaleChange?.(s)}
             onMouseDown={(e) => e.stopPropagation()}
             className={cn(
-              'rounded-sm px-2.5 py-1',
+              'min-w-[28px] rounded-sm px-2.5 py-1 text-center transition-colors',
               s === panel.scale
                 ? 'bg-background text-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground',
@@ -83,16 +85,47 @@ const TimelineTitleBarSlot: React.FC = () => {
         >
           ‹
         </button>
-        <input
-          type={inputTypeForScale(panel.scale)}
-          value={periodInputValue(panel.scale, panel.viewportStart)}
-          onChange={(e) => panel.onSelectFromDateInput?.(e.target.value)}
-          onMouseDown={(e) => e.stopPropagation()}
-          data-no-drag
-          aria-label={panel.dateLabel}
-          className="cursor-pointer rounded border border-transparent bg-transparent px-1.5 py-0.5 text-xs text-muted-foreground hover:border-border hover:text-foreground focus:border-border focus:text-foreground focus:outline-none"
-          style={{ minWidth: panel.scale === "hour" ? "150px" : panel.scale === "month" ? "100px" : "120px" }}
-        />
+        {panel.scale === "day" ? (
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                onMouseDown={(e) => e.stopPropagation()}
+                data-no-drag
+                className="cursor-pointer rounded border border-transparent bg-transparent px-2 py-0.5 text-xs text-muted-foreground hover:border-border hover:text-foreground"
+                style={{ minWidth: "120px" }}
+              >
+                {panel.dateLabel}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="center" className="w-auto p-0" onMouseDown={(e) => e.stopPropagation()}>
+              <Calendar
+                mode="single"
+                selected={panel.viewportStart ? new Date(panel.viewportStart * 1000) : undefined}
+                onSelect={(date) => {
+                  if (date) {
+                    const y = date.getFullYear();
+                    const m = String(date.getMonth() + 1).padStart(2, "0");
+                    const d = String(date.getDate()).padStart(2, "0");
+                    panel.onSelectFromDateInput?.(`${y}-${m}-${d}`);
+                  }
+                }}
+                initialFocus
+              />
+            </PopoverContent>
+          </Popover>
+        ) : (
+          <input
+            type={inputTypeForScale(panel.scale)}
+            value={periodInputValue(panel.scale, panel.viewportStart)}
+            onChange={(e) => panel.onSelectFromDateInput?.(e.target.value)}
+            onMouseDown={(e) => e.stopPropagation()}
+            data-no-drag
+            aria-label={panel.dateLabel}
+            className="cursor-pointer rounded border border-transparent bg-transparent px-1.5 py-0.5 text-xs text-muted-foreground hover:border-border hover:text-foreground focus:border-border focus:text-foreground focus:outline-none"
+            style={{ minWidth: panel.scale === "hour" ? "150px" : "100px" }}
+          />
+        )}
         <button
           type="button"
           disabled={!panel.canGoNext}
