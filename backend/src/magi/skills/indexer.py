@@ -33,10 +33,17 @@ class SkillIndexer:
     Full skill content is loaded on-demand by SkillLoader.
     """
 
-    # Skill directories in priority order (higher priority first)
+    # Skill directories.
+    #
+    # NOTE on priority: scan_all() iterates in reverse and applies
+    # ``dict.update()``, so a location listed EARLIER in this tuple wins when
+    # the same skill name appears in multiple locations. The list is ordered
+    # high-priority first for readability; do not reorder without updating
+    # scan_all().
     _REPO_ROOT = get_repo_root()
     SKILL_LOCATIONS = [
-        Path.home() / ".claude" / "skills",     # Personal (high priority)
+        Path.home() / ".claude" / "skills",     # Personal — Claude Code compatible
+        Path.home() / ".agents" / "skills",     # Personal — agents-style layout
         _REPO_ROOT / "skills",                  # Project predefined skills (magi/skills)
         _REPO_ROOT / ".claude" / "skills",      # Project local (lower priority)
     ]
@@ -267,7 +274,7 @@ class SkillIndexer:
                 metadata=data.get("metadata", {}),
             )
 
-        except yaml.YAMLerror as e:
+        except yaml.YAMLError as e:
             logger.warning(f"Failed to parse YAML in {source_file}: {e}")
             return None
 
