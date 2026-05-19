@@ -49,7 +49,7 @@ from ..runtime_trace.lifecycle import RuntimeTraceSubscriberModule
 from ..scheduler.lifecycle import SchedulerModule
 from ..hooks.lifecycle import HooksModule
 from ..skills.lifecycle import SkillsModule
-from ..timeline.lifecycle import TimelineModule
+from ..timeline.lifecycle import TimelineModule, TimelineSchedulersModule
 from ..tools.lifecycle import ToolsModule
 
 
@@ -165,6 +165,7 @@ def _build_exports_and_maintenance_modules(context: RuntimeBootstrapContext) -> 
         L2MaintenanceScheduleRegistrationModule(context),
         L3SummaryScheduleRegistrationModule(context),
         L4MaintenanceScheduleRegistrationModule(context),
+        TimelineSchedulersModule(context),  # NEW
         OtherDependenciesModule(context),
         ChannelsModule(context),
     ]
