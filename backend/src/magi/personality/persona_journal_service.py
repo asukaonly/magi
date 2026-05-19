@@ -21,6 +21,44 @@ from .loader import PersonalityConfig
 logger = get_logger(__name__)
 
 
+# Two or more avoided phrases in a single reflection is the threshold for
+# treating an entry as voice-drifted. A single hit may be coincidental
+# ("总的来说" is a natural Chinese discourse marker even for personas that
+# normally avoid it); two distinct hits in 3-6 sentences is a strong signal
+# that the LLM has slipped out of character.
+_VOICE_DRIFT_HIT_THRESHOLD = 2
+
+
+def _detect_voice_drift(
+    text: str,
+    config: PersonalityConfig | None,
+) -> list[str] | None:
+    """Return the list of vocab_avoided phrases that appeared in ``text``,
+    or ``None`` when the reflection passes the drift guard.
+
+    The reflection feeds into future system prompts as recent journal
+    entries; without this guard the persona's own out-of-character output
+    becomes the next call's few-shot anchor, which compounds the drift on
+    each subsequent reflection.
+    """
+    if config is None:
+        return None
+    idiolect = getattr(config, "idiolect", None)
+    if idiolect is None:
+        return None
+    avoided = [
+        phrase
+        for phrase in getattr(idiolect, "vocab_avoided", []) or []
+        if isinstance(phrase, str) and phrase.strip()
+    ]
+    if not avoided:
+        return None
+    hits = [phrase for phrase in avoided if phrase in text]
+    if len(hits) < _VOICE_DRIFT_HIT_THRESHOLD:
+        return None
+    return hits
+
+
 _REFLECTION_SYSTEM_PROMPT = """\
 You are writing an internal journal entry from the perspective of a persona.
 The entry should reflect on recent interactions and emotional state.
@@ -120,6 +158,23 @@ class PersonaJournalService:
         # Generate reflection via LLM
         reflection_text = await self._call_llm(user_prompt)
         if not reflection_text:
+            return None
+
+        # Drift guard: a reflection that hits multiple vocab_avoided phrases
+        # is the persona drifting away from its idiolect. Because the new
+        # entry will feed into future system prompts via "# Internal
+        # Reflections", letting a drifted entry persist creates a feedback
+        # loop that amplifies the drift on each subsequent reflection.
+        # Drop the entry rather than persist it — empty journal is safer
+        # than a self-amplifying one.
+        drift = _detect_voice_drift(reflection_text, config)
+        if drift is not None:
+            logger.warning(
+                "Journal reflection rejected (voice drift): persona=%s hits=%s preview=%r",
+                persona_name,
+                drift,
+                reflection_text[:120],
+            )
             return None
 
         # Store as milestone

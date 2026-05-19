@@ -78,6 +78,23 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
         self._current_state: Optional[EmotionalState] = None
         self._event_history: List[EmotionalEvent] = []
 
+    async def set_recent_active_trigger_ids(self, trigger_ids: List[str]) -> None:
+        """Persist the trigger_ids that fired on the current turn.
+
+        The planner reads this on the next turn via
+        ``previous_trigger_ids`` to allow one-hop carryover when nothing
+        fresh fires. The list must be the NEW (non-carryover) trigger IDs
+        from the current plan; passing carryover IDs would chain the effect
+        indefinitely. Empty list clears carryover.
+        """
+        state = await self.get_current_state()
+        normalized = [str(tid).strip() for tid in trigger_ids if str(tid).strip()]
+        if state.recent_active_trigger_ids == normalized:
+            return
+        state.recent_active_trigger_ids = normalized
+        state.updated_at = time.time()
+        await self._save_current_state()
+
     async def get_current_state(self) -> EmotionalState:
         """Return the current emotional state, applying lazy time-based decay.
 

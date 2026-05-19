@@ -162,6 +162,16 @@ class SelfMemory:
 
         return await self._emotion_engine.get_current_state()
 
+    async def set_recent_active_trigger_ids(self, trigger_ids: List[str]) -> None:
+        """Persist the trigger_ids that fired this turn for one-hop carryover.
+
+        Pass only NEW triggers (those whose reason != 'carryover' on the
+        plan). Passing carryover IDs would chain the effect indefinitely.
+        """
+        if not self.enable_evolution or self._emotion_engine is None:
+            return
+        await self._emotion_engine.set_recent_active_trigger_ids(trigger_ids)
+
     async def update_after_interaction(
         self,
         outcome: InteractionOutcome,
