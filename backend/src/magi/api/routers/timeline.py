@@ -57,15 +57,21 @@ async def get_standout_endpoint(
 
     period_start = period_end = None
     if month:
-        year, mo = (int(p) for p in month.split("-", 1))
-        start_dt = datetime(year, mo, 1, tzinfo=timezone.utc)
-        end_dt = (
-            datetime(year + 1, 1, 1, tzinfo=timezone.utc)
-            if mo == 12
-            else datetime(year, mo + 1, 1, tzinfo=timezone.utc)
-        )
-        period_start = start_dt.timestamp()
-        period_end = end_dt.timestamp()
+        try:
+            year, mo = (int(p) for p in month.split("-", 1))
+            start_dt = datetime(year, mo, 1, tzinfo=timezone.utc)
+            end_dt = (
+                datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+                if mo == 12
+                else datetime(year, mo + 1, 1, tzinfo=timezone.utc)
+            )
+            period_start = start_dt.timestamp()
+            period_end = end_dt.timestamp()
+        except (ValueError, OverflowError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"invalid month: {month}",
+            ) from exc
 
     service = get_timeline_service()
     items = await service.list_standout(

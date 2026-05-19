@@ -34,3 +34,33 @@ async def test_service_list_standout_includes_user_pinned(
     assert item["source"] == "user"
     assert item["title"] == "跟 Z 在文渊喝咖啡"
     assert item["date"] == "2024-05-18"
+
+
+@pytest.mark.asyncio
+async def test_service_list_standout_filters_by_month_boundary(
+    unified_memory_for_tests, l2_store_for_tests,
+):
+    """Episodes exactly at the boundary of the next month must NOT appear in the prior month's results."""
+    # In-month: 2024-05-30 12:00:00 UTC = 1717070400
+    await l2_store_for_tests.create_episode(
+        episode_id="ep-in-may", time_start=1717070400.0, time_end=1717070400.0 + 60,
+    )
+    await l2_store_for_tests.update_episode(episode_id="ep-in-may", user_pinned=True, label="in-may")
+
+    # Exactly on the upper boundary: 2024-06-01 00:00:00 UTC = 1717200000
+    await l2_store_for_tests.create_episode(
+        episode_id="ep-on-boundary", time_start=1717200000.0, time_end=1717200000.0 + 60,
+    )
+    await l2_store_for_tests.update_episode(episode_id="ep-on-boundary", user_pinned=True, label="on-boundary")
+
+    service = TimelineService(unified_memory_for_tests)
+
+    # Query period: [2024-05-01 00:00 UTC, 2024-06-01 00:00 UTC)
+    out = await service.list_standout(
+        period_start=1714521600.0,   # 2024-05-01 00:00:00 UTC
+        period_end=1717200000.0,     # 2024-06-01 00:00:00 UTC — exclusive
+        limit=10,
+    )
+    ids = [item["episode_id"] for item in out]
+    assert "ep-in-may" in ids
+    assert "ep-on-boundary" not in ids, "exclusive upper bound must exclude exact boundary timestamp"

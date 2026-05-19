@@ -266,8 +266,10 @@ class L2EpisodeCrudMixin(L2EpisodeStoreBaseMixin):
     ) -> List[Dict[str, Any]]:
         """List episodes that are either magi-curated or user-pinned.
 
-        Time bounds are inclusive on both ends. If both are None, returns
-        the most-recent ``limit`` standouts regardless of date.
+        ``period_start`` is inclusive, ``period_end`` is exclusive (half-open interval).
+        This matches the canonical [start, end) convention so callers can pass the
+        first instant of the next period as the upper bound without double-counting.
+        If both are None, returns the most-recent ``limit`` standouts regardless of date.
         """
         await self.initialize()
         clauses: list[str] = ["(magi_standout = 1 OR user_pinned = 1)"]
@@ -276,7 +278,7 @@ class L2EpisodeCrudMixin(L2EpisodeStoreBaseMixin):
             clauses.append("time_start >= ?")
             params.append(period_start)
         if period_end is not None:
-            clauses.append("time_start <= ?")
+            clauses.append("time_start < ?")
             params.append(period_end)
         params.append(int(max(1, limit)))
         sql = (

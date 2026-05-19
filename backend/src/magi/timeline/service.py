@@ -77,8 +77,7 @@ class TimelineService:
         """
         from datetime import datetime, timezone
 
-        pipeline = getattr(self._unified_memory, "l2_pipeline", None)
-        store = getattr(pipeline, "_cognition_store", None) if pipeline else None
+        store = getattr(self._unified_memory, "l2", None)
         if store is None:
             return []
 
@@ -94,6 +93,11 @@ class TimelineService:
                 "start": ts,
                 "end": float(r.get("time_end") or ts),
                 "title": r.get("user_label") or r.get("label") or "",
+                # TODO(timeline): "date" is formatted in UTC. For non-UTC users this
+                # can disagree with their local day boundary. Plan 2 / a later fix
+                # should accept a tz parameter (header or query) and format accordingly.
+                # The adjacent daily_mood_aggregate uses day_local_date strings as the
+                # established convention for user-visible dates.
                 "date": datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d"),
                 "source": "user" if r.get("user_pinned") else "magi",
                 "score": float(r.get("standout_score") or 0.0),
