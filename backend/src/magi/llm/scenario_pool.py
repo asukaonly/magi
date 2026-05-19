@@ -13,6 +13,7 @@ AdapterFactory = Callable[..., object]
 
 _OPTIONAL_SCENARIO_FALLBACKS = {
     LLMScenario.MEMORY_SUMMARIZER: LLMScenario.CORE,
+    LLMScenario.TIMELINE_DIARY_NARRATIVE: LLMScenario.CORE,
 }
 
 
