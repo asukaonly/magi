@@ -42,6 +42,14 @@ class EpisodeWrite:
     source_event_count: int = 0
     privacy_scope: str = "private"
 
+    # Immersive timeline fields (Plan 1 — Plan 2 fills via LLM/scheduler)
+    slice_narrative: str = ""
+    slice_sensory_detail: str = ""
+    magi_standout: bool = False
+    standout_score: float = 0.0
+    standout_reason: str = ""
+    representative_asset_ref: str = ""
+
     def __post_init__(self) -> None:
         self.episode_id = _non_empty_text(self.episode_id, field_name="episode_id")
         self.episode_type = _optional_text(self.episode_type) or "activity"
@@ -66,6 +74,12 @@ class EpisodeWrite:
         self.confidence = float(self.confidence or 0.5)
         self.source_event_count = int(self.source_event_count or 0)
         self.privacy_scope = _optional_text(self.privacy_scope) or "private"
+        self.slice_narrative = _optional_text(self.slice_narrative) or ""
+        self.slice_sensory_detail = _optional_text(self.slice_sensory_detail) or ""
+        self.magi_standout = bool(self.magi_standout)
+        self.standout_score = float(self.standout_score or 0.0)
+        self.standout_reason = _optional_text(self.standout_reason) or ""
+        self.representative_asset_ref = _optional_text(self.representative_asset_ref) or ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -90,6 +104,12 @@ class EpisodeWrite:
             confidence=float(data.get("confidence", 0.5)),
             source_event_count=int(data.get("source_event_count", 0)),
             privacy_scope=str(data.get("privacy_scope", "private")),
+            slice_narrative=str(data.get("slice_narrative", "") or ""),
+            slice_sensory_detail=str(data.get("slice_sensory_detail", "") or ""),
+            magi_standout=bool(data.get("magi_standout", False)),
+            standout_score=float(data.get("standout_score", 0.0)),
+            standout_reason=str(data.get("standout_reason", "") or ""),
+            representative_asset_ref=str(data.get("representative_asset_ref", "") or ""),
         )
 
 
