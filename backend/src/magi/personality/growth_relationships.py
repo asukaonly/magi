@@ -205,11 +205,11 @@ class GrowthRelationshipMixin:
         host = self._relationship_host
         async with sqlite_connection_async(host._expanded_db_path) as db:
             await db.execute(
-                """INSERT OR REPLACE intO relationships
+                """INSERT OR REPLACE INTO relationships
                    (user_id, depth, first_interaction, last_interaction,
                     total_interactions, interaction_types, sentiment_score,
                     trust_level, notes, updated_at, persona_id)
-                   valueS (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     profile.user_id,
                     profile.depth,
@@ -237,7 +237,7 @@ class GrowthRelationshipMixin:
                           trust_level, notes
                    FROM relationships
                    WHERE persona_id = ?
-                   order BY depth DESC""",
+                   ORDER BY depth DESC""",
                 (host.persona_id,)
             )
             rows = await cursor.fetchall()
@@ -261,7 +261,7 @@ class GrowthRelationshipMixin:
     async def reset_user(self, user_id: str) -> None:
         host = self._relationship_host
         async with sqlite_connection_async(host._expanded_db_path) as db:
-            await db.execute("delete FROM relationships WHERE user_id = ? AND persona_id = ?", (user_id, host.persona_id))
+            await db.execute("DELETE FROM relationships WHERE user_id = ? AND persona_id = ?", (user_id, host.persona_id))
             await db.commit()
 
         if user_id in host._relationship_cache:

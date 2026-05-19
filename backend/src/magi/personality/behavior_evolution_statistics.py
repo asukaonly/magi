@@ -51,7 +51,7 @@ class BehaviorEvolutionStatisticsMixin:
         """Get all task categories."""
         async with sqlite_connection_async(self._expanded_db_path) as db:
             cursor = await db.execute(
-                "SELECT DISTINCT task_category FROM task_interactions WHERE persona_id = ? order BY task_category",
+                "SELECT DISTINCT task_category FROM task_interactions WHERE persona_id = ? ORDER BY task_category",
                 (self.persona_id,)
             )
             rows = await cursor.fetchall()
@@ -116,12 +116,12 @@ class BehaviorEvolutionStatisticsMixin:
                 )
 
             await db.execute(
-                """INSERT OR REPLACE intO category_statistics
+                """INSERT OR REPLACE INTO category_statistics
                    (category, total_tasks, accepted_tasks, avg_clarifications,
                     avg_confirmations, avg_corrections, avg_satisfaction,
                     avg_complexity, cautious_score, impatient_score, dense_score,
                     updated_at, persona_id)
-                   valueS (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     task_category,
                     stats.total_tasks,

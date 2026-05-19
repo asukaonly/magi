@@ -62,8 +62,8 @@ class EmotionalStateStorageMixin:
         state_key = f"current:{self.persona_id}" if self.persona_id else "current"
         async with sqlite_connection_async(self._expanded_db_path) as db:
             await db.execute(
-                """INSERT OR REPLACE intO emotional_state (key, value, updated_at)
-                   valueS (?, ?, ?)""",
+                """INSERT OR REPLACE INTO emotional_state (key, value, updated_at)
+                   VALUES (?, ?, ?)""",
                 (state_key, json.dumps(asdict(self._current_state)), time.time())
             )
             await db.commit()
@@ -81,10 +81,10 @@ class EmotionalStateStorageMixin:
         """Record emotional event."""
         async with sqlite_connection_async(self._expanded_db_path) as db:
             await db.execute(
-                """INSERT intO emotional_events
+                """INSERT INTO emotional_events
                    (timestamp, event_type, previous_mood, new_mood,
                     mood_delta, energy_delta, stress_delta, cause, persona_id)
-                   valueS (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (time.time(), event_type, previous_mood, new_mood,
                  mood_delta, energy_delta, stress_delta, cause, self.persona_id)
             )
@@ -98,7 +98,7 @@ class EmotionalStateStorageMixin:
                           mood_delta, energy_delta, stress_delta, cause
                    FROM emotional_events
                    WHERE persona_id = ?
-                   order BY timestamp DESC
+                   ORDER BY timestamp DESC
                    LIMIT ?""",
                 (self.persona_id, limit)
             )
@@ -125,7 +125,7 @@ class EmotionalStateStorageMixin:
         await self._save_current_state()
 
         async with sqlite_connection_async(self._expanded_db_path) as db:
-            await db.execute("delete FROM emotional_events WHERE persona_id = ?", (self.persona_id,))
+            await db.execute("DELETE FROM emotional_events WHERE persona_id = ?", (self.persona_id,))
             await db.commit()
 
         logger.info("Emotional state reset to initial values")

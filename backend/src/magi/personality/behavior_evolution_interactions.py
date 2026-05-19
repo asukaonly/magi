@@ -61,11 +61,11 @@ class BehaviorEvolutionInteractionMixin:
 
         async with sqlite_connection_async(self._expanded_db_path) as db:
             await db.execute(
-                """INSERT OR REPLACE intO task_interactions
+                """INSERT OR REPLACE INTO task_interactions
                    (task_id, task_category, timestamp, clarification_count,
                     confirmation_count, correction_count, satisfaction,
                     task_complexity, task_duration, accepted, data_json, persona_id)
-                   valueS (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     task_id,
                     task_category,
