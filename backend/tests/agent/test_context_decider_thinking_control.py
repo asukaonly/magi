@@ -299,4 +299,6 @@ def test_context_decider_system_prompt_keeps_core_routing_guardrails() -> None:
     assert "Use these as routing patterns, not literal keyword rules." in system_prompt
     assert "photo_library_resolve_photo_refs" in system_prompt
     assert "prepare_chat_attachments" in system_prompt
-    assert system_prompt.count("User: ") <= 8
+    # 8 generic routing examples + 5 persona-routing examples (added with the
+    # unified router in P1). Tightened ceiling to catch future prompt creep.
+    assert system_prompt.count("User: ") <= 14

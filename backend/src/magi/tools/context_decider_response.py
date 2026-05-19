@@ -88,12 +88,49 @@ class ContextDeciderResponseMixin:
                     elif tool.startswith("/") and self.tool_registry.is_skill(tool.lstrip("/")):
                         valid_tools.append(tool)
 
+                register = data.get("register")
+                if register is not None and not isinstance(register, str):
+                    register = None
+                elif isinstance(register, str):
+                    register = register.strip().lower() or None
+                if register not in (None, "casual", "task", "analysis", "emotional", "crisis"):
+                    logger.warning("[ContextDecider] Unknown register '%s' from LLM; ignoring", register)
+                    register = None
+
+                raw_trigger_ids = data.get("active_trigger_ids") or []
+                if not isinstance(raw_trigger_ids, list):
+                    raw_trigger_ids = []
+                active_trigger_ids: list[str] = []
+                for trigger_id in raw_trigger_ids:
+                    if isinstance(trigger_id, str) and trigger_id.strip():
+                        active_trigger_ids.append(trigger_id.strip())
+                    if len(active_trigger_ids) >= 2:
+                        break
+
+                situation_strength = data.get("situation_strength", "ordinary")
+                if not isinstance(situation_strength, str):
+                    situation_strength = "ordinary"
+                situation_strength = situation_strength.strip().lower() or "ordinary"
+                if situation_strength not in {"ordinary", "strong", "crisis"}:
+                    situation_strength = "ordinary"
+
+                raw_hints = data.get("quiet_hour_hints") or []
+                if not isinstance(raw_hints, list):
+                    raw_hints = []
+                quiet_hour_hints: list[str] = [
+                    str(hint).strip() for hint in raw_hints if isinstance(hint, str) and str(hint).strip()
+                ]
+
                 return ContextDecision(
                     intent=intent,
                     tools=valid_tools,
                     thinking_depth=thinking_depth,
                     reasoning=reasoning,
                     orchestration_strategy=orchestration_strategy,
+                    register=register,
+                    active_trigger_ids=active_trigger_ids,
+                    situation_strength=situation_strength,
+                    quiet_hour_hints=quiet_hour_hints,
                 )
             except json.JSONDecodeError as e:
                 logger.warning(f"[ContextDecider] JSON decode error: {e}")

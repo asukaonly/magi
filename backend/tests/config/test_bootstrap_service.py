@@ -170,6 +170,7 @@ class TestBootstrapOpening:
             temperature=0.9,
             disable_thinking=True,
             timeout_seconds=BOOTSTRAP_OPENING_LLM_TIMEOUT_SECONDS,
+            event_context=ANY,
         )
 
     @pytest.mark.asyncio

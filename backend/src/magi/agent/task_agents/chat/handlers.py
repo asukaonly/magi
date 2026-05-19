@@ -112,6 +112,7 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
             recent_tool_errors=request.context.recent_tool_errors,
             workspace_path=_resolve_turn_workspace_path(request.context),
             persona_id=getattr(request.context, "active_persona_id", None),
+            persona_routing_hint=getattr(request.intent, "persona_routing_hint", None),
         )
         selected_tools = list(request.tool_selection.tools)
         system_prompt = prompt_package.system_prompt

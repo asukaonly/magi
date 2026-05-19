@@ -8,6 +8,7 @@ from typing import Any, Callable
 
 from ..core.logger import get_logger
 from ..personality.models import EmotionalState
+from ..personality.turn_planner import PersonaRoutingHint
 from .assembler import PromptContextAssembler, PromptContextRenderer
 from .contracts import PromptPackage
 from .policy import ContextPolicy
@@ -86,6 +87,7 @@ class ContextAssemblyService:
         workspace_path: str | None = None,
         include_tool_catalog: bool = True,
         persona_id: str | None = None,
+        persona_routing_hint: PersonaRoutingHint | None = None,
     ) -> PromptPackage:
         policy = self._policy.decide(
             user_message=user_message,
@@ -122,6 +124,7 @@ class ContextAssemblyService:
             user_message=user_message,
             workspace_path=resolved_workspace_path,
             attachments=list(attachments or []),
+            persona_routing_hint=persona_routing_hint,
         )
         if resolved_persona_id:
             prompt_context.metadata["persona_id"] = resolved_persona_id
@@ -152,6 +155,7 @@ class ContextAssemblyService:
         workspace_path: str | None = None,
         include_tool_catalog: bool = True,
         persona_id: str | None = None,
+        persona_routing_hint: PersonaRoutingHint | None = None,
     ):
         package = await self.build_prompt_package(
             user_id=user_id,
@@ -165,6 +169,7 @@ class ContextAssemblyService:
             workspace_path=workspace_path,
             include_tool_catalog=include_tool_catalog,
             persona_id=persona_id,
+            persona_routing_hint=persona_routing_hint,
         )
         return package.prompt_context
 
@@ -182,6 +187,7 @@ class ContextAssemblyService:
         workspace_path: str | None = None,
         include_tool_catalog: bool = True,
         persona_id: str | None = None,
+        persona_routing_hint: PersonaRoutingHint | None = None,
     ) -> str:
         package = await self.build_prompt_package(
             user_id=user_id,
@@ -195,6 +201,7 @@ class ContextAssemblyService:
             workspace_path=workspace_path,
             include_tool_catalog=include_tool_catalog,
             persona_id=persona_id,
+            persona_routing_hint=persona_routing_hint,
         )
         return package.system_prompt
 
@@ -203,7 +210,7 @@ class ContextAssemblyService:
         persona_id: str | None,
     ) -> tuple[Any, str, str | None]:
         base_memory = self._memory
-        base_persona_name = str(getattr(base_memory, "personality_name", "default") or "default")
+        base_persona_name = str(getattr(base_memory, "personality_name", "") or "").strip()
         normalized_persona_id = str(persona_id or "").strip()
         if not normalized_persona_id:
             return base_memory, base_persona_name, None
@@ -247,7 +254,7 @@ class ContextAssemblyService:
             record = await repo.get(persona_id, include_deleted=True)
             return _ResolvedPromptPersona(
                 persona_id=record.persona_id,
-                persona_name=record.slug or "default",
+                persona_name=record.slug,
                 config=record.config,
             )
         except Exception as exc:
@@ -263,19 +270,19 @@ class ContextAssemblyService:
             return None
         if isinstance(raw, dict):
             config = raw.get("config") or raw.get("personality_config")
-            persona_name = str(raw.get("slug") or raw.get("persona_name") or "default").strip()
+            persona_name = str(raw.get("slug") or raw.get("persona_name") or "").strip()
             resolved_id = str(raw.get("persona_id") or persona_id).strip()
         else:
             config = getattr(raw, "config", None) or getattr(raw, "personality_config", None)
             persona_name = str(
-                getattr(raw, "slug", None) or getattr(raw, "persona_name", None) or "default"
+                getattr(raw, "slug", None) or getattr(raw, "persona_name", None) or ""
             ).strip()
             resolved_id = str(getattr(raw, "persona_id", None) or persona_id).strip()
-        if config is None or not resolved_id:
+        if config is None or not resolved_id or not persona_name:
             return None
         return _ResolvedPromptPersona(
             persona_id=resolved_id,
-            persona_name=persona_name or "default",
+            persona_name=persona_name,
             config=config,
         )
 

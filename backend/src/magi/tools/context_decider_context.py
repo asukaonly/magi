@@ -21,6 +21,10 @@ class ContextDeciderContext:
     recent_tool_errors: list[dict[str, Any]] = field(default_factory=list)
     recent_tool_state: list[dict[str, Any]] = field(default_factory=list)
     tool_advisory: list[dict[str, Any]] = field(default_factory=list)
+    # Pre-rendered menu of the active persona's signature triggers and
+    # quiet-hour conditions, injected so the LLM can pick from a per-persona
+    # set. Empty string disables the Persona Routing Menu prompt block.
+    persona_routing_brief: str = ""
 
     def __getitem__(self, key: str) -> Any:
         return getattr(self, key)

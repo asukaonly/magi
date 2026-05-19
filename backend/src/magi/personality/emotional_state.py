@@ -15,12 +15,55 @@ from .models import EmotionalState
 logger = logging.getLogger(__name__)
 
 
-class EmotionalStateEngine(EmotionalStateStorageMixin):
-    """
-    Internal note.
+# Lazy decay applies when ``get_current_state`` observes an elapsed gap of at
+# least this many seconds since the last update. Sub-minute gaps (typical
+# within an active chat session) skip the decay+write path entirely.
+LAZY_DECAY_THRESHOLD_SECONDS = 60.0
 
-    Internal note.
+
+def apply_decay_to_state(
+    state: EmotionalState,
+    elapsed_minutes: float,
+    config: EmotionalConfig,
+) -> None:
+    """Mutate ``state`` in place by applying ``elapsed_minutes`` worth of decay.
+
+    Pure function so the storage mixin can call this on lazy reads without
+    going through ``EmotionalStateEngine.decay_over_time`` (which would
+    recursively re-enter ``get_current_state``). Callers are responsible for
+    updating ``state.updated_at`` and persisting.
+
+    Decay model:
+    - energy drops linearly with ``energy_decay_rate`` per minute.
+    - stress recovers linearly with ``stress_recovery_rate`` per minute.
+    - social state "engaged" drops back to "neutral" after the equivalent
+      of a half-unit social decay (configurable per persona).
+    - mood intensity fades 0.1 per hour; once it crosses 0.1 the mood
+      snaps back to NEUTRAL with intensity 0.5.
     """
+    if elapsed_minutes <= 0:
+        return
+
+    energy_decay = elapsed_minutes * config.energy_decay_rate
+    state.energy_level = max(0.0, state.energy_level - energy_decay)
+
+    stress_recovery = elapsed_minutes * config.stress_recovery_rate
+    state.stress_level = max(0.0, state.stress_level - stress_recovery)
+
+    if state.social_state == "engaged":
+        decay_amount = elapsed_minutes * config.social_decay_rate
+        if decay_amount > 0.5:
+            state.social_state = "neutral"
+
+    if state.current_mood != MoodType.NEUTRAL.value:
+        state.mood_intensity = max(0.0, state.mood_intensity - 0.1 * elapsed_minutes / 60)
+        if state.mood_intensity <= 0.1:
+            state.current_mood = MoodType.NEUTRAL.value
+            state.mood_intensity = 0.5
+
+
+class EmotionalStateEngine(EmotionalStateStorageMixin):
+    """Persona-scoped emotional state engine: mood/energy/stress with decay and recovery."""
 
     def __init__(
         self,
@@ -29,19 +72,60 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
         *,
         persona_id: str = "",
     ):
-        """
-        Internal note.
-
-        Args:
-            db_path: databasefilepath
-            config: evolutionConfigurationParameter
-            persona_id: Stable persona identity for scoping data.
-        """
         self.db_path = db_path
         self.config = config or EmotionalConfig()
         self.persona_id = persona_id
         self._current_state: Optional[EmotionalState] = None
         self._event_history: List[EmotionalEvent] = []
+
+    async def set_recent_active_trigger_ids(self, trigger_ids: List[str]) -> None:
+        """Persist the trigger_ids that fired on the current turn.
+
+        The planner reads this on the next turn via
+        ``previous_trigger_ids`` to allow one-hop carryover when nothing
+        fresh fires. The list must be the NEW (non-carryover) trigger IDs
+        from the current plan; passing carryover IDs would chain the effect
+        indefinitely. Empty list clears carryover.
+        """
+        state = await self.get_current_state()
+        normalized = [str(tid).strip() for tid in trigger_ids if str(tid).strip()]
+        if state.recent_active_trigger_ids == normalized:
+            return
+        state.recent_active_trigger_ids = normalized
+        state.updated_at = time.time()
+        await self._save_current_state()
+
+    async def get_current_state(self) -> EmotionalState:
+        """Return the current emotional state, applying lazy time-based decay.
+
+        The persona's mood/energy/stress is meant to drift toward neutral while
+        the user is idle (energy fades, stress recovers, intensity decays).
+        Production has no separate scheduler driving ``decay_over_time``, so
+        this read path applies elapsed-time decay implicitly whenever the gap
+        since the last update exceeds ``LAZY_DECAY_THRESHOLD_SECONDS``. Reads
+        inside the same active turn (sub-minute) skip the decay+write path,
+        so this stays cheap.
+        """
+        state = await super().get_current_state()
+        elapsed_seconds = time.time() - float(state.updated_at or 0.0)
+        if elapsed_seconds < LAZY_DECAY_THRESHOLD_SECONDS:
+            return state
+        apply_decay_to_state(
+            state,
+            elapsed_minutes=elapsed_seconds / 60.0,
+            config=self.config,
+        )
+        state.updated_at = time.time()
+        await self._save_current_state()
+        logger.debug(
+            "Lazy decay applied: persona=%s elapsed_minutes=%.1f energy=%.2f stress=%.2f mood=%s",
+            self.persona_id or "default",
+            elapsed_seconds / 60.0,
+            state.energy_level,
+            state.stress_level,
+            state.current_mood,
+        )
+        return state
 
     async def update_after_interaction(
         self,
@@ -50,18 +134,7 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
         complexity: float = 0.5,
         description: str = ""
     ) -> EmotionalState:
-        """
-        Internal note.
-
-        Args:
-            Internal note.
-            Internal note.
-            Internal note.
-            Internal note.
-
-        Returns:
-            Internal note.
-        """
+        """Update mood/energy/stress after an interaction and persist the new state."""
         state = await self.get_current_state()
 
         # recordoldState
@@ -69,16 +142,12 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
         old_energy = state.energy_level
         old_stress = state.stress_level
 
-        # Internal note.
         mood_change = self._calculate_mood_change(outcome, user_engagement, complexity)
 
-        # Internal note.
         energy_change = self._calculate_energy_change(outcome, complexity)
 
-        # Internal note.
         stress_change = self._calculate_stress_change(outcome, complexity)
 
-        # Internal note.
         state.current_mood = self._apply_mood_change(state.current_mood, mood_change)
         state.mood_intensity = max(0.0, min(1.0, state.mood_intensity + abs(mood_change) * 0.3))
         state.energy_level = max(0.0, min(1.0, state.energy_level + energy_change))
@@ -88,7 +157,6 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
         # updatenoteState
         state.focus_state = self._determine_focus_state(state)
 
-        # Internal note.
         state.social_state = self._determine_social_state(user_engagement, state.social_state)
 
         # recordevent
@@ -120,20 +188,9 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
         complexity: float,
         duration: float
     ) -> EmotionalState:
-        """
-        Internal note.
-
-        Args:
-            success: is notsuccess
-            Internal note.
-            Internal note.
-
-        Returns:
-            Internal note.
-        """
+        """Update emotional state after a task ends; reduces energy on long-running tasks."""
         state = await self.get_current_state()
 
-        # Internal note.
         if success:
             mood_boost = 0.2 * complexity
             energy_boost = 0.1 * complexity
@@ -148,7 +205,6 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
         state.stress_level = max(0.0, min(1.0, state.stress_level + stress_reduction))
         state.updated_at = time.time()
 
-        # Internal note.
         if duration > 3600:  # Over 1 hour
             state.energy_level = max(0.0, state.energy_level - 0.1)
             if state.current_mood == MoodType.NEUTRAL.value:
@@ -164,45 +220,14 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
 
         return state
 
-    # Internal note.
 
     async def decay_over_time(self, elapsed_minutes: float) -> EmotionalState:
-        """
-        Internal note.
-
-        Args:
-            Internal note.
-
-        Returns:
-            Internal note.
-        """
+        """Apply time-based decay: energy fades, stress recovers, mood drifts back to neutral."""
         if elapsed_minutes <= 0:
             return await self.get_current_state()
 
         state = await self.get_current_state()
-
-        # Internal note.
-        energy_decay = elapsed_minutes * self.config.energy_decay_rate
-        state.energy_level = max(0.0, state.energy_level - energy_decay)
-
-        # Internal note.
-        stress_recovery = elapsed_minutes * self.config.stress_recovery_rate
-        state.stress_level = max(0.0, state.stress_level - stress_recovery)
-
-        # Internal note.
-        if state.social_state == "engaged":
-            decay_amount = elapsed_minutes * self.config.social_decay_rate
-            if decay_amount > 0.5:
-                state.social_state = "neutral"
-
-        # Internal note.
-        if state.current_mood != MoodType.NEUTRAL.value:
-            # Internal note.
-            state.mood_intensity = max(0.0, state.mood_intensity - 0.1 * elapsed_minutes / 60)
-            if state.mood_intensity <= 0.1:
-                state.current_mood = MoodType.NEUTRAL.value
-                state.mood_intensity = 0.5
-
+        apply_decay_to_state(state, elapsed_minutes, self.config)
         state.updated_at = time.time()
 
         await self._save_current_state()
@@ -214,18 +239,9 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
 
         return state
 
-    # Internal note.
 
     async def recover(self, recovery_type: str = "rest") -> EmotionalState:
-        """
-        Internal note.
-
-        Args:
-            recovery_type: Recovery type (rest/sleep/deep_sleep)
-
-        Returns:
-            Internal note.
-        """
+        """Boost energy and clear stress; ``recovery_type`` is one of rest/sleep/deep_sleep."""
         state = await self.get_current_state()
 
         recovery_amounts = {
@@ -239,7 +255,6 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
         state.energy_level = min(1.0, state.energy_level + recovery["energy"])
         state.stress_level = max(0.0, state.stress_level + recovery["stress"])
 
-        # Internal note.
         if state.current_mood in [MoodType.TIRED.value, MoodType.STRESSED.value]:
             state.current_mood = MoodType.NEUTRAL.value
 
@@ -272,7 +287,6 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
         complexity: float
     ) -> float:
         """Calculate mood delta"""
-        # Internal note.
         base_changes = {
             InteractionOutcome.SUCCESS: 0.15,
             InteractionOutcome.PARTIAL_SUCCESS: 0.05,
@@ -284,7 +298,6 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
 
         base_change = base_changes.get(outcome, 0)
 
-        # Internal note.
         engagement_multiplier = {
             EngagementLevel.NONE: 0.5,
             EngagementLevel.LOW: 0.8,
@@ -295,18 +308,15 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
 
         multiplier = engagement_multiplier.get(engagement, 1.0)
 
-        # Internal note.
         complexity_factor = 0.5 + complexity * 0.5
 
         return base_change * multiplier * complexity_factor
 
     def _calculate_energy_change(self, outcome: InteractionOutcome, complexity: float) -> float:
         """Calculate energy delta"""
-        # Internal note.
         if outcome in [InteractionOutcome.FAILURE, InteractionOutcome.ERROR]:
             return -0.1 * complexity
 
-        # Internal note.
         if outcome == InteractionOutcome.SUCCESS:
             return 0.05 * complexity
 
@@ -314,11 +324,9 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
 
     def _calculate_stress_change(self, outcome: InteractionOutcome, complexity: float) -> float:
         """Calculate stress delta"""
-        # Internal note.
         if outcome == InteractionOutcome.SUCCESS:
             return -0.1 * complexity
 
-        # Internal note.
         if outcome in [InteractionOutcome.FAILURE, InteractionOutcome.ERROR]:
             return 0.15 * complexity
 
@@ -352,7 +360,6 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
 
     def _apply_mood_change(self, current_mood: str, change: float) -> str:
         """Apply mood change, return new mood"""
-        # Internal note.
         if current_mood == MoodType.NEUTRAL.value:
             if change > 0.2:
                 return MoodType.EXCITED.value
@@ -401,5 +408,7 @@ __all__ = [
     "EmotionalStateEngine",
     "EngagementLevel",
     "InteractionOutcome",
+    "LAZY_DECAY_THRESHOLD_SECONDS",
     "MoodType",
+    "apply_decay_to_state",
 ]

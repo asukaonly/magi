@@ -7,7 +7,11 @@ from typing import Any, Dict, List, Optional
 from ..personality.feature_flags import get_personality_feature_flags
 from ..personality.loader import PersonalityConfig
 from ..personality.persona_journal_service import PersonaJournalService
-from ..personality.turn_planner import PersonaTurnPlan, PersonaTurnPlanner
+from ..personality.turn_planner import (
+    PersonaRoutingHint,
+    PersonaTurnPlan,
+    PersonaTurnPlanner,
+)
 from .schema import (
     ProfileMemoryContext,
     RetrievalMemoryContext,
@@ -33,7 +37,8 @@ class PromptSelfMemoryMixin:
         selected_tools: List[str],
         retrieved_memory_payload: Optional[Dict[str, Any]],
         persona_turn_plan: "Optional[PersonaTurnPlan]" = None,
-        persona_name: str = "default",
+        persona_name: str,
+        persona_routing_hint: Optional[PersonaRoutingHint] = None,
     ) -> SelfMemoryContext:
         payload = retrieved_memory_payload or {}
         preference_memory = payload.get("preference_memory", {})
@@ -72,6 +77,7 @@ class PromptSelfMemoryMixin:
                 task_category=task_category,
                 scenario=scenario,
                 selected_tools=selected_tools,
+                routing_hint=persona_routing_hint,
             )
 
         return SelfMemoryContext(
@@ -89,6 +95,7 @@ class PromptSelfMemoryMixin:
         task_category: str,
         scenario: str,
         selected_tools: List[str],
+        routing_hint: Optional[PersonaRoutingHint] = None,
     ) -> PersonaTurnPlan:
         config = PersonalityConfig()
         emotional_state = None
@@ -105,7 +112,11 @@ class PromptSelfMemoryMixin:
             if hasattr(self_memory, "get_milestones"):
                 milestones = await self_memory.get_milestones(limit=200) or []
 
-        return PersonaTurnPlanner().build_plan(
+        previous_trigger_ids = list(
+            getattr(emotional_state, "recent_active_trigger_ids", None) or []
+        )
+
+        plan = PersonaTurnPlanner().build_plan(
             config=config,
             user_message=user_message,
             scenario=scenario,
@@ -114,7 +125,26 @@ class PromptSelfMemoryMixin:
             relationship=relationship,
             emotional_state=emotional_state,
             milestones=milestones,
+            routing_hint=routing_hint,
+            previous_trigger_ids=previous_trigger_ids,
         )
+
+        # Persist the NEW (non-carryover) trigger_ids so the next turn can
+        # carry them forward exactly one hop. Passing carryover IDs back
+        # would chain the effect indefinitely, so we explicitly filter.
+        if self_memory is not None and hasattr(self_memory, "set_recent_active_trigger_ids"):
+            new_trigger_ids = [
+                trigger.trigger_id
+                for trigger in plan.active_triggers
+                if trigger.reason != "carryover"
+            ]
+            try:
+                await self_memory.set_recent_active_trigger_ids(new_trigger_ids)
+            except Exception:
+                # Persistence failure must not break prompt assembly.
+                pass
+
+        return plan
 
     async def _build_profile_memory_context(self, *, self_memory, user_id: str) -> ProfileMemoryContext:
         user_name = ""

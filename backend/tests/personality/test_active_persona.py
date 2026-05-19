@@ -10,7 +10,7 @@ from magi.personality.loader import PersonalityConfig
 
 @pytest.fixture(autouse=True)
 def reset_active_persona_cache() -> None:
-    active_persona.set_current_personality(active_persona.DEFAULT_PERSONALITY, config=None)
+    active_persona.clear_active_persona()
 
 
 def test_active_persona_cache_updates_slug_and_config() -> None:

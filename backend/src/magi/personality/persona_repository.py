@@ -100,8 +100,11 @@ class PersonaRepository:
     # ---- lifecycle ----
 
     async def init(self) -> None:
-        """No-op kept for compatibility — schema is alembic-managed."""
-        return None
+        """Idempotent schema fallback. Alembic remains the canonical owner;
+        this lets tests and fresh-disk callers work without a migration run."""
+        async with sqlite_connection_async(self._db_path) as db:
+            await db.executescript(_CREATE_SCHEMA)
+            await db.commit()
 
     # ---- create ----
 

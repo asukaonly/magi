@@ -55,7 +55,11 @@ class CoreBootstrapState:
     config: AppConfig | None = None
     runtime_paths: RuntimePaths | None = None
     db_initializer: DatabaseInitializer | None = None
-    current_personality: str = "default"
+    # Empty string until PersonalityModule.init() resolves the active persona
+    # from the registry. ConfigModule may set a preliminary preferred name from
+    # config.agent.personality.name; an empty value means "no preference,
+    # use the first builtin from the registry."
+    current_personality: str = ""
 
 
 @dataclass
