@@ -81,6 +81,16 @@ class BehaviorEvolutionInteractionMixin:
                     self.persona_id,
                 )
             )
+            # The persisted behavior_profiles row is a memoised inference from
+            # task_interactions + category_statistics. A new outcome makes that
+            # cache stale; drop it so the next get_behavior_profile re-runs
+            # _infer_profile_from_stats. Without this delete the feedback loop
+            # silently closes on the first turn and freezes the inferred
+            # profile forever — exactly the dead-loop the P2 review flagged.
+            await db.execute(
+                "DELETE FROM behavior_profiles WHERE task_category = ? AND persona_id = ?",
+                (task_category, self.persona_id),
+            )
             await db.commit()
 
         self._cache.pop(task_category, None)

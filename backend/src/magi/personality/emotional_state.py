@@ -15,6 +15,53 @@ from .models import EmotionalState
 logger = logging.getLogger(__name__)
 
 
+# Lazy decay applies when ``get_current_state`` observes an elapsed gap of at
+# least this many seconds since the last update. Sub-minute gaps (typical
+# within an active chat session) skip the decay+write path entirely.
+LAZY_DECAY_THRESHOLD_SECONDS = 60.0
+
+
+def apply_decay_to_state(
+    state: EmotionalState,
+    elapsed_minutes: float,
+    config: EmotionalConfig,
+) -> None:
+    """Mutate ``state`` in place by applying ``elapsed_minutes`` worth of decay.
+
+    Pure function so the storage mixin can call this on lazy reads without
+    going through ``EmotionalStateEngine.decay_over_time`` (which would
+    recursively re-enter ``get_current_state``). Callers are responsible for
+    updating ``state.updated_at`` and persisting.
+
+    Decay model:
+    - energy drops linearly with ``energy_decay_rate`` per minute.
+    - stress recovers linearly with ``stress_recovery_rate`` per minute.
+    - social state "engaged" drops back to "neutral" after the equivalent
+      of a half-unit social decay (configurable per persona).
+    - mood intensity fades 0.1 per hour; once it crosses 0.1 the mood
+      snaps back to NEUTRAL with intensity 0.5.
+    """
+    if elapsed_minutes <= 0:
+        return
+
+    energy_decay = elapsed_minutes * config.energy_decay_rate
+    state.energy_level = max(0.0, state.energy_level - energy_decay)
+
+    stress_recovery = elapsed_minutes * config.stress_recovery_rate
+    state.stress_level = max(0.0, state.stress_level - stress_recovery)
+
+    if state.social_state == "engaged":
+        decay_amount = elapsed_minutes * config.social_decay_rate
+        if decay_amount > 0.5:
+            state.social_state = "neutral"
+
+    if state.current_mood != MoodType.NEUTRAL.value:
+        state.mood_intensity = max(0.0, state.mood_intensity - 0.1 * elapsed_minutes / 60)
+        if state.mood_intensity <= 0.1:
+            state.current_mood = MoodType.NEUTRAL.value
+            state.mood_intensity = 0.5
+
+
 class EmotionalStateEngine(EmotionalStateStorageMixin):
     """Persona-scoped emotional state engine: mood/energy/stress with decay and recovery."""
 
@@ -30,6 +77,38 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
         self.persona_id = persona_id
         self._current_state: Optional[EmotionalState] = None
         self._event_history: List[EmotionalEvent] = []
+
+    async def get_current_state(self) -> EmotionalState:
+        """Return the current emotional state, applying lazy time-based decay.
+
+        The persona's mood/energy/stress is meant to drift toward neutral while
+        the user is idle (energy fades, stress recovers, intensity decays).
+        Production has no separate scheduler driving ``decay_over_time``, so
+        this read path applies elapsed-time decay implicitly whenever the gap
+        since the last update exceeds ``LAZY_DECAY_THRESHOLD_SECONDS``. Reads
+        inside the same active turn (sub-minute) skip the decay+write path,
+        so this stays cheap.
+        """
+        state = await super().get_current_state()
+        elapsed_seconds = time.time() - float(state.updated_at or 0.0)
+        if elapsed_seconds < LAZY_DECAY_THRESHOLD_SECONDS:
+            return state
+        apply_decay_to_state(
+            state,
+            elapsed_minutes=elapsed_seconds / 60.0,
+            config=self.config,
+        )
+        state.updated_at = time.time()
+        await self._save_current_state()
+        logger.debug(
+            "Lazy decay applied: persona=%s elapsed_minutes=%.1f energy=%.2f stress=%.2f mood=%s",
+            self.persona_id or "default",
+            elapsed_seconds / 60.0,
+            state.energy_level,
+            state.stress_level,
+            state.current_mood,
+        )
+        return state
 
     async def update_after_interaction(
         self,
@@ -131,24 +210,7 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
             return await self.get_current_state()
 
         state = await self.get_current_state()
-
-        energy_decay = elapsed_minutes * self.config.energy_decay_rate
-        state.energy_level = max(0.0, state.energy_level - energy_decay)
-
-        stress_recovery = elapsed_minutes * self.config.stress_recovery_rate
-        state.stress_level = max(0.0, state.stress_level - stress_recovery)
-
-        if state.social_state == "engaged":
-            decay_amount = elapsed_minutes * self.config.social_decay_rate
-            if decay_amount > 0.5:
-                state.social_state = "neutral"
-
-        if state.current_mood != MoodType.NEUTRAL.value:
-            state.mood_intensity = max(0.0, state.mood_intensity - 0.1 * elapsed_minutes / 60)
-            if state.mood_intensity <= 0.1:
-                state.current_mood = MoodType.NEUTRAL.value
-                state.mood_intensity = 0.5
-
+        apply_decay_to_state(state, elapsed_minutes, self.config)
         state.updated_at = time.time()
 
         await self._save_current_state()
@@ -329,5 +391,7 @@ __all__ = [
     "EmotionalStateEngine",
     "EngagementLevel",
     "InteractionOutcome",
+    "LAZY_DECAY_THRESHOLD_SECONDS",
     "MoodType",
+    "apply_decay_to_state",
 ]
