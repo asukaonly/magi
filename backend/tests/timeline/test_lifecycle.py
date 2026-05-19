@@ -1,0 +1,72 @@
+"""Tests for TimelineSchedulersModule."""
+
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+
+@pytest.mark.asyncio
+async def test_init_registers_all_four_contributors_when_deps_present(tmp_path):
+    from magi.timeline.lifecycle import TimelineSchedulersModule
+    from magi.scheduler.contracts import ScheduledTargetType
+
+    context = MagicMock()
+    context.memory.unified_memory.l2 = MagicMock()
+    context.memory.unified_memory.l3 = MagicMock()
+    context.memory.unified_memory.memory_db_path = str(tmp_path / "memory.db")
+    context.memory.media_source_registry = MagicMock()
+
+    scheduler = MagicMock()
+    scheduler.register_handler = MagicMock()
+    scheduler.schedule_interval = AsyncMock()
+    context.scheduler.scheduler_service = scheduler
+    context.llm.scenario_llm_pool = MagicMock()
+
+    module = TimelineSchedulersModule(context)
+    await module.init()
+
+    registered_targets = {
+        call.args[0] for call in scheduler.register_handler.call_args_list
+    }
+    assert ScheduledTargetType.TIMELINE_DIARY_NARRATIVE in registered_targets
+    assert ScheduledTargetType.TIMELINE_STANDOUT_RESCORE in registered_targets
+    assert ScheduledTargetType.TIMELINE_MOOD_AGGREGATE in registered_targets
+    assert ScheduledTargetType.TIMELINE_REPRESENTATIVE_ASSET in registered_targets
+
+    assert scheduler.schedule_interval.await_count == 4
+
+
+@pytest.mark.asyncio
+async def test_init_is_noop_when_scheduler_missing():
+    from magi.timeline.lifecycle import TimelineSchedulersModule
+
+    context = MagicMock()
+    context.scheduler.scheduler_service = None
+
+    module = TimelineSchedulersModule(context)
+    await module.init()  # should not raise
+
+
+@pytest.mark.asyncio
+async def test_shutdown_unregisters_all_four_contributors(tmp_path):
+    from magi.timeline.lifecycle import TimelineSchedulersModule
+
+    context = MagicMock()
+    context.memory.unified_memory.l2 = MagicMock()
+    context.memory.unified_memory.l3 = MagicMock()
+    context.memory.unified_memory.memory_db_path = str(tmp_path / "memory.db")
+    context.memory.media_source_registry = MagicMock()
+    scheduler = MagicMock()
+    scheduler.register_handler = MagicMock()
+    scheduler.schedule_interval = AsyncMock()
+    scheduler.unschedule = AsyncMock()
+    context.scheduler.scheduler_service = scheduler
+    context.llm.scenario_llm_pool = MagicMock()
+
+    module = TimelineSchedulersModule(context)
+    await module.init()
+    await module.shutdown()
+
+    assert scheduler.unschedule.await_count == 4

@@ -91,6 +91,7 @@ class UnifiedMemoryStore(
             if memory_db_path
             else (memory_dir / "memory.db")
         )
+        self.memory_db_path: str = shared_memory_db
         archive_dir = memory_dir / "archive"
         archive_dir.mkdir(parents=True, exist_ok=True)
 
