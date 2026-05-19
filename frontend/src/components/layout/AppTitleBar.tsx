@@ -12,6 +12,37 @@ import { AppWindowControls } from './AppWindowControls';
 
 const SCALE_LABEL: Record<string, string> = { month: "月", week: "周", day: "日", hour: "时" };
 
+const isoWeekValue = (date: Date): string => {
+  const target = new Date(date);
+  target.setHours(0, 0, 0, 0);
+  // Thursday of this week determines the ISO year/week
+  target.setDate(target.getDate() + 3 - ((target.getDay() + 6) % 7));
+  const firstThursday = new Date(target.getFullYear(), 0, 4);
+  const weekNum = 1 + Math.round(
+    ((target.getTime() - firstThursday.getTime()) / 86400000 - 3 + ((firstThursday.getDay() + 6) % 7)) / 7
+  );
+  return `${target.getFullYear()}-W${String(weekNum).padStart(2, "0")}`;
+};
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+const periodInputValue = (scale: string, startSec: number): string => {
+  if (!startSec) return "";
+  const d = new Date(startSec * 1000);
+  if (scale === "month") return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+  if (scale === "week") return isoWeekValue(d);
+  if (scale === "day") return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  if (scale === "hour") return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:00`;
+  return "";
+};
+
+const inputTypeForScale = (scale: string): string => {
+  if (scale === "month") return "month";
+  if (scale === "week") return "week";
+  if (scale === "day") return "date";
+  return "datetime-local";
+};
+
 const TimelineTitleBarSlot: React.FC = () => {
   const { t } = useTranslation('app');
   const panel = useChatShellStore((s) => s.timelinePanel);
@@ -52,7 +83,16 @@ const TimelineTitleBarSlot: React.FC = () => {
         >
           ‹
         </button>
-        <span className="min-w-[6rem] text-center text-muted-foreground">{panel.dateLabel}</span>
+        <input
+          type={inputTypeForScale(panel.scale)}
+          value={periodInputValue(panel.scale, panel.viewportStart)}
+          onChange={(e) => panel.onSelectFromDateInput?.(e.target.value)}
+          onMouseDown={(e) => e.stopPropagation()}
+          data-no-drag
+          aria-label={panel.dateLabel}
+          className="cursor-pointer rounded border border-transparent bg-transparent px-1.5 py-0.5 text-xs text-muted-foreground hover:border-border hover:text-foreground focus:border-border focus:text-foreground focus:outline-none"
+          style={{ minWidth: panel.scale === "hour" ? "150px" : panel.scale === "month" ? "100px" : "120px" }}
+        />
         <button
           type="button"
           disabled={!panel.canGoNext}

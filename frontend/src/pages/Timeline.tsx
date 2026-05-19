@@ -73,6 +73,31 @@ function formatWindowLabel(scale: TimelineScale, start: number, end: number, loc
   return sf === ef ? sf : `${sf} – ${ef}`;
 }
 
+const isoWeekStart = (isoYear: number, isoWeek: number): Date => {
+  const januaryFourth = new Date(isoYear, 0, 4);
+  const firstWeekStart = startOfLocalWeek(januaryFourth);
+  firstWeekStart.setDate(firstWeekStart.getDate() + (isoWeek - 1) * 7);
+  return firstWeekStart;
+};
+
+const parsePeriodInputValue = (scale: TimelineScale, value: string): number | null => {
+  if (!value) return null;
+  if (scale === "month") {
+    const match = /^(\d{4})-(\d{2})$/.exec(value);
+    if (!match) return null;
+    return toUnixSeconds(new Date(Number(match[1]), Number(match[2]) - 1, 1));
+  }
+  if (scale === "week") {
+    const match = /^(\d{4})-W(\d{2})$/.exec(value);
+    if (!match) return null;
+    return toUnixSeconds(isoWeekStart(Number(match[1]), Number(match[2])));
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  if (scale === "day") return toUnixSeconds(startOfLocalDay(parsed));
+  return toUnixSeconds(startOfLocalHour(parsed));
+};
+
 function monthKeyForDate(timestampSec: number): string {
   const d = new Date(timestampSec * 1000);
   return `${d.getFullYear()}-${padNumber(d.getMonth() + 1)}`;
@@ -250,6 +275,12 @@ export const TimelinePage: React.FC = () => {
     void episodeId;
   }, []);
 
+  const handleSelectFromDateInput = useCallback((value: string) => {
+    const parsed = parsePeriodInputValue(scale, value);
+    if (parsed == null) return;
+    setViewportStart(clampToLatestCompletePeriod(scale, parsed));
+  }, [scale]);
+
   // Push all timeline state into the shell store for Sidebar + AppTitleBar
   useEffect(() => {
     setTimelinePanel({
@@ -261,6 +292,7 @@ export const TimelinePage: React.FC = () => {
       onSelectStandoutEpisode: handleSelectStandoutEpisode,
       scale,
       dateLabel,
+      viewportStart,
       draftQuery,
       canGoNext,
       onScaleChange: handleScaleChange,
@@ -268,6 +300,7 @@ export const TimelinePage: React.FC = () => {
       onNext: handleNext,
       onDraftQueryChange: handleDraftQueryChange,
       onSubmitQuery: handleSubmitQuery,
+      onSelectFromDateInput: handleSelectFromDateInput,
     });
   }, [
     viewportStart,
@@ -284,12 +317,13 @@ export const TimelinePage: React.FC = () => {
     handleNext,
     handleDraftQueryChange,
     handleSubmitQuery,
+    handleSelectFromDateInput,
     setTimelinePanel,
   ]);
 
   return (
     <main className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-      <div className="flex min-h-0 flex-1 overflow-y-auto">
+      <div className="flex min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
         {loading ? (
           <div className="flex h-full w-full items-center justify-center gap-2 text-sm text-muted-foreground">
             <LoadingSpinner className="h-4 w-4" />

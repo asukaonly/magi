@@ -18,6 +18,7 @@ export interface TimelinePanelState {
   // Toolbar bits — used by AppTitleBar
   scale: 'month' | 'week' | 'day' | 'hour';
   dateLabel: string;
+  viewportStart: number; // unix seconds
   draftQuery: string;
   canGoNext: boolean;
   onScaleChange: ((next: 'month' | 'week' | 'day' | 'hour') => void) | null;
@@ -25,6 +26,7 @@ export interface TimelinePanelState {
   onNext: (() => void) | null;
   onDraftQueryChange: ((next: string) => void) | null;
   onSubmitQuery: (() => void) | null;
+  onSelectFromDateInput: ((value: string) => void) | null;
 }
 
 export interface DesktopShellState {
@@ -53,6 +55,7 @@ const DEFAULT_TIMELINE_PANEL: TimelinePanelState = {
   onSelectStandoutEpisode: null,
   scale: 'day',
   dateLabel: '',
+  viewportStart: 0,
   draftQuery: '',
   canGoNext: false,
   onScaleChange: null,
@@ -60,6 +63,7 @@ const DEFAULT_TIMELINE_PANEL: TimelinePanelState = {
   onNext: null,
   onDraftQueryChange: null,
   onSubmitQuery: null,
+  onSelectFromDateInput: null,
 };
 
 export const useChatShellStore = create<DesktopShellState>((set) => ({
