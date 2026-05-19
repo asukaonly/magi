@@ -86,6 +86,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/viewport": {"GET"},
         "/context/{anchor_id}": {"GET"},
         "/standout": {"GET"},
+        "/mood-calendar": {"GET"},
     },
     "sensors": {
         "/status": {"GET"},

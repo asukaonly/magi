@@ -104,6 +104,44 @@ class TimelineService:
             })
         return items
 
+    async def list_mood_calendar(self, *, month: str) -> dict:
+        """Sidebar mood calendar payload for a YYYY-MM month.
+
+        Days with no daily_mood_aggregate row are omitted; the frontend
+        renders empty cells for missing dates.
+        """
+        from calendar import monthrange
+        from magi.memory.l3.daily_mood.store import DailyMoodAggregateStore
+
+        try:
+            year, mo = (int(p) for p in month.split("-", 1))
+            last_day = monthrange(year, mo)[1]
+        except (ValueError, OverflowError):
+            return {"month": month, "days": [], "error": "invalid_month"}
+
+        db_path = getattr(self._unified_memory, "memory_db_path", None)
+        if db_path is None:
+            return {"month": month, "days": []}
+
+        store = DailyMoodAggregateStore(db_path=str(db_path))
+        start_date = f"{year:04d}-{mo:02d}-01"
+        end_date = f"{year:04d}-{mo:02d}-{last_day:02d}"
+        rows = await store.list_aggregates(start_date=start_date, end_date=end_date)
+
+        return {
+            "month": month,
+            "days": [
+                {
+                    "date": r.day_local_date,
+                    "dominant_valence": r.dominant_valence,
+                    "volatility": r.volatility_score,
+                    "event_count": r.event_count,
+                    "sparkline": r.state_curve_compact,
+                }
+                for r in rows
+            ],
+        }
+
     async def get_context_bundle(self, anchor_id: str) -> Optional[dict]:
         if getattr(self._unified_memory, "l1", None) is None:
             return None

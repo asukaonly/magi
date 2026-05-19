@@ -80,6 +80,14 @@ async def get_standout_endpoint(
     return {"month": month, "items": items}
 
 
+@timeline_router.get("/mood-calendar")
+async def get_mood_calendar_endpoint(
+    month: str = Query(pattern=r"^\d{4}-\d{2}$"),
+):
+    service = get_timeline_service()
+    return await service.list_mood_calendar(month=month)
+
+
 @timeline_router.get("/context/{anchor_id}")
 async def get_timeline_context_bundle(anchor_id: str):
     service = get_timeline_service()
