@@ -107,7 +107,7 @@ class EpisodeWrite:
             slice_narrative=str(data.get("slice_narrative", "") or ""),
             slice_sensory_detail=str(data.get("slice_sensory_detail", "") or ""),
             magi_standout=bool(data.get("magi_standout", False)),
-            standout_score=float(data.get("standout_score", 0.0)),
+            standout_score=float(data.get("standout_score") or 0.0),
             standout_reason=str(data.get("standout_reason", "") or ""),
             representative_asset_ref=str(data.get("representative_asset_ref", "") or ""),
         )

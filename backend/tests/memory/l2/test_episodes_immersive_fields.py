@@ -48,12 +48,30 @@ def test_episode_write_from_dict_round_trip_includes_immersive():
         "time_end": 1.0,
         "magi_standout": True,
         "standout_score": 0.5,
+        "standout_reason": "first-of-its-kind",
         "slice_narrative": "x",
+        "slice_sensory_detail": "y",
         "representative_asset_ref": "ref://y",
     }
     restored = EpisodeWrite.from_dict(src)
     out = restored.to_dict()
     assert out["magi_standout"] is True
     assert out["standout_score"] == 0.5
+    assert out["standout_reason"] == "first-of-its-kind"
     assert out["slice_narrative"] == "x"
+    assert out["slice_sensory_detail"] == "y"
     assert out["representative_asset_ref"] == "ref://y"
+
+
+def test_episode_write_from_dict_handles_null_standout_score():
+    """A None standout_score (e.g., from a NULL DB cell) must not crash."""
+    from magi.memory.l2.episode_models import EpisodeWrite
+
+    src = {
+        "episode_id": "ep-4",
+        "time_start": 0.0,
+        "time_end": 1.0,
+        "standout_score": None,
+    }
+    ep = EpisodeWrite.from_dict(src)
+    assert ep.standout_score == 0.0
