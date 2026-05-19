@@ -41,6 +41,7 @@ from ..memory.lifecycle import (
     MemoryIngestionSubscriberModule,
     MemoryStoreModule,
 )
+from ..media.lifecycle import MediaRegistryModule
 from ..personality.lifecycle import PersonalityModule
 from ..plugins.lifecycle import PluginSystemModule
 from ..runtime_trace import RuntimeTraceStore
@@ -123,6 +124,7 @@ def _build_stateful_service_modules(context: RuntimeBootstrapContext) -> list[Li
     """Build the stateful services and shared runtime stores phase."""
     return [
         MemoryStoreModule(context, start_memory_integration=True),
+        MediaRegistryModule(context),  # after memory store so unified_memory.l1 exists
         MemoryIngestionSubscriberModule(context),
         LLMUsageSubscriberModule(context),
         ChatProjectorModule(context),

@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from ..memory import UnifiedMemoryStore
     from ..memory.integration import MemoryIntegrationModule
     from ..memory.hybrid_retrieval import HybridRetrievalService
+    from ..media.source_registry import MediaSourceRegistry
     from ..plugins import PluginManager, SensorRegistry
     from ..personality.self_memory import SelfMemory
     from ..awareness.scheduler_contrib import SensorSchedulerContrib
@@ -105,6 +106,7 @@ class MemoryBootstrapState:
     memory_integration: MemoryIntegrationModule | None = None
     hybrid_retrieval_service: HybridRetrievalService | None = None
     ingestion_subscriber: Any = None
+    media_source_registry: "MediaSourceRegistry | None" = None
 
 
 @dataclass
