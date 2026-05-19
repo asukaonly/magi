@@ -413,6 +413,20 @@
       "loadFailed": "时间线加载失败：{{message}}",
       "detailFailed": "时间线上下文加载失败：{{message}}",
       "feedbackFailed": "时间线反馈保存失败：{{message}}"
+    },
+    "immersive": {
+      "themesLabel": "你那时关心的",
+      "moodCalendarLabel": "这个月",
+      "standoutLabel": "值得回来的",
+      "standoutEmpty": "再陪你几天，这里会出现更多值得回来的瞬间。",
+      "untitledMoment": "未命名",
+      "heartLabel": "想常回来",
+      "moreLabel": "更多",
+      "hideMemoryLabel": "不算这天的样子",
+      "hideConfirm": "已隐藏",
+      "hourEmpty": "这个小时没什么动静。",
+      "emptyDay": "再陪你几天，这页就会写满你的样子。",
+      "emptyMonth": "月度回顾需要几周时间慢慢长出来。先从日开始翻？"
     }
   },
   "dashboard": {
