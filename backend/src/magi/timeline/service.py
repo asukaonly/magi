@@ -9,6 +9,18 @@ from .insight_pipeline import TimelineInsightPipeline
 from .viewport_builder import TimelineViewportBuilder
 
 
+async def _resolve_photo_library_asset(asset_ref: str) -> tuple[Optional[str], Optional[str]]:
+    """Resolve a photo-library:// ref to (file_path, content_type).
+
+    Plan 3 ships a minimal resolver that returns (None, None). Plan 4 (or a
+    later integration step) will plug in the photo-library plugin's actual
+    reader once a stable host-callable resolve API is exposed.
+
+    Tests monkeypatch this function at the module level.
+    """
+    return None, None
+
+
 class TimelineService:
     """Provides timeline-oriented operations over unified memory."""
 
@@ -141,6 +153,32 @@ class TimelineService:
                 for r in rows
             ],
         }
+
+    async def serve_asset(self, *, asset_ref: str) -> Optional[tuple[bytes, str]]:
+        """Resolve an asset_ref and read its bytes from disk.
+
+        Returns (bytes, content_type) on success, None when the ref is empty,
+        unrecognized, or the file is missing. The route turns None into 404.
+        """
+        if not asset_ref:
+            return None
+
+        scheme, _, _ = asset_ref.partition("://")
+        if scheme != "photo-library":
+            # Future schemes (chat-attachment://, screen-capture://) plug in here.
+            return None
+
+        file_path, content_type = await _resolve_photo_library_asset(asset_ref)
+        if not file_path:
+            return None
+
+        try:
+            with open(file_path, "rb") as fh:
+                data = fh.read()
+        except OSError:
+            return None
+
+        return data, content_type or "application/octet-stream"
 
     async def get_context_bundle(self, anchor_id: str) -> Optional[dict]:
         if getattr(self._unified_memory, "l1", None) is None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from ... import i18n as core_i18n
 from ...memory.provider import get_unified_memory
@@ -86,6 +86,20 @@ async def get_mood_calendar_endpoint(
 ):
     service = get_timeline_service()
     return await service.list_mood_calendar(month=month)
+
+
+@timeline_router.get("/asset/{asset_ref:path}")
+async def get_timeline_asset(asset_ref: str):
+    """Serve a timeline asset (e.g. a photo from photo-library://...) as binary."""
+    service = get_timeline_service()
+    result = await service.serve_asset(asset_ref=asset_ref)
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=core_i18n.t("timeline.errors.asset_not_found", fallback="Asset not found"),
+        )
+    body, content_type = result
+    return Response(content=body, media_type=content_type)
 
 
 @timeline_router.get("/context/{anchor_id}")
