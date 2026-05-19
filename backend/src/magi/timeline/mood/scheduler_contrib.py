@@ -16,6 +16,10 @@ from .algorithm import compute_daily_mood_aggregate
 
 logger = get_logger("magi.timeline.mood.scheduler")
 
+SCHEDULE_ID_TIMELINE_MOOD_AGGREGATE = "timeline_mood_aggregate"
+TARGET_KEY_TIMELINE_MOOD_AGGREGATE = "timeline_mood_aggregate"
+INTERVAL_SECONDS_TIMELINE_MOOD_AGGREGATE = 60 * 60  # 1 hour
+
 
 class _SampleSourceProtocol(Protocol):
     """Anything that can yield (timestamp, valence) pairs for a window."""
@@ -38,15 +42,24 @@ class MoodAggregateSchedulerContrib:
         self._mood_store = mood_store
 
     async def register_schedules(self, scheduler) -> None:
-        await scheduler.register_handler(
+        scheduler.register_handler(
             ScheduledTargetType.TIMELINE_MOOD_AGGREGATE,
             self._handle_aggregate,
         )
+        await scheduler.schedule_interval(
+            schedule_id=SCHEDULE_ID_TIMELINE_MOOD_AGGREGATE,
+            target_type=ScheduledTargetType.TIMELINE_MOOD_AGGREGATE,
+            target_key=TARGET_KEY_TIMELINE_MOOD_AGGREGATE,
+            seconds=float(INTERVAL_SECONDS_TIMELINE_MOOD_AGGREGATE),
+            target_payload={},
+        )
 
     async def unregister_schedules(self, scheduler) -> None:
-        unregister = getattr(scheduler, "unregister_handler", None)
-        if unregister:
-            await unregister(ScheduledTargetType.TIMELINE_MOOD_AGGREGATE)
+        await scheduler.unschedule(
+            SCHEDULE_ID_TIMELINE_MOOD_AGGREGATE,
+            target_type=ScheduledTargetType.TIMELINE_MOOD_AGGREGATE,
+            target_key=TARGET_KEY_TIMELINE_MOOD_AGGREGATE,
+        )
 
     async def _handle_aggregate(
         self, context: ScheduledExecutionContext,

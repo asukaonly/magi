@@ -14,6 +14,10 @@ from .selector import MediaSelector
 
 logger = get_logger("magi.media.scheduler")
 
+SCHEDULE_ID_TIMELINE_REPRESENTATIVE_ASSET = "timeline_representative_asset"
+TARGET_KEY_TIMELINE_REPRESENTATIVE_ASSET = "timeline_representative_asset"
+INTERVAL_SECONDS_TIMELINE_REPRESENTATIVE_ASSET = 4 * 60 * 60  # 4 hours
+
 
 class _L2EpisodeStoreProtocol(Protocol):
     async def list_episodes(self, **kwargs) -> list[dict]: ...
@@ -40,15 +44,24 @@ class RepresentativeAssetPopulateSchedulerContrib:
         self._batch_limit = batch_limit
 
     async def register_schedules(self, scheduler) -> None:
-        await scheduler.register_handler(
+        scheduler.register_handler(
             ScheduledTargetType.TIMELINE_REPRESENTATIVE_ASSET,
             self._handle_populate,
         )
+        await scheduler.schedule_interval(
+            schedule_id=SCHEDULE_ID_TIMELINE_REPRESENTATIVE_ASSET,
+            target_type=ScheduledTargetType.TIMELINE_REPRESENTATIVE_ASSET,
+            target_key=TARGET_KEY_TIMELINE_REPRESENTATIVE_ASSET,
+            seconds=float(INTERVAL_SECONDS_TIMELINE_REPRESENTATIVE_ASSET),
+            target_payload={},
+        )
 
     async def unregister_schedules(self, scheduler) -> None:
-        unregister = getattr(scheduler, "unregister_handler", None)
-        if unregister:
-            await unregister(ScheduledTargetType.TIMELINE_REPRESENTATIVE_ASSET)
+        await scheduler.unschedule(
+            SCHEDULE_ID_TIMELINE_REPRESENTATIVE_ASSET,
+            target_type=ScheduledTargetType.TIMELINE_REPRESENTATIVE_ASSET,
+            target_key=TARGET_KEY_TIMELINE_REPRESENTATIVE_ASSET,
+        )
 
     async def _handle_populate(
         self, context: ScheduledExecutionContext,

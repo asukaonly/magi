@@ -31,12 +31,18 @@ async def test_scheduler_contrib_registers_handler():
 
     contrib = DiaryNarrativeSchedulerContrib(orchestrator=AsyncMock())
     scheduler = MagicMock()
-    scheduler.register_handler = AsyncMock()
+    scheduler.register_handler = MagicMock()         # SYNC now
+    scheduler.schedule_interval = AsyncMock()
     await contrib.register_schedules(scheduler)
 
-    scheduler.register_handler.assert_awaited_once()
-    args, _ = scheduler.register_handler.call_args
-    assert args[0] == ScheduledTargetType.TIMELINE_DIARY_NARRATIVE
+    scheduler.register_handler.assert_called_once()
+    handler_args = scheduler.register_handler.call_args.args
+    assert handler_args[0] == ScheduledTargetType.TIMELINE_DIARY_NARRATIVE
+
+    scheduler.schedule_interval.assert_awaited_once()
+    interval_kwargs = scheduler.schedule_interval.call_args.kwargs
+    assert interval_kwargs["target_type"] == ScheduledTargetType.TIMELINE_DIARY_NARRATIVE
+    assert interval_kwargs["seconds"] > 0
 
 
 @pytest.mark.asyncio

@@ -14,6 +14,10 @@ from ...scheduler.contracts import (
 
 logger = get_logger("magi.timeline.narrative.scheduler")
 
+SCHEDULE_ID_TIMELINE_DIARY_NARRATIVE = "timeline_diary_narrative"
+TARGET_KEY_TIMELINE_DIARY_NARRATIVE = "timeline_diary_narrative"
+INTERVAL_SECONDS_TIMELINE_DIARY_NARRATIVE = 6 * 60 * 60  # 6 hours
+
 
 class _OrchestratorProtocol(Protocol):
     async def generate_for_window(
@@ -41,15 +45,24 @@ class DiaryNarrativeSchedulerContrib:
         self._orchestrator = orchestrator
 
     async def register_schedules(self, scheduler: _SchedulerProtocol) -> None:
-        await scheduler.register_handler(
+        scheduler.register_handler(
             ScheduledTargetType.TIMELINE_DIARY_NARRATIVE,
             self._handle_diary_narrative,
         )
+        await scheduler.schedule_interval(
+            schedule_id=SCHEDULE_ID_TIMELINE_DIARY_NARRATIVE,
+            target_type=ScheduledTargetType.TIMELINE_DIARY_NARRATIVE,
+            target_key=TARGET_KEY_TIMELINE_DIARY_NARRATIVE,
+            seconds=float(INTERVAL_SECONDS_TIMELINE_DIARY_NARRATIVE),
+            target_payload={},
+        )
 
     async def unregister_schedules(self, scheduler) -> None:
-        unregister = getattr(scheduler, "unregister_handler", None)
-        if unregister:
-            await unregister(ScheduledTargetType.TIMELINE_DIARY_NARRATIVE)
+        await scheduler.unschedule(
+            SCHEDULE_ID_TIMELINE_DIARY_NARRATIVE,
+            target_type=ScheduledTargetType.TIMELINE_DIARY_NARRATIVE,
+            target_key=TARGET_KEY_TIMELINE_DIARY_NARRATIVE,
+        )
 
     async def _handle_diary_narrative(
         self, context: ScheduledExecutionContext,

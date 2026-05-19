@@ -15,6 +15,10 @@ from .scoring import StandoutSignals, compute_standout_score
 
 logger = get_logger("magi.timeline.standout.scheduler")
 
+SCHEDULE_ID_TIMELINE_STANDOUT_RESCORE = "timeline_standout_rescore"
+TARGET_KEY_TIMELINE_STANDOUT_RESCORE = "timeline_standout_rescore"
+INTERVAL_SECONDS_TIMELINE_STANDOUT_RESCORE = 2 * 60 * 60  # 2 hours
+
 
 class _L2EpisodeStoreProtocol(Protocol):
     async def list_episodes(self, **kwargs) -> list[dict]: ...
@@ -48,15 +52,24 @@ class StandoutScoringSchedulerContrib:
         self._batch_limit = batch_limit
 
     async def register_schedules(self, scheduler) -> None:
-        await scheduler.register_handler(
+        scheduler.register_handler(
             ScheduledTargetType.TIMELINE_STANDOUT_RESCORE,
             self._handle_rescore,
         )
+        await scheduler.schedule_interval(
+            schedule_id=SCHEDULE_ID_TIMELINE_STANDOUT_RESCORE,
+            target_type=ScheduledTargetType.TIMELINE_STANDOUT_RESCORE,
+            target_key=TARGET_KEY_TIMELINE_STANDOUT_RESCORE,
+            seconds=float(INTERVAL_SECONDS_TIMELINE_STANDOUT_RESCORE),
+            target_payload={},
+        )
 
     async def unregister_schedules(self, scheduler) -> None:
-        unregister = getattr(scheduler, "unregister_handler", None)
-        if unregister:
-            await unregister(ScheduledTargetType.TIMELINE_STANDOUT_RESCORE)
+        await scheduler.unschedule(
+            SCHEDULE_ID_TIMELINE_STANDOUT_RESCORE,
+            target_type=ScheduledTargetType.TIMELINE_STANDOUT_RESCORE,
+            target_key=TARGET_KEY_TIMELINE_STANDOUT_RESCORE,
+        )
 
     async def _handle_rescore(
         self, context: ScheduledExecutionContext,

@@ -32,12 +32,18 @@ async def test_contributor_registers_handler():
         l2_store=AsyncMock(), media_registry=AsyncMock(),
     )
     scheduler = MagicMock()
-    scheduler.register_handler = AsyncMock()
+    scheduler.register_handler = MagicMock()         # SYNC now
+    scheduler.schedule_interval = AsyncMock()
     await contrib.register_schedules(scheduler)
 
-    scheduler.register_handler.assert_awaited_once()
-    args, _ = scheduler.register_handler.call_args
-    assert args[0] == ScheduledTargetType.TIMELINE_STANDOUT_RESCORE
+    scheduler.register_handler.assert_called_once()
+    handler_args = scheduler.register_handler.call_args.args
+    assert handler_args[0] == ScheduledTargetType.TIMELINE_STANDOUT_RESCORE
+
+    scheduler.schedule_interval.assert_awaited_once()
+    interval_kwargs = scheduler.schedule_interval.call_args.kwargs
+    assert interval_kwargs["target_type"] == ScheduledTargetType.TIMELINE_STANDOUT_RESCORE
+    assert interval_kwargs["seconds"] > 0
 
 
 @pytest.mark.asyncio
