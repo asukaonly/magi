@@ -35,6 +35,12 @@ class L2EpisodeCrudMixin(L2EpisodeStoreBaseMixin):
         confidence: float = 0.5,
         source_event_count: int = 0,
         privacy_scope: str = "private",
+        slice_narrative: Optional[str] = None,
+        slice_sensory_detail: Optional[str] = None,
+        magi_standout: bool = False,
+        standout_score: float = 0.0,
+        standout_reason: Optional[str] = None,
+        representative_asset_ref: Optional[str] = None,
     ) -> str:
         """Create a new episode record."""
         await self.initialize()
@@ -48,8 +54,10 @@ class L2EpisodeCrudMixin(L2EpisodeStoreBaseMixin):
                     primary_entity_ids, primary_place_ids, primary_topic_keys,
                     continuity_signals, formation_method, confidence,
                     source_event_count, privacy_scope,
+                    slice_narrative, slice_sensory_detail, magi_standout,
+                    standout_score, standout_reason, representative_asset_ref,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     episode_id,
@@ -69,6 +77,12 @@ class L2EpisodeCrudMixin(L2EpisodeStoreBaseMixin):
                     confidence,
                     source_event_count,
                     privacy_scope,
+                    slice_narrative,
+                    slice_sensory_detail,
+                    1 if magi_standout else 0,
+                    standout_score,
+                    standout_reason,
+                    representative_asset_ref,
                     now,
                     now,
                 ),
@@ -104,6 +118,9 @@ class L2EpisodeCrudMixin(L2EpisodeStoreBaseMixin):
             "user_note", "user_pinned", "embedding_status",
             "embedding_profile_id", "last_embedded_at", "last_recomputed_at",
             "privacy_scope",
+            # Immersive timeline fields (Plan 1)
+            "slice_narrative", "slice_sensory_detail", "magi_standout",
+            "standout_score", "standout_reason", "representative_asset_ref",
         }
         updates = {key: value for key, value in fields.items() if key in allowed}
         if not updates:
@@ -117,6 +134,9 @@ class L2EpisodeCrudMixin(L2EpisodeStoreBaseMixin):
         ):
             if list_field in updates and isinstance(updates[list_field], list):
                 updates[list_field] = json.dumps(updates[list_field], ensure_ascii=False)
+
+        if "magi_standout" in updates:
+            updates["magi_standout"] = 1 if updates["magi_standout"] else 0
 
         updates["updated_at"] = time.time()
         set_clause = ", ".join(f"{key} = ?" for key in updates)

@@ -75,3 +75,52 @@ def test_episode_write_from_dict_handles_null_standout_score():
     }
     ep = EpisodeWrite.from_dict(src)
     assert ep.standout_score == 0.0
+
+
+@pytest.mark.asyncio
+async def test_store_round_trip_immersive_fields(l2_store_with_schema):
+    store = l2_store_with_schema
+
+    eid = "ep-rt-1"
+    await store.create_episode(
+        episode_id=eid,
+        time_start=100.0,
+        time_end=200.0,
+        slice_narrative="周日下午你在读架构文档。",
+        slice_sensory_detail="窗外光线很柔。",
+        magi_standout=True,
+        standout_score=0.72,
+        standout_reason="duration",
+        representative_asset_ref="photo-library://x/y.HEIC",
+    )
+
+    got = await store.get_episode(episode_id=eid)
+    assert got["slice_narrative"] == "周日下午你在读架构文档。"
+    assert got["slice_sensory_detail"] == "窗外光线很柔。"
+    assert got["magi_standout"] is True
+    assert got["standout_score"] == pytest.approx(0.72)
+    assert got["standout_reason"] == "duration"
+    assert got["representative_asset_ref"] == "photo-library://x/y.HEIC"
+
+
+@pytest.mark.asyncio
+async def test_update_episode_immersive_fields(l2_store_with_schema):
+    store = l2_store_with_schema
+
+    eid = "ep-rt-2"
+    await store.create_episode(episode_id=eid, time_start=0.0, time_end=1.0)
+
+    ok = await store.update_episode(
+        episode_id=eid,
+        magi_standout=True,
+        standout_score=0.9,
+        slice_narrative="一个新的切片叙事。",
+        representative_asset_ref="ref://abc",
+    )
+    assert ok is True
+
+    got = await store.get_episode(episode_id=eid)
+    assert got["magi_standout"] is True
+    assert got["standout_score"] == pytest.approx(0.9)
+    assert got["slice_narrative"] == "一个新的切片叙事。"
+    assert got["representative_asset_ref"] == "ref://abc"

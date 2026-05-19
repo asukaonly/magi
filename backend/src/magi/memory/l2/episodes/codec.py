@@ -44,6 +44,12 @@ class L2EpisodeStoreBaseMixin:
             "created_at": float(row["created_at"]),
             "updated_at": float(row["updated_at"]),
             "last_recomputed_at": float(row["last_recomputed_at"]) if row["last_recomputed_at"] else None,
+            "slice_narrative": str(row["slice_narrative"]) if row["slice_narrative"] else "",
+            "slice_sensory_detail": str(row["slice_sensory_detail"]) if row["slice_sensory_detail"] else "",
+            "magi_standout": bool(row["magi_standout"]),
+            "standout_score": float(row["standout_score"]),
+            "standout_reason": str(row["standout_reason"]) if row["standout_reason"] else "",
+            "representative_asset_ref": str(row["representative_asset_ref"]) if row["representative_asset_ref"] else "",
         }
 
 
