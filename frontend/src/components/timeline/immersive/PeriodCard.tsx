@@ -90,7 +90,7 @@ export const PeriodCard: React.FC<PeriodCardProps> = ({
       <div className="px-10 pb-7 pt-2">
         {(viewport.clusters ?? []).map((cluster) => (
           <Slice
-            key={cluster.episode_id ?? `${cluster.time_start}`}
+            key={cluster.block_id}
             episodeId={cluster.episode_id ?? ""}
             timeRangeLabel={formatTimeRange(cluster.time_start, cluster.time_end)}
             narrative={cluster.slice_narrative || cluster.summary || cluster.label || ""}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useChatShellStore, useConversationStore } from '@/stores';
 import { isMacPlatform } from '@/lib/platform';
@@ -9,6 +9,75 @@ import { useTranslation } from 'react-i18next';
 import { shouldRenderChatWorkspace } from '@/pages/chat-route-helpers';
 import { ChatWorkspacePicker } from './ChatWorkspacePicker';
 import { AppWindowControls } from './AppWindowControls';
+
+const SCALE_LABEL: Record<string, string> = { month: "月", week: "周", day: "日", hour: "时" };
+
+const TimelineTitleBarSlot: React.FC = () => {
+  const { t } = useTranslation('app');
+  const panel = useChatShellStore((s) => s.timelinePanel);
+
+  return (
+    <div className="flex h-full flex-1 items-center gap-3 px-3 text-xs">
+      <span className="text-sm font-semibold text-foreground">
+        {t('timeline.title', { defaultValue: '时间线' })}
+      </span>
+      <span className="text-muted-foreground">{panel.dateLabel}</span>
+      <div className="flex-1" />
+      <div className="flex rounded-md bg-foreground/5 p-0.5">
+        {(['month', 'week', 'day', 'hour'] as const).map((s) => (
+          <button
+            key={s}
+            type="button"
+            data-active={s === panel.scale ? 'true' : 'false'}
+            onClick={() => panel.onScaleChange?.(s)}
+            className={cn(
+              'rounded-sm px-2.5 py-1',
+              s === panel.scale
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {SCALE_LABEL[s]}
+          </button>
+        ))}
+      </div>
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={() => panel.onPrevious?.()}
+          className="rounded-md p-1 text-muted-foreground hover:bg-foreground/5"
+        >
+          ‹
+        </button>
+        <button
+          type="button"
+          disabled={!panel.canGoNext}
+          onClick={() => panel.onNext?.()}
+          className="rounded-md p-1 text-muted-foreground hover:bg-foreground/5 disabled:cursor-not-allowed disabled:opacity-30"
+        >
+          ›
+        </button>
+      </div>
+      <input
+        type="text"
+        value={panel.draftQuery}
+        onChange={(e) => panel.onDraftQueryChange?.(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') panel.onSubmitQuery?.();
+        }}
+        placeholder={t('timeline.searchPlaceholder', { defaultValue: '筛选当前时段' })}
+        className="h-6 w-40 rounded-md border border-border bg-background px-2 text-xs"
+      />
+      <button
+        type="button"
+        onClick={() => panel.onRefresh?.()}
+        className="rounded-md p-1 text-muted-foreground hover:bg-foreground/5"
+      >
+        ↻
+      </button>
+    </div>
+  );
+};
 
 /**
  * Selector for elements that should NOT trigger window-drag when clicked.
@@ -63,6 +132,7 @@ export const AppTitleBar = () => {
   const setPortraitRailOpen = useChatShellStore((s) => s.setPortraitRailOpen);
   const currentSessionId = useConversationStore((s) => s.currentSessionId);
   const chatChromeVisible = shouldRenderChatWorkspace(location.pathname) && Boolean(currentSessionId);
+  const isTimelineRoute = location.pathname === '/timeline';
 
   // Drag + double-click maximize are both handled in mousedown.
   //
@@ -105,34 +175,40 @@ export const AppTitleBar = () => {
       <div className={cn('shrink-0', isMac ? 'w-[72px]' : 'w-3')} />
 
       {/* Center / left content: route-specific chrome. */}
-      <div className="flex min-w-0 flex-1 items-center gap-2">
-        {chatChromeVisible ? <ChatTodayStrip /> : null}
-      </div>
+      {isTimelineRoute ? (
+        <TimelineTitleBarSlot />
+      ) : (
+        <>
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            {chatChromeVisible ? <ChatTodayStrip /> : null}
+          </div>
 
-      {/* Right content: route-specific actions. handleMouseDown bails when
-          the click lands on a button so these still work normally. */}
-      <div className="flex shrink-0 items-center gap-2 pr-2">
-        {chatChromeVisible ? (
-          <>
-            <ChatWorkspacePicker />
-            <button
-              type="button"
-              onClick={() => setPortraitRailOpen(!portraitRailOpen)}
-              aria-label={t('chat.portrait.toggleAria')}
-              aria-pressed={portraitRailOpen}
-              title={t('chat.portrait.toggleAria')}
-              data-testid="chat-portrait-toggle"
-              className={cn(
-                'flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors',
-                'hover:bg-muted hover:text-foreground',
-                portraitRailOpen && 'text-foreground',
-              )}
-            >
-              <Sparkles className="h-4 w-4" />
-            </button>
-          </>
-        ) : null}
-      </div>
+          {/* Right content: route-specific actions. handleMouseDown bails when
+              the click lands on a button so these still work normally. */}
+          <div className="flex shrink-0 items-center gap-2 pr-2">
+            {chatChromeVisible ? (
+              <>
+                <ChatWorkspacePicker />
+                <button
+                  type="button"
+                  onClick={() => setPortraitRailOpen(!portraitRailOpen)}
+                  aria-label={t('chat.portrait.toggleAria')}
+                  aria-pressed={portraitRailOpen}
+                  title={t('chat.portrait.toggleAria')}
+                  data-testid="chat-portrait-toggle"
+                  className={cn(
+                    'flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors',
+                    'hover:bg-muted hover:text-foreground',
+                    portraitRailOpen && 'text-foreground',
+                  )}
+                >
+                  <Sparkles className="h-4 w-4" />
+                </button>
+              </>
+            ) : null}
+          </div>
+        </>
+      )}
 
       {/* Windows / Linux: hand-drawn window controls in the right slot. */}
       {!isMac ? <AppWindowControls className="ml-1" /> : null}

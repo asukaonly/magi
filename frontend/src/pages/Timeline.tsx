@@ -11,8 +11,6 @@ import {
 } from "@/api/modules/timeline";
 import { HourDetail } from "@/components/timeline/immersive/HourDetail";
 import { PeriodCard } from "@/components/timeline/immersive/PeriodCard";
-import { Toolbar } from "@/components/timeline/immersive/Toolbar";
-import { TimelineSidebar } from "@/components/timeline/immersive/sidebar/TimelineSidebar";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useChatShellStore } from "@/stores";
 
@@ -89,6 +87,7 @@ export const TimelinePage: React.FC = () => {
   const { t, i18n } = useTranslation("app");
   const timelineLocale = i18n.resolvedLanguage || i18n.language || "en";
   const setActivePanel = useChatShellStore((state) => state.setActivePanel);
+  const setTimelinePanel = useChatShellStore((state) => state.setTimelinePanel);
 
   const [scale, setScale] = useState<TimelineScale>("day");
   const [viewportStart, setViewportStart] = useState<number>(
@@ -211,7 +210,7 @@ export const TimelinePage: React.FC = () => {
     }
   };
 
-  const handleSelectDate = (isoDate: string) => {
+  const handleSelectDate = useCallback((isoDate: string) => {
     const [y, m, d] = isoDate.split("-").map(Number);
     const dt = new Date(y, m - 1, d);
     const newStart =
@@ -223,68 +222,101 @@ export const TimelinePage: React.FC = () => {
             ? toUnixSeconds(startOfLocalWeek(dt))
             : toUnixSeconds(startOfLocalMonth(dt));
     setViewportStart(clampToLatestCompletePeriod(scale, newStart));
-  };
+  }, [scale]);
 
-  const handleScaleChange = (next: TimelineScale) => {
+  const handleScaleChange = useCallback((next: TimelineScale) => {
     setScale(next);
     setViewportStart(getLatestCompletePeriodStart(next));
-  };
+  }, []);
+
+  const handlePrevious = useCallback(() => {
+    setViewportStart((v) => shiftPeriodStart(scale, v, -1));
+  }, [scale]);
+
+  const handleNext = useCallback(() => {
+    setViewportStart((v) => clampToLatestCompletePeriod(scale, shiftPeriodStart(scale, v, 1)));
+  }, [scale]);
+
+  const handleDraftQueryChange = useCallback((next: string) => {
+    setDraftQuery(next);
+  }, []);
+
+  const handleSubmitQuery = useCallback(() => {
+    setQuery(draftQuery.trim());
+  }, [draftQuery]);
+
+  const handleRefresh = useCallback(() => {
+    void loadViewport();
+  }, [loadViewport]);
+
+  const handleSelectStandoutEpisode = useCallback((episodeId: string) => {
+    // TODO(plan-4): jump-to-episode affordance
+    void episodeId;
+  }, []);
+
+  // Push all timeline state into the shell store for Sidebar + AppTitleBar
+  useEffect(() => {
+    setTimelinePanel({
+      monthForCalendar: monthKeyForDate(viewportStart),
+      selectedDate: isoDateForTimestamp(viewportStart),
+      moodDays,
+      standoutItems,
+      onSelectDate: handleSelectDate,
+      onSelectStandoutEpisode: handleSelectStandoutEpisode,
+      scale,
+      dateLabel,
+      draftQuery,
+      canGoNext,
+      onScaleChange: handleScaleChange,
+      onPrevious: handlePrevious,
+      onNext: handleNext,
+      onDraftQueryChange: handleDraftQueryChange,
+      onSubmitQuery: handleSubmitQuery,
+      onRefresh: handleRefresh,
+    });
+  }, [
+    viewportStart,
+    moodDays,
+    standoutItems,
+    scale,
+    dateLabel,
+    draftQuery,
+    canGoNext,
+    handleSelectDate,
+    handleSelectStandoutEpisode,
+    handleScaleChange,
+    handlePrevious,
+    handleNext,
+    handleDraftQueryChange,
+    handleSubmitQuery,
+    handleRefresh,
+    setTimelinePanel,
+  ]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-      <Toolbar
-        scale={scale}
-        dateLabel={dateLabel}
-        draftQuery={draftQuery}
-        canGoNext={canGoNext}
-        onScaleChange={handleScaleChange}
-        onPrevious={() => setViewportStart((v) => shiftPeriodStart(scale, v, -1))}
-        onNext={() =>
-          setViewportStart((v) =>
-            clampToLatestCompletePeriod(scale, shiftPeriodStart(scale, v, 1))
+    <main className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
+      <div className="flex min-h-0 flex-1 overflow-y-auto">
+        {loading ? (
+          <div className="flex h-full w-full items-center justify-center gap-2 text-sm text-muted-foreground">
+            <LoadingSpinner className="h-4 w-4" />
+            {t("timeline.loading", { defaultValue: "加载中" })}
+          </div>
+        ) : viewport ? (
+          scale === "hour" ? (
+            <HourDetail viewport={viewport} />
+          ) : (
+            <PeriodCard
+              scale={scale}
+              viewport={viewport}
+              dateLabel={dateLabel}
+              onTogglePinned={handleTogglePinned}
+              onHide={handleHide}
+              pendingAction={pendingAction}
+            />
           )
-        }
-        onDraftQueryChange={setDraftQuery}
-        onSubmitQuery={() => setQuery(draftQuery.trim())}
-        onRefresh={() => void loadViewport()}
-      />
-
-      <div className="flex min-h-0 flex-1">
-        <TimelineSidebar
-          monthForCalendar={monthKeyForDate(viewportStart)}
-          moodDays={moodDays}
-          standoutItems={standoutItems}
-          selectedDate={isoDateForTimestamp(viewportStart)}
-          onSelectDate={handleSelectDate}
-          onSelectStandoutEpisode={(episodeId) => {
-            // TODO(plan-4): jump-to-episode affordance
-            void episodeId;
-          }}
-        />
-
-        <main className="min-h-0 flex-1 overflow-y-auto">
-          {loading ? (
-            <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
-              <LoadingSpinner className="h-4 w-4" />
-              {t("timeline.loading", { defaultValue: "加载中" })}
-            </div>
-          ) : viewport ? (
-            scale === "hour" ? (
-              <HourDetail viewport={viewport} />
-            ) : (
-              <PeriodCard
-                scale={scale}
-                viewport={viewport}
-                dateLabel={dateLabel}
-                onTogglePinned={handleTogglePinned}
-                onHide={handleHide}
-                pendingAction={pendingAction}
-              />
-            )
-          ) : null}
-        </main>
+        ) : null}
       </div>
-    </div>
+    </main>
   );
 };
 

@@ -25,6 +25,8 @@ import { useChatShellStore, useConversationStore, type ChatPanelType } from '@/s
 import { useBackgroundTaskStore } from '@/stores/background-tasks';
 import { formatChatClockTime } from '@/domain/chat/timestamps';
 import { PersonaHeader } from './PersonaHeader';
+import { MoodCalendar } from '@/components/timeline/immersive/sidebar/MoodCalendar';
+import { StandoutList } from '@/components/timeline/immersive/sidebar/StandoutList';
 
 const USER_ID = DEFAULT_USER_ID;
 const SESSION_EVENT = 'magi-session-sync';
@@ -71,6 +73,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const activePanel = useChatShellStore((state) => state.activePanel);
   const setActivePanel = useChatShellStore((state) => state.setActivePanel);
   const clearSettingsNavigationIntent = useChatShellStore((state) => state.clearSettingsNavigationIntent);
+  const timelinePanel = useChatShellStore((state) => state.timelinePanel);
 
   const [loading, setLoading] = useState(false);
   const isConversationRoute = location.pathname === '/' || location.pathname === '/chat';
@@ -504,6 +507,26 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
     </div>
   );
 
+  const renderTimelinePanel = () => (
+    <div
+      className="flex min-h-0 flex-1 flex-col pt-2"
+      data-testid="sidebar-timeline-panel"
+    >
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <MoodCalendar
+          month={timelinePanel.monthForCalendar}
+          days={timelinePanel.moodDays}
+          selectedDate={timelinePanel.selectedDate}
+          onSelectDate={(d) => timelinePanel.onSelectDate?.(d)}
+        />
+        <StandoutList
+          items={timelinePanel.standoutItems}
+          onSelectEpisode={(id) => timelinePanel.onSelectStandoutEpisode?.(id)}
+        />
+      </div>
+    </div>
+  );
+
   const renderPanelContent = () => {
     if (openPanel === 'conversation') {
       return renderConversationPanel();
@@ -511,6 +534,10 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
 
     if (openPanel === 'memory') {
       return renderMemoryPanel();
+    }
+
+    if (openPanel === 'timeline') {
+      return renderTimelinePanel();
     }
 
     if (!openPanel) {
