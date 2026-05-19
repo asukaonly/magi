@@ -177,6 +177,8 @@ class SelfMemory:
         outcome: InteractionOutcome,
         user_engagement: EngagementLevel = EngagementLevel.MEDIUM,
         complexity: float = 0.5,
+        *,
+        triggered_emotion_impacts: List[Dict[str, float]] | None = None,
     ):
         """Update emotional state after interaction"""
         if self.enable_evolution and self._emotion_engine:
@@ -184,6 +186,7 @@ class SelfMemory:
                 outcome=outcome,
                 user_engagement=user_engagement,
                 complexity=complexity,
+                triggered_emotion_impacts=triggered_emotion_impacts,
             )
 
     async def record_interaction(
@@ -249,6 +252,23 @@ class SelfMemory:
         record_task_outcome, and milestone recording.
         Returns True if any update succeeded.
         """
+        # Resolve trigger-driven emotion impacts before applying interaction
+        # math. The planner stored this turn's NEW (non-carryover)
+        # trigger_ids on emotional_state.recent_active_trigger_ids during
+        # prompt build; we look each one up in the active persona config
+        # and accumulate their mood/stress/energy deltas.
+        triggered_emotion_impacts: List[Dict[str, float]] = []
+        if self.enable_evolution and self._emotion_engine and self._personality_config:
+            try:
+                from .trigger_emotion_impact import resolve_emotion_impacts_for_ids
+                state = await self._emotion_engine.get_current_state()
+                triggered_emotion_impacts = resolve_emotion_impacts_for_ids(
+                    list(state.recent_active_trigger_ids or []),
+                    self._personality_config.signature_triggers,
+                )
+            except Exception as exc:
+                logger.debug("Trigger-driven emotion resolution skipped: %s", exc)
+
         updated = False
         try:
             await self.record_interaction(
@@ -262,6 +282,7 @@ class SelfMemory:
                 outcome=analysis.outcome,
                 user_engagement=analysis.engagement,
                 complexity=analysis.complexity,
+                triggered_emotion_impacts=triggered_emotion_impacts,
             )
             await self.record_task_outcome(
                 task_id=f"chat_{int(time.time())}_{user_id}",
