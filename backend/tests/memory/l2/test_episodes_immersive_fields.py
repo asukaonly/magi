@@ -132,3 +132,36 @@ async def test_update_episode_immersive_fields(l2_store_with_schema):
     # Codec returns empty string for NULL on immersive text fields (matches EpisodeWrite contract)
     assert got["slice_sensory_detail"] == ""
     assert got["standout_reason"] == ""
+
+
+@pytest.mark.asyncio
+async def test_list_standout_episodes_returns_user_pinned_and_magi(l2_store_with_schema):
+    store = l2_store_with_schema
+
+    await store.create_episode(episode_id="ep-plain", time_start=100.0, time_end=200.0)
+    await store.create_episode(episode_id="ep-pinned", time_start=300.0, time_end=400.0)
+    await store.update_episode(episode_id="ep-pinned", user_pinned=True)
+    await store.create_episode(
+        episode_id="ep-magi", time_start=500.0, time_end=600.0,
+        magi_standout=True, standout_score=0.8,
+    )
+
+    rows = await store.list_standout_episodes()
+    ids = [r["episode_id"] for r in rows]
+    assert "ep-plain" not in ids
+    assert set(ids) == {"ep-pinned", "ep-magi"}
+    # DESC by time_start
+    assert rows[0]["episode_id"] == "ep-magi"
+
+
+@pytest.mark.asyncio
+async def test_list_standout_episodes_respects_time_window(l2_store_with_schema):
+    store = l2_store_with_schema
+
+    await store.create_episode(episode_id="ep-a", time_start=100.0, time_end=200.0)
+    await store.update_episode(episode_id="ep-a", user_pinned=True)
+    await store.create_episode(episode_id="ep-b", time_start=500.0, time_end=600.0)
+    await store.update_episode(episode_id="ep-b", user_pinned=True)
+
+    rows = await store.list_standout_episodes(period_start=400.0, period_end=700.0)
+    assert [r["episode_id"] for r in rows] == ["ep-b"]

@@ -64,6 +64,42 @@ class TimelineService:
             locale=locale,
         )
 
+    async def list_standout(
+        self,
+        *,
+        period_start: Optional[float],
+        period_end: Optional[float],
+        limit: int = 50,
+    ) -> list[dict]:
+        """List standout episodes — Magi-curated + user-pinned — for the sidebar.
+
+        Returns serializable dicts shaped for the GET /timeline/standout payload.
+        """
+        from datetime import datetime, timezone
+
+        pipeline = getattr(self._unified_memory, "l2_pipeline", None)
+        store = getattr(pipeline, "_cognition_store", None) if pipeline else None
+        if store is None:
+            return []
+
+        rows = await store.list_standout_episodes(
+            period_start=period_start, period_end=period_end, limit=limit,
+        )
+        items: list[dict] = []
+        for r in rows:
+            ts = float(r.get("time_start") or 0.0)
+            items.append({
+                "episode_id": r["episode_id"],
+                "scale": "day",
+                "start": ts,
+                "end": float(r.get("time_end") or ts),
+                "title": r.get("user_label") or r.get("label") or "",
+                "date": datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d"),
+                "source": "user" if r.get("user_pinned") else "magi",
+                "score": float(r.get("standout_score") or 0.0),
+            })
+        return items
+
     async def get_context_bundle(self, anchor_id: str) -> Optional[dict]:
         if getattr(self._unified_memory, "l1", None) is None:
             return None

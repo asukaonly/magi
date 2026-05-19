@@ -257,5 +257,38 @@ class L2EpisodeCrudMixin(L2EpisodeStoreBaseMixin):
 
         return self._episode_row_to_dict(rows[0])
 
+    async def list_standout_episodes(
+        self,
+        *,
+        period_start: Optional[float] = None,
+        period_end: Optional[float] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """List episodes that are either magi-curated or user-pinned.
+
+        Time bounds are inclusive on both ends. If both are None, returns
+        the most-recent ``limit`` standouts regardless of date.
+        """
+        await self.initialize()
+        clauses: list[str] = ["(magi_standout = 1 OR user_pinned = 1)"]
+        params: list[Any] = []
+        if period_start is not None:
+            clauses.append("time_start >= ?")
+            params.append(period_start)
+        if period_end is not None:
+            clauses.append("time_start <= ?")
+            params.append(period_end)
+        params.append(int(max(1, limit)))
+        sql = (
+            "SELECT * FROM episodes WHERE "
+            + " AND ".join(clauses)
+            + " ORDER BY time_start DESC LIMIT ?"
+        )
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(sql, params) as cursor:
+                rows = await cursor.fetchall()
+        return [self._episode_row_to_dict(r) for r in rows]
+
 
 __all__ = ["L2EpisodeCrudMixin"]

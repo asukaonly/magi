@@ -48,6 +48,32 @@ async def get_timeline_viewport(
     )
 
 
+@timeline_router.get("/standout")
+async def get_standout_endpoint(
+    month: Optional[str] = Query(default=None, pattern=r"^\d{4}-\d{2}$"),
+    limit: int = Query(default=50, ge=1, le=200),
+):
+    from datetime import datetime, timezone
+
+    period_start = period_end = None
+    if month:
+        year, mo = (int(p) for p in month.split("-", 1))
+        start_dt = datetime(year, mo, 1, tzinfo=timezone.utc)
+        end_dt = (
+            datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+            if mo == 12
+            else datetime(year, mo + 1, 1, tzinfo=timezone.utc)
+        )
+        period_start = start_dt.timestamp()
+        period_end = end_dt.timestamp()
+
+    service = get_timeline_service()
+    items = await service.list_standout(
+        period_start=period_start, period_end=period_end, limit=limit,
+    )
+    return {"month": month, "items": items}
+
+
 @timeline_router.get("/context/{anchor_id}")
 async def get_timeline_context_bundle(anchor_id: str):
     service = get_timeline_service()

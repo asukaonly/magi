@@ -85,6 +85,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
     "timeline": {
         "/viewport": {"GET"},
         "/context/{anchor_id}": {"GET"},
+        "/standout": {"GET"},
     },
     "sensors": {
         "/status": {"GET"},
