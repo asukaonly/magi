@@ -31,6 +31,8 @@ def row_to_summary_dict(row: aiosqlite.Row) -> Dict[str, Any]:
         "insight_key": row["insight_key"],
         "review_state": row["review_state"],
         "insight_metadata": decode_optional_json(row["insight_metadata"]) or {},
+        "narrative_style": str(row["narrative_style"]) if row["narrative_style"] else "default",
+        "essence_prose": row["essence_prose"] if row["essence_prose"] else None,
         "embedding_status": str(row["embedding_status"] or EMBEDDING_STATUS_DISABLED),
         "embedding_profile_id": row["embedding_profile_id"],
         "embedding_chunk_count": int(row["embedding_chunk_count"] or 0),
