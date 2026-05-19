@@ -9,6 +9,35 @@ from .insight_pipeline import TimelineInsightPipeline
 from .viewport_builder import TimelineViewportBuilder
 
 
+_WEEKDAY_LABELS = ("一", "二", "三", "四", "五", "六", "日")
+
+
+def _synthesize_standout_title(time_start: float, time_end: float) -> str:
+    """Build a readable fallback title from time + duration metadata.
+
+    Used when an episode has no slice_narrative, user_label, or label.
+    Format: "周日 14:00 · 3h" (no source/topic info — that would require
+    pulling them from the row, which the caller can add later if needed).
+    """
+    from datetime import datetime, timezone
+
+    dt = datetime.fromtimestamp(time_start, tz=timezone.utc)
+    weekday = _WEEKDAY_LABELS[dt.weekday()]
+    hh_mm = dt.strftime("%H:%M")
+
+    duration_seconds = max(0.0, time_end - time_start)
+    if duration_seconds >= 3600:
+        hours = duration_seconds / 3600.0
+        duration_label = f"{hours:.0f}h" if hours >= 2 else f"{hours:.1f}h"
+    elif duration_seconds >= 60:
+        minutes = int(duration_seconds // 60)
+        duration_label = f"{minutes}m"
+    else:
+        duration_label = "短"
+
+    return f"周{weekday} {hh_mm} · {duration_label}"
+
+
 async def _resolve_photo_library_asset(asset_ref: str) -> tuple[Optional[str], Optional[str]]:
     """Resolve a photo-library:// ref to (file_path, content_type).
 
@@ -99,12 +128,24 @@ class TimelineService:
         items: list[dict] = []
         for r in rows:
             ts = float(r.get("time_start") or 0.0)
+            te = float(r.get("time_end") or ts)
+            # Title fallback chain:
+            #   slice_narrative (LLM-written sentence, available after diary scheduler runs)
+            #   → user_label (manual)
+            #   → label (rule-based, usually empty)
+            #   → synthetic ("周日 14:00 · 3h" derived from time + duration)
+            title = (
+                str(r.get("slice_narrative") or "").strip()
+                or str(r.get("user_label") or "").strip()
+                or str(r.get("label") or "").strip()
+                or _synthesize_standout_title(ts, te)
+            )
             items.append({
                 "episode_id": r["episode_id"],
                 "scale": "day",
                 "start": ts,
-                "end": float(r.get("time_end") or ts),
-                "title": r.get("user_label") or r.get("label") or "",
+                "end": te,
+                "title": title,
                 # TODO(timeline): "date" is formatted in UTC. For non-UTC users this
                 # can disagree with their local day boundary. Plan 2 / a later fix
                 # should accept a tz parameter (header or query) and format accordingly.
