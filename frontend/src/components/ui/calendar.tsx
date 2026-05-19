@@ -41,7 +41,12 @@ function Calendar({
         ),
         day_selected:
           "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground focus:bg-primary focus:text-primary-foreground",
-        day_today: "bg-accent text-accent-foreground",
+        // Today gets a subtle dot under the number (not a filled cell), so the
+        // selected-day cell stays the only strong color. Gated on
+        // `aria-selected` rather than the day_selected class so the dot
+        // suppression doesn't depend on Tailwind's after:* compile order.
+        day_today:
+          "relative after:absolute after:bottom-0.5 after:left-1/2 after:h-1 after:w-1 after:-translate-x-1/2 after:rounded-full after:bg-foreground/80 after:content-[''] aria-selected:after:hidden",
         day_outside: "text-muted-foreground opacity-50",
         day_disabled: "text-muted-foreground opacity-50",
         day_hidden: "invisible",

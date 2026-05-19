@@ -11,6 +11,8 @@ import { ChatWorkspacePicker } from './ChatWorkspacePicker';
 import { AppWindowControls } from './AppWindowControls';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { MonthGridPicker } from '@/components/timeline/immersive/picker/MonthGridPicker';
+import { WeekListPicker } from '@/components/timeline/immersive/picker/WeekListPicker';
 
 const SCALE_LABEL: Record<string, string> = { month: "月", week: "周", day: "日", hour: "时" };
 
@@ -71,74 +73,77 @@ const TimelineTitleBarSlot: React.FC = () => {
             className="w-auto p-0"
             onMouseDown={(e) => e.stopPropagation()}
           >
-            <Calendar
-              mode="single"
-              selected={new Date(panel.viewportStart * 1000)}
-              onSelect={(date) => {
-                if (!date) return;
-                const y = date.getFullYear();
-                const m = String(date.getMonth() + 1).padStart(2, "0");
-                const d = String(date.getDate()).padStart(2, "0");
-                if (panel.scale === "month") {
-                  panel.onSelectFromDateInput?.(`${y}-${m}`);
-                } else if (panel.scale === "week") {
-                  const target = new Date(date);
-                  target.setHours(0, 0, 0, 0);
-                  target.setDate(target.getDate() + 3 - ((target.getDay() + 6) % 7));
-                  const firstThursday = new Date(target.getFullYear(), 0, 4);
-                  const weekNum =
-                    1 + Math.round(
-                      ((target.getTime() - firstThursday.getTime()) / 86400000 -
-                        3 +
-                        ((firstThursday.getDay() + 6) % 7)) / 7
-                    );
-                  panel.onSelectFromDateInput?.(`${target.getFullYear()}-W${String(weekNum).padStart(2, "0")}`);
-                } else if (panel.scale === "hour") {
-                  const currentHour = new Date(panel.viewportStart * 1000).getHours();
-                  const hh = String(currentHour).padStart(2, "0");
-                  panel.onSelectFromDateInput?.(`${y}-${m}-${d}T${hh}:00`);
-                } else {
-                  panel.onSelectFromDateInput?.(`${y}-${m}-${d}`);
-                }
-              }}
-              initialFocus
-            />
-            {panel.scale === "hour" ? (
-              <div className="border-t border-border px-3 py-2">
-                <div className="mb-1.5 text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
-                  时
-                </div>
-                <div className="grid grid-cols-6 gap-1">
-                  {Array.from({ length: 24 }, (_, i) => i).map((h) => {
-                    const selectedHour = new Date(panel.viewportStart * 1000).getHours();
-                    const isSel = h === selectedHour;
-                    return (
-                      <button
-                        key={h}
-                        type="button"
-                        onMouseDown={(e) => e.stopPropagation()}
-                        onClick={() => {
-                          const dt = new Date(panel.viewportStart * 1000);
-                          const y = dt.getFullYear();
-                          const m = String(dt.getMonth() + 1).padStart(2, "0");
-                          const dd = String(dt.getDate()).padStart(2, "0");
-                          const hh = String(h).padStart(2, "0");
-                          panel.onSelectFromDateInput?.(`${y}-${m}-${dd}T${hh}:00`);
-                        }}
-                        className={cn(
-                          "rounded px-2 py-1 text-xs",
-                          isSel
-                            ? "bg-foreground text-background"
-                            : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
-                        )}
-                      >
-                        {String(h).padStart(2, "0")}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : null}
+            {panel.scale === "month" ? (
+              <MonthGridPicker
+                selectedMonth={(() => {
+                  const d = new Date(panel.viewportStart * 1000);
+                  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+                })()}
+                onSelectMonth={(m) => panel.onSelectFromDateInput?.(m)}
+              />
+            ) : panel.scale === "week" ? (
+              <WeekListPicker
+                selectedWeekStart={panel.viewportStart}
+                onSelectWeek={(w) => panel.onSelectFromDateInput?.(w)}
+              />
+            ) : (
+              <>
+                <Calendar
+                  mode="single"
+                  selected={new Date(panel.viewportStart * 1000)}
+                  onSelect={(date) => {
+                    if (!date) return;
+                    const y = date.getFullYear();
+                    const m = String(date.getMonth() + 1).padStart(2, "0");
+                    const d = String(date.getDate()).padStart(2, "0");
+                    if (panel.scale === "hour") {
+                      const currentHour = new Date(panel.viewportStart * 1000).getHours();
+                      const hh = String(currentHour).padStart(2, "0");
+                      panel.onSelectFromDateInput?.(`${y}-${m}-${d}T${hh}:00`);
+                    } else {
+                      panel.onSelectFromDateInput?.(`${y}-${m}-${d}`);
+                    }
+                  }}
+                  initialFocus
+                />
+                {panel.scale === "hour" ? (
+                  <div className="border-t border-border px-3 py-2">
+                    <div className="mb-1.5 text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+                      时
+                    </div>
+                    <div className="grid grid-cols-6 gap-1">
+                      {Array.from({ length: 24 }, (_, i) => i).map((h) => {
+                        const selectedHour = new Date(panel.viewportStart * 1000).getHours();
+                        const isSel = h === selectedHour;
+                        return (
+                          <button
+                            key={h}
+                            type="button"
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={() => {
+                              const dt = new Date(panel.viewportStart * 1000);
+                              const y = dt.getFullYear();
+                              const m = String(dt.getMonth() + 1).padStart(2, "0");
+                              const dd = String(dt.getDate()).padStart(2, "0");
+                              const hh = String(h).padStart(2, "0");
+                              panel.onSelectFromDateInput?.(`${y}-${m}-${dd}T${hh}:00`);
+                            }}
+                            className={cn(
+                              "rounded px-2 py-1 text-xs",
+                              isSel
+                                ? "bg-foreground text-background"
+                                : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+                            )}
+                          >
+                            {String(h).padStart(2, "0")}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            )}
           </PopoverContent>
         </Popover>
         <button
