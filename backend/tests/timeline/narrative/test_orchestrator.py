@@ -20,6 +20,25 @@ class _StubClient:
         return self._output
 
 
+class _StubL1Store:
+    """Returns a fixed list of L1 events regardless of time bounds.
+
+    Used to verify the orchestrator forwards excerpts to the LLM client.
+    """
+
+    def __init__(self, events_by_window: dict[tuple[float, float], list[dict]] | None = None,
+                 default_events: list[dict] | None = None) -> None:
+        self._events_by_window = events_by_window or {}
+        self._default = default_events or []
+        self.calls: list[dict] = []
+
+    async def query_events(self, **kwargs) -> list[dict]:
+        self.calls.append(kwargs)
+        start = float(kwargs.get("start_time") or 0.0)
+        end = float(kwargs.get("end_time") or 0.0)
+        return self._events_by_window.get((start, end), self._default)
+
+
 @pytest.mark.asyncio
 async def test_generate_for_window_writes_essence_to_l3_and_narratives_to_l2(
     l2_store_with_schema: L2CognitionStore,
@@ -128,3 +147,79 @@ async def test_generate_for_window_handles_empty_llm_output(
     # No L3 summary
     found = await l3_store._find_summary_by_insight_key(insight_key="diary-empty-llm")
     assert found is None
+
+
+@pytest.mark.asyncio
+async def test_generate_for_window_forwards_l1_excerpts_to_llm(
+    l2_store_with_schema: L2CognitionStore,
+):
+    """When l1_store is wired, orchestrator should query per-episode and
+    pass excerpts under each episode_id to the LLM client."""
+    l3_store = L3SummaryStore(db_path=l2_store_with_schema.db_path)
+    await l3_store.initialize()
+
+    await l2_store_with_schema.create_episode(
+        episode_id="ep-a", time_start=100.0, time_end=200.0,
+    )
+    await l2_store_with_schema.update_episode(episode_id="ep-a", status="active")
+    await l2_store_with_schema.create_episode(
+        episode_id="ep-b", time_start=300.0, time_end=400.0,
+    )
+    await l2_store_with_schema.update_episode(episode_id="ep-b", status="active")
+
+    # Different L1 content per window so we can verify routing.
+    l1_store = _StubL1Store(events_by_window={
+        (100.0, 200.0): [
+            {"content": "Anthropic sleep agency 论文导读", "timestamp": 150.0},
+            {"content": "Anthropic sleep agency 论文导读", "timestamp": 160.0},  # dup
+        ],
+        (300.0, 400.0): [
+            {"content": "GitHub Copilot memory 设计文档", "timestamp": 350.0},
+        ],
+    })
+
+    client = _StubClient(DiaryNarrativeOutput(essence_prose="x", slices=[]))
+    orchestrator = DiaryNarrativeOrchestrator(
+        l2_store=l2_store_with_schema, l3_store=l3_store, llm_client=client,
+        l1_store=l1_store,
+    )
+
+    await orchestrator.generate_for_window(
+        scale="day", period_start=0.0, period_end=500.0, insight_key="diary-excerpts",
+    )
+
+    assert len(client.calls) == 1
+    excerpts = client.calls[0]["excerpts_by_episode"]
+    assert excerpts["ep-a"] == ["Anthropic sleep agency 论文导读"]
+    assert excerpts["ep-b"] == ["GitHub Copilot memory 设计文档"]
+    # L1 queried per-episode with the right window
+    queried_windows = [(c["start_time"], c["end_time"]) for c in l1_store.calls]
+    assert (100.0, 200.0) in queried_windows
+    assert (300.0, 400.0) in queried_windows
+
+
+@pytest.mark.asyncio
+async def test_generate_for_window_without_l1_store_sends_empty_excerpts(
+    l2_store_with_schema: L2CognitionStore,
+):
+    """Backward compat: no l1_store → llm_client gets empty excerpts dict, not crash."""
+    l3_store = L3SummaryStore(db_path=l2_store_with_schema.db_path)
+    await l3_store.initialize()
+
+    await l2_store_with_schema.create_episode(
+        episode_id="ep-x", time_start=100.0, time_end=200.0,
+    )
+    await l2_store_with_schema.update_episode(episode_id="ep-x", status="active")
+
+    client = _StubClient(DiaryNarrativeOutput(essence_prose="x", slices=[]))
+    orchestrator = DiaryNarrativeOrchestrator(
+        l2_store=l2_store_with_schema, l3_store=l3_store, llm_client=client,
+        # l1_store omitted (None)
+    )
+
+    await orchestrator.generate_for_window(
+        scale="day", period_start=0.0, period_end=500.0, insight_key="diary-no-l1",
+    )
+
+    assert len(client.calls) == 1
+    assert client.calls[0]["excerpts_by_episode"] == {}

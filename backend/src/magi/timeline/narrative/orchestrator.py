@@ -7,6 +7,7 @@ from typing import Iterable, Protocol
 
 from ...core.logger import get_logger
 from ...memory.l3.models import L3Candidate
+from .event_excerpts import build_excerpts
 from .output_schema import DiaryNarrativeOutput
 
 logger = get_logger("magi.timeline.narrative.orchestrator")
@@ -24,10 +25,15 @@ class _L3SummaryStoreProtocol(Protocol):
     ) -> dict: ...
 
 
+class _L1EventStoreProtocol(Protocol):
+    async def query_events(self, **kwargs) -> list[dict]: ...
+
+
 class _DiaryLLMClientProtocol(Protocol):
     async def generate(
         self, *, scale: str, period_start: float, period_end: float,
         episodes: Iterable[dict], place_hints: Iterable[str] = (),
+        excerpts_by_episode: dict[str, list[str]] | None = None,
     ) -> DiaryNarrativeOutput: ...
 
 
@@ -60,10 +66,16 @@ class DiaryNarrativeOrchestrator:
         l2_store: _L2EpisodeStoreProtocol,
         l3_store: _L3SummaryStoreProtocol,
         llm_client: _DiaryLLMClientProtocol,
+        l1_store: _L1EventStoreProtocol | None = None,
     ) -> None:
         self._l2_store = l2_store
         self._l3_store = l3_store
         self._llm_client = llm_client
+        # Optional: when set, the orchestrator fetches L1 events inside each
+        # episode's time window and feeds short content excerpts to the LLM
+        # alongside episode metadata. Without it, the LLM only sees abstract
+        # tags (label, topics, entity ids) and tends to write generic prose.
+        self._l1_store = l1_store
 
     async def generate_for_window(
         self,
@@ -97,12 +109,15 @@ class DiaryNarrativeOrchestrator:
                 slices_written=0,
             )
 
+        excerpts_by_episode = await self._collect_excerpts(episodes)
+
         output = await self._llm_client.generate(
             scale=scale,
             period_start=period_start,
             period_end=period_end,
             episodes=episodes,
             place_hints=place_hints,
+            excerpts_by_episode=excerpts_by_episode,
         )
 
         # If the LLM call failed or returned empty content, be a no-op.
@@ -163,3 +178,41 @@ class DiaryNarrativeOrchestrator:
             essence_prose_chars=len(output.essence_prose),
             slices_written=slices_written,
         )
+
+    async def _collect_excerpts(
+        self, episodes: list[dict],
+    ) -> dict[str, list[str]]:
+        """For each episode, fetch L1 events in its window and pack to excerpts.
+
+        Returns ``{episode_id: [excerpt_str, ...]}``. Returns an empty dict
+        when no L1 store is configured. A failure on any single episode is
+        logged and skipped so one bad query doesn't abort the whole diary.
+        """
+        if self._l1_store is None:
+            return {}
+
+        excerpts_by_episode: dict[str, list[str]] = {}
+        for ep in episodes:
+            ep_id = str(ep.get("episode_id") or "").strip()
+            if not ep_id:
+                continue
+            try:
+                events = await self._l1_store.query_events(
+                    start_time=float(ep.get("time_start") or 0.0),
+                    end_time=float(ep.get("time_end") or 0.0),
+                    # 50 is generous; build_excerpts dedups and caps at 5 anyway.
+                    # Order ascending so dedup keeps the first encounter of a tab.
+                    limit=50,
+                    order_by="timestamp_asc",
+                )
+            except Exception as exc:  # pragma: no cover — defensive
+                logger.warning(
+                    "L1 query failed for episode; skipping excerpts",
+                    episode_id=ep_id,
+                    error=str(exc),
+                )
+                continue
+            excerpts = build_excerpts(events)
+            if excerpts:
+                excerpts_by_episode[ep_id] = excerpts
+        return excerpts_by_episode

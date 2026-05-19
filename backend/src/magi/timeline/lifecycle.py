@@ -83,6 +83,7 @@ class TimelineSchedulersModule(LifecycleModule):
         from ..memory.l3.daily_mood.store import DailyMoodAggregateStore
 
         unified = getattr(self._context.memory, "unified_memory", None)
+        l1_store = getattr(unified, "l1", None) if unified else None
         l2_store = getattr(unified, "l2", None) if unified else None
         l3_store = getattr(unified, "l3", None) if unified else None
         memory_db_path = getattr(unified, "memory_db_path", None) if unified else None
@@ -92,8 +93,15 @@ class TimelineSchedulersModule(LifecycleModule):
         # 1. Diary narrative
         if l2_store is not None and l3_store is not None:
             llm_client = DiaryNarrativeLLMClient(scenario_llm_pool=scenario_pool)
+            # l1_store is optional but recommended: without it, the LLM only
+            # sees abstract episode metadata (label, topics, entity ids) and
+            # writes generic prose. With it, the orchestrator pulls actual
+            # content snippets the user touched and feeds them to the LLM.
             orchestrator = DiaryNarrativeOrchestrator(
-                l2_store=l2_store, l3_store=l3_store, llm_client=llm_client,
+                l2_store=l2_store,
+                l3_store=l3_store,
+                llm_client=llm_client,
+                l1_store=l1_store,
             )
             contrib = DiaryNarrativeSchedulerContrib(orchestrator=orchestrator)
             await contrib.register_schedules(scheduler_service)

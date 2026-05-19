@@ -89,3 +89,35 @@ async def test_generate_returns_empty_on_no_adapter():
     assert isinstance(out, DiaryNarrativeOutput)
     assert out.essence_prose == ""
     assert out.slices == []
+
+
+@pytest.mark.asyncio
+async def test_generate_forwards_excerpts_into_prompt(monkeypatch):
+    """The client should pass excerpts_by_episode through to the prompt builder
+    so the prompt text the provider sees actually contains the snippets."""
+    from magi.timeline.narrative.llm_client import DiaryNarrativeLLMClient
+    from magi.llm import LLMProviderBridge
+
+    captured_prompts: list[str] = []
+
+    async def fake_chat_response(self, **kwargs):
+        # The user prompt is the second message in the messages list
+        messages = kwargs.get("messages") or []
+        for msg in messages:
+            if msg.get("role") == "user":
+                captured_prompts.append(msg.get("content", ""))
+        return _StubResponse('{"essence_prose": "x", "slices": []}')
+
+    monkeypatch.setattr(LLMProviderBridge, "chat_response", fake_chat_response)
+
+    client = DiaryNarrativeLLMClient(scenario_llm_pool=_StubPool())
+    await client.generate(
+        scale="day", period_start=0.0, period_end=86400.0,
+        episodes=[{"episode_id": "ep-1", "time_start": 100.0, "time_end": 200.0, "label": "x"}],
+        place_hints=[],
+        excerpts_by_episode={"ep-1": ["sleep agency 论文导读"]},
+    )
+
+    assert len(captured_prompts) == 1
+    assert "sleep agency 论文导读" in captured_prompts[0]
+    assert "事件证据" in captured_prompts[0]

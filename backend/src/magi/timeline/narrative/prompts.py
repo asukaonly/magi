@@ -16,17 +16,25 @@ DIARY_NARRATIVE_SYSTEM_PROMPT = """你是一名沉浸式日记的撰稿者。给
 你要为整段时间生成一段第二人称（用"你"）的散文 essence，并为该时段内的每一个 episode
 生成一句叙事 + 可选的一句感官细节。
 
+每个 episode 可能附带"事件证据"——这是用户在该时段实际接触过的内容片段
+（页面标题、消息、窗口名等）。你的核心任务是把这些具体细节自然地融入叙事，
+而不是只用 episode 的抽象标签（label、topics、entities）写概括性的话。
+比如证据里出现"sleep agency 论文"，就直接写"你又翻看 sleep agency 那篇论文"，
+不要写成"你做了一些研究工作"。
+
 要求：
 - 使用第二人称（"你"），温柔有质感，不堆砌形容词
 - essence 控制在 1-3 句话，约 30-80 个汉字
 - 每个 slice 的 slice_narrative 控制在 1 句话
 - slice_sensory_detail 是可选的"那时还没有发现"或"窗外正下雨"这种小细节，1 句话即可
+- 优先使用事件证据里的具体名词；没有证据时再用 episode 的 label/topics 作 fallback
 
 禁止：
 - 在 essence 或 slice 文本中出现内部 id（任何形如 ep-xxx、uuid、hash 的字符串）
 - 使用 markdown 标题（##、**、--- 等）
 - 出现数字 metric（"专注度 62%"、"压力 0.4" 之类）
 - 源名重复（不要写"Chrome 历史 / Chrome 历史"这种）
+- 直接照抄证据原文 URL 或访问次数；要把信息消化成自然语言
 
 返回严格 JSON：
 {
@@ -48,10 +56,19 @@ def build_diary_narrative_user_prompt(
     period_end: float,
     episodes: Iterable[dict],
     place_hints: Iterable[str] = (),
+    excerpts_by_episode: dict[str, list[str]] | None = None,
 ) -> str:
-    """Build the user prompt that gives the LLM concrete period evidence."""
+    """Build the user prompt that gives the LLM concrete period evidence.
+
+    ``excerpts_by_episode`` maps episode_id → small list of content snippets
+    (page titles, message text, window names) drawn from L1 events inside the
+    episode's time window. When present for an episode, they appear under
+    that episode's bullet block so the LLM can ground its prose in specific
+    nouns instead of abstract labels.
+    """
     start_label = datetime.fromtimestamp(period_start, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     end_label = datetime.fromtimestamp(period_end, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    excerpts_by_episode = excerpts_by_episode or {}
 
     lines: list[str] = []
     lines.append(f"周期尺度：{scale}（{start_label} ~ {end_label}）")
@@ -81,6 +98,11 @@ def build_diary_narrative_user_prompt(
         if entities:
             bits.append("entities=" + ",".join(str(e) for e in entities[:5]))
         lines.append("- " + " · ".join(bits))
+
+        excerpts = excerpts_by_episode.get(ep_id) or []
+        for excerpt in excerpts:
+            # Two-space indent so excerpts read as a sub-list under the episode.
+            lines.append(f"  · 事件证据：{excerpt}")
 
     if not any_episode:
         lines.append("- （这个时段没有 episode；只给 essence_prose 即可，slices 返回空数组）")

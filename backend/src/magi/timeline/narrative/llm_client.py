@@ -33,12 +33,19 @@ class DiaryNarrativeLLMClient(L2LLMJsonClientMixin):
         period_end: float,
         episodes: Iterable[dict],
         place_hints: Iterable[str] = (),
+        excerpts_by_episode: dict[str, list[str]] | None = None,
     ) -> DiaryNarrativeOutput:
         """Generate a diary narrative for the given period.
 
         Returns an empty DiaryNarrativeOutput on adapter unavailability or
         invalid JSON (callers should treat this as "no generation possible
         right now" and either retry later or fall back to existing data).
+
+        ``excerpts_by_episode`` (optional) carries short content snippets from
+        L1 events inside each episode's window — page titles, message text,
+        window names — so the LLM can ground its prose in what actually
+        happened. When absent or empty, the prompt falls back to episode
+        metadata only.
         """
         prompt = build_diary_narrative_user_prompt(
             scale=scale,
@@ -46,6 +53,7 @@ class DiaryNarrativeLLMClient(L2LLMJsonClientMixin):
             period_end=period_end,
             episodes=list(episodes),
             place_hints=list(place_hints),
+            excerpts_by_episode=excerpts_by_episode or {},
         )
         raw = await self._generate_json(
             system_prompt=DIARY_NARRATIVE_SYSTEM_PROMPT,
