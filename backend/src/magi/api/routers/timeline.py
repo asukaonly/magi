@@ -51,12 +51,15 @@ async def get_timeline_viewport(
 @timeline_router.get("/standout")
 async def get_standout_endpoint(
     month: Optional[str] = Query(default=None, pattern=r"^\d{4}-\d{2}$"),
+    period_start: Optional[float] = Query(default=None),
+    period_end: Optional[float] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
 ):
     from datetime import datetime, timezone
 
-    period_start = period_end = None
-    if month:
+    ps: Optional[float] = period_start
+    pe: Optional[float] = period_end
+    if ps is None and pe is None and month:
         try:
             year, mo = (int(p) for p in month.split("-", 1))
             start_dt = datetime(year, mo, 1, tzinfo=timezone.utc)
@@ -65,8 +68,8 @@ async def get_standout_endpoint(
                 if mo == 12
                 else datetime(year, mo + 1, 1, tzinfo=timezone.utc)
             )
-            period_start = start_dt.timestamp()
-            period_end = end_dt.timestamp()
+            ps = start_dt.timestamp()
+            pe = end_dt.timestamp()
         except (ValueError, OverflowError) as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -75,7 +78,7 @@ async def get_standout_endpoint(
 
     service = get_timeline_service()
     items = await service.list_standout(
-        period_start=period_start, period_end=period_end, limit=limit,
+        period_start=ps, period_end=pe, limit=limit,
     )
     return {"month": month, "items": items}
 

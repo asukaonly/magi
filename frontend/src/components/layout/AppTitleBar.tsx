@@ -14,36 +14,6 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 
 const SCALE_LABEL: Record<string, string> = { month: "月", week: "周", day: "日", hour: "时" };
 
-const isoWeekValue = (date: Date): string => {
-  const target = new Date(date);
-  target.setHours(0, 0, 0, 0);
-  // Thursday of this week determines the ISO year/week
-  target.setDate(target.getDate() + 3 - ((target.getDay() + 6) % 7));
-  const firstThursday = new Date(target.getFullYear(), 0, 4);
-  const weekNum = 1 + Math.round(
-    ((target.getTime() - firstThursday.getTime()) / 86400000 - 3 + ((firstThursday.getDay() + 6) % 7)) / 7
-  );
-  return `${target.getFullYear()}-W${String(weekNum).padStart(2, "0")}`;
-};
-
-const pad2 = (n: number) => String(n).padStart(2, "0");
-
-const periodInputValue = (scale: string, startSec: number): string => {
-  if (!startSec) return "";
-  const d = new Date(startSec * 1000);
-  if (scale === "month") return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
-  if (scale === "week") return isoWeekValue(d);
-  if (scale === "day") return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-  if (scale === "hour") return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:00`;
-  return "";
-};
-
-const inputTypeForScale = (scale: string): string => {
-  if (scale === "month") return "month";
-  if (scale === "week") return "week";
-  if (scale === "day") return "date";
-  return "datetime-local";
-};
 
 const TimelineTitleBarSlot: React.FC = () => {
   const { t } = useTranslation('app');
@@ -85,47 +55,92 @@ const TimelineTitleBarSlot: React.FC = () => {
         >
           ‹
         </button>
-        {panel.scale === "day" ? (
-          <Popover>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                onMouseDown={(e) => e.stopPropagation()}
-                data-no-drag
-                className="cursor-pointer rounded border border-transparent bg-transparent px-2 py-0.5 text-xs text-muted-foreground hover:border-border hover:text-foreground"
-                style={{ minWidth: "120px" }}
-              >
-                {panel.dateLabel}
-              </button>
-            </PopoverTrigger>
-            <PopoverContent align="center" className="w-auto p-0" onMouseDown={(e) => e.stopPropagation()}>
-              <Calendar
-                mode="single"
-                selected={panel.viewportStart ? new Date(panel.viewportStart * 1000) : undefined}
-                onSelect={(date) => {
-                  if (date) {
-                    const y = date.getFullYear();
-                    const m = String(date.getMonth() + 1).padStart(2, "0");
-                    const d = String(date.getDate()).padStart(2, "0");
-                    panel.onSelectFromDateInput?.(`${y}-${m}-${d}`);
-                  }
-                }}
-                initialFocus
-              />
-            </PopoverContent>
-          </Popover>
-        ) : (
-          <input
-            type={inputTypeForScale(panel.scale)}
-            value={periodInputValue(panel.scale, panel.viewportStart)}
-            onChange={(e) => panel.onSelectFromDateInput?.(e.target.value)}
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              onMouseDown={(e) => e.stopPropagation()}
+              data-no-drag
+              className="cursor-pointer rounded border border-transparent bg-transparent px-2 py-0.5 text-xs text-muted-foreground hover:border-border hover:text-foreground w-[160px] text-center"
+            >
+              {panel.dateLabel}
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="center"
+            className="w-auto p-0"
             onMouseDown={(e) => e.stopPropagation()}
-            data-no-drag
-            aria-label={panel.dateLabel}
-            className="cursor-pointer rounded border border-transparent bg-transparent px-1.5 py-0.5 text-xs text-muted-foreground hover:border-border hover:text-foreground focus:border-border focus:text-foreground focus:outline-none"
-            style={{ minWidth: panel.scale === "hour" ? "150px" : "100px" }}
-          />
-        )}
+          >
+            <Calendar
+              mode="single"
+              selected={new Date(panel.viewportStart * 1000)}
+              onSelect={(date) => {
+                if (!date) return;
+                const y = date.getFullYear();
+                const m = String(date.getMonth() + 1).padStart(2, "0");
+                const d = String(date.getDate()).padStart(2, "0");
+                if (panel.scale === "month") {
+                  panel.onSelectFromDateInput?.(`${y}-${m}`);
+                } else if (panel.scale === "week") {
+                  const target = new Date(date);
+                  target.setHours(0, 0, 0, 0);
+                  target.setDate(target.getDate() + 3 - ((target.getDay() + 6) % 7));
+                  const firstThursday = new Date(target.getFullYear(), 0, 4);
+                  const weekNum =
+                    1 + Math.round(
+                      ((target.getTime() - firstThursday.getTime()) / 86400000 -
+                        3 +
+                        ((firstThursday.getDay() + 6) % 7)) / 7
+                    );
+                  panel.onSelectFromDateInput?.(`${target.getFullYear()}-W${String(weekNum).padStart(2, "0")}`);
+                } else if (panel.scale === "hour") {
+                  const currentHour = new Date(panel.viewportStart * 1000).getHours();
+                  const hh = String(currentHour).padStart(2, "0");
+                  panel.onSelectFromDateInput?.(`${y}-${m}-${d}T${hh}:00`);
+                } else {
+                  panel.onSelectFromDateInput?.(`${y}-${m}-${d}`);
+                }
+              }}
+              initialFocus
+            />
+            {panel.scale === "hour" ? (
+              <div className="border-t border-border px-3 py-2">
+                <div className="mb-1.5 text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+                  时
+                </div>
+                <div className="grid grid-cols-6 gap-1">
+                  {Array.from({ length: 24 }, (_, i) => i).map((h) => {
+                    const selectedHour = new Date(panel.viewportStart * 1000).getHours();
+                    const isSel = h === selectedHour;
+                    return (
+                      <button
+                        key={h}
+                        type="button"
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={() => {
+                          const dt = new Date(panel.viewportStart * 1000);
+                          const y = dt.getFullYear();
+                          const m = String(dt.getMonth() + 1).padStart(2, "0");
+                          const dd = String(dt.getDate()).padStart(2, "0");
+                          const hh = String(h).padStart(2, "0");
+                          panel.onSelectFromDateInput?.(`${y}-${m}-${dd}T${hh}:00`);
+                        }}
+                        className={cn(
+                          "rounded px-2 py-1 text-xs",
+                          isSel
+                            ? "bg-foreground text-background"
+                            : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+                        )}
+                      >
+                        {String(h).padStart(2, "0")}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+          </PopoverContent>
+        </Popover>
         <button
           type="button"
           disabled={!panel.canGoNext}

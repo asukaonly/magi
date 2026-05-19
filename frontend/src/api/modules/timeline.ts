@@ -197,9 +197,13 @@ export const timelineApi = {
     return unwrapGatewayPayload(response);
   },
 
-  getStandout: async (month?: string, limit = 50): Promise<TimelineStandoutResponse> => {
-    const params: Record<string, string> = { limit: String(limit) };
-    if (month) params.month = month;
+  getStandout: async (
+    options?: { month?: string; periodStart?: number; periodEnd?: number; limit?: number }
+  ): Promise<TimelineStandoutResponse> => {
+    const params: Record<string, string> = { limit: String(options?.limit ?? 50) };
+    if (options?.month) params.month = options.month;
+    if (options?.periodStart !== undefined) params.period_start = String(options.periodStart);
+    if (options?.periodEnd !== undefined) params.period_end = String(options.periodEnd);
     const response = await api.get<TimelineStandoutResponse>('/timeline/standout', { params });
     return unwrapGatewayPayload(response);
   },

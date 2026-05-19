@@ -57,7 +57,7 @@ describe("TimelinePage (immersive)", () => {
       reflections: [],
       raw_events: [],
     });
-    (timelineApi.getStandout as any).mockResolvedValue({ month: null, items: [] });
+    (timelineApi.getStandout as any).mockResolvedValue({ month: null, items: [] }); // options-object signature
     (timelineApi.getMoodCalendar as any).mockResolvedValue({ month: "2026-05", days: [] });
   });
 

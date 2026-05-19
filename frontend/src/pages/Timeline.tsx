@@ -165,14 +165,18 @@ export const TimelinePage: React.FC = () => {
     try {
       const [mood, standout] = await Promise.all([
         timelineApi.getMoodCalendar(month),
-        timelineApi.getStandout(month, 50),
+        timelineApi.getStandout({
+          periodStart: viewportStart,
+          periodEnd: viewportEnd,
+          limit: 50,
+        }),
       ]);
       setMoodDays(mood.days ?? []);
       setStandoutItems(standout.items ?? []);
     } catch {
       /* sidebar is best-effort; failures don't block the main pane */
     }
-  }, [viewportStart]);
+  }, [viewportStart, viewportEnd]);
 
   useEffect(() => {
     setActivePanel("timeline");
