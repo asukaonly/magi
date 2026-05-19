@@ -82,8 +82,10 @@ class TimelineViewportBuilder:
         raw_events = [self._to_raw_event(event, locale=locale) for event in events] if scale == "hour" else []
         source_mix = self._build_source_mix(events=events, clusters=clusters, locale=locale)
         theme_cards = self._build_theme_cards(reflections=reflections, clusters=clusters, locale=locale)
-        overview = self._build_overview(
+        overview = await self._build_overview(
             scale=scale,
+            period_start=interpreted_query.start,
+            period_end=interpreted_query.end,
             events=events,
             clusters=clusters,
             reflections=reflections,
@@ -214,10 +216,12 @@ class TimelineViewportBuilder:
         transitions.sort(key=lambda t: t["changed_at"])
         return transitions
 
-    def _build_overview(
+    async def _build_overview(
         self,
         *,
         scale: str,
+        period_start: float,
+        period_end: float,
         events: list[dict[str, Any]],
         clusters: list[dict[str, Any]],
         reflections: list[dict[str, Any]],
@@ -284,12 +288,39 @@ class TimelineViewportBuilder:
             confidence += 0.2
         if state_markers:
             confidence += 0.1
+        essence_prose = await self._lookup_essence_prose(scale=scale, period_start=period_start)
         return {
             "title": title_by_scale.get(scale, title_by_scale["month"]),
             "summary": summary,
             "key_takeaways": takeaways[:3],
             "confidence": min(0.95, confidence),
+            "essence_prose": essence_prose,
         }
+
+    async def _lookup_essence_prose(self, *, scale: str, period_start: float) -> str:
+        """Look up the L3 diary essence for this period, if Plan 2 has produced one.
+
+        Returns the prose string or empty string when no matching summary exists.
+        """
+        from datetime import datetime, timezone
+
+        if self._l3 is None:
+            return ""
+
+        # Plan 2 writes insight_key = f"diary-{scale}-{YYYY-MM-DD}" using UTC date
+        period_date = datetime.fromtimestamp(period_start, tz=timezone.utc).date().isoformat()
+        insight_key = f"diary-{scale}-{period_date}"
+
+        try:
+            summary = await self._l3._find_summary_by_insight_key(insight_key)
+        except Exception:
+            return ""
+
+        if not summary:
+            return ""
+        if summary.get("narrative_style") != "diary_2p":
+            return ""
+        return str(summary.get("essence_prose") or "")
 
     def _build_state_summary(
         self,

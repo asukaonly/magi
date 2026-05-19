@@ -109,6 +109,10 @@ class TimelineClusterBuilder:
             "user_label": episode.get("user_label"),
             "user_note": episode.get("user_note"),
             "user_pinned": bool(episode.get("user_pinned")),
+            # Plan 1+2 immersive fields, surfaced for the frontend
+            "slice_narrative": str(episode.get("slice_narrative") or ""),
+            "slice_sensory_detail": str(episode.get("slice_sensory_detail") or ""),
+            "representative_asset_ref": str(episode.get("representative_asset_ref") or ""),
         }
 
     @staticmethod
