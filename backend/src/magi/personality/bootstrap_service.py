@@ -102,7 +102,9 @@ async def build_bootstrap_l2_priority_metadata(
     if (time.time() - float(getattr(matching, "timestamp", 0.0) or 0.0)) > BOOTSTRAP_L2_PRIORITY_WINDOW_SECONDS:
         return {}
 
-    owner_suffix = str(persona_id or normalized_persona_name).strip() or "default"
+    owner_suffix = str(persona_id or normalized_persona_name).strip()
+    if not owner_suffix:
+        raise ValueError("bootstrap L2 priority metadata requires persona_id or persona_name")
     return {
         "l2_batch_owner": f"bootstrap:{user_id}:{owner_suffix}",
         "l2_batch_max_events": 1,

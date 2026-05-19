@@ -33,7 +33,7 @@ class PromptSelfMemoryMixin:
         selected_tools: List[str],
         retrieved_memory_payload: Optional[Dict[str, Any]],
         persona_turn_plan: "Optional[PersonaTurnPlan]" = None,
-        persona_name: str = "default",
+        persona_name: str,
     ) -> SelfMemoryContext:
         payload = retrieved_memory_payload or {}
         preference_memory = payload.get("preference_memory", {})

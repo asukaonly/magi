@@ -63,7 +63,7 @@ class PromptContextAssembler(PromptSelfMemoryMixin):
         self_memory=None,
         tool_result: Optional[Dict[str, Any]] = None,
         retrieved_memory_payload: Optional[Dict[str, Any]] = None,
-        persona_name: str = "default",
+        persona_name: str,
         user_message: str = "",
         workspace_path: str | None = None,
         attachments: Optional[List[Dict[str, Any]]] = None,

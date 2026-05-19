@@ -276,16 +276,10 @@ class PersonalityLoader:
                 return alt
         raise FileNotFoundError(f"Personality file not found: {name}.json")
 
-    def load(self, name: str = "default") -> PersonalityConfig:
+    def load(self, name: str) -> PersonalityConfig:
         if name in self._cache:
             return self._cache[name]
-        try:
-            file_path = self._resolve_file_path(name)
-        except FileNotFoundError:
-            if name == "default":
-                logger.warning("Default personality file not found, using built-in defaults")
-                return PersonalityConfig()
-            raise
+        file_path = self._resolve_file_path(name)
 
         content = file_path.read_text(encoding="utf-8")
         try:
@@ -302,7 +296,7 @@ class PersonalityLoader:
         self._cache[name] = config
         return config
 
-    def load_raw(self, name: str = "default") -> str:
+    def load_raw(self, name: str) -> str:
         try:
             file_path = self._resolve_file_path(name)
         except FileNotFoundError:

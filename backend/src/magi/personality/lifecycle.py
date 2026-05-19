@@ -30,7 +30,7 @@ async def _ensure_active_persona(
         return None
 
     preferred = (preferred_name or "").strip()
-    if preferred and preferred != "default":
+    if preferred:
         for summary in summaries:
             candidates = {summary.name, summary.slug}
             if summary.seed_slug:
@@ -85,6 +85,13 @@ class PersonalityModule(LifecycleModule):
                 logger.info("Resolved active persona from registry: %s (%s)", persona_id, personality_name)
         except Exception as exc:
             logger.debug("Persona registry lookup skipped: %s", exc)
+
+        if not personality_name:
+            raise RuntimeError(
+                "PersonalityModule failed to resolve an active persona. "
+                "Check that bundled persona presets exist under backend/personalities/ "
+                "and that seed_builtin_personas completed without errors."
+            )
 
         self._context.core.current_personality = personality_name
         # Synchronize the in-memory active slug and config so other modules can

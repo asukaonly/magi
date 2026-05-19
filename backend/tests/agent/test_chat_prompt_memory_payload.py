@@ -66,6 +66,7 @@ class TestChatPromptMemoryPayload(unittest.IsolatedAsyncioTestCase):
             user_id="u1",
             self_memory=_FakeSelfMemory(),
             tool_result={"tools": ["weather"]},
+            persona_name="test_persona",
             retrieved_memory_payload={
                 "l0_workbench": [{"summary": "Current goal: comfort the user"}],
                 "l2_entity_cards": [{"entity_id": "user:u1", "stress_level": "high"}],

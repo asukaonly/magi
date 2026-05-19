@@ -1,15 +1,4 @@
-"""
-Internal note.
-
-Internal note.
-
-Internal note.
-Internal note.
-Internal note.
-Internal note.
-Internal note.
-Internal note.
-"""
+"""SelfMemory facade — owns persona-scoped behavior/emotional/growth engines."""
 import logging
 import time
 from typing import Dict, Any, Optional, List
@@ -31,31 +20,17 @@ logger = logging.getLogger(__name__)
 # ===== Unified Management Class =====
 
 class SelfMemory:
-    """
-    Internal note.
-
-    Internal note.
-    """
+    """Persona-scoped self-memory: behavior evolution, emotional state, and growth/milestones."""
 
     def __init__(
         self,
-        personality_name: str = "default",
+        personality_name: str,
         db_path: str = None,
         enable_evolution: bool = True,
         *,
         persona_id: str = "",
         personality_config: Optional[PersonalityConfig] = None,
     ):
-        """
-        Internal note.
-
-        Args:
-            personality_name: Personality name
-            Internal note.
-            enable_evolution: is notEnablepersonalityevolution
-            persona_id: Stable persona identity for scoping evolution data.
-        """
-        # Internal note.
         runtime_paths = get_runtime_paths()
 
         self.personality_name = personality_name
@@ -76,7 +51,6 @@ class SelfMemory:
         await self._load_personality()
 
         if self.enable_evolution:
-            # Internal note.
             runtime_paths = get_runtime_paths()
             behavior_db = str(runtime_paths.behavior_db_path)
             emotion_db = str(runtime_paths.emotional_db_path)
@@ -115,20 +89,17 @@ class SelfMemory:
             logger.info(f"Loaded personality from registry/cache: {resolved.name}")
             return
 
-        logger.warning(f"Personality {self.personality_name} not found in registry, using default")
-        self._personality_config = PersonalityConfig()
+        raise RuntimeError(
+            f"Personality '{self.personality_name}' not found in registry. "
+            "Ensure the persona was seeded and the registry is reachable."
+        )
 
     async def reload_personality(
         self,
         new_personality_name: str = None,
         personality_config: Optional[PersonalityConfig] = None,
     ):
-        """
-        Internal note.
-
-        Args:
-            Internal note.
-        """
+        """Switch the active persona name and optionally swap in a preloaded config."""
         old_personality_name = self.personality_name
 
         if new_personality_name:
@@ -138,10 +109,8 @@ class SelfMemory:
         # re-resolves from cache / registry.
         self._personality_config = personality_config
 
-        # Internal note.
         await self._load_personality()
 
-        # Internal note.
         if self.enable_evolution and self._growth_engine and self._personality_config:
             from .growth_memory import MilestoneType
             await self._growth_engine.record_milestone(
@@ -153,13 +122,11 @@ class SelfMemory:
         name = self._personality_config.name if self._personality_config else "Unknown"
         logger.info(f"Personality reloaded: {old_personality_name} -> {self.personality_name} ({name})")
 
-    # Internal note.
 
     async def get_core_personality(self) -> PersonalityConfig:
         """getcorePersonality configuration"""
         return self._personality_config or PersonalityConfig()
 
-    # Internal note.
 
     async def record_task_outcome(
         self,
@@ -187,7 +154,6 @@ class SelfMemory:
                 accepted=accepted,
             )
 
-    # Internal note.
 
     async def get_emotional_state(self) -> EmotionalState:
         """Get current emotional state"""
