@@ -75,7 +75,7 @@ class DiaryNarrativeOrchestrator:
         place_hints: Iterable[str] = (),
     ) -> OrchestratorResult:
         episodes = await self._l2_store.list_episodes(
-            statuses=["active"],
+            statuses=["active", "candidate"],
             time_start=period_start,
             time_end=period_end,
             limit=200,

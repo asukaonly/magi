@@ -86,3 +86,29 @@ async def test_handler_scores_active_episodes_and_writes_back(
     # Short episode — no signals
     assert short_ep["magi_standout"] is False
     assert short_ep["standout_score"] == pytest.approx(0.0)
+
+
+@pytest.mark.asyncio
+async def test_handler_also_scores_candidate_episodes(l2_store_with_schema):
+    """Per Plan 4 tuning, candidate episodes are scored too (not just active)."""
+    from magi.timeline.standout.scheduler_contrib import StandoutScoringSchedulerContrib
+    from magi.media.source_registry import MediaSourceRegistry
+
+    await l2_store_with_schema.create_episode(
+        episode_id="ep-cand", time_start=0.0, time_end=7200.0,
+        primary_entity_ids=["alice"],
+    )
+    # NOTE: NOT promoted to active — left as default "candidate" status
+
+    registry = MediaSourceRegistry()
+    contrib = StandoutScoringSchedulerContrib(
+        l2_store=l2_store_with_schema, media_registry=registry,
+    )
+
+    result = await contrib._handle_rescore(_make_context(10000.0))
+    assert result.success is True
+
+    ep = await l2_store_with_schema.get_episode(episode_id="ep-cand")
+    # Long episode with first-entity = standout
+    assert ep["magi_standout"] is True
+    assert ep["standout_score"] > 0.5

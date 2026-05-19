@@ -67,7 +67,7 @@ class RepresentativeAssetPopulateSchedulerContrib:
         self, context: ScheduledExecutionContext,
     ) -> ScheduledExecutionResult:
         episodes = await self._l2_store.list_episodes(
-            statuses=["active"], limit=self._batch_limit,
+            statuses=["active", "candidate"], limit=self._batch_limit,
         )
 
         populated = 0
