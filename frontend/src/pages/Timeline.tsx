@@ -245,10 +245,6 @@ export const TimelinePage: React.FC = () => {
     setQuery(draftQuery.trim());
   }, [draftQuery]);
 
-  const handleRefresh = useCallback(() => {
-    void loadViewport();
-  }, [loadViewport]);
-
   const handleSelectStandoutEpisode = useCallback((episodeId: string) => {
     // TODO(plan-4): jump-to-episode affordance
     void episodeId;
@@ -272,7 +268,6 @@ export const TimelinePage: React.FC = () => {
       onNext: handleNext,
       onDraftQueryChange: handleDraftQueryChange,
       onSubmitQuery: handleSubmitQuery,
-      onRefresh: handleRefresh,
     });
   }, [
     viewportStart,
@@ -289,7 +284,6 @@ export const TimelinePage: React.FC = () => {
     handleNext,
     handleDraftQueryChange,
     handleSubmitQuery,
-    handleRefresh,
     setTimelinePanel,
   ]);
 

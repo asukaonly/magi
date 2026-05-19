@@ -21,8 +21,8 @@ const TimelineTitleBarSlot: React.FC = () => {
       <span className="text-sm font-semibold text-foreground">
         {t('timeline.title', { defaultValue: '时间线' })}
       </span>
-      <span className="text-muted-foreground">{panel.dateLabel}</span>
       <div className="flex-1" />
+      {/* Scale tab group */}
       <div className="flex rounded-md bg-foreground/5 p-0.5">
         {(['month', 'week', 'day', 'hour'] as const).map((s) => (
           <button
@@ -30,6 +30,7 @@ const TimelineTitleBarSlot: React.FC = () => {
             type="button"
             data-active={s === panel.scale ? 'true' : 'false'}
             onClick={() => panel.onScaleChange?.(s)}
+            onMouseDown={(e) => e.stopPropagation()}
             className={cn(
               'rounded-sm px-2.5 py-1',
               s === panel.scale
@@ -41,40 +42,40 @@ const TimelineTitleBarSlot: React.FC = () => {
           </button>
         ))}
       </div>
+      {/* Date label + prev/next nav grouped together */}
       <div className="flex items-center gap-1">
         <button
           type="button"
           onClick={() => panel.onPrevious?.()}
+          onMouseDown={(e) => e.stopPropagation()}
           className="rounded-md p-1 text-muted-foreground hover:bg-foreground/5"
         >
           ‹
         </button>
+        <span className="min-w-[6rem] text-center text-muted-foreground">{panel.dateLabel}</span>
         <button
           type="button"
           disabled={!panel.canGoNext}
           onClick={() => panel.onNext?.()}
+          onMouseDown={(e) => e.stopPropagation()}
           className="rounded-md p-1 text-muted-foreground hover:bg-foreground/5 disabled:cursor-not-allowed disabled:opacity-30"
         >
           ›
         </button>
       </div>
+      {/* Search input */}
       <input
         type="text"
+        data-no-drag
         value={panel.draftQuery}
         onChange={(e) => panel.onDraftQueryChange?.(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter') panel.onSubmitQuery?.();
         }}
+        onMouseDown={(e) => e.stopPropagation()}
         placeholder={t('timeline.searchPlaceholder', { defaultValue: '筛选当前时段' })}
         className="h-6 w-40 rounded-md border border-border bg-background px-2 text-xs"
       />
-      <button
-        type="button"
-        onClick={() => panel.onRefresh?.()}
-        className="rounded-md p-1 text-muted-foreground hover:bg-foreground/5"
-      >
-        ↻
-      </button>
     </div>
   );
 };

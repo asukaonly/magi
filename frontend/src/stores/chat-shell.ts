@@ -25,7 +25,6 @@ export interface TimelinePanelState {
   onNext: (() => void) | null;
   onDraftQueryChange: ((next: string) => void) | null;
   onSubmitQuery: (() => void) | null;
-  onRefresh: (() => void) | null;
 }
 
 export interface DesktopShellState {
@@ -61,7 +60,6 @@ const DEFAULT_TIMELINE_PANEL: TimelinePanelState = {
   onNext: null,
   onDraftQueryChange: null,
   onSubmitQuery: null,
-  onRefresh: null,
 };
 
 export const useChatShellStore = create<DesktopShellState>((set) => ({

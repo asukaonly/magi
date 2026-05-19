@@ -66,19 +66,14 @@ export const MoodCalendar: React.FC<MoodCalendarProps> = ({
         data-selected={isSelected ? "true" : "false"}
         onClick={() => onSelectDate(date)}
         className={cn(
-          "relative aspect-square rounded-sm bg-[rgba(184,177,165,0.15)]",
+          "relative flex aspect-square items-center justify-center rounded-sm text-[10px] font-medium",
+          moodDay
+            ? cn("text-white opacity-90", VALENCE_BG[moodDay.dominant_valence] ?? VALENCE_BG.neutral)
+            : "bg-transparent text-muted-foreground/50 hover:bg-foreground/5",
           isSelected && "ring-1 ring-foreground"
         )}
       >
-        {moodDay && (
-          <span
-            className={cn(
-              "absolute inset-[2px] rounded-[2px] opacity-85",
-              VALENCE_BG[moodDay.dominant_valence] ?? VALENCE_BG.neutral
-            )}
-            aria-hidden="true"
-          />
-        )}
+        <span className="relative z-10">{day}</span>
         {isToday && (
           <span className="absolute inset-0 rounded-sm ring-[1.5px] ring-foreground/80 ring-inset" />
         )}
