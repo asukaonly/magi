@@ -35,8 +35,14 @@ const MemorySkillsPage = React.lazy(() =>
 const PersonalityPage = React.lazy(() =>
   import('../pages/Personality').then((m) => ({ default: m.PersonalityPage }))
 );
-const TasksPage = React.lazy(() =>
-  import('../pages/Tasks').then((m) => ({ default: m.TasksPage }))
+const BackgroundTasksPage = React.lazy(() =>
+  import('../pages/tasks-pages').then((m) => ({ default: m.BackgroundTasksPage }))
+);
+const ScheduleConfigPage = React.lazy(() =>
+  import('../pages/tasks-pages').then((m) => ({ default: m.ScheduleConfigPage }))
+);
+const ScheduleActivityPage = React.lazy(() =>
+  import('../pages/tasks-pages').then((m) => ({ default: m.ScheduleActivityPage }))
 );
 const OnboardingPage = React.lazy(() =>
   import('../pages/Onboarding').then((m) => ({ default: m.default }))
@@ -219,11 +225,38 @@ const router = createBrowserRouter([
       },
       {
         path: 'tasks',
-        element: (
-          <React.Suspense fallback={<LoadingFallback />}>
-            <TasksPage />
-          </React.Suspense>
-        ),
+        children: [
+          { index: true, element: <Navigate to="/tasks/background" replace /> },
+          {
+            path: 'background',
+            element: (
+              <React.Suspense fallback={<LoadingFallback />}>
+                <BackgroundTasksPage />
+              </React.Suspense>
+            ),
+          },
+          {
+            path: 'schedules',
+            children: [
+              {
+                index: true,
+                element: (
+                  <React.Suspense fallback={<LoadingFallback />}>
+                    <ScheduleConfigPage />
+                  </React.Suspense>
+                ),
+              },
+              {
+                path: 'activity',
+                element: (
+                  <React.Suspense fallback={<LoadingFallback />}>
+                    <ScheduleActivityPage />
+                  </React.Suspense>
+                ),
+              },
+            ],
+          },
+        ],
       },
     ],
   },
