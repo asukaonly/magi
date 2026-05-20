@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronLeft, FileText, Image, MapPin, X } from 'lucide-react';
+import { FileText, Image, MapPin, X } from 'lucide-react';
 import { toast } from 'sonner';
 
 import {
@@ -406,21 +406,73 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
           if (mode === 'long') e.preventDefault();
         }}
         className={cn(
-          // Override the variant's `inset-x-0 bottom-0` so the sheet is a
-          // floating centered card instead of a full-bleed bottom strip.
-          // tailwind-merge resolves the conflicting position utilities to
-          // the last value (this className wins).
-          'left-1/2 right-auto -translate-x-1/2',
-          'bottom-6 w-[calc(100%-2rem)]',
+          // Override the variant's `inset-x-0 bottom-0` so the sheet is
+          // a floating centered card. We center BOTH axes (instead of
+          // the prior `bottom-6` anchor) — feels more like a focused
+          // composition surface than a docked toast, and matches the
+          // user's expectation that a write-something modal sits in the
+          // middle of the screen.
+          'left-1/2 top-1/2 right-auto -translate-x-1/2 -translate-y-1/2',
+          'w-[calc(100%-2rem)]',
           // Long mode gets noticeably more horizontal + vertical room so
           // the editor + toolbar don't feel cramped. Quick mode stays
           // compact so casual capture is a small visual gesture.
           mode === 'long' ? 'max-w-3xl' : 'max-w-2xl',
+          // Cap height at 90vh so a very tall editor still leaves
+          // breathing room above/below — and so on smaller windows the
+          // sheet never overflows the viewport.
+          'max-h-[90vh] overflow-y-auto',
           'rounded-2xl border border-border/70',
         )}
       >
-        <SheetHeader className="border-b border-border/40 pb-3">
-          <div className="flex items-center justify-between gap-3">
+        {/* Header. The mode toggle sits on the LEFT as a segmented
+            control — the previous design put it on the right and it
+            collided with Radix Sheet's built-in ✕ close button. A
+            single segmented control also reads more naturally than
+            two asymmetric buttons ("转长文" button vs. "← 简单模式"
+            link). The Sheet's ✕ stays in its native top-right slot. */}
+        <SheetHeader className="border-b border-border/40 pb-3 pr-10">
+          <div className="flex items-center gap-3">
+            {/* Segmented toggle — two equal pills, the active one
+                filled. Both labels use the same noun shape so the
+                pairing is obvious. */}
+            <div
+              role="tablist"
+              aria-label={t('timeline.manualEntry.modeToggleAria', {
+                defaultValue: '编辑模式',
+              })}
+              className="flex shrink-0 items-center rounded-full border border-border/60 bg-muted/30 p-0.5 text-[11px]"
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mode === 'quick'}
+                onClick={switchToQuick}
+                className={cn(
+                  'rounded-full px-2.5 py-0.5 transition-colors',
+                  mode === 'quick'
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {t('timeline.manualEntry.modeQuick', { defaultValue: '简单' })}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mode === 'long'}
+                onClick={switchToLong}
+                className={cn(
+                  'flex items-center gap-1 rounded-full px-2.5 py-0.5 transition-colors',
+                  mode === 'long'
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <FileText className="h-3 w-3" />
+                {t('timeline.manualEntry.modeLong', { defaultValue: '长文' })}
+              </button>
+            </div>
             <SheetTitle className="text-base font-medium">
               {existingEntry
                 ? t('timeline.manualEntry.editTitle', { defaultValue: '编辑记录' })
@@ -428,35 +480,6 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
                 ? t('timeline.manualEntry.createLongTitle', { defaultValue: '写一篇…' })
                 : t('timeline.manualEntry.createTitle', { defaultValue: '写下…' })}
             </SheetTitle>
-            {/* Mode toggle. In quick mode it offers an upgrade ("转长文"),
-                in long mode it's a quiet exit back to the casual textarea.
-                Kept small and right-aligned so it doesn't compete with
-                the title. */}
-            {mode === 'quick' ? (
-              <button
-                type="button"
-                onClick={switchToLong}
-                className="flex items-center gap-1 rounded-md border border-border/60 px-2 py-1 text-[11px] text-muted-foreground hover:bg-foreground/[0.03] hover:text-foreground"
-                title={t('timeline.manualEntry.switchToLongHint', {
-                  defaultValue: '切换到富文本编辑',
-                })}
-              >
-                <FileText className="h-3 w-3" />
-                {t('timeline.manualEntry.switchToLong', { defaultValue: '转长文' })}
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={switchToQuick}
-                className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
-                title={t('timeline.manualEntry.switchToQuickHint', {
-                  defaultValue: '切回简单输入（格式会丢失）',
-                })}
-              >
-                <ChevronLeft className="h-3 w-3" />
-                {t('timeline.manualEntry.switchToQuick', { defaultValue: '简单模式' })}
-              </button>
-            )}
           </div>
         </SheetHeader>
 
@@ -478,6 +501,10 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
                 defaultValue: '写下…（⌘+V 粘贴图片，⌘+Enter 保存）',
               })}
               autoFocus
+              // Generous writing surface — ~14 rows at 24px line-height.
+              // The whole sheet caps at 90vh and scrolls if needed, so
+              // this won't push the footer off screen on small windows.
+              minHeightPx={360}
             />
           ) : (
             <textarea

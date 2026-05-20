@@ -60,6 +60,10 @@ interface RichTextEditorProps {
   onSubmitShortcut?: () => void;
   placeholder?: string;
   autoFocus?: boolean;
+  /** Minimum editor height in pixels. Defaults to 96 (the historical
+   *  quick-capture size). Long-form callers should pass a larger value
+   *  so the writing surface doesn't feel like a comment box. */
+  minHeightPx?: number;
 }
 
 export const RichTextEditor: React.FC<RichTextEditorProps> = ({
@@ -71,6 +75,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
   onSubmitShortcut,
   placeholder,
   autoFocus,
+  minHeightPx = 96,
 }) => {
   // Stable initial content: prefer the saved doc, then the plain-text
   // fallback wrapped in a single paragraph, then an empty doc.
@@ -110,9 +115,12 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
           // for one component. Block styles are defined once and
           // shared between editor + read-only renderer.
           'rich-text-content max-w-none focus:outline-none',
-          'min-h-[96px] w-full rounded-md border border-border bg-background',
+          // Min-height is set via inline style (below) so the long-form
+          // caller can override without juggling arbitrary-class values.
+          'w-full rounded-md border border-border bg-background',
           'px-3 py-2 text-sm leading-6',
         ),
+        style: `min-height: ${minHeightPx}px;`,
       },
       // Catch image paste — the editor swallows the event by default;
       // we delegate to the parent's upload flow.

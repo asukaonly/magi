@@ -142,14 +142,14 @@ describe("QuickEntrySheet", () => {
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
   });
 
-  it("promotes to long mode and attaches body_doc when 转长文 is clicked", async () => {
+  it("promotes to long mode and attaches body_doc when the 长文 toggle is clicked", async () => {
     const user = userEvent.setup();
     const onSaved = vi.fn();
     render(<QuickEntrySheet open onClose={() => {}} onSaved={onSaved} />);
 
-    // Type in quick mode first, then upgrade.
+    // Type in quick mode first, then upgrade via the segmented toggle.
     await user.type(screen.getByPlaceholderText(/写下/), "一念之间");
-    await user.click(screen.getByRole("button", { name: "转长文" }));
+    await user.click(screen.getByRole("tab", { name: "长文" }));
 
     // After promotion, the mock RichTextEditor (textarea-shim) is mounted;
     // its onChange wraps the body into a ProseMirror doc on the next keystroke.
