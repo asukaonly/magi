@@ -1,7 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
-import { Button } from '@/components/ui/button';
 import type { ScheduleDTO } from '@/api';
 import { getScheduleTitle } from '../utils/scheduleHelpers';
 import { formatUnixSeconds, getScheduleTriggerSummary } from '../utils/scheduleFormatters';
@@ -9,64 +8,23 @@ import { formatUnixSeconds, getScheduleTriggerSummary } from '../utils/scheduleF
 export interface ScheduleInfoDrawerProps {
   schedule: ScheduleDTO | null;
   onClose: () => void;
-  onRun: (s: ScheduleDTO, overrideParams?: Record<string, unknown>) => void;
-  onToggle: (s: ScheduleDTO) => void;
 }
 
 /**
- * Hints shown above the JSON textarea when "Run with custom params" is
- * expanded, per target_type. Keeps the generic mechanism but gives users
- * a clue about which params each handler honors. Add more here as new
- * handlers grow opt-in payload params.
+ * Read-only preview drawer for a single schedule. Opened by clicking the
+ * row body — the row no longer doubles as an "edit" trigger. For mutations
+ * (edit / enable / run / delete), the user clicks the dedicated icon
+ * buttons in the row.
+ *
+ * If we need to surface more diagnostic fields here later (recent
+ * activity, target_payload contents, etc.) this is the place.
  */
-const PARAM_HINTS_BY_TARGET: Record<string, string> = {
-  timeline_diary_narrative:
-    '{"days": 7}  // 回填过去 7 天的日记（默认 1）',
-};
-
 export const ScheduleInfoDrawer: React.FC<ScheduleInfoDrawerProps> = ({
   schedule,
   onClose,
-  onRun,
-  onToggle,
 }) => {
   const { t } = useTranslation('app');
-  const [paramsOpen, setParamsOpen] = useState(false);
-  const [paramsText, setParamsText] = useState('');
-  const [paramsError, setParamsError] = useState<string | null>(null);
-
-  // Reset override state whenever a different schedule opens
-  useEffect(() => {
-    setParamsOpen(false);
-    setParamsText('');
-    setParamsError(null);
-  }, [schedule?.schedule_id]);
-
   const open = Boolean(schedule);
-  const targetType = schedule?.target_type ?? '';
-  const paramHint = PARAM_HINTS_BY_TARGET[targetType];
-
-  const handleRunWithParams = () => {
-    if (!schedule) return;
-    const trimmed = paramsText.trim();
-    if (!trimmed) {
-      onRun(schedule);  // fallback to plain run
-      return;
-    }
-    let parsed: Record<string, unknown>;
-    try {
-      parsed = JSON.parse(trimmed);
-    } catch (err: any) {
-      setParamsError(err?.message || 'invalid JSON');
-      return;
-    }
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-      setParamsError('params must be a JSON object');
-      return;
-    }
-    setParamsError(null);
-    onRun(schedule, parsed);
-  };
 
   return (
     <Sheet open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
@@ -99,6 +57,16 @@ export const ScheduleInfoDrawer: React.FC<ScheduleInfoDrawerProps> = ({
                   <dt className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{t('tasks.scheduled.columns.nextRun')}</dt>
                   <dd className="mt-1 text-foreground">{formatUnixSeconds(schedule.target_state?.next_run_at)}</dd>
                 </div>
+                <div>
+                  <dt className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {t('tasks.scheduled.fields.status', { defaultValue: '状态' })}
+                  </dt>
+                  <dd className="mt-1 text-foreground">
+                    {schedule.enabled
+                      ? t('tasks.scheduled.status.enabled', { defaultValue: '已启用' })
+                      : t('tasks.scheduled.status.disabled', { defaultValue: '已禁用' })}
+                  </dd>
+                </div>
                 {schedule.target_state?.last_error ? (
                   <div className="sm:col-span-2">
                     <dt className="text-[11px] font-semibold uppercase tracking-wide text-red-500">{t('tasks.scheduled.fields.lastError')}</dt>
@@ -106,75 +74,6 @@ export const ScheduleInfoDrawer: React.FC<ScheduleInfoDrawerProps> = ({
                   </div>
                 ) : null}
               </dl>
-
-              {paramsOpen ? (
-                <div className="mt-6 border-t border-border/60 pt-4">
-                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    {t('tasks.scheduled.fields.overrideParams', { defaultValue: '本次运行参数 (JSON)' })}
-                  </div>
-                  {paramHint ? (
-                    <div className="mb-2 font-mono text-[11px] leading-5 text-muted-foreground/80">
-                      {paramHint}
-                    </div>
-                  ) : null}
-                  <textarea
-                    value={paramsText}
-                    onChange={(e) => {
-                      setParamsText(e.target.value);
-                      if (paramsError) setParamsError(null);
-                    }}
-                    placeholder={paramHint ?? '{}'}
-                    className="h-24 w-full resize-y rounded-md border border-border bg-background px-3 py-2 font-mono text-xs"
-                  />
-                  {paramsError ? (
-                    <div className="mt-1 text-xs text-red-500">{paramsError}</div>
-                  ) : (
-                    <div className="mt-1 text-[11px] text-muted-foreground/70">
-                      {t('tasks.scheduled.fields.overrideParamsHint', {
-                        defaultValue: '只影响这一次执行；下次定时触发时仍用原参数。',
-                      })}
-                    </div>
-                  )}
-                </div>
-              ) : null}
-            </div>
-            <div className="shrink-0 px-8 pb-6 pt-3">
-              <div className="flex justify-end gap-2">
-                {paramsOpen ? (
-                  <>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        setParamsOpen(false);
-                        setParamsText('');
-                        setParamsError(null);
-                      }}
-                    >
-                      {t('tasks.scheduled.actions.cancel', { defaultValue: '取消' })}
-                    </Button>
-                    <Button variant="default" size="sm" onClick={handleRunWithParams}>
-                      {t('tasks.scheduled.actions.runWithParams', { defaultValue: '带参运行' })}
-                    </Button>
-                  </>
-                ) : (
-                  <>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setParamsOpen(true)}
-                    >
-                      {t('tasks.scheduled.actions.runWithParamsOpen', { defaultValue: '带参运行…' })}
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => onRun(schedule)}>
-                      {t('tasks.scheduled.actions.runNow')}
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => onToggle(schedule)}>
-                      {schedule.enabled ? t('tasks.scheduled.actions.disable') : t('tasks.scheduled.actions.enable')}
-                    </Button>
-                  </>
-                )}
-              </div>
             </div>
           </>
         ) : null}

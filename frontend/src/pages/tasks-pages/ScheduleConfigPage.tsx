@@ -196,11 +196,6 @@ export const ScheduleConfigPage: React.FC = () => {
       <ScheduleInfoDrawer
         schedule={infoSchedule}
         onClose={() => setInfoSchedule(null)}
-        onRun={(s, overrideParams) => {
-          void handleRun(s, overrideParams);
-          setInfoSchedule(null);
-        }}
-        onToggle={(s) => { void handleToggle(s); setInfoSchedule(null); }}
       />
     </TasksPageFrame>
   );

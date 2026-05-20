@@ -1,6 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { Info, Pencil, Play, Power, PowerOff, Settings, Trash2 } from 'lucide-react';
+import { Pencil, Power, PowerOff, Settings, Trash2 } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { cn } from '@/lib/utils';
 import type { ScheduleDTO } from '@/api';
@@ -14,6 +14,7 @@ import {
   getScheduleTriggerSummary,
 } from '../utils/scheduleFormatters';
 import { IconActionButton } from './IconActionButton';
+import { ScheduleRunButton } from './ScheduleRunButton';
 
 export interface ScheduleGroup {
   pluginId: string;
@@ -31,7 +32,7 @@ export interface ScheduleConfigTableProps {
   togglingScheduleId: string | null;
   deletingScheduleId: string | null;
   onSelectSchedule: (s: ScheduleDTO) => void;
-  onRunSchedule: (s: ScheduleDTO) => void;
+  onRunSchedule: (s: ScheduleDTO, overrideParams?: Record<string, unknown>) => void;
   onToggleSchedule: (s: ScheduleDTO) => void;
   onDeleteSchedule: (s: ScheduleDTO) => void;
   onOpenSettings: (s: ScheduleDTO) => void;
@@ -75,9 +76,12 @@ export const ScheduleConfigTable: React.FC<ScheduleConfigTableProps> = (props) =
           'bg-background/60 transition-colors',
           selected && 'bg-primary/5',
           !selected && 'hover:bg-muted/35',
-          !sensorOwned && !systemOwned && 'cursor-pointer',
+          // Any non-sensor schedule is clickable: row click opens the
+          // read-only info drawer. Edit / run / toggle / delete are
+          // separate icon affordances so clicks don't conflict.
+          !sensorOwned && 'cursor-pointer',
         )}
-        onClick={() => { if (!sensorOwned && !systemOwned) onSelectSchedule(schedule); }}
+        onClick={() => { if (!sensorOwned) onOpenInfo(schedule); }}
       >
         <td className="px-4 py-3 align-middle">
           <div className="flex items-center gap-2">
@@ -104,12 +108,15 @@ export const ScheduleConfigTable: React.FC<ScheduleConfigTableProps> = (props) =
         <td className="px-4 py-3 align-middle text-xs text-muted-foreground whitespace-nowrap">{formatScheduleTableTime(schedule.target_state?.next_run_at)}</td>
         <td className="px-4 py-3 align-middle">
           <div className="flex justify-end gap-1">
-            <IconActionButton
-              variant="outline"
+            {/* ▶ → popover with "立即运行" / "带参运行…". Params dialog
+                lives inside this component so all run interactions stay
+                self-contained. Row click goes to the read-only drawer
+                instead — the play button no longer fires immediately. */}
+            <ScheduleRunButton
+              schedule={schedule}
               disabled={runDisabled}
-              label={t('tasks.scheduled.actions.runNow')}
-              icon={runPending ? <LoadingSpinner className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-              onClick={(e) => { e.stopPropagation(); onRunSchedule(schedule); }}
+              pending={runPending}
+              onRun={onRunSchedule}
             />
             {!sensorOwned && !systemOwned ? (
               <IconActionButton
@@ -127,20 +134,6 @@ export const ScheduleConfigTable: React.FC<ScheduleConfigTableProps> = (props) =
                 icon={<Settings className="h-3.5 w-3.5" />}
                 disabled={rowBusy}
                 onClick={(e) => { e.stopPropagation(); onOpenSettings(schedule); }}
-              />
-            ) : null}
-            {!sensorOwned ? (
-              // Info button is available for both system-managed (read-only)
-              // and user-owned schedules — the drawer hosts the "Run with
-              // params..." affordance which is useful regardless of whether
-              // the schedule's config is editable. Sensor schedules already
-              // have their own settings panel (handled above).
-              <IconActionButton
-                variant="secondary"
-                label={t('tasks.scheduled.actions.openInfo')}
-                icon={<Info className="h-3.5 w-3.5" />}
-                disabled={rowBusy}
-                onClick={(e) => { e.stopPropagation(); onOpenInfo(schedule); }}
               />
             ) : null}
             <IconActionButton
