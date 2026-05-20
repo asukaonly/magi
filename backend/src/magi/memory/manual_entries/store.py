@@ -36,8 +36,8 @@ class ManualEntryStore:
                     entry_id, created_at, event_at, kind, body,
                     mood, location_label, location_lat, location_lng,
                     attachments_json, exclude_from_llm, user_pinned,
-                    deleted_at, l1_event_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    deleted_at, l1_event_id, weather_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     entry_id,
@@ -54,6 +54,7 @@ class ManualEntryStore:
                     1 if entry.user_pinned else 0,
                     entry.deleted_at,
                     entry.l1_event_id,
+                    json.dumps(entry.weather, ensure_ascii=False) if entry.weather else None,
                 ),
             )
             await db.commit()
@@ -69,13 +70,17 @@ class ManualEntryStore:
         attachments: Optional[list[str]] = None,
         user_pinned: Optional[bool] = None,
         exclude_from_llm: Optional[bool] = None,
+        location_label: Optional[str] = None,
     ) -> bool:
         """Partial update. Returns True if a row was changed.
 
-        Fields left as ``None`` are not touched (in particular, ``mood``
-        clearing must go through a distinct ``mood=""`` value rather than
-        None — callers wanting to clear mood pass empty string and the
-        store stores SQL NULL).
+        Fields left as ``None`` are not touched. Two text fields (mood,
+        location_label) follow an empty-string-clears convention:
+          - ``None``  → don't touch
+          - ``""``    → clear to SQL NULL
+          - other str → set to that value
+        This lets the HTTP body distinguish "not in payload" from
+        "explicitly clear" without a separate flag column.
         """
         fields: list[str] = []
         values: list = []
@@ -97,6 +102,9 @@ class ManualEntryStore:
         if exclude_from_llm is not None:
             fields.append("exclude_from_llm = ?")
             values.append(1 if exclude_from_llm else 0)
+        if location_label is not None:
+            fields.append("location_label = ?")
+            values.append(location_label or None)  # empty string → NULL
 
         if not fields:
             return False
@@ -126,6 +134,20 @@ class ManualEntryStore:
                 (l1_event_id, entry_id),
             )
             await db.commit()
+
+    async def set_weather(
+        self, entry_id: str, weather: Optional[dict],
+    ) -> bool:
+        """Attach (or clear, when ``weather=None``) the ambient weather
+        snapshot. Returns True on a row change."""
+        payload = json.dumps(weather, ensure_ascii=False) if weather else None
+        async with sqlite_connection_async(self.db_path) as db:
+            cursor = await db.execute(
+                "UPDATE manual_entries SET weather_json = ? WHERE entry_id = ?",
+                (payload, entry_id),
+            )
+            await db.commit()
+            return cursor.rowcount > 0
 
     async def get(self, entry_id: str) -> Optional[ManualEntry]:
         async with sqlite_connection_async(self.db_path) as db:
@@ -168,6 +190,18 @@ class ManualEntryStore:
                 attachments = []
         except (ValueError, TypeError):
             attachments = []
+        # weather_json is a new column (migration 0008). Use a defensive
+        # access so reads against an unpatched test DB don't crash —
+        # aiosqlite.Row supports `in` via .keys().
+        weather: Optional[dict] = None
+        try:
+            raw = row["weather_json"] if "weather_json" in row.keys() else None
+            if raw:
+                parsed = json.loads(raw)
+                if isinstance(parsed, dict):
+                    weather = parsed
+        except (ValueError, TypeError, IndexError):
+            weather = None
         return ManualEntry(
             entry_id=str(row["entry_id"]),
             created_at=float(row["created_at"]),
@@ -183,4 +217,5 @@ class ManualEntryStore:
             user_pinned=bool(row["user_pinned"]),
             deleted_at=row["deleted_at"],
             l1_event_id=row["l1_event_id"],
+            weather=weather,
         )

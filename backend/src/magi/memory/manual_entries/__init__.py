@@ -11,10 +11,13 @@ from .asset_store import ManualEntryAssetStore
 from .l1_projector import ManualEntryL1Projector
 from .models import ManualEntry
 from .store import ManualEntryStore
+from .weather_fetcher import WeatherFetcher, weather_category
 
 __all__ = [
     "ManualEntry",
     "ManualEntryStore",
     "ManualEntryAssetStore",
     "ManualEntryL1Projector",
+    "WeatherFetcher",
+    "weather_category",
 ]

@@ -107,3 +107,31 @@ async def test_project_on_delete_without_l1_id_is_noop():
     await projector.project_on_delete(entry)
     assert l1.deleted == []
     assert l1.stored == []
+
+
+@pytest.mark.asyncio
+async def test_project_carries_weather_into_metadata():
+    """Weather snapshot should ride along in the manual_entry metadata
+    sub-dict so themes/diary can read it without an extra DB hop."""
+    l1 = _StubL1Store()
+    projector = ManualEntryL1Projector(l1_store=l1)
+    entry = _entry(
+        body="下雨天",
+        weather={"code": 65, "temp_c": 15.5, "fetched_at": 1716_000_000.0},
+    )
+    await projector.project_on_create(entry)
+    ev = l1.stored[0]
+    weather = ev.metadata_json["manual_entry"]["weather"]
+    assert weather["code"] == 65
+    assert weather["temp_c"] == pytest.approx(15.5)
+
+
+@pytest.mark.asyncio
+async def test_project_weather_absent_keeps_field_null():
+    """Without a fetched snapshot, the metadata field is explicitly None
+    (not missing) so consumers can rely on the key being present."""
+    l1 = _StubL1Store()
+    projector = ManualEntryL1Projector(l1_store=l1)
+    await projector.project_on_create(_entry(weather=None))
+    ev = l1.stored[0]
+    assert ev.metadata_json["manual_entry"]["weather"] is None

@@ -18,6 +18,14 @@ vi.mock("@/api/modules/manualEntries", () => ({
     list: vi.fn(),
     remove: vi.fn(),
   },
+  // Re-export the WMO helper as a tiny stub — the sheet only uses it
+  // to look up an emoji for a known code, so a deterministic
+  // 65→🌧️ / 0→☀️ map keeps the chip-rendering test focused.
+  weatherEmoji: (code: number | null | undefined) => {
+    if (code == null) return null;
+    const table: Record<number, string> = { 0: "☀️", 2: "⛅", 65: "🌧️" };
+    return table[code] ?? null;
+  },
 }));
 
 vi.mock("react-i18next", () => ({
@@ -49,6 +57,7 @@ beforeEach(() => {
     created_at: 0, kind: "quick", mood: null, location_label: null,
     location_lat: null, location_lng: null, exclude_from_llm: false,
     user_pinned: false, deleted_at: null, l1_event_id: null,
+    weather: null,
   });
 });
 
@@ -100,13 +109,71 @@ describe("QuickEntrySheet", () => {
     await waitFor(() => expect(createMock).toHaveBeenCalled());
   });
 
+  it("renders weather chip when existing entry has weather", () => {
+    render(
+      <QuickEntrySheet
+        open
+        onClose={() => {}}
+        existingEntry={{
+          entry_id: "me-with-weather",
+          body: "下雨天",
+          mood: null,
+          attachments: [],
+          event_at: 100,
+          created_at: 50,
+          kind: "quick",
+          location_label: "杭州",
+          location_lat: null,
+          location_lng: null,
+          exclude_from_llm: false,
+          user_pinned: false,
+          deleted_at: null,
+          l1_event_id: null,
+          weather: { code: 65, temp_c: 15.4, fetched_at: 1 },
+        }}
+      />
+    );
+    // Title attribute uniquely identifies the chip — assert the chip is in DOM.
+    const chip = screen.getByTitle("自动获取的天气");
+    expect(chip).toBeTruthy();
+    // The temperature is rounded for display
+    expect(chip.textContent).toContain("15°");
+  });
+
+  it("does not render weather chip when entry has no weather", () => {
+    render(
+      <QuickEntrySheet
+        open
+        onClose={() => {}}
+        existingEntry={{
+          entry_id: "me-no-weather",
+          body: "啥也没有",
+          mood: null,
+          attachments: [],
+          event_at: 100,
+          created_at: 50,
+          kind: "quick",
+          location_label: null,
+          location_lat: null,
+          location_lng: null,
+          exclude_from_llm: false,
+          user_pinned: false,
+          deleted_at: null,
+          l1_event_id: null,
+          weather: null,
+        }}
+      />
+    );
+    expect(screen.queryByTitle("自动获取的天气")).toBeNull();
+  });
+
   it("calls update instead of create when an existing entry is passed", async () => {
     updateMock.mockResolvedValue({
       entry_id: "me-existing", body: "updated", attachments: [],
       event_at: 100, created_at: 50, kind: "quick", mood: null,
       location_label: null, location_lat: null, location_lng: null,
       exclude_from_llm: false, user_pinned: false, deleted_at: null,
-      l1_event_id: null,
+      l1_event_id: null, weather: null,
     });
     const user = userEvent.setup();
     render(
@@ -128,6 +195,7 @@ describe("QuickEntrySheet", () => {
           user_pinned: false,
           deleted_at: null,
           l1_event_id: null,
+          weather: null,
         }}
       />
     );

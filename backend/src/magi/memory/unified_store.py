@@ -184,11 +184,15 @@ class UnifiedMemoryStore(
             )
 
         # Manual memory entries — user-authored notes that mirror to L1.
-        from .manual_entries import ManualEntryAssetStore, ManualEntryStore
+        from .manual_entries import ManualEntryAssetStore, ManualEntryStore, WeatherFetcher
         self.manual_entry_store = ManualEntryStore(db_path=shared_memory_db)
         self.manual_entry_asset_store = ManualEntryAssetStore(
             media_root=memory_dir.parent / "media",
         )
+        # Weather chip — Open-Meteo HTTP client + small LRU cache. Singleton
+        # so the cache is shared across requests. Best-effort; failures
+        # return None and the entry simply has no weather attached.
+        self.manual_entry_weather_fetcher = WeatherFetcher()
 
         # Location subsystem (separate concern, always-on — IPGeo costs
         # nothing on machines without WiFi and is a strict-improvement over

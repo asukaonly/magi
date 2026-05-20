@@ -4,6 +4,7 @@ import { Feather, Pencil, Trash2 } from "lucide-react";
 
 import type { TimelineClusterBlock } from "@/api/modules/timeline";
 import type { ManualEntry, MoodValence } from "@/api/modules/manualEntries";
+import { weatherEmoji } from "@/api/modules/manualEntries";
 import { cn } from "@/lib/utils";
 import {
   bucketIdForTimestamp,
@@ -220,6 +221,18 @@ const ManualEntryRow: React.FC<{
             aria-hidden="true"
           >
             {MOOD_EMOJI[entry.mood as MoodValence]}
+          </span>
+        ) : null}
+        {entry.weather && weatherEmoji(entry.weather.code) ? (
+          <span
+            className="text-[12px] leading-none"
+            title={`${entry.weather.code} · ${entry.weather.temp_c}°C`}
+            aria-label={`weather ${entry.weather.temp_c} celsius`}
+          >
+            {weatherEmoji(entry.weather.code)}
+            <span className="ml-0.5 text-[10px] tabular-nums">
+              {Math.round(entry.weather.temp_c)}°
+            </span>
           </span>
         ) : null}
       </div>

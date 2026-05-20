@@ -3,6 +3,16 @@ import { api, unwrapGatewayPayload } from '../client';
 /** Valence labels matching MoodCalendar's color palette. */
 export type MoodValence = 'warm' | 'bright' | 'neutral' | 'cool' | 'tense';
 
+/** Ambient weather snapshot resolved against Open-Meteo at the entry's
+ *  event_at + nearest location sample. `code` is a WMO weather code
+ *  (see WMO_EMOJI). Null on the entry when the fetcher couldn't resolve
+ *  coords or reach the API — render the chip conditionally. */
+export interface ManualEntryWeather {
+  code: number;
+  temp_c: number;
+  fetched_at: number;
+}
+
 export interface ManualEntry {
   entry_id: string;
   created_at: number;
@@ -20,6 +30,47 @@ export interface ManualEntry {
   user_pinned: boolean;
   deleted_at: number | null;
   l1_event_id: string | null;
+  weather: ManualEntryWeather | null;
+}
+
+/** WMO weather code → emoji. Mirrored from the backend WMO_CATEGORY
+ *  table; keep both sides in sync when adding codes. Codes outside the
+ *  table fall back to the rendering caller (which can decide to drop
+ *  the chip rather than show a generic ❓). */
+export const WMO_EMOJI: Record<number, string> = {
+  0: '☀️',
+  1: '🌤️',
+  2: '⛅',
+  3: '☁️',
+  45: '🌫️',
+  48: '🌫️',
+  51: '🌦️',
+  53: '🌦️',
+  55: '🌦️',
+  56: '🌦️',
+  57: '🌦️',
+  61: '🌧️',
+  63: '🌧️',
+  65: '🌧️',
+  66: '🌧️',
+  67: '🌧️',
+  71: '🌨️',
+  73: '🌨️',
+  75: '🌨️',
+  77: '🌨️',
+  80: '🌧️',
+  81: '🌧️',
+  82: '🌧️',
+  85: '🌨️',
+  86: '🌨️',
+  95: '⛈️',
+  96: '⛈️',
+  99: '⛈️',
+};
+
+export function weatherEmoji(code: number | null | undefined): string | null {
+  if (code == null) return null;
+  return WMO_EMOJI[code] ?? null;
 }
 
 export interface ListManualEntriesOptions {
@@ -47,6 +98,9 @@ export interface ManualEntryUpdate {
   mood?: MoodValence | '' | null;
   attachment_refs?: string[];
   user_pinned?: boolean;
+  /** Empty string clears the location label server-side; undefined leaves
+   *  untouched. Same empty-string-clears convention as mood. */
+  location_label?: string | null;
 }
 
 export interface AssetUploadResponse {
@@ -89,6 +143,18 @@ export const manualEntriesApi = {
 
   async remove(entryId: string): Promise<void> {
     await api.delete(`/memory/manual-entries/${encodeURIComponent(entryId)}`);
+  },
+
+  /**
+   * Clear the auto-resolved weather snapshot. Idempotent — safe to call
+   * even when the entry has no weather attached. Returns the updated
+   * entry (with `weather: null`).
+   */
+  async clearWeather(entryId: string): Promise<ManualEntry> {
+    const response = await api.delete<ManualEntry>(
+      `/memory/manual-entries/${encodeURIComponent(entryId)}/weather`,
+    );
+    return unwrapGatewayPayload(response);
   },
 
   /**

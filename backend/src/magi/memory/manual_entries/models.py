@@ -34,6 +34,11 @@ class ManualEntry:
     user_pinned: bool = False
     deleted_at: Optional[float] = None
     l1_event_id: Optional[str] = None
+    # Ambient weather snapshot resolved against Open-Meteo at the entry's
+    # event_at + location. Shape: {"code": int, "temp_c": float,
+    # "fetched_at": float}. Null when no lat/lng was resolvable or the
+    # fetcher disabled / failed.
+    weather: Optional[dict[str, Any]] = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -51,4 +56,5 @@ class ManualEntry:
             "user_pinned": self.user_pinned,
             "deleted_at": self.deleted_at,
             "l1_event_id": self.l1_event_id,
+            "weather": dict(self.weather) if self.weather else None,
         }

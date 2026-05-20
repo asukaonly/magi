@@ -131,3 +131,60 @@ async def test_link_l1_event(manual_entry_db: str):
     await store.link_l1_event(entry_id, "01HXYZ123")
     fetched = await store.get(entry_id)
     assert fetched.l1_event_id == "01HXYZ123"
+
+
+@pytest.mark.asyncio
+async def test_weather_roundtrip(manual_entry_db: str):
+    """set_weather persists a JSON blob; re-read produces an equal dict."""
+    store = ManualEntryStore(db_path=manual_entry_db)
+    entry_id = await store.create(_entry(body="x"))
+    payload = {"code": 2, "temp_c": 22.5, "fetched_at": 1716210000.0}
+
+    changed = await store.set_weather(entry_id, payload)
+    assert changed is True
+
+    fetched = await store.get(entry_id)
+    assert fetched.weather == payload
+
+
+@pytest.mark.asyncio
+async def test_weather_clear_with_none(manual_entry_db: str):
+    """set_weather(None) clears a previously-attached snapshot."""
+    store = ManualEntryStore(db_path=manual_entry_db)
+    entry_id = await store.create(_entry(body="x"))
+    await store.set_weather(entry_id, {"code": 0, "temp_c": 20.0, "fetched_at": 1.0})
+    await store.set_weather(entry_id, None)
+
+    fetched = await store.get(entry_id)
+    assert fetched.weather is None
+
+
+@pytest.mark.asyncio
+async def test_create_with_weather_field(manual_entry_db: str):
+    """Weather supplied at creation time persists via the INSERT path."""
+    store = ManualEntryStore(db_path=manual_entry_db)
+    payload = {"code": 61, "temp_c": 15.0, "fetched_at": 100.0}
+    entry_id = await store.create(_entry(body="rainy", weather=payload))
+    fetched = await store.get(entry_id)
+    assert fetched.weather == payload
+
+
+@pytest.mark.asyncio
+async def test_update_location_label_set_and_clear(manual_entry_db: str):
+    """location_label follows the empty-string-clears convention:
+    ``None`` = don't touch, ``""`` = clear to NULL, other strings set."""
+    store = ManualEntryStore(db_path=manual_entry_db)
+    entry_id = await store.create(_entry(body="x", location_label="杭州"))
+
+    # Setting to a new value writes it.
+    await store.update(entry_id, location_label="北京")
+    assert (await store.get(entry_id)).location_label == "北京"
+
+    # Empty string clears to NULL.
+    await store.update(entry_id, location_label="")
+    assert (await store.get(entry_id)).location_label is None
+
+    # Untouched on a body-only update.
+    await store.update(entry_id, location_label="苏州")
+    await store.update(entry_id, body="边改")
+    assert (await store.get(entry_id)).location_label == "苏州"

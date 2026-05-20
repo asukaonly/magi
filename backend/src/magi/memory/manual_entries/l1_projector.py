@@ -69,6 +69,11 @@ def _build_memory_event(entry: ManualEntry) -> MemoryEvent:
             "attachments": list(entry.attachments),
             "location_label": entry.location_label,
             "exclude_from_llm": entry.exclude_from_llm,
+            # Ambient weather snapshot — present when the fetcher could
+            # resolve coords + reach Open-Meteo. Downstream (themes /
+            # diary LLM) can use it as soft context ("on a rainy day…")
+            # without us prescribing a particular prompt shape.
+            "weather": dict(entry.weather) if entry.weather else None,
         },
     }
     now = time.time()
