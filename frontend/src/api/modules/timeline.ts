@@ -145,6 +145,10 @@ export interface TimelineViewportResponse {
   state_markers: TimelineStateMarker[];
   source_mix: TimelineSourceMixItem[];
   theme_cards: TimelineThemeCard[];
+  /** Top labels for the period from LocationResolver (city/region/POI),
+   *  ordered by aggregate time-weighted contribution. Index 0 is the
+   *  primary chip; subsequent entries can be rendered as secondary chips. */
+  place_hints?: string[];
   clusters: TimelineClusterBlock[];
   reflections: TimelineReflectionWindow[];
   raw_events: TimelineRawEvent[];

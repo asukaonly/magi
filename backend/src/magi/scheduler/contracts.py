@@ -22,6 +22,8 @@ class ScheduledTargetType(str, Enum):
     TIMELINE_STANDOUT_RESCORE = "timeline_standout_rescore"
     TIMELINE_MOOD_AGGREGATE = "timeline_mood_aggregate"
     TIMELINE_REPRESENTATIVE_ASSET = "timeline_representative_asset"
+    LOCATION_IPGEO_POLL = "location_ipgeo_poll"
+    LOCATION_WIFI_POLL = "location_wifi_poll"
 
 
 class TriggerType(str, Enum):

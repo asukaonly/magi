@@ -72,9 +72,17 @@ async def main() -> None:
     from magi.timeline.mood.scheduler_contrib import MoodAggregateSchedulerContrib
     from magi.timeline.mood.sample_source import L2ValenceSampleSource
     from magi.media.scheduler_contrib import RepresentativeAssetPopulateSchedulerContrib
+    from magi.location import LocationSampleStore
+    from magi.location.scheduler_contrib import IPGeoPollSchedulerContrib
+    from magi.location.sources.ipgeo import IPGeoLocationSource
 
     l2_store = L2CognitionStore(db_path=str(memory_db_path))
     await l2_store.initialize()
+
+    location_store = LocationSampleStore(db_path=str(memory_db_path))
+    ipgeo = IPGeoPollSchedulerContrib(
+        ipgeo_source=IPGeoLocationSource(store=location_store),
+    )
 
     mood_store = DailyMoodAggregateStore(db_path=str(memory_db_path))
     await mood_store.initialize()
@@ -110,6 +118,10 @@ async def main() -> None:
 
     print("\n== Running representative asset populate ==")
     result = await asset_populate._handle_populate(ctx)
+    print(f"  success={result.success} message={result.message} stats={result.stats}")
+
+    print("\n== Running IPGeo poll ==")
+    result = await ipgeo._handle_poll(ctx)
     print(f"  success={result.success} message={result.message} stats={result.stats}")
 
     print("\nBackfill complete. Diary essence will populate on the next scheduler tick of the running app.")

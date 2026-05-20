@@ -24,6 +24,7 @@ class TimelineViewportBuilder:
         l3_store: Any | None = None,
         l4_store: Any | None = None,
         entity_catalog: Any | None = None,
+        location_resolver: Any | None = None,
     ) -> None:
         self._l1 = l1_store
         self._l2 = l2_store
@@ -36,6 +37,10 @@ class TimelineViewportBuilder:
         # tend to leak internal machinery ("Day反思") or full summary
         # sentences into the chip slot.
         self._entity_catalog = entity_catalog
+        # Optional LocationResolver. When wired, viewport responses include
+        # ``place_hints`` (top labels for the period) which the Hero renders
+        # as the "◦ 在 X" line. Without it we just omit the field.
+        self._location_resolver = location_resolver
         self._state_band_builder = TimelineStateBandBuilder()
         self._cluster_builder = TimelineClusterBuilder()
         self._query_interpreter = TimelineQueryInterpreter()
@@ -122,6 +127,9 @@ class TimelineViewportBuilder:
             state_transitions=state_transitions,
             locale=locale,
         )
+        place_hints = await self._resolve_place_hints(
+            start=interpreted_query.start, end=interpreted_query.end,
+        )
 
         return {
             "viewport": {
@@ -145,6 +153,7 @@ class TimelineViewportBuilder:
             "state_transitions": state_transitions,
             "source_mix": source_mix,
             "theme_cards": theme_cards,
+            "place_hints": place_hints,
             "clusters": clusters,
             "episodes": episodes if scale in ("day", "week") else [],
             "reflections": reflections if scale == "month" else [],
@@ -224,6 +233,29 @@ class TimelineViewportBuilder:
         if self._l1 is None:
             return []
         return await self._l1.query_events(start_time=start, end_time=end, limit=500)
+
+    async def _resolve_place_hints(
+        self, *, start: float, end: float,
+    ) -> list[str]:
+        """Ask LocationResolver for top labels covering the window.
+
+        Returns an empty list when no resolver is wired (testing / partial
+        bootstrap) or when no source produced a usable answer. Callers
+        consume index 0 as the primary chip; the full list is available
+        for secondary chip rendering.
+        """
+        if self._location_resolver is None:
+            return []
+        try:
+            resolved = await self._location_resolver.resolve_dominant(
+                time_start=start, time_end=end,
+            )
+        except Exception:  # pragma: no cover — defensive
+            return []
+        labels = [label for label in (resolved.labels or []) if label]
+        if not labels and resolved.primary_label:
+            labels = [resolved.primary_label]
+        return labels
 
     async def _load_summaries(self) -> list[dict[str, Any]]:
         if self._l3 is None:

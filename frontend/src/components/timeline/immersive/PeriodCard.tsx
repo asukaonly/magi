@@ -72,6 +72,16 @@ export const PeriodCard: React.FC<PeriodCardProps> = ({
   // a dominant_valence field (Plan 3 backend extension). Access via unknown cast.
   const dominantValence = (viewport.state_summary as unknown as Record<string, unknown>)?.dominant_valence as string | undefined;
   const fallbackTone = valenceToFallbackTone(dominantValence);
+  // place_hints from the LocationResolver — primary chip on top, optional
+  // secondary chips appended with a thin separator. Caller-provided
+  // placeLine still wins so manual overrides remain possible.
+  const resolvedPlaceLine = (() => {
+    if (placeLine) return placeLine;
+    const hints = viewport.place_hints ?? [];
+    if (hints.length === 0) return undefined;
+    if (hints.length === 1) return hints[0];
+    return `${hints[0]} · ${hints.slice(1, 3).join(" · ")}`;
+  })();
 
   if (!hasContent) {
     return <PeriodCardEmpty scale={scale} dateLabel={dateLabel} />;
@@ -82,7 +92,7 @@ export const PeriodCard: React.FC<PeriodCardProps> = ({
       <Hero
         dateLabel={dateLabel}
         essenceProse={viewport.overview?.essence_prose ?? ""}
-        placeLine={placeLine}
+        placeLine={resolvedPlaceLine}
         photoUrl={photoUrl}
         fallbackTone={fallbackTone}
       />

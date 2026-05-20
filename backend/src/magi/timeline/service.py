@@ -62,6 +62,7 @@ class TimelineService:
             l3_store=getattr(unified_memory, "l3", None),
             l4_store=getattr(unified_memory, "l4", None),
             entity_catalog=getattr(unified_memory, "l2_entity_catalog", None),
+            location_resolver=getattr(unified_memory, "location_resolver", None),
         )
 
     async def upsert_event(

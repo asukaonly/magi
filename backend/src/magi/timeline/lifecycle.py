@@ -81,6 +81,13 @@ class TimelineSchedulersModule(LifecycleModule):
         from ..media.scheduler_contrib import RepresentativeAssetPopulateSchedulerContrib
         from ..media.selector import MediaSelector
         from ..memory.l3.daily_mood.store import DailyMoodAggregateStore
+        from ..location.scheduler_contrib import (
+            IPGeoPollSchedulerContrib,
+            WiFiPollSchedulerContrib,
+        )
+        from ..location.sources.ipgeo import IPGeoLocationSource
+        from ..location.sources.wifi import WiFiLocationSource
+        from ..location.nominatim import NominatimClient
 
         unified = getattr(self._context.memory, "unified_memory", None)
         l1_store = getattr(unified, "l1", None) if unified else None
@@ -157,6 +164,37 @@ class TimelineSchedulersModule(LifecycleModule):
             logger_schedulers.warning(
                 "Skipping representative-asset scheduler: l2=%s media_registry=%s",
                 l2_store is not None, media_registry is not None,
+            )
+
+        # 5. Location IPGeo poll (4h cadence, free-tier ipapi.co)
+        location_store = getattr(unified, "location_sample_store", None) if unified else None
+        geocode_cache = getattr(unified, "place_geocode_cache", None) if unified else None
+        if location_store is not None:
+            ipgeo_source = IPGeoLocationSource(store=location_store)
+            contrib = IPGeoPollSchedulerContrib(ipgeo_source=ipgeo_source)
+            await contrib.register_schedules(scheduler_service)
+            self._contribs.append(contrib)
+            logger_schedulers.info("Registered LOCATION_IPGEO_POLL scheduler")
+        else:
+            logger_schedulers.warning(
+                "Skipping ipgeo scheduler: location_sample_store unavailable",
+            )
+
+        # 6. Location WiFi poll (10min cadence; backoff to 6h when scan
+        # consistently yields empty — typical for machines with no WiFi
+        # adapter or with permission denied).
+        if location_store is not None and geocode_cache is not None:
+            nominatim = NominatimClient(cache=geocode_cache)
+            wifi_source = WiFiLocationSource(
+                store=location_store, nominatim=nominatim,
+            )
+            contrib = WiFiPollSchedulerContrib(wifi_source=wifi_source)
+            await contrib.register_schedules(scheduler_service)
+            self._contribs.append(contrib)
+            logger_schedulers.info("Registered LOCATION_WIFI_POLL scheduler")
+        else:
+            logger_schedulers.warning(
+                "Skipping wifi scheduler: stores unavailable",
             )
 
     async def shutdown(self) -> None:
