@@ -575,7 +575,14 @@ def test_build_final_response_system_prompt_prioritizes_memory_query_results() -
     assert "Do not replace missing recall results with implicit memory" in final_prompt
 
 
-def test_postprocessor_marks_memory_query_results_as_source_of_truth() -> None:
+def test_postprocessor_marks_memory_query_results_with_context_role() -> None:
+    """Memory-query payloads carry a context_role tag so the next LLM
+    turn knows the result is a historical recall, not a regular tool
+    output. The legacy ``source_of_truth_for_turn`` flag and
+    ``usage_guidance`` text were retired in favour of inlining the
+    same instruction directly into the compacted memory prose
+    (see ``memory/tool_context_historical.py``: "Source-of-truth for
+    this turn. Do not guess beyond these findings.")."""
     postprocessor = FunctionCallingPostprocessor()
     result = type(
         "Result",
@@ -599,9 +606,12 @@ def test_postprocessor_marks_memory_query_results_as_source_of_truth() -> None:
 
     payload = postprocessor.build_tool_message_payload("memory_query", result)
 
-    assert payload["source_of_truth_for_turn"] is True
     assert payload["context_role"] == "historical_recall_result"
-    assert "implicit memory" in payload["usage_guidance"]
+    # The source-of-truth instruction now lives inside the compacted
+    # prose itself instead of as a separate payload field.
+    historical = payload["data"]["historical_recall"]
+    assert isinstance(historical, str)
+    assert "Source-of-truth for this turn" in historical
 
 
 def test_build_tool_message_payload_keeps_only_projected_historical_recall_for_memory_query() -> (
@@ -653,33 +663,35 @@ def test_build_tool_message_payload_keeps_only_projected_historical_recall_for_m
 
     payload = postprocessor.build_tool_message_payload("memory_query", result)
 
-    assert payload["data"] == {
-        "historical_recall": {
-            "status": "found",
-            "query_mode": "detail",
-            "summary": "You like rainy weather.",
-            "findings": [
-                {
-                    "kind": "relationship",
-                    "statement": "user:u1 LIKES weather_state:rainy",
-                    "statement_truncated": False,
-                    "source_layer": "L2",
-                    "confidence": 0.94,
-                    "status": "active",
-                    "occurred_at": None,
-                }
-            ],
-            "insufficient_evidence": False,
-            "answering_hints": {
-                "must_not_guess_when_empty": True,
-                "prefer_direct_findings": True,
-            },
-            "provenance": {
-                "primary_count": 1,
-                "source_layers": ["L2"],
-            },
-        }
-    }
+    # The compactor (memory/tool_context_historical.py) now renders the
+    # historical_recall block as prose instead of returning a trimmed
+    # dict. The original purpose of this test was to verify that
+    # internal-only fields (updated_at, evidence_ref_ids, retrieval
+    # debug trace) do not leak into the LLM-visible payload. The prose
+    # format achieves that by construction — they were never going to
+    # be rendered — so we now assert the prose carries the necessary
+    # surface info and excludes everything internal.
+    historical = payload["data"]["historical_recall"]
+    assert isinstance(historical, str)
+
+    # Surface info the model needs is present:
+    assert "status=found" in historical
+    assert "mode=detail" in historical
+    assert "sources=L2" in historical
+    assert "total=1" in historical
+    assert "You like rainy weather." in historical
+    assert "user:u1 LIKES weather_state:rainy" in historical
+    assert "conf=0.94" in historical
+
+    # Internal-only fields stay out:
+    assert "updated_at" not in historical
+    assert "1773999236" not in historical
+    assert "evidence_ref_ids" not in historical
+    assert "triple-1" not in historical
+    # Debug retrieval trace must not leak either.
+    assert "intent_source" not in historical
+    assert "l2_query_trace" not in historical
+    assert "debug" not in payload["data"]
 
 
 def test_postprocessor_uses_registered_tool_context_formatter() -> None:

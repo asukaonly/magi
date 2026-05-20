@@ -119,6 +119,7 @@ async def test_direct_llm_handler_carries_llm_trace_into_execution_result() -> N
     assert result.llm_trace["duration_ms"] == 920
     assert prompt_service.event_contexts == [
         {
+            "request_kind": "task_agent:chat_direct",
             "session_id": "session-1",
             "turn_id": "turn-1",
             "trace_id": "trace:turn-1",
