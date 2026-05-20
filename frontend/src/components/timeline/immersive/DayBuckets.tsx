@@ -333,6 +333,26 @@ const ManualEntryRow: React.FC<{
   );
 };
 
+/**
+ * Cluster labels the backend treats as "no useful name" — these appear
+ * when episode_formation couldn't extract tags / entities and the cluster
+ * builder fell back to the literal default. Rendering the placeholder
+ * verbatim (e.g. "activity" four times under a Chrome group) gives the
+ * user no signal; we render a soft em-dash instead so the time column
+ * still has visual structure but the row isn't shouting "I have no idea
+ * what this was".
+ *
+ * NOTE: lowercase comparison — the backend writes "activity" but a
+ * future entrant might capitalize.
+ */
+const PLACEHOLDER_LABELS = new Set(["activity"]);
+
+function isPlaceholderText(value: string | null | undefined): boolean {
+  if (!value) return true;
+  const trimmed = value.trim().toLowerCase();
+  return trimmed === "" || PLACEHOLDER_LABELS.has(trimmed);
+}
+
 const SourceGroupBlock: React.FC<{ group: SourceGroup }> = ({ group }) => {
   const label = labelForSource(group.sourceType);
   return (
@@ -350,22 +370,33 @@ const SourceGroupBlock: React.FC<{ group: SourceGroup }> = ({ group }) => {
         )}
       </div>
       <ul className="ml-5 flex flex-col gap-1">
-        {group.items.map((item) => (
-          <li
-            key={item.block_id}
-            className={cn(
-              "grid grid-cols-[92px_1fr] items-baseline gap-3 text-[13px]",
-              "text-foreground/85",
-            )}
-          >
-            <span className="font-mono text-[11px] text-muted-foreground/70">
-              {formatTimeRange(item.time_start, item.time_end)}
-            </span>
-            <span className="leading-snug">
-              {item.slice_narrative || item.summary || item.label || ""}
-            </span>
-          </li>
-        ))}
+        {group.items.map((item) => {
+          // Pick the first non-placeholder field. The backend can leave
+          // any of these as "" (empty) or "activity" (literal fallback),
+          // so we filter both rather than trust truthy-ness alone.
+          const candidates = [item.slice_narrative, item.summary, item.label];
+          const displayText = candidates.find((c) => !isPlaceholderText(c)) ?? "";
+          return (
+            <li
+              key={item.block_id}
+              className={cn(
+                "grid grid-cols-[92px_1fr] items-baseline gap-3 text-[13px]",
+                "text-foreground/85",
+              )}
+            >
+              <span className="font-mono text-[11px] text-muted-foreground/70">
+                {formatTimeRange(item.time_start, item.time_end)}
+              </span>
+              {displayText ? (
+                <span className="leading-snug">{displayText}</span>
+              ) : (
+                <span className="leading-snug text-muted-foreground/40" aria-label="(no label)">
+                  —
+                </span>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </div>
   );

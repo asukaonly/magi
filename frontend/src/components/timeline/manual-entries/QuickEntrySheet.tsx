@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Image, MapPin, X } from 'lucide-react';
+import { ChevronLeft, FileText, Image, MapPin, X } from 'lucide-react';
 import { toast } from 'sonner';
 
 import {
@@ -119,6 +119,12 @@ function nextDraftId(): string {
   return `draft-${Date.now()}-${_draftCounter}`;
 }
 
+/** Editor mode. ``quick`` is a plain <textarea> — the default for new
+ *  entries because most captures are short and the toolbar would feel
+ *  ceremonial. ``long`` swaps in Tiptap with the full toolbar; entries
+ *  with a body_doc on load open here automatically. */
+type EditorMode = 'quick' | 'long';
+
 export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
   open,
   onClose,
@@ -128,8 +134,10 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
 }) => {
   const { t } = useTranslation('app');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const [body, setBody] = useState('');
+  const [mode, setMode] = useState<EditorMode>('quick');
   /** ProseMirror JSON document — kept in lockstep with `body` (the
    *  plain-text projection) via RichTextEditor's onChange callbacks.
    *  Null until the editor mounts and emits its first onUpdate. */
@@ -157,6 +165,10 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
     if (existingEntry) {
       setBody(existingEntry.body);
       setBodyDoc(existingEntry.body_doc ?? null);
+      // Entries that were saved with a rich doc open back into long
+      // mode — converting them down to a textarea on every open would
+      // be lossy and surprising. Plain-body entries stay in quick mode.
+      setMode(existingEntry.body_doc ? 'long' : 'quick');
       setMood(existingEntry.mood);
       setAttachments(existingEntry.attachments.map((ref) => ({
         draftId: nextDraftId(),
@@ -170,6 +182,10 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
     } else {
       setBody('');
       setBodyDoc(null);
+      // New entries always start in quick mode. The "📄 转长文" button
+      // is the explicit gesture to promote — keeps casual captures
+      // casual and rich text intentional.
+      setMode('quick');
       setAttachments([]);
       setMood(null);
       setTimeShift({ kind: 'now' });
@@ -261,15 +277,17 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
     const refs = attachments
       .filter((a) => a.status === 'ready' && a.assetRef)
       .map((a) => a.assetRef!);
+    // Only attach body_doc when we actually have one — sending null
+    // would pollute quick-mode saves with an explicit empty document.
+    // The backend's reader treats absent and null identically (falls
+    // back to plain body), so omitting is the cleaner signal.
     const payload = {
       body: body.trim(),
-      // Send the rich-text document alongside the plain-text projection.
-      // The backend stores both; reads prefer the doc when present.
-      body_doc: bodyDoc,
       event_at: shiftToEventAt(timeShift),
       mood,
       location_label: location,
       attachment_refs: refs,
+      ...(bodyDoc ? { body_doc: bodyDoc } : {}),
     };
     try {
       let result: ManualEntry;
@@ -282,12 +300,12 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
         result = await manualEntriesApi.update(existingEntry.entry_id, {
           body: payload.body,
           // Include the rich-text doc so formatting survives an edit.
-          // We never clear body_doc explicitly here — a user clearing
-          // formatting just produces a minimal doc, not a true clear.
-          body_doc: payload.body_doc,
+          // Same conditional-attach as create — only send when we have
+          // a doc; the backend treats absent / null identically.
+          ...(bodyDoc ? { body_doc: bodyDoc } : {}),
           event_at: payload.event_at,
-          mood: payload.mood ?? '',
-          location_label: payload.location_label ?? '',
+          mood: mood ?? '',
+          location_label: location ?? '',
           attachment_refs: payload.attachment_refs,
         });
         if (existingEntry.weather && !weather) {
@@ -323,47 +341,158 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
     existingEntry, onClose, onSaved, t,
   ]);
 
-  // (Cmd/Ctrl+Enter is now handled inside RichTextEditor —
-  // onSubmitShortcut → handleSave.)
+  // Quick-mode textarea handlers — Cmd+Enter saves, image clipboard
+  // items get routed to the upload pipeline. (Long mode delegates these
+  // to RichTextEditor's internal handlers.)
+  const handleQuickTextareaPaste = useCallback(
+    (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      const items = e.clipboardData?.items;
+      if (!items || items.length === 0) return;
+      const imageFiles: File[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        if (it.kind === 'file' && it.type.startsWith('image/')) {
+          const f = it.getAsFile();
+          if (f) imageFiles.push(f);
+        }
+      }
+      if (imageFiles.length > 0) {
+        e.preventDefault();
+        imageFiles.forEach((f) => void uploadFile(f));
+      }
+    },
+    [uploadFile],
+  );
+
+  const handleQuickTextareaKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        void handleSave();
+      }
+    },
+    [handleSave],
+  );
+
+  /** Promote a quick capture to long mode. The current plain body is
+   *  preserved via RichTextEditor's fallbackPlainText — the editor
+   *  wraps it in a single paragraph so the user picks up exactly where
+   *  they left off, just with formatting available. */
+  const switchToLong = useCallback(() => {
+    setBodyDoc(null); // force editor to seed from fallbackPlainText
+    setMode('long');
+  }, []);
+
+  /** Drop back to quick mode. Lossy by definition — formatting that
+   *  doesn't survive plain-text flatten is gone. We don't prompt; the
+   *  user explicitly clicked. */
+  const switchToQuick = useCallback(() => {
+    setBodyDoc(null);
+    setMode('quick');
+  }, []);
 
   return (
     <Sheet open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
       <SheetContent
         side="bottom"
+        // Long mode disables click-outside and Escape dismissal — losing
+        // a half-written long entry to an accidental click is the exact
+        // frustration this whole mode split is trying to avoid. Quick
+        // mode keeps the casual behavior.
+        onPointerDownOutside={(e) => {
+          if (mode === 'long') e.preventDefault();
+        }}
+        onEscapeKeyDown={(e) => {
+          if (mode === 'long') e.preventDefault();
+        }}
         className={cn(
           // Override the variant's `inset-x-0 bottom-0` so the sheet is a
           // floating centered card instead of a full-bleed bottom strip.
           // tailwind-merge resolves the conflicting position utilities to
           // the last value (this className wins).
           'left-1/2 right-auto -translate-x-1/2',
-          'bottom-6 w-[calc(100%-2rem)] max-w-2xl',
+          'bottom-6 w-[calc(100%-2rem)]',
+          // Long mode gets noticeably more horizontal + vertical room so
+          // the editor + toolbar don't feel cramped. Quick mode stays
+          // compact so casual capture is a small visual gesture.
+          mode === 'long' ? 'max-w-3xl' : 'max-w-2xl',
           'rounded-2xl border border-border/70',
         )}
       >
         <SheetHeader className="border-b border-border/40 pb-3">
-          <SheetTitle className="text-base font-medium">
-            {existingEntry
-              ? t('timeline.manualEntry.editTitle', { defaultValue: '编辑记录' })
-              : t('timeline.manualEntry.createTitle', { defaultValue: '写下…' })}
-          </SheetTitle>
+          <div className="flex items-center justify-between gap-3">
+            <SheetTitle className="text-base font-medium">
+              {existingEntry
+                ? t('timeline.manualEntry.editTitle', { defaultValue: '编辑记录' })
+                : mode === 'long'
+                ? t('timeline.manualEntry.createLongTitle', { defaultValue: '写一篇…' })
+                : t('timeline.manualEntry.createTitle', { defaultValue: '写下…' })}
+            </SheetTitle>
+            {/* Mode toggle. In quick mode it offers an upgrade ("转长文"),
+                in long mode it's a quiet exit back to the casual textarea.
+                Kept small and right-aligned so it doesn't compete with
+                the title. */}
+            {mode === 'quick' ? (
+              <button
+                type="button"
+                onClick={switchToLong}
+                className="flex items-center gap-1 rounded-md border border-border/60 px-2 py-1 text-[11px] text-muted-foreground hover:bg-foreground/[0.03] hover:text-foreground"
+                title={t('timeline.manualEntry.switchToLongHint', {
+                  defaultValue: '切换到富文本编辑',
+                })}
+              >
+                <FileText className="h-3 w-3" />
+                {t('timeline.manualEntry.switchToLong', { defaultValue: '转长文' })}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={switchToQuick}
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+                title={t('timeline.manualEntry.switchToQuickHint', {
+                  defaultValue: '切回简单输入（格式会丢失）',
+                })}
+              >
+                <ChevronLeft className="h-3 w-3" />
+                {t('timeline.manualEntry.switchToQuick', { defaultValue: '简单模式' })}
+              </button>
+            )}
+          </div>
         </SheetHeader>
 
         <div className="space-y-3 px-6 pb-5 pt-3">
-          {/* Body editor — Tiptap-based rich-text input. The plain-text
-              projection lives in `body`; the JSON doc in `bodyDoc`. The
-              editor maintains both on every keystroke via onChange. */}
-          <RichTextEditor
-            value={bodyDoc}
-            fallbackPlainText={body}
-            onChange={setBodyDoc}
-            onChangeText={setBody}
-            onPasteImages={(files) => files.forEach((f) => void uploadFile(f))}
-            onSubmitShortcut={() => void handleSave()}
-            placeholder={t('timeline.manualEntry.placeholder', {
-              defaultValue: '写下…（⌘+V 粘贴图片，⌘+Enter 保存）',
-            })}
-            autoFocus
-          />
+          {/* Body editor — mode-switched. Quick is a plain textarea (the
+              default; matches the casual capture brief). Long mounts
+              Tiptap with the formatting toolbar. The plain-text body
+              stays in `body` in both paths so the save path is
+              identical. */}
+          {mode === 'long' ? (
+            <RichTextEditor
+              value={bodyDoc}
+              fallbackPlainText={body}
+              onChange={setBodyDoc}
+              onChangeText={setBody}
+              onPasteImages={(files) => files.forEach((f) => void uploadFile(f))}
+              onSubmitShortcut={() => void handleSave()}
+              placeholder={t('timeline.manualEntry.placeholderLong', {
+                defaultValue: '写下…（⌘+V 粘贴图片，⌘+Enter 保存）',
+              })}
+              autoFocus
+            />
+          ) : (
+            <textarea
+              ref={textareaRef}
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              onPaste={handleQuickTextareaPaste}
+              onKeyDown={handleQuickTextareaKeyDown}
+              placeholder={t('timeline.manualEntry.placeholder', {
+                defaultValue: '写下…（⌘+V 粘贴图片，⌘+Enter 保存）',
+              })}
+              autoFocus
+              className="min-h-[96px] w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm leading-6"
+            />
+          )}
 
           {/* Attachments */}
           <div>

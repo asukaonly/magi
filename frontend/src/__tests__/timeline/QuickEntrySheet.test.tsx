@@ -125,7 +125,7 @@ describe("QuickEntrySheet", () => {
     expect(screen.getByRole("button", { name: "保存" })).not.toBeDisabled();
   });
 
-  it("calls manualEntriesApi.create with the entered body on save", async () => {
+  it("calls manualEntriesApi.create with the entered body on save (quick mode = default)", async () => {
     const user = userEvent.setup();
     const onSaved = vi.fn();
     render(<QuickEntrySheet open onClose={() => {}} onSaved={onSaved} />);
@@ -135,14 +135,34 @@ describe("QuickEntrySheet", () => {
     const payload = createMock.mock.calls[0][0];
     expect(payload.body).toBe("一念之间");
     expect(payload.attachment_refs).toEqual([]);
-    // body_doc travels alongside the plain-text body so formatting is
-    // preserved server-side. The textarea-shim wraps the plain string
-    // in a single paragraph; production Tiptap emits the same shape.
-    expect(payload.body_doc).toEqual({
+    // Quick mode is the default; the plain textarea doesn't produce a
+    // body_doc. Promoting to long mode (the "转长文" button) is what
+    // attaches one — see the separate test below.
+    expect(payload.body_doc).toBeUndefined();
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+  });
+
+  it("promotes to long mode and attaches body_doc when 转长文 is clicked", async () => {
+    const user = userEvent.setup();
+    const onSaved = vi.fn();
+    render(<QuickEntrySheet open onClose={() => {}} onSaved={onSaved} />);
+
+    // Type in quick mode first, then upgrade.
+    await user.type(screen.getByPlaceholderText(/写下/), "一念之间");
+    await user.click(screen.getByRole("button", { name: "转长文" }));
+
+    // After promotion, the mock RichTextEditor (textarea-shim) is mounted;
+    // its onChange wraps the body into a ProseMirror doc on the next keystroke.
+    // Add a trailing space so the editor emits an update for the existing text.
+    await user.type(screen.getByPlaceholderText(/写下/), " ");
+
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(createMock).toHaveBeenCalled());
+    const payload = createMock.mock.calls[0][0];
+    expect(payload.body).toContain("一念之间");
+    expect(payload.body_doc).toMatchObject({
       type: "doc",
-      content: [
-        { type: "paragraph", content: [{ type: "text", text: "一念之间" }] },
-      ],
+      content: [{ type: "paragraph" }],
     });
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
   });
