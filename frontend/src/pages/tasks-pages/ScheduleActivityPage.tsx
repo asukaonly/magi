@@ -149,7 +149,7 @@ export const ScheduleActivityPage: React.FC = () => {
         </>
       }
     >
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-4">
+      <div className="mx-auto w-full max-w-6xl">
         <ScheduleActivityTable
           activities={activities}
           schedulesById={schedulesById}
@@ -159,14 +159,20 @@ export const ScheduleActivityPage: React.FC = () => {
           onOpenBackgroundTask={(taskId) => navigate(`/tasks/background?taskId=${encodeURIComponent(taskId)}`)}
           onSelectActivity={setSelectedActivity}
         />
-        <TasksPaginationBar
-          total={total}
-          offset={offset}
-          limit={PAGE_SIZE}
-          loading={loading}
-          onPageChange={setOffset}
-        />
       </div>
+      {total > PAGE_SIZE ? (
+        <div className="sticky bottom-0 -mx-6 mt-4 border-t border-border/60 bg-background/95 px-6 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+          <div className="mx-auto w-full max-w-6xl">
+            <TasksPaginationBar
+              total={total}
+              offset={offset}
+              limit={PAGE_SIZE}
+              loading={loading}
+              onPageChange={setOffset}
+            />
+          </div>
+        </div>
+      ) : null}
       <ActivityDetailDrawer
         activity={selectedActivity}
         schedulesById={schedulesById}

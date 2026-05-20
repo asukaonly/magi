@@ -322,6 +322,23 @@ pub(super) fn query_activity(filters: ActivityFilters) -> Value {
     let mut activities: Vec<Value> = Vec::new();
     let live_only_on_first_page = offset == 0;
 
+    // Build a schedule_id → title lookup once. We need this both for the
+    // currently-running snapshots and for naming history rows (so the user
+    // sees "screen_time" instead of "exec_<hex>"). Includes disabled
+    // schedules so history for paused schedules still shows their name.
+    let schedules = query_schedules(false)
+        .get("schedules")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let mut schedule_titles: std::collections::HashMap<String, String> =
+        std::collections::HashMap::with_capacity(schedules.len());
+    for schedule in &schedules {
+        if let Some(id) = schedule.get("schedule_id").and_then(|v| v.as_str()) {
+            schedule_titles.insert(id.to_string(), schedule_title(schedule));
+        }
+    }
+
     // 1) Outstanding sensor sync jobs (queued/running) — first page only.
     if live_only_on_first_page {
     if let Ok(mut stmt) = conn.prepare(
@@ -371,12 +388,7 @@ pub(super) fn query_activity(filters: ActivityFilters) -> Value {
     // schedule config page already shows "next run" per row, and upcoming rows
     // have no actions to take, so they'd just be duplicate noise.
     if live_only_on_first_page {
-    let schedules = query_schedules(true)
-        .get("schedules")
-        .and_then(|value| value.as_array())
-        .cloned()
-        .unwrap_or_default();
-    for schedule in schedules {
+    for schedule in &schedules {
         let state = schedule
             .get("target_state")
             .cloned()
@@ -400,7 +412,7 @@ pub(super) fn query_activity(filters: ActivityFilters) -> Value {
             .get("target_key")
             .and_then(|value| value.as_str())
             .unwrap_or("");
-        let title = schedule_title(&schedule);
+        let title = schedule_title(schedule);
         activities.push(json!({
             "activity_id": format!("target:{target_type}:{target_key}"),
             "schedule_id": schedule_id,
@@ -504,6 +516,11 @@ pub(super) fn query_activity(filters: ActivityFilters) -> Value {
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
+            let schedule_id = row
+                .get("schedule_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             let raw_status = row
                 .get("status")
                 .and_then(|v| v.as_str())
@@ -513,6 +530,14 @@ pub(super) fn query_activity(filters: ActivityFilters) -> Value {
                 "success" => "succeeded",
                 other => other,
             };
+            // Use the schedule's display title so users see e.g. "screen_time"
+            // or "Drink water reminder" instead of "exec_<hex>". Fall back to
+            // schedule_id (more meaningful than the random execution_id) when
+            // the schedule was deleted.
+            let display_title = schedule_titles
+                .get(&schedule_id)
+                .cloned()
+                .unwrap_or_else(|| schedule_id.clone());
             let object = row
                 .as_object_mut()
                 .expect("serialize_execution always returns object");
@@ -531,7 +556,7 @@ pub(super) fn query_activity(filters: ActivityFilters) -> Value {
             object.insert("cancellable".into(), Value::Bool(false));
             object.insert("cancel_kind".into(), Value::Null);
             object.insert("background_task_id".into(), Value::Null);
-            object.insert("title".into(), Value::String(execution_id));
+            object.insert("title".into(), Value::String(display_title));
             activities.push(row);
         }
     }
@@ -586,22 +611,24 @@ pub(super) fn query_activity(filters: ActivityFilters) -> Value {
 }
 
 fn schedule_title(schedule: &Value) -> String {
+    // Match the Python `_schedule_title` precedence used everywhere else:
+    // metadata/payload display_name → title → source_type → plugin_id, finally
+    // fall back to schedule_id (more meaningful than target_key for users).
+    for key in ["display_name", "title", "source_type", "plugin_id"] {
+        for source in ["metadata", "target_payload"] {
+            if let Some(value) = schedule
+                .get(source)
+                .and_then(|outer| outer.get(key))
+                .and_then(|v| v.as_str())
+                .filter(|v| !v.trim().is_empty())
+            {
+                return value.to_string();
+            }
+        }
+    }
     schedule
-        .get("metadata")
-        .and_then(|metadata| metadata.get("title"))
-        .and_then(|value| value.as_str())
-        .filter(|value| !value.trim().is_empty())
-        .or_else(|| {
-            schedule
-                .get("target_payload")
-                .and_then(|payload| payload.get("title"))
-                .and_then(|value| value.as_str())
-        })
-        .unwrap_or_else(|| {
-            schedule
-                .get("target_key")
-                .and_then(|value| value.as_str())
-                .unwrap_or("")
-        })
+        .get("schedule_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
         .to_string()
 }
