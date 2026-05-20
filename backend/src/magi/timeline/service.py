@@ -61,6 +61,7 @@ class TimelineService:
             l2_store=getattr(unified_memory, "l2", None),
             l3_store=getattr(unified_memory, "l3", None),
             l4_store=getattr(unified_memory, "l4", None),
+            entity_catalog=getattr(unified_memory, "l2_entity_catalog", None),
         )
 
     async def upsert_event(
