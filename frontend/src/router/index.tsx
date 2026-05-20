@@ -14,20 +14,26 @@ const ChatPage = React.lazy(() =>
 const TimelinePage = React.lazy(() =>
   import('../pages/Timeline').then((m) => ({ default: m.TimelinePage }))
 );
-const MemoryOverviewPage = React.lazy(() =>
-  import('../pages/memory-pages').then((m) => ({ default: m.MemoryOverviewPage }))
+const MemoryStoryPage = React.lazy(() =>
+  import('../pages/memory-pages').then((m) => ({ default: m.MemoryStoryPage }))
 );
-const MemoryWorkbenchPage = React.lazy(() =>
-  import('../pages/memory-pages').then((m) => ({ default: m.MemoryWorkbenchPage }))
+const MemoryEpisodesPage = React.lazy(() =>
+  import('../pages/memory-pages').then((m) => ({ default: m.MemoryEpisodesPage }))
+);
+const MemoryPortraitPage = React.lazy(() =>
+  import('../pages/memory-pages').then((m) => ({ default: m.MemoryPortraitPage }))
+);
+const MemoryRecallPage = React.lazy(() =>
+  import('../pages/memory-pages').then((m) => ({ default: m.MemoryRecallPage }))
+);
+const MemoryGovernancePage = React.lazy(() =>
+  import('../pages/memory-pages').then((m) => ({ default: m.MemoryGovernancePage }))
 );
 const MemoryEventsPage = React.lazy(() =>
   import('../pages/memory-pages').then((m) => ({ default: m.MemoryEventsPage }))
 );
 const MemoryKnowledgePage = React.lazy(() =>
   import('../pages/memory-pages').then((m) => ({ default: m.MemoryKnowledgePage }))
-);
-const MemoryReflectionPage = React.lazy(() =>
-  import('../pages/memory-pages').then((m) => ({ default: m.MemoryReflectionPage }))
 );
 const MemorySkillsPage = React.lazy(() =>
   import('../pages/memory-pages').then((m) => ({ default: m.MemorySkillsPage }))
@@ -152,32 +158,52 @@ const router = createBrowserRouter([
       },
       {
         path: 'events',
-        element: (
-          <React.Suspense fallback={<LoadingFallback />}>
-            <MemoryOverviewPage />
-          </React.Suspense>
-        ),
+        element: <Navigate to="/memory/stories" replace />,
       },
       {
         path: 'memory',
         children: [
+          { index: true, element: <Navigate to="/memory/stories" replace /> },
+          { path: 'overview', element: <Navigate to="/memory/stories" replace /> },
+          { path: 'workbench', element: <Navigate to="/memory/recall" replace /> },
+          { path: 'reflection', element: <Navigate to="/memory/stories" replace /> },
           {
-            index: true,
-            element: <Navigate to="/memory/overview" replace />,
-          },
-          {
-            path: 'overview',
+            path: 'stories',
             element: (
               <React.Suspense fallback={<LoadingFallback />}>
-                <MemoryOverviewPage />
+                <MemoryStoryPage />
               </React.Suspense>
             ),
           },
           {
-            path: 'workbench',
+            path: 'episodes',
             element: (
               <React.Suspense fallback={<LoadingFallback />}>
-                <MemoryWorkbenchPage />
+                <MemoryEpisodesPage />
+              </React.Suspense>
+            ),
+          },
+          {
+            path: 'portrait',
+            element: (
+              <React.Suspense fallback={<LoadingFallback />}>
+                <MemoryPortraitPage />
+              </React.Suspense>
+            ),
+          },
+          {
+            path: 'recall',
+            element: (
+              <React.Suspense fallback={<LoadingFallback />}>
+                <MemoryRecallPage />
+              </React.Suspense>
+            ),
+          },
+          {
+            path: 'governance',
+            element: (
+              <React.Suspense fallback={<LoadingFallback />}>
+                <MemoryGovernancePage />
               </React.Suspense>
             ),
           },
@@ -194,14 +220,6 @@ const router = createBrowserRouter([
             element: (
               <React.Suspense fallback={<LoadingFallback />}>
                 <MemoryKnowledgePage />
-              </React.Suspense>
-            ),
-          },
-          {
-            path: 'reflection',
-            element: (
-              <React.Suspense fallback={<LoadingFallback />}>
-                <MemoryReflectionPage />
               </React.Suspense>
             ),
           },

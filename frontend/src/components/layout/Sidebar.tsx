@@ -41,12 +41,11 @@ interface SidebarProps {
 type ActivityPanel = Exclude<ChatPanelType, 'none'>;
 
 const MEMORY_DESTINATIONS = [
-  { key: 'overview', path: '/memory/overview' },
-  { key: 'workbench', path: '/memory/workbench' },
-  { key: 'events', path: '/memory/events' },
-  { key: 'knowledge', path: '/memory/knowledge' },
-  { key: 'reflection', path: '/memory/reflection' },
-  { key: 'skills', path: '/memory/skills' },
+  { key: 'stories', path: '/memory/stories' },
+  { key: 'episodes', path: '/memory/episodes' },
+  { key: 'portrait', path: '/memory/portrait' },
+  { key: 'recall', path: '/memory/recall' },
+  { key: 'governance', path: '/memory/governance' },
 ] as const;
 
 const TASKS_DESTINATIONS = [
@@ -361,7 +360,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
     if (panel === 'memory') {
       setActivePanel('memory');
       if (!isMemoryRoute) {
-        navigate('/memory/overview');
+        navigate('/memory/stories');
       }
       return;
     }
@@ -493,7 +492,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
           {MEMORY_DESTINATIONS.map((item) => {
             const destinationActive =
               location.pathname === item.path ||
-              (item.path === '/memory/overview' && location.pathname === '/events');
+              (item.path === '/memory/stories' && (location.pathname === '/events' || location.pathname === '/memory/overview'));
             return (
               <button
                 key={item.key}
