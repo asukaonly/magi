@@ -98,6 +98,84 @@ async def test_activity_endpoint_returns_history_in_window(tmp_path: Path, monke
 
 
 @pytest.mark.asyncio
+async def test_activity_endpoint_target_types_filter(tmp_path: Path, monkeypatch) -> None:
+    """Repeated ?target_types= query params must filter the merged activity list."""
+    from magi.core.sqlite import sqlite_connection_async
+    from magi.scheduler.contracts import (
+        ScheduleDefinition,
+        ScheduledTargetType,
+        TriggerDefinition,
+        TriggerType,
+    )
+    from magi.scheduler.repository import ScheduleRepository
+
+    runtime_paths = RuntimePaths(base_dir=tmp_path)
+    db_path = Path(runtime_paths.scheduler_db_path)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    async with sqlite_connection_async(db_path) as db:
+        await db.executescript(scheduler_initial.SCHEMA_SQL)
+
+    # Seed three schedules of distinct target_types — none "running", so they
+    # would otherwise contribute zero activity rows. Then seed three execution
+    # history rows so the filter actually has rows to pick from.
+    repo = ScheduleRepository(db_path)
+    now = time.time()
+    type_pairs = [
+        (ScheduledTargetType.SENSOR_SYNC, "sensor:foo"),
+        (ScheduledTargetType.MEMORY_L2_MAINTENANCE, "global"),
+        (ScheduledTargetType.TIMELINE_DIARY_NARRATIVE, "diary"),
+    ]
+    for tt, key in type_pairs:
+        await repo.upsert_schedule(
+            ScheduleDefinition(
+                schedule_id=f"sched-{tt.value}",
+                target_type=tt,
+                target_key=key,
+                trigger=TriggerDefinition(TriggerType.INTERVAL, {"seconds": 300}),
+            )
+        )
+        eid = await repo.create_execution_record(
+            schedule_id=f"sched-{tt.value}",
+            target_type=tt,
+            target_key=key,
+            manual=False,
+            started_at=now - 60,
+        )
+        await repo.complete_execution_success(
+            eid,
+            result=ScheduledExecutionResult(success=True, message="ok"),
+            scheduler_job_id=None,
+            finished_at=now - 30,
+        )
+
+    from magi.api.routers import schedules as schedules_module
+    monkeypatch.setattr(schedules_module, "get_runtime_paths", lambda: runtime_paths)
+
+    app = FastAPI()
+    app.include_router(schedules_router, prefix="/schedules")
+    client = TestClient(app)
+
+    # Filter by memory category only — sensor + timeline rows should be excluded.
+    resp = client.get(
+        "/schedules/activity",
+        params=[
+            ("since", str(now - 300)),
+            ("limit", "50"),
+            ("target_types", "memory_l2_maintenance"),
+            ("target_types", "memory_l3_summary"),
+            ("target_types", "memory_l4_maintenance"),
+        ],
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    types = sorted({a["target_type"] for a in body["activities"]})
+    assert types == ["memory_l2_maintenance"], (
+        f"expected only memory_l2_maintenance, got {types}; "
+        f"full: {[a['activity_id'] for a in body['activities']]}"
+    )
+
+
+@pytest.mark.asyncio
 async def test_activity_endpoint_status_filter(tmp_path: Path, monkeypatch) -> None:
     runtime_paths = RuntimePaths(base_dir=tmp_path)
     db_path = Path(runtime_paths.scheduler_db_path)

@@ -166,8 +166,8 @@ async def list_schedule_activity(
     limit: int = Query(default=100, ge=1, le=300),
     since: Optional[float] = Query(default=None),
     until: Optional[float] = Query(default=None),
-    statuses: Optional[list[str]] = Query(default=None),
-    target_types: Optional[list[str]] = Query(default=None),
+    statuses: list[str] = Query(default_factory=list),
+    target_types: list[str] = Query(default_factory=list),
 ) -> dict[str, Any]:
     repository = _repository()
     await repository.initialize()
@@ -228,25 +228,9 @@ async def list_schedule_activity(
                     "background_task_id": None,
                 }
             )
-        if state.next_run_at is not None and not state.running:
-            activities.append(
-                {
-                    "activity_id": f"upcoming:{schedule.schedule_id}",
-                    "schedule_id": schedule.schedule_id,
-                    "title": _schedule_title(schedule),
-                    "target_type": schedule.target_type.value,
-                    "target_key": schedule.target_key,
-                    "status": "upcoming",
-                    "planned_at": state.next_run_at,
-                    "started_at": None,
-                    "finished_at": None,
-                    "duration_ms": None,
-                    "cancellable": False,
-                    "cancel_kind": None,
-                    "error": state.last_error,
-                    "background_task_id": None,
-                }
-            )
+        # Upcoming next_run_at snapshots are intentionally NOT surfaced here —
+        # the schedule config page already shows "next run" per row, and
+        # "upcoming" rows have no actions, so they'd just be duplicate noise.
 
     # 3) historical executions inside the requested window
     # Map display-status names (succeeded/failed) to DB-status names (success/failed)

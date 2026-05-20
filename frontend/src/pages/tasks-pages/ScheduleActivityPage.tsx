@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { schedulesApi, type ScheduleActivityDTO, type ScheduleDTO } from '@/api';
+import { cn } from '@/lib/utils';
 import { TasksPageFrame } from './TasksPageFrame';
 import { ScheduleActivityTable } from './components/ScheduleActivityTable';
 import { ActivityDetailDrawer } from './components/ActivityDetailDrawer';
@@ -23,7 +24,12 @@ const windowToSinceSeconds = (key: WindowKey): number => {
   return now - 7 * 24 * 3600;
 };
 
+// Status options shown in the filter chip bar. We dropped "upcoming" because
+// the backend no longer surfaces upcoming rows on this page (next-run is in
+// the schedule config page instead).
 const STATUS_OPTIONS = ['running', 'queued', 'succeeded', 'failed', 'cancelled'] as const;
+type StatusFilter = 'all' | (typeof STATUS_OPTIONS)[number];
+const STATUS_CHIPS: ReadonlyArray<StatusFilter> = ['all', ...STATUS_OPTIONS];
 
 function targetTypesForCategory(category: Exclude<CategoryFilter, 'all' | 'other'>): string[] {
   switch (category) {
@@ -48,7 +54,7 @@ export const ScheduleActivityPage: React.FC = () => {
   const navigate = useNavigate();
   const [windowKey, setWindowKey] = useState<WindowKey>('today');
   const [category, setCategory] = useState<CategoryFilter>('all');
-  const [statusFilter, setStatusFilter] = useState<string | 'all'>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [activities, setActivities] = useState<ScheduleActivityDTO[]>([]);
   const [schedulesById, setSchedulesById] = useState<Record<string, ScheduleDTO>>({});
   const [loading, setLoading] = useState(false);
@@ -93,6 +99,18 @@ export const ScheduleActivityPage: React.FC = () => {
     return next;
   }, [activities]);
 
+  const statusCounts = useMemo<Record<StatusFilter, number>>(() => {
+    const next: Record<StatusFilter, number> = {
+      all: 0, running: 0, queued: 0, succeeded: 0, failed: 0, cancelled: 0,
+    };
+    for (const a of activities) {
+      next.all += 1;
+      const s = String(a.status) as StatusFilter;
+      if (s in next) next[s] = (next[s] ?? 0) + 1;
+    }
+    return next;
+  }, [activities]);
+
   const handleStop = async (activity: ScheduleActivityDTO) => {
     if (!activity.cancellable) return;
     setStoppingActivityId(activity.activity_id);
@@ -115,7 +133,7 @@ export const ScheduleActivityPage: React.FC = () => {
         <>
           <WindowSegmented value={windowKey} onChange={setWindowKey} />
           <CategoryChipBar value={category} counts={counts} onChange={setCategory} />
-          <StatusSelect value={statusFilter} onChange={setStatusFilter} />
+          <StatusChipBar value={statusFilter} counts={statusCounts} onChange={setStatusFilter} />
         </>
       }
     >
@@ -160,19 +178,40 @@ const WindowSegmented: React.FC<{ value: WindowKey; onChange: (v: WindowKey) => 
   );
 };
 
-const StatusSelect: React.FC<{ value: string | 'all'; onChange: (v: string | 'all') => void }> = ({ value, onChange }) => {
+const StatusChipBar: React.FC<{
+  value: StatusFilter;
+  counts: Record<StatusFilter, number>;
+  onChange: (v: StatusFilter) => void;
+}> = ({ value, counts, onChange }) => {
   const { t } = useTranslation('app');
   return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value as string | 'all')}
-      className="h-8 rounded-md border border-input bg-background px-2 text-xs"
-      aria-label={t('tasks.scheduled.columns.status')}
-    >
-      <option value="all">{t('tasks.scheduled.activityStatus.all', { defaultValue: 'All' })}</option>
-      {STATUS_OPTIONS.map((s) => (
-        <option key={s} value={s}>{t(`tasks.scheduled.activityStatus.${s}`)}</option>
-      ))}
-    </select>
+    <div className="flex flex-wrap items-center gap-1.5" role="tablist" aria-label={t('tasks.scheduled.columns.status')}>
+      {STATUS_CHIPS.map((s) => {
+        const active = value === s;
+        return (
+          <button
+            key={s}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onChange(s)}
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
+              active
+                ? 'border-primary/50 bg-primary/10 text-foreground'
+                : 'border-border/60 bg-background hover:bg-muted/50 text-muted-foreground',
+            )}
+          >
+            <span>{t(`tasks.scheduled.activityStatus.${s}`)}</span>
+            <span className={cn(
+              'inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1 text-[10px]',
+              active ? 'bg-primary/20 text-primary' : 'bg-muted text-muted-foreground',
+            )}>
+              {counts[s] ?? 0}
+            </span>
+          </button>
+        );
+      })}
+    </div>
   );
 };
