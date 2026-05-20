@@ -2491,122 +2491,127 @@
     "title": "记忆查看",
     "subtitle": "L0-L4 分层记忆系统",
     "nav": {
-      "overview": "记忆工作台",
-      "workbench": "工作台记忆",
-      "events": "事件记忆",
-      "knowledge": "知识记忆",
-      "reflection": "摘要反思记忆",
-      "skills": "工具技能记忆"
-    },
-    "overview": {
-      "eyebrow": "记忆工作台",
-      "subtitle": "在一个工作台里检索、查看和处理面向用户的分层记忆。",
-      "storageSummary": "当前共有 {{total}} 条记忆，占用 {{size}}。",
-      "storageSummaryCompact": "当前共有 {{total}} 条记忆。",
-      "totalMemoriesLabel": "记忆条数",
-      "diskUsageLabel": "占用大小",
-      "searchLabel": "跨层搜索",
-      "searchModeLabel": "搜索范围",
-      "searchResultsTitle": "搜索结果",
-      "searchOverviewTitle": "记忆线索",
-      "searchOverviewBody": "使用「{{mode}}」为“{{query}}”找到 {{total}} 条记忆线索。",
-      "searchResultSummary": "共找到 {{total}} 条展示结果，已按记忆层分组。",
-      "modeBadge": "模式：{{mode}}",
-      "curatedEvidenceTitle": "精选证据",
-      "curatedEvidenceBody": "先展示跨层最强的线索，方便你在进入完整层页前确认证据是否可靠。",
-      "layeredResultsTitle": "分层结果",
-      "diagnosticsTitle": "检索诊断",
-      "requestedModeLabel": "请求：{{mode}}",
-      "resolvedModeLabel": "解析：{{mode}}",
-      "executedLayersLabel": "执行：{{layers}}",
-      "noneValue": "无",
-      "searchModes": {
-        "auto": {
-          "label": "智能",
-          "description": "由记忆路由自动选择最合适的分层检索计划。"
-        },
-        "events": {
-          "label": "事件",
-          "description": "只搜索 L1 原始事件流。"
-        },
-        "knowledge": {
-          "label": "知识",
-          "description": "搜索 L2 结构化事实，并在需要时回退到 L1。"
-        },
-        "summaries": {
-          "label": "摘要",
-          "description": "搜索 L3 摘要与反思。"
-        },
-        "skills": {
-          "label": "技能",
-          "description": "搜索 L4 程序性工具和技能记忆。"
-        },
-        "state": {
-          "label": "状态",
-          "description": "搜索当前状态类记忆。"
-        },
-        "episodes": {
-          "label": "片段",
-          "description": "搜索历史经历片段。"
-        }
-      },
-      "queryModes": {
-        "event_stream": "事件流",
-        "exact_fact": "精确事实",
-        "current_state": "当前状态",
-        "episode_recall": "经历召回",
-        "summary": "摘要",
-        "strategy": "策略",
-        "activity_summary": "活动摘要"
-      },
-      "searchResultsBody": "围绕“{{query}}”整理出的跨层线索会先落在这里，便于快速判断应该进入哪一层继续查看。",
-      "searchIdleBody": "输入一个关键词后，这里会把跨层线索整理成适合继续深入的入口。",
-      "searchIdleHint": "还没有搜索结果。你可以先搜索偏好、人物、地点或技能名称，再从结果最密集的层继续进入。",
-      "searchingResults": "正在检索记忆线索...",
-      "noSearchResults": "暂时没有命中结果。可以换一个更具体的关键词，或直接从下方层级入口进入。",
-      "matchCount": "{{count}} 条展示命中",
-      "resultCountLabel": "展示 {{shown}} / {{total}} 条",
-      "viewAll": "查看全部",
-      "untitledResult": "未命名记忆项",
-      "sourceMeta": "来源 {{value}}",
-      "domainMeta": "领域 {{value}}",
-      "timeMeta": "时间 {{value}}",
-      "scoreMeta": "评分 {{value}}",
-      "resultKinds": {
-        "event": "事件",
-        "entity": "实体",
-        "relationship": "关系",
-        "assertion": "断言",
-        "episode": "片段",
-        "stateFact": "状态",
-        "stateHistory": "历史",
-        "reflection": "反思",
-        "skill": "技能"
-      },
-      "allClear": "当前没有需要关注的记忆项。",
-      "attentionTitle": "{{count}} 项需要关注",
-      "pendingAssertions": "{{count}} 条待确认断言需要处理",
-      "openBreakers": "{{count}} 个技能熔断状态需要查看",
-      "matchesLabel": "命中",
-      "workspaceTitle": "层级入口",
-      "workspaceBody": "从这里进入 5 层独立记忆页面。每一层都保留自己的筛选方式和阅读节奏，方便按任务深入查看。",
-      "workspaceHint": "先在总览判断信号密度，再进入具体层页展开处理，会更容易保持方向感。",
-      "statsTitle": "层级入口状态",
-      "statsBody": "5 层记忆已经拆成独立页面，后续可以在不打断整体结构的前提下继续扩展每层能力。",
-      "asideLabel": "柔和总览",
-      "asideTitle": "今天的记忆空间很安静，但信息在持续生长",
-      "asideBody": "先用搜索或层入口找到你要看的记忆，再从最近变化里判断哪些层最近最值得进入。",
-      "recentChangesTitle": "最近变化",
-      "recommendedTitle": "建议进入层",
-      "recommendedBody": "当搜索开始出现偏向时，这里会优先提示最值得打开的层页。",
-      "recommendedReasonHits": "{{count}} 条相关线索",
-      "recommendedEmpty": "还没有明显的搜索偏向。可以先从你最关心的层开始浏览。",
-      "layerCardHint": "继续深入这一层",
-      "changes": {
-        "summaryTitle": "新摘要沉淀",
-        "relationTitle": "知识关系规模",
-        "skillTitle": "技能记忆条目"
+      "stories": "故事",
+      "episodes": "章节",
+      "portrait": "画像",
+      "recall": "回忆",
+      "governance": "治理",
+      "devSubtreeLabel": "开发者视图",
+      "dev": {
+        "events": "原始事件 (L1)",
+        "knowledge": "结构化知识 (L2)",
+        "workbench": "工作台记忆 (L0)",
+        "skills": "工具技能 (L4)",
+        "stats": "存储统计"
       }
+    },
+    "stories": {
+      "title": "故事",
+      "subtitle": "Magi 最近编织出的反思和阶段总结。",
+      "emptyTitle": "还没有 Magi 关于你的反思",
+      "emptyBody": "继续使用一段时间，这里会出现它对你的观察。",
+      "evidenceChip": "{{count}} 条证据",
+      "states": {
+        "pending_confirmation": "待确认",
+        "confirmed": "已确认",
+        "rejected": "已拒绝",
+        "archived": "已收起",
+        "neutral": ""
+      },
+      "actions": {
+        "confirm": "确认",
+        "reject": "拒绝",
+        "archive": "收起",
+        "addNote": "备注",
+        "viewEvidence": "查看证据"
+      },
+      "categories": {
+        "state_change": "状态变化",
+        "trend_shift": "趋势变化",
+        "conflict_resolution": "冲突调和",
+        "task_reflection": "任务反思",
+        "goal_refinement": "目标更新",
+        "preference_emergence": "偏好浮现",
+        "risk_escalation": "风险升级",
+        "milestone_review": "里程碑回顾",
+        "day": "本日总结",
+        "week": "本周总结",
+        "month": "本月总结",
+        "quarter": "本季度总结",
+        "year": "本年度总结"
+      },
+      "detailRail": {
+        "evidenceTitle": "证据",
+        "notePlaceholder": "你想给这个反思加个备注吗？",
+        "savedNote": "备注已保存"
+      }
+    },
+    "episodes": {
+      "title": "章节",
+      "subtitle": "你被命名、标注、置顶的经历片段。",
+      "pinnedSection": "置顶",
+      "recentSection": "最近",
+      "emptyTitle": "还没有可读的章节",
+      "emptyBody": "经历会随着对话和活动累积成章节。",
+      "filters": {
+        "all": "全部",
+        "activity": "活动",
+        "visit": "拜访",
+        "session": "会话",
+        "conversation": "对话"
+      },
+      "actions": {
+        "pin": "置顶",
+        "unpin": "取消置顶",
+        "rename": "重命名",
+        "annotate": "备注",
+        "forget": "遗忘"
+      }
+    },
+    "portrait": {
+      "title": "画像",
+      "subtitle": "Magi 眼中的你。",
+      "segments": {
+        "identity": "身份",
+        "state": "当下",
+        "preferences": "偏好",
+        "relationships": "关系",
+        "impression": "Magi 对你的总体印象"
+      },
+      "coldStartFallback": "Magi 还没有从你的记忆里得出关于你的整体印象。继续使用，这里会逐渐丰满。"
+    },
+    "recall": {
+      "title": "回忆",
+      "subtitle": "用自然语言把过去翻出来。",
+      "searchPlaceholder": "想找一段对话、一个名字、一件做过的事…",
+      "modes": {
+        "auto": "智能",
+        "events": "你说过 / 做过的事",
+        "knowledge": "一句具体的事实",
+        "state": "你现在的状态",
+        "episodes": "一段经历",
+        "summaries": "Magi 的总结",
+        "skills": "Magi 学到的做事方式"
+      },
+      "advancedToggle": "调试细节",
+      "noResults": "没找到合适的记忆，可以换一个更具体的词。"
+    },
+    "governance": {
+      "title": "治理",
+      "subtitle": "可审阅、可纠正、可遗忘的记忆控制台。",
+      "sections": {
+        "pendingReview": "待审阅",
+        "corrected": "修正过的事实",
+        "forget": "遗忘",
+        "privacy": "隐私范围",
+        "developer": "开发者视图"
+      },
+      "pendingReviewBody": "Magi 还没确认的反思会在这里等待你过一遍。",
+      "developerBody": "原始事件、L2 结构化知识、L0 工作台和 L4 工具记忆都在这里。",
+      "forgetBody": "从这里删除某个实体、某段时间或某个章节的记忆。",
+      "privacyBody": "查看每个来源当前的隐私范围。修改在「设置」里完成。",
+      "storageTitle": "存储统计",
+      "storageBody": "当前共有 {{total}} 条记忆，占用 {{size}}。"
     },
     "pages": {
       "workbench": {

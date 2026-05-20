@@ -2425,122 +2425,127 @@
     "title": "Memory Viewer",
     "subtitle": "L0-L4 Layered Memory System",
     "nav": {
-      "overview": "Memory Workbench",
-      "workbench": "Workbench Memory",
-      "events": "Event Memory",
-      "knowledge": "Knowledge Memory",
-      "reflection": "Reflection Memory",
-      "skills": "Tool And Skill Memory"
-    },
-    "overview": {
-      "eyebrow": "Memory Workbench",
-      "subtitle": "Search, inspect, and triage the user-facing memory layers from one workspace.",
-      "storageSummary": "{{total}} memories using {{size}} on disk.",
-      "storageSummaryCompact": "{{total}} memories saved.",
-      "totalMemoriesLabel": "Memories",
-      "diskUsageLabel": "Storage",
-      "searchLabel": "Cross-layer search",
-      "searchModeLabel": "Search scope",
-      "searchResultsTitle": "Search results",
-      "searchOverviewTitle": "Memory signals",
-      "searchOverviewBody": "Found {{total}} memory signals for \"{{query}}\" using {{mode}}.",
-      "searchResultSummary": "{{total}} displayed retrieval results grouped by memory layer.",
-      "modeBadge": "Mode: {{mode}}",
-      "curatedEvidenceTitle": "Curated evidence",
-      "curatedEvidenceBody": "The strongest cross-layer matches are shown first, so you can inspect the evidence before opening a full layer.",
-      "layeredResultsTitle": "Layered results",
-      "diagnosticsTitle": "Retrieval diagnostics",
-      "requestedModeLabel": "Requested: {{mode}}",
-      "resolvedModeLabel": "Resolved: {{mode}}",
-      "executedLayersLabel": "Executed: {{layers}}",
-      "noneValue": "None",
-      "searchModes": {
-        "auto": {
-          "label": "Smart",
-          "description": "Let memory routing choose the best layer plan."
-        },
-        "events": {
-          "label": "Events",
-          "description": "Search the raw L1 event stream only."
-        },
-        "knowledge": {
-          "label": "Knowledge",
-          "description": "Search L2 structured facts with L1 fallback."
-        },
-        "summaries": {
-          "label": "Summaries",
-          "description": "Search L3 summaries and reflections."
-        },
-        "skills": {
-          "label": "Skills",
-          "description": "Search L4 procedural and tool memory."
-        },
-        "state": {
-          "label": "State",
-          "description": "Search current-state memory."
-        },
-        "episodes": {
-          "label": "Episodes",
-          "description": "Search remembered experience spans."
-        }
-      },
-      "queryModes": {
-        "event_stream": "Event stream",
-        "exact_fact": "Exact fact",
-        "current_state": "Current state",
-        "episode_recall": "Episode recall",
-        "summary": "Summary",
-        "strategy": "Strategy",
-        "activity_summary": "Activity summary"
-      },
-      "searchResultsBody": "Cross-layer clues for \"{{query}}\" are collected here first so you can quickly decide which workspace is worth opening next.",
-      "searchIdleBody": "Once you enter a keyword, this area gathers the relevant clues into a calmer, easier-to-read surface.",
-      "searchIdleHint": "No search results yet. Try a preference, person, place, or skill name, then follow the densest layer.",
-      "searchingResults": "Searching memory signals...",
-      "noSearchResults": "No matching memory surfaced yet. Try a more specific term, or enter a layer directly from the overview below.",
-      "matchCount": "{{count}} displayed matches",
-      "resultCountLabel": "Showing {{shown}} of {{total}}",
-      "viewAll": "View all",
-      "untitledResult": "Untitled memory item",
-      "sourceMeta": "Source {{value}}",
-      "domainMeta": "Domain {{value}}",
-      "timeMeta": "Time {{value}}",
-      "scoreMeta": "Score {{value}}",
-      "resultKinds": {
-        "event": "Event",
-        "entity": "Entity",
-        "relationship": "Relation",
-        "assertion": "Assertion",
-        "episode": "Episode",
-        "stateFact": "State",
-        "stateHistory": "History",
-        "reflection": "Reflection",
-        "skill": "Skill"
-      },
-      "allClear": "No memory items need attention right now.",
-      "attentionTitle": "{{count}} attention cues",
-      "pendingAssertions": "{{count}} pending assertions need review",
-      "openBreakers": "{{count}} open skill breakers need review",
-      "matchesLabel": "matches",
-      "workspaceTitle": "Layer entry points",
-      "workspaceBody": "Use this area to move into each independent memory page. Every layer keeps its own filtering model and reading rhythm so you can go deeper without losing orientation.",
-      "workspaceHint": "Read the signal density here first, then enter a specific layer once you know where the useful movement is.",
-      "statsTitle": "Layer destinations",
-      "statsBody": "The five memory layers now live on independent pages, making it easier to expand each workspace without flattening everything into one screen.",
-      "asideLabel": "Gentle Overview",
-      "asideTitle": "The memory space feels calm today, but the signals keep growing",
-      "asideBody": "Start with search or a layer card, then use recent changes to decide which layer is most worth opening next.",
-      "recentChangesTitle": "Recent changes",
-      "recommendedTitle": "Recommended layers",
-      "recommendedBody": "When search results start leaning toward a layer, this area suggests where to go next.",
-      "recommendedReasonHits": "{{count}} related clues",
-      "recommendedEmpty": "There is no strong search bias yet. Start from the layer you care about most.",
-      "layerCardHint": "Open this layer",
-      "changes": {
-        "summaryTitle": "Fresh reflections",
-        "relationTitle": "Knowledge graph size",
-        "skillTitle": "Skill memory entries"
+      "stories": "Stories",
+      "episodes": "Chapters",
+      "portrait": "Portrait",
+      "recall": "Recall",
+      "governance": "Governance",
+      "devSubtreeLabel": "Developer view",
+      "dev": {
+        "events": "Raw events (L1)",
+        "knowledge": "Structured knowledge (L2)",
+        "workbench": "Working memory (L0)",
+        "skills": "Procedural skills (L4)",
+        "stats": "Storage stats"
       }
+    },
+    "stories": {
+      "title": "Stories",
+      "subtitle": "Reflections and period summaries Magi has been weaving.",
+      "emptyTitle": "No reflections yet",
+      "emptyBody": "Keep using Magi for a while — observations about you will appear here.",
+      "evidenceChip": "{{count}} pieces of evidence",
+      "states": {
+        "pending_confirmation": "Pending",
+        "confirmed": "Confirmed",
+        "rejected": "Rejected",
+        "archived": "Archived",
+        "neutral": ""
+      },
+      "actions": {
+        "confirm": "Confirm",
+        "reject": "Reject",
+        "archive": "Archive",
+        "addNote": "Add note",
+        "viewEvidence": "View evidence"
+      },
+      "categories": {
+        "state_change": "State change",
+        "trend_shift": "Trend shift",
+        "conflict_resolution": "Conflict resolution",
+        "task_reflection": "Task reflection",
+        "goal_refinement": "Goal refinement",
+        "preference_emergence": "Preference emerged",
+        "risk_escalation": "Risk escalation",
+        "milestone_review": "Milestone review",
+        "day": "Daily summary",
+        "week": "Weekly summary",
+        "month": "Monthly summary",
+        "quarter": "Quarterly summary",
+        "year": "Yearly summary"
+      },
+      "detailRail": {
+        "evidenceTitle": "Evidence",
+        "notePlaceholder": "Want to add a note to this reflection?",
+        "savedNote": "Note saved"
+      }
+    },
+    "episodes": {
+      "title": "Chapters",
+      "subtitle": "Episodes you've named, annotated, or pinned.",
+      "pinnedSection": "Pinned",
+      "recentSection": "Recent",
+      "emptyTitle": "No chapters yet",
+      "emptyBody": "Episodes accumulate from conversations and activity over time.",
+      "filters": {
+        "all": "All",
+        "activity": "Activity",
+        "visit": "Visit",
+        "session": "Session",
+        "conversation": "Conversation"
+      },
+      "actions": {
+        "pin": "Pin",
+        "unpin": "Unpin",
+        "rename": "Rename",
+        "annotate": "Annotate",
+        "forget": "Forget"
+      }
+    },
+    "portrait": {
+      "title": "Portrait",
+      "subtitle": "How Magi sees you.",
+      "segments": {
+        "identity": "Identity",
+        "state": "Right now",
+        "preferences": "Preferences",
+        "relationships": "Relationships",
+        "impression": "Magi's overall impression of you"
+      },
+      "coldStartFallback": "Magi hasn't formed an overall impression of you yet. It will grow as you keep using it."
+    },
+    "recall": {
+      "title": "Recall",
+      "subtitle": "Dig up the past in natural language.",
+      "searchPlaceholder": "Find a conversation, a name, something you did...",
+      "modes": {
+        "auto": "Auto",
+        "events": "Things you said or did",
+        "knowledge": "A specific fact",
+        "state": "Your current state",
+        "episodes": "An episode",
+        "summaries": "Magi's summaries",
+        "skills": "Skills Magi has learned"
+      },
+      "advancedToggle": "Debug details",
+      "noResults": "No matching memories found. Try a more specific term."
+    },
+    "governance": {
+      "title": "Governance",
+      "subtitle": "Review, correct, and forget — the memory control panel.",
+      "sections": {
+        "pendingReview": "Pending review",
+        "corrected": "Corrected facts",
+        "forget": "Forget",
+        "privacy": "Privacy scope",
+        "developer": "Developer view"
+      },
+      "pendingReviewBody": "Reflections Magi hasn't confirmed yet are waiting here for your review.",
+      "developerBody": "Raw events, L2 structured knowledge, L0 working memory, and L4 procedural skills all live here.",
+      "forgetBody": "Delete the memory of a specific entity, time period, or chapter from here.",
+      "privacyBody": "View the current privacy scope per source. Modifications are made in Settings.",
+      "storageTitle": "Storage stats",
+      "storageBody": "Currently storing {{total}} memories, using {{size}}."
     },
     "pages": {
       "workbench": {
