@@ -53,7 +53,14 @@ export interface ListSchedulesResponse {
   schedules: ScheduleDTO[];
 }
 
-export type ScheduleActivityStatus = 'running' | 'queued' | 'upcoming' | 'cancelled' | string;
+export type ScheduleActivityStatus =
+  | 'running'
+  | 'queued'
+  | 'upcoming'
+  | 'succeeded'
+  | 'failed'
+  | 'cancelled'
+  | string;
 
 export interface ScheduleActivityDTO {
   activity_id: string;
@@ -64,14 +71,37 @@ export interface ScheduleActivityDTO {
   status: ScheduleActivityStatus;
   planned_at?: number | null;
   started_at?: number | null;
+  finished_at?: number | null;
   duration_ms?: number | null;
   cancellable: boolean;
   cancel_kind?: 'sensor_sync_job' | string | null;
   error?: string | null;
+  background_task_id?: string | null;
 }
 
 export interface ListScheduleActivityResponse {
   activities: ScheduleActivityDTO[];
+  total?: number;
+}
+
+export interface ListActivityParams {
+  sinceSeconds?: number;
+  untilSeconds?: number;
+  limit?: number;
+  targetTypes?: string[];
+  statuses?: string[];
+}
+
+export interface CreateScheduleRequest {
+  schedule_id: string;
+  display_name: string;
+  prompt: string;
+  trigger: ScheduleTriggerDTO;
+  enabled: boolean;
+}
+
+export interface CreateScheduleResponse {
+  schedule: ScheduleDTO;
 }
 
 export interface UpdateScheduleRequest {
@@ -117,11 +147,31 @@ export const schedulesApi = {
     return unwrapGatewayPayload(response);
   },
 
-  async listActivity(params: { limit?: number } = {}): Promise<ListScheduleActivityResponse> {
+  async listActivity(params: ListActivityParams = {}): Promise<ListScheduleActivityResponse> {
     const search = new URLSearchParams();
+    if (params.sinceSeconds !== undefined) search.set('since', String(params.sinceSeconds));
+    if (params.untilSeconds !== undefined) search.set('until', String(params.untilSeconds));
     if (params.limit !== undefined) search.set('limit', String(params.limit));
+    (params.targetTypes ?? []).forEach((t) => search.append('target_types', t));
+    (params.statuses ?? []).forEach((s) => search.append('statuses', s));
     const query = search.toString();
-    const response = await api.get<ListScheduleActivityResponse>(`/schedules/activity${query ? `?${query}` : ''}`);
+    const response = await api.get<ListScheduleActivityResponse>(
+      `/schedules/activity${query ? `?${query}` : ''}`,
+    );
+    return unwrapGatewayPayload(response);
+  },
+
+  async create(body: CreateScheduleRequest): Promise<CreateScheduleResponse> {
+    const wireBody = {
+      schedule_id: body.schedule_id,
+      target_type: 'user_agent_task' as const,
+      target_key: body.schedule_id,
+      trigger: body.trigger,
+      target_payload: { prompt: body.prompt, kind: 'agent_task' },
+      metadata: { display_name: body.display_name, target_kind: 'agent_task' },
+      enabled: body.enabled,
+    };
+    const response = await api.post<CreateScheduleResponse>('/schedules', wireBody);
     return unwrapGatewayPayload(response);
   },
 
