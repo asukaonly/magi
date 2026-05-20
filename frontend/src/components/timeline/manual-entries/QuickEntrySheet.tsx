@@ -462,7 +462,10 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
               )}
             </div>
 
-            {/* Location chip */}
+            {/* Location chip — always present so the user can manually
+                add a place when LocationResolver hasn't produced a sample
+                yet (e.g. fresh install, IPGeo poll hasn't ticked).
+                Auto-resolved values come in via initialLocationLabel. */}
             {location ? (
               <span className="flex h-7 items-center gap-1 rounded-full border border-border/60 px-2.5">
                 <MapPin className="h-3 w-3" />
@@ -476,7 +479,24 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
                   ✕
                 </button>
               </span>
-            ) : null}
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  const v = window.prompt(
+                    t('timeline.manualEntry.locationPrompt', {
+                      defaultValue: '输入地点 (如：杭州、咖啡馆)',
+                    }),
+                    '',
+                  );
+                  if (v && v.trim()) setLocation(v.trim());
+                }}
+                className="flex h-7 items-center gap-1 rounded-full border border-dashed border-border/60 px-2.5 text-muted-foreground hover:bg-foreground/[0.03] hover:text-foreground"
+              >
+                <MapPin className="h-3 w-3" />
+                {t('timeline.manualEntry.addLocation', { defaultValue: '加地点' })}
+              </button>
+            )}
           </div>
 
           {/* Footer */}
