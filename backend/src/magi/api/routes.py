@@ -42,6 +42,9 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/procedures": {"GET"},
         "/tom/{entity_id}": {"GET"},
         "/portrait": {"GET"},
+        "/manual-entries": {"GET", "POST"},
+        "/manual-entries/{entry_id}": {"PATCH", "DELETE"},
+        "/manual-entries/assets": {"POST"},
     },
 
     "messages": {

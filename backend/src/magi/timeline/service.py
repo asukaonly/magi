@@ -202,26 +202,34 @@ class TimelineService:
 
         Returns (bytes, content_type) on success, None when the ref is empty,
         unrecognized, or the file is missing. The route turns None into 404.
+
+        Currently routes two schemes:
+          - ``photo-library://...``      from the photo-library plugin
+          - ``manual-entry-asset://...`` from user-uploaded entry images
         """
         if not asset_ref:
             return None
 
         scheme, _, _ = asset_ref.partition("://")
-        if scheme != "photo-library":
-            # Future schemes (chat-attachment://, screen-capture://) plug in here.
-            return None
 
-        file_path, content_type = await _resolve_photo_library_asset(asset_ref)
-        if not file_path:
-            return None
+        if scheme == "manual-entry-asset":
+            asset_store = getattr(self._unified_memory, "manual_entry_asset_store", None)
+            if asset_store is None:
+                return None
+            return asset_store.resolve(asset_ref)
 
-        try:
-            with open(file_path, "rb") as fh:
-                data = fh.read()
-        except OSError:
-            return None
+        if scheme == "photo-library":
+            file_path, content_type = await _resolve_photo_library_asset(asset_ref)
+            if not file_path:
+                return None
+            try:
+                with open(file_path, "rb") as fh:
+                    data = fh.read()
+            except OSError:
+                return None
+            return data, content_type or "application/octet-stream"
 
-        return data, content_type or "application/octet-stream"
+        return None
 
     async def get_context_bundle(self, anchor_id: str) -> Optional[dict]:
         if getattr(self._unified_memory, "l1", None) is None:

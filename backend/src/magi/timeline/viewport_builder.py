@@ -213,21 +213,57 @@ class TimelineViewportBuilder:
             block_id = str(cluster.get("block_id") or "")
             if not block_id.startswith("episode:"):
                 continue
-            if cluster.get("source_types"):
-                continue
             ts = float(cluster.get("time_start") or 0.0)
             te = float(cluster.get("time_end") or 0.0)
             if te <= ts:
                 continue
             counts: Counter[str] = Counter()
+            attachments: list[str] = []
+            mood: str | None = None
             for ev in events:
                 ev_ts = float(ev.get("timestamp") or 0.0)
-                if ts <= ev_ts <= te:
-                    source = str(ev.get("source") or "").strip()
-                    if source:
-                        counts[source] += 1
-            if counts:
-                cluster["source_types"] = [s for s, _ in counts.most_common()]
+                if not (ts <= ev_ts <= te):
+                    continue
+                source = str(ev.get("source") or "").strip()
+                if source:
+                    counts[source] += 1
+                # Manual-entry events carry attachment refs + mood that
+                # the frontend wants to display inline with the slice.
+                if source == "manual_entry":
+                    metadata = ev.get("metadata") or ev.get("metadata_json") or {}
+                    if isinstance(metadata, dict):
+                        manual_meta = metadata.get("manual_entry") or {}
+                        if isinstance(manual_meta, dict):
+                            for ref in manual_meta.get("attachments") or []:
+                                if isinstance(ref, str) and ref:
+                                    attachments.append(ref)
+                            if not mood and isinstance(manual_meta.get("mood"), str):
+                                mood = manual_meta["mood"]
+
+            if not counts:
+                continue
+
+            # Surface manual_entry as the primary source when present —
+            # the frontend's day-bucket UI uses source_types[0] to pick
+            # which group banner to render, and "你的记录" always wins
+            # priority over Chrome / screen for the same cluster.
+            ordered = [s for s, _ in counts.most_common()]
+            if "manual_entry" in ordered and ordered[0] != "manual_entry":
+                ordered.remove("manual_entry")
+                ordered.insert(0, "manual_entry")
+            cluster["source_types"] = ordered
+
+            if attachments:
+                # Dedupe by ref while preserving order
+                seen: set[str] = set()
+                deduped: list[str] = []
+                for ref in attachments:
+                    if ref not in seen:
+                        seen.add(ref)
+                        deduped.append(ref)
+                cluster["media_refs"] = deduped
+            if mood:
+                cluster["mood"] = mood
 
     async def _load_events(self, *, start: float, end: float) -> list[dict[str, Any]]:
         if self._l1 is None:

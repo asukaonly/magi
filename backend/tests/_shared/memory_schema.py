@@ -28,6 +28,7 @@ MEMORY_SHARED_MIGRATIONS: tuple[str, ...] = (
     "0004_l3_summary_essence_prose.py",
     "0005_daily_mood_aggregate.py",
     "0006_location_samples.py",
+    "0007_manual_entries.py",
 )
 
 

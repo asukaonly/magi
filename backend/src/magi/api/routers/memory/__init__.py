@@ -27,6 +27,7 @@ from .l2 import operations_routes as _l2_operations_routes
 from .l2 import status_routes as _l2_status_routes
 from .l3 import routes as _l3_routes
 from .l4 import routes as _l4_routes
+from . import manual_entries_routes as _manual_entries_routes  # noqa: F401
 from .portrait_routes import build_router as _build_portrait_router
 
 memory_router.include_router(_build_portrait_router())

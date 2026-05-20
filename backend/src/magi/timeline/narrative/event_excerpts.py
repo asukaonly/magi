@@ -45,8 +45,10 @@ def build_excerpts(
         List of cleaned content strings, chronologically ordered (oldest
         first). Empty list when there are no events with usable content.
     """
-    # Step 1: keep events with non-empty content, normalize.
-    candidates: list[tuple[float, str]] = []
+    # Step 1: keep events with non-empty content, normalize. Manual-entry
+    # events get a "用户原话：" prefix so the LLM treats them as the
+    # highest-signal evidence in the bundle — they ARE the user's words.
+    candidates: list[tuple[float, str, bool]] = []  # (ts, text, is_manual)
     for event in l1_events:
         raw = event.get("content")
         if not isinstance(raw, str):
@@ -58,33 +60,39 @@ def build_excerpts(
             ts = float(event.get("timestamp") or 0.0)
         except (TypeError, ValueError):
             ts = 0.0
-        candidates.append((ts, text))
+        is_manual = str(event.get("source") or "") == "manual_entry"
+        candidates.append((ts, text, is_manual))
 
     if not candidates:
         return []
 
-    # Step 2: sort by length desc so the most-informative survives dedup;
-    # longer strings tend to carry titles + context, shorter ones are
-    # boilerplate window names.
-    candidates.sort(key=lambda pair: len(pair[1]), reverse=True)
+    # Step 2: sort. Manual entries first (regardless of length), then by
+    # length desc within each group so the most-informative survives dedup.
+    candidates.sort(key=lambda triple: (not triple[2], -len(triple[1])))
 
     # Step 3: dedupe by lowercased 40-char prefix.
     seen_prefixes: set[str] = set()
-    kept: list[tuple[float, str]] = []
-    for ts, text in candidates:
+    kept: list[tuple[float, str, bool]] = []
+    for triple in candidates:
+        ts, text, is_manual = triple
         prefix = text[:DEDUP_PREFIX_LEN].lower().strip()
         if prefix in seen_prefixes:
             continue
         seen_prefixes.add(prefix)
-        kept.append((ts, text))
+        kept.append(triple)
         if len(kept) >= max_excerpts:
             break
 
     # Step 4: re-sort chronologically; LLM reads events in user-experienced order.
-    kept.sort(key=lambda pair: pair[0])
+    kept.sort(key=lambda triple: triple[0])
 
-    # Step 5: truncate to per-excerpt char budget.
-    return [_truncate(text, max_chars_per_excerpt) for _, text in kept]
+    # Step 5: truncate to per-excerpt char budget. Manual entries get a
+    # tag so the LLM's prompt-side instructions can reference them.
+    out: list[str] = []
+    for _, text, is_manual in kept:
+        body = _truncate(text, max_chars_per_excerpt)
+        out.append(f"用户原话：{body}" if is_manual else body)
+    return out
 
 
 def _truncate(text: str, max_chars: int) -> str:

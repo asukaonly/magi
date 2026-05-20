@@ -183,6 +183,13 @@ class UnifiedMemoryStore(
                 async_embeddings=async_embeddings,
             )
 
+        # Manual memory entries — user-authored notes that mirror to L1.
+        from .manual_entries import ManualEntryAssetStore, ManualEntryStore
+        self.manual_entry_store = ManualEntryStore(db_path=shared_memory_db)
+        self.manual_entry_asset_store = ManualEntryAssetStore(
+            media_root=memory_dir.parent / "media",
+        )
+
         # Location subsystem (separate concern, always-on — IPGeo costs
         # nothing on machines without WiFi and is a strict-improvement over
         # an empty place line in the Hero). WiFi is wired alongside but the
