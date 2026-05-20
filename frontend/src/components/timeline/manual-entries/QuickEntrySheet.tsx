@@ -287,7 +287,18 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
 
   return (
     <Sheet open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
-      <SheetContent side="bottom" className="rounded-t-2xl pb-4 sm:max-w-2xl sm:mx-auto">
+      <SheetContent
+        side="bottom"
+        className={cn(
+          // Override the variant's `inset-x-0 bottom-0` so the sheet is a
+          // floating centered card instead of a full-bleed bottom strip.
+          // tailwind-merge resolves the conflicting position utilities to
+          // the last value (this className wins).
+          'left-1/2 right-auto -translate-x-1/2',
+          'bottom-6 w-[calc(100%-2rem)] max-w-2xl',
+          'rounded-2xl border border-border/70',
+        )}
+      >
         <SheetHeader className="border-b border-border/40 pb-3">
           <SheetTitle className="text-base font-medium">
             {existingEntry
@@ -296,7 +307,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
           </SheetTitle>
         </SheetHeader>
 
-        <div className="space-y-3 pt-3">
+        <div className="space-y-3 px-6 pb-5 pt-3">
           {/* Body textarea */}
           <textarea
             ref={textareaRef}
@@ -371,6 +382,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
             </span>
             {MOODS.map((m) => {
               const isSelected = mood === m;
+              const fill = MOOD_FILL[m];
               return (
                 <button
                   key={m}
@@ -378,13 +390,19 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
                   onClick={() => setMood(isSelected ? null : m)}
                   aria-label={m}
                   aria-pressed={isSelected ? 'true' : 'false'}
+                  title={m}
                   className={cn(
                     'h-5 w-5 rounded-full border transition-all',
                     isSelected
-                      ? 'border-foreground ring-2 ring-foreground/30'
-                      : 'border-border/70 opacity-70 hover:opacity-100',
+                      ? 'ring-2 ring-foreground/40'
+                      : 'opacity-60 hover:opacity-100',
                   )}
-                  style={isSelected ? { backgroundColor: MOOD_FILL[m] } : undefined}
+                  style={{
+                    // Always tinted so the user can recognize each valence
+                    // by color; selected version is full saturation + ring.
+                    backgroundColor: isSelected ? fill : `${fill}55`,
+                    borderColor: isSelected ? fill : `${fill}aa`,
+                  }}
                 />
               );
             })}
