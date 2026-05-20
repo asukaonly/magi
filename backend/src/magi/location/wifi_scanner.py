@@ -20,6 +20,7 @@ contributed" and the scheduler's backoff kicks in.
 from __future__ import annotations
 
 import asyncio
+import os
 import platform
 import re
 from dataclasses import dataclass
@@ -30,6 +31,22 @@ import httpx
 from ..core.logger import get_logger
 
 logger = get_logger("magi.location.wifi_scanner")
+
+# Per-process cache of platforms we've already determined can't scan
+# (missing binary, permission denied). Avoids 10-minute log spam — after
+# the first failure we silently return [] and let the scheduler's
+# 5-failure backoff drop the poll cadence to 6h.
+_PLATFORMS_KNOWN_UNAVAILABLE: set[str] = set()
+
+
+def _mark_platform_unavailable(system: str, reason: str) -> None:
+    if system not in _PLATFORMS_KNOWN_UNAVAILABLE:
+        _PLATFORMS_KNOWN_UNAVAILABLE.add(system)
+        logger.warning(
+            "WiFi scanning unavailable on this platform; falling back to IPGeo. "
+            "Future scans will be silent.",
+            platform=system, reason=reason,
+        )
 
 
 @dataclass(slots=True)
@@ -57,9 +74,13 @@ async def scan_wifi() -> list[WiFiAP]:
     """Run the platform's WiFi-scan command and parse out BSSIDs.
 
     Returns an empty list on any failure — caller treats that as
-    "no samples this round" without raising.
+    "no samples this round" without raising. Platforms we've discovered
+    can't scan (missing binary, no permission) are cached so we don't
+    log the same warning on every poll tick.
     """
     system = platform.system()
+    if system in _PLATFORMS_KNOWN_UNAVAILABLE:
+        return []
     try:
         if system == "Darwin":
             return await _scan_macos()
@@ -67,16 +88,46 @@ async def scan_wifi() -> list[WiFiAP]:
             return await _scan_windows()
         if system == "Linux":
             return await _scan_linux()
+    except FileNotFoundError as exc:
+        # Binary doesn't exist on this OS version (e.g. ``airport`` was
+        # removed in macOS 15). Cache and quiet.
+        _mark_platform_unavailable(system, f"binary missing: {exc.filename}")
     except Exception as exc:
         logger.warning("WiFi scan failed", platform=system, error=str(exc))
     return []
 
 
+_AIRPORT_PATH = "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport"
+
+
 async def _scan_macos() -> list[WiFiAP]:
-    """macOS: airport -s. Deprecated but the only no-sudo path on 14+."""
-    airport_path = "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport"
+    """macOS scan path with graceful version-aware fallbacks.
+
+    Path matrix on real Macs:
+      - macOS ≤ 14: ``airport -s`` works without sudo. Returns nearby APs.
+      - macOS 15 (Sequoia): ``airport`` binary removed entirely.
+      - All versions: ``wdutil info`` *may* return the connected BSSID but
+        masks it as 00:00:00:00:00:00 unless the calling app has been
+        granted CoreLocation permission. The mask makes it useless for
+        Mozilla geolocation (Mozilla needs ≥2 real BSSIDs).
+
+    So the honest behavior is: scan if airport exists, else mark
+    unavailable. The scheduler's 5-failure backoff then drops the poll
+    cadence and the rest of the system (IPGeo) keeps working.
+
+    A future proper fix is a Tauri plugin that links CoreWLAN and
+    requests NSLocationWhenInUseUsageDescription. Until then, IPGeo is
+    our location signal on modern macOS.
+    """
+    if not os.path.exists(_AIRPORT_PATH):
+        _mark_platform_unavailable(
+            "Darwin",
+            "airport binary missing (macOS 15+ removed it; CoreWLAN scan needs "
+            "CoreLocation permission via a signed Tauri plugin)",
+        )
+        return []
     proc = await asyncio.create_subprocess_exec(
-        airport_path, "-s",
+        _AIRPORT_PATH, "-s",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL,
     )
@@ -137,17 +188,15 @@ def _parse_netsh_output(text: str) -> list[WiFiAP]:
 
 
 async def _scan_linux() -> list[WiFiAP]:
-    """Linux: try nmcli first, fall back to iw."""
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "nmcli", "-t", "-f", "BSSID,SIGNAL", "dev", "wifi", "list",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=8.0)
-        return _parse_nmcli_output(stdout.decode("utf-8", errors="replace"))
-    except FileNotFoundError:
-        return []
+    """Linux: nmcli (most distros). FileNotFoundError propagates up so the
+    outer ``scan_wifi`` marks the platform unavailable + caches it."""
+    proc = await asyncio.create_subprocess_exec(
+        "nmcli", "-t", "-f", "BSSID,SIGNAL", "dev", "wifi", "list",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=8.0)
+    return _parse_nmcli_output(stdout.decode("utf-8", errors="replace"))
 
 
 def _parse_nmcli_output(text: str) -> list[WiFiAP]:
