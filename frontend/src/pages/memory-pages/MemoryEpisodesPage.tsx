@@ -2,12 +2,24 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { memoryApi, type L2Episode } from '@/api/modules/memory';
 import EpisodeRow from '@/components/memory/episodes/EpisodeRow';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import MemoryPageFrame, { MEMORY_EMPTY_PANEL_CLASS } from './MemoryPageFrame';
+
+type DialogState = { episode: L2Episode; field: 'user_label' | 'user_note'; value: string } | null;
 
 export const MemoryEpisodesPage = () => {
   const { t } = useTranslation('app');
   const [episodes, setEpisodes] = useState<L2Episode[]>([]);
   const [loading, setLoading] = useState(true);
+  const [dialogState, setDialogState] = useState<DialogState>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -34,12 +46,22 @@ export const MemoryEpisodesPage = () => {
     setEpisodes((prev) => prev.filter((it) => it.episode_id !== ep.episode_id));
   };
 
-  const renameOrAnnotate = async (ep: L2Episode, field: 'user_label' | 'user_note') => {
-    const initial = (ep[field] as string | null) ?? '';
-    const next = window.prompt(t(`memory.episodes.actions.${field === 'user_label' ? 'rename' : 'annotate'}`), initial);
-    if (next === null) return;
-    await memoryApi.annotateEpisode(ep.episode_id, { [field]: next });
-    setEpisodes((prev) => prev.map((it) => (it.episode_id === ep.episode_id ? { ...it, [field]: next } as L2Episode : it)));
+  const openRename = (ep: L2Episode) => setDialogState({
+    episode: ep, field: 'user_label', value: ep.user_label ?? '',
+  });
+
+  const openAnnotate = (ep: L2Episode) => setDialogState({
+    episode: ep, field: 'user_note', value: ep.user_note ?? '',
+  });
+
+  const handleDialogSave = async () => {
+    if (!dialogState) return;
+    const { episode, field, value } = dialogState;
+    await memoryApi.annotateEpisode(episode.episode_id, { [field]: value });
+    setEpisodes((prev) => prev.map((it) =>
+      it.episode_id === episode.episode_id ? ({ ...it, [field]: value } as L2Episode) : it
+    ));
+    setDialogState(null);
   };
 
   return (
@@ -61,8 +83,8 @@ export const MemoryEpisodesPage = () => {
                   key={ep.episode_id}
                   episode={ep}
                   onTogglePin={() => void togglePin(ep)}
-                  onRename={() => void renameOrAnnotate(ep, 'user_label')}
-                  onAnnotate={() => void renameOrAnnotate(ep, 'user_note')}
+                  onRename={() => openRename(ep)}
+                  onAnnotate={() => openAnnotate(ep)}
                   onForget={() => void forget(ep)}
                 />
               ))
@@ -76,14 +98,49 @@ export const MemoryEpisodesPage = () => {
                 key={ep.episode_id}
                 episode={ep}
                 onTogglePin={() => void togglePin(ep)}
-                onRename={() => void renameOrAnnotate(ep, 'user_label')}
-                onAnnotate={() => void renameOrAnnotate(ep, 'user_note')}
+                onRename={() => openRename(ep)}
+                onAnnotate={() => openAnnotate(ep)}
                 onForget={() => void forget(ep)}
               />
             ))}
           </section>
         </>
       )}
+
+      <Dialog open={dialogState !== null} onOpenChange={(open) => { if (!open) setDialogState(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {dialogState?.field === 'user_label'
+                ? t('memory.episodes.actions.rename')
+                : t('memory.episodes.actions.annotate')}
+            </DialogTitle>
+          </DialogHeader>
+          {dialogState?.field === 'user_label' ? (
+            <Input
+              value={dialogState.value}
+              onChange={(event) => setDialogState({ ...dialogState, value: event.target.value })}
+              autoFocus
+            />
+          ) : (
+            <textarea
+              value={dialogState?.value ?? ''}
+              onChange={(event) => dialogState && setDialogState({ ...dialogState, value: event.target.value })}
+              rows={4}
+              autoFocus
+              className="w-full rounded-sm border border-[hsl(var(--memory-input-border)/0.7)] bg-[hsl(var(--memory-input-bg))] px-3 py-2 text-sm"
+            />
+          )}
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setDialogState(null)}>
+              {t('common.cancel', { defaultValue: '取消' })}
+            </Button>
+            <Button onClick={() => void handleDialogSave()}>
+              {t('common.save', { defaultValue: '保存' })}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </MemoryPageFrame>
   );
 };

@@ -23,6 +23,8 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.actions.forget': '遗忘',
     'memory.episodes.filters.activity': '活动',
     'memory.episodes.filters.session': '会话',
+    'common.save': '保存',
+    'common.cancel': '取消',
   };
   return {
     useTranslation: () => ({
@@ -69,6 +71,41 @@ describe('MemoryEpisodesPage', () => {
     const recentSection = screen.getByTestId('episodes-recent');
     expect(pinnedSection.textContent).toContain('搬家那周');
     expect(recentSection.textContent).toContain('昨天下午聊了一会');
+  });
+
+  it('opens rename dialog and calls annotateEpisode with new user_label on save', async () => {
+    vi.mocked(memoryApi.listEpisodes).mockResolvedValue({
+      items: [{
+        episode_id: 'e1', episode_type: 'activity', user_pinned: false, user_label: '旧名字', summary: 'demo',
+        time_start: 1700000000, time_end: 1700100000, primary_entity_ids: [], primary_place_ids: [], primary_topic_keys: [],
+        dominant_mode: null, status: 'active', user_note: '', label: '',
+      }] as never,
+      total: 1, limit: 50, offset: 0,
+    });
+    vi.mocked(memoryApi.annotateEpisode).mockResolvedValue({} as never);
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByText('旧名字'));
+
+    // Click rename button to open dialog
+    await user.click(screen.getByLabelText(/重命名/i));
+
+    // Dialog should appear with the rename title
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+    });
+
+    // Clear input and type a new name
+    const input = screen.getByRole('textbox');
+    await user.clear(input);
+    await user.type(input, '新名字');
+
+    // Click Save
+    await user.click(screen.getByText('保存'));
+
+    await waitFor(() => {
+      expect(memoryApi.annotateEpisode).toHaveBeenCalledWith('e1', { user_label: '新名字' });
+    });
   });
 
   it('toggles pin on an episode', async () => {
