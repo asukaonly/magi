@@ -39,7 +39,12 @@ export const Hero: React.FC<HeroProps> = ({
   return (
     <div
       className={cn(
-        "relative h-[280px] overflow-hidden",
+        // min-h instead of fixed h — when the essence is long the container
+        // grows downward to fit. With the previous fixed h-[280px] the absolute-
+        // positioned text block could overflow upward past the date label and
+        // be clipped by overflow-hidden, hiding the "2026 年 5 月 18 日 周一"
+        // header on dense days.
+        "relative flex min-h-[280px] flex-col justify-end overflow-hidden",
         !hasPhoto && TONE_GRADIENTS[fallbackTone],
         className
       )}
@@ -56,7 +61,11 @@ export const Hero: React.FC<HeroProps> = ({
         <div className="absolute inset-0 bg-gradient-to-b from-black/15 via-black/25 to-black/75" />
       )}
 
-      <div className="absolute inset-x-0 bottom-0 z-10 px-10 pb-8 text-white">
+      {/* Normal-flow text block (no longer absolute) so its height
+          contributes to the container — Hero grows with essence length.
+          pt-12 keeps the date label off the top edge even when the
+          container has expanded; pb-8 keeps the place line off the bottom. */}
+      <div className="relative z-10 px-10 pb-8 pt-12 text-white">
         <div className="mb-3 text-[10px] uppercase tracking-[0.28em] opacity-80">
           {dateLabel}
         </div>
