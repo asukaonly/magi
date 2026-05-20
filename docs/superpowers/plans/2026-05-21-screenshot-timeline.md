@@ -695,10 +695,11 @@ def test_ocr_text_union_deduplicates_lines_and_preserves_order() -> None:
 
 def test_ocr_text_union_truncates_at_cap() -> None:
     agg = _load_module().BurstAggregator(gap_minutes=5, max_minutes=30, retention_days=30, content_char_cap=200)
-    long_line = "x" * 90
+    # 4 DISTINCT ~90-char lines so dedup keeps them all and we exceed the cap.
+    distinct_lines = "\n".join(f"line-{i} " + "x" * 80 for i in range(4))
     agg.ingest(_cap(capture_id="cap_1", captured_at=100.0,
                     app_bundle="A", window_title="W",
-                    ocr_text="\n".join([long_line, long_line, long_line, long_line])))
+                    ocr_text=distinct_lines))
     closed = agg.flush_all(now=100.0 + 10 * 60)
     assert closed[0].ocr_text_union.endswith("\n[truncated]")
     assert len(closed[0].ocr_text_union) <= 200 + len("\n[truncated]")
