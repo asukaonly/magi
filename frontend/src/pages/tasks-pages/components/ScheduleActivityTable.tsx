@@ -2,6 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronRight, Square } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { cn } from '@/lib/utils';
 import type { ScheduleActivityDTO, ScheduleDTO } from '@/api';
 import {
   getActivityTitle,
@@ -18,7 +19,22 @@ export interface ScheduleActivityTableProps {
   stoppingActivityId: string | null;
   onStop: (a: ScheduleActivityDTO) => void;
   onOpenBackgroundTask: (taskId: string) => void;
+  onSelectActivity?: (a: ScheduleActivityDTO) => void;
 }
+
+// An activity row is "inspectable" when there's something meaningful in the
+// detail drawer — i.e. it's a finished/cancelled execution (status carries
+// timing + result_message + error + stats). Upcoming/queued rows have nothing
+// to show beyond what's already in the table, so we don't make them clickable.
+const isInspectable = (activity: ScheduleActivityDTO): boolean => {
+  return (
+    activity.activity_id.startsWith('execution:') ||
+    activity.status === 'succeeded' ||
+    activity.status === 'failed' ||
+    activity.status === 'cancelled' ||
+    activity.status === 'running'
+  );
+};
 
 export const ScheduleActivityTable: React.FC<ScheduleActivityTableProps> = ({
   activities,
@@ -27,6 +43,7 @@ export const ScheduleActivityTable: React.FC<ScheduleActivityTableProps> = ({
   stoppingActivityId,
   onStop,
   onOpenBackgroundTask,
+  onSelectActivity,
 }) => {
   const { t } = useTranslation('app');
   return (
@@ -52,8 +69,16 @@ export const ScheduleActivityTable: React.FC<ScheduleActivityTableProps> = ({
             const typeLabel = linked
               ? t(getScheduleTargetLabelKey(linked), { defaultValue: getScheduleTargetLabelFallback(linked) })
               : t(`tasks.scheduled.targetTypes.${activity.target_type}`, { defaultValue: activity.target_type });
+            const clickable = Boolean(onSelectActivity) && isInspectable(activity);
             return (
-              <tr key={activity.activity_id} className="bg-background/60">
+              <tr
+                key={activity.activity_id}
+                className={cn(
+                  'bg-background/60 transition-colors',
+                  clickable && 'cursor-pointer hover:bg-muted/35',
+                )}
+                onClick={() => { if (clickable) onSelectActivity?.(activity); }}
+              >
                 <td className="px-4 py-3 align-middle">
                   <div className="truncate font-medium text-foreground" title={getActivityTitle(activity, schedulesById)}>
                     {getActivityTitle(activity, schedulesById)}
@@ -73,7 +98,7 @@ export const ScheduleActivityTable: React.FC<ScheduleActivityTableProps> = ({
                         variant="outline"
                         label={t('tasks.scheduled.actions.viewBackgroundTask')}
                         icon={<ChevronRight className="h-3.5 w-3.5" />}
-                        onClick={() => onOpenBackgroundTask(activity.background_task_id as string)}
+                        onClick={(e) => { e.stopPropagation(); onOpenBackgroundTask(activity.background_task_id as string); }}
                       />
                     ) : null}
                     {activity.cancellable ? (
@@ -82,7 +107,7 @@ export const ScheduleActivityTable: React.FC<ScheduleActivityTableProps> = ({
                         label={t('tasks.scheduled.actions.stop')}
                         disabled={stoppingActivityId === activity.activity_id}
                         icon={stoppingActivityId === activity.activity_id ? <LoadingSpinner className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
-                        onClick={() => onStop(activity)}
+                        onClick={(e) => { e.stopPropagation(); onStop(activity); }}
                       />
                     ) : null}
                   </div>

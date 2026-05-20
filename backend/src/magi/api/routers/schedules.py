@@ -285,6 +285,9 @@ async def list_schedule_activity(
                 "cancel_kind": None,
                 "error": row["error"],
                 "background_task_id": None,
+                "result_message": row.get("result_message"),
+                "stats": row.get("stats") or {},
+                "manual": row.get("manual", False),
             }
         )
 

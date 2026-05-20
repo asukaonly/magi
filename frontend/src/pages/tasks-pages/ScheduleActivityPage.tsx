@@ -7,6 +7,7 @@ import { History } from 'lucide-react';
 import { schedulesApi, type ScheduleActivityDTO, type ScheduleDTO } from '@/api';
 import { TasksPageFrame } from './TasksPageFrame';
 import { ScheduleActivityTable } from './components/ScheduleActivityTable';
+import { ActivityDetailDrawer } from './components/ActivityDetailDrawer';
 import { CategoryChipBar, type CategoryFilter } from './components/CategoryChipBar';
 import { scheduleCategory } from './utils/scheduleCategory';
 
@@ -53,6 +54,7 @@ export const ScheduleActivityPage: React.FC = () => {
   const [schedulesById, setSchedulesById] = useState<Record<string, ScheduleDTO>>({});
   const [loading, setLoading] = useState(false);
   const [stoppingActivityId, setStoppingActivityId] = useState<string | null>(null);
+  const [selectedActivity, setSelectedActivity] = useState<ScheduleActivityDTO | null>(null);
 
   const targetTypes = useMemo(() => {
     if (category === 'all' || category === 'other') return undefined;
@@ -129,8 +131,14 @@ export const ScheduleActivityPage: React.FC = () => {
           stoppingActivityId={stoppingActivityId}
           onStop={handleStop}
           onOpenBackgroundTask={(taskId) => navigate(`/tasks/background?taskId=${encodeURIComponent(taskId)}`)}
+          onSelectActivity={setSelectedActivity}
         />
       </div>
+      <ActivityDetailDrawer
+        activity={selectedActivity}
+        schedulesById={schedulesById}
+        onClose={() => setSelectedActivity(null)}
+      />
     </TasksPageFrame>
   );
 };

@@ -77,6 +77,9 @@ export interface ScheduleActivityDTO {
   cancel_kind?: 'sensor_sync_job' | string | null;
   error?: string | null;
   background_task_id?: string | null;
+  result_message?: string | null;
+  stats?: Record<string, unknown>;
+  manual?: boolean;
 }
 
 export interface ListScheduleActivityResponse {

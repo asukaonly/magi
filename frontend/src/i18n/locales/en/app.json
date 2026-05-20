@@ -274,6 +274,12 @@
         "userCtaTitle": "No scheduled tasks yet",
         "userCtaDescription": "Create a prompt-based schedule and let it run on a timer."
       },
+      "activity": {
+        "manual": "Manual",
+        "finishedAt": "Finished",
+        "resultMessage": "Result message",
+        "stats": "Stats"
+      },
       "feedback": {
         "loadFailed": "Failed to load scheduled tasks.",
         "runSuccess": "Scheduled task started.",

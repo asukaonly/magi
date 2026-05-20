@@ -90,6 +90,11 @@ async def test_activity_endpoint_returns_history_in_window(tmp_path: Path, monke
     first = matches[0]
     assert first["status"] == "succeeded"  # display-status mapping applied
     assert first["schedule_id"] == "user-test"
+    # Mid-scope: detail fields must be surfaced on execution rows
+    assert first["result_message"] == "ok"
+    assert first["finished_at"] is not None
+    assert first["duration_ms"] is not None
+    assert "stats" in first
 
 
 @pytest.mark.asyncio

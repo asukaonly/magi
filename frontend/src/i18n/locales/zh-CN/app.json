@@ -274,6 +274,12 @@
         "userCtaTitle": "还没有调度任务",
         "userCtaDescription": "创建一个 Prompt 调度任务，让它按计划帮你运行。"
       },
+      "activity": {
+        "manual": "手动触发",
+        "finishedAt": "完成时间",
+        "resultMessage": "执行结果",
+        "stats": "统计信息"
+      },
       "feedback": {
         "loadFailed": "调度任务加载失败。",
         "runSuccess": "已触发调度任务。",
