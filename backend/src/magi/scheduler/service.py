@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import time
 from pathlib import Path
-from typing import Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, Optional
 from zoneinfo import ZoneInfo
 
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
@@ -233,10 +234,35 @@ class SchedulerService:
         if target_type is not None and target_key is not None:
             await self._repository.clear_target_schedule_binding(target_type, target_key)
 
-    async def execute_schedule(self, schedule_id: str, *, manual: bool = False) -> ScheduledExecutionResult:
+    async def execute_schedule(
+        self,
+        schedule_id: str,
+        *,
+        manual: bool = False,
+        override_payload: dict[str, Any] | None = None,
+    ) -> ScheduledExecutionResult:
+        """Run a schedule once, optionally with a transient payload override.
+
+        ``override_payload``, when provided, is merged on top of the stored
+        ``schedule.target_payload`` for this execution only — the DB row is
+        not mutated, so the next scheduled tick sees the original payload.
+        Use this to give a handler one-shot parameters from a manual
+        trigger (e.g. ``{"days": 7}`` to backfill instead of the default 1).
+
+        Handlers opt in by reading ``context.schedule.target_payload``;
+        handlers that don't read it keep their current behavior.
+        """
         schedule = await self._repository.get_schedule(schedule_id)
         if schedule is None:
             return ScheduledExecutionResult(success=False, message="schedule_not_found")
+        if override_payload:
+            # Shallow-copy the schedule so the merged payload is visible to
+            # the handler but doesn't leak back into the repository's cache
+            # or any other concurrent reader.
+            schedule = dataclasses.replace(
+                schedule,
+                target_payload={**schedule.target_payload, **override_payload},
+            )
         if schedule.target_type is ScheduledTargetType.SENSOR_SYNC:
             outstanding = await self._repository.get_outstanding_sensor_sync_job(
                 schedule.target_type,

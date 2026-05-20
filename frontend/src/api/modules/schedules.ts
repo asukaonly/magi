@@ -205,9 +205,24 @@ export const schedulesApi = {
     await api.delete(`/schedules/${encodeURIComponent(scheduleId)}`);
   },
 
-  async run(scheduleId: string): Promise<RunScheduleResponse> {
+  /**
+   * Manually trigger a schedule. ``overrideParams``, when provided, is
+   * shallow-merged on top of the schedule's stored target_payload for this
+   * single execution (the DB row is not mutated). Handlers opt in by
+   * reading ``context.schedule.target_payload``.
+   *
+   * Example: ``run("timeline_diary_narrative", { days: 7 })`` to backfill
+   * 7 days of diary narratives in one trigger.
+   */
+  async run(
+    scheduleId: string,
+    overrideParams?: Record<string, unknown>,
+  ): Promise<RunScheduleResponse> {
     const response = await api.post<RunScheduleResponse>(
       `/schedules/${encodeURIComponent(scheduleId)}/run`,
+      overrideParams && Object.keys(overrideParams).length > 0
+        ? { override_params: overrideParams }
+        : undefined,
     );
     return unwrapGatewayPayload(response);
   },

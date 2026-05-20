@@ -121,7 +121,10 @@ describe('ScheduleConfigPage', () => {
     render(<MemoryRouter><ScheduleConfigPage /></MemoryRouter>);
     await user.click(await screen.findByRole('button', { name: 'tasks.scheduled.actions.runNow' }));
     await waitFor(() => {
-      expect(schedulesRunMock).toHaveBeenCalledWith('user-1');
+      // The schedulesApi.run(scheduleId, overrideParams?) signature passes
+      // both args from handleRun; an unparameterized click leaves the
+      // second positional as undefined.
+      expect(schedulesRunMock).toHaveBeenCalledWith('user-1', undefined);
     });
   });
 

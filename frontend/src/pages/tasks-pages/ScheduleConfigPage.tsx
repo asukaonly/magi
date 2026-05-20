@@ -84,11 +84,11 @@ export const ScheduleConfigPage: React.FC = () => {
     }));
   }, [filtered, category]);
 
-  const handleRun = async (s: ScheduleDTO) => {
+  const handleRun = async (s: ScheduleDTO, overrideParams?: Record<string, unknown>) => {
     if (s.target_state?.running || runningScheduleId) return;
     setRunningScheduleId(s.schedule_id);
     try {
-      await schedulesApi.run(s.schedule_id);
+      await schedulesApi.run(s.schedule_id, overrideParams);
       toast.success(t('tasks.scheduled.feedback.runSuccess'));
       await loadSchedules();
     } catch {
@@ -196,7 +196,10 @@ export const ScheduleConfigPage: React.FC = () => {
       <ScheduleInfoDrawer
         schedule={infoSchedule}
         onClose={() => setInfoSchedule(null)}
-        onRun={(s) => { void handleRun(s); setInfoSchedule(null); }}
+        onRun={(s, overrideParams) => {
+          void handleRun(s, overrideParams);
+          setInfoSchedule(null);
+        }}
         onToggle={(s) => { void handleToggle(s); setInfoSchedule(null); }}
       />
     </TasksPageFrame>
