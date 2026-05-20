@@ -196,11 +196,18 @@ class TimelineViewportBuilder:
         return await self._l2.list_tom_snapshots(entity_id="user:self", limit=50)
 
     async def _load_episodes(self, *, start: float, end: float) -> list[dict[str, Any]]:
-        """Load durable L2 episodes that overlap the viewport window."""
+        """Load durable L2 episodes that overlap the viewport window.
+
+        Includes ``candidate`` status so freshly-formed episodes show up
+        before the promotion pipeline has run — without this, week-scale
+        viewports fall back to transient single-event clustering and report
+        "0s" duration chips for every day. Mirrors the orchestrator's
+        ``statuses=["active", "candidate"]`` filter.
+        """
         if self._l2 is None or not hasattr(self._l2, "list_episodes"):
             return []
         return await self._l2.list_episodes(
-            statuses=["active", "user_pinned"],
+            statuses=["active", "candidate", "user_pinned"],
             time_start=start,
             time_end=end,
             limit=200,
@@ -523,10 +530,25 @@ class TimelineViewportBuilder:
 
     # Maximum chars allowed in a theme chip title. Above this we treat the
     # string as a summary sentence that leaked into the title slot and drop it.
-    _MAX_THEME_TITLE_LEN = 16
+    # 20 is the sweet spot — comfortably above multi-word project names
+    # ("Recurring Project", "sleep agency 论文") but well under sentence length.
+    _MAX_THEME_TITLE_LEN = 20
     # Title suffixes that indicate an internal L3 insight_key (e.g. "Day反思",
     # "Week反思") rather than a user-facing label. Filtered out of the chip row.
     _BAD_THEME_TITLE_SUFFIXES: tuple[str, ...] = ("反思", "总结", "summary", "Summary")
+    # Source-telemetry-style entity names that sensor plugins create as
+    # parent buckets for their events ("Chrome 历史" → all browsing events).
+    # These are catalog entries but are not "things the user cares about" —
+    # they're internal categorization. Filtered out of theme chips.
+    _BAD_THEME_TITLE_EXACT: frozenset[str] = frozenset({
+        "Chrome 历史", "chrome 历史", "应用使用情况", "应用使用",
+        "屏幕使用", "屏幕活动", "屏幕时间", "系统媒体",
+        "Application Usage", "Screen Time", "Chrome History",
+    })
+    # Minimum number of distinct episode clusters an entity must appear in
+    # before it's promoted to a theme chip. A one-off mention is rarely
+    # "what you cared about" — recurring mentions are.
+    _MIN_THEME_EPISODE_COUNT = 2
     _MAX_THEME_CARDS = 5
 
     @classmethod
@@ -537,9 +559,12 @@ class TimelineViewportBuilder:
           - Empty / whitespace
           - Longer than _MAX_THEME_TITLE_LEN (sentence-shaped data leak)
           - Ends in a known internal-key suffix ("Day反思" etc.)
+          - In the exact-match blacklist of sensor-bucket names
         """
         stripped = title.strip()
         if not stripped or len(stripped) > cls._MAX_THEME_TITLE_LEN:
+            return False
+        if stripped in cls._BAD_THEME_TITLE_EXACT:
             return False
         for suffix in cls._BAD_THEME_TITLE_SUFFIXES:
             if stripped.endswith(suffix):
@@ -655,12 +680,23 @@ class TimelineViewportBuilder:
                 entity_id_counts[eid] += weight
                 clusters_by_entity[eid].append(cluster)
 
-        if not entity_id_counts:
+        # Require an entity to appear in at least _MIN_THEME_EPISODE_COUNT
+        # distinct clusters to qualify. Single-mention entities are usually
+        # incidental (a one-off page title, a name that surfaced once) and
+        # shouldn't promote to chip-row visibility.
+        eligible_ids = [
+            eid for eid, _ in entity_id_counts.items()
+            if len(clusters_by_entity[eid]) >= self._MIN_THEME_EPISODE_COUNT
+        ]
+        if not eligible_ids:
             return []
+
+        # Re-rank only eligible entities by their aggregated weight.
+        ranked_ids = sorted(eligible_ids, key=lambda e: entity_id_counts[e], reverse=True)
 
         # Resolve a generous superset; some names will be rejected by the
         # length/suffix filter and we'd rather over-fetch by ~2x than refetch.
-        top_ids = [eid for eid, _ in entity_id_counts.most_common(self._MAX_THEME_CARDS * 2)]
+        top_ids = ranked_ids[: self._MAX_THEME_CARDS * 2]
         try:
             resolved = await self._entity_catalog.list_entities(
                 entity_ids=top_ids, limit=len(top_ids),
@@ -675,9 +711,11 @@ class TimelineViewportBuilder:
 
         cards: list[dict[str, Any]] = []
         seen_names: set[str] = set()
-        for eid, count in entity_id_counts.most_common():
+        # Iterate in pre-ranked order (filtered + sorted by weight above).
+        for eid in ranked_ids:
             if len(cards) >= self._MAX_THEME_CARDS:
                 break
+            count = entity_id_counts[eid]
             name = name_by_id.get(eid, "").strip()
             if not self._is_acceptable_theme_title(name):
                 continue

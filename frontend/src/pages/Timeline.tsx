@@ -287,10 +287,19 @@ export const TimelinePage: React.FC = () => {
     setQuery(draftQuery.trim());
   }, [draftQuery]);
 
+  /**
+   * Click a "值得回来的" item → jump to its day. Switches scale to "day"
+   * and sets viewportStart to the local midnight of the episode's date.
+   * (A future enhancement could scroll-to + highlight the specific
+   * episode within the day, but jumping there is the meaningful step.)
+   */
   const handleSelectStandoutEpisode = useCallback((episodeId: string) => {
-    // TODO(plan-4): jump-to-episode affordance
-    void episodeId;
-  }, []);
+    const item = standoutItems.find((s) => s.episode_id === episodeId);
+    if (!item) return;
+    const dayStart = toUnixSeconds(startOfLocalDay(new Date(item.start * 1000)));
+    setScale("day");
+    setViewportStart(clampToLatestCompletePeriod("day", dayStart));
+  }, [standoutItems]);
 
   const handleSelectFromDateInput = useCallback((value: string) => {
     const parsed = parsePeriodInputValue(scale, value);
