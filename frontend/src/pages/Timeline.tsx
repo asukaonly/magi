@@ -332,7 +332,11 @@ export const TimelinePage: React.FC = () => {
 
   return (
     <main className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-      <div className="flex min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
+      {/* Block layout (not flex) so PeriodCard/HourDetail fill the column width
+          when the sidebar's secondary panel collapses. With flex-row, children
+          size to content, leaving a white strip on the right after the
+          sidebar shrinks. */}
+      <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
         {loading && !viewport ? (
           <div className="flex h-full w-full items-center justify-center gap-2 text-sm text-muted-foreground">
             <LoadingSpinner className="h-4 w-4" />
