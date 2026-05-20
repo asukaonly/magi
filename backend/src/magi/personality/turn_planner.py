@@ -676,12 +676,25 @@ class PersonaTurnPlanner:
         config: PersonalityConfig,
         emotional_state: Any | None,
     ) -> dict[str, Any]:
+        """Map current emotional state to active dynamic_state_rules entries.
+
+        Recognised keys (all optional in the persona JSON):
+        - ``low_energy``    fires when energy < 0.35
+        - ``high_stress``   fires when stress > 0.70
+        - ``positive_mood`` fires when mood is one of {positive, happy, good, excited}
+        - ``flow_state``    fires when focus_state == "flow"
+                            (computed as energy > 0.8 + stress < 0.3)
+        - ``distracted_state`` fires when focus_state == "distracted"
+                            (computed as stress > 0.8 — note this is a stricter
+                            threshold than high_stress so both can co-fire)
+        """
         if emotional_state is None:
             return {}
         state = asdict(emotional_state) if is_dataclass(emotional_state) else dict(emotional_state or {})
         energy = float(state.get("energy_level", 0.7) or 0.7)
         stress = float(state.get("stress_level", 0.2) or 0.2)
         mood = str(state.get("current_mood") or state.get("mood") or "neutral").lower()
+        focus = str(state.get("focus_state") or "normal").lower()
         active_rules: dict[str, str] = {}
         if energy < 0.35 and "low_energy" in config.dynamic_state_rules:
             active_rules["low_energy"] = config.dynamic_state_rules["low_energy"]
@@ -689,6 +702,10 @@ class PersonaTurnPlanner:
             active_rules["high_stress"] = config.dynamic_state_rules["high_stress"]
         if mood in {"positive", "happy", "good", "excited"} and "positive_mood" in config.dynamic_state_rules:
             active_rules["positive_mood"] = config.dynamic_state_rules["positive_mood"]
+        if focus == "flow" and "flow_state" in config.dynamic_state_rules:
+            active_rules["flow_state"] = config.dynamic_state_rules["flow_state"]
+        if focus == "distracted" and "distracted_state" in config.dynamic_state_rules:
+            active_rules["distracted_state"] = config.dynamic_state_rules["distracted_state"]
         if not active_rules:
             return {}
         return {"active_rules": active_rules}
