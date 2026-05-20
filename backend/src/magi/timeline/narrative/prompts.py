@@ -8,7 +8,7 @@ optional place hints — for a single LLM call.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Iterable
 
 
@@ -108,8 +108,12 @@ def build_diary_narrative_user_prompt(
     that episode's bullet block so the LLM can ground its prose in specific
     nouns instead of abstract labels.
     """
-    start_label = datetime.fromtimestamp(period_start, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    end_label = datetime.fromtimestamp(period_end, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    # Local time, not UTC. The LLM uses time-of-day descriptors ("午后",
+    # "傍晚") based on the hour it sees, and the user reads the resulting
+    # diary in their local clock; using UTC produced an 8-hour drift where
+    # episodes at 20:00 CST were narrated as "正午" (because LLM saw 12:00).
+    start_label = datetime.fromtimestamp(period_start).strftime("%Y-%m-%d %H:%M")
+    end_label = datetime.fromtimestamp(period_end).strftime("%Y-%m-%d %H:%M")
     excerpts_by_episode = excerpts_by_episode or {}
 
     lines: list[str] = []
@@ -127,8 +131,8 @@ def build_diary_narrative_user_prompt(
         ep_id = str(ep.get("episode_id") or "").strip()
         ts = float(ep.get("time_start") or 0.0)
         te = float(ep.get("time_end") or ts)
-        t_start = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%H:%M")
-        t_end = datetime.fromtimestamp(te, tz=timezone.utc).strftime("%H:%M")
+        t_start = datetime.fromtimestamp(ts).strftime("%H:%M")
+        t_end = datetime.fromtimestamp(te).strftime("%H:%M")
         label = str(ep.get("label") or ep.get("user_label") or "").strip()
         topics = ep.get("primary_topic_keys") or []
         entities = ep.get("primary_entity_ids") or []

@@ -94,6 +94,13 @@ class TimelineViewportBuilder:
         if clusters:
             self._localize_cluster_labels(clusters, locale=locale)
             self._enrich_cluster_states(clusters, summaries, start=interpreted_query.start, end=interpreted_query.end)
+            # Episode-based clusters come out of cluster_builder with
+            # ``source_types: []`` because the L2 episode row doesn't track
+            # source breakdown. Without enrichment, the day-bucket UI groups
+            # every episode under the "memory" fallback and the Chrome /
+            # 屏幕 visual separation collapses. Fill the field by counting
+            # the L1 events that fall inside each episode's window.
+            self._enrich_cluster_source_types(clusters, events)
         raw_events = [self._to_raw_event(event, locale=locale) for event in events] if scale == "hour" else []
         source_mix = self._build_source_mix(events=events, clusters=clusters, locale=locale)
         theme_cards = await self._build_theme_cards(reflections=reflections, clusters=clusters, locale=locale)
@@ -174,6 +181,44 @@ class TimelineViewportBuilder:
                         if tone:
                             cluster["state_snapshot"] = derive_state_from_tone(tone)
                     break
+
+    def _enrich_cluster_source_types(
+        self,
+        clusters: list[dict[str, Any]],
+        events: list[dict[str, Any]],
+    ) -> None:
+        """For episode-based clusters with empty source_types, derive them
+        from the L1 events that fall in the episode's time window.
+
+        Episode rows in L2 don't track source breakdown, so cluster_builder
+        ships them with ``source_types: []``. The day-bucket UI groups by
+        source_types[0] and falls back to "memory" — which collapses every
+        episode (Chrome, screen, etc.) into a single "记忆" group. This
+        helper restores the breakdown by counting L1 event sources per
+        episode window and ordering by frequency (most-common first).
+
+        Transient clusters already carry source_types from cluster_builder
+        and are skipped.
+        """
+        for cluster in clusters:
+            block_id = str(cluster.get("block_id") or "")
+            if not block_id.startswith("episode:"):
+                continue
+            if cluster.get("source_types"):
+                continue
+            ts = float(cluster.get("time_start") or 0.0)
+            te = float(cluster.get("time_end") or 0.0)
+            if te <= ts:
+                continue
+            counts: Counter[str] = Counter()
+            for ev in events:
+                ev_ts = float(ev.get("timestamp") or 0.0)
+                if ts <= ev_ts <= te:
+                    source = str(ev.get("source") or "").strip()
+                    if source:
+                        counts[source] += 1
+            if counts:
+                cluster["source_types"] = [s for s, _ in counts.most_common()]
 
     async def _load_events(self, *, start: float, end: float) -> list[dict[str, Any]]:
         if self._l1 is None:

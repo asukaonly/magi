@@ -22,10 +22,15 @@ function formatHourMinute(sec: number): string {
 }
 
 function formatTimeRange(startSec: number, endSec: number): string {
-  if (Math.abs(endSec - startSec) < 60) {
-    return formatHourMinute(startSec);
+  const start = formatHourMinute(startSec);
+  const end = formatHourMinute(endSec);
+  if (start === end) {
+    // Within the same minute — show a single time with the · suffix so a
+    // missing end is unambiguous (vs the rare case the formatter rounds two
+    // distinct seconds into the same display string).
+    return `${start} ·`;
   }
-  return `${formatHourMinute(startSec)} – ${formatHourMinute(endSec)}`;
+  return `${start} – ${end}`;
 }
 
 /**
