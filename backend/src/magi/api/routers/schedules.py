@@ -164,16 +164,24 @@ async def create_schedule(body: ScheduleCreateBody) -> dict[str, Any]:
 @schedules_router.get("/activity")
 async def list_schedule_activity(
     limit: int = Query(default=100, ge=1, le=300),
+    since: Optional[float] = Query(default=None),
+    until: Optional[float] = Query(default=None),
+    statuses: Optional[list[str]] = Query(default=None),
+    target_types: Optional[list[str]] = Query(default=None),
 ) -> dict[str, Any]:
     repository = _repository()
     await repository.initialize()
-    schedules = await repository.list_schedules(enabled_only=True)
-    activities: list[dict[str, Any]] = []
+    schedules = await repository.list_schedules(enabled_only=False)
     schedule_by_id = {schedule.schedule_id: schedule for schedule in schedules}
+    activities: list[dict[str, Any]] = []
 
+    # 1) outstanding sensor sync jobs (queued/running)
     for job in await repository.list_outstanding_sensor_sync_jobs(limit=limit):
         schedule = schedule_by_id.get(str(job["schedule_id"]))
-        title = _schedule_title(schedule) if schedule is not None else str(job["source_type"])
+        title = (
+            _schedule_title(schedule) if schedule is not None
+            else str(job["source_type"])
+        )
         queued = str(job["status"]) == "queued"
         activities.append(
             {
@@ -185,13 +193,16 @@ async def list_schedule_activity(
                 "status": job["status"],
                 "planned_at": job["created_at"],
                 "started_at": job["started_at"],
+                "finished_at": None,
                 "duration_ms": None,
                 "cancellable": queued,
                 "cancel_kind": "sensor_sync_job" if queued else None,
                 "error": job["error"],
+                "background_task_id": None,
             }
         )
 
+    # 2) currently running + upcoming snapshots for non-sensor schedules
     for schedule in schedules:
         state = await repository.get_schedule_runtime_state(schedule)
         if state.running and schedule.target_type is not ScheduledTargetType.SENSOR_SYNC:
@@ -205,6 +216,7 @@ async def list_schedule_activity(
                     "status": "running",
                     "planned_at": None,
                     "started_at": state.last_run_at,
+                    "finished_at": None,
                     "duration_ms": (
                         max(0.0, (time.time() - state.last_run_at) * 1000.0)
                         if state.last_run_at
@@ -213,6 +225,7 @@ async def list_schedule_activity(
                     "cancellable": False,
                     "cancel_kind": None,
                     "error": state.last_error,
+                    "background_task_id": None,
                 }
             )
         if state.next_run_at is not None and not state.running:
@@ -226,14 +239,67 @@ async def list_schedule_activity(
                     "status": "upcoming",
                     "planned_at": state.next_run_at,
                     "started_at": None,
+                    "finished_at": None,
                     "duration_ms": None,
                     "cancellable": False,
                     "cancel_kind": None,
                     "error": state.last_error,
+                    "background_task_id": None,
                 }
             )
 
-    activities.sort(key=lambda item: (item["status"] != "running", item.get("planned_at") or 0))
+    # 3) historical executions inside the requested window
+    # Map display-status names (succeeded/failed) to DB-status names (success/failed)
+    raw_status_map = {"succeeded": "success"}
+    repo_statuses: Optional[list[str]] = None
+    if statuses:
+        repo_statuses = [raw_status_map.get(s, s) for s in statuses]
+
+    history = await repository.list_executions_filtered(
+        since=since,
+        until=until,
+        statuses=repo_statuses,
+        target_types=target_types,
+        limit=limit,
+    )
+    display_status_map = {"success": "succeeded"}
+    for row in history:
+        sched = schedule_by_id.get(str(row["schedule_id"]))
+        title = (
+            _schedule_title(sched) if sched is not None
+            else str(row["target_key"])
+        )
+        activities.append(
+            {
+                "activity_id": f"execution:{row['execution_id']}",
+                "schedule_id": row["schedule_id"],
+                "title": title,
+                "target_type": row["target_type"],
+                "target_key": row["target_key"],
+                "status": display_status_map.get(str(row["status"]), str(row["status"])),
+                "planned_at": row["started_at"],
+                "started_at": row["started_at"],
+                "finished_at": row["finished_at"],
+                "duration_ms": row["duration_ms"],
+                "cancellable": False,
+                "cancel_kind": None,
+                "error": row["error"],
+                "background_task_id": None,
+            }
+        )
+
+    # Apply target_types / statuses filters across the merged set so sensor jobs
+    # + live rows respect them too. Use display-status names for the comparison.
+    if target_types:
+        allowed_types = set(target_types)
+        activities = [a for a in activities if a["target_type"] in allowed_types]
+    if statuses:
+        allowed_statuses = set(statuses)
+        activities = [a for a in activities if a["status"] in allowed_statuses]
+
+    activities.sort(
+        key=lambda item: (item["status"] != "running", -(item.get("started_at") or 0))
+    )
     return {"activities": activities[:limit]}
 
 
