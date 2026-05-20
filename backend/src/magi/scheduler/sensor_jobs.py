@@ -98,27 +98,6 @@ class SensorSyncJobRepositoryMixin:
             return None
         return self._row_to_sensor_sync_job(row)
 
-    async def list_outstanding_sensor_sync_jobs(
-        self,
-        *,
-        limit: int = 100,
-    ) -> list[dict[str, object]]:
-        """Return all sensor sync jobs still queued or running."""
-        host = cast(_SensorJobRepositoryHost, self)
-        async with host._connect() as db:
-            cursor = await db.execute(
-                """
-                SELECT *
-                FROM sensor_sync_jobs
-                WHERE status IN ('queued', 'running')
-                ORDER BY created_at ASC
-                LIMIT ?
-                """,
-                (limit,),
-            )
-            rows = await cursor.fetchall()
-        return [self._row_to_sensor_sync_job(row) for row in rows]
-
     async def get_outstanding_sensor_sync_job(
         self,
         target_type: ScheduledTargetType,
