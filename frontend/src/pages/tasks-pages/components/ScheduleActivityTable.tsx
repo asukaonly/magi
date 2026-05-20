@@ -90,7 +90,7 @@ export const ScheduleActivityTable: React.FC<ScheduleActivityTableProps> = ({
                 </td>
                 <td className="px-4 py-3 align-middle text-xs text-muted-foreground whitespace-nowrap">{formatUnixSeconds(activity.planned_at)}</td>
                 <td className="px-4 py-3 align-middle text-xs text-muted-foreground whitespace-nowrap">{formatUnixSeconds(activity.started_at)}</td>
-                <td className="px-4 py-3 align-middle text-xs text-muted-foreground whitespace-nowrap">{formatDuration(activity.duration_ms)}</td>
+                <td className="px-4 py-3 align-middle text-xs text-muted-foreground whitespace-nowrap">{formatDuration(activity.duration_ms, t)}</td>
                 <td className="px-4 py-3 align-middle">
                   <div className="flex justify-end gap-1">
                     {activity.background_task_id ? (

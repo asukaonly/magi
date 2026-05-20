@@ -280,6 +280,13 @@
         "resultMessage": "执行结果",
         "stats": "统计信息"
       },
+      "duration": {
+        "subMs": "<1 毫秒",
+        "ms": "{{n}} 毫秒",
+        "sec": "{{n}} 秒",
+        "minSec": "{{m}} 分 {{s}} 秒",
+        "hourMin": "{{h}} 小时 {{m}} 分"
+      },
       "feedback": {
         "loadFailed": "调度任务加载失败。",
         "runSuccess": "已触发调度任务。",

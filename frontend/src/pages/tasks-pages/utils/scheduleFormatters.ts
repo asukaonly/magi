@@ -15,15 +15,68 @@ export const formatScheduleTableTime = (ts: number | null | undefined): string =
   }).format(new Date(ts * 1000));
 };
 
-export const formatDuration = (durationMs: number | null | undefined): string => {
-  if (!durationMs || !Number.isFinite(durationMs)) return '—';
-  const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  return [hours, minutes, seconds]
-    .map((part) => String(part).padStart(2, '0'))
-    .join(':');
+/**
+ * Type-compatible subset of i18next's `t` function. Accepting it as an
+ * optional argument lets us localize duration units without importing
+ * react-i18next here (this module is pure / framework-free).
+ */
+export type DurationTFunction = (
+  key: string,
+  opts?: { defaultValue?: string; [param: string]: unknown },
+) => string;
+
+/**
+ * Adaptive duration formatter.
+ *
+ * Picks the most useful unit by magnitude:
+ *   - null / NaN / negative → "—"
+ *   - <  1 ms               → "<1 ms"
+ *   - <  1000 ms            → "{n} ms"
+ *   - <  60 s               → "{n} s"   (1 decimal under 10 s)
+ *   - <  60 m               → "{m}m {s}s"
+ *   - ≥ 1 h                 → "{h}h {m}m"
+ *
+ * Pass a `t` from useTranslation to localize the units; otherwise English
+ * abbreviations are used.
+ */
+export const formatDuration = (
+  durationMs: number | null | undefined,
+  t?: DurationTFunction,
+): string => {
+  if (durationMs == null || !Number.isFinite(durationMs)) return '—';
+  if (durationMs < 0) return '—';
+  if (durationMs < 1) {
+    return t
+      ? t('tasks.scheduled.duration.subMs', { defaultValue: '<1 ms' })
+      : '<1 ms';
+  }
+  if (durationMs < 1000) {
+    const n = Math.round(durationMs);
+    return t
+      ? t('tasks.scheduled.duration.ms', { defaultValue: '{{n}} ms', n })
+      : `${n} ms`;
+  }
+  if (durationMs < 60_000) {
+    const secs = durationMs / 1000;
+    const n = secs < 10 ? secs.toFixed(1) : String(Math.round(secs));
+    return t
+      ? t('tasks.scheduled.duration.sec', { defaultValue: '{{n}} s', n })
+      : `${n} s`;
+  }
+  if (durationMs < 3_600_000) {
+    const totalSecs = Math.round(durationMs / 1000);
+    const m = Math.floor(totalSecs / 60);
+    const s = totalSecs % 60;
+    return t
+      ? t('tasks.scheduled.duration.minSec', { defaultValue: '{{m}}m {{s}}s', m, s })
+      : `${m}m ${s}s`;
+  }
+  const totalMins = Math.round(durationMs / 60_000);
+  const h = Math.floor(totalMins / 60);
+  const m = totalMins % 60;
+  return t
+    ? t('tasks.scheduled.duration.hourMin', { defaultValue: '{{h}}h {{m}}m', h, m })
+    : `${h}h ${m}m`;
 };
 
 export const toFiniteNumber = (value: unknown): number | null => {

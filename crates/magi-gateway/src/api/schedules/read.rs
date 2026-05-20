@@ -315,12 +315,15 @@ pub(super) fn query_executions(schedule_id: Option<&str>, limit: i64) -> Value {
 pub(super) fn query_activity(filters: ActivityFilters) -> Value {
     let conn = match open_scheduler_db() {
         Some(c) => c,
-        None => return json!({"activities": []}),
+        None => return json!({"activities": [], "total": 0}),
     };
     let limit = filters.limit.max(1);
+    let offset = filters.offset.max(0);
     let mut activities: Vec<Value> = Vec::new();
+    let live_only_on_first_page = offset == 0;
 
-    // 1) Outstanding sensor sync jobs (queued/running) — same as before.
+    // 1) Outstanding sensor sync jobs (queued/running) — first page only.
+    if live_only_on_first_page {
     if let Ok(mut stmt) = conn.prepare(
         "SELECT job_id, schedule_id, target_type, target_key, source_type, status, created_at, started_at, error \
          FROM sensor_sync_jobs WHERE status IN ('queued', 'running') ORDER BY created_at ASC LIMIT ?1",
@@ -361,11 +364,13 @@ pub(super) fn query_activity(filters: ActivityFilters) -> Value {
             .unwrap_or_default();
         activities.extend(jobs);
     }
+    } // end live_only_on_first_page (sensor jobs)
 
-    // 2) Currently running non-sensor schedules.
+    // 2) Currently running non-sensor schedules — first page only.
     // Upcoming (next_run_at) snapshots are intentionally NOT surfaced — the
     // schedule config page already shows "next run" per row, and upcoming rows
     // have no actions to take, so they'd just be duplicate noise.
+    if live_only_on_first_page {
     let schedules = query_schedules(true)
         .get("schedules")
         .and_then(|value| value.as_array())
@@ -416,6 +421,7 @@ pub(super) fn query_activity(filters: ActivityFilters) -> Value {
             "manual": false,
         }));
     }
+    } // end live_only_on_first_page (running snapshots)
 
     // 3) Historical executions from schedule_executions, scoped to the
     // requested window + filters.
@@ -461,11 +467,26 @@ pub(super) fn query_activity(filters: ActivityFilters) -> Value {
     } else {
         format!(" WHERE {}", where_clauses.join(" AND "))
     };
+
+    // Count of history rows matching filters (used for frontend pagination).
+    // Uses the same params as the data query so far, before we append
+    // LIMIT/OFFSET below.
+    let count_query =
+        format!("SELECT COUNT(*) FROM schedule_executions{where_sql}");
+    let history_total: i64 = {
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params.iter().map(|p| p.as_ref()).collect();
+        conn.query_row(&count_query, param_refs.as_slice(), |row| row.get::<_, i64>(0))
+            .unwrap_or(0)
+    };
+
     let limit_param_idx = params.len() + 1;
     params.push(Box::new(limit));
+    let offset_param_idx = params.len() + 1;
+    params.push(Box::new(offset));
     let history_query = format!(
         "SELECT {EXECUTION_COLUMNS} FROM schedule_executions{where_sql} \
-         ORDER BY started_at DESC LIMIT ?{limit_param_idx}"
+         ORDER BY started_at DESC LIMIT ?{limit_param_idx} OFFSET ?{offset_param_idx}"
     );
 
     if let Ok(mut stmt) = conn.prepare(&history_query) {
@@ -555,8 +576,13 @@ pub(super) fn query_activity(filters: ActivityFilters) -> Value {
         b_ts.partial_cmp(&a_ts).unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    activities.truncate(limit as usize);
-    json!({"activities": activities})
+    // Truncate only when live rows pushed us past the page size on page 1;
+    // on later pages the SQL LIMIT already constrained the slice.
+    activities.truncate(limit as usize + 32);
+    json!({
+        "activities": activities,
+        "total": history_total,
+    })
 }
 
 fn schedule_title(schedule: &Value) -> String {

@@ -20,6 +20,7 @@ pub(in crate::api) struct ExecutionsQuery {
 #[derive(Default)]
 pub(in crate::api) struct ActivityFilters {
     pub(in crate::api) limit: i64,
+    pub(in crate::api) offset: i64,
     pub(in crate::api) since: Option<f64>,
     pub(in crate::api) until: Option<f64>,
     pub(in crate::api) target_types: Vec<String>,
@@ -38,6 +39,11 @@ impl ActivityFilters {
                 "limit" => {
                     if let Ok(v) = value.parse::<i64>() {
                         out.limit = v.clamp(1, 300);
+                    }
+                }
+                "offset" => {
+                    if let Ok(v) = value.parse::<i64>() {
+                        out.offset = v.max(0);
                     }
                 }
                 "since" => {

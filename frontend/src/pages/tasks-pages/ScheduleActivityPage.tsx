@@ -9,7 +9,10 @@ import { TasksPageFrame } from './TasksPageFrame';
 import { ScheduleActivityTable } from './components/ScheduleActivityTable';
 import { ActivityDetailDrawer } from './components/ActivityDetailDrawer';
 import { CategoryChipBar, type CategoryFilter } from './components/CategoryChipBar';
+import { TasksPaginationBar } from './components/TasksPaginationBar';
 import { scheduleCategory } from './utils/scheduleCategory';
+
+const PAGE_SIZE = 50;
 
 type WindowKey = 'today' | 'last24h' | 'last7d';
 
@@ -56,10 +59,17 @@ export const ScheduleActivityPage: React.FC = () => {
   const [category, setCategory] = useState<CategoryFilter>('all');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [activities, setActivities] = useState<ScheduleActivityDTO[]>([]);
+  const [total, setTotal] = useState(0);
+  const [offset, setOffset] = useState(0);
   const [schedulesById, setSchedulesById] = useState<Record<string, ScheduleDTO>>({});
   const [loading, setLoading] = useState(false);
   const [stoppingActivityId, setStoppingActivityId] = useState<string | null>(null);
   const [selectedActivity, setSelectedActivity] = useState<ScheduleActivityDTO | null>(null);
+
+  // Reset to first page when filters change.
+  useEffect(() => {
+    setOffset(0);
+  }, [windowKey, category, statusFilter]);
 
   const targetTypes = useMemo(() => {
     if (category === 'all' || category === 'other') return undefined;
@@ -72,20 +82,22 @@ export const ScheduleActivityPage: React.FC = () => {
       const [act, sched] = await Promise.all([
         schedulesApi.listActivity({
           sinceSeconds: windowToSinceSeconds(windowKey),
-          limit: 100,
+          limit: PAGE_SIZE,
+          offset,
           targetTypes,
           statuses: statusFilter === 'all' ? undefined : [statusFilter],
         }),
         schedulesApi.list({ enabledOnly: false }),
       ]);
       setActivities(act.activities);
+      setTotal(act.total ?? 0);
       setSchedulesById(Object.fromEntries(sched.schedules.map((s) => [s.schedule_id, s])));
     } catch {
       toast.error(t('tasks.scheduled.feedback.loadFailed'));
     } finally {
       setLoading(false);
     }
-  }, [windowKey, targetTypes, statusFilter, t]);
+  }, [windowKey, targetTypes, statusFilter, offset, t]);
 
   useEffect(() => { void reload(); }, [reload]);
 
@@ -137,7 +149,7 @@ export const ScheduleActivityPage: React.FC = () => {
         </>
       }
     >
-      <div className="mx-auto w-full max-w-6xl">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-4">
         <ScheduleActivityTable
           activities={activities}
           schedulesById={schedulesById}
@@ -146,6 +158,13 @@ export const ScheduleActivityPage: React.FC = () => {
           onStop={handleStop}
           onOpenBackgroundTask={(taskId) => navigate(`/tasks/background?taskId=${encodeURIComponent(taskId)}`)}
           onSelectActivity={setSelectedActivity}
+        />
+        <TasksPaginationBar
+          total={total}
+          offset={offset}
+          limit={PAGE_SIZE}
+          loading={loading}
+          onPageChange={setOffset}
         />
       </div>
       <ActivityDetailDrawer

@@ -89,7 +89,7 @@ export const ActivityDetailDrawer: React.FC<ActivityDetailDrawerProps> = ({
                     </div>
                     <div>
                       <dt className={labelClass}>{t('tasks.scheduled.columns.duration')}</dt>
-                      <dd className="mt-1 text-foreground">{formatDuration(activity.duration_ms)}</dd>
+                      <dd className="mt-1 text-foreground">{formatDuration(activity.duration_ms, t)}</dd>
                     </div>
                     <div>
                       <dt className={labelClass}>{t('tasks.scheduled.columns.startedAt')}</dt>

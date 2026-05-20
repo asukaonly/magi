@@ -280,6 +280,13 @@
         "resultMessage": "Result message",
         "stats": "Stats"
       },
+      "duration": {
+        "subMs": "<1 ms",
+        "ms": "{{n}} ms",
+        "sec": "{{n}} s",
+        "minSec": "{{m}}m {{s}}s",
+        "hourMin": "{{h}}h {{m}}m"
+      },
       "feedback": {
         "loadFailed": "Failed to load scheduled tasks.",
         "runSuccess": "Scheduled task started.",

@@ -65,7 +65,8 @@ describe('ScheduleActivityPage', () => {
     const call = schedulesListActivityMock.mock.calls[0];
     expect(call?.[0]).toEqual(expect.objectContaining({
       sinceSeconds: expect.any(Number),
-      limit: 100,
+      limit: 50,
+      offset: 0,
     }));
   });
 

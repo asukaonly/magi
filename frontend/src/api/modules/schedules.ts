@@ -91,6 +91,7 @@ export interface ListActivityParams {
   sinceSeconds?: number;
   untilSeconds?: number;
   limit?: number;
+  offset?: number;
   targetTypes?: string[];
   statuses?: string[];
 }
@@ -155,6 +156,7 @@ export const schedulesApi = {
     if (params.sinceSeconds !== undefined) search.set('since', String(params.sinceSeconds));
     if (params.untilSeconds !== undefined) search.set('until', String(params.untilSeconds));
     if (params.limit !== undefined) search.set('limit', String(params.limit));
+    if (params.offset !== undefined) search.set('offset', String(params.offset));
     (params.targetTypes ?? []).forEach((t) => search.append('target_types', t));
     (params.statuses ?? []).forEach((s) => search.append('statuses', s));
     const query = search.toString();
