@@ -31,12 +31,14 @@ export const MemoryRecallPage = () => {
   const { t } = useTranslation('app');
   const [mode, setMode] = useState<RecallMode>('auto');
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
   const {
     searchQuery, setSearchQuery, searchResults, searching, handleSearch,
   } = useMemory({ initialLoadScope: 'overview' });
 
   const runSearch = () => {
     const queryMode = MODE_TO_QUERY[mode];
+    setHasSearched(true);
     void handleSearch(queryMode);
   };
 
@@ -76,7 +78,7 @@ export const MemoryRecallPage = () => {
           </Button>
         </div>
 
-        {noResults ? (
+        {hasSearched && noResults ? (
           <div className={MEMORY_EMPTY_PANEL_CLASS}>{t('memory.recall.noResults')}</div>
         ) : null}
 

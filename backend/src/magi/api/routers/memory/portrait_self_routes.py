@@ -105,7 +105,7 @@ def build_router() -> APIRouter:
             generated_at=int(time.time()),
             observations=observations,
             is_cold_start=is_cold_start,
-            cold_start_line=("Magi 还没有从你的记忆里得出关于你的整体印象。" if is_cold_start else None),
+            cold_start_line=None,
             cold_start_reason=("no_observations" if is_cold_start else None),
         )
         return payload.to_dict()

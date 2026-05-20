@@ -2535,7 +2535,6 @@
       "subtitle": "Review, correct, and forget — the memory control panel.",
       "sections": {
         "pendingReview": "Pending review",
-        "corrected": "Corrected facts",
         "forget": "Forget",
         "privacy": "Privacy scope",
         "developer": "Developer view"
@@ -2543,6 +2542,8 @@
       "pendingReviewBody": "Reflections Magi hasn't confirmed yet are waiting here for your review.",
       "developerBody": "Raw events, L2 structured knowledge, L0 working memory, and L4 procedural skills all live here.",
       "forgetBody": "Delete the memory of a specific entity, time period, or chapter from here.",
+      "forgetSuccess": "Forgotten",
+      "forgetError": "Operation failed",
       "privacyBody": "View the current privacy scope per source. Modifications are made in Settings.",
       "storageTitle": "Storage stats",
       "storageBody": "Currently storing {{total}} memories, using {{size}}."

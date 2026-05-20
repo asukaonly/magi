@@ -2601,7 +2601,6 @@
       "subtitle": "可审阅、可纠正、可遗忘的记忆控制台。",
       "sections": {
         "pendingReview": "待审阅",
-        "corrected": "修正过的事实",
         "forget": "遗忘",
         "privacy": "隐私范围",
         "developer": "开发者视图"
@@ -2609,6 +2608,8 @@
       "pendingReviewBody": "Magi 还没确认的反思会在这里等待你过一遍。",
       "developerBody": "原始事件、L2 结构化知识、L0 工作台和 L4 工具记忆都在这里。",
       "forgetBody": "从这里删除某个实体、某段时间或某个章节的记忆。",
+      "forgetSuccess": "已遗忘",
+      "forgetError": "操作失败",
       "privacyBody": "查看每个来源当前的隐私范围。修改在「设置」里完成。",
       "storageTitle": "存储统计",
       "storageBody": "当前共有 {{total}} 条记忆，占用 {{size}}。"

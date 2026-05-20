@@ -36,8 +36,8 @@ const ForgetCenter = () => {
       <Button onClick={() => void handleForget()} disabled={!episodeId.trim()}>
         {t('memory.episodes.actions.forget')}
       </Button>
-      {status === 'ok' ? <span className="text-xs text-emerald-600">{t('memory.episodes.actions.forget')}</span> : null}
-      {status === 'error' ? <span className="text-xs text-red-500">error</span> : null}
+      {status === 'ok' ? <span className="text-xs text-emerald-600">{t('memory.governance.forgetSuccess')}</span> : null}
+      {status === 'error' ? <span className="text-xs text-red-500">{t('memory.governance.forgetError')}</span> : null}
     </div>
   );
 };
