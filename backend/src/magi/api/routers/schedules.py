@@ -362,7 +362,12 @@ async def run_schedule_now(
         ) from exc
 
     override_params = (body.override_params if body is not None else {}) or {}
-    result = await scheduler_service.execute_schedule(
+    # Fire-and-forget: returns after setup (lock + execution record); the
+    # handler runs in a background task. The HTTP request used to hang for
+    # the full duration of the handler — for diary backfill that's minutes
+    # of dead UI. Now the response is sub-second; status moves through the
+    # /schedules/activity feed.
+    result = await scheduler_service.execute_schedule_async(
         schedule_id, manual=True, override_payload=override_params or None,
     )
     if not result.success:

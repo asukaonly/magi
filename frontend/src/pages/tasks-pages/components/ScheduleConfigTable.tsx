@@ -129,7 +129,12 @@ export const ScheduleConfigTable: React.FC<ScheduleConfigTableProps> = (props) =
                 onClick={(e) => { e.stopPropagation(); onOpenSettings(schedule); }}
               />
             ) : null}
-            {systemOwned ? (
+            {!sensorOwned ? (
+              // Info button is available for both system-managed (read-only)
+              // and user-owned schedules — the drawer hosts the "Run with
+              // params..." affordance which is useful regardless of whether
+              // the schedule's config is editable. Sensor schedules already
+              // have their own settings panel (handled above).
               <IconActionButton
                 variant="secondary"
                 label={t('tasks.scheduled.actions.openInfo')}
