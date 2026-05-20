@@ -1,11 +1,11 @@
-use axum::extract::{Path, Query};
+use axum::extract::{Path, Query, RawQuery};
 use axum::http::StatusCode;
 use axum::Json;
 use serde_json::{json, Value};
 
 use super::read::{query_activity, query_executions, query_schedules, query_single_schedule};
 use super::types::{
-    ActivityCancelBody, ActivityQuery, ExecutionsQuery, ListSchedulesQuery, ScheduleCreateBody,
+    ActivityCancelBody, ActivityFilters, ExecutionsQuery, ListSchedulesQuery, ScheduleCreateBody,
     ScheduleUpdateBody,
 };
 use super::write::{cancel_queued_activity, patch_schedule, remove_schedule, upsert_schedule};
@@ -54,9 +54,9 @@ pub async fn list_recent_executions(Query(params): Query<ExecutionsQuery>) -> Js
     Json(result)
 }
 
-pub async fn list_activity(Query(params): Query<ActivityQuery>) -> Json<Value> {
-    let limit = params.limit.unwrap_or(100).clamp(1, 300);
-    let result = tokio::task::spawn_blocking(move || query_activity(limit))
+pub async fn list_activity(RawQuery(raw): RawQuery) -> Json<Value> {
+    let filters = ActivityFilters::from_query(raw.as_deref());
+    let result = tokio::task::spawn_blocking(move || query_activity(filters))
         .await
         .unwrap_or_else(|_| json!({"activities": []}));
     Json(result)

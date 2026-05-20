@@ -2,6 +2,7 @@ use rusqlite::Connection;
 use serde_json::{json, Value};
 
 use super::storage::{open_scheduler_db, serialize_schedule, SCHEDULE_COLUMNS};
+use super::types::ActivityFilters;
 
 pub(super) fn query_schedules(enabled_only: bool) -> Value {
     let conn = match open_scheduler_db() {
@@ -311,19 +312,21 @@ pub(super) fn query_executions(schedule_id: Option<&str>, limit: i64) -> Value {
     json!({"executions": executions})
 }
 
-pub(super) fn query_activity(limit: i64) -> Value {
+pub(super) fn query_activity(filters: ActivityFilters) -> Value {
     let conn = match open_scheduler_db() {
         Some(c) => c,
         None => return json!({"activities": []}),
     };
+    let limit = filters.limit.max(1);
     let mut activities: Vec<Value> = Vec::new();
 
+    // 1) Outstanding sensor sync jobs (queued/running) — same as before.
     if let Ok(mut stmt) = conn.prepare(
         "SELECT job_id, schedule_id, target_type, target_key, source_type, status, created_at, started_at, error \
          FROM sensor_sync_jobs WHERE status IN ('queued', 'running') ORDER BY created_at ASC LIMIT ?1",
     ) {
         let jobs = stmt
-            .query_map(rusqlite::params![limit.max(1)], |row| {
+            .query_map(rusqlite::params![limit], |row| {
                 let job_id: String = row.get(0)?;
                 let schedule_id: String = row.get(1)?;
                 let target_type: String = row.get(2)?;
@@ -342,10 +345,15 @@ pub(super) fn query_activity(limit: i64) -> Value {
                     "status": status,
                     "planned_at": created_at,
                     "started_at": started_at,
+                    "finished_at": Value::Null,
                     "duration_ms": Value::Null,
                     "cancellable": status == "queued",
                     "cancel_kind": if status == "queued" { Value::String("sensor_sync_job".to_string()) } else { Value::Null },
                     "error": error,
+                    "background_task_id": Value::Null,
+                    "result_message": Value::Null,
+                    "stats": json!({}),
+                    "manual": false,
                 }))
             })
             .ok()
@@ -354,15 +362,16 @@ pub(super) fn query_activity(limit: i64) -> Value {
         activities.extend(jobs);
     }
 
+    // 2) Currently running non-sensor schedules.
+    // Upcoming (next_run_at) snapshots are intentionally NOT surfaced — the
+    // schedule config page already shows "next run" per row, and upcoming rows
+    // have no actions to take, so they'd just be duplicate noise.
     let schedules = query_schedules(true)
         .get("schedules")
         .and_then(|value| value.as_array())
         .cloned()
         .unwrap_or_default();
     for schedule in schedules {
-        if activities.len() >= limit.max(1) as usize {
-            break;
-        }
         let state = schedule
             .get("target_state")
             .cloned()
@@ -375,6 +384,9 @@ pub(super) fn query_activity(limit: i64) -> Value {
             .get("target_type")
             .and_then(|value| value.as_str())
             .unwrap_or("");
+        if !running || target_type == "sensor_sync" {
+            continue;
+        }
         let schedule_id = schedule
             .get("schedule_id")
             .and_then(|value| value.as_str())
@@ -384,43 +396,166 @@ pub(super) fn query_activity(limit: i64) -> Value {
             .and_then(|value| value.as_str())
             .unwrap_or("");
         let title = schedule_title(&schedule);
-        if running && target_type != "sensor_sync" {
-            activities.push(json!({
-                "activity_id": format!("target:{target_type}:{target_key}"),
-                "schedule_id": schedule_id,
-                "title": title,
-                "target_type": target_type,
-                "target_key": target_key,
-                "status": "running",
-                "planned_at": Value::Null,
-                "started_at": state.get("last_run_at").cloned().unwrap_or(Value::Null),
-                "duration_ms": Value::Null,
-                "cancellable": false,
-                "cancel_kind": Value::Null,
-                "error": state.get("last_error").cloned().unwrap_or(Value::Null),
-            }));
-            continue;
+        activities.push(json!({
+            "activity_id": format!("target:{target_type}:{target_key}"),
+            "schedule_id": schedule_id,
+            "title": title,
+            "target_type": target_type,
+            "target_key": target_key,
+            "status": "running",
+            "planned_at": Value::Null,
+            "started_at": state.get("last_run_at").cloned().unwrap_or(Value::Null),
+            "finished_at": Value::Null,
+            "duration_ms": Value::Null,
+            "cancellable": false,
+            "cancel_kind": Value::Null,
+            "error": state.get("last_error").cloned().unwrap_or(Value::Null),
+            "background_task_id": Value::Null,
+            "result_message": Value::Null,
+            "stats": json!({}),
+            "manual": false,
+        }));
+    }
+
+    // 3) Historical executions from schedule_executions, scoped to the
+    // requested window + filters.
+    // Map display-status names back to DB names: succeeded → success.
+    let raw_statuses: Vec<String> = filters
+        .statuses
+        .iter()
+        .map(|s| match s.as_str() {
+            "succeeded" => "success".to_string(),
+            other => other.to_string(),
+        })
+        .collect();
+    let mut where_clauses: Vec<String> = Vec::new();
+    let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+    if let Some(since) = filters.since {
+        where_clauses.push(format!("started_at >= ?{}", params.len() + 1));
+        params.push(Box::new(since));
+    }
+    if let Some(until) = filters.until {
+        where_clauses.push(format!("started_at <= ?{}", params.len() + 1));
+        params.push(Box::new(until));
+    }
+    if !raw_statuses.is_empty() {
+        let placeholders: Vec<String> = (0..raw_statuses.len())
+            .map(|i| format!("?{}", params.len() + 1 + i))
+            .collect();
+        where_clauses.push(format!("status IN ({})", placeholders.join(",")));
+        for s in &raw_statuses {
+            params.push(Box::new(s.clone()));
         }
-        let next_run_at = state.get("next_run_at").cloned().unwrap_or(Value::Null);
-        if !next_run_at.is_null() && !running {
-            activities.push(json!({
-                "activity_id": format!("upcoming:{schedule_id}"),
-                "schedule_id": schedule_id,
-                "title": title,
-                "target_type": target_type,
-                "target_key": target_key,
-                "status": "upcoming",
-                "planned_at": next_run_at,
-                "started_at": Value::Null,
-                "duration_ms": Value::Null,
-                "cancellable": false,
-                "cancel_kind": Value::Null,
-                "error": state.get("last_error").cloned().unwrap_or(Value::Null),
-            }));
+    }
+    if !filters.target_types.is_empty() {
+        let placeholders: Vec<String> = (0..filters.target_types.len())
+            .map(|i| format!("?{}", params.len() + 1 + i))
+            .collect();
+        where_clauses.push(format!("target_type IN ({})", placeholders.join(",")));
+        for t in &filters.target_types {
+            params.push(Box::new(t.clone()));
+        }
+    }
+    let where_sql = if where_clauses.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", where_clauses.join(" AND "))
+    };
+    let limit_param_idx = params.len() + 1;
+    params.push(Box::new(limit));
+    let history_query = format!(
+        "SELECT {EXECUTION_COLUMNS} FROM schedule_executions{where_sql} \
+         ORDER BY started_at DESC LIMIT ?{limit_param_idx}"
+    );
+
+    if let Ok(mut stmt) = conn.prepare(&history_query) {
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params.iter().map(|p| p.as_ref()).collect();
+        let rows: Vec<Value> = stmt
+            .query_map(param_refs.as_slice(), serialize_execution)
+            .ok()
+            .map(|iter| iter.filter_map(|r| r.ok()).collect())
+            .unwrap_or_default();
+        for mut row in rows {
+            // Adapt the execution row into the activity DTO shape used elsewhere.
+            let execution_id = row
+                .get("execution_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let raw_status = row
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let display_status = match raw_status.as_str() {
+                "success" => "succeeded",
+                other => other,
+            };
+            let object = row
+                .as_object_mut()
+                .expect("serialize_execution always returns object");
+            object.insert(
+                "activity_id".into(),
+                Value::String(format!("execution:{execution_id}")),
+            );
+            object.insert("status".into(), Value::String(display_status.into()));
+            object.insert(
+                "planned_at".into(),
+                object
+                    .get("started_at")
+                    .cloned()
+                    .unwrap_or(Value::Null),
+            );
+            object.insert("cancellable".into(), Value::Bool(false));
+            object.insert("cancel_kind".into(), Value::Null);
+            object.insert("background_task_id".into(), Value::Null);
+            object.insert("title".into(), Value::String(execution_id));
+            activities.push(row);
         }
     }
 
-    activities.truncate(limit.max(1) as usize);
+    // 4) Apply the target_types / statuses filters across the merged set so
+    // sensor jobs and currently-running rows respect them too.
+    let allowed_types: Option<std::collections::HashSet<&str>> = if filters.target_types.is_empty()
+    {
+        None
+    } else {
+        Some(filters.target_types.iter().map(|s| s.as_str()).collect())
+    };
+    let allowed_statuses: Option<std::collections::HashSet<&str>> = if filters.statuses.is_empty() {
+        None
+    } else {
+        Some(filters.statuses.iter().map(|s| s.as_str()).collect())
+    };
+    if allowed_types.is_some() || allowed_statuses.is_some() {
+        activities.retain(|a| {
+            let t = a.get("target_type").and_then(|v| v.as_str()).unwrap_or("");
+            let s = a.get("status").and_then(|v| v.as_str()).unwrap_or("");
+            allowed_types.as_ref().is_none_or(|set| set.contains(t))
+                && allowed_statuses.as_ref().is_none_or(|set| set.contains(s))
+        });
+    }
+
+    // 5) Sort: running first, then by started_at descending.
+    activities.sort_by(|a, b| {
+        let a_running = a.get("status").and_then(|v| v.as_str()) == Some("running");
+        let b_running = b.get("status").and_then(|v| v.as_str()) == Some("running");
+        if a_running != b_running {
+            return b_running.cmp(&a_running);
+        }
+        let a_ts = a
+            .get("started_at")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        let b_ts = b
+            .get("started_at")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        b_ts.partial_cmp(&a_ts).unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    activities.truncate(limit as usize);
     json!({"activities": activities})
 }
 
