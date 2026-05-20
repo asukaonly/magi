@@ -29,10 +29,26 @@ import {
 import { toFiniteNumber } from '../utils/scheduleFormatters';
 
 export interface ScheduleEditDrawerProps {
+  mode?: 'edit' | 'create';
   schedule: ScheduleDTO | null;
   onClose: () => void;
   onSaved: () => void;
 }
+
+const DEFAULT_CRON_CONFIG = {
+  second: '0',
+  minute: '0',
+  hour: '*',
+  day: '*',
+  month: '*',
+  day_of_week: '*',
+};
+
+const generateScheduleId = (): string => {
+  const time = Date.now().toString(36);
+  const noise = Math.random().toString(36).slice(2, 8);
+  return `user-${time}-${noise}`;
+};
 
 const secondsToLocalInput = (seconds: number | null): string => {
   if (!seconds) return '';
@@ -44,17 +60,34 @@ const secondsToLocalInput = (seconds: number | null): string => {
 const drawerFieldLabelClass = 'text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground';
 const drawerSectionClass = 'rounded-lg border border-border/60 bg-background/70 p-5';
 
-export const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({ schedule, onClose, onSaved }) => {
+export const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({
+  mode = 'edit',
+  schedule,
+  onClose,
+  onSaved,
+}) => {
   const { t } = useTranslation('app');
+  const isCreate = mode === 'create';
+  const [displayName, setDisplayName] = useState('');
   const [enabled, setEnabled] = useState(true);
   const [triggerType, setTriggerType] = useState<ScheduleTriggerType>('interval');
-  const [intervalSeconds, setIntervalSeconds] = useState('300');
+  const [intervalSeconds, setIntervalSeconds] = useState('3600');
   const [onceRunAt, setOnceRunAt] = useState('');
-  const [cronConfig, setCronConfig] = useState('{}');
+  const [cronConfig, setCronConfig] = useState(JSON.stringify(DEFAULT_CRON_CONFIG, null, 2));
   const [targetPrompt, setTargetPrompt] = useState('');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    if (isCreate) {
+      setDisplayName('');
+      setEnabled(true);
+      setTriggerType('interval');
+      setIntervalSeconds('3600');
+      setOnceRunAt('');
+      setCronConfig(JSON.stringify(DEFAULT_CRON_CONFIG, null, 2));
+      setTargetPrompt('');
+      return;
+    }
     if (!schedule) return;
     setEnabled(schedule.enabled);
     setTriggerType(schedule.trigger.trigger_type);
@@ -62,33 +95,65 @@ export const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({ schedule
     setOnceRunAt(secondsToLocalInput(toFiniteNumber(schedule.trigger.config.run_at)));
     setCronConfig(JSON.stringify(schedule.trigger.config || {}, null, 2));
     setTargetPrompt(getSchedulePrompt(schedule));
-  }, [schedule]);
+  }, [schedule, isCreate]);
 
-  const handleSave = async () => {
-    if (!schedule) return;
-    let config: Record<string, unknown>;
+  const buildConfig = (): Record<string, unknown> | null => {
     if (triggerType === 'interval') {
       const seconds = Number(intervalSeconds);
       if (!Number.isFinite(seconds) || seconds < 1) {
         toast.error(t('tasks.scheduled.feedback.invalidInterval'));
-        return;
+        return null;
       }
-      config = { seconds };
-    } else if (triggerType === 'once') {
+      return { seconds };
+    }
+    if (triggerType === 'once') {
       const timestamp = Date.parse(onceRunAt) / 1000;
       if (!Number.isFinite(timestamp)) {
         toast.error(t('tasks.scheduled.feedback.invalidRunAt'));
-        return;
+        return null;
       }
-      config = { run_at: timestamp };
-    } else {
-      try {
-        config = JSON.parse(cronConfig || '{}') as Record<string, unknown>;
-      } catch {
-        toast.error(t('tasks.scheduled.feedback.invalidCron'));
-        return;
-      }
+      return { run_at: timestamp };
     }
+    try {
+      return JSON.parse(cronConfig || '{}') as Record<string, unknown>;
+    } catch {
+      toast.error(t('tasks.scheduled.feedback.invalidCron'));
+      return null;
+    }
+  };
+
+  const handleSave = async () => {
+    const config = buildConfig();
+    if (config === null) return;
+
+    if (isCreate) {
+      const trimmedPrompt = targetPrompt.trim();
+      if (!trimmedPrompt) {
+        toast.error(t('tasks.scheduled.feedback.invalidPrompt'));
+        return;
+      }
+      const trimmedName = displayName.trim();
+      setSaving(true);
+      try {
+        await schedulesApi.create({
+          schedule_id: generateScheduleId(),
+          display_name: trimmedName || t('tasks.scheduled.defaultDisplayName', { defaultValue: 'Untitled schedule' }),
+          prompt: trimmedPrompt,
+          trigger: { trigger_type: triggerType, config },
+          enabled,
+        });
+        toast.success(t('tasks.scheduled.feedback.createSuccess'));
+        onSaved();
+        onClose();
+      } catch {
+        toast.error(t('tasks.scheduled.feedback.createFailed'));
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
+    if (!schedule) return;
     const updateBody: UpdateScheduleRequest = {
       enabled,
       trigger: {
@@ -120,42 +185,65 @@ export const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({ schedule
     }
   };
 
+  const open = isCreate || Boolean(schedule);
+  const titleText = isCreate
+    ? t('tasks.scheduled.actions.create')
+    : schedule
+      ? getScheduleTitle(schedule)
+      : t('tasks.scheduled.edit.title');
+
   return (
-    <Sheet open={Boolean(schedule)} onOpenChange={(next) => { if (!next) onClose(); }}>
+    <Sheet open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
       <SheetContent className="flex w-full max-w-none flex-col overflow-hidden sm:max-w-2xl lg:max-w-3xl">
         <SheetHeader className="shrink-0 border-b border-border/60 px-8 pb-5 pt-6 pr-12">
-          <SheetTitle className="leading-snug">{schedule ? getScheduleTitle(schedule) : t('tasks.scheduled.edit.title')}</SheetTitle>
+          <SheetTitle className="leading-snug">{titleText}</SheetTitle>
         </SheetHeader>
-        {schedule ? (
+        {(isCreate || schedule) ? (
           <div className="flex min-h-0 flex-1 flex-col text-sm">
             <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-8 py-6">
-              <div className="grid gap-3 rounded-lg border border-border/60 bg-background/80 p-5 shadow-sm sm:grid-cols-2">
-                <div className="min-w-0">
-                  <div className={drawerFieldLabelClass}>Schedule ID</div>
-                  <div className="mt-1 truncate font-mono text-xs text-foreground">{schedule.schedule_id}</div>
-                </div>
-                <div>
-                  <div className={drawerFieldLabelClass}>{t('tasks.scheduled.columns.type')}</div>
-                  <div className="mt-1 text-sm text-foreground">
-                    {t(`tasks.scheduled.targetTypes.${schedule.target_type}`, { defaultValue: schedule.target_type })}
+              {isCreate ? (
+                <section className={drawerSectionClass}>
+                  <label className="block space-y-2">
+                    <span className={drawerFieldLabelClass}>{t('tasks.scheduled.fields.displayName')}</span>
+                    <Input
+                      value={displayName}
+                      onChange={(e) => setDisplayName(e.target.value)}
+                      placeholder={t('tasks.scheduled.fields.displayNamePlaceholder', { defaultValue: 'My scheduled task' })}
+                    />
+                  </label>
+                </section>
+              ) : (
+                <div className="grid gap-3 rounded-lg border border-border/60 bg-background/80 p-5 shadow-sm sm:grid-cols-2">
+                  <div className="min-w-0">
+                    <div className={drawerFieldLabelClass}>Schedule ID</div>
+                    <div className="mt-1 truncate font-mono text-xs text-foreground">{schedule!.schedule_id}</div>
+                  </div>
+                  <div>
+                    <div className={drawerFieldLabelClass}>{t('tasks.scheduled.columns.type')}</div>
+                    <div className="mt-1 text-sm text-foreground">
+                      {t(`tasks.scheduled.targetTypes.${schedule!.target_type}`, { defaultValue: schedule!.target_type })}
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
 
               <section className={drawerSectionClass}>
                 <div className="grid gap-4">
                   <div>
                     <div className={drawerFieldLabelClass}>{t('tasks.scheduled.fields.targetType')}</div>
                     <div className="mt-2 inline-flex rounded-md border border-border/60 bg-muted/45 px-2.5 py-1 text-xs font-medium text-foreground">
-                      {t(`tasks.scheduled.targetKinds.${getScheduleTargetKindLabelKey(schedule)}`, {
-                        defaultValue: getScheduleTargetKindFallback(schedule),
-                      })}
+                      {isCreate
+                        ? t('tasks.scheduled.targetKinds.prompt', { defaultValue: 'Prompt' })
+                        : t(`tasks.scheduled.targetKinds.${getScheduleTargetKindLabelKey(schedule!)}`, {
+                          defaultValue: getScheduleTargetKindFallback(schedule!),
+                        })}
                     </div>
                   </div>
-                  {isPromptBackedSchedule(schedule) ? (
+                  {isCreate || isPromptBackedSchedule(schedule!) ? (
                     <label className="block space-y-2">
                       <span className={drawerFieldLabelClass}>{t('tasks.scheduled.fields.promptText')}</span>
                       <Textarea
+                        aria-label={t('tasks.scheduled.fields.promptText')}
                         value={targetPrompt}
                         onChange={(event) => setTargetPrompt(event.target.value)}
                         rows={6}
@@ -166,7 +254,7 @@ export const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({ schedule
                     <div className="space-y-2">
                       <div className={drawerFieldLabelClass}>{t('tasks.scheduled.fields.targetPayload')}</div>
                       <pre className="max-h-56 overflow-auto rounded-md border border-border/60 bg-muted/40 p-3 font-mono text-xs leading-5 text-muted-foreground">
-                        {JSON.stringify(schedule.target_payload || {}, null, 2)}
+                        {JSON.stringify(schedule!.target_payload || {}, null, 2)}
                       </pre>
                     </div>
                   )}

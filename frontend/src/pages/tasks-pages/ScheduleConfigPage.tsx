@@ -1,14 +1,24 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { CalendarClock } from 'lucide-react';
+import { CalendarClock, Plus } from 'lucide-react';
 
 import { schedulesApi, type ScheduleDTO } from '@/api';
+import { Button } from '@/components/ui/button';
 import { useChatShellStore } from '@/stores';
 import { useSchedulesStore } from '@/stores/schedules';
+
 import { TasksPageFrame } from './TasksPageFrame';
-import { ScheduleConfigTable } from './components/ScheduleConfigTable';
+import { CategoryChipBar, type CategoryFilter } from './components/CategoryChipBar';
+import { ScheduleConfigTable, type ScheduleGroup } from './components/ScheduleConfigTable';
 import { ScheduleEditDrawer } from './components/ScheduleEditDrawer';
+import { ScheduleInfoDrawer } from './components/ScheduleInfoDrawer';
+import { scheduleCategory } from './utils/scheduleCategory';
+import { getSensorPluginId } from './utils/scheduleHelpers';
+
+const EMPTY_COUNTS: Record<CategoryFilter, number> = {
+  all: 0, user: 0, sensor: 0, memory: 0, timeline: 0, other: 0,
+};
 
 export const ScheduleConfigPage: React.FC = () => {
   const { t } = useTranslation('app');
@@ -20,23 +30,59 @@ export const ScheduleConfigPage: React.FC = () => {
 
   const [loading, setLoading] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<ScheduleDTO | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [infoSchedule, setInfoSchedule] = useState<ScheduleDTO | null>(null);
   const [runningScheduleId, setRunningScheduleId] = useState<string | null>(null);
   const [togglingScheduleId, setTogglingScheduleId] = useState<string | null>(null);
   const [deletingScheduleId, setDeletingScheduleId] = useState<string | null>(null);
 
+  const [category, setCategory] = useState<CategoryFilter>('all');
+  const [showDisabled, setShowDisabled] = useState(false);
+
   const loadSchedules = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await schedulesApi.list({ enabledOnly: true });
+      const res = await schedulesApi.list({ enabledOnly: !showDisabled });
       hydrate(res.schedules);
     } catch {
       toast.error(t('tasks.scheduled.feedback.loadFailed'));
     } finally {
       setLoading(false);
     }
-  }, [hydrate, t]);
+  }, [hydrate, showDisabled, t]);
 
   useEffect(() => { void loadSchedules(); }, [loadSchedules]);
+
+  const counts = useMemo<Record<CategoryFilter, number>>(() => {
+    const next = { ...EMPTY_COUNTS };
+    for (const s of schedules) {
+      next.all += 1;
+      const c = scheduleCategory(s.target_type);
+      next[c] = (next[c] ?? 0) + 1;
+    }
+    return next;
+  }, [schedules]);
+
+  const filtered = useMemo(() => {
+    if (category === 'all') return schedules;
+    return schedules.filter((s) => scheduleCategory(s.target_type) === category);
+  }, [schedules, category]);
+
+  const sensorGroups = useMemo<ScheduleGroup[] | undefined>(() => {
+    if (category !== 'sensor') return undefined;
+    const byPlugin = new Map<string, ScheduleDTO[]>();
+    for (const s of filtered) {
+      const pid = getSensorPluginId(s);
+      const list = byPlugin.get(pid) ?? [];
+      list.push(s);
+      byPlugin.set(pid, list);
+    }
+    return Array.from(byPlugin.entries()).map(([pluginId, rows]) => ({
+      pluginId,
+      label: pluginId,
+      rows,
+    }));
+  }, [filtered, category]);
 
   const handleRun = async (s: ScheduleDTO) => {
     if (s.target_state?.running || runningScheduleId) return;
@@ -79,9 +125,9 @@ export const ScheduleConfigPage: React.FC = () => {
     setSettingsNavigationIntent(null);
     setActivePanel('settings');
   };
-  const handleOpenInfo = (_s: ScheduleDTO) => {
-    // Wired in Task 18.
-  };
+
+  const showUserCta =
+    category === 'user' && !loading && filtered.length === 0;
 
   return (
     <TasksPageFrame
@@ -90,28 +136,71 @@ export const ScheduleConfigPage: React.FC = () => {
       icon={<CalendarClock className="h-5 w-5 text-muted-foreground" />}
       onRefresh={() => void loadSchedules()}
       refreshing={loading}
+      actions={
+        <Button size="sm" onClick={() => setCreating(true)}>
+          <Plus className="mr-1.5 h-3.5 w-3.5" />
+          {t('tasks.scheduled.actions.create')}
+        </Button>
+      }
+      filters={
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <CategoryChipBar value={category} counts={counts} onChange={setCategory} />
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              className="h-3.5 w-3.5 accent-primary"
+              checked={showDisabled}
+              onChange={(e) => setShowDisabled(e.target.checked)}
+            />
+            {t('tasks.scheduled.filters.showDisabled')}
+          </label>
+        </div>
+      }
     >
       <div className="mx-auto flex h-full w-full max-w-6xl flex-col gap-6 overflow-y-auto pr-1">
-        <ScheduleConfigTable
-          schedules={schedules}
-          loading={loading}
-          emptyMessage={t('tasks.scheduled.empty.enabled')}
-          editingScheduleId={editingSchedule?.schedule_id ?? null}
-          runningScheduleId={runningScheduleId}
-          togglingScheduleId={togglingScheduleId}
-          deletingScheduleId={deletingScheduleId}
-          onSelectSchedule={setEditingSchedule}
-          onRunSchedule={handleRun}
-          onToggleSchedule={handleToggle}
-          onDeleteSchedule={handleDelete}
-          onOpenSettings={handleOpenSettings}
-          onOpenInfo={handleOpenInfo}
-        />
+        {showUserCta ? (
+          <div className="flex min-h-[20rem] flex-col items-center justify-center rounded-lg border border-dashed border-border/60 px-6 py-16 text-center">
+            <CalendarClock className="mb-3 h-10 w-10 text-muted-foreground/70" />
+            <h2 className="text-sm font-medium text-foreground">{t('tasks.scheduled.empty.userCtaTitle')}</h2>
+            <p className="mt-1 text-xs text-muted-foreground">{t('tasks.scheduled.empty.userCtaDescription')}</p>
+            <Button size="sm" className="mt-4" onClick={() => setCreating(true)}>
+              <Plus className="mr-1.5 h-3.5 w-3.5" />
+              {t('tasks.scheduled.actions.create')}
+            </Button>
+          </div>
+        ) : (
+          <ScheduleConfigTable
+            schedules={filtered}
+            groups={sensorGroups}
+            loading={loading}
+            emptyMessage={t('tasks.scheduled.empty.enabled')}
+            editingScheduleId={editingSchedule?.schedule_id ?? null}
+            runningScheduleId={runningScheduleId}
+            togglingScheduleId={togglingScheduleId}
+            deletingScheduleId={deletingScheduleId}
+            onSelectSchedule={setEditingSchedule}
+            onRunSchedule={handleRun}
+            onToggleSchedule={handleToggle}
+            onDeleteSchedule={handleDelete}
+            onOpenSettings={handleOpenSettings}
+            onOpenInfo={setInfoSchedule}
+          />
+        )}
       </div>
       <ScheduleEditDrawer
-        schedule={editingSchedule}
-        onClose={() => setEditingSchedule(null)}
+        mode={creating ? 'create' : 'edit'}
+        schedule={creating ? null : editingSchedule}
+        onClose={() => {
+          setCreating(false);
+          setEditingSchedule(null);
+        }}
         onSaved={() => void loadSchedules()}
+      />
+      <ScheduleInfoDrawer
+        schedule={infoSchedule}
+        onClose={() => setInfoSchedule(null)}
+        onRun={(s) => { void handleRun(s); setInfoSchedule(null); }}
+        onToggle={(s) => { void handleToggle(s); setInfoSchedule(null); }}
       />
     </TasksPageFrame>
   );
