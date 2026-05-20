@@ -63,6 +63,10 @@ impl BackendProcess {
         let Self::Dev(child) = self;
         if let Some(process) = child.as_mut() {
             let _ = process.kill();
+            // On Windows, TerminateProcess returns before the OS releases the
+            // executable's file handles. Reap synchronously so a follow-up
+            // installer can overwrite sidecar-dist binaries.
+            let _ = process.wait();
         }
         child.take();
     }
@@ -195,7 +199,22 @@ fn send_termination_signal(pid: u32) -> bool {
     unsafe { kill(pid as i32, SIGTERM) == 0 }
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn send_termination_signal(pid: u32) -> bool {
+    // `taskkill` without `/F` sends WM_CLOSE first, giving the sidecar a chance
+    // to flush before we force-kill. `/T` includes the whole process tree —
+    // the python sidecar spawns plugin python subprocesses that also hold
+    // file locks under sidecar-dist\_internal.
+    Command::new("taskkill")
+        .args(["/T", "/PID", &pid.to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+#[cfg(not(any(unix, windows)))]
 fn send_termination_signal(_pid: u32) -> bool {
     false
 }
@@ -210,7 +229,23 @@ fn is_pid_running(pid: u32) -> bool {
     std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn is_pid_running(pid: u32) -> bool {
+    // `tasklist /FI "PID eq <pid>"` prints a header line plus "INFO: No tasks..."
+    // when the pid is gone, and a real row when it's alive.
+    let output = match Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"])
+        .stderr(Stdio::null())
+        .output()
+    {
+        Ok(output) => output,
+        Err(_) => return false,
+    };
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    stdout.contains(&format!(",\"{pid}\","))
+}
+
+#[cfg(not(any(unix, windows)))]
 fn is_pid_running(_pid: u32) -> bool {
     false
 }
@@ -231,7 +266,7 @@ fn wait_for_process_stop(
     pid: Option<u32>,
     timeout: Duration,
 ) -> bool {
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     if let Some(pid) = pid {
         return wait_for_pid_exit(pid, timeout);
     }
@@ -242,6 +277,19 @@ fn wait_for_process_stop(
 #[cfg(unix)]
 fn send_kill_signal(pid: u32) -> bool {
     unsafe { kill(pid as i32, SIGKILL) == 0 }
+}
+
+#[cfg(windows)]
+fn send_kill_signal(pid: u32) -> bool {
+    // `/F /T` force-kills the whole tree — needed so any plugin python
+    // grandchildren the sidecar spawned also die.
+    Command::new("taskkill")
+        .args(["/F", "/T", "/PID", &pid.to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
 }
 
 #[cfg(target_os = "macos")]
@@ -760,10 +808,14 @@ fn stop_backend_inner(state: &BackendState) -> Result<(), String> {
         .map_err(|_| "Failed to acquire backend runtime lock".to_string())?;
     let python_pid = runtime.python_pid;
     if let Some(mut process) = runtime.python_process.take() {
-        // Graceful shutdown: SIGTERM → wait → force kill
+        // Graceful shutdown: SIGTERM (or taskkill /T) → wait → force kill tree.
+        // On Windows we additionally force a tree-kill so plugin python
+        // grandchildren die before any installer tries to overwrite the
+        // sidecar-dist files they hold open.
         if let Some(pid) = python_pid {
             let _ = send_termination_signal(pid);
             if !wait_for_process_stop(&mut process, python_pid, SHUTDOWN_TIMEOUT) {
+                let _ = send_kill_signal(pid);
                 process.kill();
             }
         } else {

@@ -15,6 +15,27 @@ import {
 } from '@/runtime/updater';
 import { toast } from 'sonner';
 
+const POST_BACKEND_STOP_QUIESCE_MS = 600;
+
+async function stopBackendBeforeInstall(): Promise<void> {
+  const { invoke } = await import('@tauri-apps/api/core');
+  await invoke('stop_backend');
+  // Give Windows a moment to release file handles on sidecar-dist binaries
+  // before NSIS tries to overwrite them. Harmless on macOS/Linux.
+  await new Promise((resolve) => setTimeout(resolve, POST_BACKEND_STOP_QUIESCE_MS));
+}
+
+async function restartBackendAfterInstallFailure(): Promise<void> {
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('start_backend');
+  } catch (error) {
+    console.warn('[updater] failed to restart backend after install failure', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 interface DesktopUpdateSectionProps {
   networkConfig?: NetworkProxyConfig | null;
 }
@@ -158,12 +179,16 @@ export function DesktopUpdateSection({ networkConfig }: DesktopUpdateSectionProp
     setDownloadedBytes(0);
     setContentLength(null);
 
+    let downloadCompleted = false;
+    let backendStopped = false;
+
     try {
       let totalDownloadedBytes = 0;
       let expectedContentLength: number | null = null;
       let lastLoggedProgressBucket = -1;
 
-      await availableUpdate.downloadAndInstall((event) => {
+      // 1) Download the installer while the backend is still serving the UI.
+      await availableUpdate.download((event) => {
         switch (event.event) {
           case 'Started':
             setDownloadedBytes(0);
@@ -205,6 +230,19 @@ export function DesktopUpdateSection({ networkConfig }: DesktopUpdateSectionProp
             break;
         }
       });
+      downloadCompleted = true;
+
+      // 2) Stop the Python sidecar before NSIS rewrites sidecar-dist binaries.
+      // On Windows the sidecar holds file locks on _internal\*.pyd; without
+      // this step the installer fails mid-extraction with a sharing violation.
+      console.info('[updater] stopping backend before install', {
+        targetVersion: availableUpdate.version,
+      });
+      await stopBackendBeforeInstall();
+      backendStopped = true;
+
+      // 3) Run the platform installer.
+      await availableUpdate.install();
 
       const version = availableUpdate.version;
       await availableUpdate.close();
@@ -221,8 +259,17 @@ export function DesktopUpdateSection({ networkConfig }: DesktopUpdateSectionProp
       console.error('[updater] update download or install failed', {
         currentVersion,
         targetVersion: availableUpdate.version,
+        downloadCompleted,
+        backendStopped,
         error: serializeUpdaterError(error),
       });
+
+      // If we stopped the backend but the installer didn't take over, bring it
+      // back so the UI isn't stranded without an API.
+      if (backendStopped) {
+        await restartBackendAfterInstallFailure();
+      }
+
       const message = error instanceof Error ? error.message : t('settings.errorUnknown');
       toast.error(t('settings.updates.installFailed', { message }));
     } finally {
