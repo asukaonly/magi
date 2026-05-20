@@ -49,7 +49,12 @@
     "personality": "人格",
     "memory": "记忆",
     "timeline": "时间线",
-    "tasks": "任务",
+    "tasks": {
+      "label": "任务",
+      "background": "后台任务",
+      "schedules": "调度配置",
+      "activity": "调度记录"
+    },
     "settings": "设置",
     "personaCompanion": {
       "firstDay": "今天初次见面",
@@ -134,6 +139,60 @@
       "loadFailed": "后台任务加载失败。"
     },
     "scheduled": {
+      "pageTitle": "调度配置",
+      "pageSubtitle": "管理周期性运行的任务、传感器同步与系统作业。",
+      "defaultDisplayName": "未命名调度",
+      "categories": {
+        "all": "全部",
+        "user": "用户自定义",
+        "sensor": "传感器同步",
+        "memory": "记忆维护",
+        "timeline": "时间线维护",
+        "other": "其他"
+      },
+      "filters": {
+        "showDisabled": "显示已禁用",
+        "window": {
+          "today": "今天",
+          "last24h": "近 24 小时",
+          "last7d": "近 7 天"
+        }
+      },
+      "status": {
+        "running": "运行中",
+        "disabled": "已禁用"
+      },
+      "systemJobs": {
+        "fallbackDescription": "由系统自动调度的内部维护作业。",
+        "memory_l2_maintenance": {
+          "title": "L2 记忆维护",
+          "description": "整理短期记忆向量索引和聚合数据。"
+        },
+        "memory_l3_summary": {
+          "title": "L3 记忆摘要",
+          "description": "周期性把短期记忆汇总成中期叙事。"
+        },
+        "memory_l4_maintenance": {
+          "title": "L4 记忆维护",
+          "description": "维护长期事实图谱与画像。"
+        },
+        "timeline_diary_narrative": {
+          "title": "时间线日记",
+          "description": "把当天的事件生成成日记式叙事。"
+        },
+        "timeline_standout_rescore": {
+          "title": "时间线亮点重排",
+          "description": "重新计算事件的重要性评分。"
+        },
+        "timeline_mood_aggregate": {
+          "title": "情绪聚合",
+          "description": "把情绪记录聚合成日／周视图。"
+        },
+        "timeline_representative_asset": {
+          "title": "代表性素材选择",
+          "description": "为时间线事件挑选代表图。"
+        }
+      },
       "sections": {
         "enabled": "已开启的调度任务",
         "enabledHint": "当前启用的周期、一次性和系统维护调度。传感器同步请到设置页更新。",
@@ -163,9 +222,12 @@
         "agent_task": "Agent 任务"
       },
       "activityStatus": {
+        "all": "全部",
         "running": "执行中",
         "queued": "排队中",
         "upcoming": "即将执行",
+        "succeeded": "成功",
+        "failed": "失败",
         "cancelled": "已停止"
       },
       "triggerTypes": {
@@ -181,7 +243,10 @@
         "triggerType": "触发类型",
         "intervalSeconds": "间隔秒数",
         "runAt": "执行时间",
-        "cronConfig": "Cron 配置"
+        "cronConfig": "Cron 配置",
+        "displayName": "名称",
+        "displayNamePlaceholder": "例如：每天早上的日报",
+        "lastError": "上次错误"
       },
       "actions": {
         "runNow": "立即执行",
@@ -191,18 +256,23 @@
         "disable": "停用",
         "delete": "删除",
         "openSettings": "去设置更新",
+        "openInfo": "查看说明",
         "sensorEditTitle": "传感器调度请在设置中更新",
         "stop": "停止",
         "stopUnavailable": "当前执行项暂不支持直接停止",
         "save": "保存",
-        "cancelEdit": "取消"
+        "cancelEdit": "取消",
+        "create": "新建调度任务",
+        "viewBackgroundTask": "查看后台任务"
       },
       "edit": {
         "title": "编辑调度"
       },
       "empty": {
         "enabled": "暂无已开启的调度任务。",
-        "activity": "暂无执行中或即将执行的调度任务。"
+        "activity": "暂无运行记录。",
+        "userCtaTitle": "还没有调度任务",
+        "userCtaDescription": "创建一个 Prompt 调度任务，让它按计划帮你运行。"
       },
       "feedback": {
         "loadFailed": "调度任务加载失败。",
@@ -219,8 +289,14 @@
         "invalidInterval": "请输入有效的间隔秒数。",
         "invalidPrompt": "请输入有效的 Prompt 文本。",
         "invalidRunAt": "请输入有效的执行时间。",
-        "invalidCron": "Cron 配置不是有效 JSON。"
+        "invalidCron": "Cron 配置不是有效 JSON。",
+        "createSuccess": "已创建调度任务。",
+        "createFailed": "调度任务创建失败。"
       }
+    },
+    "activity": {
+      "pageTitle": "调度记录",
+      "pageSubtitle": "查看历史执行、当前运行与即将运行的调度。"
     },
     "chatCard": {
       "eyebrow": "后台任务",

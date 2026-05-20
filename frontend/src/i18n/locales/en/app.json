@@ -49,7 +49,12 @@
     "personality": "Personality",
     "memory": "Memory",
     "timeline": "Timeline",
-    "tasks": "Tasks",
+    "tasks": {
+      "label": "Tasks",
+      "background": "Background tasks",
+      "schedules": "Schedule config",
+      "activity": "Schedule history"
+    },
     "settings": "Settings",
     "personaCompanion": {
       "firstDay": "First met today",
@@ -134,6 +139,60 @@
       "loadFailed": "Failed to load background tasks."
     },
     "scheduled": {
+      "pageTitle": "Schedule config",
+      "pageSubtitle": "Manage recurring jobs, sensor syncs, and system maintenance tasks.",
+      "defaultDisplayName": "Untitled schedule",
+      "categories": {
+        "all": "All",
+        "user": "Custom",
+        "sensor": "Sensor sync",
+        "memory": "Memory",
+        "timeline": "Timeline",
+        "other": "Other"
+      },
+      "filters": {
+        "showDisabled": "Show disabled",
+        "window": {
+          "today": "Today",
+          "last24h": "Last 24h",
+          "last7d": "Last 7 days"
+        }
+      },
+      "status": {
+        "running": "Running",
+        "disabled": "Disabled"
+      },
+      "systemJobs": {
+        "fallbackDescription": "Internal maintenance job scheduled by the system.",
+        "memory_l2_maintenance": {
+          "title": "L2 memory maintenance",
+          "description": "Maintain short-term memory vector indexes and aggregates."
+        },
+        "memory_l3_summary": {
+          "title": "L3 memory summary",
+          "description": "Periodically condense short-term memory into mid-term narrative."
+        },
+        "memory_l4_maintenance": {
+          "title": "L4 memory maintenance",
+          "description": "Maintain long-term entity graph and user profile."
+        },
+        "timeline_diary_narrative": {
+          "title": "Timeline diary",
+          "description": "Generate diary-style narrative from the day's events."
+        },
+        "timeline_standout_rescore": {
+          "title": "Timeline standout rescoring",
+          "description": "Recompute event importance scores."
+        },
+        "timeline_mood_aggregate": {
+          "title": "Mood aggregation",
+          "description": "Roll up mood records into daily and weekly views."
+        },
+        "timeline_representative_asset": {
+          "title": "Representative asset selection",
+          "description": "Pick a representative image for timeline events."
+        }
+      },
       "sections": {
         "enabled": "Enabled Scheduled Tasks",
         "enabledHint": "Active interval, one-shot, and system maintenance schedules. Update sensor sync schedules from Settings.",
@@ -163,9 +222,12 @@
         "agent_task": "Agent Task"
       },
       "activityStatus": {
+        "all": "All",
         "running": "Running",
         "queued": "Queued",
         "upcoming": "Upcoming",
+        "succeeded": "Succeeded",
+        "failed": "Failed",
         "cancelled": "Stopped"
       },
       "triggerTypes": {
@@ -181,7 +243,10 @@
         "triggerType": "Trigger Type",
         "intervalSeconds": "Interval Seconds",
         "runAt": "Run At",
-        "cronConfig": "Cron Config"
+        "cronConfig": "Cron Config",
+        "displayName": "Name",
+        "displayNamePlaceholder": "e.g. Daily summary",
+        "lastError": "Last error"
       },
       "actions": {
         "runNow": "Run Now",
@@ -191,18 +256,23 @@
         "disable": "Disable",
         "delete": "Delete",
         "openSettings": "Open Settings",
+        "openInfo": "Open info",
         "sensorEditTitle": "Sensor schedules are updated in Settings",
         "stop": "Stop",
         "stopUnavailable": "This execution item cannot be stopped directly yet",
         "save": "Save",
-        "cancelEdit": "Cancel"
+        "cancelEdit": "Cancel",
+        "create": "New schedule",
+        "viewBackgroundTask": "View background task"
       },
       "edit": {
         "title": "Edit Schedule"
       },
       "empty": {
         "enabled": "No enabled scheduled tasks.",
-        "activity": "No running or upcoming scheduled tasks."
+        "activity": "No execution records in this window.",
+        "userCtaTitle": "No scheduled tasks yet",
+        "userCtaDescription": "Create a prompt-based schedule and let it run on a timer."
       },
       "feedback": {
         "loadFailed": "Failed to load scheduled tasks.",
@@ -219,8 +289,14 @@
         "invalidInterval": "Enter a valid interval in seconds.",
         "invalidPrompt": "Enter a valid prompt.",
         "invalidRunAt": "Enter a valid run time.",
-        "invalidCron": "Cron config must be valid JSON."
+        "invalidCron": "Cron config must be valid JSON.",
+        "createSuccess": "Scheduled task created.",
+        "createFailed": "Failed to create scheduled task."
       }
+    },
+    "activity": {
+      "pageTitle": "Schedule history",
+      "pageSubtitle": "Review past, current, and upcoming schedule runs."
     },
     "chatCard": {
       "eyebrow": "Background task",
