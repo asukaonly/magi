@@ -1055,7 +1055,7 @@ final class ProtocolTests: XCTestCase {
         let data = try JSONEncoder().encode(resp)
         let s = String(data: data, encoding: .utf8)!
         XCTAssertTrue(s.contains("\"ok\":true"))
-        XCTAssertTrue(s.contains("\"capturedAt\":100"))
+        XCTAssertTrue(s.contains("\"captured_at\":100"))  // CodingKeys maps capturedAt -> captured_at
     }
 
     func testEncodeErrorResponse() throws {
