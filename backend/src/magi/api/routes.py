@@ -94,7 +94,13 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/context/{anchor_id}": {"GET"},
         "/standout": {"GET"},
         "/mood-calendar": {"GET"},
-        "/asset/{asset_ref}": {"GET"},
+        # The route is declared with `:path` so the asset_ref can contain
+        # both ":" and "/" (e.g. ``manual-entry-asset://<sha>.jpg``,
+        # ``photo-library://...``). The gateway's allowlist matches
+        # FastAPI's `route.path` string verbatim, so the converter
+        # suffix has to be included here too — otherwise the route
+        # silently doesn't get mounted on the public router.
+        "/asset/{asset_ref:path}": {"GET"},
     },
     "sensors": {
         "/status": {"GET"},
