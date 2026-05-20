@@ -16,6 +16,7 @@ import {
   type SourceGroup,
 } from "@/lib/timeline-buckets";
 import { resolveTimelineAssetUrl } from "@/utils/timelineAssetUrl";
+import { renderRichTextHtml } from "@/components/timeline/manual-entries/renderRichText";
 
 import { SourceIcon, labelForSource } from "./SourceIcon";
 
@@ -237,7 +238,28 @@ const ManualEntryRow: React.FC<{
         ) : null}
       </div>
       <div>
-        <div className="whitespace-pre-wrap leading-snug">{entry.body}</div>
+        {/* Rich-text body: render Tiptap-generated HTML when body_doc is
+            present, fall back to plain text otherwise. We trust the
+            HTML because it's produced by our own renderRichTextHtml
+            (Tiptap's generateHTML against our known extension set) —
+            user input never reaches dangerouslySetInnerHTML directly.
+            The `prose` classes match the editor's so rendered text
+            looks like what the user saw while writing. */}
+        {entry.body_doc ? (
+          // Trusted HTML: renderRichTextHtml produces output via Tiptap's
+          // generateHTML against our own extension set — user input
+          // never reaches dangerouslySetInnerHTML directly. The
+          // .rich-text-content class is shared with the editor so the
+          // visual is identical to what the user saw while writing.
+          <div
+            className="rich-text-content leading-snug"
+            dangerouslySetInnerHTML={{
+              __html: renderRichTextHtml(entry.body_doc, entry.body),
+            }}
+          />
+        ) : (
+          <div className="whitespace-pre-wrap leading-snug">{entry.body}</div>
+        )}
         {entry.attachments.length > 0 ? (
           <div className="mt-1.5 flex flex-wrap gap-1.5">
             {entry.attachments.slice(0, 4).map((ref, i) => {

@@ -170,6 +170,44 @@ async def test_create_with_weather_field(manual_entry_db: str):
 
 
 @pytest.mark.asyncio
+async def test_body_doc_roundtrip_via_create(manual_entry_db: str):
+    """A ProseMirror JSON doc supplied at creation survives a get()."""
+    store = ManualEntryStore(db_path=manual_entry_db)
+    doc = {
+        "type": "doc",
+        "content": [
+            {"type": "paragraph", "content": [
+                {"type": "text", "text": "今天天气"},
+                {"type": "text", "marks": [{"type": "bold"}], "text": "真好"},
+            ]},
+        ],
+    }
+    entry_id = await store.create(_entry(body="今天天气真好", body_doc=doc))
+    fetched = await store.get(entry_id)
+    assert fetched.body == "今天天气真好"
+    assert fetched.body_doc == doc
+
+
+@pytest.mark.asyncio
+async def test_body_doc_update_set_and_clear(manual_entry_db: str):
+    """body_doc uses the two-arg shape: body_doc=dict sets, clear_body_doc=True clears."""
+    store = ManualEntryStore(db_path=manual_entry_db)
+    entry_id = await store.create(_entry(body="hi"))
+    doc = {"type": "doc", "content": [{"type": "paragraph"}]}
+
+    await store.update(entry_id, body_doc=doc)
+    assert (await store.get(entry_id)).body_doc == doc
+
+    # body_doc=None alone doesn't touch — body stays
+    await store.update(entry_id, body="x")
+    assert (await store.get(entry_id)).body_doc == doc
+
+    # clear_body_doc=True wipes it
+    await store.update(entry_id, clear_body_doc=True)
+    assert (await store.get(entry_id)).body_doc is None
+
+
+@pytest.mark.asyncio
 async def test_update_location_label_set_and_clear(manual_entry_db: str):
     """location_label follows the empty-string-clears convention:
     ``None`` = don't touch, ``""`` = clear to NULL, other strings set."""

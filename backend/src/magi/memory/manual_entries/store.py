@@ -36,8 +36,8 @@ class ManualEntryStore:
                     entry_id, created_at, event_at, kind, body,
                     mood, location_label, location_lat, location_lng,
                     attachments_json, exclude_from_llm, user_pinned,
-                    deleted_at, l1_event_id, weather_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    deleted_at, l1_event_id, weather_json, body_doc
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     entry_id,
@@ -55,6 +55,7 @@ class ManualEntryStore:
                     entry.deleted_at,
                     entry.l1_event_id,
                     json.dumps(entry.weather, ensure_ascii=False) if entry.weather else None,
+                    json.dumps(entry.body_doc, ensure_ascii=False) if entry.body_doc else None,
                 ),
             )
             await db.commit()
@@ -71,6 +72,8 @@ class ManualEntryStore:
         user_pinned: Optional[bool] = None,
         exclude_from_llm: Optional[bool] = None,
         location_label: Optional[str] = None,
+        body_doc: Optional[dict] = None,
+        clear_body_doc: bool = False,
     ) -> bool:
         """Partial update. Returns True if a row was changed.
 
@@ -105,6 +108,18 @@ class ManualEntryStore:
         if location_label is not None:
             fields.append("location_label = ?")
             values.append(location_label or None)  # empty string → NULL
+        # body_doc uses an explicit boolean to clear, not an
+        # empty-string sentinel, because the value is a JSON dict and
+        # there's no natural "empty" form. The two-arg shape:
+        #   body_doc=None,  clear_body_doc=False  → don't touch
+        #   body_doc={...}, clear_body_doc=False  → set
+        #   body_doc=None,  clear_body_doc=True   → clear to NULL
+        if body_doc is not None:
+            fields.append("body_doc = ?")
+            values.append(json.dumps(body_doc, ensure_ascii=False))
+        elif clear_body_doc:
+            fields.append("body_doc = ?")
+            values.append(None)
 
         if not fields:
             return False
@@ -202,6 +217,16 @@ class ManualEntryStore:
                     weather = parsed
         except (ValueError, TypeError, IndexError):
             weather = None
+        # body_doc (migration 0009) — same defensive read pattern.
+        body_doc: Optional[dict] = None
+        try:
+            raw_doc = row["body_doc"] if "body_doc" in row.keys() else None
+            if raw_doc:
+                parsed = json.loads(raw_doc)
+                if isinstance(parsed, dict):
+                    body_doc = parsed
+        except (ValueError, TypeError, IndexError):
+            body_doc = None
         return ManualEntry(
             entry_id=str(row["entry_id"]),
             created_at=float(row["created_at"]),
@@ -218,4 +243,5 @@ class ManualEntryStore:
             deleted_at=row["deleted_at"],
             l1_event_id=row["l1_event_id"],
             weather=weather,
+            body_doc=body_doc,
         )

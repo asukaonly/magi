@@ -751,6 +751,66 @@
   opacity: 1;
 }
 
+/*
+ * Shared rich-text styles for manual memory entries (Phase B-2).
+ * Applied to both the Tiptap editor surface (via .rich-text-content
+ * on the ProseMirror DOM) and the read-only renderer in DayBuckets
+ * (same class) so editor + display can't drift typographically.
+ * Hand-rolled here instead of pulling in @tailwindcss/typography for
+ * one component.
+ */
+.rich-text-content > * + * { margin-top: 0.6em; }
+.rich-text-content h2 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.35;
+  margin-top: 0.8em;
+}
+.rich-text-content h3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.4;
+  margin-top: 0.7em;
+}
+.rich-text-content ul {
+  list-style: disc;
+  padding-left: 1.25rem;
+}
+.rich-text-content ol {
+  list-style: decimal;
+  padding-left: 1.25rem;
+}
+.rich-text-content li > p { margin: 0; }
+.rich-text-content blockquote {
+  border-left: 2px solid hsl(var(--border));
+  padding-left: 0.75rem;
+  color: hsl(var(--muted-foreground));
+  font-style: italic;
+}
+.rich-text-content hr {
+  border: 0;
+  border-top: 1px solid hsl(var(--border));
+  margin: 0.75em 0;
+}
+.rich-text-content code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85em;
+  background: hsl(var(--muted));
+  padding: 0 0.25em;
+  border-radius: 3px;
+}
+/* Placeholder extension renders the cue via data-placeholder on
+   empty blocks; we surface it through ::before. Editor-only since the
+   `is-editor-empty` class only appears inside Tiptap. */
+.rich-text-content p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: hsl(var(--muted-foreground));
+  opacity: 0.55;
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+
 /* Reduced motion support for accessibility */
 @media (prefers-reduced-motion: reduce) {
   *,

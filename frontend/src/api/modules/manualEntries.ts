@@ -19,6 +19,11 @@ export interface ManualEntry {
   event_at: number;
   kind: 'quick' | 'rich';
   body: string;
+  /** ProseMirror JSON document for the rich-text editor (Phase B-2).
+   *  Null means render `body` as plain text. Keep both in sync on save:
+   *  the canonical text projection in `body` is what L1 / search /
+   *  diary LLM read, while `body_doc` preserves formatting fidelity. */
+  body_doc: Record<string, unknown> | null;
   mood: MoodValence | null;
   location_label: string | null;
   location_lat: number | null;
@@ -82,6 +87,11 @@ export interface ListManualEntriesOptions {
 
 export interface ManualEntryCreate {
   body: string;
+  /** Optional ProseMirror JSON; if set, the entry round-trips with
+   *  formatting preserved. Both fields are derived from the same
+   *  editor state on save (plain text via editor.getText(), JSON via
+   *  editor.getJSON()). */
+  body_doc?: Record<string, unknown> | null;
   /** Unix seconds; defaults to now server-side when undefined. */
   event_at?: number;
   mood?: MoodValence | null;
@@ -93,6 +103,10 @@ export interface ManualEntryCreate {
 
 export interface ManualEntryUpdate {
   body?: string;
+  body_doc?: Record<string, unknown> | null;
+  /** Explicit flag to clear body_doc — JSON docs don't have a natural
+   *  empty form, so we can't reuse the empty-string-clears convention. */
+  clear_body_doc?: boolean;
   event_at?: number;
   /** Empty string clears the mood server-side; undefined leaves untouched. */
   mood?: MoodValence | '' | null;

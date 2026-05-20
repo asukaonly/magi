@@ -24,6 +24,12 @@ class ManualEntry:
     created_at: float
     event_at: float
     body: str
+    # ProseMirror JSON document for the rich-text editor (Phase B-2).
+    # ``body`` is the canonical plain-text projection: L1, search, diary
+    # LLM, and embedding all read it. ``body_doc`` lets the UI restore
+    # bold/italic/headings/etc. on display. None → render `body` as a
+    # single paragraph.
+    body_doc: Optional[dict[str, Any]] = None
     kind: str = "quick"
     mood: Optional[str] = None
     location_label: Optional[str] = None
@@ -46,6 +52,7 @@ class ManualEntry:
             "created_at": self.created_at,
             "event_at": self.event_at,
             "body": self.body,
+            "body_doc": dict(self.body_doc) if self.body_doc else None,
             "kind": self.kind,
             "mood": self.mood,
             "location_label": self.location_label,

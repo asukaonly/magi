@@ -46,6 +46,55 @@ vi.mock("@/components/ui/sheet", () => ({
   SheetTitle: ({ children }: any) => <h2>{children}</h2>,
 }));
 
+// Tiptap requires Selection / Range / contenteditable behaviors that
+// jsdom doesn't fully implement. Stub the editor with a textarea-backed
+// shim that respects the same prop contract — the sheet's flow (text
+// input, save shortcut, paste callbacks) stays observable without
+// trying to run ProseMirror in jsdom. The real editor still ships in
+// production; we cover it via a manual smoke instead.
+vi.mock("@/components/timeline/manual-entries/RichTextEditor", () => ({
+  RichTextEditor: ({
+    value,
+    fallbackPlainText,
+    onChange,
+    onChangeText,
+    onSubmitShortcut,
+    placeholder,
+    autoFocus,
+  }: any) => {
+    const initial =
+      fallbackPlainText ??
+      // Extract text from a single-paragraph doc if that's all there is.
+      (value?.content?.[0]?.content?.[0]?.text ?? "");
+    return (
+      <textarea
+        autoFocus={autoFocus}
+        defaultValue={initial}
+        placeholder={placeholder}
+        onChange={(e) => {
+          const text = e.target.value;
+          onChangeText?.(text);
+          onChange?.({
+            type: "doc",
+            content: [
+              {
+                type: "paragraph",
+                content: text ? [{ type: "text", text }] : [],
+              },
+            ],
+          });
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            onSubmitShortcut?.();
+          }
+        }}
+      />
+    );
+  },
+}));
+
 import { QuickEntrySheet } from "@/components/timeline/manual-entries/QuickEntrySheet";
 
 beforeEach(() => {
@@ -57,7 +106,7 @@ beforeEach(() => {
     created_at: 0, kind: "quick", mood: null, location_label: null,
     location_lat: null, location_lng: null, exclude_from_llm: false,
     user_pinned: false, deleted_at: null, l1_event_id: null,
-    weather: null,
+    weather: null, body_doc: null,
   });
 });
 
@@ -86,6 +135,15 @@ describe("QuickEntrySheet", () => {
     const payload = createMock.mock.calls[0][0];
     expect(payload.body).toBe("一念之间");
     expect(payload.attachment_refs).toEqual([]);
+    // body_doc travels alongside the plain-text body so formatting is
+    // preserved server-side. The textarea-shim wraps the plain string
+    // in a single paragraph; production Tiptap emits the same shape.
+    expect(payload.body_doc).toEqual({
+      type: "doc",
+      content: [
+        { type: "paragraph", content: [{ type: "text", text: "一念之间" }] },
+      ],
+    });
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
   });
 
@@ -130,6 +188,7 @@ describe("QuickEntrySheet", () => {
           deleted_at: null,
           l1_event_id: null,
           weather: { code: 65, temp_c: 15.4, fetched_at: 1 },
+          body_doc: null,
         }}
       />
     );
@@ -161,6 +220,7 @@ describe("QuickEntrySheet", () => {
           deleted_at: null,
           l1_event_id: null,
           weather: null,
+          body_doc: null,
         }}
       />
     );
@@ -173,7 +233,7 @@ describe("QuickEntrySheet", () => {
       event_at: 100, created_at: 50, kind: "quick", mood: null,
       location_label: null, location_lat: null, location_lng: null,
       exclude_from_llm: false, user_pinned: false, deleted_at: null,
-      l1_event_id: null, weather: null,
+      l1_event_id: null, weather: null, body_doc: null,
     });
     const user = userEvent.setup();
     render(
@@ -196,6 +256,7 @@ describe("QuickEntrySheet", () => {
           deleted_at: null,
           l1_event_id: null,
           weather: null,
+          body_doc: null,
         }}
       />
     );

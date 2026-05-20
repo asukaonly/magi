@@ -33,6 +33,11 @@ from .router import memory_router
 
 class ManualEntryCreateBody(BaseModel):
     body: str
+    # Optional ProseMirror JSON document for the rich-text editor
+    # (Phase B-2). The plain `body` field is still required — it's the
+    # canonical text projection consumed by L1, search, and the diary
+    # LLM. Clients send both, derived from the same editor state.
+    body_doc: Optional[dict] = None
     event_at: Optional[float] = None
     mood: Optional[str] = None
     location_label: Optional[str] = None
@@ -43,6 +48,10 @@ class ManualEntryCreateBody(BaseModel):
 
 class ManualEntryUpdateBody(BaseModel):
     body: Optional[str] = None
+    body_doc: Optional[dict] = None
+    # Explicit flag for clearing body_doc — there's no natural "empty"
+    # JSON dict so we can't reuse the empty-string-clears convention.
+    clear_body_doc: bool = False
     event_at: Optional[float] = None
     mood: Optional[str] = None
     attachment_refs: Optional[list[str]] = None
@@ -227,6 +236,7 @@ async def create_manual_entry(body: ManualEntryCreateBody):
         event_at=float(body.event_at) if body.event_at is not None else now,
         kind="quick",
         body=body.body,
+        body_doc=body.body_doc,
         mood=body.mood or None,
         location_label=body.location_label or None,
         location_lat=body.location_lat,
@@ -295,6 +305,8 @@ async def update_manual_entry(entry_id: str, body: ManualEntryUpdateBody):
         attachments=body.attachment_refs,
         user_pinned=body.user_pinned,
         location_label=body.location_label,
+        body_doc=body.body_doc,
+        clear_body_doc=body.clear_body_doc,
     )
     if not ok:
         # No fields actually changed — return current state, not an error.

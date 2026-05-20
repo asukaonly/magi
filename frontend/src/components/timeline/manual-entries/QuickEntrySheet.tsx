@@ -15,6 +15,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar } from '@/components/ui/calendar';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { RichTextEditor } from './RichTextEditor';
 import { resolveTimelineAssetUrl } from '@/utils/timelineAssetUrl';
 import { cn } from '@/lib/utils';
 
@@ -126,10 +127,13 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
   initialLocationLabel,
 }) => {
   const { t } = useTranslation('app');
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [body, setBody] = useState('');
+  /** ProseMirror JSON document — kept in lockstep with `body` (the
+   *  plain-text projection) via RichTextEditor's onChange callbacks.
+   *  Null until the editor mounts and emits its first onUpdate. */
+  const [bodyDoc, setBodyDoc] = useState<Record<string, unknown> | null>(null);
   const [attachments, setAttachments] = useState<AttachmentDraft[]>([]);
   const [mood, setMood] = useState<MoodValence | null>(null);
   const [timeShift, setTimeShift] = useState<TimeShift>({ kind: 'now' });
@@ -152,6 +156,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
     if (!open) return;
     if (existingEntry) {
       setBody(existingEntry.body);
+      setBodyDoc(existingEntry.body_doc ?? null);
       setMood(existingEntry.mood);
       setAttachments(existingEntry.attachments.map((ref) => ({
         draftId: nextDraftId(),
@@ -164,6 +169,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
       setWeather(existingEntry.weather ?? null);
     } else {
       setBody('');
+      setBodyDoc(null);
       setAttachments([]);
       setMood(null);
       setTimeShift({ kind: 'now' });
@@ -229,24 +235,8 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
     }
   }, [t]);
 
-  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const items = e.clipboardData?.items;
-    if (!items || items.length === 0) return;
-    const imageItems: File[] = [];
-    for (let i = 0; i < items.length; i++) {
-      const it = items[i];
-      if (it.kind === 'file' && it.type.startsWith('image/')) {
-        const file = it.getAsFile();
-        if (file) imageItems.push(file);
-      }
-    }
-    if (imageItems.length > 0) {
-      // Pasting an image — suppress the default text-paste of any
-      // accompanying clipboard text (Finder often pastes a filename too).
-      e.preventDefault();
-      imageItems.forEach((f) => void uploadFile(f));
-    }
-  }, [uploadFile]);
+  // (Image paste is now handled inside RichTextEditor — it forwards
+  // image clipboard items via onPasteImages → uploadFile.)
 
   const handleFilePick = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -273,6 +263,9 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
       .map((a) => a.assetRef!);
     const payload = {
       body: body.trim(),
+      // Send the rich-text document alongside the plain-text projection.
+      // The backend stores both; reads prefer the doc when present.
+      body_doc: bodyDoc,
       event_at: shiftToEventAt(timeShift),
       mood,
       location_label: location,
@@ -288,6 +281,10 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
         // weather lifecycle separately auditable.
         result = await manualEntriesApi.update(existingEntry.entry_id, {
           body: payload.body,
+          // Include the rich-text doc so formatting survives an edit.
+          // We never clear body_doc explicitly here — a user clearing
+          // formatting just produces a minimal doc, not a true clear.
+          body_doc: payload.body_doc,
           event_at: payload.event_at,
           mood: payload.mood ?? '',
           location_label: payload.location_label ?? '',
@@ -322,17 +319,12 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
       setSaving(false);
     }
   }, [
-    canSave, attachments, body, timeShift, mood, location, existingEntry,
-    onClose, onSaved, t,
+    canSave, attachments, body, bodyDoc, timeShift, mood, location, weather,
+    existingEntry, onClose, onSaved, t,
   ]);
 
-  // Cmd/Ctrl+Enter saves from inside the textarea.
-  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      void handleSave();
-    }
-  }, [handleSave]);
+  // (Cmd/Ctrl+Enter is now handled inside RichTextEditor —
+  // onSubmitShortcut → handleSave.)
 
   return (
     <Sheet open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
@@ -357,18 +349,20 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
         </SheetHeader>
 
         <div className="space-y-3 px-6 pb-5 pt-3">
-          {/* Body textarea */}
-          <textarea
-            ref={textareaRef}
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            onPaste={handlePaste}
-            onKeyDown={handleKeyDown}
+          {/* Body editor — Tiptap-based rich-text input. The plain-text
+              projection lives in `body`; the JSON doc in `bodyDoc`. The
+              editor maintains both on every keystroke via onChange. */}
+          <RichTextEditor
+            value={bodyDoc}
+            fallbackPlainText={body}
+            onChange={setBodyDoc}
+            onChangeText={setBody}
+            onPasteImages={(files) => files.forEach((f) => void uploadFile(f))}
+            onSubmitShortcut={() => void handleSave()}
             placeholder={t('timeline.manualEntry.placeholder', {
               defaultValue: '写下…（⌘+V 粘贴图片，⌘+Enter 保存）',
             })}
             autoFocus
-            className="min-h-[96px] w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm leading-6"
           />
 
           {/* Attachments */}
