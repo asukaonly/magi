@@ -5,53 +5,56 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 export interface TasksPageFrameProps {
-  title: string;
-  subtitle?: string;
-  icon?: ReactNode;
-  filters?: ReactNode;
+  /**
+   * Optional toolbar content (chips, segmented buttons, etc) rendered at the
+   * very top of the page. The sidebar already names the page, so the frame
+   * itself does not render any title.
+   */
+  toolbar?: ReactNode;
+  /**
+   * Optional action buttons (e.g. "+ Create") rendered right-aligned in the
+   * sticky toolbar alongside the refresh button.
+   */
   actions?: ReactNode;
   onRefresh?: () => void;
   refreshing?: boolean;
   children: ReactNode;
 }
 
+/**
+ * Shared layout shell for the three Tasks sub-pages.
+ *
+ * Single scroll container with a sticky toolbar at the top — keeps filters in
+ * view while the table scrolls. No title row (the sidebar provides that).
+ */
 export const TasksPageFrame: React.FC<TasksPageFrameProps> = ({
-  title,
-  subtitle,
-  icon,
-  filters,
+  toolbar,
   actions,
   onRefresh,
   refreshing,
   children,
 }) => {
   const { t } = useTranslation('app');
+  const hasToolbar = Boolean(toolbar) || Boolean(actions) || Boolean(onRefresh);
   return (
-    <div className="flex h-full flex-col bg-background">
-      <header className="flex items-start justify-between gap-4 border-b border-border/60 px-6 py-5">
-        <div>
-          <div className="flex items-center gap-2">
-            {icon}
-            <h1 className="text-lg font-semibold text-foreground">{title}</h1>
+    <div className="h-full overflow-y-auto bg-background">
+      {hasToolbar ? (
+        <div className="sticky top-0 z-10 flex flex-wrap items-center gap-3 border-b border-border/60 bg-background/95 px-6 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+          <div className="flex flex-1 flex-wrap items-center gap-3">
+            {toolbar}
           </div>
-          {subtitle ? (
-            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{subtitle}</p>
-          ) : null}
+          <div className="flex items-center gap-2">
+            {actions}
+            {onRefresh ? (
+              <Button variant="outline" size="sm" onClick={onRefresh} disabled={refreshing}>
+                <RefreshCw className={cn('mr-2 h-3.5 w-3.5', refreshing && 'animate-spin')} />
+                {refreshing ? t('tasks.page.refreshing') : t('tasks.page.refresh')}
+              </Button>
+            ) : null}
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          {actions}
-          {onRefresh ? (
-            <Button variant="outline" size="sm" onClick={onRefresh} disabled={refreshing}>
-              <RefreshCw className={cn('mr-2 h-3.5 w-3.5', refreshing && 'animate-spin')} />
-              {refreshing ? t('tasks.page.refreshing') : t('tasks.page.refresh')}
-            </Button>
-          ) : null}
-        </div>
-      </header>
-      {filters ? (
-        <div className="border-b border-border/60 px-6 py-3">{filters}</div>
       ) : null}
-      <div className="flex-1 overflow-hidden px-6 py-5">{children}</div>
+      <div className="px-6 py-5">{children}</div>
     </div>
   );
 };

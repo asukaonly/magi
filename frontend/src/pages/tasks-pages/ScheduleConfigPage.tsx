@@ -131,9 +131,6 @@ export const ScheduleConfigPage: React.FC = () => {
 
   return (
     <TasksPageFrame
-      title={t('tasks.scheduled.pageTitle')}
-      subtitle={t('tasks.scheduled.pageSubtitle')}
-      icon={<CalendarClock className="h-5 w-5 text-muted-foreground" />}
       onRefresh={() => void loadSchedules()}
       refreshing={loading}
       actions={
@@ -142,8 +139,8 @@ export const ScheduleConfigPage: React.FC = () => {
           {t('tasks.scheduled.actions.create')}
         </Button>
       }
-      filters={
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      toolbar={
+        <>
           <CategoryChipBar value={category} counts={counts} onChange={setCategory} />
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
             <input
@@ -154,10 +151,10 @@ export const ScheduleConfigPage: React.FC = () => {
             />
             {t('tasks.scheduled.filters.showDisabled')}
           </label>
-        </div>
+        </>
       }
     >
-      <div className="mx-auto flex h-full w-full max-w-6xl flex-col gap-6 overflow-y-auto pr-1">
+      <div className="mx-auto w-full max-w-6xl">
         {showUserCta ? (
           <div className="flex min-h-[20rem] flex-col items-center justify-center rounded-lg border border-dashed border-border/60 px-6 py-16 text-center">
             <CalendarClock className="mb-3 h-10 w-10 text-muted-foreground/70" />

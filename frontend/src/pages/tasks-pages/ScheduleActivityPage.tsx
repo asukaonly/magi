@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { History } from 'lucide-react';
 
 import { schedulesApi, type ScheduleActivityDTO, type ScheduleDTO } from '@/api';
 import { TasksPageFrame } from './TasksPageFrame';
@@ -110,20 +109,17 @@ export const ScheduleActivityPage: React.FC = () => {
 
   return (
     <TasksPageFrame
-      title={t('tasks.activity.pageTitle')}
-      subtitle={t('tasks.activity.pageSubtitle')}
-      icon={<History className="h-5 w-5 text-muted-foreground" />}
       onRefresh={() => void reload()}
       refreshing={loading}
-      filters={
-        <div className="flex flex-wrap items-center gap-3">
+      toolbar={
+        <>
           <WindowSegmented value={windowKey} onChange={setWindowKey} />
           <CategoryChipBar value={category} counts={counts} onChange={setCategory} />
           <StatusSelect value={statusFilter} onChange={setStatusFilter} />
-        </div>
+        </>
       }
     >
-      <div className="mx-auto flex h-full w-full max-w-6xl flex-col gap-6 overflow-y-auto pr-1">
+      <div className="mx-auto w-full max-w-6xl">
         <ScheduleActivityTable
           activities={activities}
           schedulesById={schedulesById}

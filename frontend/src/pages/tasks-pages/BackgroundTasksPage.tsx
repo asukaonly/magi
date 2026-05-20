@@ -120,37 +120,30 @@ export const BackgroundTasksPage: React.FC = () => {
 
   return (
     <TasksPageFrame
-      title={t('tasks.page.title')}
-      subtitle={t('tasks.page.subtitle')}
-      icon={<ListChecks className="h-5 w-5 text-muted-foreground" />}
       onRefresh={() => void refresh()}
       refreshing={loading}
     >
-      <div className="flex h-full min-h-0 flex-col gap-4">
-        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-          {isEmpty ? (
-            <div className="flex h-full min-h-[20rem] flex-col items-center justify-center rounded-lg border border-dashed border-border/60 px-6 py-16 text-center">
-              <ListChecks className="mb-3 h-10 w-10 text-muted-foreground/70" />
-              <h2 className="text-sm font-medium text-foreground">{t('tasks.empty.title')}</h2>
-              <p className="mt-1 text-xs text-muted-foreground">{t('tasks.empty.description')}</p>
-            </div>
-          ) : (
-            <div className="w-full space-y-6 pb-1">
-              <TasksSection title={t('tasks.sections.running')} tasks={running} onSelect={setSelectedTaskId} />
-              <TasksSection title={t('tasks.sections.queued')} tasks={queued} onSelect={setSelectedTaskId} />
-              <TasksSection title={t('tasks.sections.finished')} tasks={finished} onSelect={setSelectedTaskId} />
-            </div>
-          )}
-        </div>
-        <div className="shrink-0">
-          <TasksPaginationBar
-            total={total}
-            offset={offset}
-            limit={BACKGROUND_TASK_PAGE_SIZE}
-            loading={loading}
-            onPageChange={setOffset}
-          />
-        </div>
+      <div className="flex flex-col gap-4">
+        {isEmpty ? (
+          <div className="flex min-h-[20rem] flex-col items-center justify-center rounded-lg border border-dashed border-border/60 px-6 py-16 text-center">
+            <ListChecks className="mb-3 h-10 w-10 text-muted-foreground/70" />
+            <h2 className="text-sm font-medium text-foreground">{t('tasks.empty.title')}</h2>
+            <p className="mt-1 text-xs text-muted-foreground">{t('tasks.empty.description')}</p>
+          </div>
+        ) : (
+          <div className="w-full space-y-6 pb-1">
+            <TasksSection title={t('tasks.sections.running')} tasks={running} onSelect={setSelectedTaskId} />
+            <TasksSection title={t('tasks.sections.queued')} tasks={queued} onSelect={setSelectedTaskId} />
+            <TasksSection title={t('tasks.sections.finished')} tasks={finished} onSelect={setSelectedTaskId} />
+          </div>
+        )}
+        <TasksPaginationBar
+          total={total}
+          offset={offset}
+          limit={BACKGROUND_TASK_PAGE_SIZE}
+          loading={loading}
+          onPageChange={setOffset}
+        />
       </div>
       <BackgroundTaskDetailDrawer
         taskId={selectedTaskId}
