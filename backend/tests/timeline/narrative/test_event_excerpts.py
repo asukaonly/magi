@@ -95,3 +95,34 @@ def test_dedup_is_case_insensitive():
     ]
     result = build_excerpts(events, max_excerpts=5)
     assert len(result) == 1
+
+
+def test_manual_entries_get_priority_prefix_and_survive_dedup_cap():
+    """Manual-entry-sourced events MUST sort first regardless of length,
+    survive the dedup cap, and carry the "用户原话：" prefix so the diary
+    LLM's prompt-side instructions can find them."""
+    events = [
+        # Lots of long screen_time events that would otherwise win on length
+        {"content": "really long screen activity title " * 5,
+         "timestamp": 100.0, "source": "screen_time"},
+        {"content": "another long screen activity title " * 4,
+         "timestamp": 110.0, "source": "screen_time"},
+        {"content": "yet another loooong screen entry " * 4,
+         "timestamp": 120.0, "source": "screen_time"},
+        # A short manual entry that should still be picked first
+        {"content": "今天好累，想躺平",
+         "timestamp": 130.0, "source": "manual_entry"},
+    ]
+    result = build_excerpts(events, max_excerpts=3)
+    # Manual entry must be in the result and prefixed
+    assert any(r.startswith("用户原话：今天好累") for r in result)
+
+
+def test_manual_entry_prefix_only_applied_when_source_is_manual_entry():
+    events = [
+        {"content": "regular browser title", "timestamp": 1.0, "source": "chrome_history"},
+        {"content": "用户原话 ish content but from chrome",
+         "timestamp": 2.0, "source": "chrome_history"},
+    ]
+    result = build_excerpts(events, max_excerpts=2)
+    assert all(not r.startswith("用户原话：") for r in result)
