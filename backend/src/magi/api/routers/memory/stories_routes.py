@@ -28,6 +28,10 @@ INSIGHT_CATEGORIES = [
 
 TEMPORAL_CATEGORIES = ["day", "week", "month", "quarter", "year"]
 
+# Extra rows fetched per category to allow cross-category interleaving:
+# pending-first reordering can pull older insights ahead of newer temporal
+# rows, so the visible window's top entries may live deeper in either feed.
+_INTERLEAVE_HEADROOM = 50
 
 _memory_override: Any = None
 
@@ -90,6 +94,13 @@ def build_router() -> APIRouter:
         limit: int = Query(default=20, ge=1, le=100),
         offset: int = Query(default=0, ge=0),
     ) -> dict[str, Any]:
+        """Return a paginated unified narrative feed.
+
+        ``total`` is the count of items the server merged for this request,
+        bounded by the per-category fetch cap (``limit + offset + _INTERLEAVE_HEADROOM``).
+        Treat it as a lower bound, not a true store-wide total. Clients
+        that need to detect exhaustion should check ``len(items) < limit``.
+        """
         unified = _get_memory()
         if unified is None or unified.l3 is None:
             return {"items": [], "total": 0, "limit": limit, "offset": offset}
@@ -97,11 +108,11 @@ def build_router() -> APIRouter:
         insights, temporal = await asyncio.gather(
             unified.l3.list_summaries_by_category(
                 summary_categories=INSIGHT_CATEGORIES,
-                limit=limit + offset + 50,
+                limit=limit + offset + _INTERLEAVE_HEADROOM,
             ),
             unified.l3.list_summaries_by_category(
                 summary_categories=TEMPORAL_CATEGORIES,
-                limit=limit + offset + 50,
+                limit=limit + offset + _INTERLEAVE_HEADROOM,
             ),
         )
 
@@ -115,6 +126,7 @@ def build_router() -> APIRouter:
         sliced = combined[offset : offset + limit]
         return {
             "items": sliced,
+            # See docstring: bounded by fetch cap; treat as lower-bound, not store total.
             "total": len(combined),
             "limit": limit,
             "offset": offset,
