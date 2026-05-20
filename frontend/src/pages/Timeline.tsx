@@ -258,6 +258,14 @@ export const TimelinePage: React.FC = () => {
     setViewportStart(clampToLatestCompletePeriod(scale, newStart));
   }, [scale]);
 
+  /** Drill-down: jump from week-strip card into the day view of that date. */
+  const handleSelectDayFromWeek = useCallback((isoDate: string) => {
+    const [y, m, d] = isoDate.split("-").map(Number);
+    const dayStart = toUnixSeconds(startOfLocalDay(new Date(y, m - 1, d)));
+    setScale("day");
+    setViewportStart(clampToLatestCompletePeriod("day", dayStart));
+  }, []);
+
   const handleScaleChange = useCallback((next: TimelineScale) => {
     setScale(next);
     setViewportStart(getLatestCompletePeriodStart(next));
@@ -353,6 +361,7 @@ export const TimelinePage: React.FC = () => {
               onTogglePinned={handleTogglePinned}
               onHide={handleHide}
               pendingAction={pendingAction}
+              onSelectDay={handleSelectDayFromWeek}
             />
           )
         ) : null}

@@ -3,11 +3,13 @@ import React, { useMemo } from "react";
 import type { TimelineViewportResponse } from "@/api/modules/timeline";
 import { resolveTimelineAssetUrl } from "@/utils/timelineAssetUrl";
 
+import { DayBuckets } from "./DayBuckets";
 import { Hero, type HeroFallbackTone } from "./Hero";
 import { PeriodCardEmpty } from "./PeriodCardEmpty";
 import { Slice } from "./Slice";
 import { StateBand } from "./StateBand";
 import { ThemesRow } from "./ThemesRow";
+import { WeekStrip } from "./WeekStrip";
 
 interface PeriodCardProps {
   scale: "month" | "week" | "day" | "hour";
@@ -17,6 +19,8 @@ interface PeriodCardProps {
   onTogglePinned: (episodeId: string, nextPinned: boolean) => void | Promise<void>;
   onHide: (episodeId: string) => void | Promise<void>;
   pendingAction: Record<string, "pin" | "hide" | null>;
+  /** Used by the week strip to drill into a single day. ISO date "YYYY-MM-DD". */
+  onSelectDay?: (isoDate: string) => void;
 }
 
 function formatTimeRange(startSec: number, endSec: number): string {
@@ -56,6 +60,7 @@ export const PeriodCard: React.FC<PeriodCardProps> = ({
   onTogglePinned,
   onHide,
   pendingAction,
+  onSelectDay,
 }) => {
   const hasContent =
     (viewport.clusters?.length ?? 0) > 0 ||
@@ -87,21 +92,34 @@ export const PeriodCard: React.FC<PeriodCardProps> = ({
         periodEnd={viewport.viewport.end}
       />
       <ThemesRow themes={viewport.theme_cards ?? []} />
-      <div className="px-10 pb-7 pt-2">
-        {(viewport.clusters ?? []).map((cluster) => (
-          <Slice
-            key={cluster.block_id}
-            episodeId={cluster.episode_id ?? ""}
-            timeRangeLabel={formatTimeRange(cluster.time_start, cluster.time_end)}
-            narrative={cluster.slice_narrative || cluster.summary || cluster.label || ""}
-            sensoryDetail={cluster.slice_sensory_detail || undefined}
-            isPinned={Boolean(cluster.user_pinned)}
-            onTogglePinned={onTogglePinned}
-            onHide={onHide}
-            pendingAction={pendingAction[cluster.episode_id ?? ""] ?? null}
-          />
-        ))}
-      </div>
+      {scale === "day" ? (
+        <DayBuckets clusters={viewport.clusters ?? []} />
+      ) : scale === "week" ? (
+        <WeekStrip
+          clusters={viewport.clusters ?? []}
+          weekStart={viewport.viewport.start}
+          onSelectDay={(iso) => onSelectDay?.(iso)}
+        />
+      ) : (
+        // Month scale: keep the original slice list (cluster-per-day rollups
+        // from L2 episodes already feel right at this granularity, and we
+        // don't have a richer treatment yet).
+        <div className="px-10 pb-7 pt-2">
+          {(viewport.clusters ?? []).map((cluster) => (
+            <Slice
+              key={cluster.block_id}
+              episodeId={cluster.episode_id ?? ""}
+              timeRangeLabel={formatTimeRange(cluster.time_start, cluster.time_end)}
+              narrative={cluster.slice_narrative || cluster.summary || cluster.label || ""}
+              sensoryDetail={cluster.slice_sensory_detail || undefined}
+              isPinned={Boolean(cluster.user_pinned)}
+              onTogglePinned={onTogglePinned}
+              onHide={onHide}
+              pendingAction={pendingAction[cluster.episode_id ?? ""] ?? null}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 };
