@@ -88,3 +88,50 @@ def test_pagination_limits_results(app_factory):
     assert len(body["items"]) == 2
     assert body["items"][0]["summary_id"] == "t-3"  # second-newest after offset 1
     assert body["total"] == 5
+
+
+def test_review_state_patch_updates_summary(app_factory):
+    l3 = MagicMock()
+    l3.set_review_state = AsyncMock(return_value=True)
+    unified = MagicMock()
+    unified.l3 = l3
+    with override_unified_memory_for_test(unified):
+        client = TestClient(app_factory())
+        resp = client.patch(
+            "/api/memory/stories/sum-1/review",
+            json={"review_state": "confirmed", "user_note": "yes"},
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["summary_id"] == "sum-1"
+    assert body["review_state"] == "confirmed"
+    l3.set_review_state.assert_awaited_once_with(
+        summary_id="sum-1", review_state="confirmed", user_note="yes",
+    )
+
+
+def test_review_state_patch_404_for_unknown(app_factory):
+    l3 = MagicMock()
+    l3.set_review_state = AsyncMock(return_value=False)
+    unified = MagicMock()
+    unified.l3 = l3
+    with override_unified_memory_for_test(unified):
+        client = TestClient(app_factory())
+        resp = client.patch(
+            "/api/memory/stories/nope/review",
+            json={"review_state": "confirmed"},
+        )
+    assert resp.status_code == 404
+
+
+def test_review_state_patch_rejects_invalid_state(app_factory):
+    unified = MagicMock()
+    unified.l3 = MagicMock()
+    with override_unified_memory_for_test(unified):
+        client = TestClient(app_factory())
+        resp = client.patch(
+            "/api/memory/stories/sum-1/review",
+            json={"review_state": "bogus"},
+        )
+    assert resp.status_code == 422

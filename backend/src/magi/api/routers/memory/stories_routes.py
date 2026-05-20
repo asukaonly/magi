@@ -7,7 +7,8 @@ import logging
 from contextlib import contextmanager
 from typing import Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, Field
 
 from .dependencies import _resolve_unified_memory
 
@@ -71,6 +72,11 @@ def _derive_title(row: dict[str, Any]) -> str:
     return category or "story"
 
 
+class ReviewPatch(BaseModel):
+    review_state: str = Field(..., min_length=1)
+    user_note: str | None = None
+
+
 def build_router() -> APIRouter:
     router = APIRouter()
 
@@ -108,5 +114,22 @@ def build_router() -> APIRouter:
             "limit": limit,
             "offset": offset,
         }
+
+    @router.patch("/stories/{summary_id}/review")
+    async def patch_review_state(summary_id: str, payload: ReviewPatch) -> dict[str, Any]:
+        from ....memory.l3.storage.review_operations import ALLOWED_REVIEW_STATES
+        if payload.review_state not in ALLOWED_REVIEW_STATES:
+            raise HTTPException(status_code=422, detail="invalid_review_state")
+        unified = _get_memory()
+        if unified is None or unified.l3 is None:
+            raise HTTPException(status_code=503, detail="memory_unavailable")
+        ok = await unified.l3.set_review_state(
+            summary_id=summary_id,
+            review_state=payload.review_state,
+            user_note=payload.user_note,
+        )
+        if not ok:
+            raise HTTPException(status_code=404, detail="summary_not_found")
+        return {"ok": True, "summary_id": summary_id, "review_state": payload.review_state}
 
     return router

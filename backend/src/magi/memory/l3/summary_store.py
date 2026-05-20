@@ -25,6 +25,7 @@ from .embeddings.operations import L3SummaryEmbeddingMixin
 from .retrieval.operations import L3SummarySearchMixin
 from .storage.schema import ensure_l3_summary_schema
 from .storage.operations import L3SummaryPersistenceMixin
+from .storage.review_operations import L3ReviewOperationsMixin
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ _CHILD_PERIOD_CONTEXT_LIMIT_BY_PARENT = {
 }
 _CHILD_PERIOD_CONTEXT_LIMIT_DEFAULT = 6
 
-class L3SummaryStore(L3SummaryEmbeddingMixin, L3SummarySearchMixin, L3SummaryPersistenceMixin):
+class L3SummaryStore(L3SummaryEmbeddingMixin, L3SummarySearchMixin, L3SummaryPersistenceMixin, L3ReviewOperationsMixin):
     """Stores reflection-oriented summaries that remain traceable to L1 evidence."""
 
     def __init__(
