@@ -604,9 +604,103 @@ pub(super) fn query_activity(filters: ActivityFilters) -> Value {
     // Truncate only when live rows pushed us past the page size on page 1;
     // on later pages the SQL LIMIT already constrained the slice.
     activities.truncate(limit as usize + 32);
+
+    // Build chip-count aggregations. These reflect the time window only
+    // (since/until), independent of the category/status filters — otherwise
+    // selecting one chip would zero out every other chip and make the filter
+    // unusable.
+    let mut target_type_counts: std::collections::BTreeMap<String, i64> =
+        std::collections::BTreeMap::new();
+    let mut status_counts: std::collections::BTreeMap<String, i64> =
+        std::collections::BTreeMap::new();
+
+    // Time-window-only WHERE clause for the history aggregation.
+    let mut count_where: Vec<String> = Vec::new();
+    let mut count_params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+    if let Some(since) = filters.since {
+        count_where.push(format!("started_at >= ?{}", count_params.len() + 1));
+        count_params.push(Box::new(since));
+    }
+    if let Some(until) = filters.until {
+        count_where.push(format!("started_at <= ?{}", count_params.len() + 1));
+        count_params.push(Box::new(until));
+    }
+    let count_where_sql = if count_where.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", count_where.join(" AND "))
+    };
+    let agg_query = format!(
+        "SELECT target_type, status, COUNT(*) FROM schedule_executions{count_where_sql} \
+         GROUP BY target_type, status"
+    );
+    if let Ok(mut stmt) = conn.prepare(&agg_query) {
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            count_params.iter().map(|p| p.as_ref()).collect();
+        let rows = stmt.query_map(param_refs.as_slice(), |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        });
+        if let Ok(rows) = rows {
+            for entry in rows.flatten() {
+                let (target_type, raw_status, count) = entry;
+                let display_status = match raw_status.as_str() {
+                    "success" => "succeeded".to_string(),
+                    other => other.to_string(),
+                };
+                *target_type_counts.entry(target_type).or_insert(0) += count;
+                *status_counts.entry(display_status).or_insert(0) += count;
+            }
+        }
+    }
+
+    // Live rows: count current sensor jobs (queued/running) and currently-
+    // running non-sensor schedules. These are state snapshots, not time-bound,
+    // so they always count regardless of the time window.
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT target_type, status, COUNT(*) FROM sensor_sync_jobs \
+         WHERE status IN ('queued', 'running') GROUP BY target_type, status",
+    ) {
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        });
+        if let Ok(rows) = rows {
+            for (target_type, status, count) in rows.flatten() {
+                *target_type_counts.entry(target_type).or_insert(0) += count;
+                *status_counts.entry(status).or_insert(0) += count;
+            }
+        }
+    }
+    for schedule in &schedules {
+        let running = schedule
+            .get("target_state")
+            .and_then(|s| s.get("running"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let target_type = schedule
+            .get("target_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if running && target_type != "sensor_sync" {
+            *target_type_counts
+                .entry(target_type.to_string())
+                .or_insert(0) += 1;
+            *status_counts.entry("running".into()).or_insert(0) += 1;
+        }
+    }
+
     json!({
         "activities": activities,
         "total": history_total,
+        "target_type_counts": target_type_counts,
+        "status_counts": status_counts,
     })
 }
 

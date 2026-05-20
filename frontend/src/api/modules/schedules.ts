@@ -85,6 +85,19 @@ export interface ScheduleActivityDTO {
 export interface ListScheduleActivityResponse {
   activities: ScheduleActivityDTO[];
   total?: number;
+  /**
+   * Counts of all activity rows in the requested time window, grouped by
+   * raw `target_type`. Independent of any category/status filter applied —
+   * intended for driving filter-chip counters that need to remain stable
+   * when the user clicks a chip.
+   */
+  target_type_counts?: Record<string, number>;
+  /**
+   * Counts of all activity rows in the requested time window, grouped by
+   * display status (succeeded / failed / running / queued / cancelled).
+   * Same semantics as `target_type_counts`.
+   */
+  status_counts?: Record<string, number>;
 }
 
 export interface ListActivityParams {

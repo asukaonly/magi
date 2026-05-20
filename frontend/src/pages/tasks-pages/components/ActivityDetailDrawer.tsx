@@ -103,6 +103,14 @@ export const ActivityDetailDrawer: React.FC<ActivityDetailDrawerProps> = ({
                       <dt className={labelClass}>Schedule ID</dt>
                       <dd className="mt-1 truncate font-mono text-xs text-foreground">{activity.schedule_id}</dd>
                     </div>
+                    {activity.activity_id.startsWith('execution:') ? (
+                      <div className="sm:col-span-2 min-w-0">
+                        <dt className={labelClass}>Execution ID</dt>
+                        <dd className="mt-1 truncate font-mono text-xs text-foreground">
+                          {activity.activity_id.slice('execution:'.length)}
+                        </dd>
+                      </div>
+                    ) : null}
                   </dl>
                 </section>
 

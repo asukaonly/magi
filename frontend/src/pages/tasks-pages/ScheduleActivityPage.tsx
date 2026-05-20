@@ -61,6 +61,11 @@ export const ScheduleActivityPage: React.FC = () => {
   const [activities, setActivities] = useState<ScheduleActivityDTO[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
+  // Chip-count aggregations from the server; keyed by raw target_type and
+  // by display status. Independent of category/status filters so chip
+  // counts stay meaningful when the user filters down.
+  const [targetTypeCounts, setTargetTypeCounts] = useState<Record<string, number>>({});
+  const [serverStatusCounts, setServerStatusCounts] = useState<Record<string, number>>({});
   const [schedulesById, setSchedulesById] = useState<Record<string, ScheduleDTO>>({});
   const [loading, setLoading] = useState(false);
   const [stoppingActivityId, setStoppingActivityId] = useState<string | null>(null);
@@ -91,6 +96,8 @@ export const ScheduleActivityPage: React.FC = () => {
       ]);
       setActivities(act.activities);
       setTotal(act.total ?? 0);
+      setTargetTypeCounts(act.target_type_counts ?? {});
+      setServerStatusCounts(act.status_counts ?? {});
       setSchedulesById(Object.fromEntries(sched.schedules.map((s) => [s.schedule_id, s])));
     } catch {
       toast.error(t('tasks.scheduled.feedback.loadFailed'));
@@ -101,27 +108,31 @@ export const ScheduleActivityPage: React.FC = () => {
 
   useEffect(() => { void reload(); }, [reload]);
 
+  // Build category chip counts by bucketing target_type → category, using
+  // the server's window-scoped aggregation (so chips reflect the full
+  // breakdown even when a chip is already selected).
   const counts = useMemo<Record<CategoryFilter, number>>(() => {
     const next = { ...EMPTY_COUNTS };
-    for (const a of activities) {
-      next.all += 1;
-      const c = scheduleCategory(a.target_type);
-      next[c] = (next[c] ?? 0) + 1;
+    for (const [targetType, n] of Object.entries(targetTypeCounts)) {
+      next.all += n;
+      const c = scheduleCategory(targetType);
+      next[c] = (next[c] ?? 0) + n;
     }
     return next;
-  }, [activities]);
+  }, [targetTypeCounts]);
 
   const statusCounts = useMemo<Record<StatusFilter, number>>(() => {
     const next: Record<StatusFilter, number> = {
       all: 0, running: 0, queued: 0, succeeded: 0, failed: 0, cancelled: 0,
     };
-    for (const a of activities) {
-      next.all += 1;
-      const s = String(a.status) as StatusFilter;
-      if (s in next) next[s] = (next[s] ?? 0) + 1;
+    for (const [status, n] of Object.entries(serverStatusCounts)) {
+      next.all += n;
+      if (status in next) {
+        next[status as StatusFilter] = (next[status as StatusFilter] ?? 0) + n;
+      }
     }
     return next;
-  }, [activities]);
+  }, [serverStatusCounts]);
 
   const handleStop = async (activity: ScheduleActivityDTO) => {
     if (!activity.cancellable) return;
