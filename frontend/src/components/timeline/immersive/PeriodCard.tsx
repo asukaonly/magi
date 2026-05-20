@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 
 import type { TimelineViewportResponse } from "@/api/modules/timeline";
+import type { ManualEntry } from "@/api/modules/manualEntries";
 import { resolveTimelineAssetUrl } from "@/utils/timelineAssetUrl";
 
 import { DayBuckets } from "./DayBuckets";
@@ -21,6 +22,11 @@ interface PeriodCardProps {
   pendingAction: Record<string, "pin" | "hide" | null>;
   /** Used by the week strip to drill into a single day. ISO date "YYYY-MM-DD". */
   onSelectDay?: (isoDate: string) => void;
+  /** Manual user-authored memory entries for this window. Day-scale renders
+   *  them as a dedicated "你的记录" group at the top of each time bucket. */
+  manualEntries?: ManualEntry[];
+  onEditManualEntry?: (entry: ManualEntry) => void;
+  onDeleteManualEntry?: (entryId: string) => void;
 }
 
 function formatTimeRange(startSec: number, endSec: number): string {
@@ -61,6 +67,9 @@ export const PeriodCard: React.FC<PeriodCardProps> = ({
   onHide,
   pendingAction,
   onSelectDay,
+  manualEntries,
+  onEditManualEntry,
+  onDeleteManualEntry,
 }) => {
   const hasContent =
     (viewport.clusters?.length ?? 0) > 0 ||
@@ -103,7 +112,12 @@ export const PeriodCard: React.FC<PeriodCardProps> = ({
       />
       <ThemesRow themes={viewport.theme_cards ?? []} />
       {scale === "day" ? (
-        <DayBuckets clusters={viewport.clusters ?? []} />
+        <DayBuckets
+          clusters={viewport.clusters ?? []}
+          manualEntries={manualEntries ?? []}
+          onEditManualEntry={onEditManualEntry}
+          onDeleteManualEntry={onDeleteManualEntry}
+        />
       ) : scale === "week" ? (
         <WeekStrip
           clusters={viewport.clusters ?? []}

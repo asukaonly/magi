@@ -2,6 +2,7 @@ import React from "react";
 import {
   Activity,
   Calendar,
+  Feather,
   GitBranch,
   Heart,
   Image as ImageIcon,
@@ -41,6 +42,8 @@ export const SourceIcon: React.FC<SourceIconProps> = ({ sourceType, className })
 
   // Lucide mappings.
   switch (key) {
+    case "manual_entry":
+      return <Feather className={cls} aria-hidden="true" />;
     case "screen_time":
     case "screen":
       return <Monitor className={cls} aria-hidden="true" />;
@@ -98,6 +101,7 @@ const ChromeBrandIcon: React.FC<{ className?: string }> = ({ className }) => (
 export function labelForSource(sourceType: string): string {
   const key = sourceType.toLowerCase().replace(/-/g, "_");
   const labels: Record<string, string> = {
+    manual_entry: "你的记录",
     chrome_history: "Chrome",
     chrome: "Chrome",
     screen_time: "屏幕",

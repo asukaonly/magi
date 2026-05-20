@@ -1,20 +1,39 @@
-import React from "react";
+import React, { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Feather, Pencil, Trash2 } from "lucide-react";
 
 import type { TimelineClusterBlock } from "@/api/modules/timeline";
+import type { ManualEntry, MoodValence } from "@/api/modules/manualEntries";
 import { cn } from "@/lib/utils";
 import {
+  bucketIdForTimestamp,
   formatDurationCompact,
   groupClustersIntoBuckets,
+  BUCKET_DEFS,
   type Bucket,
+  type BucketId,
   type SourceGroup,
 } from "@/lib/timeline-buckets";
+import { resolveTimelineAssetUrl } from "@/utils/timelineAssetUrl";
 
 import { SourceIcon, labelForSource } from "./SourceIcon";
 
 interface DayBucketsProps {
   clusters: TimelineClusterBlock[];
+  manualEntries: ManualEntry[];
+  onEditManualEntry?: (entry: ManualEntry) => void;
+  onDeleteManualEntry?: (entryId: string) => void;
 }
+
+/** Same palette as MoodCalendar. Kept here too so the inline mood dot
+ *  doesn't import the calendar's full record. */
+const MOOD_FILL: Record<MoodValence, string> = {
+  warm: '#c9a878',
+  bright: '#d4b886',
+  neutral: '#a8a08a',
+  cool: '#7a8898',
+  tense: '#b87a78',
+};
 
 function formatHourMinute(sec: number): string {
   const d = new Date(sec * 1000);
@@ -25,9 +44,6 @@ function formatTimeRange(startSec: number, endSec: number): string {
   const start = formatHourMinute(startSec);
   const end = formatHourMinute(endSec);
   if (start === end) {
-    // Within the same minute — show a single time with the · suffix so a
-    // missing end is unambiguous (vs the rare case the formatter rounds two
-    // distinct seconds into the same display string).
     return `${start} ·`;
   }
   return `${start} – ${end}`;
@@ -35,18 +51,50 @@ function formatTimeRange(startSec: number, endSec: number): string {
 
 /**
  * Day-scale main content: events grouped into four time-of-day buckets
- * (深夜 / 上午 / 下午 / 晚上). Inside each bucket, source groups are
- * stacked vertically and sorted by total duration descending.
- *
- * Empty buckets are dropped so the page doesn't show a sea of placeholders
- * on quiet days. If *all* buckets are empty, the caller (PeriodCard) should
- * have already routed to its empty state.
+ * (深夜 / 上午 / 下午 / 晚上). Inside each bucket, the user's own manual
+ * entries (if any) are rendered first as a distinct "你的记录" group,
+ * then the regular source groups follow, ordered by total duration.
  */
-export const DayBuckets: React.FC<DayBucketsProps> = ({ clusters }) => {
+export const DayBuckets: React.FC<DayBucketsProps> = ({
+  clusters,
+  manualEntries,
+  onEditManualEntry,
+  onDeleteManualEntry,
+}) => {
   const { t } = useTranslation("app");
-  const buckets = groupClustersIntoBuckets(clusters).filter((b) => b.groups.length > 0);
 
-  if (buckets.length === 0) {
+  // Bucket the (non-deleted) manual entries by their event_at.
+  const entriesByBucket = useMemo(() => {
+    const map = new Map<BucketId, ManualEntry[]>();
+    for (const def of BUCKET_DEFS) map.set(def.id, []);
+    for (const entry of manualEntries) {
+      if (entry.deleted_at) continue;
+      const bucketId = bucketIdForTimestamp(entry.event_at);
+      map.get(bucketId)!.push(entry);
+    }
+    // Within a bucket, sort chronologically
+    for (const arr of map.values()) {
+      arr.sort((a, b) => a.event_at - b.event_at);
+    }
+    return map;
+  }, [manualEntries]);
+
+  // Exclude clusters whose primary source is manual_entry — those are
+  // surfaced via the entries list directly, so showing them twice would
+  // be confusing.
+  const filteredClusters = useMemo(
+    () => clusters.filter((c) => (c.source_types ?? [])[0] !== "manual_entry"),
+    [clusters],
+  );
+
+  const buckets = groupClustersIntoBuckets(filteredClusters);
+  // Merge: keep buckets that have either clusters OR manual entries.
+  const visibleBuckets = buckets.filter((b) => {
+    const entryCount = entriesByBucket.get(b.id)?.length ?? 0;
+    return b.groups.length > 0 || entryCount > 0;
+  });
+
+  if (visibleBuckets.length === 0) {
     return (
       <div className="px-10 py-10 text-center text-sm text-muted-foreground">
         {t("timeline.immersive.dayEmpty", { defaultValue: "这一天没什么动静。" })}
@@ -56,18 +104,34 @@ export const DayBuckets: React.FC<DayBucketsProps> = ({ clusters }) => {
 
   return (
     <div className="flex flex-col gap-7 px-10 pb-10 pt-3">
-      {buckets.map((bucket) => (
-        <BucketSection key={bucket.id} bucket={bucket} />
+      {visibleBuckets.map((bucket) => (
+        <BucketSection
+          key={bucket.id}
+          bucket={bucket}
+          manualEntries={entriesByBucket.get(bucket.id) ?? []}
+          onEditManualEntry={onEditManualEntry}
+          onDeleteManualEntry={onDeleteManualEntry}
+        />
       ))}
     </div>
   );
 };
 
-const BucketSection: React.FC<{ bucket: Bucket }> = ({ bucket }) => {
+const BucketSection: React.FC<{
+  bucket: Bucket;
+  manualEntries: ManualEntry[];
+  onEditManualEntry?: (entry: ManualEntry) => void;
+  onDeleteManualEntry?: (entryId: string) => void;
+}> = ({ bucket, manualEntries, onEditManualEntry, onDeleteManualEntry }) => {
   const { t } = useTranslation("app");
   const headerLabel = t(`timeline.immersive.bucket.${bucket.id}`, {
     defaultValue: bucket.label,
   });
+
+  // Include manual entries in the total-duration header — give them a
+  // notional 5min weight each since manual entries don't have duration.
+  const manualNotionalSeconds = manualEntries.length * 300;
+  const totalDurationSeconds = bucket.totalDurationSeconds + manualNotionalSeconds;
 
   return (
     <section>
@@ -79,15 +143,156 @@ const BucketSection: React.FC<{ bucket: Bucket }> = ({ bucket }) => {
           {String(bucket.startHour).padStart(2, "0")}:00 – {String(bucket.endHour).padStart(2, "0")}:00
         </span>
         <span className="ml-auto font-mono text-[11px] text-muted-foreground/80">
-          {formatDurationCompact(bucket.totalDurationSeconds)}
+          {formatDurationCompact(totalDurationSeconds)}
         </span>
       </header>
       <div className="flex flex-col gap-4">
+        {manualEntries.length > 0 ? (
+          <ManualEntryGroup
+            entries={manualEntries}
+            onEdit={onEditManualEntry}
+            onDelete={onDeleteManualEntry}
+          />
+        ) : null}
         {bucket.groups.map((group) => (
           <SourceGroupBlock key={`${bucket.id}-${group.sourceType}`} group={group} />
         ))}
       </div>
     </section>
+  );
+};
+
+const ManualEntryGroup: React.FC<{
+  entries: ManualEntry[];
+  onEdit?: (entry: ManualEntry) => void;
+  onDelete?: (entryId: string) => void;
+}> = ({ entries, onEdit, onDelete }) => {
+  const { t } = useTranslation("app");
+  return (
+    <div className="relative pl-3">
+      {/* Left accent stripe — gives the user's own records a visible "yours" mark */}
+      <span
+        className="absolute left-0 top-0 h-full w-[2px] rounded-full bg-[#c9a878]"
+        aria-hidden="true"
+      />
+      <div className="mb-1.5 flex items-center gap-1.5">
+        <Feather className="h-3.5 w-3.5 text-[#c9a878]" />
+        <span className="text-[12px] font-medium text-foreground">
+          {t("timeline.manualEntry.groupLabel", { defaultValue: "你的记录" })}
+        </span>
+        <span className="font-mono text-[11px] text-muted-foreground/50">
+          · {entries.length} 条
+        </span>
+      </div>
+      <ul className="ml-5 flex flex-col gap-2">
+        {entries.map((entry) => (
+          <ManualEntryRow
+            key={entry.entry_id}
+            entry={entry}
+            onEdit={onEdit}
+            onDelete={onDelete}
+          />
+        ))}
+      </ul>
+    </div>
+  );
+};
+
+const ManualEntryRow: React.FC<{
+  entry: ManualEntry;
+  onEdit?: (entry: ManualEntry) => void;
+  onDelete?: (entryId: string) => void;
+}> = ({ entry, onEdit, onDelete }) => {
+  const { t } = useTranslation("app");
+  const [previewIdx, setPreviewIdx] = useState<number | null>(null);
+
+  const time = formatHourMinute(entry.event_at);
+
+  return (
+    <li className="group grid grid-cols-[92px_1fr] items-start gap-3 text-[13px] text-foreground/90">
+      <div className="flex items-center gap-1.5 pt-0.5 font-mono text-[11px] text-muted-foreground/70">
+        <span>{time}</span>
+        {entry.mood ? (
+          <span
+            className="h-1.5 w-1.5 rounded-full"
+            style={{ backgroundColor: MOOD_FILL[entry.mood as MoodValence] }}
+            title={entry.mood}
+            aria-hidden="true"
+          />
+        ) : null}
+      </div>
+      <div>
+        <div className="whitespace-pre-wrap leading-snug">{entry.body}</div>
+        {entry.attachments.length > 0 ? (
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {entry.attachments.slice(0, 4).map((ref, i) => {
+              const url = resolveTimelineAssetUrl(ref);
+              if (!url) return null;
+              return (
+                <button
+                  key={ref}
+                  type="button"
+                  onClick={() => setPreviewIdx(i)}
+                  className="h-14 w-14 overflow-hidden rounded border border-border/60 hover:border-foreground/40"
+                  aria-label={t("timeline.manualEntry.openImage", { defaultValue: "查看图片" })}
+                >
+                  <img src={url} alt="" className="h-full w-full object-cover" loading="lazy" />
+                </button>
+              );
+            })}
+            {entry.attachments.length > 4 ? (
+              <span className="flex h-14 items-end pl-1 text-[11px] text-muted-foreground">
+                +{entry.attachments.length - 4}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+        <div className="mt-1 flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+          {onEdit ? (
+            <button
+              type="button"
+              onClick={() => onEdit(entry)}
+              className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+              aria-label={t("timeline.manualEntry.editAction", { defaultValue: "编辑" })}
+            >
+              <Pencil className="h-3 w-3" />
+              {t("timeline.manualEntry.editAction", { defaultValue: "编辑" })}
+            </button>
+          ) : null}
+          {onDelete ? (
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm(t("timeline.manualEntry.confirmDelete", { defaultValue: "删除这条记录？" }))) {
+                  onDelete(entry.entry_id);
+                }
+              }}
+              className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-red-500"
+              aria-label={t("timeline.manualEntry.deleteAction", { defaultValue: "删除" })}
+            >
+              <Trash2 className="h-3 w-3" />
+              {t("timeline.manualEntry.deleteAction", { defaultValue: "删除" })}
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      {/* Fullscreen image preview when a thumbnail is clicked */}
+      {previewIdx !== null ? (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80"
+          onClick={() => setPreviewIdx(null)}
+          role="dialog"
+        >
+          <img
+            src={resolveTimelineAssetUrl(entry.attachments[previewIdx]) ?? ""}
+            alt=""
+            className="max-h-[90vh] max-w-[90vw] object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      ) : null}
+    </li>
   );
 };
 

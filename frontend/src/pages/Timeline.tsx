@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 
 import { memoryApi } from "@/api/modules/memory";
+import { manualEntriesApi, type ManualEntry } from "@/api/modules/manualEntries";
 import {
   timelineApi,
   type TimelineMoodCalendarDay,
@@ -11,8 +12,11 @@ import {
 } from "@/api/modules/timeline";
 import { HourDetail } from "@/components/timeline/immersive/HourDetail";
 import { PeriodCard } from "@/components/timeline/immersive/PeriodCard";
+import { QuickEntrySheet } from "@/components/timeline/manual-entries/QuickEntrySheet";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useChatShellStore } from "@/stores";
+import { Feather } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 type TimelineScale = "month" | "week" | "day" | "hour";
 
@@ -118,6 +122,9 @@ export const TimelinePage: React.FC = () => {
   const [viewportStart, setViewportStart] = useState<number>(
     () => getLatestCompletePeriodStart("day"),
   );
+  const [entrySheetOpen, setEntrySheetOpen] = useState(false);
+  const [editingEntry, setEditingEntry] = useState<ManualEntry | null>(null);
+  const [manualEntries, setManualEntries] = useState<ManualEntry[]>([]);
   const [viewport, setViewport] = useState<TimelineViewportResponse | null>(null);
   const [moodDays, setMoodDays] = useState<TimelineMoodCalendarDay[]>([]);
   const [standoutItems, setStandoutItems] = useState<TimelineStandoutItem[]>([]);
@@ -160,6 +167,18 @@ export const TimelinePage: React.FC = () => {
     }
   }, [scale, viewportStart, viewportEnd, query, timelineLocale, t, firstLoad]);
 
+  const loadManualEntries = useCallback(async () => {
+    try {
+      const entries = await manualEntriesApi.list({
+        timeStart: viewportStart,
+        timeEnd: viewportEnd,
+      });
+      setManualEntries(entries);
+    } catch {
+      /* best-effort — clusters still render even if entries fetch fails */
+    }
+  }, [viewportStart, viewportEnd]);
+
   const loadSidebar = useCallback(async () => {
     const month = monthKeyForDate(viewportStart);
     try {
@@ -189,6 +208,10 @@ export const TimelinePage: React.FC = () => {
   useEffect(() => {
     void loadSidebar();
   }, [loadSidebar]);
+
+  useEffect(() => {
+    void loadManualEntries();
+  }, [loadManualEntries]);
 
   const handleTogglePinned = async (episodeId: string, nextPinned: boolean) => {
     setPendingAction((s) => ({ ...s, [episodeId]: "pin" }));
@@ -365,6 +388,55 @@ export const TimelinePage: React.FC = () => {
     setTimelinePanel,
   ]);
 
+  // Global "n" hotkey opens the quick-entry sheet — only when no input
+  // already has focus (otherwise typing "n" in the search box would
+  // hijack the keystroke).
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'n' && e.key !== 'N') return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const active = document.activeElement;
+      const tag = active?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || (active as HTMLElement)?.isContentEditable) {
+        return;
+      }
+      e.preventDefault();
+      setEntrySheetOpen(true);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  const handleEntrySaved = useCallback(() => {
+    // Re-fetch entries (primary timeline placement) + viewport (so any
+    // L2-derived clusters reflect the new event) + sidebar.
+    void loadManualEntries();
+    void loadViewport();
+    void loadSidebar();
+    setEditingEntry(null);
+  }, [loadManualEntries, loadViewport, loadSidebar]);
+
+  const handleEditEntry = useCallback((entry: ManualEntry) => {
+    setEditingEntry(entry);
+    setEntrySheetOpen(true);
+  }, []);
+
+  const handleDeleteEntry = useCallback(async (entryId: string) => {
+    try {
+      await manualEntriesApi.remove(entryId);
+      toast.success(t('timeline.manualEntry.deletedToast', { defaultValue: '已删除' }));
+      await loadManualEntries();
+      await loadViewport();
+    } catch (err: any) {
+      toast.error(
+        t('timeline.manualEntry.errors.deleteFailed', {
+          defaultValue: '删除失败',
+          message: err?.message,
+        }),
+      );
+    }
+  }, [loadManualEntries, loadViewport, t]);
+
   return (
     <main className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
       {/* Block layout (not flex) so PeriodCard/HourDetail fill the column width
@@ -389,10 +461,39 @@ export const TimelinePage: React.FC = () => {
               onHide={handleHide}
               pendingAction={pendingAction}
               onSelectDay={handleSelectDayFromWeek}
+              manualEntries={manualEntries}
+              onEditManualEntry={handleEditEntry}
+              onDeleteManualEntry={handleDeleteEntry}
             />
           )
         ) : null}
       </div>
+
+      {/* Floating ✎ button for manual memory entries. Hidden while the
+          sheet is open so it doesn't sit on top of the dialog overlay. */}
+      {!entrySheetOpen ? (
+        <button
+          type="button"
+          onClick={() => setEntrySheetOpen(true)}
+          title={t('timeline.manualEntry.openButton', { defaultValue: '记一笔 (n)' })}
+          aria-label={t('timeline.manualEntry.openButton', { defaultValue: '记一笔' })}
+          className={cn(
+            'absolute bottom-6 right-6 z-20 flex h-12 w-12 items-center justify-center rounded-full',
+            'bg-foreground text-background shadow-lg',
+            'transition-transform hover:scale-105 active:scale-95',
+          )}
+        >
+          <Feather className="h-5 w-5" />
+        </button>
+      ) : null}
+
+      <QuickEntrySheet
+        open={entrySheetOpen}
+        existingEntry={editingEntry}
+        onClose={() => { setEntrySheetOpen(false); setEditingEntry(null); }}
+        onSaved={handleEntrySaved}
+        initialLocationLabel={viewport?.place_hints?.[0] ?? null}
+      />
     </main>
   );
 };
