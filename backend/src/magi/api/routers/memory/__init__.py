@@ -29,9 +29,11 @@ from .l3 import routes as _l3_routes
 from .l4 import routes as _l4_routes
 from .portrait_routes import build_router as _build_portrait_router
 from .stories_routes import build_router as _build_stories_router
+from .portrait_self_routes import build_router as _build_portrait_self_router
 
 memory_router.include_router(_build_portrait_router())
 memory_router.include_router(_build_stories_router())
+memory_router.include_router(_build_portrait_self_router())
 
 __all__ = [
     "memory_router",
