@@ -42,6 +42,9 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/procedures": {"GET"},
         "/tom/{entity_id}": {"GET"},
         "/portrait": {"GET"},
+        "/portrait/self": {"GET"},
+        "/stories": {"GET"},
+        "/stories/{summary_id}/review": {"PATCH"},
     },
 
     "messages": {
