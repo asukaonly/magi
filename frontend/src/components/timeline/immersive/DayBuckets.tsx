@@ -25,14 +25,15 @@ interface DayBucketsProps {
   onDeleteManualEntry?: (entryId: string) => void;
 }
 
-/** Same palette as MoodCalendar. Kept here too so the inline mood dot
- *  doesn't import the calendar's full record. */
-const MOOD_FILL: Record<MoodValence, string> = {
-  warm: '#c9a878',
-  bright: '#d4b886',
-  neutral: '#a8a08a',
-  cool: '#7a8898',
-  tense: '#b87a78',
+/** Same emoji set as QuickEntrySheet. Kept duplicated here (rather than
+ *  importing from the sheet module) so this view doesn't depend on the
+ *  edit surface. */
+const MOOD_EMOJI: Record<MoodValence, string> = {
+  warm: '😌',
+  bright: '😊',
+  neutral: '😐',
+  cool: '😔',
+  tense: '😣',
 };
 
 function formatHourMinute(sec: number): string {
@@ -214,11 +215,12 @@ const ManualEntryRow: React.FC<{
         <span>{time}</span>
         {entry.mood ? (
           <span
-            className="h-1.5 w-1.5 rounded-full"
-            style={{ backgroundColor: MOOD_FILL[entry.mood as MoodValence] }}
+            className="text-[12px] leading-none"
             title={entry.mood}
             aria-hidden="true"
-          />
+          >
+            {MOOD_EMOJI[entry.mood as MoodValence]}
+          </span>
         ) : null}
       </div>
       <div>

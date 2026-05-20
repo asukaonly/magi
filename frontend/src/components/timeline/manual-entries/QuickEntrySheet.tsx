@@ -39,13 +39,23 @@ interface AttachmentDraft {
 
 const MOODS: MoodValence[] = ['warm', 'bright', 'neutral', 'cool', 'tense'];
 
-/** Same palette as MoodCalendar — keep the semantic mapping consistent. */
-const MOOD_FILL: Record<MoodValence, string> = {
-  warm: '#c9a878',
-  bright: '#d4b886',
-  neutral: '#a8a08a',
-  cool: '#7a8898',
-  tense: '#b87a78',
+/** Face emojis communicate valence better than abstract color circles —
+ *  people read 😌 / 😊 / 😐 / 😔 / 😣 without needing a legend. */
+const MOOD_EMOJI: Record<MoodValence, string> = {
+  warm: '😌',
+  bright: '😊',
+  neutral: '😐',
+  cool: '😔',
+  tense: '😣',
+};
+
+/** Hover/title hint per pill so the meaning isn't completely emoji-bound. */
+const MOOD_HINT: Record<MoodValence, string> = {
+  warm: '舒适 / 放松',
+  bright: '开朗 / 明亮',
+  neutral: '一般',
+  cool: '低落 / 收敛',
+  tense: '紧张 / 压力',
 };
 
 const MAX_UPLOAD_MB = 10;
@@ -375,63 +385,49 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
             </div>
           </div>
 
-          {/* Mood pills */}
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-              {t('timeline.manualEntry.moodLabel', { defaultValue: '心情' })}
-            </span>
-            {MOODS.map((m) => {
-              const isSelected = mood === m;
-              const fill = MOOD_FILL[m];
-              return (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => setMood(isSelected ? null : m)}
-                  aria-label={m}
-                  aria-pressed={isSelected ? 'true' : 'false'}
-                  title={m}
-                  className={cn(
-                    'h-5 w-5 rounded-full border transition-all',
-                    isSelected
-                      ? 'ring-2 ring-foreground/40'
-                      : 'opacity-60 hover:opacity-100',
-                  )}
-                  style={{
-                    // Always tinted so the user can recognize each valence
-                    // by color; selected version is full saturation + ring.
-                    backgroundColor: isSelected ? fill : `${fill}55`,
-                    borderColor: isSelected ? fill : `${fill}aa`,
-                  }}
-                />
-              );
-            })}
-            {mood ? (
-              <button
-                type="button"
-                onClick={() => setMood(null)}
-                aria-label="clear mood"
-                className="ml-1 text-xs text-muted-foreground hover:text-foreground"
-              >
-                ✕
-              </button>
-            ) : null}
-          </div>
+          {/* Compact chip row: mood emoji pills + time + location.
+              One line keeps the sheet small; emojis convey mood without a
+              legend; time and location are chip-style so the visual weight
+              stays consistent across all three controls. */}
+          <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+            {/* Mood emoji pills */}
+            <div className="flex items-center gap-0.5">
+              {MOODS.map((m) => {
+                const isSelected = mood === m;
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setMood(isSelected ? null : m)}
+                    aria-label={m}
+                    aria-pressed={isSelected ? 'true' : 'false'}
+                    title={`${m} · ${MOOD_HINT[m]}`}
+                    className={cn(
+                      'flex h-7 w-7 items-center justify-center rounded-full text-base leading-none transition-all',
+                      isSelected
+                        ? 'bg-foreground/10 ring-1 ring-foreground/40'
+                        : 'opacity-60 hover:opacity-100 hover:bg-foreground/5',
+                    )}
+                  >
+                    {MOOD_EMOJI[m]}
+                  </button>
+                );
+              })}
+            </div>
 
-          {/* Time shift + location row */}
-          <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+            {/* Spacer between mood and chips */}
+            <span className="mx-1 h-4 w-px bg-border/60" aria-hidden="true" />
+
+            {/* Time chip */}
             <div className="relative">
               <button
                 type="button"
                 onClick={() => setTimePickerOpen((v) => !v)}
-                className="flex items-center gap-1 rounded-md border border-border/60 px-2 py-1 hover:bg-foreground/[0.03]"
+                className="flex h-7 items-center gap-1 rounded-full border border-border/60 px-2.5 hover:bg-foreground/[0.03]"
               >
                 🕐 {shiftLabel(timeShift, t)} ▾
               </button>
               {timePickerOpen && (
-                // Open upward: the sheet floats near the viewport bottom, so
-                // a downward-opening menu gets clipped off-screen. Anchored
-                // to the trigger's top edge with a small gap.
                 <div className="absolute bottom-full left-0 z-10 mb-1 w-32 overflow-hidden rounded-md border border-border bg-background shadow-lg">
                   {TIME_SHIFT_PRESETS.map((preset) => (
                     <button
@@ -466,15 +462,16 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
               )}
             </div>
 
+            {/* Location chip */}
             {location ? (
-              <span className="flex items-center gap-1 rounded-md border border-border/60 px-2 py-1">
+              <span className="flex h-7 items-center gap-1 rounded-full border border-border/60 px-2.5">
                 <MapPin className="h-3 w-3" />
                 {location}
                 <button
                   type="button"
                   onClick={() => setLocation(null)}
                   aria-label="clear location"
-                  className="ml-0.5 hover:text-foreground"
+                  className="ml-0.5 text-muted-foreground hover:text-foreground"
                 >
                   ✕
                 </button>
