@@ -32,7 +32,7 @@ depends_on = None
 
 
 # Named SCHEMA_SQL so the test schema helper picks it up alongside the
-# other migrations.
+# other migrations on a fresh DB.
 SCHEMA_SQL = """
 ALTER TABLE manual_entries ADD COLUMN body_doc TEXT;
 """
@@ -43,7 +43,20 @@ ALTER TABLE manual_entries DROP COLUMN body_doc;
 
 
 def upgrade() -> None:
-    op.get_bind().connection.executescript(SCHEMA_SQL)
+    """Add body_doc column — defensively.
+
+    Same dev-drift defense as 0008: if the column was already added
+    out-of-band (manual ALTER while the feature was in flight) and
+    alembic_version wasn't bumped, a plain ALTER fails with
+    'duplicate column name'. Introspect PRAGMA table_info first and
+    skip the ALTER when the column already exists. Alembic still
+    records the migration as applied, so subsequent boots are clean.
+    """
+    conn = op.get_bind().connection
+    cursor = conn.execute("PRAGMA table_info(manual_entries)")
+    existing_columns = {row[1] for row in cursor.fetchall()}
+    if "body_doc" not in existing_columns:
+        conn.executescript(SCHEMA_SQL)
 
 
 def downgrade() -> None:

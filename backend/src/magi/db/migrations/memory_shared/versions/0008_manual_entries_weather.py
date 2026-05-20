@@ -33,7 +33,7 @@ depends_on = None
 
 # Named SCHEMA_SQL (not UPGRADE_SQL) so the test schema helper —
 # which regex-extracts the constant by name — picks it up alongside
-# the other migrations.
+# the other migrations on a fresh DB.
 SCHEMA_SQL = """
 ALTER TABLE manual_entries ADD COLUMN weather_json TEXT;
 """
@@ -47,7 +47,22 @@ ALTER TABLE manual_entries DROP COLUMN weather_json;
 
 
 def upgrade() -> None:
-    op.get_bind().connection.executescript(SCHEMA_SQL)
+    """Add weather_json column — defensively.
+
+    During B-1 development the column was hand-applied via a manual
+    ALTER before the migration shipped, leaving the dev DB in a state
+    where the column existed but alembic_version was still at 0007.
+    A naïve `ALTER TABLE ADD COLUMN` then fails on the next boot with
+    'duplicate column name'. SQLite has no `ADD COLUMN IF NOT EXISTS`,
+    so we introspect PRAGMA table_info and skip the ALTER when the
+    column is already present. Either way Alembic records the
+    migration as applied, so the next boot is clean.
+    """
+    conn = op.get_bind().connection
+    cursor = conn.execute("PRAGMA table_info(manual_entries)")
+    existing_columns = {row[1] for row in cursor.fetchall()}
+    if "weather_json" not in existing_columns:
+        conn.executescript(SCHEMA_SQL)
 
 
 def downgrade() -> None:
