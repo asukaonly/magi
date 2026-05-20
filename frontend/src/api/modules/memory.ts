@@ -516,6 +516,8 @@ export const memoryApi = {
     unwrapMemoryResponse(await api.post<L2QueuedActionResponse>('/memory/l2/reconcile', { entity_ids: entityIds })),
   refreshL2Snapshots: async (entityIds: string[]): Promise<L2QueuedActionResponse> =>
     unwrapMemoryResponse(await api.post<L2QueuedActionResponse>('/memory/l2/snapshot-refresh', { entity_ids: entityIds })),
+  listEpisodes: async (params?: PaginationParams & { episode_type?: string; status?: string }): Promise<PaginatedResponse<L2Episode>> =>
+    unwrapMemoryResponse(await api.get<PaginatedResponse<L2Episode>>('/memory/l2/episodes', { params })),
   annotateEpisode: async (episodeId: string, payload: EpisodeAnnotationPayload): Promise<L2Episode> =>
     unwrapMemoryResponse(await api.patch<L2Episode>(`/memory/l2/episodes/${episodeId}`, payload)),
   forgetEpisode: async (episodeId: string, deleteEvents = false): Promise<ForgetEpisodeResponse> =>
