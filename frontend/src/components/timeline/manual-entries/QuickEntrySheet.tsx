@@ -10,7 +10,12 @@ import {
   type ManualEntryWeather,
   type MoodValence,
 } from '@/api/modules/manualEntries';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { Button } from '@/components/ui/button';
@@ -392,13 +397,14 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
   }, []);
 
   return (
-    <Sheet open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
-      <SheetContent
-        side="bottom"
-        // Long mode disables click-outside and Escape dismissal — losing
-        // a half-written long entry to an accidental click is the exact
-        // frustration this whole mode split is trying to avoid. Quick
-        // mode keeps the casual behavior.
+    <Dialog open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
+      <DialogContent
+        // DialogContent is already centered (left-50% top-50% +
+        // translate -50%/-50%). We only override sizing here.
+        // Long mode disables click-outside and Escape dismissal —
+        // losing a half-written long entry to an accidental click is
+        // the exact frustration this whole mode split is trying to
+        // avoid. Quick mode keeps the casual behavior.
         onPointerDownOutside={(e) => {
           if (mode === 'long') e.preventDefault();
         }}
@@ -406,32 +412,23 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
           if (mode === 'long') e.preventDefault();
         }}
         className={cn(
-          // Override the variant's `inset-x-0 bottom-0` so the sheet is
-          // a floating centered card. We center BOTH axes (instead of
-          // the prior `bottom-6` anchor) — feels more like a focused
-          // composition surface than a docked toast, and matches the
-          // user's expectation that a write-something modal sits in the
-          // middle of the screen.
-          'left-1/2 top-1/2 right-auto -translate-x-1/2 -translate-y-1/2',
-          'w-[calc(100%-2rem)]',
-          // Long mode gets noticeably more horizontal + vertical room so
+          // Width: Long mode gets noticeably more horizontal room so
           // the editor + toolbar don't feel cramped. Quick mode stays
           // compact so casual capture is a small visual gesture.
           mode === 'long' ? 'max-w-3xl' : 'max-w-2xl',
-          // Cap height at 90vh so a very tall editor still leaves
-          // breathing room above/below — and so on smaller windows the
-          // sheet never overflows the viewport.
+          // Cap height at 90vh and scroll internally so a very tall
+          // editor still leaves breathing room and never overflows.
+          // No min-height — Dialog sizes to content by default, which
+          // is what we want (no more half-empty quick sheet).
           'max-h-[90vh] overflow-y-auto',
-          'rounded-2xl border border-border/70',
         )}
       >
         {/* Header. The mode toggle sits on the LEFT as a segmented
-            control — the previous design put it on the right and it
-            collided with Radix Sheet's built-in ✕ close button. A
-            single segmented control also reads more naturally than
-            two asymmetric buttons ("转长文" button vs. "← 简单模式"
-            link). The Sheet's ✕ stays in its native top-right slot. */}
-        <SheetHeader className="border-b border-border/40 pb-3 pr-10">
+            control. A single segmented control reads more naturally
+            than two asymmetric buttons ("转长文" button vs. "← 简单
+            模式" link). The Dialog's ✕ stays in its native top-right
+            slot — pr-10 keeps the header content clear of it. */}
+        <DialogHeader className="border-b border-border/40 pb-3 pr-10">
           <div className="flex items-center gap-3">
             {/* Segmented toggle — two equal pills, the active one
                 filled. Both labels use the same noun shape so the
@@ -473,15 +470,15 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
                 {t('timeline.manualEntry.modeLong', { defaultValue: '长文' })}
               </button>
             </div>
-            <SheetTitle className="text-base font-medium">
+            <DialogTitle className="text-base font-medium">
               {existingEntry
                 ? t('timeline.manualEntry.editTitle', { defaultValue: '编辑记录' })
                 : mode === 'long'
                 ? t('timeline.manualEntry.createLongTitle', { defaultValue: '写一篇…' })
                 : t('timeline.manualEntry.createTitle', { defaultValue: '写下…' })}
-            </SheetTitle>
+            </DialogTitle>
           </div>
-        </SheetHeader>
+        </DialogHeader>
 
         <div className="space-y-3 px-6 pb-5 pt-3">
           {/* Body editor — mode-switched. Quick is a plain textarea (the
@@ -861,7 +858,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
             </Button>
           </div>
         </div>
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   );
 };

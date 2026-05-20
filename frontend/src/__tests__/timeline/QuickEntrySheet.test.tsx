@@ -38,12 +38,15 @@ vi.mock("sonner", () => ({
   toast: { error: vi.fn(), success: vi.fn() },
 }));
 
-// Lightweight Sheet stub — render content inline when open, hide when closed.
-vi.mock("@/components/ui/sheet", () => ({
-  Sheet: ({ children, open }: any) => (open ? <div role="dialog">{children}</div> : null),
-  SheetContent: ({ children }: any) => <div>{children}</div>,
-  SheetHeader: ({ children }: any) => <div>{children}</div>,
-  SheetTitle: ({ children }: any) => <h2>{children}</h2>,
+// Lightweight Dialog stub — the production component swapped from Sheet
+// to Dialog (Dialog already centers; Sheet's bottom variant fought us).
+// Render content inline when open, hide when closed. Children are
+// passed straight through so the structural tests still find them.
+vi.mock("@/components/ui/dialog", () => ({
+  Dialog: ({ children, open }: any) => (open ? <div role="dialog">{children}</div> : null),
+  DialogContent: ({ children }: any) => <div>{children}</div>,
+  DialogHeader: ({ children }: any) => <div>{children}</div>,
+  DialogTitle: ({ children }: any) => <h2>{children}</h2>,
 }));
 
 // Tiptap requires Selection / Range / contenteditable behaviors that
