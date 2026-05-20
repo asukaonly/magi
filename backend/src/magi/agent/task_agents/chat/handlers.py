@@ -116,6 +116,19 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
         )
         selected_tools = list(request.tool_selection.tools)
         system_prompt = prompt_package.system_prompt
+        # Scope guidance is task-routing language (target locality, web-vs-local
+        # resolution order). It is wrong-register for emotional / crisis turns
+        # where there is no "scope decision" to make. Memory guidance stays
+        # register-agnostic because memory recall in casual chat ("你还记得
+        # 我说过...") is common and the guidance is already opt-in via
+        # memory_query being in the selected tools.
+        _routing_register = (
+            request.intent.persona_routing_hint.register
+            if getattr(request.intent, "persona_routing_hint", None)
+            else None
+        )
+        _emotional_or_crisis = _routing_register in {"emotional", "crisis"}
+
         if (
             request.intent.memory_route == "explicit_query"
             and "memory_query" in selected_tools
@@ -128,7 +141,7 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
             getattr(request.tool_selection, "task_hint", None)
             or getattr(request.intent, "task_hint", None)
         )
-        if scope_guidance_block:
+        if scope_guidance_block and not _emotional_or_crisis:
             system_prompt = f"{system_prompt}\n\n{scope_guidance_block}"
         attachment_guidance_block = _build_attachment_preparation_guidance_block(
             selected_tools

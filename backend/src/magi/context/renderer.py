@@ -38,7 +38,23 @@ class PromptContextRenderer:
         lines.extend(self._render_runtime_system(context.runtime_system))
         lines.extend(self._render_active_attachments(context.runtime_system.active_attachments))
         if include_tool_catalog:
-            lines.extend(self._render_tool_catalog(context.tool_catalog))
+            # The "You MUST use the available tools" block frames the turn as
+            # a task to complete. In emotional / crisis registers that frame
+            # is actively wrong — pushing a model in those states toward
+            # tool execution makes it skip acknowledgement and jump to
+            # solutions. The tool catalog itself stays visible so the model
+            # can still call tools when genuinely needed; only the imperative
+            # framing is dropped.
+            register = (
+                getattr(context.self_memory.persona_turn_plan, "register", None)
+                if context.self_memory.persona_turn_plan
+                else None
+            )
+            suppress_tool_imperatives = register in {"emotional", "crisis"}
+            lines.extend(self._render_tool_catalog(
+                context.tool_catalog,
+                suppress_imperatives=suppress_tool_imperatives,
+            ))
 
         return "\n".join(lines).strip()
 
@@ -323,8 +339,21 @@ class PromptContextRenderer:
         lines.append("")
         return lines
 
-    def _render_tool_catalog(self, tools: ToolCatalogContext) -> List[str]:
-        """Render tool catalog as markdown."""
+    def _render_tool_catalog(
+        self,
+        tools: ToolCatalogContext,
+        *,
+        suppress_imperatives: bool = False,
+    ) -> List[str]:
+        """Render tool catalog as markdown.
+
+        ``suppress_imperatives`` controls whether the ``## Tool Usage
+        Instructions`` section ("you MUST use the available tools",
+        "NEVER give up and return plain text") is appended. We drop it
+        for emotional / crisis registers where task-execution framing
+        is the wrong register for the turn — the catalog itself stays
+        visible so tools remain callable when genuinely needed.
+        """
         lines = ["# Tool Information"]
 
         selected = tools.selected_tools or []
@@ -351,7 +380,7 @@ class PromptContextRenderer:
             lines.append("* (no tools available)")
         lines.append("")
 
-        if selected:
+        if selected and not suppress_imperatives:
             lines.extend([
                 "## Tool Usage Instructions",
                 "* You MUST use the available tools to complete the user's task.",
