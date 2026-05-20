@@ -108,4 +108,8 @@ backend/magi-backend.spec
 /.magi/
 
 # Cursor
-.cursor/
+.cursor/frontend/node_modules
+
+# Local worktree symlinks
+frontend/node_modules
+.venv

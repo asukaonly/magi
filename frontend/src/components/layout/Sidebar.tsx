@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import {
   Activity,
   Brain,
+  CalendarClock,
+  History,
   ListChecks,
   MessageCircle,
   MoreHorizontal,
@@ -23,6 +25,7 @@ import {
 } from '@/components/ui/dialog';
 import { useChatShellStore, useConversationStore, type ChatPanelType } from '@/stores';
 import { useBackgroundTaskStore } from '@/stores/background-tasks';
+import { useSchedulesStore } from '@/stores/schedules';
 import { formatChatClockTime } from '@/domain/chat/timestamps';
 import { PersonaHeader } from './PersonaHeader';
 import { MoodCalendar } from '@/components/timeline/immersive/sidebar/MoodCalendar';
@@ -44,6 +47,12 @@ const MEMORY_DESTINATIONS = [
   { key: 'knowledge', path: '/memory/knowledge' },
   { key: 'reflection', path: '/memory/reflection' },
   { key: 'skills', path: '/memory/skills' },
+] as const;
+
+const TASKS_DESTINATIONS = [
+  { key: 'background', path: '/tasks/background', icon: ListChecks },
+  { key: 'schedules', path: '/tasks/schedules', icon: CalendarClock },
+  { key: 'activity', path: '/tasks/schedules/activity', icon: History },
 ] as const;
 
 const formatSessionTime = (timestamp: number, locale: string): string => {
@@ -293,6 +302,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   }, [currentSessionId, orderedSessionIds, sessionsById, t]);
 
   const tasksActiveCount = useBackgroundTaskStore((state) => state.activeCount);
+  const runningSchedulesCount = useSchedulesStore((state) => state.runningCount);
 
   if (collapsed) {
     return null;
@@ -302,7 +312,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const timelineActive = activePanel === 'timeline' || location.pathname === '/timeline';
   const memoryActive = activePanel === 'memory' || isMemoryRoute;
   const settingsActive = activePanel === 'settings';
-  const tasksActive = activePanel === 'tasks' || location.pathname === '/tasks';
+  const tasksActive = activePanel === 'tasks' || location.pathname.startsWith('/tasks');
   const sessionMenuSession = sessionMenu ? sessionsById[sessionMenu.sessionId] : null;
 
   const panelNavButtonClass = (active: boolean) => cn(
@@ -507,6 +517,57 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
     </div>
   );
 
+  const renderTasksPanel = () => {
+    const activeMap: Record<string, boolean> = {
+      background:
+        location.pathname === '/tasks/background' || location.pathname === '/tasks',
+      schedules:
+        location.pathname === '/tasks/schedules' ||
+        location.pathname === '/tasks/schedules/',
+      activity: location.pathname === '/tasks/schedules/activity',
+    };
+    const badgeFor: Record<string, number> = {
+      background: tasksActiveCount,
+      schedules: 0,
+      activity: runningSchedulesCount,
+    };
+    return (
+      <div className="flex min-h-0 flex-1 flex-col pt-2" data-testid="sidebar-tasks-panel">
+        <div className="min-h-0 flex-1 overflow-y-auto px-2.5 py-2.5 pr-3 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
+          <div className="space-y-0.5">
+            {TASKS_DESTINATIONS.map(({ key, path, icon: Icon }) => {
+              const active = activeMap[key];
+              const badge = badgeFor[key];
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => {
+                    setActivePanel('tasks');
+                    navigate(path);
+                  }}
+                  aria-label={t(`shell.tasks.${key}`)}
+                  aria-current={active ? 'page' : undefined}
+                  className={panelNavButtonClass(active)}
+                >
+                  <Icon className="h-3.5 w-3.5 shrink-0" />
+                  <span className="min-w-0 flex-1 truncate font-medium">
+                    {t(`shell.tasks.${key}`)}
+                  </span>
+                  {badge > 0 ? (
+                    <span className="inline-flex min-w-4 items-center justify-center rounded-full bg-[hsl(var(--sidebar-badge))] px-1 text-[9px] font-medium leading-4 text-[hsl(var(--sidebar-badge-foreground))]">
+                      {Math.min(badge, 99)}
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderTimelinePanel = () => (
     <div
       className="flex min-h-0 flex-1 flex-col pt-2"
@@ -530,6 +591,9 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   );
 
   const renderPanelContent = () => {
+    if (openPanel === 'tasks') {
+      return renderTasksPanel();
+    }
     if (openPanel === 'conversation') {
       return renderConversationPanel();
     }
@@ -620,10 +684,10 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
         <div className="flex shrink-0 flex-col items-center gap-1">
           {renderActivityButton(
             'tasks',
-            t('shell.tasks'),
+            t('shell.tasks.label'),
             <ListChecks className="h-[18px] w-[18px]" />,
             tasksActive,
-            tasksActiveCount,
+            tasksActiveCount + runningSchedulesCount,
           )}
           {renderActivityButton(
             'settings',
