@@ -1,5 +1,5 @@
 import { Outlet } from 'react-router-dom';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('react-i18next', () => ({
@@ -46,12 +46,14 @@ vi.mock('../pages/Onboarding', () => ({
 }));
 
 vi.mock('../pages/memory-pages', () => ({
-  MemoryOverviewPage: () => <div data-testid="memory-overview-page">memory-overview-page</div>,
-  MemoryWorkbenchPage: () => <div data-testid="memory-workbench-page">memory-workbench-page</div>,
   MemoryEventsPage: () => <div data-testid="memory-events-page">memory-events-page</div>,
   MemoryKnowledgePage: () => <div data-testid="memory-knowledge-page">memory-knowledge-page</div>,
-  MemoryReflectionPage: () => <div data-testid="memory-reflection-page">memory-reflection-page</div>,
   MemorySkillsPage: () => <div data-testid="memory-skills-page">memory-skills-page</div>,
+  MemoryStoryPage: () => <div data-testid="memory-story-page">memory-story-page</div>,
+  MemoryEpisodesPage: () => <div data-testid="memory-episodes-page">memory-episodes-page</div>,
+  MemoryPortraitPage: () => <div data-testid="memory-portrait-page">memory-portrait-page</div>,
+  MemoryRecallPage: () => <div data-testid="memory-recall-page">memory-recall-page</div>,
+  MemoryGovernancePage: () => <div data-testid="memory-governance-page">memory-governance-page</div>,
 }));
 
 vi.mock('../pages/Personality', () => ({
@@ -65,19 +67,25 @@ describe('app shell routing', () => {
   });
 
   it('renders memory routes and personality as dedicated routes instead of through the chat page', async () => {
-    window.history.replaceState({}, '', '/memory/overview');
+    // /memory/stories is the primary narrative route (overview redirects here)
+    window.history.replaceState({}, '', '/memory/stories');
     vi.resetModules();
     const { default: AppRouter } = await import('@/router');
-    const { unmount } = render(<AppRouter />);
+    let unmount!: () => void;
+    await act(async () => {
+      ({ unmount } = render(<AppRouter />));
+    });
 
-    expect(await screen.findByTestId('memory-overview-page')).toBeInTheDocument();
+    expect(await screen.findByTestId('memory-story-page')).toBeInTheDocument();
     expect(screen.queryByTestId('chat-page')).not.toBeInTheDocument();
 
     unmount();
     window.history.replaceState({}, '', '/personality');
     vi.resetModules();
     const nextRouter = await import('@/router');
-    render(<nextRouter.default />);
+    await act(async () => {
+      render(<nextRouter.default />);
+    });
 
     expect(await screen.findByTestId('personality-page')).toBeInTheDocument();
     expect(screen.queryByTestId('chat-page')).not.toBeInTheDocument();
