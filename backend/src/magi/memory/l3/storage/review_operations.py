@@ -36,10 +36,22 @@ class L3ReviewOperationsMixin:
         review_state: str,
         user_note: Optional[str] = None,
     ) -> bool:
-        """Update review_state (and optionally user_note) for a summary.
+        """Update a summary's review_state, optionally setting a user note.
 
-        Returns True when a row was updated, False when summary_id is not found.
-        Raises ValueError for unrecognised review_state values.
+        Args:
+            summary_id: Target summary primary key.
+            review_state: New state; must be in ``ALLOWED_REVIEW_STATES``.
+            user_note: When a string, sets or overwrites
+                ``insight_metadata.user_note``. When ``None``, the existing
+                note is left unchanged. This method cannot clear an existing
+                note — pass an empty string only if the caller wants to
+                overwrite with empty.
+
+        Returns:
+            True if the row existed and was updated, False otherwise.
+
+        Raises:
+            ValueError: If ``review_state`` is not in ``ALLOWED_REVIEW_STATES``.
         """
         if review_state not in ALLOWED_REVIEW_STATES:
             raise ValueError(f"invalid review_state: {review_state!r}")

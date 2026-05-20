@@ -10,6 +10,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from ....memory.l3.storage.review_operations import ALLOWED_REVIEW_STATES
 from .dependencies import _resolve_unified_memory
 
 logger = logging.getLogger(__name__)
@@ -74,7 +75,11 @@ def _derive_title(row: dict[str, Any]) -> str:
 
 class ReviewPatch(BaseModel):
     review_state: str = Field(..., min_length=1)
-    user_note: str | None = None
+    user_note: str | None = Field(
+        default=None,
+        description="When provided, sets or overwrites the stored user note inside insight_metadata. "
+                    "When null or omitted, the existing note is left unchanged (this endpoint cannot clear notes).",
+    )
 
 
 def build_router() -> APIRouter:
@@ -117,7 +122,6 @@ def build_router() -> APIRouter:
 
     @router.patch("/stories/{summary_id}/review")
     async def patch_review_state(summary_id: str, payload: ReviewPatch) -> dict[str, Any]:
-        from ....memory.l3.storage.review_operations import ALLOWED_REVIEW_STATES
         if payload.review_state not in ALLOWED_REVIEW_STATES:
             raise HTTPException(status_code=422, detail="invalid_review_state")
         unified = _get_memory()
