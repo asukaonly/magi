@@ -585,16 +585,15 @@ describe('sidebar navigation', () => {
     );
 
     await user.click(await screen.findByRole('button', { name: 'shell.memory' }));
-    await user.click(screen.getByRole('button', { name: 'memory.nav.knowledge' }));
+    await user.click(screen.getByRole('button', { name: 'memory.nav.episodes' }));
 
     expect(screen.getByTestId('sidebar-memory-panel')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'memory.nav.overview' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'memory.nav.workbench' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'memory.nav.events' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'memory.nav.knowledge' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'memory.nav.reflection' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'memory.nav.skills' })).toBeInTheDocument();
-    expect(screen.getByTestId('location')).toHaveTextContent('/memory/knowledge');
+    expect(screen.getByRole('button', { name: 'memory.nav.stories' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.episodes' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.portrait' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.recall' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.governance' })).toBeInTheDocument();
+    expect(screen.getByTestId('location')).toHaveTextContent('/memory/episodes');
     expect(useChatShellStore.getState().activePanel).toBe('memory');
   });
 
@@ -619,12 +618,11 @@ describe('sidebar navigation', () => {
 
     expect(configApi.get).not.toHaveBeenCalled();
     expect(screen.getByTestId('sidebar-memory-panel')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'memory.nav.overview' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'memory.nav.workbench' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'memory.nav.events' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'memory.nav.knowledge' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'memory.nav.reflection' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'memory.nav.skills' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.stories' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.episodes' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.portrait' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.recall' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.governance' })).toBeInTheDocument();
   });
 
   it('renders unread badges for inactive chat sessions', async () => {
