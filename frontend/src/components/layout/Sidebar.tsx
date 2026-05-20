@@ -516,7 +516,9 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
         <MoodCalendar
           month={timelinePanel.monthForCalendar}
           days={timelinePanel.moodDays}
-          selectedDate={timelinePanel.selectedDate}
+          scale={timelinePanel.scale}
+          selectedRangeStart={timelinePanel.selectedRangeStart}
+          selectedRangeEnd={timelinePanel.selectedRangeEnd}
           onSelectDate={(d) => timelinePanel.onSelectDate?.(d)}
         />
         <StandoutList

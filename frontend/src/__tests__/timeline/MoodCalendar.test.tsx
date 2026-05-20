@@ -10,7 +10,9 @@ describe("MoodCalendar", () => {
       <MoodCalendar
         month="2026-05"
         days={[]}
-        selectedDate="2026-05-17"
+        scale="day"
+        selectedRangeStart="2026-05-17"
+        selectedRangeEnd="2026-05-17"
         onSelectDate={vi.fn()}
       />
     );
@@ -29,7 +31,9 @@ describe("MoodCalendar", () => {
           event_count: 228,
           sparkline: [],
         }]}
-        selectedDate="2026-05-17"
+        scale="day"
+        selectedRangeStart="2026-05-17"
+        selectedRangeEnd="2026-05-17"
         onSelectDate={vi.fn()}
       />
     );
@@ -46,7 +50,9 @@ describe("MoodCalendar", () => {
         days={[
           { date: "2026-05-10", dominant_valence: "warm", volatility: 0.2, event_count: 42, sparkline: [] },
         ]}
-        selectedDate="2026-05-17"
+        scale="day"
+        selectedRangeStart="2026-05-17"
+        selectedRangeEnd="2026-05-17"
         onSelectDate={onSelect}
       />
     );

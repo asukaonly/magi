@@ -307,11 +307,27 @@ export const TimelinePage: React.FC = () => {
     setViewportStart(clampToLatestCompletePeriod(scale, parsed));
   }, [scale]);
 
+  // Selection range covered by the current viewport — used by the sidebar
+  // calendar to highlight one cell (day/hour), a 7-cell band (week), or the
+  // full month (month scale).
+  const { selectedRangeStart, selectedRangeEnd } = (() => {
+    const end = new Date(viewportEnd * 1000);
+    // viewportEnd is exclusive (next-period start) — step back one second to
+    // get the last covered date.
+    end.setSeconds(end.getSeconds() - 1);
+    return {
+      selectedRangeStart: isoDateForTimestamp(viewportStart),
+      selectedRangeEnd: isoDateForTimestamp(Math.floor(end.getTime() / 1000)),
+    };
+  })();
+
   // Push all timeline state into the shell store for Sidebar + AppTitleBar
   useEffect(() => {
     setTimelinePanel({
       monthForCalendar: monthKeyForDate(viewportStart),
       selectedDate: isoDateForTimestamp(viewportStart),
+      selectedRangeStart,
+      selectedRangeEnd,
       moodDays,
       standoutItems,
       onSelectDate: handleSelectDate,
@@ -330,6 +346,8 @@ export const TimelinePage: React.FC = () => {
     });
   }, [
     viewportStart,
+    selectedRangeStart,
+    selectedRangeEnd,
     moodDays,
     standoutItems,
     scale,

@@ -11,6 +11,10 @@ export interface SettingsNavigationIntent {
 export interface TimelinePanelState {
   monthForCalendar: string;
   selectedDate: string;
+  /** ISO YYYY-MM-DD of selection range start (inclusive). */
+  selectedRangeStart: string;
+  /** ISO YYYY-MM-DD of selection range end (inclusive). */
+  selectedRangeEnd: string;
   moodDays: TimelineMoodCalendarDay[];
   standoutItems: TimelineStandoutItem[];
   onSelectDate: ((isoDate: string) => void) | null;
@@ -49,6 +53,8 @@ export interface DesktopShellState {
 const DEFAULT_TIMELINE_PANEL: TimelinePanelState = {
   monthForCalendar: '',
   selectedDate: '',
+  selectedRangeStart: '',
+  selectedRangeEnd: '',
   moodDays: [],
   standoutItems: [],
   onSelectDate: null,

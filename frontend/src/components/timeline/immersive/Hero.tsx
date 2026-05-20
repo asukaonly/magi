@@ -56,17 +56,28 @@ export const Hero: React.FC<HeroProps> = ({
         <div className="absolute inset-0 bg-gradient-to-b from-black/15 via-black/25 to-black/75" />
       )}
 
-      <div className="absolute inset-x-0 bottom-0 z-10 px-10 pb-7 text-white">
-        <div className="mb-2 text-[10px] uppercase tracking-[0.25em] opacity-85">
+      <div className="absolute inset-x-0 bottom-0 z-10 px-10 pb-8 text-white">
+        <div className="mb-3 text-[10px] uppercase tracking-[0.28em] opacity-80">
           {dateLabel}
         </div>
         {essenceProse && (
-          <h2 className="m-0 max-w-[640px] font-serif text-[28px] font-normal leading-[1.35]">
+          // Variant A — "沉稳古典". Light weight + relaxed line height + the
+          // Songti/Source Han Serif fall-through give the essence a diary-page
+          // feel rather than a headline shout.
+          <h2
+            className="m-0 max-w-[640px] text-[24px] font-light leading-[1.7]"
+            style={{
+              fontFamily:
+                '"Source Han Serif SC", "Songti SC", "Noto Serif SC", "PingFang SC", serif',
+              letterSpacing: "0.04em",
+              opacity: 0.94,
+            }}
+          >
             {essenceProse}
           </h2>
         )}
         {placeLine && (
-          <div className="mt-3 flex items-center gap-1.5 text-xs opacity-75">
+          <div className="mt-3 flex items-center gap-1.5 text-xs opacity-70">
             <span className="text-base">◦</span>
             <span>{placeLine}</span>
           </div>
