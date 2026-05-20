@@ -429,7 +429,10 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
                 🕐 {shiftLabel(timeShift, t)} ▾
               </button>
               {timePickerOpen && (
-                <div className="absolute left-0 top-full z-10 mt-1 w-32 overflow-hidden rounded-md border border-border bg-background shadow-lg">
+                // Open upward: the sheet floats near the viewport bottom, so
+                // a downward-opening menu gets clipped off-screen. Anchored
+                // to the trigger's top edge with a small gap.
+                <div className="absolute bottom-full left-0 z-10 mb-1 w-32 overflow-hidden rounded-md border border-border bg-background shadow-lg">
                   {TIME_SHIFT_PRESETS.map((preset) => (
                     <button
                       key={preset.id}
