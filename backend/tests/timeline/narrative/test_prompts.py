@@ -94,3 +94,61 @@ def test_system_prompt_describes_event_excerpts_contract():
     from magi.timeline.narrative.prompts import DIARY_NARRATIVE_SYSTEM_PROMPT
 
     assert "事件证据" in DIARY_NARRATIVE_SYSTEM_PROMPT
+
+
+def test_assign_short_ids_remaps_with_e_prefix():
+    from magi.timeline.narrative.prompts import assign_short_ids
+
+    episodes = [
+        {"episode_id": "01KS1M8ZYD4YVNN706VDF9PKC4", "label": "a"},
+        {"episode_id": "542a7e1b-f0ce-40df-b6ec-a6a5d11f5655", "label": "b"},
+        {"episode_id": "ep-x", "label": "c"},
+    ]
+    relabeled, short_to_full = assign_short_ids(episodes)
+
+    # Relabeled episodes carry short ids in order
+    assert [ep["episode_id"] for ep in relabeled] == ["e1", "e2", "e3"]
+    # Other fields preserved
+    assert [ep["label"] for ep in relabeled] == ["a", "b", "c"]
+    # Map round-trips
+    assert short_to_full == {
+        "e1": "01KS1M8ZYD4YVNN706VDF9PKC4",
+        "e2": "542a7e1b-f0ce-40df-b6ec-a6a5d11f5655",
+        "e3": "ep-x",
+    }
+
+
+def test_assign_short_ids_does_not_mutate_input():
+    from magi.timeline.narrative.prompts import assign_short_ids
+
+    episodes = [{"episode_id": "uuid-1", "label": "a"}]
+    original = dict(episodes[0])
+    assign_short_ids(episodes)
+    # Original dict untouched
+    assert episodes[0] == original
+
+
+def test_assign_short_ids_skips_empty_episode_id_in_map():
+    from magi.timeline.narrative.prompts import assign_short_ids
+
+    episodes = [
+        {"episode_id": "uuid-1", "label": "a"},
+        {"label": "b"},  # missing episode_id
+        {"episode_id": "", "label": "c"},
+    ]
+    relabeled, short_to_full = assign_short_ids(episodes)
+    # All get short tags so positional indexing stays sane
+    assert [ep["episode_id"] for ep in relabeled] == ["e1", "e2", "e3"]
+    # But only the one with a real id is in the reverse map
+    assert short_to_full == {"e1": "uuid-1"}
+
+
+def test_system_prompt_brief_on_short_id_contract():
+    """System prompt should explicitly teach the LLM to use short ids (e1/e2)
+    and forbid inventing UUIDs."""
+    from magi.timeline.narrative.prompts import DIARY_NARRATIVE_SYSTEM_PROMPT
+
+    # Mentions the short tag format
+    assert "e1" in DIARY_NARRATIVE_SYSTEM_PROMPT
+    # Explicit "no UUID" instruction
+    assert "UUID" in DIARY_NARRATIVE_SYSTEM_PROMPT

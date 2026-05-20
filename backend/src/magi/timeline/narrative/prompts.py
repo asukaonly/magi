@@ -12,6 +12,44 @@ from datetime import datetime, timezone
 from typing import Iterable
 
 
+def assign_short_ids(
+    episodes: list[dict],
+) -> tuple[list[dict], dict[str, str]]:
+    """Relabel each episode with a short id (``e1``, ``e2`` …) so the LLM
+    can echo it back without hallucinating long UUIDs.
+
+    Long opaque identifiers are a known LLM failure mode — even when told
+    to copy verbatim, models routinely invent plausible-looking UUIDs and
+    bypass the real ones, which makes 100% of returned slices unmatchable
+    against the source episodes. Substituting a 2-char tag fixes this at
+    the prompt level instead of relying on copy-paste fidelity.
+
+    Args:
+        episodes: List of episode dicts. ``episode_id`` may be a UUID, ULID,
+            or anything else — the original value is preserved in the
+            returned ``short_to_full`` map.
+
+    Returns:
+        Tuple of ``(relabeled_episodes, short_to_full_map)``:
+          - ``relabeled_episodes``: shallow copies with ``episode_id`` set to
+            the short tag. Input list/dicts are not mutated.
+          - ``short_to_full_map``: ``{"e1": "<original-id>", ...}``. Used by
+            the caller (DiaryNarrativeLLMClient) to rehydrate slice ids on
+            the response side.
+    """
+    short_to_full: dict[str, str] = {}
+    relabeled: list[dict] = []
+    for index, ep in enumerate(episodes, start=1):
+        short = f"e{index}"
+        full = str(ep.get("episode_id") or "").strip()
+        if full:
+            short_to_full[short] = full
+        new_ep = dict(ep)
+        new_ep["episode_id"] = short
+        relabeled.append(new_ep)
+    return relabeled, short_to_full
+
+
 DIARY_NARRATIVE_SYSTEM_PROMPT = """你是一名沉浸式日记的撰稿者。给定一个时段的活动证据，
 你要为整段时间生成一段第二人称（用"你"）的散文 essence，并为该时段内的每一个 episode
 生成一句叙事 + 可选的一句感官细节。
@@ -41,11 +79,15 @@ DIARY_NARRATIVE_SYSTEM_PROMPT = """你是一名沉浸式日记的撰稿者。给
   "essence_prose": "...",
   "narrative_style": "diary_2p",
   "slices": [
-    {"episode_id": "ep-xxx", "slice_narrative": "...", "slice_sensory_detail": "..."}
+    {"episode_id": "e1", "slice_narrative": "...", "slice_sensory_detail": "..."}
   ]
 }
 
-JSON 顶层结构里允许出现 episode_id（这是机器读取的契约，不是给用户看的文本）。
+【episode_id 契约 —— 极其重要】
+- 每个 episode 在 prompt 里有一个简短的 id（如 e1、e2、e3、e4…）
+- slices 数组里的 episode_id 字段**必须从这些短 id 中精确选一个**
+- 不要发明 id；不要写 UUID；不要写 hash；不要在短 id 上加任何前缀或后缀
+- 对每个出现在 prompt 里的 episode，最多写一条 slice；可以省略某些 episode（如果没什么值得写的），但不能写 prompt 里没出现的 id
 """
 
 
