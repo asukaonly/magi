@@ -71,10 +71,9 @@ def _row_to_story_item(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _derive_title(row: dict[str, Any]) -> str:
-    category = str(row.get("summary_category") or "")
-    if category in TEMPORAL_CATEGORIES:
-        return f"{category}_summary"
-    return category or "story"
+    # When the L3 record has no human title we deliberately return "" so the
+    # frontend can show the category chip + lede instead of a machine name.
+    return ""
 
 
 class ReviewPatch(BaseModel):

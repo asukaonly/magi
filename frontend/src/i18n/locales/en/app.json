@@ -1155,7 +1155,6 @@
     "autoBackgroundLongTasksDesc": "When enabled, Magi uses rules and the model to decide whether longer tasks should continue in the background. When disabled, you can still move a running task manually.",
     "allowAskInBackgroundLabel": "Let background tasks ask questions",
     "allowAskInBackgroundDesc": "When enabled, a task running in the background may open a question dialog and wait for your answer. When disabled, background tasks may not block on user input and will error out if they try.",
-
     "llmDesc": "Manage provider connections and scenario-specific model choices.",
     "llmProvidersDesc": "Configure provider connection details, availability, and model sources.",
     "llmModelsDesc": "Assign models for each task — the planning model handles quick decisions, the core model handles deep reasoning.",
@@ -1296,7 +1295,6 @@
       "loopInterval": "Loop Interval (sec)",
       "busBackend": "Message Bus Backend",
       "busQueueSize": "Bus Queue Size",
-
       "logLevel": "Log Level",
       "clearMemory": "Clear All Memory",
       "clearMemoryDesc": "Clear all memory data from L1-L5 layers. This action is irreversible, use with caution.",
@@ -2149,9 +2147,18 @@
         "name": "Photo Library",
         "description": "Scan local photo directories, extract EXIF metadata, and ingest into the timeline",
         "options": {
-          "enabled": { "true": "Enabled", "false": "Disabled" },
-          "sync_mode": { "manual": "Manual", "interval": "Interval" },
-          "analysis_features": { "exif": "EXIF Metadata", "geocode": "GPS Geocoding" }
+          "enabled": {
+            "true": "Enabled",
+            "false": "Disabled"
+          },
+          "sync_mode": {
+            "manual": "Manual",
+            "interval": "Interval"
+          },
+          "analysis_features": {
+            "exif": "EXIF Metadata",
+            "geocode": "GPS Geocoding"
+          }
         },
         "fields": {
           "enabled": {
@@ -2188,7 +2195,9 @@
             "description": "Metadata extraction capabilities to apply."
           }
         },
-        "sections": { "general": "General" }
+        "sections": {
+          "general": "General"
+        }
       },
       "core-tools": {
         "name": "Core Tools",
@@ -2220,7 +2229,10 @@
           }
         },
         "options": {
-          "sync_mode": { "manual": "Manual", "interval": "Scheduled" },
+          "sync_mode": {
+            "manual": "Manual",
+            "interval": "Scheduled"
+          },
           "sync_interval_minutes": {
             "15": "15 minutes",
             "30": "30 minutes",
@@ -2228,7 +2240,10 @@
             "360": "6 hours"
           }
         },
-        "sections": { "general": "General", "sync": "Sync" },
+        "sections": {
+          "general": "General",
+          "sync": "Sync"
+        },
         "activation": {
           "title": "Connect Calendar",
           "description": "Allow Magi to read your calendar events for timeline sync.",
@@ -2272,16 +2287,31 @@
           }
         },
         "options": {
-          "enabled": { "true": "Enabled", "false": "Disabled" },
-          "sync_mode": { "manual": "Manual", "interval": "Interval" },
-          "default_retention_mode": { "analyze_only": "Analyze Only", "retain_raw": "Retain Raw" },
-          "storage_mode": { "managed": "Managed", "external_reference": "External Reference" },
+          "enabled": {
+            "true": "Enabled",
+            "false": "Disabled"
+          },
+          "sync_mode": {
+            "manual": "Manual",
+            "interval": "Interval"
+          },
+          "default_retention_mode": {
+            "analyze_only": "Analyze Only",
+            "retain_raw": "Retain Raw"
+          },
+          "storage_mode": {
+            "managed": "Managed",
+            "external_reference": "External Reference"
+          },
           "initial_sync_policy": {
             "full": "Sync full history",
             "lookback_days": "Sync recent days",
             "from_now": "Only new records from now on"
           },
-          "fetch_page_content": { "true": "Yes", "false": "No" }
+          "fetch_page_content": {
+            "true": "Yes",
+            "false": "No"
+          }
         },
         "sections": {
           "general": "General",
@@ -2320,7 +2350,10 @@
           }
         },
         "options": {
-          "enabled": { "true": "Enabled", "false": "Disabled" },
+          "enabled": {
+            "true": "Enabled",
+            "false": "Disabled"
+          },
           "initial_sync_policy": {
             "full": "Sync full history",
             "lookback_days": "Sync recent days",
@@ -2331,7 +2364,11 @@
             "block": "Skip the whole commit"
           }
         },
-        "sections": { "general": "General", "sync": "Sync", "privacy": "Privacy" }
+        "sections": {
+          "general": "General",
+          "sync": "Sync",
+          "privacy": "Privacy"
+        }
       },
       "netease-music": {
         "name": "NetEase Cloud Music",
@@ -2367,10 +2404,23 @@
           }
         },
         "options": {
-          "enabled": { "true": "Enabled", "false": "Disabled" },
-          "sync_mode": { "manual": "Manual", "interval": "Interval", "watch": "Watch" },
-          "default_retention_mode": { "analyze_only": "Analyze Only", "retain_raw": "Retain Raw" },
-          "storage_mode": { "managed": "Managed", "external_reference": "External Reference" },
+          "enabled": {
+            "true": "Enabled",
+            "false": "Disabled"
+          },
+          "sync_mode": {
+            "manual": "Manual",
+            "interval": "Interval",
+            "watch": "Watch"
+          },
+          "default_retention_mode": {
+            "analyze_only": "Analyze Only",
+            "retain_raw": "Retain Raw"
+          },
+          "storage_mode": {
+            "managed": "Managed",
+            "external_reference": "External Reference"
+          },
           "initial_sync_policy": {
             "full": "Sync full history",
             "lookback_days": "Sync recent days",
@@ -2382,7 +2432,11 @@
             "lastfm": "Last.fm"
           }
         },
-        "sections": { "general": "General", "analysis": "Analysis", "activation": "Activation" }
+        "sections": {
+          "general": "General",
+          "analysis": "Analysis",
+          "activation": "Activation"
+        }
       },
       "screen-time": {
         "name": "App Usage",
@@ -2405,7 +2459,10 @@
             "60": "Every 60 minutes"
           }
         },
-        "sections": { "general": "General", "sync": "Sync" }
+        "sections": {
+          "general": "General",
+          "sync": "Sync"
+        }
       },
       "system-media": {
         "name": "Media Playback",
@@ -2438,14 +2495,23 @@
             "15": "Every 15 minutes"
           }
         },
-        "sections": { "general": "General", "sync": "Sync" }
+        "sections": {
+          "general": "General",
+          "sync": "Sync"
+        }
       },
       "terminal-history": {
         "name": "Terminal History",
         "description": "Terminal command history ingestion for the timeline",
         "options": {
-          "enabled": { "true": "Enabled", "false": "Disabled" },
-          "default_retention_mode": { "analyze_only": "Analyze Only", "retain_raw": "Retain Raw" },
+          "enabled": {
+            "true": "Enabled",
+            "false": "Disabled"
+          },
+          "default_retention_mode": {
+            "analyze_only": "Analyze Only",
+            "retain_raw": "Retain Raw"
+          },
           "initial_sync_policy": {
             "full": "Sync full history",
             "lookback_days": "Sync recent days",
@@ -2514,11 +2580,11 @@
     "title": "Memory Viewer",
     "subtitle": "L0-L4 Layered Memory System",
     "nav": {
-      "stories": "Stories",
-      "episodes": "Chapters",
-      "portrait": "Portrait",
-      "recall": "Recall",
-      "governance": "Governance",
+      "stories": "Reflections",
+      "episodes": "Experiences",
+      "portrait": "About you",
+      "recall": "Search memories",
+      "governance": "Manage",
       "devSubtreeLabel": "Developer view",
       "dev": {
         "events": "Raw events (L1)",
@@ -2529,8 +2595,8 @@
       }
     },
     "stories": {
-      "title": "Stories",
-      "subtitle": "Reflections and period summaries Magi has been weaving.",
+      "title": "Reflections",
+      "subtitle": "A few thoughts Magi has about you. Confirm what's right, or tell it to drop what isn't.",
       "emptyTitle": "No reflections yet",
       "emptyBody": "Keep using Magi for a while — observations about you will appear here.",
       "evidenceChip": "{{count}} pieces of evidence",
@@ -2570,7 +2636,7 @@
       }
     },
     "episodes": {
-      "title": "Chapters",
+      "title": "Experiences",
       "subtitle": "Episodes you've named, annotated, or pinned.",
       "pinnedSection": "Pinned",
       "recentSection": "Recent",
@@ -2592,7 +2658,7 @@
       }
     },
     "portrait": {
-      "title": "Portrait",
+      "title": "About you",
       "subtitle": "How Magi sees you.",
       "segments": {
         "identity": "Identity",
@@ -2604,7 +2670,7 @@
       "coldStartFallback": "Magi hasn't formed an overall impression of you yet. It will grow as you keep using it."
     },
     "recall": {
-      "title": "Recall",
+      "title": "Search memories",
       "subtitle": "Dig up the past in natural language.",
       "searchPlaceholder": "Find a conversation, a name, something you did...",
       "modes": {
@@ -2620,7 +2686,7 @@
       "noResults": "No matching memories found. Try a more specific term."
     },
     "governance": {
-      "title": "Governance",
+      "title": "Manage",
       "subtitle": "Review, correct, and forget — the memory control panel.",
       "sections": {
         "pendingReview": "Pending review",

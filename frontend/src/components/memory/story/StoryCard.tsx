@@ -54,13 +54,15 @@ export const StoryCard = ({ story, onConfirm, onReject, onArchive, onOpenDetail 
             ) : null}
             {period ? <span className="text-xs text-[hsl(var(--memory-muted))]">{period}</span> : null}
           </div>
-          <button
-            type="button"
-            onClick={onOpenDetail}
-            className="text-left text-base font-semibold leading-6 text-[hsl(var(--memory-title))] hover:underline"
-          >
-            {story.title || story.content.slice(0, 80)}
-          </button>
+          {story.title ? (
+            <button
+              type="button"
+              onClick={onOpenDetail}
+              className="text-left text-base font-semibold leading-6 text-[hsl(var(--memory-title))] hover:underline"
+            >
+              {story.title}
+            </button>
+          ) : null}
         </div>
         <Button variant="ghost" size="sm" onClick={onOpenDetail} aria-label={t('memory.stories.actions.viewEvidence')}>
           <ChevronRight className="h-4 w-4" />
@@ -72,9 +74,11 @@ export const StoryCard = ({ story, onConfirm, onReject, onArchive, onOpenDetail 
       </p>
 
       <footer className="mt-3 flex flex-wrap items-center justify-between gap-2">
-        <span className="text-xs text-[hsl(var(--memory-muted))]">
-          {t('memory.stories.evidenceChip', { count: story.evidence_event_count })}
-        </span>
+        {story.summary_type === 'insight' ? (
+          <span className="text-xs text-[hsl(var(--memory-muted))]">
+            {t('memory.stories.evidenceChip', { count: story.evidence_event_count })}
+          </span>
+        ) : <span />}
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="sm" onClick={onConfirm} aria-label={t('memory.stories.actions.confirm')}>
             <Check className="h-4 w-4" />

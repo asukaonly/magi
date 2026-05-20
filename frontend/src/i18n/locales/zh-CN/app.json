@@ -1168,7 +1168,6 @@
     "autoBackgroundLongTasksDesc": "开启后，Magi 会用规则和模型判断较长任务是否适合后台执行。关闭后不会自动转后台，但你仍可在任务运行时手动转到后台。",
     "allowAskInBackgroundLabel": "允许后台任务向我提问",
     "allowAskInBackgroundDesc": "开启后，在后台运行的任务可以弹出问题对话框并等待你的回复。关闭时，后台任务尝试提问会直接报错，不会阻塞等待。",
-
     "llmDesc": "管理大模型的供应商和场景模型设置",
     "llmProvidersDesc": "配置模型供应商的连接信息、启用状态和可用模型。",
     "llmModelsDesc": "为不同场景分别选择模型——规划模型负责快速决策，核心模型负责深度推理。",
@@ -2594,11 +2593,11 @@
     "title": "记忆查看",
     "subtitle": "L0-L4 分层记忆系统",
     "nav": {
-      "stories": "故事",
-      "episodes": "章节",
-      "portrait": "画像",
-      "recall": "回忆",
-      "governance": "治理",
+      "stories": "反思",
+      "episodes": "经历",
+      "portrait": "关于你",
+      "recall": "找记忆",
+      "governance": "整理",
       "devSubtreeLabel": "开发者视图",
       "dev": {
         "events": "原始事件 (L1)",
@@ -2609,8 +2608,8 @@
       }
     },
     "stories": {
-      "title": "故事",
-      "subtitle": "Magi 最近编织出的反思和阶段总结。",
+      "title": "反思",
+      "subtitle": "Magi 对你的几条想法。你可以确认它说得对不对，或让它别再这么想。",
       "emptyTitle": "还没有 Magi 关于你的反思",
       "emptyBody": "继续使用一段时间，这里会出现它对你的观察。",
       "evidenceChip": "{{count}} 条证据",
@@ -2650,7 +2649,7 @@
       }
     },
     "episodes": {
-      "title": "章节",
+      "title": "经历",
       "subtitle": "你被命名、标注、置顶的经历片段。",
       "pinnedSection": "置顶",
       "recentSection": "最近",
@@ -2672,7 +2671,7 @@
       }
     },
     "portrait": {
-      "title": "画像",
+      "title": "关于你",
       "subtitle": "Magi 眼中的你。",
       "segments": {
         "identity": "身份",
@@ -2684,7 +2683,7 @@
       "coldStartFallback": "Magi 还没有从你的记忆里得出关于你的整体印象。继续使用，这里会逐渐丰满。"
     },
     "recall": {
-      "title": "回忆",
+      "title": "找记忆",
       "subtitle": "用自然语言把过去翻出来。",
       "searchPlaceholder": "想找一段对话、一个名字、一件做过的事…",
       "modes": {
@@ -2700,7 +2699,7 @@
       "noResults": "没找到合适的记忆，可以换一个更具体的词。"
     },
     "governance": {
-      "title": "治理",
+      "title": "整理",
       "subtitle": "可审阅、可纠正、可遗忘的记忆控制台。",
       "sections": {
         "pendingReview": "待审阅",
