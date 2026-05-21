@@ -413,7 +413,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
         <PopoverTrigger asChild>
           <button
             type="button"
-            className="flex h-7 items-center gap-1 rounded-full border border-border/60 px-2.5 hover:bg-foreground/[0.03]"
+            className="flex h-7 items-center gap-1 rounded-md border border-border/60 px-2.5 hover:bg-foreground/[0.03]"
             title={
               mood
                 ? `${mood} · ${MOOD_HINT[mood]}`
@@ -460,7 +460,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
                   aria-pressed={isSelected ? 'true' : 'false'}
                   title={`${m} · ${MOOD_HINT[m]}`}
                   className={cn(
-                    'flex h-9 w-9 items-center justify-center rounded-full text-xl leading-none transition-all',
+                    'flex h-9 w-9 items-center justify-center rounded-md text-xl leading-none transition-all',
                     isSelected
                       ? 'bg-foreground/10 ring-1 ring-foreground/40'
                       : 'opacity-60 hover:opacity-100 hover:bg-foreground/5',
@@ -479,7 +479,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
         <PopoverTrigger asChild>
           <button
             type="button"
-            className="flex h-7 items-center gap-1 rounded-full border border-border/60 px-2.5 hover:bg-foreground/[0.03]"
+            className="flex h-7 items-center gap-1 rounded-md border border-border/60 px-2.5 hover:bg-foreground/[0.03]"
           >
             🕐 {shiftLabel(timeShift, t)} ▾
           </button>
@@ -635,10 +635,10 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
               setEditingLocation(false);
             }
           }}
-          className="h-7 w-32 rounded-full border border-border/60 bg-background px-2.5 text-xs"
+          className="h-7 w-32 rounded-md border border-border/60 bg-background px-2.5 text-xs"
         />
       ) : location ? (
-        <span className="flex h-7 items-center gap-1 rounded-full border border-border/60 px-2.5">
+        <span className="flex h-7 items-center gap-1 rounded-md border border-border/60 px-2.5">
           <MapPin className="h-3 w-3" />
           <button
             type="button"
@@ -661,7 +661,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
         <button
           type="button"
           onClick={() => setEditingLocation(true)}
-          className="flex h-7 items-center gap-1 rounded-full border border-dashed border-border/60 px-2.5 text-muted-foreground hover:bg-foreground/[0.03] hover:text-foreground"
+          className="flex h-7 items-center gap-1 rounded-md border border-dashed border-border/60 px-2.5 text-muted-foreground hover:bg-foreground/[0.03] hover:text-foreground"
         >
           <MapPin className="h-3 w-3" />
           {t('timeline.manualEntry.addLocation', { defaultValue: '加地点' })}
@@ -671,7 +671,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
       {/* Weather chip — read-only auto-resolved snapshot. */}
       {weather && weatherEmoji(weather.code) ? (
         <span
-          className="flex h-7 items-center gap-1 rounded-full border border-border/60 px-2.5"
+          className="flex h-7 items-center gap-1 rounded-md border border-border/60 px-2.5"
           title={t('timeline.manualEntry.weatherTitle', {
             defaultValue: '自动获取的天气',
           })}
@@ -716,6 +716,13 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
           // No min-height — Dialog sizes to content by default, which
           // is what we want (no more half-empty quick sheet).
           'max-h-[90vh] overflow-y-auto',
+          // Tone down DialogContent's default rounded-2xl. The chip row
+          // and editor border all sit at rounded-md, so the original
+          // 16px container radius read as "stock template". rounded-lg
+          // keeps the container distinct without competing with the
+          // inner controls. tailwind-merge resolves the conflict in
+          // favor of this later value.
+          'rounded-lg',
         )}
       >
         {/* Header. The mode toggle sits on the LEFT as a segmented
@@ -733,7 +740,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
               aria-label={t('timeline.manualEntry.modeToggleAria', {
                 defaultValue: '编辑模式',
               })}
-              className="flex shrink-0 items-center rounded-full border border-border/60 bg-muted/30 p-0.5 text-[11px]"
+              className="flex shrink-0 items-center rounded-md border border-border/60 bg-muted/30 p-0.5 text-[11px]"
             >
               <button
                 type="button"
@@ -741,7 +748,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
                 aria-selected={mode === 'quick'}
                 onClick={switchToQuick}
                 className={cn(
-                  'rounded-full px-2.5 py-0.5 transition-colors',
+                  'rounded-md px-2.5 py-0.5 transition-colors',
                   mode === 'quick'
                     ? 'bg-background text-foreground shadow-sm'
                     : 'text-muted-foreground hover:text-foreground',
@@ -755,7 +762,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
                 aria-selected={mode === 'long'}
                 onClick={switchToLong}
                 className={cn(
-                  'flex items-center gap-1 rounded-full px-2.5 py-0.5 transition-colors',
+                  'flex items-center gap-1 rounded-md px-2.5 py-0.5 transition-colors',
                   mode === 'long'
                     ? 'bg-background text-foreground shadow-sm'
                     : 'text-muted-foreground hover:text-foreground',
