@@ -29,17 +29,28 @@ const getPluginTranslation = (
   return translated === translationKey ? fallback : translated;
 };
 
+/**
+ * Resolution order (Phase 2 dual-rail):
+ *   1. ``block.title_translated`` / ``block.description_translated``
+ *      (from plugin i18n, served by API)
+ *   2. host i18n at ``settings.plugins.{pluginId}.ui_blocks.{block_id}.{key}``
+ *   3. raw ``block.title`` / ``block.description`` (English fallback)
+ */
 const getBlockTitle = (
   t: (key: string, params?: Record<string, any>) => string,
   pluginId: string,
   block: PluginSettingsUiBlockSpec
-) => getPluginTranslation(t, pluginId, `ui_blocks.${block.block_id}.title`, block.title);
+) =>
+  block.title_translated
+  || getPluginTranslation(t, pluginId, `ui_blocks.${block.block_id}.title`, block.title);
 
 const getBlockDescription = (
   t: (key: string, params?: Record<string, any>) => string,
   pluginId: string,
   block: PluginSettingsUiBlockSpec
-) => getPluginTranslation(t, pluginId, `ui_blocks.${block.block_id}.description`, block.description);
+) =>
+  block.description_translated
+  || getPluginTranslation(t, pluginId, `ui_blocks.${block.block_id}.description`, block.description);
 
 const isBlockVisible = (block: PluginSettingsUiBlockSpec, values: Record<string, any>) => {
   if (!block.depends_on_key || !block.depends_on_values?.length) {

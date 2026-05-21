@@ -6,7 +6,15 @@ export interface SensorSourceStatusItem {
   plugin_id: string;
   contribution_id: string;
   display_name: string;
+  /**
+   * Pre-translated display_name supplied by the backend from the plugin's own
+   * i18n. Prefer this over host i18n fallbacks. Falls back to the raw English
+   * ``display_name`` when the plugin has no translation entry.
+   */
+  display_name_translated?: string | null;
   description: string;
+  /** Pre-translated description; see ``display_name_translated``. */
+  description_translated?: string | null;
   fields: ExtensionFieldSpec[];
   current_settings: Record<string, any>;
   enabled: boolean;

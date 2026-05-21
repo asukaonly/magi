@@ -25,18 +25,26 @@ const shouldUsePluginCopy = (
 
 export const getTimelineSourceDisplayName = (
   t: TimelineTranslateFn,
-  source: Pick<SensorSourceStatusItem, 'source_name' | 'plugin_id' | 'display_name'>
+  source: Pick<
+    SensorSourceStatusItem,
+    'source_name' | 'plugin_id' | 'display_name' | 'display_name_translated'
+  >
 ): string =>
-  resolveSourceTranslation(t, source.source_name)
+  source.display_name_translated
+  || resolveSourceTranslation(t, source.source_name)
   || (shouldUsePluginCopy(source) ? resolveTranslation(t, `settings.plugins.${source.plugin_id}.name`) : null)
   || source.display_name
   || source.source_name;
 
 export const getTimelineSourceDescription = (
   t: TimelineTranslateFn,
-  source: Pick<SensorSourceStatusItem, 'source_name' | 'plugin_id' | 'description'>
+  source: Pick<
+    SensorSourceStatusItem,
+    'source_name' | 'plugin_id' | 'description' | 'description_translated'
+  >
 ): string =>
-  resolveTranslation(t, `settings.timeline.sourceDesc.${source.source_name}`)
+  source.description_translated
+  || resolveTranslation(t, `settings.timeline.sourceDesc.${source.source_name}`)
   || (shouldUsePluginCopy(source) ? resolveTranslation(t, `settings.plugins.${source.plugin_id}.description`) : null)
   || source.description
   || "";

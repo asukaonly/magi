@@ -47,12 +47,28 @@ const isActionVisible = (action: PluginSettingsActionSpec, values: Record<string
   return action.depends_on_values.includes(String(values[action.depends_on_key] ?? ''));
 };
 
+/**
+ * Resolution order (Phase 2 dual-rail):
+ *   1. ``action.{key}_translated`` (from plugin i18n, served by API)
+ *   2. host i18n at ``settings.plugins.{pluginId}.actions.{action_id}.{key}``
+ *   3. raw ``action[key]`` (English fallback)
+ */
 const getActionCopy = (
   t: (key: string, params?: Record<string, any>) => string,
   pluginId: string,
   action: PluginSettingsActionSpec,
   key: 'label' | 'description' | 'button_label'
-) => getPluginTranslation(t, pluginId, `actions.${action.action_id}.${key}`, action[key]);
+) => {
+  const translatedKey = `${key}_translated` as
+    | 'label_translated'
+    | 'description_translated'
+    | 'button_label_translated';
+  const apiTranslated = action[translatedKey];
+  if (apiTranslated) {
+    return apiTranslated;
+  }
+  return getPluginTranslation(t, pluginId, `actions.${action.action_id}.${key}`, action[key]);
+};
 
 const getQrImageSource = (data: Record<string, any>): string => {
   const raw =

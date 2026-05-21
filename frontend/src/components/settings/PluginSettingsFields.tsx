@@ -2,7 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { DynamicConfigField } from '@/components/config-forms/DynamicConfigField';
-import type { ExtensionFieldSpec } from '@/api/modules/plugins';
+import type { ExtensionFieldOption, ExtensionFieldSpec } from '@/api/modules/plugins';
 
 type TFunction = (key: string) => string;
 
@@ -66,38 +66,58 @@ const getSectionNote = (
 
 /**
  * Helper function to get translated option label with fallback
+ *
+ * Resolution order (Phase 2 dual-rail):
+ *   1. ``option.label_translated`` (from plugin i18n, served by API)
+ *   2. host i18n at ``settings.plugins.{pluginId}.options.{candidate}.{value}``
+ *   3. raw ``option.label`` (English fallback)
  */
 const getOptionLabel = (
-  optionValue: string,
+  option: ExtensionFieldOption,
   fieldKey: string,
   t: TFunction,
-  pluginId: string | undefined,
-  originalLabel: string
+  pluginId: string | undefined
 ): string => {
+  if (option.label_translated) {
+    return option.label_translated;
+  }
   if (!pluginId) {
-    return originalLabel;
+    return option.label;
   }
   for (const candidate of buildFieldKeyCandidates(fieldKey)) {
-    const translationPath = `options.${candidate}.${optionValue}`;
+    const translationPath = `options.${candidate}.${option.value}`;
     const translated = getPluginTranslation(t, pluginId, translationPath, translationPath);
     if (translated !== translationPath) {
       return translated;
     }
   }
-  return originalLabel;
+  return option.label;
 };
 
+/**
+ * Resolution order (Phase 2 dual-rail):
+ *   1. ``field.label_translated`` / ``field.description_translated`` (from
+ *      plugin i18n, served by API)
+ *   2. host i18n at ``settings.plugins.{pluginId}.fields.{candidate}.{property}``
+ *   3. raw ``fallback`` (English value from the manifest)
+ */
 const getTranslatedFieldValue = (
+  field: ExtensionFieldSpec,
   t: TFunction,
   pluginId: string | undefined,
-  fieldKey: string,
   property: 'label' | 'description' | 'placeholder',
   fallback: string
 ): string => {
+  if (property === 'label' && field.label_translated) {
+    return field.label_translated;
+  }
+  if (property === 'description' && field.description_translated) {
+    return field.description_translated;
+  }
   if (!pluginId || !fallback) {
     return fallback;
   }
-  for (const candidate of buildFieldKeyCandidates(fieldKey)) {
+  for (const candidate of buildFieldKeyCandidates(field.key)) {
     const translationPath = `fields.${candidate}.${property}`;
     const translated = getPluginTranslation(t, pluginId, translationPath, translationPath);
     if (translated !== translationPath) {
@@ -177,17 +197,17 @@ export const PluginSettingsFields: React.FC<PluginSettingsFieldsProps> = ({
                 key={field.key}
                 spec={{
                   ...field,
-                  label: getTranslatedFieldValue(t, pluginId, field.key, 'label', field.label),
-                  description: getTranslatedFieldValue(t, pluginId, field.key, 'description', field.description),
+                  label: getTranslatedFieldValue(field, t, pluginId, 'label', field.label),
+                  description: getTranslatedFieldValue(field, t, pluginId, 'description', field.description),
                   placeholder: field.placeholder
-                    ? getTranslatedFieldValue(t, pluginId, field.key, 'placeholder', field.placeholder)
+                    ? getTranslatedFieldValue(field, t, pluginId, 'placeholder', field.placeholder)
                     : field.placeholder,
                 }}
                 value={values[field.key] ?? field.default ?? (field.type === 'tags' || (field.type === 'path' && Array.isArray(field.default)) ? [] : '')}
                 onChange={(value) => onChange(field.key, value)}
                 disabled={disabled}
                 selectOptions={field.options.map((option) => ({
-                  label: getOptionLabel(option.value, field.key, t, pluginId, option.label),
+                  label: getOptionLabel(option, field.key, t, pluginId),
                   value: option.value,
                 }))}
               />

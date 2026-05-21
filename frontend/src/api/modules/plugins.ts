@@ -8,13 +8,24 @@ export type PluginSettingsActionStatus = 'pending' | 'succeeded' | 'failed' | 'c
 export interface ExtensionFieldOption {
   label: string;
   value: string;
+  /**
+   * Plugin-i18n-sourced label. Prefer over ``label`` and host i18n fallbacks.
+   */
+  label_translated?: string | null;
 }
 
 export interface ExtensionFieldSpec {
   key: string;
   type: ExtensionFieldType;
   label: string;
+  /**
+   * Plugin-i18n-sourced label (from the plugin's own ``i18n/<lang>.json``).
+   * Frontend code MUST prefer this over host i18n lookups when present.
+   */
+  label_translated?: string | null;
   description: string;
+  /** Plugin-i18n-sourced description; see ``label_translated``. */
+  description_translated?: string | null;
   default?: any;
   required: boolean;
   options: ExtensionFieldOption[];
@@ -28,9 +39,17 @@ export interface ExtensionFieldSpec {
 
 export interface ActivationFlowSpec {
   title: string;
+  /** Plugin-i18n-sourced title. */
+  title_translated?: string | null;
   description: string;
+  /** Plugin-i18n-sourced description. */
+  description_translated?: string | null;
   confirm_label: string;
+  /** Plugin-i18n-sourced confirm button label. */
+  confirm_label_translated?: string | null;
   cancel_label: string;
+  /** Plugin-i18n-sourced cancel button label. */
+  cancel_label_translated?: string | null;
   authorize_on_confirm?: boolean;
   enabled_key: string;
   configured_key: string;
@@ -41,7 +60,11 @@ export interface PluginSettingsUiBlockSpec {
   block_id: string;
   type: 'resource_picker';
   title: string;
+  /** Plugin-i18n-sourced title. */
+  title_translated?: string | null;
   description: string;
+  /** Plugin-i18n-sourced description. */
+  description_translated?: string | null;
   resource_name: string;
   value_key: string;
   presentation: 'calendar_list' | 'list' | 'permission_status';
@@ -68,8 +91,14 @@ export interface PluginPermissionStatusData {
 export interface PluginSettingsActionSpec {
   action_id: string;
   label: string;
+  /** Plugin-i18n-sourced label. */
+  label_translated?: string | null;
   description: string;
+  /** Plugin-i18n-sourced description. */
+  description_translated?: string | null;
   button_label: string;
+  /** Plugin-i18n-sourced button label. */
+  button_label_translated?: string | null;
   presentation: 'inline' | 'qr_code';
   surface: ExtensionSurface;
   contribution_id: string;
