@@ -135,3 +135,51 @@ def test_review_state_patch_rejects_invalid_state(app_factory):
             json={"review_state": "bogus"},
         )
     assert resp.status_code == 422
+
+
+def test_expired_state_change_insight_filtered_out(app_factory):
+    """state_change insights past their salience_until are hidden."""
+    insights = [
+        {
+            "summary_id": "stale",
+            "summary_type": "insight",
+            "summary_category": "state_change",
+            "content": "old state",
+            "period_end": 100.0,
+            "updated_at": 100.0,
+            "review_state": "neutral",
+            "source_event_count": 1,
+            "insight_metadata": {"salience_until": 50.0},  # well in the past
+        },
+        {
+            "summary_id": "fresh",
+            "summary_type": "insight",
+            "summary_category": "state_change",
+            "content": "current state",
+            "period_end": 100.0,
+            "updated_at": 100.0,
+            "review_state": "neutral",
+            "source_event_count": 1,
+            "insight_metadata": {"salience_until": 9999999999.0},  # far future
+        },
+        {
+            "summary_id": "no_expiry",
+            "summary_type": "insight",
+            "summary_category": "state_change",
+            "content": "permanent state",
+            "period_end": 100.0,
+            "updated_at": 100.0,
+            "review_state": "neutral",
+            "source_event_count": 1,
+            "insight_metadata": {"salience_until": None},
+        },
+    ]
+    unified = _stub_memory(insights=insights, temporal=[])
+    with override_unified_memory_for_test(unified):
+        client = TestClient(app_factory())
+        resp = client.get("/api/memory/stories", params={"limit": 20})
+    body = resp.json()
+    ids = [item["summary_id"] for item in body["items"]]
+    assert "stale" not in ids
+    assert "fresh" in ids
+    assert "no_expiry" in ids

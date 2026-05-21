@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import time
 from contextlib import contextmanager
 from typing import Any
 
@@ -54,6 +56,20 @@ def _get_memory() -> Any:
 
 def _row_to_story_item(row: dict[str, Any]) -> dict[str, Any]:
     """Project a raw L3 summary row into a story-feed item."""
+    metadata = row.get("insight_metadata") or {}
+    if isinstance(metadata, str):
+        try:
+            metadata = json.loads(metadata)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            metadata = {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+    salience_until_raw = metadata.get("salience_until")
+    salience_until: float | None
+    if isinstance(salience_until_raw, (int, float)):
+        salience_until = float(salience_until_raw)
+    else:
+        salience_until = None
     return {
         "summary_id": row.get("summary_id") or row.get("id"),
         "summary_type": row.get("summary_type"),
@@ -65,8 +81,9 @@ def _row_to_story_item(row: dict[str, Any]) -> dict[str, Any]:
         "updated_at": row.get("updated_at"),
         "review_state": row.get("review_state") or "neutral",
         "insight_key": row.get("insight_key"),
-        "insight_metadata": row.get("insight_metadata") or {},
+        "insight_metadata": metadata,
         "evidence_event_count": int(row.get("source_event_count") or 0),
+        "salience_until": salience_until,
     }
 
 
@@ -116,6 +133,22 @@ def build_router() -> APIRouter:
         )
 
         combined = [_row_to_story_item(r) for r in [*insights, *temporal]]
+
+        # Hide state_change insights whose salience window has passed.
+        # Other insight categories (trend_shift, milestone_review, ...) and
+        # temporal summaries are unaffected. salience_until=None means
+        # "no expiry"; always keep those.
+        _STATE_CLASS_CATEGORIES = {"state_change"}
+        _now = time.time()
+        combined = [
+            item for item in combined
+            if not (
+                item["summary_category"] in _STATE_CLASS_CATEGORIES
+                and item.get("salience_until") is not None
+                and item["salience_until"] < _now
+            )
+        ]
+
         combined.sort(
             key=lambda item: (
                 0 if item["review_state"] == "pending_confirmation" else 1,

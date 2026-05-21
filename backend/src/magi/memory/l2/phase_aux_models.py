@@ -88,6 +88,8 @@ class ReconciledTraitOutcome:
     time_span_hours: float
     stability_kind: str
     recommended_snapshot_field: str
+    natural_summary: str = ""
+    expires_at: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
