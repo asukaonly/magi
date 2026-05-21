@@ -243,6 +243,8 @@ def test_evidence_temporal_uses_time_window(app_factory):
     assert call_kwargs["start_time"] == 1700000000.0
     assert call_kwargs["end_time"] == 1700086400.0
     assert call_kwargs["cognition_eligible"] is True
+    assert call_kwargs["order_by"] == "timestamp_desc"
+    assert call_kwargs["include_embedding_fields"] is False
 
 
 def test_evidence_404_for_missing_summary(app_factory):

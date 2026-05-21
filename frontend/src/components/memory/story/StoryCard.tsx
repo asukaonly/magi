@@ -91,18 +91,26 @@ export const StoryCard = ({ story, onConfirm, onReject, onArchive, onOpenDetail 
             </span>
           ) : <span />}
           <div className="flex items-center gap-1">
-            <Button variant="ghost" size="sm" onClick={onConfirm} aria-label={t('memory.stories.actions.confirm')}>
-              <Check className="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="sm" onClick={onReject} aria-label={t('memory.stories.actions.reject')}>
-              <X className="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="sm" onClick={onArchive} aria-label={t('memory.stories.actions.archive')}>
-              <Archive className="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="sm" onClick={onOpenDetail} aria-label={t('memory.stories.actions.addNote')}>
-              <MessageSquare className="h-4 w-4" />
-            </Button>
+            {story.summary_type === 'insight' ? (
+              <>
+                <Button variant="ghost" size="sm" onClick={onConfirm} aria-label={t('memory.stories.actions.confirm')}>
+                  <Check className="h-4 w-4" />
+                </Button>
+                <Button variant="ghost" size="sm" onClick={onReject} aria-label={t('memory.stories.actions.reject')}>
+                  <X className="h-4 w-4" />
+                </Button>
+                <Button variant="ghost" size="sm" onClick={onArchive} aria-label={t('memory.stories.actions.archive')}>
+                  <Archive className="h-4 w-4" />
+                </Button>
+                <Button variant="ghost" size="sm" onClick={onOpenDetail} aria-label={t('memory.stories.actions.addNote')}>
+                  <MessageSquare className="h-4 w-4" />
+                </Button>
+              </>
+            ) : (
+              <Button variant="ghost" size="sm" onClick={onArchive} aria-label={t('memory.stories.actions.archive')}>
+                <Archive className="h-4 w-4" />
+              </Button>
+            )}
           </div>
         </div>
         <div className="text-[10px] text-[hsl(var(--memory-muted)/0.8)]">

@@ -116,4 +116,19 @@ describe('StoryDetailRail', () => {
     );
     expect(await screen.findByText('没有找到关联的事件。')).toBeInTheDocument();
   });
+
+  it('hides the note input when the story is a temporal summary', async () => {
+    const temporalStory: StoryItem = {
+      ...baseStory,
+      summary_id: 'day-1',
+      summary_type: 'temporal',
+      summary_category: 'day',
+    };
+    render(
+      <StoryDetailRail story={temporalStory} onClose={() => {}} onSaveNote={() => {}} />
+    );
+    // Wait for evidence fetch to settle so the rest of the rail has rendered.
+    await screen.findByText('证据');
+    expect(screen.queryByPlaceholderText('想加个备注吗？')).not.toBeInTheDocument();
+  });
 });

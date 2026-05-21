@@ -233,9 +233,9 @@ def build_router() -> APIRouter:
                 end_time=float(period_end),
                 cognition_eligible=True,
                 limit=limit,
-                order="desc",
+                order_by="timestamp_desc",
                 include_metadata_json=False,
-                include_embedding=False,
+                include_embedding_fields=False,
             )
             mode = "time_window"
         else:

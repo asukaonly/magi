@@ -125,21 +125,23 @@ export const StoryDetailRail = ({ story, onClose, onSaveNote }: StoryDetailRailP
           )}
         </div>
 
-        <div>
-          <textarea
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-            placeholder={t('memory.stories.detailRail.notePlaceholder')}
-            className="w-full rounded-sm border border-[hsl(var(--memory-input-border)/0.7)] bg-[hsl(var(--memory-input-bg))] px-3 py-2 text-sm"
-            rows={4}
-          />
-          <div className="mt-2 flex items-center gap-2">
-            <Button size="sm" onClick={handleSave}>{t('memory.stories.actions.addNote')}</Button>
-            {saved ? (
-              <span className="text-xs text-[hsl(var(--memory-muted))]">{t('memory.stories.detailRail.savedNote')}</span>
-            ) : null}
+        {story.summary_type === 'insight' ? (
+          <div>
+            <textarea
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+              placeholder={t('memory.stories.detailRail.notePlaceholder')}
+              className="w-full rounded-sm border border-[hsl(var(--memory-input-border)/0.7)] bg-[hsl(var(--memory-input-bg))] px-3 py-2 text-sm"
+              rows={4}
+            />
+            <div className="mt-2 flex items-center gap-2">
+              <Button size="sm" onClick={handleSave}>{t('memory.stories.actions.addNote')}</Button>
+              {saved ? (
+                <span className="text-xs text-[hsl(var(--memory-muted))]">{t('memory.stories.detailRail.savedNote')}</span>
+              ) : null}
+            </div>
           </div>
-        </div>
+        ) : null}
       </div>
     </aside>
   );

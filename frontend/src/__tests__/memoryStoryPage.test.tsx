@@ -126,6 +126,26 @@ describe('MemoryStoryPage', () => {
     expect(screen.getByTestId('story-card-s1')).toBeInTheDocument();
   });
 
+  it('renders only archive action for temporal cards', async () => {
+    vi.mocked(memoryStoriesApi.list).mockResolvedValue({
+      items: [{
+        summary_id: 'day-1', summary_type: 'temporal', summary_category: 'day',
+        title: '', content: 'day digest', period_start: 0, period_end: 1700100000,
+        updated_at: 1700100000, review_state: 'neutral',
+        insight_key: null, insight_metadata: {}, evidence_event_count: 0,
+      }] as never,
+      total: 1, limit: 20, offset: 0,
+    });
+    renderPage();
+    await waitFor(() => screen.getByText('day digest'));
+    // Temporal card: only archive action button is present
+    expect(screen.queryByLabelText(/确认|Confirm/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/拒绝|Reject/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/收起|Archive/i)).toBeInTheDocument();
+    // Note button (MessageSquare) also gone for temporal
+    expect(screen.queryByLabelText(/备注|Add note/i)).not.toBeInTheDocument();
+  });
+
   it('confirms a story when the confirm button is clicked', async () => {
     vi.mocked(memoryStoriesApi.list).mockResolvedValue({
       items: [{
