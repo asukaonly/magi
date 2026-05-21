@@ -16,6 +16,7 @@ SummaryCategory = Literal[
     "quarter",
     "year",
     "topic",
+    "episodic",
     "project",
     "goal",
     "person",

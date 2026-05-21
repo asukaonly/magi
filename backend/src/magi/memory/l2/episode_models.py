@@ -155,6 +155,7 @@ class EpisodeConsolidationStats:
     """Statistics for a single episode consolidation run."""
 
     promoted: int = 0
+    standouts: int = 0
     merged: int = 0
     invalidated: int = 0
     summaries_generated: int = 0
