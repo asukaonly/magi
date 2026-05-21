@@ -7,7 +7,7 @@ Chrome-history-derived INTERESTED_IN edges (EXTERNAL_OBSERVATION).
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal, Optional
 
 from ..evidence import EvidenceClass
 
@@ -26,5 +26,23 @@ def infer_allowed_evidence_classes(
     if predicate_family == "activity":
         return {_DECLARED, _OBSERVED}
     if predicate_family == "relationship":
+        return {_DECLARED, _OBSERVED}
+    return None
+
+
+EvidenceFocus = Literal["declared", "observed", "both"]
+
+
+def classes_from_focus(focus: Optional[EvidenceFocus]) -> Optional[set[str]]:
+    """Map a classifier-produced evidence_focus to an allowed_evidence_classes set.
+
+    Returns None when focus is None — callers should fall back to the legacy
+    (predicate_family, subject_scope) rule via infer_allowed_evidence_classes.
+    """
+    if focus == "declared":
+        return {_DECLARED}
+    if focus == "observed":
+        return {_OBSERVED}
+    if focus == "both":
         return {_DECLARED, _OBSERVED}
     return None

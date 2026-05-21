@@ -83,3 +83,25 @@ def test_llm_refinement_rejects_invalid_evidence_focus():
     parsed = decider._parse_response(raw)
     assert parsed is not None
     assert parsed.evidence_focus is None  # invalid value silently dropped
+
+
+from magi.memory.hybrid_retrieval.evidence_routing import classes_from_focus
+
+
+def test_classes_from_focus_declared():
+    assert classes_from_focus("declared") == {EvidenceClass.USER_SELF_REPORT.label}
+
+
+def test_classes_from_focus_observed():
+    assert classes_from_focus("observed") == {EvidenceClass.EXTERNAL_OBSERVATION.label}
+
+
+def test_classes_from_focus_both():
+    assert classes_from_focus("both") == {
+        EvidenceClass.USER_SELF_REPORT.label,
+        EvidenceClass.EXTERNAL_OBSERVATION.label,
+    }
+
+
+def test_classes_from_focus_none_returns_none():
+    assert classes_from_focus(None) is None
