@@ -37,6 +37,39 @@ MIN_AGE_TO_PROMOTE = 30 * 60  # 30 minutes
 MERGE_GAP_FACTOR = 1.5        # merge if gap < 1.5x normal threshold
 MIN_ENTITY_OVERLAP_FOR_MERGE = 0.3
 
+# Standout gate thresholds — episodes that pass become "product-grade"
+# chapters surfaced in the 经历 page. Tunable; v1 rule:
+#   - at least 5 supporting events (more than a fleeting moment)
+#   - at least 20 minutes of duration
+#   - at least 2 distinct primary entities (not pure noise)
+STANDOUT_MIN_EVENTS = 5
+STANDOUT_MIN_DURATION_SECONDS = 20 * 60
+STANDOUT_MIN_DISTINCT_ENTITIES = 2
+
+
+def _passes_standout_gate(episode: dict[str, Any]) -> bool:
+    """Decide whether a promoted episode is product-grade for the 经历 page.
+
+    Pure rule: enough events, enough time span, enough entity diversity.
+    """
+    event_count = int(episode.get("source_event_count") or 0)
+    if event_count < STANDOUT_MIN_EVENTS:
+        return False
+
+    time_start = float(episode.get("time_start") or 0)
+    time_end = float(episode.get("time_end") or 0)
+    if time_end - time_start < STANDOUT_MIN_DURATION_SECONDS:
+        return False
+
+    entities = episode.get("primary_entity_ids") or []
+    if not isinstance(entities, list):
+        entities = []
+    distinct_entities = len({str(e).strip() for e in entities if str(e).strip()})
+    if distinct_entities < STANDOUT_MIN_DISTINCT_ENTITIES:
+        return False
+
+    return True
+
 
 def _shares_theme(
     entity_ids_a: List[str],
@@ -196,13 +229,20 @@ async def consolidate_episodes(
     for ep in candidates:
         age = now - ep["created_at"]
         if ep["source_event_count"] >= MIN_EVENTS_TO_PROMOTE and age >= MIN_AGE_TO_PROMOTE:
-            await store.update_episode(episode_id=ep["episode_id"], status="active")
+            standout = _passes_standout_gate(ep)
+            update_fields: dict[str, Any] = {"status": "active"}
+            if standout:
+                update_fields["magi_standout"] = True
+            await store.update_episode(episode_id=ep["episode_id"], **update_fields)
             stats.promoted += 1
+            if standout:
+                stats.standouts += 1
             logger.debug(
                 "Episode promoted",
                 episode_id=ep["episode_id"],
                 event_count=ep["source_event_count"],
                 age_minutes=round(age / 60, 1),
+                magi_standout=standout,
             )
 
     # ── 2. Merge adjacent active episodes ────────────────────────
@@ -284,6 +324,7 @@ async def consolidate_episodes(
     logger.info(
         "Episode consolidation completed",
         promoted=stats.promoted,
+        standouts=stats.standouts,
         merged=stats.merged,
         invalidated=stats.invalidated,
     )

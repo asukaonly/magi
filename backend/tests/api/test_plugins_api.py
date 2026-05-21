@@ -233,7 +233,14 @@ def test_plugins_api_reads_plugin_settings_resources(monkeypatch):
     assert payload["resource_name"] == "calendar_lists"
     assert payload["resource_type"] == "collection"
     assert payload["data"]["groups"][0]["items"][0]["item_id"] == "calendar-personal"
-    assert manager.calls == ["get:core-tools", "resource:core-tools:calendar_lists"]
+    # Phase 4: the resource route additionally resolves any ``*_i18n_key`` references
+    # in the payload, which involves looking up the plugin package to find its i18n
+    # bundle. That extra ``get_package`` call is expected and harmless when no keys match.
+    assert manager.calls == [
+        "get:core-tools",
+        "resource:core-tools:calendar_lists",
+        "get:core-tools",
+    ]
 
 
 def test_plugins_api_runs_plugin_settings_actions(monkeypatch):

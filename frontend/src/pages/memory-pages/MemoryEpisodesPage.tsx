@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { memoryApi, type L2Episode } from '@/api/modules/memory';
+import { memoryApi, type L2EpisodeWithSummary } from '@/api/modules/memory';
 import EpisodeRow from '@/components/memory/episodes/EpisodeRow';
 import { Button } from '@/components/ui/button';
 import {
@@ -13,18 +13,18 @@ import {
 import { Input } from '@/components/ui/input';
 import MemoryPageFrame, { MEMORY_EMPTY_PANEL_CLASS } from './MemoryPageFrame';
 
-type DialogState = { episode: L2Episode; field: 'user_label' | 'user_note'; value: string } | null;
+type DialogState = { episode: L2EpisodeWithSummary; field: 'user_label' | 'user_note'; value: string } | null;
 
 export const MemoryEpisodesPage = () => {
   const { t } = useTranslation('app');
-  const [episodes, setEpisodes] = useState<L2Episode[]>([]);
+  const [episodes, setEpisodes] = useState<L2EpisodeWithSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogState, setDialogState] = useState<DialogState>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const payload = await memoryApi.listEpisodes({ status: 'active', limit: 100, offset: 0 });
+      const payload = await memoryApi.listEpisodes({ surface: 'standout', limit: 100, offset: 0 });
       setEpisodes(payload.items);
     } finally {
       setLoading(false);
@@ -36,21 +36,21 @@ export const MemoryEpisodesPage = () => {
   const pinned = useMemo(() => episodes.filter((e) => e.user_pinned), [episodes]);
   const recent = useMemo(() => episodes.filter((e) => !e.user_pinned), [episodes]);
 
-  const togglePin = async (ep: L2Episode) => {
+  const togglePin = async (ep: L2EpisodeWithSummary) => {
     await memoryApi.annotateEpisode(ep.episode_id, { user_pinned: !ep.user_pinned });
     setEpisodes((prev) => prev.map((it) => (it.episode_id === ep.episode_id ? { ...it, user_pinned: !ep.user_pinned } : it)));
   };
 
-  const forget = async (ep: L2Episode) => {
+  const forget = async (ep: L2EpisodeWithSummary) => {
     await memoryApi.forgetEpisode(ep.episode_id, false);
     setEpisodes((prev) => prev.filter((it) => it.episode_id !== ep.episode_id));
   };
 
-  const openRename = (ep: L2Episode) => setDialogState({
+  const openRename = (ep: L2EpisodeWithSummary) => setDialogState({
     episode: ep, field: 'user_label', value: ep.user_label ?? '',
   });
 
-  const openAnnotate = (ep: L2Episode) => setDialogState({
+  const openAnnotate = (ep: L2EpisodeWithSummary) => setDialogState({
     episode: ep, field: 'user_note', value: ep.user_note ?? '',
   });
 
@@ -59,7 +59,7 @@ export const MemoryEpisodesPage = () => {
     const { episode, field, value } = dialogState;
     await memoryApi.annotateEpisode(episode.episode_id, { [field]: value });
     setEpisodes((prev) => prev.map((it) =>
-      it.episode_id === episode.episode_id ? ({ ...it, [field]: value } as L2Episode) : it
+      it.episode_id === episode.episode_id ? ({ ...it, [field]: value } as L2EpisodeWithSummary) : it
     ));
     setDialogState(null);
   };

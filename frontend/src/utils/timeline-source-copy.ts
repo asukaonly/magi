@@ -2,8 +2,6 @@ import type { SensorSourceStatusItem } from '@/api/modules/sensors';
 
 type TimelineTranslateFn = (key: string) => string;
 
-const normalizeIdentity = (value: string): string => value.replace(/[_-]/g, '').toLowerCase();
-
 const resolveTranslation = (
   t: TimelineTranslateFn,
   key: string
@@ -12,31 +10,41 @@ const resolveTranslation = (
   return translated !== key ? translated : null;
 };
 
-const resolveSourceTranslation = (
-  t: TimelineTranslateFn,
-  sourceName: string
-): string | null =>
-  resolveTranslation(t, `settings.timeline.sources.${sourceName}`)
-  || resolveTranslation(t, `settings.tabs.${sourceName}`);
-
-const shouldUsePluginCopy = (
-  source: Pick<SensorSourceStatusItem, 'source_name' | 'plugin_id'>
-): boolean => normalizeIdentity(source.source_name) === normalizeIdentity(source.plugin_id);
-
+/**
+ * Resolution order (Phase 4):
+ *   1. ``source.display_name_translated`` (API, plugin i18n)
+ *   2. shared host i18n at ``settings.timeline.sources.{source_name}``
+ *      or ``settings.tabs.{source_name}`` — shared UI infra for built-in
+ *      tabs that pre-date the plugin system
+ *   3. raw ``source.display_name`` / ``source.source_name``
+ */
 export const getTimelineSourceDisplayName = (
   t: TimelineTranslateFn,
-  source: Pick<SensorSourceStatusItem, 'source_name' | 'plugin_id' | 'display_name'>
+  source: Pick<
+    SensorSourceStatusItem,
+    'source_name' | 'plugin_id' | 'display_name' | 'display_name_translated'
+  >
 ): string =>
-  resolveSourceTranslation(t, source.source_name)
-  || (shouldUsePluginCopy(source) ? resolveTranslation(t, `settings.plugins.${source.plugin_id}.name`) : null)
+  source.display_name_translated
+  || resolveTranslation(t, `settings.timeline.sources.${source.source_name}`)
+  || resolveTranslation(t, `settings.tabs.${source.source_name}`)
   || source.display_name
   || source.source_name;
 
+/**
+ * Resolution order (Phase 4):
+ *   1. ``source.description_translated`` (API, plugin i18n)
+ *   2. shared host i18n at ``settings.timeline.sourceDesc.{source_name}``
+ *   3. raw ``source.description``
+ */
 export const getTimelineSourceDescription = (
   t: TimelineTranslateFn,
-  source: Pick<SensorSourceStatusItem, 'source_name' | 'plugin_id' | 'description'>
+  source: Pick<
+    SensorSourceStatusItem,
+    'source_name' | 'plugin_id' | 'description' | 'description_translated'
+  >
 ): string =>
-  resolveTranslation(t, `settings.timeline.sourceDesc.${source.source_name}`)
-  || (shouldUsePluginCopy(source) ? resolveTranslation(t, `settings.plugins.${source.plugin_id}.description`) : null)
+  source.description_translated
+  || resolveTranslation(t, `settings.timeline.sourceDesc.${source.source_name}`)
   || source.description
   || "";

@@ -75,17 +75,6 @@ const formatTimestamp = (value: number | string | null | undefined) => {
   }).format(new Date(normalized));
 };
 
-const getPluginTranslation = (
-  t: (key: string, params?: Record<string, any>) => string,
-  pluginId: string,
-  key: string,
-  fallback: string
-): string => {
-  const translationKey = `settings.plugins.${pluginId}.${key}`;
-  const translated = t(translationKey);
-  return translated === translationKey ? fallback : translated;
-};
-
 const SourceRow: React.FC<{
   source: SensorSourceStatusItem;
   displayName: string;
@@ -195,11 +184,23 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     onPluginFieldChange(source.plugin_id, enabledKey, true);
   };
 
+  /**
+   * Resolution order (Phase 4):
+   *   1. ``flow.{key}_translated`` (API, plugin i18n)
+   *   2. raw ``fallback`` (English value from the manifest)
+   */
   const getActivationText = (
-    pluginId: string,
+    flow: ActivationFlowSpec,
     key: 'title' | 'description' | 'confirm_label' | 'cancel_label',
     fallback: string
-  ) => getPluginTranslation(t, pluginId, `activation.${key}`, fallback);
+  ) => {
+    const translatedKey = `${key}_translated` as
+      | 'title_translated'
+      | 'description_translated'
+      | 'confirm_label_translated'
+      | 'cancel_label_translated';
+    return flow[translatedKey] || fallback;
+  };
 
   const confirmActivationFlow = async () => {
     if (!activationDialog) {
@@ -507,11 +508,15 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
             <>
               <DialogHeader>
                 <DialogTitle>
-                  {getActivationText(activationDialog.source.plugin_id, 'title', activationDialog.flow.title)}
+                  {getActivationText(
+                    activationDialog.flow,
+                    'title',
+                    activationDialog.flow.title
+                  )}
                 </DialogTitle>
                 <DialogDescription>
                   {getActivationText(
-                    activationDialog.source.plugin_id,
+                    activationDialog.flow,
                     'description',
                     activationDialog.flow.description
                   )}
@@ -542,14 +547,14 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
               <DialogFooter>
                 <Button type="button" variant="ghost" onClick={() => setActivationDialog(null)}>
                   {getActivationText(
-                    activationDialog.source.plugin_id,
+                    activationDialog.flow,
                     'cancel_label',
                     activationDialog.flow.cancel_label
                   )}
                 </Button>
                 <Button type="button" onClick={() => void confirmActivationFlow()}>
                   {getActivationText(
-                    activationDialog.source.plugin_id,
+                    activationDialog.flow,
                     'confirm_label',
                     activationDialog.flow.confirm_label
                   )}

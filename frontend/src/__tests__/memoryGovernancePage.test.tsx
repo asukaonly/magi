@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
 import { MemoryGovernancePage } from '@/pages/memory-pages/MemoryGovernancePage';
+import { memoryApi } from '@/api/modules/memory';
 
 vi.mock('react-i18next', () => {
   const labels: Record<string, string> = {
@@ -14,6 +16,11 @@ vi.mock('react-i18next', () => {
     'memory.governance.developerBody': '...',
     'memory.governance.forgetBody': '从这里删除…',
     'memory.governance.privacyBody': '查看每个来源…',
+    'memory.governance.reconsolidateTitle': '整理章节',
+    'memory.governance.reconsolidateBody': '...',
+    'memory.governance.reconsolidateRun': '立即整理',
+    'memory.governance.reconsolidateBusy': '整理中...',
+    'memory.governance.reconsolidateResult': '升级 {{promoted}} 条 · 标志 {{standouts}} 条 · 新章节 {{summaries}} 条',
     'memory.nav.dev.events': '原始事件 (L1)',
     'memory.nav.dev.knowledge': '结构化知识 (L2)',
     'memory.nav.dev.skills': '工具技能 (L4)',
@@ -23,8 +30,11 @@ vi.mock('react-i18next', () => {
     useTranslation: () => ({
       t: (key: string, opts?: Record<string, unknown>) => {
         const tpl = labels[key] ?? (opts?.defaultValue as string | undefined) ?? key;
-        if (typeof tpl === 'string' && opts && 'count' in opts) {
-          return tpl.replace('{{count}}', String(opts.count));
+        if (typeof tpl === 'string' && opts) {
+          // interpolate all {{var}} placeholders
+          return tpl.replace(/\{\{(\w+)\}\}/g, (_match, varName) =>
+            varName in opts ? String(opts[varName]) : `{{${varName}}}`
+          );
         }
         return tpl;
       },
@@ -34,7 +44,10 @@ vi.mock('react-i18next', () => {
 });
 
 vi.mock('@/api/modules/memory', () => ({
-  memoryApi: { forgetEpisode: vi.fn() },
+  memoryApi: {
+    forgetEpisode: vi.fn(),
+    reconsolidateEpisodes: vi.fn(),
+  },
 }));
 
 const renderPage = () => render(
@@ -57,5 +70,20 @@ describe('MemoryGovernancePage', () => {
   it('does not render the pending-review section', () => {
     renderPage();
     expect(screen.queryByTestId('governance-pending-count')).not.toBeInTheDocument();
+  });
+
+  it('triggers reconsolidate and shows result', async () => {
+    vi.mocked(memoryApi.reconsolidateEpisodes).mockResolvedValue({
+      promoted: 3, standouts: 2, merged: 0, invalidated: 0,
+      summaries_generated: 2, summary_errors: [],
+    });
+    const user = userEvent.setup();
+    renderPage();
+    const btn = await screen.findByRole('button', { name: /立即整理|Run now/i });
+    await user.click(btn);
+    await waitFor(() => {
+      expect(screen.getByText(/升级.*3|3 promoted/i)).toBeInTheDocument();
+    });
+    expect(memoryApi.reconsolidateEpisodes).toHaveBeenCalled();
   });
 });

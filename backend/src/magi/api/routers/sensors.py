@@ -19,6 +19,14 @@ from ...scheduler import ScheduledTargetType
 from ...scheduler.contracts import build_sensor_schedule_id, build_sensor_target_key
 from ...scheduler.repository import ScheduleRepository
 from ...utils.runtime import get_runtime_paths
+from .plugins_common import (
+    _get_plugin_i18n,
+    _serialize_activation_flow,
+    _serialize_field,
+    _serialize_settings_ui_block,
+    normalize_plugin_id,
+    translate_with_fallback,
+)
 
 sensors_router = APIRouter()
 
@@ -102,9 +110,58 @@ async def get_sensor_source_status():
     sources = []
     for item in contributions:
         source_name = str(item.metadata.get("source_type") or item.contribution_id.split(".")[-1])
-        current_settings = (
-            packages.get(item.plugin_id).current_settings if packages.get(item.plugin_id) is not None else {}
+        package = packages.get(item.plugin_id)
+        current_settings = package.current_settings if package is not None else {}
+        plugin_dir = (
+            package.manifest.plugin_dir if package is not None and package.manifest is not None else ""
         )
+        try:
+            i18n = _get_plugin_i18n(item.plugin_id, plugin_dir)
+        except Exception:  # noqa: BLE001 - never block status on i18n
+            i18n = None
+        plugin_id_normalized = normalize_plugin_id(item.plugin_id)
+        display_name_translated = (
+            translate_with_fallback(
+                i18n, f"{plugin_id_normalized}.name", item.display_name
+            )
+            if i18n is not None
+            else item.display_name
+        )
+        description_translated = (
+            translate_with_fallback(
+                i18n, f"{plugin_id_normalized}.description", item.description
+            )
+            if i18n is not None
+            else item.description
+        )
+
+        translated_fields: list[dict[str, Any]] = []
+        if i18n is not None:
+            translated_fields = [
+                _serialize_field(field, i18n, item.contribution_id, plugin_id=item.plugin_id)
+                for field in item.fields
+            ]
+        else:
+            translated_fields = [field.model_dump() for field in item.fields]
+
+        raw_activation_flow = item.metadata.get("activation_flow")
+        if isinstance(raw_activation_flow, dict) and i18n is not None:
+            activation_flow_payload = _serialize_activation_flow(
+                raw_activation_flow, i18n, plugin_id=item.plugin_id
+            )
+        else:
+            activation_flow_payload = raw_activation_flow
+
+        raw_ui_blocks = item.metadata.get("settings_ui_blocks", []) or []
+        if isinstance(raw_ui_blocks, list) and i18n is not None:
+            settings_ui_blocks_payload = [
+                _serialize_settings_ui_block(block, i18n, plugin_id=item.plugin_id)
+                if isinstance(block, dict)
+                else block
+                for block in raw_ui_blocks
+            ]
+        else:
+            settings_ui_blocks_payload = raw_ui_blocks
         resolved = sensor_registry.resolve_source_sensor(source_name)
         sensor = resolved[2] if resolved is not None else None
         schedule_id = build_sensor_schedule_id(item.plugin_id, source_name)
@@ -144,8 +201,10 @@ async def get_sensor_source_status():
                 "plugin_id": item.plugin_id,
                 "contribution_id": item.contribution_id,
                 "display_name": item.display_name,
+                "display_name_translated": display_name_translated,
                 "description": item.description,
-                "fields": [field.model_dump() for field in item.fields],
+                "description_translated": description_translated,
+                "fields": translated_fields,
                 "current_settings": {
                     key: _get_nested_value(current_settings, key, default)
                     for key, default in _collect_source_setting_defaults(item).items()
@@ -199,8 +258,8 @@ async def get_sensor_source_status():
                 ),
                 "supports_pull_sync": supports_pull_sync,
                 "supports_state_flush": supports_state_flush,
-                "activation_flow": item.metadata.get("activation_flow"),
-                "settings_ui_blocks": item.metadata.get("settings_ui_blocks", []),
+                "activation_flow": activation_flow_payload,
+                "settings_ui_blocks": settings_ui_blocks_payload,
                 "activation_required": bool(
                     isinstance(item.metadata.get("activation_flow"), dict)
                     and not bool(

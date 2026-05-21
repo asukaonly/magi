@@ -41,11 +41,6 @@ const translationMap: Record<string, string> = {
   'settings.tabs.photo_library': '照片库',
   'settings.tabs.chrome_history': 'Chrome 历史',
   'settings.timeline.sourceDesc.photo_library': '引用照片库或导出目录，并决定保留多少原始媒体信息。',
-  'settings.plugins.chrome-history.description': '本地 Google Chrome 浏览历史接入时间线',
-  'settings.plugins.chrome-history.fields.sensors.chrome_history.profile.label': '配置档案',
-  'settings.plugins.chrome-history.fields.sensors.chrome_history.profile.description': '要读取的 Chrome 配置目录，例如 Default 或 Profile 1。',
-  'settings.plugins.chrome-history.fields.sensors.chrome_history.sync_mode.label': '同步方式',
-  'settings.plugins.chrome-history.fields.sensors.chrome_history.sync_interval_minutes.label': '定时间隔',
 };
 
 vi.mock('react-i18next', () => ({
@@ -1381,6 +1376,9 @@ describe('settings page draft saving', () => {
       sources: [
         {
           ...chromeTimelineSourceFixture,
+          // Backend now serves pre-translated values via API; the host i18n
+          // table no longer carries per-plugin entries (Phase 4).
+          description_translated: '本地 Google Chrome 浏览历史接入时间线',
           fields: [
             ...chromeTimelineSourceFixture.fields,
             {
@@ -1399,7 +1397,9 @@ describe('settings page draft saving', () => {
               key: 'sensors.chrome_history.profile',
               type: 'input',
               label: 'Profile',
+              label_translated: '配置档案',
               description: 'Chrome profile directory to read, such as Default or Profile 1.',
+              description_translated: '要读取的 Chrome 配置目录，例如 Default 或 Profile 1。',
               default: 'Default',
               required: false,
               options: [],
@@ -1411,6 +1411,7 @@ describe('settings page draft saving', () => {
               key: 'sensors.chrome_history.sync_mode',
               type: 'select',
               label: 'Sync Mode',
+              label_translated: '同步方式',
               description: 'How Chrome history should be synchronized.',
               default: 'manual',
               required: false,
@@ -1426,6 +1427,7 @@ describe('settings page draft saving', () => {
               key: 'sensors.chrome_history.sync_interval_minutes',
               type: 'number',
               label: 'Sync Interval (minutes)',
+              label_translated: '定时间隔',
               description: 'Polling interval for interval-based sources.',
               default: 30,
               required: false,
@@ -1459,6 +1461,8 @@ describe('settings page draft saving', () => {
     expect(within(chromePanel).getByText('同步方式')).toBeInTheDocument();
     expect(within(chromePanel).queryByText('Chrome Data Path')).not.toBeInTheDocument();
     expect(within(chromePanel).queryByText('Edge Whitelist')).not.toBeInTheDocument();
+    // ``定时间隔`` is the label for ``sync_interval_minutes`` which is hidden when
+    // ``sync_mode=manual`` via depends_on_values.
     expect(within(chromePanel).queryByText('定时间隔')).not.toBeInTheDocument();
   });
 

@@ -18,28 +18,15 @@ interface PluginSettingsCustomBlocksProps {
   onChange: (key: string, value: any) => void;
 }
 
-const getPluginTranslation = (
-  t: (key: string, params?: Record<string, any>) => string,
-  pluginId: string,
-  key: string,
-  fallback: string
-): string => {
-  const translationKey = `settings.plugins.${pluginId}.${key}`;
-  const translated = t(translationKey);
-  return translated === translationKey ? fallback : translated;
-};
+/**
+ * Resolution order (Phase 4):
+ *   1. ``block.title_translated`` / ``block.description_translated`` (API, plugin i18n)
+ *   2. raw ``block.title`` / ``block.description`` (English fallback from the manifest)
+ */
+const getBlockTitle = (block: PluginSettingsUiBlockSpec) => block.title_translated || block.title;
 
-const getBlockTitle = (
-  t: (key: string, params?: Record<string, any>) => string,
-  pluginId: string,
-  block: PluginSettingsUiBlockSpec
-) => getPluginTranslation(t, pluginId, `ui_blocks.${block.block_id}.title`, block.title);
-
-const getBlockDescription = (
-  t: (key: string, params?: Record<string, any>) => string,
-  pluginId: string,
-  block: PluginSettingsUiBlockSpec
-) => getPluginTranslation(t, pluginId, `ui_blocks.${block.block_id}.description`, block.description);
+const getBlockDescription = (block: PluginSettingsUiBlockSpec) =>
+  block.description_translated || block.description;
 
 const isBlockVisible = (block: PluginSettingsUiBlockSpec, values: Record<string, any>) => {
   if (!block.depends_on_key || !block.depends_on_values?.length) {
@@ -105,8 +92,8 @@ const CalendarListResourcePicker: React.FC<{
   return (
     <div className="space-y-4 rounded-xl border border-[hsl(var(--settings-subnav-border)/0.7)] bg-[hsl(var(--background))] p-4">
       <div className="space-y-1">
-        <h4 className="text-sm font-medium text-foreground">{getBlockTitle(t, pluginId, block)}</h4>
-        <p className="text-xs leading-6 text-muted-foreground">{getBlockDescription(t, pluginId, block)}</p>
+        <h4 className="text-sm font-medium text-foreground">{getBlockTitle(block)}</h4>
+        <p className="text-xs leading-6 text-muted-foreground">{getBlockDescription(block)}</p>
       </div>
 
       {loading ? <p className="text-sm text-muted-foreground">{t('settings.timeline.resourceBlocks.loading')}</p> : null}
@@ -218,33 +205,19 @@ const PermissionStatusBlock: React.FC<{
     };
   }, [load]);
 
-  const resolveLabel = (item: PluginPermissionStatusItem): string => {
-    if (item.label_i18n_key) {
-      const translated = t(item.label_i18n_key);
-      if (translated !== item.label_i18n_key) {
-        return translated;
-      }
-    }
-    return item.label;
-  };
-
-  const resolveDescription = (item: PluginPermissionStatusItem): string => {
-    if (item.description_i18n_key) {
-      const translated = t(item.description_i18n_key);
-      if (translated !== item.description_i18n_key) {
-        return translated;
-      }
-    }
-    return item.description ?? '';
-  };
+  // Permission item labels/descriptions are pre-translated server-side from
+  // plugin i18n (see ``_translate_resource_payload`` in the backend), so we
+  // simply trust the values returned from the API.
+  const resolveLabel = (item: PluginPermissionStatusItem): string => item.label;
+  const resolveDescription = (item: PluginPermissionStatusItem): string => item.description ?? '';
 
   return (
     <div className="space-y-3 rounded-xl border border-[hsl(var(--settings-subnav-border)/0.7)] bg-[hsl(var(--background))] p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
-          <h4 className="text-sm font-medium text-foreground">{getBlockTitle(t, pluginId, block)}</h4>
-          {getBlockDescription(t, pluginId, block) ? (
-            <p className="text-xs leading-6 text-muted-foreground">{getBlockDescription(t, pluginId, block)}</p>
+          <h4 className="text-sm font-medium text-foreground">{getBlockTitle(block)}</h4>
+          {getBlockDescription(block) ? (
+            <p className="text-xs leading-6 text-muted-foreground">{getBlockDescription(block)}</p>
           ) : null}
         </div>
         <Button

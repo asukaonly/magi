@@ -18,6 +18,7 @@ from ..embedding.embedding_service import MemoryEmbeddingService
 from ..l1.event_store import L1EventStore
 from ..embedding.sqlite_vec_index import SqliteVecIndex
 from .evidence_selector import select_temporal_evidence
+from .episodic_service import EpisodicSummaryLLMService
 from .topic_llm_service import TopicSummaryLLMService
 from .temporal_llm_service import TemporalSummaryLLMService
 from .validator import validate_candidate
@@ -84,6 +85,11 @@ class L3SummaryStore(L3SummaryEmbeddingMixin, L3SummarySearchMixin, L3SummaryPer
         self._topic_llm_service = TopicSummaryLLMService(
             enabled=enable_temporal_llm_summary,
             llm_timeout_seconds=temporal_llm_timeout_seconds,
+            scenario_llm_pool=scenario_llm_pool,
+        )
+        self._episodic_llm_service = EpisodicSummaryLLMService(
+            enabled=True,
+            llm_timeout_seconds=30.0,
             scenario_llm_pool=scenario_llm_pool,
         )
         self._temporal_summary_features_builder = temporal_summary_features_builder
@@ -419,6 +425,68 @@ class L3SummaryStore(L3SummaryEmbeddingMixin, L3SummarySearchMixin, L3SummaryPer
                 "generation_prompt": None,
                 "generation_reason": f"thematic:topic:{normalized_topic}",
                 **generation.summary_overrides,
+            },
+        )
+        return summary
+
+    async def generate_episodic_summary(
+        self,
+        *,
+        l1_store: L1EventStore,
+        episode: Dict[str, Any],
+        episode_event_ids: List[str],
+    ) -> Optional[Dict[str, Any]]:
+        """Build an L3 'episodic' thematic summary for one L2 episode.
+
+        Args:
+            l1_store: shared L1 event store to resolve event_id → row.
+            episode: episode dict (must include episode_id, episode_type,
+                time_start, time_end, primary_entity_ids, primary_topic_keys).
+            episode_event_ids: list of L1 event IDs that belong to the episode
+                (typically from l2.list_episode_events).
+        """
+        await self.initialize()
+        episode_id = str(episode.get("episode_id") or "").strip()
+        if not episode_id:
+            return None
+        if not episode_event_ids:
+            return None
+
+        # Resolve each event_id to its full L1 row. Skip missing.
+        events: list[Dict[str, Any]] = []
+        for event_id in episode_event_ids:
+            row = await l1_store.get_event(event_id)
+            if row is not None:
+                events.append(row)
+        if not events:
+            return None
+
+        pack = self._episodic_llm_service.build_episodic_evidence_pack(
+            episode=episode,
+            events=events,
+        )
+
+        # Build deterministic fallback strings.
+        primary_entity_label = ", ".join(str(e) for e in pack.primary_entity_ids[:3]) or "活动"
+        fallback_label = primary_entity_label[:16]
+        snippets = [e.content for e in pack.events[:2] if e.content]
+        joined = "；".join(snippets)
+        fallback_content = (joined or f"持续 {len(pack.events)} 个事件的活动片段")[:200]
+
+        generation = await self._episodic_llm_service.generate_episodic_candidate(
+            pack,
+            fallback_label=fallback_label,
+            fallback_content=fallback_content,
+        )
+
+        summary = await self.upsert_candidate(
+            candidate=generation.candidate,
+            summary_overrides={
+                "summary_id": f"summary_{uuid.uuid4().hex}",
+                "summary_type": "thematic",
+                "summary_category": "episodic",
+                "period_start": pack.time_start,
+                "period_end": pack.time_end,
             },
         )
         return summary
