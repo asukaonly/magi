@@ -2058,6 +2058,17 @@
         "timedOut": "插件操作超时"
       }
     },
+    "permissionStatus": {
+      "refresh": "刷新",
+      "empty": "暂未报告权限信息。",
+      "required": "必需",
+      "statuses": {
+        "granted": "已授权",
+        "denied": "已拒绝",
+        "notDetermined": "未决定",
+        "unknown": "未知"
+      }
+    },
     "channelStatus": {
       "title": "渠道状态",
       "account": "账号",
@@ -2548,6 +2559,22 @@
       "screenshot_timeline": {
         "name": "屏幕快照时间线",
         "description": "持续截屏并本地 OCR，把你的屏幕活动接入 magi 记忆。",
+        "ui_blocks": {
+          "macos_permissions": {
+            "title": "macOS 权限",
+            "description": "屏幕录制为必需权限。辅助功能为可选权限，仅在使用键盘触发和紧急快捷键时需要。"
+          }
+        },
+        "permissions": {
+          "screen_recording": {
+            "label": "屏幕录制",
+            "description": "捕获屏幕内容所必需。"
+          },
+          "accessibility": {
+            "label": "辅助功能",
+            "description": "用于键盘触发和紧急快捷键（可选）。"
+          }
+        },
         "fields": {
           "sensors.timeline.enabled": {
             "label": "启用",

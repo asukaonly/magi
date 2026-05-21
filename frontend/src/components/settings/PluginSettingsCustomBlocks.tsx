@@ -1,11 +1,15 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { RefreshCw, Shield, ShieldAlert, ShieldCheck } from 'lucide-react';
 
 import {
   pluginsApi,
+  type PluginPermissionStatus,
+  type PluginPermissionStatusItem,
   type PluginSettingsResourceGroup,
   type PluginSettingsUiBlockSpec,
 } from '@/api/modules/plugins';
+import { Button } from '@/components/ui/button';
 
 interface PluginSettingsCustomBlocksProps {
   pluginId: string;
@@ -152,6 +156,154 @@ const CalendarListResourcePicker: React.FC<{
   );
 };
 
+const getPermissionStatusKey = (status: PluginPermissionStatus): string => {
+  switch (status) {
+    case 'granted':
+      return 'settings.permissionStatus.statuses.granted';
+    case 'denied':
+      return 'settings.permissionStatus.statuses.denied';
+    case 'not_determined':
+      return 'settings.permissionStatus.statuses.notDetermined';
+    case 'unknown':
+    default:
+      return 'settings.permissionStatus.statuses.unknown';
+  }
+};
+
+const renderPermissionIcon = (status: PluginPermissionStatus) => {
+  if (status === 'granted') {
+    return <ShieldCheck className="h-5 w-5 text-emerald-600" aria-hidden="true" />;
+  }
+  if (status === 'denied') {
+    return <ShieldAlert className="h-5 w-5 text-amber-600" aria-hidden="true" />;
+  }
+  if (status === 'not_determined') {
+    return <Shield className="h-5 w-5 text-amber-500" aria-hidden="true" />;
+  }
+  return <Shield className="h-5 w-5 text-muted-foreground" aria-hidden="true" />;
+};
+
+const PermissionStatusBlock: React.FC<{
+  pluginId: string;
+  block: PluginSettingsUiBlockSpec;
+}> = ({ pluginId, block }) => {
+  const { t } = useTranslation('app');
+  const [items, setItems] = useState<PluginPermissionStatusItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const payload = await pluginsApi.getSettingsResource(pluginId, block.resource_name);
+      const rawItems = Array.isArray(payload.data?.items) ? payload.data.items : [];
+      setItems(rawItems as PluginPermissionStatusItem[]);
+    } catch (fetchError: any) {
+      setError(fetchError?.message || 'unknown');
+    } finally {
+      setLoading(false);
+    }
+  }, [block.resource_name, pluginId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      if (!cancelled) {
+        await load();
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [load]);
+
+  const resolveLabel = (item: PluginPermissionStatusItem): string => {
+    if (item.label_i18n_key) {
+      const translated = t(item.label_i18n_key);
+      if (translated !== item.label_i18n_key) {
+        return translated;
+      }
+    }
+    return item.label;
+  };
+
+  const resolveDescription = (item: PluginPermissionStatusItem): string => {
+    if (item.description_i18n_key) {
+      const translated = t(item.description_i18n_key);
+      if (translated !== item.description_i18n_key) {
+        return translated;
+      }
+    }
+    return item.description ?? '';
+  };
+
+  return (
+    <div className="space-y-3 rounded-xl border border-[hsl(var(--settings-subnav-border)/0.7)] bg-[hsl(var(--background))] p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="space-y-1">
+          <h4 className="text-sm font-medium text-foreground">{getBlockTitle(t, pluginId, block)}</h4>
+          {getBlockDescription(t, pluginId, block) ? (
+            <p className="text-xs leading-6 text-muted-foreground">{getBlockDescription(t, pluginId, block)}</p>
+          ) : null}
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0"
+          onClick={() => void load()}
+          disabled={loading}
+          aria-label={t('settings.permissionStatus.refresh')}
+          title={t('settings.permissionStatus.refresh')}
+        >
+          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" />
+        </Button>
+      </div>
+
+      {error ? (
+        <p className="text-sm text-destructive">
+          {t('settings.timeline.errors.resourceLoadFailed', { message: error })}
+        </p>
+      ) : null}
+
+      {!error && items.length === 0 && !loading ? (
+        <p className="text-sm text-muted-foreground">{t('settings.permissionStatus.empty')}</p>
+      ) : null}
+
+      {!error && items.length > 0 ? (
+        <ul className="space-y-1.5">
+          {items.map((item) => {
+            const statusLabel = t(getPermissionStatusKey(item.status));
+            const description = resolveDescription(item);
+            return (
+              <li
+                key={item.id}
+                className="flex items-center gap-3 rounded-lg border border-transparent px-1 py-1.5"
+              >
+                <div className="shrink-0">{renderPermissionIcon(item.status)}</div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-baseline gap-x-2">
+                    <span className="text-sm text-foreground">{resolveLabel(item)}</span>
+                    <span className="text-xs text-muted-foreground">({statusLabel})</span>
+                    {item.required ? (
+                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
+                        {t('settings.permissionStatus.required')}
+                      </span>
+                    ) : null}
+                  </div>
+                  {description ? (
+                    <p className="text-xs text-muted-foreground">{description}</p>
+                  ) : null}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+    </div>
+  );
+};
+
 export const PluginSettingsCustomBlocks: React.FC<PluginSettingsCustomBlocksProps> = ({
   pluginId,
   blocks,
@@ -177,6 +329,9 @@ export const PluginSettingsCustomBlocks: React.FC<PluginSettingsCustomBlocksProp
               onChange={onChange}
             />
           );
+        }
+        if (block.type === 'resource_picker' && block.presentation === 'permission_status') {
+          return <PermissionStatusBlock key={block.block_id} pluginId={pluginId} block={block} />;
         }
         return null;
       })}
