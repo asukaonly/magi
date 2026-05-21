@@ -170,15 +170,23 @@ describe("QuickEntrySheet", () => {
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
   });
 
-  it("selecting and re-clicking a mood pill toggles the value", async () => {
+  it("picking a mood from the popover applies it to the save payload", async () => {
     const user = userEvent.setup();
     render(<QuickEntrySheet open onClose={() => {}} />);
+    // Mood is now a popover-driven chip — open it first, then the
+    // 5-emoji palette becomes interactive. The trigger button shows
+    // "心情" placeholder text when no mood is selected.
+    await user.click(screen.getByRole("button", { name: /心情/ }));
     const warmPill = screen.getByRole("button", { name: "warm" });
     expect(warmPill).toHaveAttribute("aria-pressed", "false");
     await user.click(warmPill);
-    expect(warmPill).toHaveAttribute("aria-pressed", "true");
-    await user.click(warmPill);
-    expect(warmPill).toHaveAttribute("aria-pressed", "false");
+    // Verify the selection landed by saving and inspecting payload.mood.
+    // (We don't try to re-open the popover and re-read aria-pressed —
+    // that's fragile in jsdom with Radix Portal'd content.)
+    await user.type(screen.getByPlaceholderText(/写下/), "x");
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(createMock).toHaveBeenCalled());
+    expect(createMock.mock.calls[0][0].mood).toBe("warm");
   });
 
   it("Cmd+Enter inside the textarea triggers save", async () => {

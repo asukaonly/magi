@@ -153,6 +153,10 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
   /** Single Radix Popover for time selection; Popper handles edge collision
    *  so the calendar can't overflow the sheet boundary. */
   const [timePickerOpen, setTimePickerOpen] = useState(false);
+  /** Mood is now a popover-driven chip (same shape as time/location).
+   *  The inline 5-pill row took too much horizontal space and looked
+   *  asymmetric next to the two other dropdown chips. */
+  const [moodPickerOpen, setMoodPickerOpen] = useState(false);
   const [location, setLocation] = useState<string | null>(null);
   /** Inline location input — replaces window.prompt which is silently
    *  swallowed by Radix Sheet's focus trap. */
@@ -200,6 +204,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
     // Reset transient UI state on every open so stale edit flags from
     // a previous session don't leak through.
     setTimePickerOpen(false);
+    setMoodPickerOpen(false);
     setEditingLocation(false);
   }, [open, existingEntry, initialLocationLabel]);
 
@@ -396,6 +401,296 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
     setMode('quick');
   }, []);
 
+  /** Chip row JSX — mood / time / location / weather. Extracted as a
+   *  variable so we can render it ABOVE the editor (where the user
+   *  wanted it — set the context first, then write). Quick and long
+   *  modes both consume the same JSX, so there's exactly one source
+   *  of truth for the chip row's behavior + styling. */
+  const chipRow = (
+    <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+      {/* Mood chip */}
+      <Popover open={moodPickerOpen} onOpenChange={setMoodPickerOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="flex h-7 items-center gap-1 rounded-full border border-border/60 px-2.5 hover:bg-foreground/[0.03]"
+            title={
+              mood
+                ? `${mood} · ${MOOD_HINT[mood]}`
+                : t('timeline.manualEntry.moodPlaceholderHint', {
+                    defaultValue: '选一个心情',
+                  })
+            }
+          >
+            {mood ? (
+              <span className="text-base leading-none" aria-hidden="true">
+                {MOOD_EMOJI[mood]}
+              </span>
+            ) : (
+              <>
+                <span className="opacity-60" aria-hidden="true">🙂</span>
+                <span>
+                  {t('timeline.manualEntry.moodPlaceholder', { defaultValue: '心情' })}
+                </span>
+              </>
+            )}
+            <span aria-hidden="true">▾</span>
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          side="bottom"
+          align="start"
+          sideOffset={6}
+          className="w-auto p-1"
+        >
+          <div className="flex items-center gap-0.5">
+            {MOODS.map((m) => {
+              const isSelected = mood === m;
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => {
+                    // Same toggle semantics as the old inline pills:
+                    // clicking the active emoji clears.
+                    setMood(isSelected ? null : m);
+                    setMoodPickerOpen(false);
+                  }}
+                  aria-label={m}
+                  aria-pressed={isSelected ? 'true' : 'false'}
+                  title={`${m} · ${MOOD_HINT[m]}`}
+                  className={cn(
+                    'flex h-9 w-9 items-center justify-center rounded-full text-xl leading-none transition-all',
+                    isSelected
+                      ? 'bg-foreground/10 ring-1 ring-foreground/40'
+                      : 'opacity-60 hover:opacity-100 hover:bg-foreground/5',
+                  )}
+                >
+                  {MOOD_EMOJI[m]}
+                </button>
+              );
+            })}
+          </div>
+        </PopoverContent>
+      </Popover>
+
+      {/* Time chip */}
+      <Popover open={timePickerOpen} onOpenChange={setTimePickerOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="flex h-7 items-center gap-1 rounded-full border border-border/60 px-2.5 hover:bg-foreground/[0.03]"
+          >
+            🕐 {shiftLabel(timeShift, t)} ▾
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          side="bottom"
+          align="start"
+          sideOffset={6}
+          className="w-auto p-0"
+        >
+          <div className="flex flex-col p-1">
+            {TIME_SHIFT_PRESETS.filter((p) => p.id !== 'custom').map((preset) => {
+              const isActive =
+                preset.id === timeShift.kind ||
+                (preset.id === 'minus-hour' && timeShift.kind === 'minus-hour');
+              return (
+                <button
+                  key={preset.id}
+                  type="button"
+                  onClick={() => {
+                    if (preset.id === 'minus-hour') {
+                      setTimeShift({ kind: 'minus-hour', hours: 1 });
+                    } else {
+                      setTimeShift({ kind: preset.id } as TimeShift);
+                    }
+                    setTimePickerOpen(false);
+                  }}
+                  className={cn(
+                    'w-full rounded px-2 py-1.5 text-left text-xs',
+                    isActive
+                      ? 'bg-foreground/10 text-foreground'
+                      : 'text-foreground/80 hover:bg-foreground/5',
+                  )}
+                >
+                  {t(preset.labelKey, { defaultValue: preset.defaultLabel })}
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => {
+                setTimeShift({ kind: 'custom', eventAt: shiftToEventAt(timeShift) });
+              }}
+              className={cn(
+                'w-full rounded px-2 py-1.5 text-left text-xs',
+                timeShift.kind === 'custom'
+                  ? 'bg-foreground/10 text-foreground'
+                  : 'text-foreground/80 hover:bg-foreground/5',
+              )}
+            >
+              {t('timeline.manualEntry.timeShift.custom', { defaultValue: '自定义…' })}
+            </button>
+          </div>
+          {timeShift.kind === 'custom' ? (
+            <>
+              <div className="border-t border-border" />
+              <Calendar
+                mode="single"
+                selected={new Date(shiftToEventAt(timeShift) * 1000)}
+                onSelect={(date) => {
+                  if (!date) return;
+                  const current = new Date(shiftToEventAt(timeShift) * 1000);
+                  const next = new Date(date);
+                  next.setHours(current.getHours(), current.getMinutes(), 0, 0);
+                  setTimeShift({ kind: 'custom', eventAt: Math.floor(next.getTime() / 1000) });
+                }}
+                initialFocus
+              />
+              <div className="border-t border-border px-3 py-2">
+                <div className="mb-1.5 text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+                  {t('timeline.manualEntry.hour', { defaultValue: '时' })}
+                </div>
+                <div className="grid grid-cols-6 gap-1">
+                  {Array.from({ length: 24 }, (_, i) => i).map((h) => {
+                    const current = new Date(shiftToEventAt(timeShift) * 1000);
+                    const isSel = h === current.getHours();
+                    return (
+                      <button
+                        key={h}
+                        type="button"
+                        onClick={() => {
+                          const dt = new Date(shiftToEventAt(timeShift) * 1000);
+                          dt.setHours(h, dt.getMinutes(), 0, 0);
+                          setTimeShift({ kind: 'custom', eventAt: Math.floor(dt.getTime() / 1000) });
+                        }}
+                        className={cn(
+                          'rounded px-2 py-1 text-xs',
+                          isSel
+                            ? 'bg-foreground text-background'
+                            : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground',
+                        )}
+                      >
+                        {String(h).padStart(2, '0')}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="mb-1.5 mt-2.5 text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+                  {t('timeline.manualEntry.minute', { defaultValue: '分' })}
+                </div>
+                <div className="grid grid-cols-4 gap-1">
+                  {[0, 15, 30, 45].map((mm) => {
+                    const current = new Date(shiftToEventAt(timeShift) * 1000);
+                    const bucket = Math.floor(current.getMinutes() / 15) * 15;
+                    const isSel = mm === bucket;
+                    return (
+                      <button
+                        key={mm}
+                        type="button"
+                        onClick={() => {
+                          const dt = new Date(shiftToEventAt(timeShift) * 1000);
+                          dt.setMinutes(mm, 0, 0);
+                          setTimeShift({ kind: 'custom', eventAt: Math.floor(dt.getTime() / 1000) });
+                        }}
+                        className={cn(
+                          'rounded px-2 py-1 text-xs',
+                          isSel
+                            ? 'bg-foreground text-background'
+                            : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground',
+                        )}
+                      >
+                        :{String(mm).padStart(2, '0')}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          ) : null}
+        </PopoverContent>
+      </Popover>
+
+      {/* Location chip */}
+      {editingLocation ? (
+        <input
+          type="text"
+          autoFocus
+          defaultValue={location ?? ''}
+          placeholder={t('timeline.manualEntry.locationPrompt', {
+            defaultValue: '输入地点',
+          })}
+          onBlur={(e) => {
+            const v = e.target.value.trim();
+            setLocation(v ? v : null);
+            setEditingLocation(false);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              (e.target as HTMLInputElement).blur();
+            } else if (e.key === 'Escape') {
+              e.preventDefault();
+              setEditingLocation(false);
+            }
+          }}
+          className="h-7 w-32 rounded-full border border-border/60 bg-background px-2.5 text-xs"
+        />
+      ) : location ? (
+        <span className="flex h-7 items-center gap-1 rounded-full border border-border/60 px-2.5">
+          <MapPin className="h-3 w-3" />
+          <button
+            type="button"
+            onClick={() => setEditingLocation(true)}
+            className="hover:underline"
+            title={t('timeline.manualEntry.editLocation', { defaultValue: '修改地点' })}
+          >
+            {location}
+          </button>
+          <button
+            type="button"
+            onClick={() => setLocation(null)}
+            aria-label="clear location"
+            className="ml-0.5 text-muted-foreground hover:text-foreground"
+          >
+            ✕
+          </button>
+        </span>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setEditingLocation(true)}
+          className="flex h-7 items-center gap-1 rounded-full border border-dashed border-border/60 px-2.5 text-muted-foreground hover:bg-foreground/[0.03] hover:text-foreground"
+        >
+          <MapPin className="h-3 w-3" />
+          {t('timeline.manualEntry.addLocation', { defaultValue: '加地点' })}
+        </button>
+      )}
+
+      {/* Weather chip — read-only auto-resolved snapshot. */}
+      {weather && weatherEmoji(weather.code) ? (
+        <span
+          className="flex h-7 items-center gap-1 rounded-full border border-border/60 px-2.5"
+          title={t('timeline.manualEntry.weatherTitle', {
+            defaultValue: '自动获取的天气',
+          })}
+        >
+          <span aria-hidden="true">{weatherEmoji(weather.code)}</span>
+          <span className="tabular-nums">{Math.round(weather.temp_c)}°</span>
+          <button
+            type="button"
+            onClick={() => setWeather(null)}
+            aria-label="clear weather"
+            className="ml-0.5 text-muted-foreground hover:text-foreground"
+          >
+            ✕
+          </button>
+        </span>
+      ) : null}
+    </div>
+  );
+
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
       <DialogContent
@@ -481,6 +776,12 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
         </DialogHeader>
 
         <div className="space-y-3 px-6 pb-5 pt-3">
+          {/* Chip row goes ABOVE the editor — the user sets the context
+              (mood / time / place) first, then writes. Pre-extracted
+              into the chipRow constant; same JSX, just one render
+              location. */}
+          {chipRow}
+
           {/* Body editor — mode-switched. Quick is a plain textarea (the
               default; matches the casual capture brief). Long mounts
               Tiptap with the formatting toolbar. The plain-text body
@@ -571,279 +872,6 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
             </div>
           </div>
 
-          {/* Compact chip row: mood emoji pills + time + location.
-              One line keeps the sheet small; emojis convey mood without a
-              legend; time and location are chip-style so the visual weight
-              stays consistent across all three controls. */}
-          <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-            {/* Mood emoji pills */}
-            <div className="flex items-center gap-0.5">
-              {MOODS.map((m) => {
-                const isSelected = mood === m;
-                return (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => setMood(isSelected ? null : m)}
-                    aria-label={m}
-                    aria-pressed={isSelected ? 'true' : 'false'}
-                    title={`${m} · ${MOOD_HINT[m]}`}
-                    className={cn(
-                      'flex h-7 w-7 items-center justify-center rounded-full text-base leading-none transition-all',
-                      isSelected
-                        ? 'bg-foreground/10 ring-1 ring-foreground/40'
-                        : 'opacity-60 hover:opacity-100 hover:bg-foreground/5',
-                    )}
-                  >
-                    {MOOD_EMOJI[m]}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Spacer between mood and chips */}
-            <span className="mx-1 h-4 w-px bg-border/60" aria-hidden="true" />
-
-            {/* Time chip — single Popover whose Content is Radix-Portal'd
-                and Popper-positioned, so the calendar can't clip past the
-                sheet edge. Preset buttons + (when "自定义" is active) a
-                shadcn Calendar + 6×4 hour grid + 4-cell minute grid. The
-                Calendar component is the same one used by the title bar so
-                the visual style matches across the app. */}
-            <Popover open={timePickerOpen} onOpenChange={setTimePickerOpen}>
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  className="flex h-7 items-center gap-1 rounded-full border border-border/60 px-2.5 hover:bg-foreground/[0.03]"
-                >
-                  🕐 {shiftLabel(timeShift, t)} ▾
-                </button>
-              </PopoverTrigger>
-              <PopoverContent
-                side="top"
-                align="start"
-                sideOffset={6}
-                className="w-auto p-0"
-              >
-                {/* Preset row — quick path for the common cases. */}
-                <div className="flex flex-col p-1">
-                  {TIME_SHIFT_PRESETS.filter((p) => p.id !== 'custom').map((preset) => {
-                    const isActive =
-                      preset.id === timeShift.kind ||
-                      (preset.id === 'minus-hour' && timeShift.kind === 'minus-hour');
-                    return (
-                      <button
-                        key={preset.id}
-                        type="button"
-                        onClick={() => {
-                          if (preset.id === 'minus-hour') {
-                            setTimeShift({ kind: 'minus-hour', hours: 1 });
-                          } else {
-                            setTimeShift({ kind: preset.id } as TimeShift);
-                          }
-                          setTimePickerOpen(false);
-                        }}
-                        className={cn(
-                          'w-full rounded px-2 py-1.5 text-left text-xs',
-                          isActive
-                            ? 'bg-foreground/10 text-foreground'
-                            : 'text-foreground/80 hover:bg-foreground/5',
-                        )}
-                      >
-                        {t(preset.labelKey, { defaultValue: preset.defaultLabel })}
-                      </button>
-                    );
-                  })}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      // Switch to custom mode seeded with the current shift's
-                      // resolved moment — so picking "自定义" after "1 小时前"
-                      // starts the calendar at that time, not at now.
-                      setTimeShift({ kind: 'custom', eventAt: shiftToEventAt(timeShift) });
-                    }}
-                    className={cn(
-                      'w-full rounded px-2 py-1.5 text-left text-xs',
-                      timeShift.kind === 'custom'
-                        ? 'bg-foreground/10 text-foreground'
-                        : 'text-foreground/80 hover:bg-foreground/5',
-                    )}
-                  >
-                    {t('timeline.manualEntry.timeShift.custom', { defaultValue: '自定义…' })}
-                  </button>
-                </div>
-                {timeShift.kind === 'custom' ? (
-                  <>
-                    <div className="border-t border-border" />
-                    <Calendar
-                      mode="single"
-                      selected={new Date(shiftToEventAt(timeShift) * 1000)}
-                      onSelect={(date) => {
-                        if (!date) return;
-                        // Preserve the hour/minute already chosen — Calendar
-                        // only contributes the year/month/day.
-                        const current = new Date(shiftToEventAt(timeShift) * 1000);
-                        const next = new Date(date);
-                        next.setHours(current.getHours(), current.getMinutes(), 0, 0);
-                        setTimeShift({ kind: 'custom', eventAt: Math.floor(next.getTime() / 1000) });
-                      }}
-                      initialFocus
-                    />
-                    <div className="border-t border-border px-3 py-2">
-                      <div className="mb-1.5 text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
-                        {t('timeline.manualEntry.hour', { defaultValue: '时' })}
-                      </div>
-                      <div className="grid grid-cols-6 gap-1">
-                        {Array.from({ length: 24 }, (_, i) => i).map((h) => {
-                          const current = new Date(shiftToEventAt(timeShift) * 1000);
-                          const isSel = h === current.getHours();
-                          return (
-                            <button
-                              key={h}
-                              type="button"
-                              onClick={() => {
-                                const dt = new Date(shiftToEventAt(timeShift) * 1000);
-                                dt.setHours(h, dt.getMinutes(), 0, 0);
-                                setTimeShift({ kind: 'custom', eventAt: Math.floor(dt.getTime() / 1000) });
-                              }}
-                              className={cn(
-                                'rounded px-2 py-1 text-xs',
-                                isSel
-                                  ? 'bg-foreground text-background'
-                                  : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground',
-                              )}
-                            >
-                              {String(h).padStart(2, '0')}
-                            </button>
-                          );
-                        })}
-                      </div>
-                      <div className="mb-1.5 mt-2.5 text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
-                        {t('timeline.manualEntry.minute', { defaultValue: '分' })}
-                      </div>
-                      <div className="grid grid-cols-4 gap-1">
-                        {[0, 15, 30, 45].map((mm) => {
-                          const current = new Date(shiftToEventAt(timeShift) * 1000);
-                          // Quantize the displayed minute to the nearest
-                          // bucket so "刚才 → 自定义" with current minute = 23
-                          // still highlights the :15 button.
-                          const bucket = Math.floor(current.getMinutes() / 15) * 15;
-                          const isSel = mm === bucket;
-                          return (
-                            <button
-                              key={mm}
-                              type="button"
-                              onClick={() => {
-                                const dt = new Date(shiftToEventAt(timeShift) * 1000);
-                                dt.setMinutes(mm, 0, 0);
-                                setTimeShift({ kind: 'custom', eventAt: Math.floor(dt.getTime() / 1000) });
-                              }}
-                              className={cn(
-                                'rounded px-2 py-1 text-xs',
-                                isSel
-                                  ? 'bg-foreground text-background'
-                                  : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground',
-                              )}
-                            >
-                              :{String(mm).padStart(2, '0')}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </>
-                ) : null}
-              </PopoverContent>
-            </Popover>
-
-            {/* Location chip — always present so the user can manually
-                add a place when LocationResolver hasn't produced a sample
-                yet (e.g. fresh install, IPGeo poll hasn't ticked).
-                Auto-resolved values come in via initialLocationLabel.
-                When editingLocation is true the chip becomes an inline
-                text input — we can't use window.prompt because Radix
-                Sheet's focus trap suppresses native prompts. */}
-            {editingLocation ? (
-              <input
-                type="text"
-                autoFocus
-                defaultValue={location ?? ''}
-                placeholder={t('timeline.manualEntry.locationPrompt', {
-                  defaultValue: '输入地点',
-                })}
-                onBlur={(e) => {
-                  const v = e.target.value.trim();
-                  setLocation(v ? v : null);
-                  setEditingLocation(false);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    (e.target as HTMLInputElement).blur();
-                  } else if (e.key === 'Escape') {
-                    e.preventDefault();
-                    setEditingLocation(false);
-                  }
-                }}
-                className="h-7 w-32 rounded-full border border-border/60 bg-background px-2.5 text-xs"
-              />
-            ) : location ? (
-              <span className="flex h-7 items-center gap-1 rounded-full border border-border/60 px-2.5">
-                <MapPin className="h-3 w-3" />
-                <button
-                  type="button"
-                  onClick={() => setEditingLocation(true)}
-                  className="hover:underline"
-                  title={t('timeline.manualEntry.editLocation', { defaultValue: '修改地点' })}
-                >
-                  {location}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setLocation(null)}
-                  aria-label="clear location"
-                  className="ml-0.5 text-muted-foreground hover:text-foreground"
-                >
-                  ✕
-                </button>
-              </span>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setEditingLocation(true)}
-                className="flex h-7 items-center gap-1 rounded-full border border-dashed border-border/60 px-2.5 text-muted-foreground hover:bg-foreground/[0.03] hover:text-foreground"
-              >
-                <MapPin className="h-3 w-3" />
-                {t('timeline.manualEntry.addLocation', { defaultValue: '加地点' })}
-              </button>
-            )}
-
-            {/* Weather chip — read-only auto-resolved snapshot. Shown
-                only on existing entries that already have weather (we
-                don't pre-fetch in create mode; the backend attaches it
-                inline on save and the next refresh renders the chip).
-                Includes a ✕ to clear: if the auto-resolution is wrong,
-                empty is better than fabricated. */}
-            {weather && weatherEmoji(weather.code) ? (
-              <span
-                className="flex h-7 items-center gap-1 rounded-full border border-border/60 px-2.5"
-                title={t('timeline.manualEntry.weatherTitle', {
-                  defaultValue: '自动获取的天气',
-                })}
-              >
-                <span aria-hidden="true">{weatherEmoji(weather.code)}</span>
-                <span className="tabular-nums">{Math.round(weather.temp_c)}°</span>
-                <button
-                  type="button"
-                  onClick={() => setWeather(null)}
-                  aria-label="clear weather"
-                  className="ml-0.5 text-muted-foreground hover:text-foreground"
-                >
-                  ✕
-                </button>
-              </span>
-            ) : null}
-          </div>
 
           {/* Footer */}
           <div className="flex items-center justify-end gap-2 border-t border-border/40 pt-3">
