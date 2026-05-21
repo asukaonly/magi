@@ -11,14 +11,23 @@ from typing import Any, Dict, List, Literal, Optional
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class ConversationTurn:
+    """A single turn from the chat history, used to anchor indexical references."""
+
+    role: Literal["user", "assistant"]
+    content: str
+    timestamp: float  # unix seconds
+
+
 @dataclass
 class RetrievalQuery:
     """Query contract for memory retrieval."""
 
     query: str
-    user_id: Optional[str]
-    session_id: Optional[str]
-    time_range: Dict[str, Any]
+    user_id: Optional[str] = None
+    session_id: Optional[str] = None
+    time_range: Dict[str, Any] = field(default_factory=dict)
     query_mode: Optional[str] = None  # unified mode; None = auto-detect
     source_filters: List[str] = field(default_factory=list)
     domain_filters: List[str] = field(default_factory=list)
@@ -28,6 +37,9 @@ class RetrievalQuery:
     # so the L1 event of the just-typed user message is suppressed even when
     # the LLM rephrases ``query``. Empty/None disables the extra filter.
     exclude_user_text: Optional[str] = None
+    # Recent chat history used to resolve indexical references ("that game",
+    # "the one we talked about"). None means no context available.
+    conversation_context: Optional[list[ConversationTurn]] = None
 
 
 @dataclass
