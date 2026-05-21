@@ -87,7 +87,6 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     return emptyDoc();
     // Intentionally only on mount — runtime value changes flow through
     // editor commands, not via reseeding (which would reset cursor).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Build extensions once per mount, capturing the placeholder text.
@@ -95,7 +94,6 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
   // schema and lose the editor's transaction history.
   const extensions = useMemo(
     () => buildRichTextExtensions(placeholder),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
 
@@ -165,7 +163,6 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     return () => {
       editor?.destroy();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const applyLink = useCallback(

@@ -100,7 +100,7 @@ class L3ReviewOperationsMixin:
             return None
         # _row_to_dict is provided by L3SummaryPersistenceMixin which is always
         # present in L3SummaryStore alongside this mixin.
-        return self._row_to_dict(row)  # type: ignore[attr-defined]
+        return self._row_to_dict(row)  # type: ignore[attr-defined,no-any-return]
 
 
 def _decode_metadata(raw: Any) -> Dict[str, Any]:
