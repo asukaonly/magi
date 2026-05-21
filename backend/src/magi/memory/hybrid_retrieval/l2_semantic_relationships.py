@@ -2,10 +2,39 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 
 from .models import L2Conditions, L2SemanticFrame
 from .protocols import L2StoreProtocol
+
+if TYPE_CHECKING:
+    from .grounding import L2GroundingPlan
+
+
+def _plan_from_conditions(
+    *,
+    conditions: L2Conditions,
+    user_id: str,
+    answer_kind: str,
+) -> "L2GroundingPlan":
+    """Synthesize a minimal ``L2GroundingPlan`` for ``_execute_topology``.
+
+    Affinity handlers only need ``subject_entity_ids`` + ``allowed_evidence_classes``.
+    """
+    from .grounding import GroundedEntityCandidate, L2GroundingPlan
+
+    plan = L2GroundingPlan(answer_kind=answer_kind, subject_scope="self")
+    plan.subject_candidates = [
+        GroundedEntityCandidate(
+            entity_id=f"user:{user_id}",
+            entity_type="person",
+            surface="self",
+            score=1.0,
+            source="rule",
+        )
+    ]
+    plan.allowed_evidence_classes = conditions.allowed_evidence_classes
+    return plan
 
 
 class L2SemanticRelationshipMixin:
@@ -68,45 +97,42 @@ class L2SemanticRelationshipMixin:
         status_filters: list[str] | None,
         user_id: str,
     ) -> list[dict[str, Any]] | None:
-        platform_constraint = self._find_constraint(semantic_frame.constraints, scope="target", facet="platform")
-        if platform_constraint is None:
-            platform_constraint = self._find_constraint(semantic_frame.constraints, scope="interaction", facet="platform")
-        platform_entity_id = platform_constraint.resolved_entity_id if platform_constraint else None
-        if not platform_entity_id:
-            return await self._store.get_relationships(
-                subject_id=f"user:{user_id}",
-                predicates=self._predicates_for_semantic_frame(semantic_frame),
-                object_types=["presence", "person"],
-                status_filters=status_filters,
-                limit=conditions.limit,
-            )
+        from .topology_registry import ANSWER_KIND_TOPOLOGIES, _execute_topology
 
-        topology_edges = await self._store.get_relationships(
-            predicates=["ON_PLATFORM"],
-            object_id=platform_entity_id,
-            status_filters=status_filters,
-            limit=max(conditions.limit * 5, 20),
+        # Constraint preprocessing: platform filter narrows candidate creators.
+        platform_constraint = self._find_constraint(
+            semantic_frame.constraints, scope="target", facet="platform"
         )
-        candidate_ids = self._collect_candidate_subject_ids(topology_edges)
-        if not candidate_ids:
-            return []
-
-        relationships: list[dict[str, Any]] = []
-        predicates = self._predicates_for_semantic_frame(semantic_frame)
-        for candidate_id in candidate_ids:
-            relationships.extend(
-                await self._store.get_relationships(
-                    subject_id=f"user:{user_id}",
-                    object_id=candidate_id,
-                    predicates=predicates,
-                    status_filters=status_filters,
-                    limit=conditions.limit,
-                )
+        if platform_constraint is None:
+            platform_constraint = self._find_constraint(
+                semantic_frame.constraints, scope="interaction", facet="platform"
             )
-        deduped = self._dedupe_relationships(relationships)
-        if semantic_frame.answer_unit == "identity":
-            return await self._lift_creator_presence_relationships(deduped)
-        return deduped
+        platform_entity_id = (
+            platform_constraint.resolved_entity_id if platform_constraint else None
+        )
+
+        candidate_object_ids: list[str] | None = None
+        if platform_entity_id:
+            topology_edges = await self._store.get_relationships(
+                predicates=["ON_PLATFORM"],
+                object_id=platform_entity_id,
+                status_filters=status_filters,
+                limit=max(conditions.limit * 5, 20),
+            )
+            candidate_object_ids = self._collect_candidate_subject_ids(topology_edges)
+            if not candidate_object_ids:
+                return []
+
+        plan = _plan_from_conditions(
+            conditions=conditions, user_id=user_id, answer_kind="creator"
+        )
+        return await _execute_topology(
+            spec=ANSWER_KIND_TOPOLOGIES["creator"],
+            plan=plan,
+            store=self._store,
+            limit=conditions.limit,
+            candidate_object_ids=candidate_object_ids,
+        )
 
     async def _execute_place_affinity_relationship_plan(
         self,
@@ -116,17 +142,36 @@ class L2SemanticRelationshipMixin:
         status_filters: list[str] | None,
         user_id: str,
     ) -> list[dict[str, Any]] | None:
-        target_location_constraint = self._find_constraint(semantic_frame.constraints, scope="target", facet="located_in")
-        interaction_location_constraint = self._find_constraint(
-            semantic_frame.constraints,
-            scope="interaction",
-            facet="located_in",
+        from .topology_registry import ANSWER_KIND_TOPOLOGIES, _execute_topology
+
+        # Constraint preprocessing: target/interaction location + category filter.
+        target_location_constraint = self._find_constraint(
+            semantic_frame.constraints, scope="target", facet="located_in"
         )
-        target_location_entity_id = target_location_constraint.resolved_entity_id if target_location_constraint else None
+        interaction_location_constraint = self._find_constraint(
+            semantic_frame.constraints, scope="interaction", facet="located_in"
+        )
+        target_location_entity_id = (
+            target_location_constraint.resolved_entity_id
+            if target_location_constraint
+            else None
+        )
         interaction_location_entity_id = (
-            interaction_location_constraint.resolved_entity_id if interaction_location_constraint else None
+            interaction_location_constraint.resolved_entity_id
+            if interaction_location_constraint
+            else None
+        )
+        category_constraint = self._find_constraint(
+            semantic_frame.constraints, scope="target", facet="category"
+        )
+        category_value = (
+            category_constraint.resolved_facet_value if category_constraint else None
         )
 
+        # Interaction-location branch: intersect places the user already has
+        # evidence on with those LOCATED_IN the interaction place (optionally
+        # narrowed by category). The intersection shape doesn't fit the
+        # executor's two-mode contract; keep this branch inline.
         if interaction_location_entity_id:
             evidence_relationships = await self._store.get_relationships(
                 subject_id=f"user:{user_id}",
@@ -143,9 +188,7 @@ class L2SemanticRelationshipMixin:
                 limit=max(conditions.limit * 5, 20),
             )
             location_ids = set(self._collect_candidate_subject_ids(topology_edges))
-            candidate_ids = [candidate_id for candidate_id in candidate_ids if candidate_id in location_ids]
-            category_constraint = self._find_constraint(semantic_frame.constraints, scope="target", facet="category")
-            category_value = category_constraint.resolved_facet_value if category_constraint else None
+            candidate_ids = [cid for cid in candidate_ids if cid in location_ids]
             if candidate_ids and category_value:
                 candidate_ids = await self._store.filter_entity_ids_by_facet(
                     entity_ids=candidate_ids,
@@ -156,21 +199,26 @@ class L2SemanticRelationshipMixin:
                 return []
             return self._dedupe_relationships(
                 [
-                    relationship
-                    for relationship in evidence_relationships
-                    if str(relationship.get("object_id") or "").strip() in set(candidate_ids)
+                    rel
+                    for rel in evidence_relationships
+                    if str(rel.get("object_id") or "").strip() in set(candidate_ids)
                 ]
             )
 
+        # No location constraint: plain user→place fetch via executor.
         if not target_location_entity_id:
-            return await self._store.get_relationships(
-                subject_id=f"user:{user_id}",
-                predicates=self._predicates_for_semantic_frame(semantic_frame),
-                object_types=["place"],
-                status_filters=status_filters,
+            plan = _plan_from_conditions(
+                conditions=conditions, user_id=user_id, answer_kind="place"
+            )
+            return await _execute_topology(
+                spec=ANSWER_KIND_TOPOLOGIES["place"],
+                plan=plan,
+                store=self._store,
                 limit=conditions.limit,
             )
 
+        # Target-location: prefetch candidate places via LOCATED_IN (optionally
+        # narrowed by category) then delegate user→candidate fetch to executor.
         topology_edges = await self._store.get_relationships(
             predicates=["LOCATED_IN"],
             object_id=target_location_entity_id,
@@ -178,8 +226,6 @@ class L2SemanticRelationshipMixin:
             limit=max(conditions.limit * 5, 20),
         )
         candidate_ids = self._collect_candidate_subject_ids(topology_edges)
-        category_constraint = self._find_constraint(semantic_frame.constraints, scope="target", facet="category")
-        category_value = category_constraint.resolved_facet_value if category_constraint else None
         if candidate_ids and category_value:
             candidate_ids = await self._store.filter_entity_ids_by_facet(
                 entity_ids=candidate_ids,
@@ -189,19 +235,16 @@ class L2SemanticRelationshipMixin:
         if not candidate_ids:
             return []
 
-        relationships: list[dict[str, Any]] = []
-        predicates = self._predicates_for_semantic_frame(semantic_frame)
-        for candidate_id in candidate_ids:
-            relationships.extend(
-                await self._store.get_relationships(
-                    subject_id=f"user:{user_id}",
-                    object_id=candidate_id,
-                    predicates=predicates,
-                    status_filters=status_filters,
-                    limit=conditions.limit,
-                )
-            )
-        return self._dedupe_relationships(relationships)
+        plan = _plan_from_conditions(
+            conditions=conditions, user_id=user_id, answer_kind="place"
+        )
+        return await _execute_topology(
+            spec=ANSWER_KIND_TOPOLOGIES["place"],
+            plan=plan,
+            store=self._store,
+            limit=conditions.limit,
+            candidate_object_ids=candidate_ids,
+        )
 
     async def _execute_software_affinity_relationship_plan(
         self,
@@ -212,24 +255,26 @@ class L2SemanticRelationshipMixin:
         user_id: str,
         resolved_entities: list[dict[str, str]],
     ) -> list[dict[str, Any]] | None:
+        from .topology_registry import ANSWER_KIND_TOPOLOGIES, _execute_topology
+
+        # A resolved software entity narrows to a single candidate.
         target_entity_id = self._select_semantic_target_entity_id(
             semantic_frame=semantic_frame,
             resolved_entities=resolved_entities,
         )
-        if not target_entity_id:
-            return await self._store.get_relationships(
-                subject_id=f"user:{user_id}",
-                predicates=self._predicates_for_semantic_frame(semantic_frame),
-                object_types=["software"],
-                status_filters=status_filters,
-                limit=conditions.limit,
-            )
-        return await self._store.get_relationships(
-            subject_id=f"user:{user_id}",
-            object_id=target_entity_id,
-            predicates=self._predicates_for_semantic_frame(semantic_frame),
-            status_filters=status_filters,
+        candidate_object_ids: list[str] | None = (
+            [target_entity_id] if target_entity_id else None
+        )
+
+        plan = _plan_from_conditions(
+            conditions=conditions, user_id=user_id, answer_kind="software"
+        )
+        return await _execute_topology(
+            spec=ANSWER_KIND_TOPOLOGIES["software"],
+            plan=plan,
+            store=self._store,
             limit=conditions.limit,
+            candidate_object_ids=candidate_object_ids,
         )
 
     async def _execute_topic_affinity_relationship_plan(
@@ -240,48 +285,17 @@ class L2SemanticRelationshipMixin:
         status_filters: list[str] | None,
         user_id: str,
     ) -> list[dict[str, Any]] | None:
-        return await self._store.get_relationships(
-            subject_id=f"user:{user_id}",
-            predicates=self._predicates_for_semantic_frame(semantic_frame),
-            object_types=["topic"],
-            status_filters=status_filters,
+        from .topology_registry import ANSWER_KIND_TOPOLOGIES, _execute_topology
+
+        plan = _plan_from_conditions(
+            conditions=conditions, user_id=user_id, answer_kind="topic"
+        )
+        return await _execute_topology(
+            spec=ANSWER_KIND_TOPOLOGIES["topic"],
+            plan=plan,
+            store=self._store,
             limit=conditions.limit,
         )
-
-    async def _lift_creator_presence_relationships(
-        self,
-        relationships: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        lifted: list[dict[str, Any]] = []
-        presence_cache: dict[str, dict[str, Any] | None] = {}
-
-        for relationship in relationships:
-            object_id = str(relationship.get("object_id") or "").strip()
-            object_type = str(relationship.get("object_type") or "").strip()
-            if object_type != "presence" or not object_id:
-                lifted.append(relationship)
-                continue
-
-            if object_id not in presence_cache:
-                presence_edges = await self._store.get_relationships(
-                    subject_id=object_id,
-                    predicates=["PRESENCE_OF"],
-                    limit=1,
-                )
-                presence_cache[object_id] = presence_edges[0] if presence_edges else None
-
-            presence_edge = presence_cache[object_id]
-            if not presence_edge:
-                lifted.append(relationship)
-                continue
-
-            lifted_relationship = dict(relationship)
-            lifted_relationship["object_id"] = presence_edge.get("object_id")
-            lifted_relationship["object_type"] = presence_edge.get("object_type")
-            lifted_relationship["object"] = presence_edge.get("object_id")
-            lifted.append(lifted_relationship)
-
-        return lifted
 
 
 __all__ = ["L2SemanticRelationshipMixin"]
