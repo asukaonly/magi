@@ -2225,7 +2225,8 @@
         "rename": "Rename",
         "annotate": "Annotate",
         "forget": "Forget"
-      }
+      },
+      "awaitingLabel": "Waiting for Magi to draft a title..."
     },
     "portrait": {
       "title": "About you",
@@ -2269,7 +2270,12 @@
       "forgetError": "Operation failed",
       "privacyBody": "View the current privacy scope per source. Modifications are made in Settings.",
       "storageTitle": "Storage stats",
-      "storageBody": "Currently storing {{total}} memories, using {{size}}."
+      "storageBody": "Currently storing {{total}} memories, using {{size}}.",
+      "reconsolidateTitle": "Refresh chapters",
+      "reconsolidateBody": "Let Magi promote recent activity into chapters and draft titles for them.",
+      "reconsolidateRun": "Run now",
+      "reconsolidateBusy": "Running...",
+      "reconsolidateResult": "{{promoted}} promoted · {{standouts}} standout · {{summaries}} new chapters"
     },
     "pages": {
       "workbench": {

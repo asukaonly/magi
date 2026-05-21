@@ -2238,7 +2238,8 @@
         "rename": "重命名",
         "annotate": "备注",
         "forget": "遗忘"
-      }
+      },
+      "awaitingLabel": "等 Magi 起草标题..."
     },
     "portrait": {
       "title": "关于你",
@@ -2282,7 +2283,12 @@
       "forgetError": "操作失败",
       "privacyBody": "查看每个来源当前的隐私范围。修改在「设置」里完成。",
       "storageTitle": "存储统计",
-      "storageBody": "当前共有 {{total}} 条记忆，占用 {{size}}。"
+      "storageBody": "当前共有 {{total}} 条记忆，占用 {{size}}。",
+      "reconsolidateTitle": "整理章节",
+      "reconsolidateBody": "让 Magi 把最近形成的活动片段升级成章节，并给它们起标题。",
+      "reconsolidateRun": "立即整理",
+      "reconsolidateBusy": "整理中...",
+      "reconsolidateResult": "升级 {{promoted}} 条 · 标志 {{standouts}} 条 · 新章节 {{summaries}} 条"
     },
     "pages": {
       "workbench": {

@@ -23,6 +23,7 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.actions.forget': '遗忘',
     'memory.episodes.filters.activity': '活动',
     'memory.episodes.filters.session': '会话',
+    'memory.episodes.awaitingLabel': '等 Magi 起草标题...',
     'common.save': '保存',
     'common.cancel': '取消',
   };
@@ -54,14 +55,20 @@ describe('MemoryEpisodesPage', () => {
   it('renders pinned section above recent section', async () => {
     vi.mocked(memoryApi.listEpisodes).mockResolvedValue({
       items: [
-        { episode_id: 'e1', episode_type: 'activity', user_pinned: true, user_label: '搬家那周', summary: '',
+        {
+          episode_id: 'e1', episode_type: 'activity', user_pinned: true, user_label: '搬家那周',
+          episode_summary: null, summary: '',
           time_start: 1700000000, time_end: 1700100000, primary_entity_ids: [], primary_place_ids: [], primary_topic_keys: [],
-          dominant_mode: null, status: 'active', user_note: '', label: '' } as never,
-        { episode_id: 'e2', episode_type: 'activity', user_pinned: false, user_label: null, summary: '昨天下午聊了一会',
+          dominant_mode: null, status: 'active', user_note: '', label: '',
+        } as never,
+        {
+          episode_id: 'e2', episode_type: 'activity', user_pinned: false, user_label: '昨天下午的活动',
+          episode_summary: null, summary: '',
           time_start: 1700200000, time_end: 1700300000, primary_entity_ids: [], primary_place_ids: [], primary_topic_keys: [],
-          dominant_mode: null, status: 'active', user_note: '', label: '' } as never,
+          dominant_mode: null, status: 'active', user_note: '', label: '',
+        } as never,
       ],
-      total: 2, limit: 50, offset: 0,
+      total: 2, limit: 100, offset: 0,
     });
     renderPage();
     await waitFor(() => {
@@ -70,17 +77,22 @@ describe('MemoryEpisodesPage', () => {
     const pinnedSection = screen.getByTestId('episodes-pinned');
     const recentSection = screen.getByTestId('episodes-recent');
     expect(pinnedSection.textContent).toContain('搬家那周');
-    expect(recentSection.textContent).toContain('昨天下午聊了一会');
+    expect(recentSection.textContent).toContain('昨天下午的活动');
+    // verify surface param is passed
+    expect(memoryApi.listEpisodes).toHaveBeenCalledWith(
+      expect.objectContaining({ surface: 'standout' }),
+    );
   });
 
   it('opens rename dialog and calls annotateEpisode with new user_label on save', async () => {
     vi.mocked(memoryApi.listEpisodes).mockResolvedValue({
       items: [{
-        episode_id: 'e1', episode_type: 'activity', user_pinned: false, user_label: '旧名字', summary: 'demo',
+        episode_id: 'e1', episode_type: 'activity', user_pinned: false, user_label: '旧名字',
+        episode_summary: null, summary: 'demo',
         time_start: 1700000000, time_end: 1700100000, primary_entity_ids: [], primary_place_ids: [], primary_topic_keys: [],
         dominant_mode: null, status: 'active', user_note: '', label: '',
       }] as never,
-      total: 1, limit: 50, offset: 0,
+      total: 1, limit: 100, offset: 0,
     });
     vi.mocked(memoryApi.annotateEpisode).mockResolvedValue({} as never);
     const user = userEvent.setup();
@@ -111,19 +123,41 @@ describe('MemoryEpisodesPage', () => {
   it('toggles pin on an episode', async () => {
     vi.mocked(memoryApi.listEpisodes).mockResolvedValue({
       items: [{
-        episode_id: 'e1', episode_type: 'session', user_pinned: false, user_label: null, summary: 'demo',
+        episode_id: 'e1', episode_type: 'session', user_pinned: false, user_label: '置顶测试',
+        episode_summary: null, summary: '',
         time_start: 1700000000, time_end: 1700100000, primary_entity_ids: [], primary_place_ids: [], primary_topic_keys: [],
         dominant_mode: null, status: 'active', user_note: '', label: '',
       }] as never,
-      total: 1, limit: 50, offset: 0,
+      total: 1, limit: 100, offset: 0,
     });
     vi.mocked(memoryApi.annotateEpisode).mockResolvedValue({} as never);
     const user = userEvent.setup();
     renderPage();
-    await waitFor(() => screen.getByText('demo'));
+    await waitFor(() => screen.getByText('置顶测试'));
     await user.click(screen.getByLabelText(/置顶|Pin/i));
     await waitFor(() => {
       expect(memoryApi.annotateEpisode).toHaveBeenCalledWith('e1', { user_pinned: true });
     });
+  });
+
+  it('uses the L3 summary label when present', async () => {
+    vi.mocked(memoryApi.listEpisodes).mockResolvedValue({
+      items: [{
+        episode_id: 'e1', episode_type: 'activity', user_pinned: false, user_label: null,
+        episode_summary: {
+          summary_id: 'sum-1', content: '你和 v2ex 的下午', label: 'v2ex 下午',
+          updated_at: 1700100000, is_fallback: false,
+        },
+        summary: null,
+        time_start: 1700000000, time_end: 1700100000,
+        primary_entity_ids: ['software:v2ex'], primary_place_ids: [], primary_topic_keys: [],
+        dominant_mode: null, status: 'active', user_note: '', label: '',
+        source_event_count: 12,
+      }] as never,
+      total: 1, limit: 100, offset: 0,
+    });
+    renderPage();
+    await waitFor(() => screen.getByText('v2ex 下午'));
+    expect(screen.getByText('你和 v2ex 的下午')).toBeInTheDocument();
   });
 });
