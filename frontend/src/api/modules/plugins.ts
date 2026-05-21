@@ -30,6 +30,10 @@ export interface ExtensionFieldSpec {
   required: boolean;
   options: ExtensionFieldOption[];
   section: string;
+  /** Plugin-i18n-sourced section label (only set when the plugin overrides it). */
+  section_translated?: string | null;
+  /** Plugin-i18n-sourced section note (only set when the plugin overrides it). */
+  section_note_translated?: string | null;
   surface: ExtensionSurface;
   order: number;
   placeholder?: string | null;

@@ -29,17 +29,6 @@ type ActionState = {
 
 const delay = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
-const getPluginTranslation = (
-  t: (key: string, params?: Record<string, any>) => string,
-  pluginId: string,
-  key: string,
-  fallback: string
-): string => {
-  const translationKey = `settings.plugins.${pluginId}.${key}`;
-  const translated = t(translationKey);
-  return translated === translationKey ? fallback : translated;
-};
-
 const isActionVisible = (action: PluginSettingsActionSpec, values: Record<string, any>) => {
   if (!action.depends_on_key || !action.depends_on_values?.length) {
     return true;
@@ -48,14 +37,11 @@ const isActionVisible = (action: PluginSettingsActionSpec, values: Record<string
 };
 
 /**
- * Resolution order (Phase 2 dual-rail):
- *   1. ``action.{key}_translated`` (from plugin i18n, served by API)
- *   2. host i18n at ``settings.plugins.{pluginId}.actions.{action_id}.{key}``
- *   3. raw ``action[key]`` (English fallback)
+ * Resolution order (Phase 4):
+ *   1. ``action.{key}_translated`` (API, plugin i18n)
+ *   2. raw ``action[key]`` (English fallback from the manifest)
  */
 const getActionCopy = (
-  t: (key: string, params?: Record<string, any>) => string,
-  pluginId: string,
   action: PluginSettingsActionSpec,
   key: 'label' | 'description' | 'button_label'
 ) => {
@@ -63,11 +49,7 @@ const getActionCopy = (
     | 'label_translated'
     | 'description_translated'
     | 'button_label_translated';
-  const apiTranslated = action[translatedKey];
-  if (apiTranslated) {
-    return apiTranslated;
-  }
-  return getPluginTranslation(t, pluginId, `actions.${action.action_id}.${key}`, action[key]);
+  return action[translatedKey] || action[key];
 };
 
 const getQrImageSource = (data: Record<string, any>): string => {
@@ -262,12 +244,12 @@ export const PluginSettingsActions: React.FC<PluginSettingsActionsProps> = ({
               <div className="space-y-1">
                 <div className="flex items-center gap-2 text-sm font-medium text-foreground">
                   {action.presentation === 'qr_code' ? <QrCode className="h-4 w-4 text-primary" /> : null}
-                  {getActionCopy(t, pluginId, action, 'label')}
+                  {getActionCopy(action, 'label')}
                   {status ? <Badge variant={getStatusVariant(status)}>{status}</Badge> : null}
                 </div>
                 {action.description ? (
                   <p className="max-w-3xl text-xs leading-6 text-muted-foreground">
-                    {getActionCopy(t, pluginId, action, 'description')}
+                    {getActionCopy(action, 'description')}
                   </p>
                 ) : null}
               </div>
@@ -294,7 +276,7 @@ export const PluginSettingsActions: React.FC<PluginSettingsActionsProps> = ({
                   onClick={() => void startAction(action)}
                 >
                   {running ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  {getActionCopy(t, pluginId, action, 'button_label')}
+                  {getActionCopy(action, 'button_label')}
                 </Button>
               </div>
             </div>
@@ -304,7 +286,7 @@ export const PluginSettingsActions: React.FC<PluginSettingsActionsProps> = ({
                 <div className="flex h-40 w-40 items-center justify-center rounded-md border border-input bg-background p-3">
                   <img
                     src={qrImageSource}
-                    alt={getActionCopy(t, pluginId, action, 'label')}
+                    alt={getActionCopy(action, 'label')}
                     className="h-full w-full object-contain"
                   />
                 </div>

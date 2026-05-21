@@ -157,6 +157,20 @@ def _serialize_field(
             f"{plugin_id_normalized}.fields.{field_key_short}.description",
             field.description,
         )
+        # Section label lookup: prefer per-plugin override; falls back to the
+        # raw section key so the frontend can apply its shared section table.
+        section_value = field_dict.get("section")
+        if isinstance(section_value, str) and section_value:
+            field_dict["section_translated"] = translate_with_fallback(
+                i18n,
+                f"{plugin_id_normalized}.sections.{section_value}",
+                None,
+            )
+            field_dict["section_note_translated"] = translate_with_fallback(
+                i18n,
+                f"{plugin_id_normalized}.section_notes.{section_value}",
+                None,
+            )
 
     if field_dict.get("options"):
         translated_options = []
