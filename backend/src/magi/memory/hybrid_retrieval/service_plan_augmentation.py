@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from .answerability import has_temporal_anchor
+from .evidence_routing import infer_allowed_evidence_classes
 from .intent_decider import enrich_l2_conditions
 from .models import L1Conditions, L2Conditions, LayerQueryPlan, RetrievalPayload, RetrievalQuery
 from .service_policy import plan_signature
@@ -69,6 +70,13 @@ class HybridRetrievalPlanAugmentationMixin:
                 include_assertions=True,
             )
             enrich_l2_conditions(l2_conditions, request.query)
+            if l2_conditions.allowed_evidence_classes is None:
+                inferred = infer_allowed_evidence_classes(
+                    predicate_family=l2_conditions.predicate_family,
+                    subject_scope=l2_conditions.subject_hint,
+                )
+                if inferred is not None:
+                    l2_conditions.allowed_evidence_classes = inferred
             l2_plan = LayerQueryPlan(
                 layer="L2",
                 conditions=l2_conditions,

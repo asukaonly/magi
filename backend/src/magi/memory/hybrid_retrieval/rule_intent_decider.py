@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
+from .evidence_routing import infer_allowed_evidence_classes
 from .intent_time import (
     day_range,
     end_of_day,
@@ -127,6 +128,13 @@ class RuleBasedIntentDecider:
                 include_assertions=True,
             )
             enrich_l2_conditions(conditions, inp.query)
+            if conditions.allowed_evidence_classes is None:
+                inferred = infer_allowed_evidence_classes(
+                    predicate_family=conditions.predicate_family,
+                    subject_scope=conditions.subject_hint,
+                )
+                if inferred is not None:
+                    conditions.allowed_evidence_classes = inferred
         elif layer == "L3":
             conditions = L3Conditions(
                 content_query=inp.query,
