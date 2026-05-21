@@ -12,6 +12,10 @@ from .control_plane import ControlPlaneModule
 from .lifecycle import LifecycleModule
 from .maintenance import OtherDependenciesModule
 
+from ..core.logger import get_logger
+
+logger = get_logger(__name__)
+
 from ..agent.lifecycle import AgentRuntimeModule, AgentScheduleRegistrationModule
 from ..awareness.lifecycle import (
     KGSubscriberModule,
@@ -107,9 +111,50 @@ def _build_runtime_trace_module(context: RuntimeBootstrapContext) -> LifecycleMo
     )
 
 
+def _build_subprocess_orphan_cleanup_module(
+    context: RuntimeBootstrapContext,
+) -> LifecycleModule:
+    """Sweep stale child processes from prior backend runs.
+
+    Must execute before any module that spawns a long-lived subprocess
+    (plugins, MCP servers, code-agent CLIs). The PID registry that backs
+    this cleanup is populated by `ManagedSubprocess.spawn(...)` from
+    `magi_plugin_sdk.subprocess`.
+    """
+
+    async def _init_subprocess_cleanup() -> None:
+        # Lazy import: SDK is part of our environment but we avoid loading
+        # it at module-import time in case the SDK is installed in a venv
+        # path that hasn't been finalized yet.
+        from magi_plugin_sdk.subprocess import ManagedSubprocess
+
+        try:
+            killed = ManagedSubprocess.cleanup_orphans()
+            if killed:
+                logger.info(
+                    "Subprocess orphan cleanup completed",
+                    killed=killed,
+                )
+        except Exception as exc:  # noqa: BLE001
+            # Cleanup is best-effort — never block boot on it.
+            logger.warning(
+                "Subprocess orphan cleanup failed",
+                error=repr(exc),
+            )
+
+    return LifecycleModule(
+        name="subprocess_orphan_cleanup",
+        init=_init_subprocess_cleanup,
+    )
+
+
 def _build_infrastructure_modules(context: RuntimeBootstrapContext) -> list[LifecycleModule]:
     """Build the infrastructure-first phase of the runtime worker."""
     return [
+        # Must come first — kills any stale children left behind by a
+        # previous backend instance (crash, force-quit, kill -9) before
+        # plugin / MCP / agent modules start spawning new ones.
+        _build_subprocess_orphan_cleanup_module(context),
         CoreDependenciesModule(context),
         ConfigurationModule(context),
         RuntimeCommandQueueModule(context),

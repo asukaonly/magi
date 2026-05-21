@@ -47,14 +47,36 @@ class ClaudeCodeAdapter:
         binary_path: str,
     ) -> AdapterRunOutcome:
         argv = self._build_argv(req, bundle_dir=bundle_dir, binary_path=binary_path)
-        process = await asyncio.create_subprocess_exec(
-            *argv,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(cwd),
-            env=self._build_env(binary_path),
-        )
+        # ManagedSubprocess registers the PID with the host so that if the
+        # backend crashes mid-delegation, the next boot's cleanup_orphans()
+        # will SIGKILL this CLI. The Claude / Codex binaries are 3rd-party
+        # and can't be modified to self-exit on parent death, so the
+        # registry is the only safety net.
+        try:
+            from magi_plugin_sdk.subprocess import ManagedSubprocess
+        except ImportError:
+            ManagedSubprocess = None  # type: ignore[assignment]
+        managed: Any = None
+        if ManagedSubprocess is not None:
+            managed = await ManagedSubprocess.spawn(
+                argv,
+                label=f"code_agent.claude_code.{req.delegation_id}",
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(cwd),
+                env=self._build_env(binary_path),
+            )
+            process = managed.proc
+        else:
+            process = await asyncio.create_subprocess_exec(
+                *argv,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(cwd),
+                env=self._build_env(binary_path),
+            )
 
         prompt_blob = self._compose_stdin(req)
         try:
@@ -135,9 +157,11 @@ class ClaudeCodeAdapter:
                 asyncio.gather(_drain_stdout(), _drain_stderr()),
                 timeout=req.timeout_s,
             )
-            exit_code = await process.wait()
+            # managed.wait() also removes the PID registry entry — on the
+            # happy path that's what unregisters us.
+            exit_code = await (managed.wait() if managed is not None else process.wait())
         except asyncio.TimeoutError:
-            await self._terminate(process)
+            await self._terminate(process, managed=managed)
             self._persist(stdout_path, stdout_buf)
             self._persist(stderr_path, stderr_buf)
             return AdapterRunOutcome(
@@ -148,7 +172,7 @@ class ClaudeCodeAdapter:
             )
 
         if cancel_token.cancelled:
-            await self._terminate(process)
+            await self._terminate(process, managed=managed)
 
         self._persist(stdout_path, stdout_buf)
         self._persist(stderr_path, stderr_buf)
@@ -260,8 +284,21 @@ class ClaudeCodeAdapter:
         return CostInfo(usd=usd, input_tokens=inp, output_tokens=out)
 
     @staticmethod
-    async def _terminate(process: asyncio.subprocess.Process) -> None:
+    async def _terminate(
+        process: asyncio.subprocess.Process,
+        *,
+        managed: Any = None,
+    ) -> None:
         if process.returncode is not None:
+            return
+        if managed is not None:
+            # Preferred path — ManagedSubprocess.shutdown handles SIGTERM
+            # → SIGKILL escalation AND removes the PID registry entry so
+            # cleanup_orphans on next boot doesn't see a stale row.
+            try:
+                await managed.shutdown(sigterm_grace_seconds=5.0, sigkill_grace_seconds=2.0)
+            except Exception:
+                pass
             return
         try:
             process.terminate()

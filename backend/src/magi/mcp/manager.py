@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 def _default_factory(cfg: MCPServerConfig) -> MCPConnection:
     if isinstance(cfg.transport, StdioTransport):
-        return StdioConnection(cfg.transport)
+        return StdioConnection(cfg.transport, label=f"mcp.{cfg.server.id}")
     if isinstance(cfg.transport, HttpTransport):
         return HttpConnection(cfg.transport)
     raise ValueError(f"unknown transport {cfg.transport!r}")

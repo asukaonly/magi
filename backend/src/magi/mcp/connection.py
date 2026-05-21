@@ -104,9 +104,14 @@ class MCPConnection:
 
 
 class StdioConnection(MCPConnection):
-    def __init__(self, transport: StdioTransport):
+    def __init__(self, transport: StdioTransport, *, label: str = "mcp.stdio"):
         super().__init__()
         self._t = transport
+        # `label` is recorded in the ManagedSubprocess PID registry so
+        # backend startup can match orphaned MCP servers back to their
+        # configured server.id.
+        self._label = label
+        self._managed: Any = None  # ManagedSubprocess | None
         self._proc: asyncio.subprocess.Process | None = None
         self._reader_task: asyncio.Task | None = None
         self._stderr_task: asyncio.Task | None = None
@@ -118,15 +123,32 @@ class StdioConnection(MCPConnection):
 
     async def _start_transport(self) -> None:
         env = {**os.environ, **self._t.env}
-        self._proc = await asyncio.create_subprocess_exec(
-            self._t.command,
-            *self._t.args,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=self._t.cwd or None,
-            env=env,
-        )
+        argv = [self._t.command, *self._t.args]
+        try:
+            from magi_plugin_sdk.subprocess import ManagedSubprocess
+        except ImportError:
+            ManagedSubprocess = None  # type: ignore[assignment]
+
+        if ManagedSubprocess is not None:
+            self._managed = await ManagedSubprocess.spawn(
+                argv,
+                label=self._label,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=self._t.cwd or None,
+                env=env,
+            )
+            self._proc = self._managed.proc
+        else:
+            self._proc = await asyncio.create_subprocess_exec(
+                *argv,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=self._t.cwd or None,
+                env=env,
+            )
         self.state = ConnectionState.CONNECTED
         self._reader_task = asyncio.create_task(self._read_loop())
         self._stderr_task = asyncio.create_task(self._stderr_loop())
@@ -135,7 +157,14 @@ class StdioConnection(MCPConnection):
         if self._proc is None:
             return
         try:
-            if self._proc.returncode is None:
+            if self._managed is not None:
+                # ManagedSubprocess owns the SIGTERM→SIGKILL escalation
+                # and removes the registry entry.
+                await self._managed.shutdown(
+                    sigterm_grace_seconds=2.0,
+                    sigkill_grace_seconds=1.0,
+                )
+            elif self._proc.returncode is None:
                 self._proc.terminate()
                 try:
                     await asyncio.wait_for(self._proc.wait(), timeout=2.0)
