@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace as dc_replace
 from typing import Any, Callable, Dict, List, Optional
 
 from ...config import AppConfig
 from .handlers import L1Handler, L2Handler, L3Handler, L4Handler, execute_plan
 from .evidence.session_bundles import EvidenceBundleMixin
+from .indexical_resolver import resolve as resolve_indexical
 from .intent_decider import IntentDecider, LLMIntentDecider, RuleBasedIntentDecider
 from .mode_registry import MODE_REGISTRY, VALID_MODES
 from .router import normalize_query_mode
@@ -96,6 +98,33 @@ class HybridRetrievalService(
         self._refresh_runtime_config()
         self._refresh_handlers()
 
+        # 0. Indexical resolution — must run BEFORE the intent decider so its
+        #    overrides are authoritative. When a query contains an indexical
+        #    cue (e.g. '当时', 'just now') AND conversation context contains
+        #    at least one assistant turn, force episode_recall + a temporal
+        #    window anchored on that assistant turn. dataclasses.replace keeps
+        #    the caller's request object untouched.
+        indexical = resolve_indexical(
+            query=request.query,
+            conversation_context=request.conversation_context,
+        )
+        indexical_trace: Dict[str, Any] = {}
+        if indexical.is_indexical:
+            anchor = indexical.temporal_anchor
+            request = dc_replace(
+                request,
+                query_mode=indexical.force_mode,
+                time_range=(
+                    {"start": anchor[0], "end": anchor[1]}
+                    if anchor is not None
+                    else request.time_range
+                ),
+            )
+            indexical_trace["indexical_resolved"] = True
+            indexical_trace["indexical_cue"] = indexical.cue_matched
+        elif indexical.cue_matched:
+            indexical_trace["indexical_cue_orphaned"] = indexical.cue_matched
+
         # 1. Resolve query mode — normalize legacy names first
         resolved_mode = normalize_query_mode(request.query_mode)
         mode_explicit = resolved_mode is not None and resolved_mode in VALID_MODES
@@ -116,6 +145,8 @@ class HybridRetrievalService(
                 "domains": request.domain_filters,
             }
         )
+        if indexical_trace:
+            payload.trace.update(indexical_trace)
 
         # 2. L0 unconditional
         if request.session_id and self._memory.l0 is not None:
@@ -155,8 +186,6 @@ class HybridRetrievalService(
         #    weights to avoid keyword-heuristic errors distorting retrieval.
         effective_l1 = self._l1
         if mode_explicit and mode_plan.rrf_profile and self._l1 is not None:
-            from dataclasses import replace as dc_replace
-
             adapted_config = dc_replace(
                 self._config,
                 **{k: v for k, v in mode_plan.rrf_profile.items() if hasattr(self._config, k)},
@@ -167,6 +196,15 @@ class HybridRetrievalService(
         if effective_l1 is not None and mode_plan.l1_retrieval_scopes is not None:
             effective_l1 = effective_l1.with_l1_retrieval_scopes(mode_plan.l1_retrieval_scopes)
             payload.trace["l1_retrieval_scopes"] = list(mode_plan.l1_retrieval_scopes)
+        # Indexical resolver's scope override is authoritative — applies after
+        # the mode-plan scope so it wins for episode_recall (which has no
+        # default L1 scope in the registry). Trace is set even when no L1
+        # handler is wired up so the override intent is observable.
+        if indexical.is_indexical and indexical.l1_retrieval_scope:
+            indexical_scopes = [indexical.l1_retrieval_scope]
+            if effective_l1 is not None:
+                effective_l1 = effective_l1.with_l1_retrieval_scopes(indexical_scopes)
+            payload.trace["l1_retrieval_scopes"] = list(indexical_scopes)
         payload.trace["mode_explicit"] = mode_explicit
 
         return await self._execute_query(
