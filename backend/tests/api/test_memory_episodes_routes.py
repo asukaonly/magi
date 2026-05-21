@@ -51,8 +51,8 @@ def test_list_episodes_surface_standout_returns_only_standouts(app_with_mock_mem
     assert body["surface"] == "standout"
     assert len(body["items"]) == 1
     item = body["items"][0]
-    assert item["summary"]["content"] == "你和 Kimi 的一段下午"
-    assert item["summary"]["label"] == "Kimi 下午"
+    assert item["episode_summary"]["content"] == "你和 Kimi 的一段下午"
+    assert item["episode_summary"]["label"] == "Kimi 下午"
 
 
 def test_list_episodes_surface_standout_null_summary_when_no_l3(app_with_mock_memory):
@@ -70,7 +70,7 @@ def test_list_episodes_surface_standout_null_summary_when_no_l3(app_with_mock_me
     assert r.status_code == 200
     body = r.json()
     assert body["surface"] == "standout"
-    assert body["items"][0]["summary"] is None
+    assert body["items"][0]["episode_summary"] is None
 
 
 def test_list_episodes_surface_standout_null_summary_when_not_generated(app_with_mock_memory):
@@ -88,7 +88,7 @@ def test_list_episodes_surface_standout_null_summary_when_not_generated(app_with
         client = TestClient(app)
         r = client.get("/api/memory/l2/episodes", params={"surface": "standout"})
     assert r.status_code == 200
-    assert r.json()["items"][0]["summary"] is None
+    assert r.json()["items"][0]["episode_summary"] is None
 
 
 def test_list_episodes_default_surface_unchanged(app_with_mock_memory):
@@ -129,7 +129,7 @@ def test_list_episodes_insight_metadata_string_decoded(app_with_mock_memory):
         client = TestClient(app)
         r = client.get("/api/memory/l2/episodes", params={"surface": "standout"})
     assert r.status_code == 200
-    assert r.json()["items"][0]["summary"]["label"] == "from string"
+    assert r.json()["items"][0]["episode_summary"]["label"] == "from string"
 
 
 def test_reconsolidate_runs_consolidate_and_generates_missing_summaries(app_with_mock_memory):

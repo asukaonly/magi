@@ -46,11 +46,11 @@ async def list_l2_episodes(
             for item in items:
                 episode_id = str(item.get("episode_id") or "")
                 if not episode_id:
-                    item["summary"] = None
+                    item["episode_summary"] = None
                     continue
                 l3_row = await unified_memory.l3.get_episodic_summary_by_episode_id(episode_id)
                 if l3_row is None:
-                    item["summary"] = None
+                    item["episode_summary"] = None
                 else:
                     metadata = l3_row.get("insight_metadata") or {}
                     if isinstance(metadata, str):
@@ -60,7 +60,7 @@ async def list_l2_episodes(
                             metadata = {}
                     if not isinstance(metadata, dict):
                         metadata = {}
-                    item["summary"] = {
+                    item["episode_summary"] = {
                         "summary_id": l3_row.get("summary_id"),
                         "content": l3_row.get("content") or "",
                         "label": str(metadata.get("label") or ""),
@@ -69,7 +69,7 @@ async def list_l2_episodes(
                     }
         else:
             for item in items:
-                item["summary"] = None
+                item["episode_summary"] = None
         return {
             "items": items,
             "total": len(items),
