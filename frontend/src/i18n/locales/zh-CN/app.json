@@ -2047,6 +2047,7 @@
       "refresh": "刷新",
       "empty": "暂未报告权限信息。",
       "required": "必需",
+      "openSettings": "打开系统设置",
       "statuses": {
         "granted": "已授权",
         "denied": "已拒绝",

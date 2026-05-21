@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { RefreshCw, Shield, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { ExternalLink, RefreshCw, Shield, ShieldAlert, ShieldCheck } from 'lucide-react';
 
 import {
   pluginsApi,
@@ -10,6 +10,7 @@ import {
   type PluginSettingsUiBlockSpec,
 } from '@/api/modules/plugins';
 import { Button } from '@/components/ui/button';
+import { openExternalUrl } from '@/runtime/desktop';
 
 interface PluginSettingsCustomBlocksProps {
   pluginId: string;
@@ -248,6 +249,7 @@ const PermissionStatusBlock: React.FC<{
           {items.map((item) => {
             const statusLabel = t(getPermissionStatusKey(item.status));
             const description = resolveDescription(item);
+            const showOpenSettings = item.status !== 'granted' && !!item.settings_url;
             return (
               <li
                 key={item.id}
@@ -268,6 +270,19 @@ const PermissionStatusBlock: React.FC<{
                     <p className="text-xs text-muted-foreground">{description}</p>
                   ) : null}
                 </div>
+                {showOpenSettings ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 shrink-0 gap-1.5 px-2.5 text-xs"
+                    onClick={() => void openExternalUrl(item.settings_url!)}
+                    aria-label={t('settings.permissionStatus.openSettings')}
+                    title={t('settings.permissionStatus.openSettings')}
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                    {t('settings.permissionStatus.openSettings')}
+                  </Button>
+                ) : null}
               </li>
             );
           })}
