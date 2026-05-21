@@ -7,6 +7,7 @@ Chrome-history-derived INTERESTED_IN edges (EXTERNAL_OBSERVATION).
 
 from __future__ import annotations
 
+import re
 from typing import Literal, Optional
 
 from ..evidence import EvidenceClass
@@ -48,17 +49,25 @@ def classes_from_focus(focus: Optional[EvidenceFocus]) -> Optional[set[str]]:
     return None
 
 
-_OBSERVED_CUES: tuple[str, ...] = (
-    # Use verbal-aspect forms (e.g. "浏览过" not bare "浏览") so cues don't
-    # match nouns like "浏览器" (browser).
+# CJK cues use verbal-aspect forms (e.g. "浏览过" not bare "浏览") so cues don't
+# match nouns like "浏览器" (browser); CJK substring match is safe.
+_OBSERVED_CUES_CJK: tuple[str, ...] = (
     "浏览过", "访问过", "点开过", "打开过", "看过", "查过",
-    "browse", "browsed", "visit", "visited", "open", "opened",
-    "view", "viewed", "watch", "watched",
 )
-_DECLARED_CUES: tuple[str, ...] = (
+_DECLARED_CUES_CJK: tuple[str, ...] = (
     "喜欢", "讨厌", "说过", "告诉", "想要", "偏好",
-    "like", "dislike", "tell", "told", "say", "said",
-    "prefer", "want",
+)
+
+# English cues are matched with word boundaries so verb forms like "browse"
+# don't substring-match nouns like "browser". The regex uses an unanchored
+# alternation evaluated via ``re.search``.
+_OBSERVED_CUES_EN_RE = re.compile(
+    r"\b(?:browse|browsed|visit|visited|open|opened|view|viewed|watch|watched)\b",
+    re.IGNORECASE,
+)
+_DECLARED_CUES_EN_RE = re.compile(
+    r"\b(?:like|liked|likes|dislike|disliked|tell|told|say|said|prefer|preferred|want|wanted)\b",
+    re.IGNORECASE,
 )
 
 
@@ -71,9 +80,12 @@ def infer_evidence_focus_heuristic(query: str) -> Optional[EvidenceFocus]:
     """
     if not query:
         return None
-    lowered = query.lower()
-    has_observed = any(cue in query or cue in lowered for cue in _OBSERVED_CUES)
-    has_declared = any(cue in query or cue in lowered for cue in _DECLARED_CUES)
+    has_observed = any(cue in query for cue in _OBSERVED_CUES_CJK) or bool(
+        _OBSERVED_CUES_EN_RE.search(query)
+    )
+    has_declared = any(cue in query for cue in _DECLARED_CUES_CJK) or bool(
+        _DECLARED_CUES_EN_RE.search(query)
+    )
     if has_observed and has_declared:
         return "both"
     if has_observed:
