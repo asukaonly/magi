@@ -183,3 +183,72 @@ def test_expired_state_change_insight_filtered_out(app_factory):
     assert "stale" not in ids
     assert "fresh" in ids
     assert "no_expiry" in ids
+
+
+def test_evidence_insight_uses_source_event_ids(app_factory):
+    """For insight summaries, evidence comes from source_event_ids list."""
+    l3 = MagicMock()
+    l3.get_summary_by_id = AsyncMock(return_value={
+        "summary_id": "ins-1",
+        "summary_type": "insight",
+        "summary_category": "state_change",
+        "source_event_ids": ["evt-a", "evt-b"],
+        "period_start": 100.0,
+        "period_end": 200.0,
+    })
+    l1 = MagicMock()
+    l1.get_event = AsyncMock(side_effect=[
+        {"event_id": "evt-a", "timestamp": 100.0, "source": "chat", "event_type": "user_message", "memory_domain": "user_authored", "content": "I slept badly"},
+        {"event_id": "evt-b", "timestamp": 150.0, "source": "chat", "event_type": "user_message", "memory_domain": "user_authored", "content": "mosquito kept biting"},
+    ])
+    unified = MagicMock(); unified.l3 = l3; unified.l1 = l1
+    with override_unified_memory_for_test(unified):
+        client = TestClient(app_factory())
+        resp = client.get("/api/memory/stories/ins-1/evidence")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["mode"] == "source_ids"
+    assert [it["event_id"] for it in body["items"]] == ["evt-a", "evt-b"]
+    assert body["items"][0]["content"] == "I slept badly"
+    l1.get_event.assert_any_await("evt-a")
+    l1.get_event.assert_any_await("evt-b")
+
+
+def test_evidence_temporal_uses_time_window(app_factory):
+    """For temporal summaries, evidence is the L1 events in [period_start, period_end)."""
+    l3 = MagicMock()
+    l3.get_summary_by_id = AsyncMock(return_value={
+        "summary_id": "day-1",
+        "summary_type": "temporal",
+        "summary_category": "day",
+        "source_event_ids": [],
+        "period_start": 1700000000.0,
+        "period_end": 1700086400.0,
+    })
+    l1 = MagicMock()
+    l1.query_events = AsyncMock(return_value=[
+        {"event_id": "e1", "timestamp": 1700010000.0, "source": "chrome_history", "event_type": "SENSOR_EVENT", "memory_domain": "external_activity", "content": "visited example.com"},
+    ])
+    unified = MagicMock(); unified.l3 = l3; unified.l1 = l1
+    with override_unified_memory_for_test(unified):
+        client = TestClient(app_factory())
+        resp = client.get("/api/memory/stories/day-1/evidence")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["mode"] == "time_window"
+    assert len(body["items"]) == 1
+    assert body["items"][0]["event_id"] == "e1"
+    l1.query_events.assert_awaited_once()
+    call_kwargs = l1.query_events.await_args.kwargs
+    assert call_kwargs["start_time"] == 1700000000.0
+    assert call_kwargs["end_time"] == 1700086400.0
+    assert call_kwargs["cognition_eligible"] is True
+
+
+def test_evidence_404_for_missing_summary(app_factory):
+    l3 = MagicMock(); l3.get_summary_by_id = AsyncMock(return_value=None)
+    unified = MagicMock(); unified.l3 = l3
+    with override_unified_memory_for_test(unified):
+        client = TestClient(app_factory())
+        resp = client.get("/api/memory/stories/nope/evidence")
+    assert resp.status_code == 404

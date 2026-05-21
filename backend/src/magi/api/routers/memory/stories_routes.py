@@ -93,6 +93,25 @@ def _derive_title(row: dict[str, Any]) -> str:
     return ""
 
 
+def _project_evidence_event(event: dict[str, Any]) -> dict[str, Any]:
+    """Compact L1 event projection for the evidence rail.
+
+    Keeps timestamp, source, type, and a content preview — drops embeddings,
+    raw metadata blobs, and identity fields the UI doesn't surface.
+    """
+    content = str(event.get("content") or "")
+    if len(content) > 240:
+        content = content[:240].rstrip() + "..."
+    return {
+        "event_id": event.get("event_id"),
+        "timestamp": event.get("timestamp"),
+        "source": event.get("source"),
+        "event_type": event.get("event_type"),
+        "memory_domain": event.get("memory_domain"),
+        "content": content,
+    }
+
+
 class ReviewPatch(BaseModel):
     review_state: str = Field(..., min_length=1)
     user_note: str | None = Field(
@@ -162,6 +181,81 @@ def build_router() -> APIRouter:
             "total": len(combined),
             "limit": limit,
             "offset": offset,
+        }
+
+    @router.get("/stories/{summary_id}/evidence")
+    async def get_story_evidence(
+        summary_id: str,
+        limit: int = Query(default=25, ge=1, le=100),
+    ) -> dict[str, Any]:
+        unified = _get_memory()
+        if unified is None or unified.l3 is None:
+            raise HTTPException(status_code=503, detail="memory_unavailable")
+
+        # 1. Load the summary row.
+        summary = await unified.l3.get_summary_by_id(summary_id)
+        if summary is None:
+            raise HTTPException(status_code=404, detail="summary_not_found")
+
+        summary_type = str(summary.get("summary_type") or "")
+        summary_category = str(summary.get("summary_category") or "")
+
+        # 2. Resolve event IDs (or time window) to fetch.
+        source_ids_raw = summary.get("source_event_ids") or []
+        # source_event_ids is JSON-encoded TEXT in DB; the store layer may
+        # decode it to list, or leave it as string. Handle both.
+        if isinstance(source_ids_raw, str):
+            try:
+                source_ids = json.loads(source_ids_raw)
+            except (json.JSONDecodeError, ValueError):
+                source_ids = []
+        elif isinstance(source_ids_raw, list):
+            source_ids = source_ids_raw
+        else:
+            source_ids = []
+        source_ids = [str(eid).strip() for eid in source_ids if str(eid).strip()]
+
+        l1 = getattr(unified, "l1", None)
+        if l1 is None:
+            return {"summary_id": summary_id, "items": [], "mode": "no_l1"}
+
+        events: list[dict[str, Any]] = []
+        mode: str
+
+        if summary_type == "temporal" or (summary_type != "insight" and not source_ids):
+            # Time-window mode.
+            period_start = summary.get("period_start")
+            period_end = summary.get("period_end")
+            if period_start is None or period_end is None:
+                return {"summary_id": summary_id, "items": [], "mode": "no_window"}
+            events = await l1.query_events(
+                start_time=float(period_start),
+                end_time=float(period_end),
+                cognition_eligible=True,
+                limit=limit,
+                order="desc",
+                include_metadata_json=False,
+                include_embedding=False,
+            )
+            mode = "time_window"
+        else:
+            # ID-list mode (insight, or thematic with source IDs).
+            for event_id in source_ids[:limit]:
+                event = await l1.get_event(event_id)
+                if event is not None:
+                    events.append(event)
+            mode = "source_ids"
+
+        # 3. Project to a compact, frontend-friendly shape.
+        items = [_project_evidence_event(event) for event in events]
+
+        return {
+            "summary_id": summary_id,
+            "summary_type": summary_type,
+            "summary_category": summary_category,
+            "mode": mode,
+            "items": items,
+            "total": len(items),
         }
 
     @router.patch("/stories/{summary_id}/review")

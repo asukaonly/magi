@@ -58,6 +58,7 @@ def test_register_api_routes_keeps_only_supported_public_surfaces() -> None:
     assert "/api/memory/embeddings/rebuild/{job_id}/cancel" in paths
     assert "/api/memory/stories" in paths
     assert "/api/memory/stories/{summary_id}/review" in paths
+    assert "/api/memory/stories/{summary_id}/evidence" in paths
     assert "/api/memory/portrait" in paths
     assert "/api/memory/portrait/self" in paths
     assert "/api/profile/me" in paths
