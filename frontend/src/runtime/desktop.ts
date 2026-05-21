@@ -104,8 +104,11 @@ export async function openExternalUrl(url: string): Promise<void> {
   }
 
   if (isTauriRuntime()) {
-    const { open } = await import('@tauri-apps/plugin-shell');
-    await open(normalizedUrl);
+    // Use our own Rust command instead of @tauri-apps/plugin-shell to bypass the
+    // built-in URL scope restriction (which would reject custom schemes like
+    // `x-apple.systempreferences:` and `ms-settings:`). The Rust side just
+    // shells out to `open` / `start` / `xdg-open`.
+    await invokeDesktopCommand('open_url', { url: normalizedUrl });
     return;
   }
 

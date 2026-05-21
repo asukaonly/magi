@@ -1197,6 +1197,48 @@ fn cancel_exit_request() -> Result<(), String> {
     Ok(())
 }
 
+/// Open an external URL using the OS's native handler.
+///
+/// Bypasses the Tauri shell plugin's URL scope restrictions so that plugin
+/// authors can deep-link to platform settings panes (e.g.
+/// `x-apple.systempreferences:` on macOS, `ms-settings:` on Windows).
+/// The trade-off: Rust trusts the caller's URL completely. Only frontend
+/// code in this app can invoke it; never expose this to untrusted input.
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    let url = url.trim();
+    if url.is_empty() {
+        return Err("empty URL".to_string());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("/usr/bin/open")
+            .arg(url)
+            .spawn()
+            .map_err(|e| format!("open failed: {e}"))?;
+        return Ok(());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("cmd")
+            .args(["/C", "start", "", url])
+            .spawn()
+            .map_err(|e| format!("start failed: {e}"))?;
+        return Ok(());
+    }
+    #[cfg(target_os = "linux")]
+    {
+        Command::new("xdg-open")
+            .arg(url)
+            .spawn()
+            .map_err(|e| format!("xdg-open failed: {e}"))?;
+        return Ok(());
+    }
+    #[allow(unreachable_code)]
+    Err("unsupported platform".to_string())
+}
+
 #[cfg(windows)]
 mod dwm_caption {
     use std::ffi::c_void;
@@ -1374,6 +1416,7 @@ fn main() {
             apply_start_minimized,
             confirm_exit_app,
             cancel_exit_request,
+            open_url,
             set_window_caption_color
         ])
         .build(tauri::generate_context!())

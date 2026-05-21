@@ -7,16 +7,7 @@
     "core:default",
     "core:window:allow-start-dragging",
     "dialog:allow-open",
-    {
-      "identifier": "shell:allow-open",
-      "allow": [
-        { "url": "^https?://.+" },
-        { "url": "^mailto:.+" },
-        { "url": "^tel:.+" },
-        { "url": "^x-apple\\.systempreferences:.+" },
-        { "url": "^ms-settings:.+" }
-      ]
-    },
+    "shell:allow-open",
     "process:default",
     "log:default",
     "updater:default",
