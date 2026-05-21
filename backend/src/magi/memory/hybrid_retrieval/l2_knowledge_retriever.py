@@ -76,6 +76,7 @@ async def _structured_graph_channel(
     predicates = plan.expanded_predicates or None
     object_types = _extract_object_types(plan)
     status_filters = ["active"]
+    evidence_classes = _evidence_classes_for(plan)
 
     subject_ids = plan.subject_entity_ids
     if subject_ids:
@@ -87,6 +88,7 @@ async def _structured_graph_channel(
             object_types=object_types,
             limit_per_entity=limit,
             temporal_clause=clause_arg,
+            evidence_classes=evidence_classes,
         )
         relationships: list[dict[str, Any]] = []
         for rels in batch_result.values():
@@ -100,6 +102,7 @@ async def _structured_graph_channel(
         object_types=object_types,
         limit=limit,
         temporal_clause=clause_arg,
+        evidence_classes=evidence_classes,
     )
     _tag_channel(results, "structured_graph")
     return results
@@ -222,12 +225,16 @@ async def _topology_creator(
         predicates=predicates,
         object_types=["presence", "person"],
         limit_per_entity=limit,
+        evidence_classes=_evidence_classes_for(plan),
     )
     relationships: list[dict[str, Any]] = []
     for rels in batch_result.values():
         relationships.extend(rels)
 
-    # Resolve presence objects to person identity
+    # Resolve presence objects to person identity.
+    # NOTE: do NOT forward evidence_classes here. PRESENCE_OF is an identity
+    # bridge (system-asserted), not a user preference/self-report — filtering
+    # by the question's allowed classes would orphan candidate identities.
     presence_ids = [
         r["object_id"]
         for r in relationships
@@ -275,6 +282,9 @@ async def _topology_place(
     if not location_constraint:
         return []
 
+    # Topology bridge: LOCATED_IN is a geographic containment fact, not the
+    # answer edge. Do NOT forward evidence_classes — filtering geographic
+    # lookups by (e.g.) user_self_report would empty the candidate set.
     location_rels = await store.get_relationships(
         predicates=["LOCATED_IN"],
         object_id=str(location_constraint),
@@ -291,6 +301,7 @@ async def _topology_place(
 
     results: list[dict[str, Any]] = []
     predicates = plan.expanded_predicates or ["VISITED", "LIKES"]
+    evidence_classes = _evidence_classes_for(plan)
     for cid in candidate_ids[:limit]:
         rels = await store.get_relationships(
             subject_id=subject_ids[0],
@@ -298,6 +309,7 @@ async def _topology_place(
             predicates=predicates,
             status_filters=["active"],
             limit=5,
+            evidence_classes=evidence_classes,
         )
         results.extend(rels)
 
@@ -339,6 +351,17 @@ def _merge_channels(
 def _tag_channel(results: list[dict[str, Any]], channel: str) -> None:
     for r in results:
         r["_channel"] = channel
+
+
+def _evidence_classes_for(plan: L2GroundingPlan) -> list[str] | None:
+    """Materialize plan.allowed_evidence_classes as a list for SQL `IN`.
+
+    Returns ``None`` when the plan didn't opt in, preserving pre-existing
+    behavior for callers that don't constrain by evidence class.
+    """
+    if not plan.allowed_evidence_classes:
+        return None
+    return list(plan.allowed_evidence_classes)
 
 
 def _extract_object_types(plan: L2GroundingPlan) -> list[str] | None:

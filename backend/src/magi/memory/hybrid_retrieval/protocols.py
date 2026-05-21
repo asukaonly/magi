@@ -133,6 +133,7 @@ class L2StoreProtocol(Protocol):
         target_object_id: str | None = ...,
         object_types: List[str] | None = ...,
         limit_per_entity: int = ...,
+        evidence_classes: List[str] | None = ...,
     ) -> Dict[str, List[Dict[str, Any]]]: ...
 
     async def get_relationships(
@@ -143,6 +144,7 @@ class L2StoreProtocol(Protocol):
         status_filters: List[str] | None = ...,
         object_types: List[str] | None = ...,
         limit: int = ...,
+        evidence_classes: List[str] | None = ...,
     ) -> List[Dict[str, Any]]: ...
 
     async def filter_entity_ids_by_facet(

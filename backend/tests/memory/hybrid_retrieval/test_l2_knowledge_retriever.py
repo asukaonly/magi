@@ -1,0 +1,262 @@
+"""Tests that the L2 knowledge retriever forwards ``allowed_evidence_classes``
+from the grounding plan down to the L2 store's relationship queries.
+
+These tests use ``AsyncMock`` rather than seeding a full SQLite DB — the store
+contract for the new ``evidence_classes`` kwarg is exercised directly in
+``tests/memory/l2/test_retrieval_relationships.py``. Here we only assert that
+the retriever passes the kwarg through correctly for each call site.
+"""
+
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from magi.memory.evidence import EvidenceClass
+from magi.memory.hybrid_retrieval.grounding import (
+    GroundedConstraint,
+    GroundedEntityCandidate,
+    GroundedPredicateCandidate,
+    L2GroundingPlan,
+)
+from magi.memory.hybrid_retrieval.l2_knowledge_retriever import retrieve_knowledge
+from magi.memory.hybrid_retrieval.models import TemporalContext
+
+
+def _make_store() -> MagicMock:
+    store = MagicMock()
+    store.get_relationships = AsyncMock(return_value=[])
+    store.batch_get_relationships = AsyncMock(return_value={})
+    store.search_edges_by_embedding = AsyncMock(return_value=[])
+    store.filter_entity_ids_by_facet = AsyncMock(return_value=[])
+    return store
+
+
+def _plan_with_subject(**overrides) -> L2GroundingPlan:
+    plan = L2GroundingPlan(
+        query_kind="preference",
+        subject_candidates=[
+            GroundedEntityCandidate(
+                entity_id="user:u1",
+                entity_type="person",
+                surface="self",
+                score=1.0,
+                source="rule",
+            )
+        ],
+        predicate_candidates=[
+            GroundedPredicateCandidate(predicate="LIKES", family="preference"),
+        ],
+        temporal_context=TemporalContext(mode="none"),
+    )
+    for key, value in overrides.items():
+        setattr(plan, key, value)
+    return plan
+
+
+class TestBatchForwarding:
+    @pytest.mark.asyncio
+    async def test_forwards_evidence_classes_when_plan_field_set(self):
+        """When ``plan.allowed_evidence_classes`` is set, every recall-path
+        ``batch_get_relationships`` call must forward it as a list kwarg."""
+        store = _make_store()
+        plan = _plan_with_subject(
+            allowed_evidence_classes={EvidenceClass.USER_SELF_REPORT.label},
+        )
+
+        await retrieve_knowledge(plan, store)
+
+        batch_calls = store.batch_get_relationships.await_args_list
+        assert batch_calls, "expected at least one batch_get_relationships call"
+        # The structured_graph channel is the recall path here; topology is gated
+        # behind answer_kind so won't fire for plain "preference".
+        for call in batch_calls:
+            assert call.kwargs.get("evidence_classes") == [
+                EvidenceClass.USER_SELF_REPORT.label
+            ], f"forwarding failed in call: {call}"
+
+    @pytest.mark.asyncio
+    async def test_omits_evidence_classes_when_plan_field_none(self):
+        """When ``plan.allowed_evidence_classes`` is ``None`` (default), the
+        retriever must pass ``None`` so the store skips the filter and
+        preserves existing behavior for callers that haven't opted in."""
+        store = _make_store()
+        plan = _plan_with_subject()
+        assert plan.allowed_evidence_classes is None
+
+        await retrieve_knowledge(plan, store)
+
+        for call in store.batch_get_relationships.await_args_list:
+            assert call.kwargs.get("evidence_classes") is None, (
+                "evidence_classes should be None when plan field is unset; "
+                f"got {call}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_creator_topology_skips_evidence_filter_on_identity_bridge(self):
+        """``_topology_creator`` issues two batch calls:
+
+        1. user -> presence/person via FOLLOWS/LIKES (recall path — must filter)
+        2. presence -> person via PRESENCE_OF (identity bridge — must NOT filter)
+
+        Filtering the identity bridge by the question's evidence classes would
+        orphan candidate identities (PRESENCE_OF is system-asserted, not a
+        user_self_report)."""
+        store = _make_store()
+
+        # The structured-graph and topology-creator channels run concurrently
+        # and may interleave; route by predicate so the topology bridge sees
+        # a presence row to resolve regardless of call order.
+        async def fake_batch(**kwargs):
+            preds = kwargs.get("predicates") or []
+            if "PRESENCE_OF" in preds:
+                return {
+                    "presence:p1": [
+                        {
+                            "triple_id": "t2",
+                            "subject_id": "presence:p1",
+                            "predicate": "PRESENCE_OF",
+                            "object_id": "person:q1",
+                            "object_type": "person",
+                        }
+                    ]
+                }
+            # Recall pull: structured graph or topology creator entry call.
+            return {
+                "user:u1": [
+                    {
+                        "triple_id": "t1",
+                        "subject_id": "user:u1",
+                        "predicate": "FOLLOWS",
+                        "object_id": "presence:p1",
+                        "object_type": "presence",
+                    }
+                ]
+            }
+
+        store.batch_get_relationships = AsyncMock(side_effect=fake_batch)
+
+        plan = _plan_with_subject(
+            answer_kind="creator",
+            allowed_evidence_classes={EvidenceClass.USER_SELF_REPORT.label},
+        )
+
+        await retrieve_knowledge(plan, store)
+
+        # The topology creator fires inside retrieve_knowledge, and so does the
+        # structured_graph channel. Find calls that target presence/person
+        # entities (the topology recall) vs PRESENCE_OF (the identity bridge).
+        presence_of_calls = [
+            c for c in store.batch_get_relationships.await_args_list
+            if c.kwargs.get("predicates") == ["PRESENCE_OF"]
+        ]
+        non_presence_of_calls = [
+            c for c in store.batch_get_relationships.await_args_list
+            if c.kwargs.get("predicates") != ["PRESENCE_OF"]
+        ]
+
+        assert presence_of_calls, "expected a PRESENCE_OF identity-bridge call"
+        for call in presence_of_calls:
+            assert call.kwargs.get("evidence_classes") is None, (
+                "PRESENCE_OF identity-bridge call must NOT carry "
+                f"evidence_classes; got {call}"
+            )
+        assert non_presence_of_calls, "expected at least one recall-path call"
+        for call in non_presence_of_calls:
+            assert call.kwargs.get("evidence_classes") == [
+                EvidenceClass.USER_SELF_REPORT.label
+            ], f"recall-path call must forward evidence_classes; got {call}"
+
+
+class TestSingleEntityForwarding:
+    @pytest.mark.asyncio
+    async def test_structured_graph_fallback_forwards_evidence_classes(self):
+        """When the plan has no subject_ids the structured_graph channel
+        falls back to ``get_relationships`` (single-entity / unbounded).
+        It must forward ``evidence_classes`` like the batch path."""
+        store = _make_store()
+        # Build a plan with no subject_candidates so the fallback fires.
+        plan = L2GroundingPlan(
+            query_kind="preference",
+            predicate_candidates=[
+                GroundedPredicateCandidate(predicate="LIKES", family="preference"),
+            ],
+            temporal_context=TemporalContext(mode="none"),
+            allowed_evidence_classes={EvidenceClass.USER_SELF_REPORT.label},
+        )
+        assert not plan.subject_entity_ids
+
+        await retrieve_knowledge(plan, store)
+
+        # The fallback call is the only get_relationships call in this scenario.
+        get_calls = store.get_relationships.await_args_list
+        assert get_calls, "expected get_relationships fallback to fire"
+        for call in get_calls:
+            assert call.kwargs.get("evidence_classes") == [
+                EvidenceClass.USER_SELF_REPORT.label
+            ], f"single-entity fallback must forward evidence_classes; got {call}"
+
+    @pytest.mark.asyncio
+    async def test_place_topology_recall_pull_forwards_but_skips_located_in(self):
+        """``_topology_place`` issues two kinds of ``get_relationships`` calls:
+
+        - ``LOCATED_IN`` lookup (auxiliary geographic containment, MUST NOT
+          carry evidence_classes — geographic facts aren't user_self_reports).
+        - VISITED/LIKES recall edges (MUST carry evidence_classes).
+        """
+        store = _make_store()
+        store.get_relationships = AsyncMock(side_effect=[
+            # LOCATED_IN result -> one candidate place
+            [{"triple_id": "t1", "subject_id": "place:cafe", "object_id": "city:sf"}],
+            # VISITED/LIKES recall result
+            [],
+        ])
+
+        plan = L2GroundingPlan(
+            query_kind="preference",
+            subject_candidates=[
+                GroundedEntityCandidate(
+                    entity_id="user:u1", entity_type="person",
+                    surface="self", score=1.0, source="rule",
+                )
+            ],
+            predicate_candidates=[
+                GroundedPredicateCandidate(predicate="VISITED", family="activity"),
+            ],
+            answer_kind="place",
+            object_constraints=[
+                GroundedConstraint(
+                    field="located_in",
+                    operator="eq",
+                    value="city:sf",
+                    confidence=1.0,
+                ),
+            ],
+            temporal_context=TemporalContext(mode="none"),
+            allowed_evidence_classes={EvidenceClass.USER_SELF_REPORT.label},
+        )
+
+        await retrieve_knowledge(plan, store)
+
+        located_in_calls = [
+            c for c in store.get_relationships.await_args_list
+            if c.kwargs.get("predicates") == ["LOCATED_IN"]
+        ]
+        recall_calls = [
+            c for c in store.get_relationships.await_args_list
+            if c.kwargs.get("predicates") != ["LOCATED_IN"]
+        ]
+
+        assert located_in_calls, "expected LOCATED_IN auxiliary lookup"
+        for call in located_in_calls:
+            assert call.kwargs.get("evidence_classes") is None, (
+                "LOCATED_IN geographic lookup must NOT carry evidence_classes; "
+                f"got {call}"
+            )
+
+        assert recall_calls, "expected VISITED/LIKES recall pull"
+        for call in recall_calls:
+            assert call.kwargs.get("evidence_classes") == [
+                EvidenceClass.USER_SELF_REPORT.label
+            ], f"place-topology recall must forward evidence_classes; got {call}"
