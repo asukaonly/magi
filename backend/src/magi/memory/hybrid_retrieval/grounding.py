@@ -60,6 +60,7 @@ class L2GroundingPlan:
     object_constraints: List[GroundedConstraint] = field(default_factory=list)
     temporal_context: TemporalContext = field(default_factory=TemporalContext)
     confidence: float = 0.5
+    allowed_evidence_classes: Optional[set[str]] = None
 
     @property
     def expanded_predicates(self) -> list[str]:
@@ -122,6 +123,7 @@ def build_grounding_plan(
     _ground_object_constraints(plan, conditions, resolved_entities)
     plan.temporal_context = _build_temporal_context(conditions, time_range)
     plan.confidence = _compute_plan_confidence(plan)
+    plan.allowed_evidence_classes = conditions.allowed_evidence_classes
 
     return plan
 

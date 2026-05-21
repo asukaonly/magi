@@ -124,6 +124,7 @@ class L2Conditions:
     entities: Optional[List[str]] = None
     subject_hint: Optional[str] = None
     predicate_family: Optional[str] = None
+    allowed_evidence_classes: Optional[set[str]] = None
     entity_types: Optional[List[str]] = None
     predicates: Optional[List[str]] = None
     trait_families: Optional[List[str]] = None
