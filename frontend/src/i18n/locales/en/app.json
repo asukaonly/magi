@@ -2639,7 +2639,9 @@
       "detailRail": {
         "evidenceTitle": "Evidence",
         "notePlaceholder": "Want to add a note to this reflection?",
-        "savedNote": "Note saved"
+        "savedNote": "Note saved",
+        "evidenceLoading": "Loading…",
+        "evidenceEmpty": "No related events found."
       }
     },
     "episodes": {
