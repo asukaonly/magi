@@ -14,6 +14,85 @@ from .types import ToolCall, ToolCallResult
 logger = logging.getLogger(__name__)
 
 
+_MEMORY_QUERY_CONTEXT_TURNS = 4
+
+
+def _coerce_message_text(content: Any) -> str:
+    """Best-effort flatten LLM message content into a plain string.
+
+    Conversation history may carry either ``str`` content or a list of
+    structured blocks (text / image). The indexical resolver only needs
+    the textual portion so we join text blocks and drop the rest.
+    """
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if str(block.get("type") or "").strip() != "text":
+                continue
+            text_value = str(block.get("text") or "").strip()
+            if text_value:
+                parts.append(text_value)
+        return "\n".join(parts).strip()
+    return str(content or "").strip()
+
+
+def _inject_memory_query_context(
+    tool_name: str,
+    parameters: dict[str, Any],
+    recent_messages: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    """Auto-inject ``conversation_context`` for ``memory_query`` when missing.
+
+    Phase 3 indexical resolver: queries like ``"当时我说什么"`` need the last
+    few conversation turns to anchor ``"当时"`` / ``"just now"`` references.
+    The chat LLM does not reliably populate ``conversation_context`` (it
+    tends to paraphrase the user query instead), so the dispatcher silently
+    injects the last :data:`_MEMORY_QUERY_CONTEXT_TURNS` turns from the live
+    chat session history before ``Tool.execute`` is invoked.
+
+    Returns a new ``parameters`` dict — the input is never mutated.
+    """
+    if tool_name != "memory_query":
+        return parameters
+    if parameters.get("conversation_context"):
+        return parameters
+    if not recent_messages:
+        return parameters
+
+    last_n = recent_messages[-_MEMORY_QUERY_CONTEXT_TURNS:]
+    enriched_turns: list[dict[str, Any]] = []
+    for msg in last_n:
+        if not isinstance(msg, dict):
+            continue
+        text = _coerce_message_text(msg.get("content"))
+        if not text:
+            continue
+        role = str(msg.get("role") or "user").strip() or "user"
+        timestamp_raw = msg.get("timestamp", 0.0)
+        try:
+            timestamp_value = float(timestamp_raw)
+        except (TypeError, ValueError):
+            timestamp_value = 0.0
+        enriched_turns.append(
+            {
+                "role": role,
+                "content": text,
+                "timestamp": timestamp_value,
+            }
+        )
+
+    if not enriched_turns:
+        return parameters
+
+    enriched = dict(parameters)
+    enriched["conversation_context"] = enriched_turns
+    return enriched
+
+
 class _ToolRegistryProtocol(Protocol):
     def get_tool_info(self, tool_name: str) -> dict[str, Any] | None: ...
 
@@ -86,6 +165,7 @@ class FunctionCallingToolExecutionMixin:
         user_message: str | None = None,
         iteration: int | None = None,
         cancel_token: CancelToken | None = None,
+        recent_messages: list[dict[str, Any]] | None = None,
     ) -> ToolCallResult:
         """Execute a single tool call."""
         host = cast(_FunctionCallingToolExecutionHostProtocol, self)
@@ -94,6 +174,10 @@ class FunctionCallingToolExecutionMixin:
 
         tool_name = tool_call.name
         arguments = tool_call.arguments if isinstance(tool_call.arguments, dict) else {}
+        # Phase 3: auto-inject conversation_context for memory_query so the
+        # indexical resolver can anchor deictic references (e.g. "当时", "just
+        # now"). The chat LLM rarely populates this parameter on its own.
+        arguments = _inject_memory_query_context(tool_name, arguments, recent_messages)
         workspace_root = host._resolve_execution_workspace(execution_workspace)
 
         if await token.is_cancelled():
