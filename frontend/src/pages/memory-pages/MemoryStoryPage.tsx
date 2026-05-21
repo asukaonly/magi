@@ -6,6 +6,43 @@ import StoryDetailRail from '@/components/memory/story/StoryDetailRail';
 import MemoryPageFrame, { MEMORY_EMPTY_PANEL_CLASS } from './MemoryPageFrame';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 
+interface StorySectionProps {
+  title: string;
+  emptyText: string;
+  stories: StoryItem[];
+  onConfirm: (s: StoryItem) => void;
+  onReject: (s: StoryItem) => void;
+  onArchive: (s: StoryItem) => void;
+  onOpenDetail: (s: StoryItem) => void;
+  testId: string;
+}
+
+const StorySection = ({
+  title, emptyText, stories,
+  onConfirm, onReject, onArchive, onOpenDetail,
+  testId,
+}: StorySectionProps) => (
+  <section data-testid={testId} className="space-y-3">
+    <h2 className="text-sm font-medium text-[hsl(var(--memory-muted))]">{title}</h2>
+    {stories.length === 0 ? (
+      <div className={MEMORY_EMPTY_PANEL_CLASS}>
+        <p className="text-sm">{emptyText}</p>
+      </div>
+    ) : (
+      stories.map((story) => (
+        <StoryCard
+          key={story.summary_id}
+          story={story}
+          onConfirm={() => onConfirm(story)}
+          onReject={() => onReject(story)}
+          onArchive={() => onArchive(story)}
+          onOpenDetail={() => onOpenDetail(story)}
+        />
+      ))
+    )}
+  </section>
+);
+
 export const MemoryStoryPage = () => {
   const { t } = useTranslation('app');
   const [items, setItems] = useState<StoryItem[]>([]);
@@ -51,27 +88,34 @@ export const MemoryStoryPage = () => {
 
   return (
     <MemoryPageFrame title={t('memory.stories.title')} description={t('memory.stories.subtitle')}>
-      <section data-testid="memory-stories-feed" className="space-y-3">
+      <section data-testid="memory-stories-feed" className="space-y-6">
         {loading ? (
           <div className={`${MEMORY_EMPTY_PANEL_CLASS} flex items-center gap-2`}>
             <LoadingSpinner className="h-4 w-4" />
           </div>
-        ) : items.length === 0 ? (
-          <div data-testid="memory-stories-empty" className={MEMORY_EMPTY_PANEL_CLASS}>
-            <div className="font-semibold text-[hsl(var(--memory-title))]">{t('memory.stories.emptyTitle')}</div>
-            <p className="mt-1 text-sm">{t('memory.stories.emptyBody')}</p>
-          </div>
         ) : (
-          items.map((story) => (
-            <StoryCard
-              key={story.summary_id}
-              story={story}
-              onConfirm={() => void handleReview(story, 'confirmed')}
-              onReject={() => void handleReview(story, 'rejected')}
-              onArchive={() => void handleReview(story, 'archived')}
-              onOpenDetail={() => setDetailStory(story)}
+          <>
+            <StorySection
+              title={t('memory.stories.sections.reflections')}
+              emptyText={t('memory.stories.sections.reflectionsEmpty')}
+              stories={items.filter((s) => s.summary_type === 'insight')}
+              onConfirm={(s) => void handleReview(s, 'confirmed')}
+              onReject={(s) => void handleReview(s, 'rejected')}
+              onArchive={(s) => void handleReview(s, 'archived')}
+              onOpenDetail={(s) => setDetailStory(s)}
+              testId="memory-stories-section-reflections"
             />
-          ))
+            <StorySection
+              title={t('memory.stories.sections.periodic')}
+              emptyText={t('memory.stories.sections.periodicEmpty')}
+              stories={items.filter((s) => s.summary_type !== 'insight')}
+              onConfirm={(s) => void handleReview(s, 'confirmed')}
+              onReject={(s) => void handleReview(s, 'rejected')}
+              onArchive={(s) => void handleReview(s, 'archived')}
+              onOpenDetail={(s) => setDetailStory(s)}
+              testId="memory-stories-section-periodic"
+            />
+          </>
         )}
       </section>
 

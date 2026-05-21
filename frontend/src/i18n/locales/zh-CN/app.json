@@ -2613,6 +2613,13 @@
       "emptyTitle": "还没有 Magi 关于你的反思",
       "emptyBody": "继续使用一段时间，这里会出现它对你的观察。",
       "evidenceChip": "{{count}} 条证据",
+      "sections": {
+        "reflections": "Magi 的反思",
+        "reflectionsEmpty": "Magi 还没有从你的记忆里得出新的反思。",
+        "periodic": "时段记录",
+        "periodicEmpty": "还没有时段总结。"
+      },
+      "provenance": "Magi 自动生成 · {{timestamp}}",
       "states": {
         "pending_confirmation": "待确认",
         "confirmed": "已确认",

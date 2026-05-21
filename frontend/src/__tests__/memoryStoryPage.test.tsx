@@ -8,7 +8,7 @@ import { memoryStoriesApi } from '@/api/modules/memoryStories';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string) => {
+    t: (key: string, opts?: Record<string, unknown>) => {
       const labels: Record<string, string> = {
         'memory.stories.title': '故事',
         'memory.stories.subtitle': 'Magi 最近编织出的反思和阶段总结。',
@@ -20,8 +20,19 @@ vi.mock('react-i18next', () => ({
         'memory.stories.actions.addNote': '备注',
         'memory.stories.actions.viewEvidence': '查看证据',
         'memory.stories.evidenceChip': '{{count}} 条证据',
+        'memory.stories.sections.reflections': 'Magi 的反思',
+        'memory.stories.sections.reflectionsEmpty': '还没有新的反思',
+        'memory.stories.sections.periodic': '时段记录',
+        'memory.stories.sections.periodicEmpty': '还没有时段总结',
+        'memory.stories.provenance': 'Magi 自动生成 · {{timestamp}}',
       };
-      return labels[key] ?? key;
+      let result = labels[key] ?? key;
+      if (opts) {
+        for (const [k, v] of Object.entries(opts)) {
+          result = result.replace(`{{${k}}}`, String(v));
+        }
+      }
+      return result;
     },
     i18n: { language: 'zh-CN' },
   }),
@@ -47,12 +58,42 @@ beforeEach(() => {
 });
 
 describe('MemoryStoryPage', () => {
-  it('shows empty state when feed has no items', async () => {
+  it('shows per-section empty states when feed has no items', async () => {
     vi.mocked(memoryStoriesApi.list).mockResolvedValue({ items: [], total: 0, limit: 20, offset: 0 });
     renderPage();
     await waitFor(() => {
-      expect(screen.getByTestId('memory-stories-empty')).toBeInTheDocument();
+      expect(screen.getByTestId('memory-stories-section-reflections')).toBeInTheDocument();
     });
+    expect(screen.getByTestId('memory-stories-section-periodic')).toBeInTheDocument();
+    expect(screen.getByText('还没有新的反思')).toBeInTheDocument();
+    expect(screen.getByText('还没有时段总结')).toBeInTheDocument();
+  });
+
+  it('splits insight and temporal items into separate sections', async () => {
+    vi.mocked(memoryStoriesApi.list).mockResolvedValue({
+      items: [
+        {
+          summary_id: 'ins-1', summary_type: 'insight', summary_category: 'state_change',
+          title: 'an insight', content: 'insight body', period_start: 0, period_end: 1700100000,
+          updated_at: 1700100000, review_state: 'pending_confirmation',
+          insight_key: null, insight_metadata: {}, evidence_event_count: 2,
+        } as never,
+        {
+          summary_id: 'day-1', summary_type: 'temporal', summary_category: 'day',
+          title: '', content: 'day digest', period_start: 1700000000, period_end: 1700086400,
+          updated_at: 1700086400, review_state: 'neutral',
+          insight_key: null, insight_metadata: {}, evidence_event_count: 0,
+        } as never,
+      ],
+      total: 2, limit: 20, offset: 0,
+    });
+    renderPage();
+    const reflections = await screen.findByTestId('memory-stories-section-reflections');
+    const periodic = screen.getByTestId('memory-stories-section-periodic');
+    expect(reflections.textContent).toContain('insight body');
+    expect(reflections.textContent).not.toContain('day digest');
+    expect(periodic.textContent).toContain('day digest');
+    expect(periodic.textContent).not.toContain('insight body');
   });
 
   it('renders story cards from the feed', async () => {

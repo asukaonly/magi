@@ -32,6 +32,16 @@ const formatPeriod = (start: number | null, end: number | null, locale: string):
   return new Date(ts * 1000).toLocaleDateString(locale);
 };
 
+const formatProvenance = (ts: number | null | undefined, locale: string): string => {
+  if (!ts) return '—';
+  return new Date(ts * 1000).toLocaleString(locale, {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
 export const StoryCard = ({ story, onConfirm, onReject, onArchive, onOpenDetail }: StoryCardProps) => {
   const { t, i18n } = useTranslation('app');
   const categoryLabel = t(`memory.stories.categories.${story.summary_category}`, { defaultValue: story.summary_category });
@@ -73,25 +83,30 @@ export const StoryCard = ({ story, onConfirm, onReject, onArchive, onOpenDetail 
         {story.content}
       </p>
 
-      <footer className="mt-3 flex flex-wrap items-center justify-between gap-2">
-        {story.summary_type === 'insight' ? (
-          <span className="text-xs text-[hsl(var(--memory-muted))]">
-            {t('memory.stories.evidenceChip', { count: story.evidence_event_count })}
-          </span>
-        ) : <span />}
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="sm" onClick={onConfirm} aria-label={t('memory.stories.actions.confirm')}>
-            <Check className="h-4 w-4" />
-          </Button>
-          <Button variant="ghost" size="sm" onClick={onReject} aria-label={t('memory.stories.actions.reject')}>
-            <X className="h-4 w-4" />
-          </Button>
-          <Button variant="ghost" size="sm" onClick={onArchive} aria-label={t('memory.stories.actions.archive')}>
-            <Archive className="h-4 w-4" />
-          </Button>
-          <Button variant="ghost" size="sm" onClick={onOpenDetail} aria-label={t('memory.stories.actions.addNote')}>
-            <MessageSquare className="h-4 w-4" />
-          </Button>
+      <footer className="mt-3 space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          {story.summary_type === 'insight' ? (
+            <span className="text-xs text-[hsl(var(--memory-muted))]">
+              {t('memory.stories.evidenceChip', { count: story.evidence_event_count })}
+            </span>
+          ) : <span />}
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="sm" onClick={onConfirm} aria-label={t('memory.stories.actions.confirm')}>
+              <Check className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="sm" onClick={onReject} aria-label={t('memory.stories.actions.reject')}>
+              <X className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="sm" onClick={onArchive} aria-label={t('memory.stories.actions.archive')}>
+              <Archive className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="sm" onClick={onOpenDetail} aria-label={t('memory.stories.actions.addNote')}>
+              <MessageSquare className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+        <div className="text-[10px] text-[hsl(var(--memory-muted)/0.8)]">
+          {t('memory.stories.provenance', { timestamp: formatProvenance(story.updated_at, i18n.language) })}
         </div>
       </footer>
     </article>
