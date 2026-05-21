@@ -124,7 +124,7 @@ def test_place_spec_has_located_in_bridge():
         ANSWER_KIND_TOPOLOGIES,
     )
     spec = ANSWER_KIND_TOPOLOGIES["place"]
-    assert spec.primary_predicates == ("VISITED",)
+    assert spec.primary_predicates == ("VISITED", "LIKES", "DISLIKES")
     assert spec.bridge_predicate == "LOCATED_IN"
     assert spec.bridge_skip_evidence_filter is True
 
@@ -239,7 +239,24 @@ async def test_execute_topology_with_candidate_object_ids_uses_get_relationships
     first_call = store.get_relationships.await_args_list[0]
     assert first_call.kwargs["subject_id"] == "user:u1"
     assert first_call.kwargs["object_id"] == "place:cafe1"
-    assert first_call.kwargs["predicates"] == ["VISITED"]
+    assert first_call.kwargs["predicates"] == ["VISITED", "LIKES", "DISLIKES"]
     assert first_call.kwargs["evidence_classes"] == [
         EvidenceClass.USER_SELF_REPORT.label
     ]
+
+
+def test_place_spec_includes_likes_dislikes_for_affinity_parity():
+    """Regression guard: place primary_predicates must include LIKES and DISLIKES
+    to preserve parity with the affinity-side scorer (retrieval_projection_findings
+    weights LIKES at 0.20 for place — higher than VISITED at 0.15) and the
+    semantic-frame predicates_for_semantic_frame('place') path.
+
+    Without this, "what restaurants do I LIKE in Tokyo" queries with no VISITED
+    edges silently return empty results."""
+    from magi.memory.hybrid_retrieval.topology_registry import (
+        ANSWER_KIND_TOPOLOGIES,
+    )
+    place_predicates = set(ANSWER_KIND_TOPOLOGIES["place"].primary_predicates)
+    assert "LIKES" in place_predicates
+    assert "DISLIKES" in place_predicates
+    assert "VISITED" in place_predicates

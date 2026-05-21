@@ -39,7 +39,7 @@ ANSWER_KIND_TOPOLOGIES: dict[str, TopologySpec] = {
         bridge_skip_evidence_filter=True,
     ),
     "place": TopologySpec(
-        primary_predicates=("VISITED",),
+        primary_predicates=("VISITED", "LIKES", "DISLIKES"),
         primary_object_types=("place",),
         bridge_predicate="LOCATED_IN",
         bridge_object_types=("place",),
