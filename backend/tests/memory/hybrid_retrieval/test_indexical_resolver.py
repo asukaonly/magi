@@ -114,16 +114,65 @@ def test_resolver_cue_but_no_assistant_turn_orphans():
 
 
 def test_resolver_anchor_on_most_recent_assistant_turn():
-    """When multiple assistant turns exist, anchor on the most recent."""
+    """When multiple assistant turns exist, anchor on the most recent.
+
+    Uses realistic unix-second timestamps (post-2001-09-09); the bogus
+    timestamp guard in ``_extract_anchor_from_context`` requires this.
+    """
     from magi.memory.hybrid_retrieval.indexical_resolver import resolve
     from magi.memory.hybrid_retrieval.models import ConversationTurn
+    base = 1_700_000_000.0  # 2023-11-14
     turns = [
-        ConversationTurn(role="user", content="q1", timestamp=0.0),
-        ConversationTurn(role="assistant", content="a1", timestamp=100.0),
-        ConversationTurn(role="user", content="q2", timestamp=200.0),
-        ConversationTurn(role="assistant", content="a2", timestamp=300.0),
-        ConversationTurn(role="user", content="q3", timestamp=400.0),
+        ConversationTurn(role="user", content="q1", timestamp=base + 0),
+        ConversationTurn(role="assistant", content="a1", timestamp=base + 100),
+        ConversationTurn(role="user", content="q2", timestamp=base + 200),
+        ConversationTurn(role="assistant", content="a2", timestamp=base + 300),
+        ConversationTurn(role="user", content="q3", timestamp=base + 400),
     ]
     result = resolve(query="当时我说什么", conversation_context=turns)
     assert result.is_indexical is True
-    assert result.temporal_anchor == (180.0, 420.0)  # 300 ± 120
+    # Most-recent assistant turn is at base + 300, window is ±120s
+    assert result.temporal_anchor == (base + 180, base + 420)
+
+
+def test_resolver_drops_anchor_for_bogus_epoch_timestamps():
+    """Defensive guard: when upstream forgets to thread real timestamps in
+    and turns default to epoch-zero, the resolver MUST refuse to anchor —
+    a ``(-120, +120)`` window centered on epoch would prune every real L1
+    event. ``is_indexical`` still fires (the routing intent is valid) but
+    ``temporal_anchor`` is dropped so the downstream service falls back
+    to the request's existing ``time_range`` (typically None)."""
+    from magi.memory.hybrid_retrieval.indexical_resolver import resolve
+    from magi.memory.hybrid_retrieval.models import ConversationTurn
+    turns = [
+        ConversationTurn(role="user", content="q", timestamp=0.0),
+        ConversationTurn(role="assistant", content="a", timestamp=0.0),
+        ConversationTurn(role="user", content="当时我说什么", timestamp=0.0),
+    ]
+    result = resolve(query="当时我说什么", conversation_context=turns)
+    assert result.is_indexical is True
+    assert result.force_mode == "episode_recall"
+    assert result.l1_retrieval_scope == "conversation_only"
+    # No bogus epoch anchor — downstream must not apply a time_range filter.
+    assert result.temporal_anchor is None
+    # Confidence is lower to surface the degraded mode in traces.
+    assert result.confidence == 0.85
+
+
+def test_resolver_realistic_timestamps_produce_anchor():
+    """Regression guard for the real-timestamps contract: when conversation
+    context carries realistic unix-second timestamps (post-2001-09-09), the
+    resolver must produce a window centered on the most recent assistant
+    turn."""
+    from magi.memory.hybrid_retrieval.indexical_resolver import resolve
+    from magi.memory.hybrid_retrieval.models import ConversationTurn
+    t_real = 1_700_000_100.0
+    turns = [
+        ConversationTurn(role="user", content="q", timestamp=t_real - 30),
+        ConversationTurn(role="assistant", content="a", timestamp=t_real),
+        ConversationTurn(role="user", content="当时我说什么", timestamp=t_real + 60),
+    ]
+    result = resolve(query="当时我说什么", conversation_context=turns)
+    assert result.is_indexical is True
+    assert result.temporal_anchor == (t_real - 120.0, t_real + 120.0)
+    assert result.confidence == 0.95

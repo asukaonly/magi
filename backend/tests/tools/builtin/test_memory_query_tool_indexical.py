@@ -212,3 +212,33 @@ def test_inject_tolerates_missing_or_invalid_timestamp():
     assert len(enriched["conversation_context"]) == 2
     assert enriched["conversation_context"][0]["timestamp"] == 0.0
     assert enriched["conversation_context"][1]["timestamp"] == 0.0
+
+
+def test_inject_preserves_realistic_unix_timestamps():
+    """Regression guard for the real-timestamps contract: when the upstream
+    threads realistic unix-second timestamps through ``recent_messages``,
+    the helper must preserve them so the indexical resolver can produce a
+    correct temporal anchor. (When timestamps are missing — see the test
+    above — the resolver's epoch-guard kicks in and drops the anchor.)
+    """
+    from magi.agent.execution.function_calling.tool_execution import (
+        _inject_memory_query_context,
+    )
+
+    t_real = 1_700_000_100.0  # 2023-11-14
+    recent = [
+        {"role": "user", "content": "q", "timestamp": t_real - 30},
+        {"role": "assistant", "content": "a", "timestamp": t_real},
+        {"role": "user", "content": "当时我说什么", "timestamp": t_real + 60},
+    ]
+    enriched = _inject_memory_query_context(
+        "memory_query", {"query": "当时我说什么"}, recent
+    )
+
+    cc = enriched["conversation_context"]
+    assert all(item["timestamp"] > 1_000_000_000.0 for item in cc), (
+        f"timestamps should be realistic unix seconds; got "
+        f"{[item['timestamp'] for item in cc]}"
+    )
+    assert cc[1]["timestamp"] == t_real
+    assert cc[2]["content"] == "当时我说什么"
