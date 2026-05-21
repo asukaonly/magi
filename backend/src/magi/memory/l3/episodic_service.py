@@ -125,20 +125,38 @@ class EpisodicSummaryLLMService(EpisodicEvidencePackMixin):
         return adapter, LLMProviderBridge(adapter)
 
     def _render_user_prompt(self, pack: EpisodicEvidencePack) -> str:
+        entity_label = ", ".join(_render_entity(eid) for eid in pack.primary_entity_ids) or "(none)"
+        topics = pack.primary_topic_keys or pack.derived_topics
+        topics_label = ", ".join(topics) if topics else "(none extracted)"
+        topics_source = "" if pack.primary_topic_keys else " [derived from event entities]"
+
+        verbatim_count = len(pack.events)
+        folded_count = pack.source_event_count - verbatim_count
+
         lines = [
-            f"Episode ID: {pack.episode_id}",
             f"Type: {pack.episode_type}",
             f"Time window: {_format_ts(pack.time_start)} – {_format_ts(pack.time_end)} ({_format_duration(pack.time_end - pack.time_start)})",
-            f"Primary entities: {', '.join(pack.primary_entity_ids) or '(none)'}",
-            f"Primary topics: {', '.join(pack.primary_topic_keys) or '(none)'}",
-            f"Event count: {pack.source_event_count}",
+            f"Primary entities: {entity_label}",
+            f"Topics: {topics_label}{topics_source}",
+            f"Total events: {pack.source_event_count} ({verbatim_count} verbatim, {folded_count} folded into summaries below)",
             "",
-            "Events (chronological):",
         ]
-        for event in pack.events[:30]:
-            ts = _format_ts(event.timestamp) if event.timestamp else "??"
-            lines.append(f"  [{ts}] ({event.event_type}) {event.content}")
-        lines.append("")
+
+        if pack.folded_groups:
+            lines.append("Activity summary (high-volume sensor sources folded):")
+            for group in pack.folded_groups:
+                lines.append(f"  - {group}")
+            lines.append("")
+
+        if pack.events:
+            lines.append("Notable events (chronological):")
+            for event in pack.events:
+                ts = _format_ts(event.timestamp) if event.timestamp else "??"
+                role_prefix = f"{event.role}: " if event.role else ""
+                source_tag = event.source or event.event_type
+                lines.append(f"  [{ts}] ({source_tag}) {role_prefix}{event.content}")
+            lines.append("")
+
         lines.append(f"Output JSON schema:\n{EPISODIC_SUMMARY_OUTPUT_SCHEMA}")
         return "\n".join(lines)
 
@@ -169,8 +187,8 @@ class EpisodicSummaryLLMService(EpisodicEvidencePackMixin):
                         "label": str(item.get("label") or item.get("id")).strip(),
                     })
         return EpisodicSummaryLLMOutput(
-            label=label[:32],
-            content=content[:200],
+            label=label[:36],     # allow 18 zh chars
+            content=content[:240],  # allow ~100 zh chars
             key_topics=key_topics,
             key_entities=key_entities,
         )
@@ -215,6 +233,15 @@ class EpisodicSummaryLLMService(EpisodicEvidencePackMixin):
             summary_overrides={},
             used_fallback=True,
         )
+
+
+def _render_entity(entity_id: str) -> str:
+    """Convert 'software:v2ex' -> 'v2ex (software)' for prompt readability."""
+    if ":" in entity_id:
+        kind, _, name = entity_id.partition(":")
+        if name:
+            return f"{name} ({kind})"
+    return entity_id
 
 
 def _format_ts(ts: float | None) -> str:

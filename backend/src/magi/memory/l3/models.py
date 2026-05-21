@@ -208,13 +208,15 @@ class ThematicGenerationResult:
 
 @dataclass(slots=True)
 class EpisodicEvidenceItem:
-    """Compact episodic-summary evidence item derived from an L1 event."""
+    """Verbatim event kept in the prompt because it carries high signal."""
 
     event_id: str
     event_type: str
     content: str
     timestamp: float | None = None
     importance_score: float | None = None
+    source: str | None = None  # raw L1 source name, e.g. "chat_projector"
+    role: str | None = None    # "user" / "assistant" / None — for chat events
 
 
 @dataclass(slots=True)
@@ -230,6 +232,8 @@ class EpisodicEvidencePack:
     source_event_count: int = 0
     source_event_ids: list[str] = field(default_factory=list)
     events: list[EpisodicEvidenceItem] = field(default_factory=list)
+    folded_groups: list[str] = field(default_factory=list)
+    derived_topics: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
