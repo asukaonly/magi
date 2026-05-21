@@ -11,7 +11,6 @@ import { Button } from '@/components/ui/button';
 interface StoryDetailRailProps {
   story: StoryItem | null;
   onClose: () => void;
-  onSaveNote: (note: string) => Promise<void> | void;
 }
 
 const formatEvidenceTimestamp = (ts: number | null, locale: string): string => {
@@ -24,18 +23,10 @@ const formatEvidenceTimestamp = (ts: number | null, locale: string): string => {
   });
 };
 
-export const StoryDetailRail = ({ story, onClose, onSaveNote }: StoryDetailRailProps) => {
+export const StoryDetailRail = ({ story, onClose }: StoryDetailRailProps) => {
   const { t, i18n } = useTranslation('app');
-  const [note, setNote] = useState('');
-  const [saved, setSaved] = useState(false);
   const [evidence, setEvidence] = useState<StoryEvidenceItem[] | null>(null);
   const [evidenceLoading, setEvidenceLoading] = useState(false);
-
-  useEffect(() => {
-    const existing = (story?.insight_metadata?.user_note ?? '') as string;
-    setNote(existing);
-    setSaved(false);
-  }, [story?.summary_id]);
 
   useEffect(() => {
     if (!story) {
@@ -63,11 +54,6 @@ export const StoryDetailRail = ({ story, onClose, onSaveNote }: StoryDetailRailP
   }, [story?.summary_id]);
 
   if (!story) return null;
-
-  const handleSave = async () => {
-    await onSaveNote(note);
-    setSaved(true);
-  };
 
   const period = story.period_end ? new Date(story.period_end * 1000).toLocaleString(i18n.language) : '';
 
@@ -124,24 +110,6 @@ export const StoryDetailRail = ({ story, onClose, onSaveNote }: StoryDetailRailP
             </div>
           )}
         </div>
-
-        {story.summary_type === 'insight' ? (
-          <div>
-            <textarea
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-              placeholder={t('memory.stories.detailRail.notePlaceholder')}
-              className="w-full rounded-sm border border-[hsl(var(--memory-input-border)/0.7)] bg-[hsl(var(--memory-input-bg))] px-3 py-2 text-sm"
-              rows={4}
-            />
-            <div className="mt-2 flex items-center gap-2">
-              <Button size="sm" onClick={handleSave}>{t('memory.stories.actions.addNote')}</Button>
-              {saved ? (
-                <span className="text-xs text-[hsl(var(--memory-muted))]">{t('memory.stories.detailRail.savedNote')}</span>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
       </div>
     </aside>
   );

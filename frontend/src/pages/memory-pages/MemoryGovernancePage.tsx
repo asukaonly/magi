@@ -1,9 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
-import { memoryStoriesApi, type StoryItem } from '@/api/modules/memoryStories';
 import { memoryApi } from '@/api/modules/memory';
-import StoryCard from '@/components/memory/story/StoryCard';
 import MemoryPageFrame, { MEMORY_SECTION_CARD_CLASS } from './MemoryPageFrame';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -44,46 +42,10 @@ const ForgetCenter = () => {
 
 export const MemoryGovernancePage = () => {
   const { t } = useTranslation('app');
-  const [pending, setPending] = useState<StoryItem[]>([]);
-
-  useEffect(() => {
-    void memoryStoriesApi.list({ limit: 30, offset: 0 }).then((payload) => {
-      setPending(payload.items.filter((item) => item.review_state === 'pending_confirmation'));
-    }).catch(() => setPending([]));
-  }, []);
-
-  const handleReview = async (story: StoryItem, state: 'confirmed' | 'rejected' | 'archived') => {
-    await memoryStoriesApi.review(story.summary_id, { review_state: state });
-    setPending((prev) => prev.filter((it) => it.summary_id !== story.summary_id));
-  };
 
   return (
     <MemoryPageFrame title={t('memory.governance.title')} description={t('memory.governance.subtitle')}>
       <section className={MEMORY_SECTION_CARD_CLASS}>
-        <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold text-[hsl(var(--memory-title))]">
-            {t('memory.governance.sections.pendingReview')}
-          </h2>
-          <span data-testid="governance-pending-count" className="text-sm text-[hsl(var(--memory-muted))]">
-            {pending.length}
-          </span>
-        </div>
-        <p className="mt-1 text-sm text-[hsl(var(--memory-body))]">{t('memory.governance.pendingReviewBody')}</p>
-        <div className="mt-3 space-y-2">
-          {pending.map((story) => (
-            <StoryCard
-              key={story.summary_id}
-              story={story}
-              onConfirm={() => void handleReview(story, 'confirmed')}
-              onReject={() => void handleReview(story, 'rejected')}
-              onArchive={() => void handleReview(story, 'archived')}
-              onOpenDetail={() => {}}
-            />
-          ))}
-        </div>
-      </section>
-
-      <section className={`${MEMORY_SECTION_CARD_CLASS} mt-4`}>
         <h2 className="text-base font-semibold text-[hsl(var(--memory-title))]">
           {t('memory.governance.sections.forget')}
         </h2>

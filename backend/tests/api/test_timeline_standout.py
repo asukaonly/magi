@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import pytest
 
 from magi.timeline.service import TimelineService
@@ -33,7 +35,12 @@ async def test_service_list_standout_includes_user_pinned(
     assert item["episode_id"] == "ep-x"
     assert item["source"] == "user"
     assert item["title"] == "跟 Z 在文渊喝咖啡"
-    assert item["date"] == "2024-05-18"
+    # Date is formatted in the server's local timezone (matches
+    # daily_mood_aggregate's day_local_date convention) — compute the
+    # expected value rather than hardcoding so the test passes on a
+    # non-UTC test runner.
+    expected_date = datetime.fromtimestamp(1715990400.0).strftime("%Y-%m-%d")
+    assert item["date"] == expected_date
 
 
 @pytest.mark.asyncio

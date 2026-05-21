@@ -401,7 +401,8 @@
       "terminal_history": "Terminal History",
       "git_activity": "Git Activity",
       "calendar": "Calendar",
-      "netease_music": "NetEase Cloud Music"
+      "netease_music": "NetEase Cloud Music",
+      "screenshot_timeline": "Screenshot Timeline"
     },
     "feed": {
       "showDetails": "Show details",
@@ -1951,7 +1952,8 @@
         "screen_time": "Track frontmost-app activation events and roll them up into hourly local usage events.",
         "system_media": "Automatically record what music and videos you play across all players.",
         "terminal_history": "Monitor terminal command history from zsh and bash shells.",
-        "git_activity": "Track git repository activity including commits, checkouts, merges, and rebase operations."
+        "git_activity": "Track git repository activity including commits, checkouts, merges, and rebase operations.",
+        "screenshot_timeline": "Captures your screen, runs local OCR, and feeds magi memory."
       },
       "syncModes": {
         "manual": "Manual",
@@ -2530,6 +2532,84 @@
           "activation": "Activation"
         }
       },
+      "screenshot_timeline": {
+        "name": "Screenshot Timeline",
+        "description": "Captures your screen, runs local OCR, and feeds magi memory.",
+        "fields": {
+          "sensors.timeline.enabled": {
+            "label": "Enabled",
+            "description": "Whether the screenshot timeline sensor is active."
+          },
+          "sensors.timeline.capture_scope": {
+            "label": "Capture scope",
+            "description": "What part of the screen to capture each tick."
+          },
+          "sensors.timeline.active_window_interval_sec": {
+            "label": "Active window interval (sec)",
+            "description": "How often to capture the active window. Recommended: 10s."
+          },
+          "sensors.timeline.full_screen_interval_min": {
+            "label": "Full-screen interval (min)",
+            "description": "Periodic full-screen capture interval (used in hybrid or full_screen modes)."
+          },
+          "sensors.timeline.ocr_languages": {
+            "label": "OCR languages",
+            "description": "Apple Vision recognition language codes (BCP-47), e.g. en-US, zh-Hans, ja."
+          },
+          "sensors.timeline.ocr_level": {
+            "label": "OCR recognition level",
+            "description": "Accurate is slower but better quality; fast is the opposite."
+          },
+          "sensors.timeline.original_retention_days": {
+            "label": "Original retention (days)",
+            "description": "Originals older than this are deleted. Thumbnails are kept permanently."
+          },
+          "sensors.timeline.keyboard_triggers_enabled": {
+            "label": "Enable keyboard triggers",
+            "description": "Capture on scroll, arrow keys, space, or delete. Requires Accessibility permission."
+          },
+          "sensors.timeline.keyboard_trigger_types": {
+            "label": "Keyboard trigger keys",
+            "description": "Which keys trigger a capture. Has no effect unless keyboard triggers are enabled."
+          },
+          "sensors.timeline.app_blocklist": {
+            "label": "App blocklist (bundle IDs)",
+            "description": "Bundle IDs to never capture. Glob patterns supported (e.g. com.example.*). Defaults block known password managers and the macOS SecurityAgent; remove entries to allow them."
+          },
+          "sensors.timeline.window_title_blocklist": {
+            "label": "Window title blocklist (substrings)",
+            "description": "Any window whose title contains any of these strings will be skipped."
+          },
+          "sensors.timeline.panic_hotkey": {
+            "label": "Panic hotkey",
+            "description": "Press to immediately pause capture. Format: Modifier+Modifier+Key."
+          },
+          "sensors.timeline.panic_pause_seconds": {
+            "label": "Panic pause duration (sec)",
+            "description": "How long to pause capture after the panic hotkey is pressed."
+          },
+          "sensors.timeline.sync_mode": {
+            "label": "Sync mode",
+            "description": "How the host should pull harvested bursts."
+          }
+        },
+        "options": {
+          "capture_scope": {
+            "active_window": "Active window only",
+            "full_screen": "Primary display (full screen)",
+            "hybrid": "Active window + periodic full screen",
+            "all_displays": "All connected displays"
+          },
+          "ocr_level": {
+            "accurate": "Accurate",
+            "fast": "Fast"
+          },
+          "sync_mode": {
+            "manual": "Manual",
+            "interval": "Interval"
+          }
+        }
+      },
       "telegram": {
         "name": "Telegram",
         "description": "Bidirectional Telegram bot channel adapter",
@@ -2615,10 +2695,7 @@
         "neutral": ""
       },
       "actions": {
-        "confirm": "Confirm",
-        "reject": "Reject",
         "archive": "Archive",
-        "addNote": "Add note",
         "viewEvidence": "View evidence"
       },
       "categories": {
@@ -2638,8 +2715,6 @@
       },
       "detailRail": {
         "evidenceTitle": "Evidence",
-        "notePlaceholder": "Want to add a note to this reflection?",
-        "savedNote": "Note saved",
         "evidenceLoading": "Loading…",
         "evidenceEmpty": "No related events found."
       }
@@ -2698,12 +2773,10 @@
       "title": "Manage",
       "subtitle": "Review, correct, and forget — the memory control panel.",
       "sections": {
-        "pendingReview": "Pending review",
         "forget": "Forget",
         "privacy": "Privacy scope",
         "developer": "Developer view"
       },
-      "pendingReviewBody": "Reflections Magi hasn't confirmed yet are waiting here for your review.",
       "developerBody": "Raw events, L2 structured knowledge, L0 working memory, and L4 procedural skills all live here.",
       "forgetBody": "Delete the memory of a specific entity, time period, or chapter from here.",
       "forgetSuccess": "Forgotten",

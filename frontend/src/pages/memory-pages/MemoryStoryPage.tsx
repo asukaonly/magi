@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { memoryStoriesApi, type StoryItem, type StoryReviewState } from '@/api/modules/memoryStories';
+import { memoryStoriesApi, type StoryItem } from '@/api/modules/memoryStories';
 import StoryCard from '@/components/memory/story/StoryCard';
 import StoryDetailRail from '@/components/memory/story/StoryDetailRail';
 import MemoryPageFrame, { MEMORY_EMPTY_PANEL_CLASS } from './MemoryPageFrame';
@@ -10,8 +10,6 @@ interface StorySectionProps {
   title: string;
   emptyText: string;
   stories: StoryItem[];
-  onConfirm: (s: StoryItem) => void;
-  onReject: (s: StoryItem) => void;
   onArchive: (s: StoryItem) => void;
   onOpenDetail: (s: StoryItem) => void;
   testId: string;
@@ -19,7 +17,7 @@ interface StorySectionProps {
 
 const StorySection = ({
   title, emptyText, stories,
-  onConfirm, onReject, onArchive, onOpenDetail,
+  onArchive, onOpenDetail,
   testId,
 }: StorySectionProps) => (
   <section data-testid={testId} className="space-y-3">
@@ -33,8 +31,6 @@ const StorySection = ({
         <StoryCard
           key={story.summary_id}
           story={story}
-          onConfirm={() => onConfirm(story)}
-          onReject={() => onReject(story)}
           onArchive={() => onArchive(story)}
           onOpenDetail={() => onOpenDetail(story)}
         />
@@ -63,28 +59,12 @@ export const MemoryStoryPage = () => {
     void fetchFeed();
   }, [fetchFeed]);
 
-  const handleReview = useCallback(async (story: StoryItem, state: StoryReviewState, userNote?: string) => {
-    await memoryStoriesApi.review(story.summary_id, { review_state: state, user_note: userNote ?? null });
-    setItems((prev) => prev.map((it) => (
-      it.summary_id === story.summary_id ? { ...it, review_state: state } : it
-    )));
+  const handleArchive = useCallback(async (story: StoryItem) => {
+    await memoryStoriesApi.review(story.summary_id, { review_state: 'archived' });
+    setItems((prev) => prev.map((it) =>
+      it.summary_id === story.summary_id ? { ...it, review_state: 'archived' } : it
+    ));
   }, []);
-
-  const handleSaveNote = useCallback(async (note: string) => {
-    if (!detailStory) return;
-    await memoryStoriesApi.review(detailStory.summary_id, {
-      review_state: detailStory.review_state,
-      user_note: note,
-    });
-    setItems((prev) => prev.map((it) => (
-      it.summary_id === detailStory.summary_id
-        ? { ...it, insight_metadata: { ...it.insight_metadata, user_note: note } }
-        : it
-    )));
-    setDetailStory((prev) => prev
-      ? { ...prev, insight_metadata: { ...prev.insight_metadata, user_note: note } }
-      : prev);
-  }, [detailStory]);
 
   return (
     <MemoryPageFrame title={t('memory.stories.title')} description={t('memory.stories.subtitle')}>
@@ -99,9 +79,7 @@ export const MemoryStoryPage = () => {
               title={t('memory.stories.sections.reflections')}
               emptyText={t('memory.stories.sections.reflectionsEmpty')}
               stories={items.filter((s) => s.summary_type === 'insight')}
-              onConfirm={(s) => void handleReview(s, 'confirmed')}
-              onReject={(s) => void handleReview(s, 'rejected')}
-              onArchive={(s) => void handleReview(s, 'archived')}
+              onArchive={(s) => void handleArchive(s)}
               onOpenDetail={(s) => setDetailStory(s)}
               testId="memory-stories-section-reflections"
             />
@@ -109,9 +87,7 @@ export const MemoryStoryPage = () => {
               title={t('memory.stories.sections.periodic')}
               emptyText={t('memory.stories.sections.periodicEmpty')}
               stories={items.filter((s) => s.summary_type !== 'insight')}
-              onConfirm={(s) => void handleReview(s, 'confirmed')}
-              onReject={(s) => void handleReview(s, 'rejected')}
-              onArchive={(s) => void handleReview(s, 'archived')}
+              onArchive={(s) => void handleArchive(s)}
               onOpenDetail={(s) => setDetailStory(s)}
               testId="memory-stories-section-periodic"
             />
@@ -122,7 +98,6 @@ export const MemoryStoryPage = () => {
       <StoryDetailRail
         story={detailStory}
         onClose={() => setDetailStory(null)}
-        onSaveNote={handleSaveNote}
       />
     </MemoryPageFrame>
   );

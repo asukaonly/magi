@@ -7,10 +7,21 @@ from collections import Counter, defaultdict
 from typing import Any
 
 from .. import i18n as core_i18n
+from ..core.logger import get_logger
 from .cluster_builder import TimelineClusterBuilder
 from .context_bundle_builder import TimelineContextBundleBuilder
 from .query_interpreter import TimelineQueryInterpretation, TimelineQueryInterpreter
 from .state_band_builder import TimelineStateBandBuilder, derive_state_from_tone
+
+logger = get_logger("magi.timeline.viewport_builder")
+
+# Upper bound on raw L1 events pulled per viewport window. Previously
+# hardcoded at 500, which silently truncated power-user days (screen-time
+# sensor at 1 event / 30s = 2880/day). 5000 covers the realistic worst
+# case for a single day and is still cheap to pull from sqlite + send to
+# the frontend. When we hit the cap we log a warning so it's visible in
+# ops — the viewport itself doesn't surface this to the UI yet.
+EVENT_QUERY_LIMIT = 5000
 
 
 class TimelineViewportBuilder:
@@ -268,7 +279,24 @@ class TimelineViewportBuilder:
     async def _load_events(self, *, start: float, end: float) -> list[dict[str, Any]]:
         if self._l1 is None:
             return []
-        return await self._l1.query_events(start_time=start, end_time=end, limit=500)
+        events = await self._l1.query_events(
+            start_time=start, end_time=end, limit=EVENT_QUERY_LIMIT,
+        )
+        # Surface truncation. When the result is exactly at the cap we
+        # can't tell whether there's just barely enough or thousands more
+        # past the limit; log loudly so it shows up in ops. A future
+        # iteration could fold this into the viewport response (e.g.
+        # `summary.events_truncated: true`) so the UI can flag it.
+        if len(events) >= EVENT_QUERY_LIMIT:
+            logger.warning(
+                "Timeline viewport hit event-query limit; clusters and "
+                "themes may be incomplete",
+                limit=EVENT_QUERY_LIMIT,
+                window_start=start,
+                window_end=end,
+                window_hours=round((end - start) / 3600, 1),
+            )
+        return events
 
     async def _resolve_place_hints(
         self, *, start: float, end: float,

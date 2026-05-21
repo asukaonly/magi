@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 
 import StoryDetailRail from '@/components/memory/story/StoryDetailRail';
 import { memoryStoriesApi } from '@/api/modules/memoryStories';
@@ -61,31 +60,23 @@ beforeEach(() => {
 describe('StoryDetailRail', () => {
   it('renders nothing when story is null', () => {
     const { container } = render(
-      <StoryDetailRail story={null} onClose={() => {}} onSaveNote={() => {}} />
+      <StoryDetailRail story={null} onClose={() => {}} />
     );
     expect(container.querySelector('aside')).toBeNull();
   });
 
   it('renders the story content and category', () => {
     render(
-      <StoryDetailRail story={baseStory} onClose={() => {}} onSaveNote={() => {}} />
+      <StoryDetailRail story={baseStory} onClose={() => {}} />
     );
     expect(screen.getByText('你最近开始更频繁地夜间上线')).toBeInTheDocument();
     expect(screen.getByText(/状态变化/)).toBeInTheDocument();
   });
 
-  it('saves a note when the user types and clicks save', async () => {
-    const onSaveNote = vi.fn().mockResolvedValue(undefined);
-    const user = userEvent.setup();
-    render(
-      <StoryDetailRail story={baseStory} onClose={() => {}} onSaveNote={onSaveNote} />
-    );
-    const textarea = screen.getByPlaceholderText('想加个备注吗？');
-    await user.type(textarea, '同意，最近确实如此');
-    await user.click(screen.getByRole('button', { name: '备注' }));
-    expect(onSaveNote).toHaveBeenCalledWith('同意，最近确实如此');
-    // saved hint appears after the promise resolves
-    expect(await screen.findByText('备注已保存')).toBeInTheDocument();
+  it('does not render the note input', async () => {
+    render(<StoryDetailRail story={baseStory} onClose={() => {}} />);
+    await screen.findByText('证据');
+    expect(screen.queryByPlaceholderText(/想加个备注/)).not.toBeInTheDocument();
   });
 
   it('fetches and renders evidence items', async () => {
@@ -99,7 +90,7 @@ describe('StoryDetailRail', () => {
       total: 2,
     });
     render(
-      <StoryDetailRail story={baseStory} onClose={() => {}} onSaveNote={() => {}} />
+      <StoryDetailRail story={baseStory} onClose={() => {}} />
     );
     expect(await screen.findByText('我昨晚睡得不好')).toBeInTheDocument();
     expect(screen.getByText('蚊子一直在叫')).toBeInTheDocument();
@@ -112,23 +103,8 @@ describe('StoryDetailRail', () => {
       mode: 'time_window', items: [], total: 0,
     });
     render(
-      <StoryDetailRail story={baseStory} onClose={() => {}} onSaveNote={() => {}} />
+      <StoryDetailRail story={baseStory} onClose={() => {}} />
     );
     expect(await screen.findByText('没有找到关联的事件。')).toBeInTheDocument();
-  });
-
-  it('hides the note input when the story is a temporal summary', async () => {
-    const temporalStory: StoryItem = {
-      ...baseStory,
-      summary_id: 'day-1',
-      summary_type: 'temporal',
-      summary_category: 'day',
-    };
-    render(
-      <StoryDetailRail story={temporalStory} onClose={() => {}} onSaveNote={() => {}} />
-    );
-    // Wait for evidence fetch to settle so the rest of the rail has rendered.
-    await screen.findByText('证据');
-    expect(screen.queryByPlaceholderText('想加个备注吗？')).not.toBeInTheDocument();
   });
 });
