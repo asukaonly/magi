@@ -1,17 +1,12 @@
 """Split plugin config layout helpers for the runtime config loader.
 
-Per-plugin default settings come from two sources, in order of precedence:
+Per-plugin default settings are declared in each plugin's ``plugin.toml``
+under the ``[plugin.default_settings]`` table. When the host first creates
+``~/.magi/config/plugins/{plugin_id}.yaml`` it reads that dict via
+:meth:`_load_manifest_defaults_for_known_plugins` and writes it verbatim.
 
-1. **Manifest defaults** — each plugin's ``plugin.toml`` may declare a
-   ``[plugin.default_settings]`` table. This is the preferred location: new
-   plugins should add defaults here so they live with the plugin code.
-2. **Hardcoded fallback** — :meth:`ConfigPluginLayoutMixin._default_plugin_settings_map`
-   below still ships defaults for builtin plugins that have not yet been
-   migrated. It is the legacy rail and should shrink over time.
-
-When seeding ``~/.magi/config/plugins/{plugin_id}.yaml`` for the first time,
-the manifest dict (if present) wins over the hardcoded entry. See
-:meth:`_load_manifest_defaults_for_known_plugins`.
+This is the single rail: adding a new plugin requires zero magi backend
+changes — plugins are fully self-describing.
 """
 
 from __future__ import annotations
@@ -73,18 +68,6 @@ class ConfigPluginLayoutMixin:
                     merged_packages[plugin_id].update(package_data)
         return merged
 
-    def _default_plugin_settings_map(self) -> Dict[str, Dict[str, Any]]:
-        """Return default per-plugin settings.
-
-        NOTE: All migrated plugins now declare their own defaults via
-        ``[plugin.default_settings]`` in their plugin.toml. This map only
-        retains entries for plugins that haven't migrated yet (core-tools
-        is empty and will be removed in P3 cleanup).
-        """
-        return {
-            "core-tools": {},
-        }
-
     def _load_manifest_defaults_for_known_plugins(self) -> Dict[str, Dict[str, Any]]:
         """Read each known plugin's ``[plugin.default_settings]`` table.
 
@@ -96,8 +79,8 @@ class ConfigPluginLayoutMixin:
 
         Any failure (missing manifest file, invalid TOML, no
         ``default_settings`` key) is silently treated as "no defaults
-        provided" — the caller falls back to
-        :meth:`_default_plugin_settings_map`.
+        provided" — the plugin gets no ``{plugin_id}.yaml`` written until it
+        ships a manifest with defaults.
         """
         index_data = self._load_yaml_file(self._plugins_index_file)
         if not isinstance(index_data, dict):
@@ -221,15 +204,10 @@ class ConfigPluginLayoutMixin:
         elif index_changed:
             self._write_yaml_file(self._plugins_index_file, index_data)
 
-        # Manifest-declared defaults win over the legacy hardcoded map. See the
-        # module docstring for the rationale (defaults belong with the plugin).
-        manifest_defaults = self._load_manifest_defaults_for_known_plugins()
-        hardcoded_defaults = self._default_plugin_settings_map()
-
-        seed_map: Dict[str, Dict[str, Any]] = dict(hardcoded_defaults)
-        for plugin_id, defaults in manifest_defaults.items():
-            seed_map[plugin_id] = defaults
-
+        # Plugins declare their seed defaults via [plugin.default_settings] in
+        # their plugin.toml. See the module docstring for the rationale
+        # (defaults belong with the plugin).
+        seed_map = self._load_manifest_defaults_for_known_plugins()
         for plugin_id, defaults in seed_map.items():
             plugin_file = self._plugin_settings_file(plugin_id)
             if not plugin_file.exists():

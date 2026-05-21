@@ -1,13 +1,12 @@
 """Tests for manifest-driven default settings in ConfigPluginLayoutMixin.
 
-The dual-rail seed mechanism is:
+The seed mechanism is single-rail: each plugin's ``plugin.toml`` may declare a
+``[plugin.default_settings]`` table, and the host writes that dict to
+``~/.magi/config/plugins/{plugin_id}.yaml`` on first run. There is no
+hardcoded fallback in the backend — plugins are fully self-describing.
 
-1. Manifest defaults (``[plugin.default_settings]`` in each plugin's
-   ``plugin.toml``) take precedence.
-2. Hardcoded defaults in :meth:`ConfigPluginLayoutMixin._default_plugin_settings_map`
-   are the legacy fallback.
-
-These tests exercise both rails and the failure modes (missing/invalid TOML).
+These tests exercise the happy path and the failure modes (missing manifest
+file, invalid TOML, no ``default_settings`` key).
 """
 
 from __future__ import annotations
@@ -65,35 +64,6 @@ def _write_manifest(path: Path, body: str) -> None:
     path.write_text(body, encoding="utf-8")
 
 
-# Most builtin plugins have migrated their defaults into their plugin.toml
-# manifest, leaving the hardcoded map nearly empty. The fallback-rail tests
-# below inject a synthetic hardcoded entry via monkeypatch so the dual-rail
-# behavior stays exercised regardless of how many plugins remain in the map.
-_FAKE_HARDCODED_DEFAULTS = {
-    "core-tools": {},
-    "photo-library": {
-        "sensors": {
-            "photo_library": {
-                "enabled": False,
-                "sync_mode": "manual",
-                "sync_interval_minutes": 60,
-            }
-        }
-    },
-}
-
-
-def _patch_hardcoded_map(monkeypatch) -> None:
-    """Force ``_default_plugin_settings_map`` to a deterministic synthetic value."""
-    from magi.config.plugin_layout import ConfigPluginLayoutMixin
-
-    monkeypatch.setattr(
-        ConfigPluginLayoutMixin,
-        "_default_plugin_settings_map",
-        lambda self: dict(_FAKE_HARDCODED_DEFAULTS),
-    )
-
-
 def test_manifest_default_settings_seed_plugin_yaml(tmp_path: Path, monkeypatch) -> None:
     """A plugin that ships [plugin.default_settings] gets that exact dict written."""
     _patch_config_paths(monkeypatch, tmp_path)
@@ -140,69 +110,31 @@ ocr_level = "accurate"
     }
 
 
-def test_hardcoded_map_fallback_when_manifest_lacks_default_settings(
-    tmp_path: Path, monkeypatch
-) -> None:
-    """Plugin in hardcoded map but with no manifest defaults uses the map."""
+def test_empty_default_settings_table_writes_empty_yaml(tmp_path: Path, monkeypatch) -> None:
+    """A plugin with an empty [plugin.default_settings] table seeds an empty YAML.
+
+    This is the core-tools case: the plugin declares the table to opt into
+    the seed rail, but ships no actual defaults. The resulting file is an
+    empty dict, which is functionally equivalent to no file at all.
+    """
     _patch_config_paths(monkeypatch, tmp_path)
-    _patch_hardcoded_map(monkeypatch)
     plugins_dir = tmp_path / "config" / "plugins"
-    manifest_path = tmp_path / "photo_lib" / "plugin.toml"
+    manifest_path = tmp_path / "empty_pkg" / "plugin.toml"
     _write_manifest(
         manifest_path,
         """
 [plugin]
-id = "photo-library"
-name = "Photo Library"
-version = "0.1.0"
+id = "core-tools"
+name = "Core Tools"
+version = "1.0.0"
+
+[plugin.default_settings]
 """.strip(),
     )
     _seed_index(
         plugins_dir,
         {
-            "photo-library": {
-                "enabled": False,
-                "trusted": True,
-                "source": "builtin",
-                "manifest_path": str(manifest_path),
-            }
-        },
-    )
-
-    ConfigLoader().load()
-
-    settings_file = plugins_dir / "photo-library.yaml"
-    data = yaml.safe_load(settings_file.read_text(encoding="utf-8")) or {}
-    # Hardcoded map ships photo-library defaults under sensors.photo_library
-    assert "sensors" in data
-    assert "photo_library" in data["sensors"]
-    assert data["sensors"]["photo_library"]["sync_mode"] == "manual"
-
-
-def test_manifest_defaults_win_over_hardcoded_map(tmp_path: Path, monkeypatch) -> None:
-    """Plugin present in BOTH map and manifest: manifest wins."""
-    _patch_config_paths(monkeypatch, tmp_path)
-    _patch_hardcoded_map(monkeypatch)
-    plugins_dir = tmp_path / "config" / "plugins"
-    manifest_path = tmp_path / "photo_lib" / "plugin.toml"
-    _write_manifest(
-        manifest_path,
-        """
-[plugin]
-id = "photo-library"
-name = "Photo Library"
-version = "0.1.0"
-
-[plugin.default_settings.sensors.photo_library]
-enabled = true
-sync_mode = "interval"
-sync_interval_minutes = 7
-""".strip(),
-    )
-    _seed_index(
-        plugins_dir,
-        {
-            "photo-library": {
+            "core-tools": {
                 "enabled": True,
                 "trusted": True,
                 "source": "builtin",
@@ -213,23 +145,18 @@ sync_interval_minutes = 7
 
     ConfigLoader().load()
 
-    settings_file = plugins_dir / "photo-library.yaml"
-    data = yaml.safe_load(settings_file.read_text(encoding="utf-8")) or {}
-    sensor = data["sensors"]["photo_library"]
-    # Manifest values, not the hardcoded ones (which would have enabled=False
-    # and sync_mode="manual" / sync_interval_minutes=60).
-    assert sensor["enabled"] is True
-    assert sensor["sync_mode"] == "interval"
-    assert sensor["sync_interval_minutes"] == 7
-    # And manifest-only keys are NOT augmented with hardcoded keys: this is a
-    # full-replace, not a merge.
-    assert set(sensor.keys()) == {"enabled", "sync_mode", "sync_interval_minutes"}
+    settings_file = plugins_dir / "core-tools.yaml"
+    assert settings_file.exists()
+    data = yaml.safe_load(settings_file.read_text(encoding="utf-8"))
+    # Empty TOML table -> empty dict (or None when YAML-dumped); both are
+    # equivalent for the loader.
+    assert data in ({}, None)
 
 
-def test_no_yaml_written_when_neither_manifest_nor_map_has_defaults(
+def test_no_yaml_written_when_manifest_omits_default_settings(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """A plugin with no defaults from either rail does not get a YAML file."""
+    """A plugin whose manifest has no [plugin.default_settings] table gets no YAML."""
     _patch_config_paths(monkeypatch, tmp_path)
     plugins_dir = tmp_path / "config" / "plugins"
     manifest_path = tmp_path / "ghost_pkg" / "plugin.toml"
@@ -260,22 +187,21 @@ version = "0.1.0"
     assert not settings_file.exists()
 
 
-def test_invalid_toml_in_manifest_falls_back_to_hardcoded_map(
+def test_invalid_toml_in_manifest_skips_seeding_without_raising(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """Manifest with broken TOML must not raise; falls back to hardcoded map."""
+    """Manifest with broken TOML must not raise; the plugin just gets no YAML."""
     _patch_config_paths(monkeypatch, tmp_path)
-    _patch_hardcoded_map(monkeypatch)
     plugins_dir = tmp_path / "config" / "plugins"
     manifest_path = tmp_path / "broken" / "plugin.toml"
     _write_manifest(manifest_path, "this is not = valid TOML [[[")
     _seed_index(
         plugins_dir,
         {
-            "photo-library": {
+            "busted-plugin": {
                 "enabled": True,
                 "trusted": True,
-                "source": "builtin",
+                "source": "external",
                 "manifest_path": str(manifest_path),
             }
         },
@@ -284,26 +210,21 @@ def test_invalid_toml_in_manifest_falls_back_to_hardcoded_map(
     # Should not raise.
     ConfigLoader().load()
 
-    settings_file = plugins_dir / "photo-library.yaml"
-    data = yaml.safe_load(settings_file.read_text(encoding="utf-8")) or {}
-    # Hardcoded map default for photo-library.
-    assert data["sensors"]["photo_library"]["sync_mode"] == "manual"
+    settings_file = plugins_dir / "busted-plugin.yaml"
+    assert not settings_file.exists()
 
 
-def test_missing_manifest_path_falls_back_to_hardcoded_map(
-    tmp_path: Path, monkeypatch
-) -> None:
-    """manifest_path pointing to a non-existent file falls back silently."""
+def test_missing_manifest_path_skips_seeding(tmp_path: Path, monkeypatch) -> None:
+    """manifest_path pointing to a non-existent file is silently skipped."""
     _patch_config_paths(monkeypatch, tmp_path)
-    _patch_hardcoded_map(monkeypatch)
     plugins_dir = tmp_path / "config" / "plugins"
     _seed_index(
         plugins_dir,
         {
-            "photo-library": {
+            "missing-plugin": {
                 "enabled": True,
                 "trusted": True,
-                "source": "builtin",
+                "source": "external",
                 "manifest_path": str(tmp_path / "does-not-exist" / "plugin.toml"),
             }
         },
@@ -311,6 +232,48 @@ def test_missing_manifest_path_falls_back_to_hardcoded_map(
 
     ConfigLoader().load()
 
-    settings_file = plugins_dir / "photo-library.yaml"
-    data = yaml.safe_load(settings_file.read_text(encoding="utf-8")) or {}
-    assert data["sensors"]["photo_library"]["sync_mode"] == "manual"
+    settings_file = plugins_dir / "missing-plugin.yaml"
+    assert not settings_file.exists()
+
+
+def test_existing_plugin_yaml_is_not_overwritten(tmp_path: Path, monkeypatch) -> None:
+    """If {plugin_id}.yaml already exists, the seed loop must not stomp it."""
+    _patch_config_paths(monkeypatch, tmp_path)
+    plugins_dir = tmp_path / "config" / "plugins"
+    plugins_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = tmp_path / "pkg" / "plugin.toml"
+    _write_manifest(
+        manifest_path,
+        """
+[plugin]
+id = "user-plugin"
+name = "User Plugin"
+version = "0.1.0"
+
+[plugin.default_settings.sensors.foo]
+enabled = false
+""".strip(),
+    )
+
+    # Pre-existing user settings — different from the manifest defaults.
+    existing_settings = {"sensors": {"foo": {"enabled": True, "interval": 42}}}
+    (plugins_dir / "user-plugin.yaml").write_text(
+        yaml.safe_dump(existing_settings, sort_keys=False),
+        encoding="utf-8",
+    )
+    _seed_index(
+        plugins_dir,
+        {
+            "user-plugin": {
+                "enabled": True,
+                "trusted": True,
+                "source": "external",
+                "manifest_path": str(manifest_path),
+            }
+        },
+    )
+
+    ConfigLoader().load()
+
+    data = yaml.safe_load((plugins_dir / "user-plugin.yaml").read_text(encoding="utf-8")) or {}
+    assert data == existing_settings

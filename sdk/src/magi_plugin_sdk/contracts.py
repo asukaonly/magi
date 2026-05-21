@@ -187,8 +187,9 @@ class PluginManifest(BaseModel):
 
     Plugins declare per-plugin default settings under ``[plugin.default_settings]``
     in their ``plugin.toml``. When the host first creates
-    ``~/.magi/config/plugins/{plugin_id}.yaml`` it prefers this manifest-provided
-    dict over the legacy hardcoded seed map in the backend.
+    ``~/.magi/config/plugins/{plugin_id}.yaml`` it writes this manifest-provided
+    dict verbatim. This is the sole source of seed defaults — adding a new
+    plugin requires zero magi backend changes.
     """
 
     plugin_id: str = Field(alias="id")

@@ -8,3 +8,5 @@ entry_module = "plugin"
 entry_class = "CoreToolsPlugin"
 official = true
 contribution_types = ["tool"]
+
+[plugin.default_settings]
