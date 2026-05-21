@@ -236,6 +236,11 @@ def _extract_subdir_from_tarball(
                 with tf.extractfile(member) as src:  # type: ignore[union-attr]
                     if src is not None:
                         target_path.write_bytes(src.read())
+                # Preserve executable bits from the tarball. Mask to 0o777 to
+                # drop setuid/setgid/sticky bits for safety. Plugins ship
+                # native helpers under bin/ that need the x bit.
+                if member.mode:
+                    target_path.chmod(member.mode & 0o777)
             extracted_any = True
 
         if not extracted_any:

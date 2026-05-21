@@ -443,7 +443,14 @@ class PluginInstallationMixin:
                 for info in zf.infolist():
                     if info.filename.startswith("/") or ".." in info.filename.split("/"):
                         raise ValueError(f"Unsafe path in archive: {info.filename}")
-                zf.extractall(dest)
+                    extracted_str = zf.extract(info, dest)
+                    if not info.is_dir():
+                        # zipfile.extract drops Unix permissions even when the
+                        # archive was created on Unix. Recover the mode from
+                        # external_attr's upper 16 bits (per PKZIP spec).
+                        mode = (info.external_attr >> 16) & 0o777
+                        if mode:
+                            Path(extracted_str).chmod(mode)
         else:
             raise ValueError(f"Unsupported archive format: {archive_path.name}")
 
