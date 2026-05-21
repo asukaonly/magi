@@ -209,61 +209,19 @@ async def _topology_creator(
     *,
     limit: int = 20,
 ) -> list[dict[str, Any]]:
-    """Creator topology: resolve presence → person identity."""
-    subject_ids = plan.subject_entity_ids
-    predicates = plan.expanded_predicates or [
-        "FOLLOWS",
-        "LIKES",
-        "DISLIKES",
-        "INTERESTED_IN",
-    ]
+    """Creator topology: user → FOLLOWS/LIKES → presence/person, resolve via PRESENCE_OF.
 
-    batch_result = await store.batch_get_relationships(
-        entity_ids=subject_ids,
-        direction="outgoing",
-        status_filters=["active"],
-        predicates=predicates,
-        object_types=["presence", "person"],
-        limit_per_entity=limit,
-        evidence_classes=_evidence_classes_for(plan),
+    Delegates to ``_execute_topology`` with the registry spec.
+    """
+    from .topology_registry import ANSWER_KIND_TOPOLOGIES, _execute_topology
+    results = await _execute_topology(
+        spec=ANSWER_KIND_TOPOLOGIES["creator"],
+        plan=plan,
+        store=store,
+        limit=limit,
     )
-    relationships: list[dict[str, Any]] = []
-    for rels in batch_result.values():
-        relationships.extend(rels)
-
-    # Resolve presence objects to person identity.
-    # NOTE: do NOT forward evidence_classes here. PRESENCE_OF is an identity
-    # bridge (system-asserted), not a user preference/self-report — filtering
-    # by the question's allowed classes would orphan candidate identities.
-    presence_ids = [
-        r["object_id"]
-        for r in relationships
-        if r.get("object_type") == "presence"
-    ]
-    if presence_ids:
-        presence_rels = await store.batch_get_relationships(
-            entity_ids=presence_ids,
-            direction="outgoing",
-            status_filters=["active"],
-            predicates=["PRESENCE_OF"],
-            limit_per_entity=1,
-        )
-        presence_to_person: dict[str, dict[str, str]] = {}
-        for rels in presence_rels.values():
-            for rel in rels:
-                presence_to_person[rel["subject_id"]] = {
-                    "object_id": rel["object_id"],
-                    "object_type": rel.get("object_type", "person"),
-                    "object": rel.get("object", rel["object_id"]),
-                }
-
-        for rel in relationships:
-            if rel.get("object_type") == "presence" and rel["object_id"] in presence_to_person:
-                person_info = presence_to_person[rel["object_id"]]
-                rel["_resolved_identity"] = person_info
-
-    _tag_channel(relationships, "topology")
-    return relationships
+    _tag_channel(results, "topology")
+    return results
 
 
 async def _topology_place(
@@ -272,19 +230,24 @@ async def _topology_place(
     *,
     limit: int = 20,
 ) -> list[dict[str, Any]]:
-    """Place topology: find places within a target location."""
+    """Place topology: find places within a target location.
+
+    Constraint preprocessing: extract location_constraint from plan and pre-fetch
+    candidate place IDs via LOCATED_IN. Then delegate user→candidate fetch +
+    bridge resolution to ``_execute_topology``.
+    """
+    from .topology_registry import ANSWER_KIND_TOPOLOGIES, _execute_topology
+
     location_constraint = None
     for constraint in plan.object_constraints:
         if constraint.field in ("located_in", "location"):
             location_constraint = constraint.value
             break
-
     if not location_constraint:
         return []
 
-    # Topology bridge: LOCATED_IN is a geographic containment fact, not the
-    # answer edge. Do NOT forward evidence_classes — filtering geographic
-    # lookups by (e.g.) user_self_report would empty the candidate set.
+    # Constraint pre-filter: LOCATED_IN is a geographic containment fact, not
+    # the answer edge; do NOT forward evidence_classes here.
     location_rels = await store.get_relationships(
         predicates=["LOCATED_IN"],
         object_id=str(location_constraint),
@@ -295,24 +258,13 @@ async def _topology_place(
     if not candidate_ids:
         return []
 
-    subject_ids = plan.subject_entity_ids
-    if not subject_ids:
-        return []
-
-    results: list[dict[str, Any]] = []
-    predicates = plan.expanded_predicates or ["VISITED", "LIKES"]
-    evidence_classes = _evidence_classes_for(plan)
-    for cid in candidate_ids[:limit]:
-        rels = await store.get_relationships(
-            subject_id=subject_ids[0],
-            object_id=cid,
-            predicates=predicates,
-            status_filters=["active"],
-            limit=5,
-            evidence_classes=evidence_classes,
-        )
-        results.extend(rels)
-
+    results = await _execute_topology(
+        spec=ANSWER_KIND_TOPOLOGIES["place"],
+        plan=plan,
+        store=store,
+        limit=limit,
+        candidate_object_ids=candidate_ids,
+    )
     _tag_channel(results, "topology")
     return results
 
