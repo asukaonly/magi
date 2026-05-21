@@ -46,3 +46,36 @@ def classes_from_focus(focus: Optional[EvidenceFocus]) -> Optional[set[str]]:
     if focus == "both":
         return {_DECLARED, _OBSERVED}
     return None
+
+
+_OBSERVED_CUES: tuple[str, ...] = (
+    "浏览", "访问", "点开", "打开", "看过", "查过",
+    "browse", "browsed", "visit", "visited", "open", "opened",
+    "view", "viewed", "watch", "watched",
+)
+_DECLARED_CUES: tuple[str, ...] = (
+    "喜欢", "讨厌", "说过", "告诉", "想要", "偏好",
+    "like", "dislike", "tell", "told", "say", "said",
+    "prefer", "want",
+)
+
+
+def infer_evidence_focus_heuristic(query: str) -> Optional[EvidenceFocus]:
+    """Cheap linguistic heuristic for use when no LLM refinement is available.
+
+    Conservative: returns None on ambiguous queries so callers can fall back to
+    the family/scope rule (infer_allowed_evidence_classes). Used by the rule-only
+    intent decider and the service-plan augmentation path.
+    """
+    if not query:
+        return None
+    lowered = query.lower()
+    has_observed = any(cue in query or cue in lowered for cue in _OBSERVED_CUES)
+    has_declared = any(cue in query or cue in lowered for cue in _DECLARED_CUES)
+    if has_observed and has_declared:
+        return "both"
+    if has_observed:
+        return "observed"
+    if has_declared:
+        return "declared"
+    return None
