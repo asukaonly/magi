@@ -49,7 +49,9 @@ def classes_from_focus(focus: Optional[EvidenceFocus]) -> Optional[set[str]]:
 
 
 _OBSERVED_CUES: tuple[str, ...] = (
-    "浏览", "访问", "点开", "打开", "看过", "查过",
+    # Use verbal-aspect forms (e.g. "浏览过" not bare "浏览") so cues don't
+    # match nouns like "浏览器" (browser).
+    "浏览过", "访问过", "点开过", "打开过", "看过", "查过",
     "browse", "browsed", "visit", "visited", "open", "opened",
     "view", "viewed", "watch", "watched",
 )
