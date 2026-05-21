@@ -19,9 +19,13 @@ def _synthesize_standout_title(time_start: float, time_end: float) -> str:
     Format: "周日 14:00 · 3h" (no source/topic info — that would require
     pulling them from the row, which the caller can add later if needed).
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    dt = datetime.fromtimestamp(time_start, tz=timezone.utc)
+    # Local time — the standout list above formats `date` in local time
+    # for the same reason (server tz = user tz for desktop deployment).
+    # Mixing UTC here would put the title's "14:00" 8 hours off from
+    # the "date" it's stamped under for non-UTC users.
+    dt = datetime.fromtimestamp(time_start)
     weekday = _WEEKDAY_LABELS[dt.weekday()]
     hh_mm = dt.strftime("%H:%M")
 
@@ -148,12 +152,15 @@ class TimelineService:
                 "start": ts,
                 "end": te,
                 "title": title,
-                # TODO(timeline): "date" is formatted in UTC. For non-UTC users this
-                # can disagree with their local day boundary. Plan 2 / a later fix
-                # should accept a tz parameter (header or query) and format accordingly.
-                # The adjacent daily_mood_aggregate uses day_local_date strings as the
-                # established convention for user-visible dates.
-                "date": datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d"),
+                # Format in the server's local timezone. For magi's
+                # desktop-app deployment, server tz = user tz, so this
+                # matches the user's day boundary. This is the same
+                # convention daily_mood_aggregate's day_local_date uses
+                # — keep them aligned so the sidebar standout list and
+                # mood calendar pin events to the same calendar day.
+                # (If we ever multi-user this server-side, a tz query
+                # param will be needed.)
+                "date": datetime.fromtimestamp(ts).strftime("%Y-%m-%d"),
                 "source": "user" if r.get("user_pinned") else "magi",
                 "score": float(r.get("standout_score") or 0.0),
             })
