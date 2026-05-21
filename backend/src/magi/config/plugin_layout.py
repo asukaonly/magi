@@ -1,9 +1,28 @@
-"""Split plugin config layout helpers for the runtime config loader."""
+"""Split plugin config layout helpers for the runtime config loader.
+
+Per-plugin default settings come from two sources, in order of precedence:
+
+1. **Manifest defaults** — each plugin's ``plugin.toml`` may declare a
+   ``[plugin.default_settings]`` table. This is the preferred location: new
+   plugins should add defaults here so they live with the plugin code.
+2. **Hardcoded fallback** — :meth:`ConfigPluginLayoutMixin._default_plugin_settings_map`
+   below still ships defaults for builtin plugins that have not yet been
+   migrated. It is the legacy rail and should shrink over time.
+
+When seeding ``~/.magi/config/plugins/{plugin_id}.yaml`` for the first time,
+the manifest dict (if present) wins over the hardcoded entry. See
+:meth:`_load_manifest_defaults_for_known_plugins`.
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Dict
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python 3.10 fallback
+    import tomli as tomllib  # type: ignore[no-redef]
 
 
 class ConfigPluginLayoutMixin:
@@ -146,6 +165,51 @@ class ConfigPluginLayoutMixin:
             },
         }
 
+    def _load_manifest_defaults_for_known_plugins(self) -> Dict[str, Dict[str, Any]]:
+        """Read each known plugin's ``[plugin.default_settings]`` table.
+
+        Iterates entries in ``~/.magi/config/plugins/index.yaml`` (which has
+        already been written earlier in :meth:`_ensure_split_plugin_config_layout`)
+        and, for every package that carries a ``manifest_path``, attempts to
+        load that ``plugin.toml``. The ``[plugin.default_settings]`` sub-table
+        is returned per plugin id.
+
+        Any failure (missing manifest file, invalid TOML, no
+        ``default_settings`` key) is silently treated as "no defaults
+        provided" — the caller falls back to
+        :meth:`_default_plugin_settings_map`.
+        """
+        index_data = self._load_yaml_file(self._plugins_index_file)
+        if not isinstance(index_data, dict):
+            return {}
+        packages = index_data.get("packages")
+        if not isinstance(packages, dict):
+            return {}
+
+        defaults: Dict[str, Dict[str, Any]] = {}
+        for plugin_id, package_data in packages.items():
+            if not isinstance(package_data, dict):
+                continue
+            manifest_path = package_data.get("manifest_path")
+            if not manifest_path:
+                continue
+            try:
+                manifest_file = Path(manifest_path)
+                if not manifest_file.is_file():
+                    continue
+                with manifest_file.open("rb") as handle:
+                    manifest = tomllib.load(handle)
+            except (OSError, ValueError, tomllib.TOMLDecodeError):
+                continue
+            plugin_table = manifest.get("plugin") if isinstance(manifest, dict) else None
+            if not isinstance(plugin_table, dict):
+                continue
+            manifest_defaults = plugin_table.get("default_settings")
+            if not isinstance(manifest_defaults, dict):
+                continue
+            defaults[plugin_id] = manifest_defaults
+        return defaults
+
     def _migrate_chrome_history_plugin_defaults(self, index_data: Dict[str, Any]) -> bool:
         """Promote legacy chrome-history package state to the new builtin defaults."""
         packages = index_data.setdefault("packages", {})
@@ -224,7 +288,16 @@ class ConfigPluginLayoutMixin:
         elif index_changed:
             self._write_yaml_file(self._plugins_index_file, index_data)
 
-        for plugin_id, defaults in self._default_plugin_settings_map().items():
+        # Manifest-declared defaults win over the legacy hardcoded map. See the
+        # module docstring for the rationale (defaults belong with the plugin).
+        manifest_defaults = self._load_manifest_defaults_for_known_plugins()
+        hardcoded_defaults = self._default_plugin_settings_map()
+
+        seed_map: Dict[str, Dict[str, Any]] = dict(hardcoded_defaults)
+        for plugin_id, defaults in manifest_defaults.items():
+            seed_map[plugin_id] = defaults
+
+        for plugin_id, defaults in seed_map.items():
             plugin_file = self._plugin_settings_file(plugin_id)
             if not plugin_file.exists():
                 self._write_yaml_file(plugin_file, defaults)
