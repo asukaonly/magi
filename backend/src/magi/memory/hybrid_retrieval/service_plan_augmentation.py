@@ -80,6 +80,7 @@ class HybridRetrievalPlanAugmentationMixin:
                 )
                 if focused is not None:
                     l2_conditions.allowed_evidence_classes = focused
+                    l2_conditions.evidence_focus_source = "rule_heuristic"
                 else:
                     inferred = infer_allowed_evidence_classes(
                         predicate_family=l2_conditions.predicate_family,
@@ -87,6 +88,7 @@ class HybridRetrievalPlanAugmentationMixin:
                     )
                     if inferred is not None:
                         l2_conditions.allowed_evidence_classes = inferred
+                        l2_conditions.evidence_focus_source = "family_fallback"
             l2_plan = LayerQueryPlan(
                 layer="L2",
                 conditions=l2_conditions,

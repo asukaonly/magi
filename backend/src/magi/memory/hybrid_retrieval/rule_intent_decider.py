@@ -136,6 +136,7 @@ class RuleBasedIntentDecider:
                 focused = classes_from_focus(infer_evidence_focus_heuristic(inp.query))
                 if focused is not None:
                     conditions.allowed_evidence_classes = focused
+                    conditions.evidence_focus_source = "rule_heuristic"
                 else:
                     inferred = infer_allowed_evidence_classes(
                         predicate_family=conditions.predicate_family,
@@ -143,6 +144,7 @@ class RuleBasedIntentDecider:
                     )
                     if inferred is not None:
                         conditions.allowed_evidence_classes = inferred
+                        conditions.evidence_focus_source = "family_fallback"
         elif layer == "L3":
             conditions = L3Conditions(
                 content_query=inp.query,

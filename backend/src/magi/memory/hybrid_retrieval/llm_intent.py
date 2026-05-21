@@ -265,6 +265,7 @@ class LLMIntentDecider:
                     focused = classes_from_focus(refinement.evidence_focus)
                     if focused is not None:
                         conditions.allowed_evidence_classes = focused
+                        conditions.evidence_focus_source = "llm"
                     else:
                         inferred = infer_allowed_evidence_classes(
                             predicate_family=conditions.predicate_family,
@@ -272,6 +273,7 @@ class LLMIntentDecider:
                         )
                         if inferred is not None:
                             conditions.allowed_evidence_classes = inferred
+                            conditions.evidence_focus_source = "family_fallback"
             elif plan.layer == "L3" and isinstance(conditions, L3Conditions):
                 if refined_query:
                     conditions.content_query = refined_query

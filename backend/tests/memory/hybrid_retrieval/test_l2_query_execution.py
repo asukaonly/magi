@@ -69,6 +69,7 @@ def test_grounding_plan_trace_preserves_existing_keys():
         "object_count",
         "predicate_count",
         "allowed_evidence_classes",
+        "evidence_focus_source",
     }
     assert set(trace.keys()) == expected_keys
     assert trace["query_kind"] == "unknown"
@@ -79,3 +80,29 @@ def test_grounding_plan_trace_preserves_existing_keys():
     assert trace["subject_count"] == 0
     assert trace["object_count"] == 0
     assert trace["predicate_count"] == 0
+
+
+def test_grounding_plan_trace_includes_evidence_focus_source():
+    """Trace must report which path set allowed_evidence_classes — useful for
+    measuring how often the family fallback is triggered (Phase 2A spec 4.7)."""
+    from magi.memory.hybrid_retrieval.grounding import L2GroundingPlan
+    from magi.memory.hybrid_retrieval.l2_query_execution import (
+        _build_grounding_plan_trace,
+    )
+
+    plan = L2GroundingPlan()
+    plan.allowed_evidence_classes = {"user_self_report"}
+    plan.evidence_focus_source = "llm"
+    trace = _build_grounding_plan_trace(plan)
+    assert trace["evidence_focus_source"] == "llm"
+
+
+def test_grounding_plan_trace_evidence_focus_source_none_when_unset():
+    from magi.memory.hybrid_retrieval.grounding import L2GroundingPlan
+    from magi.memory.hybrid_retrieval.l2_query_execution import (
+        _build_grounding_plan_trace,
+    )
+
+    plan = L2GroundingPlan()
+    trace = _build_grounding_plan_trace(plan)
+    assert trace["evidence_focus_source"] is None

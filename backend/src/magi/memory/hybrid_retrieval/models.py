@@ -125,6 +125,7 @@ class L2Conditions:
     subject_hint: Optional[str] = None
     predicate_family: Optional[str] = None
     allowed_evidence_classes: Optional[set[str]] = None
+    evidence_focus_source: Optional[str] = None  # "llm" | "rule_heuristic" | "family_fallback" | None
     entity_types: Optional[List[str]] = None
     predicates: Optional[List[str]] = None
     trait_families: Optional[List[str]] = None
