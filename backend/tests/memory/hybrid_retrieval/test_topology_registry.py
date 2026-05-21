@@ -91,3 +91,48 @@ async def test_execute_topology_creator_runs_primary_and_bridge_calls():
         "object_type": "person",
         "object": "nana",
     }
+
+
+def test_registry_has_five_answer_kinds():
+    """Phase 2B ships with 5 answer_kinds: creator, place, topic, software, person.
+    Adding new answer_kinds in the future means adding a registry entry, NOT
+    writing new dispatcher code."""
+    from magi.memory.hybrid_retrieval.topology_registry import (
+        ANSWER_KIND_TOPOLOGIES,
+    )
+    assert set(ANSWER_KIND_TOPOLOGIES.keys()) == {
+        "creator", "place", "topic", "software", "person",
+    }
+
+
+def test_creator_spec_has_presence_bridge():
+    from magi.memory.hybrid_retrieval.topology_registry import (
+        ANSWER_KIND_TOPOLOGIES,
+    )
+    spec = ANSWER_KIND_TOPOLOGIES["creator"]
+    assert spec.primary_predicates == (
+        "FOLLOWS", "LIKES", "INTERESTED_IN", "DISLIKES",
+    )
+    assert spec.primary_object_types == ("presence", "person")
+    assert spec.bridge_predicate == "PRESENCE_OF"
+    assert spec.bridge_object_types == ("person",)
+    assert spec.bridge_skip_evidence_filter is True
+
+
+def test_place_spec_has_located_in_bridge():
+    from magi.memory.hybrid_retrieval.topology_registry import (
+        ANSWER_KIND_TOPOLOGIES,
+    )
+    spec = ANSWER_KIND_TOPOLOGIES["place"]
+    assert spec.primary_predicates == ("VISITED",)
+    assert spec.bridge_predicate == "LOCATED_IN"
+    assert spec.bridge_skip_evidence_filter is True
+
+
+def test_topic_spec_has_no_bridge():
+    from magi.memory.hybrid_retrieval.topology_registry import (
+        ANSWER_KIND_TOPOLOGIES,
+    )
+    spec = ANSWER_KIND_TOPOLOGIES["topic"]
+    assert spec.bridge_predicate is None
+    assert spec.bridge_object_types == ()
