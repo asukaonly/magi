@@ -12,6 +12,7 @@ from .cluster_builder import TimelineClusterBuilder
 from .context_bundle_builder import TimelineContextBundleBuilder
 from .query_interpreter import TimelineQueryInterpretation, TimelineQueryInterpreter
 from .state_band_builder import TimelineStateBandBuilder, derive_state_from_tone
+from .viewport_themes import ThemeCardBuilder
 
 logger = get_logger("magi.timeline.viewport_builder")
 
@@ -61,6 +62,11 @@ class TimelineViewportBuilder:
             l3_store=l3_store,
             l4_store=l4_store,
         )
+        # Theme card assembly is split out to viewport_themes.py — see
+        # that module for the priority order (entities → reflections →
+        # cluster labels). Stateless across calls; constructed once with
+        # the catalog reference.
+        self._theme_card_builder = ThemeCardBuilder(entity_catalog=entity_catalog)
 
     async def build_viewport(
         self,
@@ -119,7 +125,9 @@ class TimelineViewportBuilder:
             self._enrich_cluster_source_types(clusters, events)
         raw_events = [self._to_raw_event(event, locale=locale) for event in events] if scale == "hour" else []
         source_mix = self._build_source_mix(events=events, clusters=clusters, locale=locale)
-        theme_cards = await self._build_theme_cards(reflections=reflections, clusters=clusters, locale=locale)
+        theme_cards = await self._theme_card_builder.build(
+            reflections=reflections, clusters=clusters, locale=locale,
+        )
         overview = await self._build_overview(
             scale=scale,
             period_start=interpreted_query.start,
@@ -669,263 +677,6 @@ class TimelineViewportBuilder:
         fallback = source.replace("_", " ") if TimelineViewportBuilder._is_zh_locale(locale) else source.replace("_", " ").title()
         return TimelineViewportBuilder._timeline_t(f"sources.{source}", locale, fallback=fallback)
 
-    # Maximum chars allowed in a theme chip title. Above this we treat the
-    # string as a summary sentence that leaked into the title slot and drop it.
-    # 20 is the sweet spot — comfortably above multi-word project names
-    # ("Recurring Project", "sleep agency 论文") but well under sentence length.
-    _MAX_THEME_TITLE_LEN = 20
-    # Title suffixes that indicate an internal L3 insight_key (e.g. "Day反思",
-    # "Week反思") rather than a user-facing label. Filtered out of the chip row.
-    _BAD_THEME_TITLE_SUFFIXES: tuple[str, ...] = ("反思", "总结", "summary", "Summary")
-    # Source-telemetry-style entity names that sensor plugins create as
-    # parent buckets for their events ("Chrome 历史" → all browsing events).
-    # These are catalog entries but are not "things the user cares about" —
-    # they're internal categorization. Filtered out of theme chips.
-    _BAD_THEME_TITLE_EXACT: frozenset[str] = frozenset({
-        "Chrome 历史", "chrome 历史", "应用使用情况", "应用使用",
-        "屏幕使用", "屏幕活动", "屏幕时间", "系统媒体",
-        "Application Usage", "Screen Time", "Chrome History",
-    })
-    # Minimum number of distinct episode clusters an entity must appear in
-    # before it's promoted to a theme chip. A one-off mention is rarely
-    # "what you cared about" — recurring mentions are.
-    _MIN_THEME_EPISODE_COUNT = 2
-    _MAX_THEME_CARDS = 5
-
-    @classmethod
-    def _is_acceptable_theme_title(cls, title: str) -> bool:
-        """Whether a string is fit to render as a theme chip.
-
-        Themes are short noun phrases — names, projects, articles. Reject:
-          - Empty / whitespace
-          - Longer than _MAX_THEME_TITLE_LEN (sentence-shaped data leak)
-          - Ends in a known internal-key suffix ("Day反思" etc.)
-          - In the exact-match blacklist of sensor-bucket names
-        """
-        stripped = title.strip()
-        if not stripped or len(stripped) > cls._MAX_THEME_TITLE_LEN:
-            return False
-        if stripped in cls._BAD_THEME_TITLE_EXACT:
-            return False
-        for suffix in cls._BAD_THEME_TITLE_SUFFIXES:
-            if stripped.endswith(suffix):
-                return False
-        return True
-
-    async def _build_theme_cards(
-        self,
-        *,
-        reflections: list[dict[str, Any]],
-        clusters: list[dict[str, Any]],
-        locale: str,
-    ) -> list[dict[str, Any]]:
-        """Assemble the "你那时关心的" chip row.
-
-        Priority order:
-          1. Entity catalog — aggregate primary_entity_ids across the window's
-             episode clusters, resolve to canonical_names. Yields concrete
-             nouns ("Anthropic", "sleep agency") the user actually touched.
-          2. L3 reflection titles (quality-filtered) — fallback when entity
-             data is sparse.
-          3. Cluster labels (quality-filtered) — last resort. Tends to surface
-             abstract source names ("screen_time"); kept only when nothing
-             better is available.
-
-        At each step we stop once we have _MAX_THEME_CARDS unique cards.
-        """
-        cards = await self._collect_entity_themes(clusters=clusters)
-        if len(cards) >= self._MAX_THEME_CARDS:
-            return cards
-
-        seen_titles: set[str] = {str(c["title"]).casefold() for c in cards}
-
-        for reflection in reflections:
-            if len(cards) >= self._MAX_THEME_CARDS:
-                break
-            title = str(reflection.get("title") or "").strip()
-            if not self._is_acceptable_theme_title(title):
-                continue
-            normalized = title.casefold()
-            if normalized in seen_titles:
-                continue
-            seen_titles.add(normalized)
-            event_ids = [str(eid) for eid in reflection.get("source_event_ids") or [] if str(eid).strip()]
-            cards.append({
-                "theme_id": f"reflection:{reflection.get('reflection_id')}",
-                "title": title,
-                "summary": str(reflection.get("summary") or ""),
-                "source_types": self._source_types_for_event_ids(event_ids, clusters),
-                "event_count": len(event_ids),
-                "anchor": {
-                    "anchor_type": "event" if event_ids else "reflection",
-                    "anchor_id": event_ids[0] if event_ids else "",
-                    "representative_event_ids": event_ids[:5],
-                    "time_start": float(reflection.get("time_start") or 0.0),
-                    "time_end": float(reflection.get("time_end") or 0.0),
-                },
-            })
-
-        for cluster in sorted(clusters, key=lambda item: int(item.get("event_count") or 0), reverse=True):
-            if len(cards) >= self._MAX_THEME_CARDS:
-                break
-            title = str(cluster.get("label") or "").strip()
-            if not self._is_acceptable_theme_title(title):
-                continue
-            normalized = title.casefold()
-            if normalized in seen_titles:
-                continue
-            seen_titles.add(normalized)
-            cards.append({
-                "theme_id": str(cluster.get("block_id") or f"cluster:{len(cards)}"),
-                "title": title,
-                "summary": str(cluster.get("summary") or ""),
-                "source_types": [str(s) for s in cluster.get("source_types") or [] if str(s).strip()],
-                "event_count": int(cluster.get("event_count") or 0),
-                "anchor": self._cluster_anchor(cluster),
-            })
-
-        return cards
-
-    async def _collect_entity_themes(
-        self,
-        *,
-        clusters: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        """Aggregate entity_ids from episode clusters and resolve canonical names.
-
-        Episode-style cluster ``keywords`` carry up to 4 entity_ids each (set by
-        ``TimelineClusterBuilder._episode_to_cluster``). Transient clusters'
-        keywords are tag strings — those get skipped here and handled later in
-        the reflection/cluster fallback.
-
-        Returns up to ``_MAX_THEME_CARDS`` cards, one per top-frequency entity.
-        Returns empty list when no entity catalog is configured, no episode
-        clusters have entities, or none of the resolved names pass the
-        quality filter.
-        """
-        if self._entity_catalog is None:
-            return []
-
-        entity_id_counts: Counter[str] = Counter()
-        clusters_by_entity: dict[str, list[dict[str, Any]]] = defaultdict(list)
-
-        for cluster in clusters:
-            block_id = str(cluster.get("block_id") or "")
-            if not block_id.startswith("episode:"):
-                continue
-            weight = max(1, int(cluster.get("event_count") or 1))
-            for entity_id in cluster.get("keywords") or []:
-                eid = str(entity_id).strip()
-                if not eid:
-                    continue
-                entity_id_counts[eid] += weight
-                clusters_by_entity[eid].append(cluster)
-
-        # Require an entity to appear in at least _MIN_THEME_EPISODE_COUNT
-        # distinct clusters to qualify. Single-mention entities are usually
-        # incidental (a one-off page title, a name that surfaced once) and
-        # shouldn't promote to chip-row visibility.
-        eligible_ids = [
-            eid for eid, _ in entity_id_counts.items()
-            if len(clusters_by_entity[eid]) >= self._MIN_THEME_EPISODE_COUNT
-        ]
-        if not eligible_ids:
-            return []
-
-        # Re-rank only eligible entities by their aggregated weight.
-        ranked_ids = sorted(eligible_ids, key=lambda e: entity_id_counts[e], reverse=True)
-
-        # Resolve a generous superset; some names will be rejected by the
-        # length/suffix filter and we'd rather over-fetch by ~2x than refetch.
-        top_ids = ranked_ids[: self._MAX_THEME_CARDS * 2]
-        try:
-            resolved = await self._entity_catalog.list_entities(
-                entity_ids=top_ids, limit=len(top_ids),
-            )
-        except Exception:
-            return []
-
-        name_by_id: dict[str, str] = {
-            str(entity.get("entity_id") or ""): str(entity.get("canonical_name") or "").strip()
-            for entity in resolved
-        }
-
-        cards: list[dict[str, Any]] = []
-        seen_names: set[str] = set()
-        # Iterate in pre-ranked order (filtered + sorted by weight above).
-        for eid in ranked_ids:
-            if len(cards) >= self._MAX_THEME_CARDS:
-                break
-            count = entity_id_counts[eid]
-            name = name_by_id.get(eid, "").strip()
-            if not self._is_acceptable_theme_title(name):
-                continue
-            normalized = name.casefold()
-            if normalized in seen_names:
-                continue
-            seen_names.add(normalized)
-
-            anchor_clusters = clusters_by_entity.get(eid) or []
-            source_types: list[str] = []
-            for ac in anchor_clusters:
-                for s in ac.get("source_types") or []:
-                    if str(s).strip() and str(s) not in source_types:
-                        source_types.append(str(s))
-            anchor = (
-                self._cluster_anchor(anchor_clusters[0])
-                if anchor_clusters
-                else {
-                    "anchor_type": "entity",
-                    "anchor_id": f"entity:{eid}",
-                    "representative_event_ids": [],
-                    "time_start": 0.0,
-                    "time_end": 0.0,
-                }
-            )
-            cards.append({
-                "theme_id": f"entity:{eid}",
-                "title": name,
-                "summary": "",
-                "source_types": source_types,
-                "event_count": int(count),
-                "anchor": anchor,
-            })
-
-        return cards
-
-    def _source_types_for_event_ids(self, event_ids: list[str], clusters: list[dict[str, Any]]) -> list[str]:
-        event_id_set = set(event_ids)
-        source_types: list[str] = []
-        if not event_id_set:
-            return source_types
-        for cluster in clusters:
-            representative_ids = {str(event_id) for event_id in cluster.get("representative_event_ids") or []}
-            if not (representative_ids & event_id_set):
-                continue
-            source_types.extend(str(source) for source in cluster.get("source_types") or [] if str(source).strip())
-        return list(dict.fromkeys(source_types))
-
-    @staticmethod
-    def _cluster_anchor(cluster: dict[str, Any]) -> dict[str, Any]:
-        episode_id = str(cluster.get("episode_id") or "")
-        representative_ids = [str(event_id) for event_id in cluster.get("representative_event_ids") or [] if str(event_id).strip()]
-        if episode_id:
-            anchor_type = "episode"
-            anchor_id = f"episode:{episode_id}"
-        elif representative_ids:
-            anchor_type = "event"
-            anchor_id = representative_ids[0]
-        else:
-            anchor_type = "cluster"
-            anchor_id = ""
-        return {
-            "anchor_type": anchor_type,
-            "anchor_id": anchor_id,
-            "representative_event_ids": representative_ids[:5],
-            "episode_id": episode_id or None,
-            "time_start": float(cluster.get("time_start") or 0.0),
-            "time_end": float(cluster.get("time_end") or cluster.get("time_start") or 0.0),
-        }
 
     def _build_source_mix(
         self,

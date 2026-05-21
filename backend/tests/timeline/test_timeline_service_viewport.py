@@ -391,7 +391,7 @@ async def test_theme_cards_prefer_entity_canonical_names_over_reflections() -> N
         {"reflection_id": "r1", "title": "Day反思", "summary": "...", "source_event_ids": []},
     ]
 
-    cards = await builder._build_theme_cards(reflections=reflections, clusters=clusters, locale="zh")
+    cards = await builder._theme_card_builder.build(reflections=reflections, clusters=clusters, locale="zh")
 
     titles = [c["title"] for c in cards]
     # Entity names appear, sorted by aggregated frequency (anthropic has highest weight)
@@ -415,7 +415,7 @@ async def test_theme_cards_drop_single_mention_entities() -> None:
         _episode_cluster(block_id="episode:a", entity_ids=["ent:one_off", "ent:recurring"]),
         _episode_cluster(block_id="episode:b", entity_ids=["ent:recurring"]),
     ]
-    cards = await builder._build_theme_cards(reflections=[], clusters=clusters, locale="en")
+    cards = await builder._theme_card_builder.build(reflections=[], clusters=clusters, locale="en")
     titles = [c["title"] for c in cards]
     assert "Recurring Project" in titles
     assert "One-off Mention" not in titles
@@ -442,7 +442,7 @@ async def test_theme_cards_blacklist_sensor_bucket_names() -> None:
             entity_ids=["ent:chrome_bucket", "ent:app_usage", "ent:project"],
         ),
     ]
-    cards = await builder._build_theme_cards(reflections=[], clusters=clusters, locale="zh")
+    cards = await builder._theme_card_builder.build(reflections=[], clusters=clusters, locale="zh")
     titles = [c["title"] for c in cards]
     assert "Chrome 历史" not in titles
     assert "应用使用情况" not in titles
@@ -466,7 +466,7 @@ async def test_theme_cards_filter_rejects_long_titles_and_internal_keys() -> Non
         {"reflection_id": "r4", "title": "magi", "summary": "", "source_event_ids": []},
     ]
 
-    cards = await builder._build_theme_cards(reflections=reflections, clusters=[], locale="zh")
+    cards = await builder._theme_card_builder.build(reflections=reflections, clusters=[], locale="zh")
 
     titles = [c["title"] for c in cards]
     assert titles == ["Magi"]
@@ -480,7 +480,7 @@ async def test_theme_cards_fall_back_to_reflections_when_no_entity_catalog() -> 
     reflections = [
         {"reflection_id": "r1", "title": "morning planning", "summary": "x", "source_event_ids": ["evt-1"]},
     ]
-    cards = await builder._build_theme_cards(reflections=reflections, clusters=[], locale="en")
+    cards = await builder._theme_card_builder.build(reflections=reflections, clusters=[], locale="en")
     assert len(cards) == 1
     assert cards[0]["title"] == "morning planning"
 
@@ -500,7 +500,7 @@ async def test_theme_cards_entity_themes_skip_transient_clusters() -> None:
         # Transient cluster — its "keywords" are tag strings, not entity_ids.
         {**_episode_cluster(block_id="cluster:0", entity_ids=["coding", "thinking"]), "episode_id": ""},
     ]
-    cards = await builder._build_theme_cards(reflections=[], clusters=clusters, locale="en")
+    cards = await builder._theme_card_builder.build(reflections=[], clusters=clusters, locale="en")
     titles = [c["title"] for c in cards]
     assert "Magi" in titles
     # Tag strings ("coding", "thinking") must NOT show up — they didn't go to the catalog.
