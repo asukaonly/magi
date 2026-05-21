@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FileText, Image, MapPin, X } from 'lucide-react';
+import { FileText, Image, MapPin, Pencil, X } from 'lucide-react';
 import { toast } from 'sonner';
 
 import {
@@ -748,12 +748,16 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
                 aria-selected={mode === 'quick'}
                 onClick={switchToQuick}
                 className={cn(
-                  'rounded-md px-2.5 py-0.5 transition-colors',
+                  // Icon + label parallels the long-mode pill so the
+                  // pair reads as a balanced segmented control instead
+                  // of a text-only side and an icon-bearing side.
+                  'flex items-center gap-1 rounded-md px-2.5 py-0.5 transition-colors',
                   mode === 'quick'
                     ? 'bg-background text-foreground shadow-sm'
                     : 'text-muted-foreground hover:text-foreground',
                 )}
               >
+                <Pencil className="h-3 w-3" />
                 {t('timeline.manualEntry.modeQuick', { defaultValue: '简单' })}
               </button>
               <button
