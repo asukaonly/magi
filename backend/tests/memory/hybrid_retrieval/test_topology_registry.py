@@ -136,3 +136,110 @@ def test_topic_spec_has_no_bridge():
     spec = ANSWER_KIND_TOPOLOGIES["topic"]
     assert spec.bridge_predicate is None
     assert spec.bridge_object_types == ()
+
+
+@pytest.mark.asyncio
+async def test_execute_topology_topic_has_no_bridge_call():
+    """Topic spec has bridge_predicate=None — executor must issue only ONE
+    batch_get_relationships call (primary), no bridge resolution."""
+    from magi.memory.hybrid_retrieval.topology_registry import (
+        ANSWER_KIND_TOPOLOGIES,
+        _execute_topology,
+    )
+
+    store = AsyncMock()
+    store.batch_get_relationships = AsyncMock(
+        return_value={"user:u1": [
+            {"triple_id": "t1", "subject_id": "user:u1",
+             "predicate": "LIKES", "object_id": "topic:rust",
+             "object_type": "topic"},
+        ]}
+    )
+
+    plan = _make_plan("topic")
+    spec = ANSWER_KIND_TOPOLOGIES["topic"]
+    result = await _execute_topology(spec=spec, plan=plan, store=store, limit=20)
+
+    assert store.batch_get_relationships.await_count == 1
+    assert len(result) == 1
+    assert result[0]["triple_id"] == "t1"
+
+
+@pytest.mark.asyncio
+async def test_execute_topology_respects_evidence_filter_on_primary_when_no_skip():
+    """Topic has bridge_skip_evidence_filter=False (no bridge anyway) — primary
+    call still receives the plan's evidence_classes filter."""
+    from magi.memory.hybrid_retrieval.topology_registry import (
+        ANSWER_KIND_TOPOLOGIES,
+        _execute_topology,
+    )
+
+    store = AsyncMock()
+    store.batch_get_relationships = AsyncMock(return_value={"user:u1": []})
+
+    plan = _make_plan("topic")
+    spec = ANSWER_KIND_TOPOLOGIES["topic"]
+    await _execute_topology(spec=spec, plan=plan, store=store, limit=20)
+
+    call = store.batch_get_relationships.await_args_list[0]
+    assert call.kwargs["evidence_classes"] == [
+        EvidenceClass.USER_SELF_REPORT.label
+    ]
+
+
+@pytest.mark.asyncio
+async def test_execute_topology_returns_empty_when_no_subject_candidates():
+    """No subject candidates → no edges to fetch → return empty list."""
+    from magi.memory.hybrid_retrieval.topology_registry import (
+        ANSWER_KIND_TOPOLOGIES,
+        _execute_topology,
+    )
+
+    store = AsyncMock()
+    store.batch_get_relationships = AsyncMock()
+
+    plan = L2GroundingPlan(answer_kind="creator", subject_scope="self")
+    # plan.subject_candidates left empty
+    spec = ANSWER_KIND_TOPOLOGIES["creator"]
+    result = await _execute_topology(spec=spec, plan=plan, store=store, limit=20)
+
+    assert result == []
+    assert store.batch_get_relationships.await_count == 0
+
+
+@pytest.mark.asyncio
+async def test_execute_topology_with_candidate_object_ids_uses_get_relationships():
+    """When constraint preprocessing provides candidate_object_ids (e.g. place
+    LOCATED_IN→cafes), executor fetches user→{each candidate} via per-object
+    get_relationships instead of batch_get_relationships."""
+    from magi.memory.hybrid_retrieval.topology_registry import (
+        ANSWER_KIND_TOPOLOGIES,
+        _execute_topology,
+    )
+
+    store = AsyncMock()
+    store.get_relationships = AsyncMock(
+        return_value=[
+            {"triple_id": "p1", "subject_id": "user:u1",
+             "predicate": "VISITED", "object_id": "place:cafe1",
+             "object_type": "place"},
+        ]
+    )
+    # Bridge call (LOCATED_IN) — empty for this test
+    store.batch_get_relationships = AsyncMock(return_value={})
+
+    plan = _make_plan("place")
+    spec = ANSWER_KIND_TOPOLOGIES["place"]
+    result = await _execute_topology(
+        spec=spec, plan=plan, store=store, limit=20,
+        candidate_object_ids=["place:cafe1", "place:cafe2"],
+    )
+
+    assert store.get_relationships.await_count == 2  # one per candidate
+    first_call = store.get_relationships.await_args_list[0]
+    assert first_call.kwargs["subject_id"] == "user:u1"
+    assert first_call.kwargs["object_id"] == "place:cafe1"
+    assert first_call.kwargs["predicates"] == ["VISITED"]
+    assert first_call.kwargs["evidence_classes"] == [
+        EvidenceClass.USER_SELF_REPORT.label
+    ]
