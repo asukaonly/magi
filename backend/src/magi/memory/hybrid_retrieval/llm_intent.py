@@ -13,6 +13,7 @@ from .answerability import (
     extract_query_tokens,
     extract_quoted_spans,
 )
+from .evidence_routing import infer_allowed_evidence_classes
 from .l2_intent import (
     _VALID_PREDICATE_FAMILIES,
     _VALID_SUBJECT_HINTS,
@@ -236,6 +237,13 @@ class LLMIntentDecider:
                 if refinement.semantic_frame is not None:
                     conditions.semantic_frame = refinement.semantic_frame
                 enrich_l2_conditions(conditions, original_query)
+                if conditions.allowed_evidence_classes is None:
+                    inferred = infer_allowed_evidence_classes(
+                        predicate_family=conditions.predicate_family,
+                        subject_scope=conditions.subject_hint,
+                    )
+                    if inferred is not None:
+                        conditions.allowed_evidence_classes = inferred
             elif plan.layer == "L3" and isinstance(conditions, L3Conditions):
                 if refined_query:
                     conditions.content_query = refined_query
