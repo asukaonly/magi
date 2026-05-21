@@ -59,3 +59,27 @@ def test_llm_evidence_focus_directly_sets_allowed_evidence_classes():
         f"expected LLM evidence_focus to override family rule; got "
         f"{conditions.allowed_evidence_classes!r}"
     )
+
+
+def test_llm_refinement_parses_evidence_focus_from_response():
+    decider = LLMIntentDecider(provider_bridge=None)
+    raw = '{"content_query": "q", "evidence_focus": "declared"}'
+    parsed = decider._parse_response(raw)
+    assert parsed is not None
+    assert parsed.evidence_focus == "declared"
+
+
+def test_llm_refinement_evidence_focus_is_none_when_absent():
+    decider = LLMIntentDecider(provider_bridge=None)
+    raw = '{"content_query": "q"}'
+    parsed = decider._parse_response(raw)
+    assert parsed is not None
+    assert parsed.evidence_focus is None
+
+
+def test_llm_refinement_rejects_invalid_evidence_focus():
+    decider = LLMIntentDecider(provider_bridge=None)
+    raw = '{"content_query": "q", "evidence_focus": "garbage"}'
+    parsed = decider._parse_response(raw)
+    assert parsed is not None
+    assert parsed.evidence_focus is None  # invalid value silently dropped

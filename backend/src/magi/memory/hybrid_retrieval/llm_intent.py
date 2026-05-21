@@ -6,7 +6,10 @@ import json
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Literal, Optional
+
+EvidenceFocus = Literal["declared", "observed", "both"]
+_VALID_EVIDENCE_FOCI: frozenset[str] = frozenset(("declared", "observed", "both"))
 
 from .answerability import (
     extract_comparison_spans,
@@ -97,6 +100,7 @@ class LLMRefinement:
     entities: Optional[list[str]] = None
     subject_hint: Optional[str] = None
     predicate_family: Optional[str] = None
+    evidence_focus: Optional[EvidenceFocus] = None
     semantic_frame: Optional[L2SemanticFrame] = None
     reasoning: str = ""
 
@@ -194,6 +198,11 @@ class LLMIntentDecider:
             else None
         )
 
+        evidence_focus_raw = data.get("evidence_focus")
+        evidence_focus: Optional[EvidenceFocus] = None
+        if isinstance(evidence_focus_raw, str) and evidence_focus_raw in _VALID_EVIDENCE_FOCI:
+            evidence_focus = evidence_focus_raw  # type: ignore[assignment]
+
         semantic_frame = _parse_semantic_frame(data.get("semantic_frame"))
         reasoning = str(data.get("reasoning") or "")
 
@@ -205,6 +214,7 @@ class LLMIntentDecider:
             entities=entities,
             subject_hint=subject_hint,
             predicate_family=predicate_family,
+            evidence_focus=evidence_focus,
             semantic_frame=semantic_frame,
             reasoning=reasoning,
         )
