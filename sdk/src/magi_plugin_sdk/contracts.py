@@ -57,7 +57,18 @@ class ActivationFlowSpec(BaseModel):
 
 
 class SettingsUIBlockSpec(BaseModel):
-    """Host-rendered custom settings block declared by a plugin."""
+    """Host-rendered custom settings block declared by a plugin.
+
+    Blocks are read-only or selection widgets whose underlying data comes from a
+    ``PluginSettingsResourceSpec``. The ``presentation`` hint tells the host
+    which widget to render. New presentations may be added over time as the
+    plugin platform matures.
+
+    ``value_key`` is only meaningful for blocks that bind a selection back to a
+    settings field (e.g. ``calendar_list``). Read-only presentations like
+    ``permission_status`` ignore it; plugins should still pass a stable value
+    such as ``"_readonly"`` to keep the schema stable.
+    """
 
     block_id: str
     type: Literal["resource_picker"] = "resource_picker"
@@ -65,7 +76,7 @@ class SettingsUIBlockSpec(BaseModel):
     description: str = ""
     resource_name: str
     value_key: str
-    presentation: Literal["calendar_list", "list"] = "list"
+    presentation: Literal["calendar_list", "list", "permission_status"] = "list"
     depends_on_key: Optional[str] = None
     depends_on_values: list[str] = Field(default_factory=list)
 

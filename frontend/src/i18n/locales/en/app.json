@@ -2045,6 +2045,17 @@
         "timedOut": "Plugin action timed out"
       }
     },
+    "permissionStatus": {
+      "refresh": "Refresh",
+      "empty": "No permissions reported.",
+      "required": "Required",
+      "statuses": {
+        "granted": "granted",
+        "denied": "denied",
+        "notDetermined": "not determined",
+        "unknown": "unknown"
+      }
+    },
     "channelStatus": {
       "title": "Channel status",
       "account": "Account",
@@ -2535,6 +2546,22 @@
       "screenshot_timeline": {
         "name": "Screenshot Timeline",
         "description": "Captures your screen, runs local OCR, and feeds magi memory.",
+        "ui_blocks": {
+          "macos_permissions": {
+            "title": "macOS Permissions",
+            "description": "Screen Recording is required for capture. Accessibility is optional, needed only for keyboard triggers and the panic hotkey."
+          }
+        },
+        "permissions": {
+          "screen_recording": {
+            "label": "Screen Recording",
+            "description": "Required to capture screen content."
+          },
+          "accessibility": {
+            "label": "Accessibility",
+            "description": "Required for keyboard triggers and the panic hotkey (optional)."
+          }
+        },
         "fields": {
           "sensors.timeline.enabled": {
             "label": "Enabled",

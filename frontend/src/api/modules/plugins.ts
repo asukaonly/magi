@@ -44,9 +44,25 @@ export interface PluginSettingsUiBlockSpec {
   description: string;
   resource_name: string;
   value_key: string;
-  presentation: 'calendar_list' | 'list';
+  presentation: 'calendar_list' | 'list' | 'permission_status';
   depends_on_key?: string | null;
   depends_on_values?: string[];
+}
+
+export type PluginPermissionStatus = 'granted' | 'denied' | 'not_determined' | 'unknown';
+
+export interface PluginPermissionStatusItem {
+  id: string;
+  label: string;
+  label_i18n_key?: string;
+  description?: string;
+  description_i18n_key?: string;
+  status: PluginPermissionStatus;
+  required?: boolean;
+}
+
+export interface PluginPermissionStatusData {
+  items: PluginPermissionStatusItem[];
 }
 
 export interface PluginSettingsActionSpec {
