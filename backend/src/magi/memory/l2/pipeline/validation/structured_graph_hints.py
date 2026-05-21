@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from ....event_contracts import MemoryEvent
+from ....evidence import EvidenceClassification
 from ...extraction_profiles import ExtractionProfile
 from ...models import StructuredGraphHint
 from ...ontology import validate_graph_candidate
@@ -28,6 +29,7 @@ class L2StructuredGraphHintMixin(L2StructuredHintHostMixin):
         policy: Any,
         evidence_event_ids: list[str],
         catalog_name_index: dict[str, str] | None = None,
+        classification: EvidenceClassification | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         """Convert source-owned structured graph hints into deterministic graph candidates."""
         if not policy.allow_graph_write or not profile.allow_graph or policy.graph_scope != "full":
@@ -115,6 +117,9 @@ class L2StructuredGraphHintMixin(L2StructuredHintHostMixin):
                     "observed_at": event.timestamp,
                     "source_type": event.source,
                     "extraction_method": "structured_hint",
+                    "evidence_class": (
+                        classification.evidence_class if classification is not None else None
+                    ),
                 }
             )
         return prepared, rejected_count

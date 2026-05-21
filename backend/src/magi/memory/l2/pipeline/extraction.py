@@ -170,6 +170,7 @@ class L2PipelineExtractionMixin:
             policy=policy,
             evidence_event_ids=batch_event_ids,
             catalog_name_index=catalog_name_index,
+            classification=classification,
         )
         direct_write_count = await self._direct_write_graph_candidates(
             event=stored_event,
@@ -291,6 +292,7 @@ class L2PipelineExtractionMixin:
                 resolved_mentions=resolved_mentions,
                 catalog_name_index=catalog_name_index,
                 profile=extraction_profile,
+                classification=classification,
             )
             facet_candidates = self._build_structured_facet_candidates(
                 event=stored_event,
@@ -353,6 +355,7 @@ class L2PipelineExtractionMixin:
                 phase2_edges=phase2_result.graph_edges,
                 profile_signal_object_refs=profile_signal_object_refs,
                 catalog_name_index=catalog_name_index,
+                classification=classification,
             )
         )
         facet_candidates = self._build_structured_facet_candidates(

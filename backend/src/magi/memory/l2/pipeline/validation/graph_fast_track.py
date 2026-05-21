@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from ....event_contracts import MemoryEvent
+from ....evidence import EvidenceClassification
 from ...extraction_profiles import ExtractionProfile
 from ...models import L2Phase1Result, ResolvedEntityMention
 from ...ontology import PREDICATE_REGISTRY, validate_graph_candidate
@@ -67,6 +68,7 @@ class L2GraphFastTrackMixin:
         resolved_mentions: list[ResolvedEntityMention],
         catalog_name_index: dict[str, str] | None = None,
         profile: ExtractionProfile,
+        classification: EvidenceClassification | None = None,
     ) -> list[dict[str, Any]]:
         """Convert Phase 1 fact claims directly to graph candidates (no Phase 2)."""
         candidates: list[dict[str, Any]] = []
@@ -118,6 +120,9 @@ class L2GraphFastTrackMixin:
                     "source_type": event.source,
                     "extraction_method": "llm_phase1_fast_track",
                     "evidence_text": claim.evidence_text or "",
+                    "evidence_class": (
+                        classification.evidence_class if classification is not None else None
+                    ),
                 }
             )
         return candidates

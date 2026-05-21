@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from ....event_contracts import MemoryEvent
+from ....evidence import EvidenceClassification
 from ...extraction_profiles import ExtractionProfile
 from ...models import (
     ContradictionHint,
@@ -38,6 +39,7 @@ class L2Phase2GraphValidationMixin:
         phase2_edges: list[L2Phase2GraphEdge],
         profile_signal_object_refs: set[str] | None = None,
         catalog_name_index: dict[str, str] | None = None,
+        classification: EvidenceClassification | None = None,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
         """Validate Phase 2 graph edges against ontology and profile constraints."""
         if not policy.allow_graph_write or not profile.allow_graph or policy.graph_scope != "full":
@@ -139,6 +141,9 @@ class L2Phase2GraphValidationMixin:
                     "source_type": event.source,
                     "extraction_method": "llm_phase2_integration",
                     "evidence_text": edge.evidence_text or "",
+                    "evidence_class": (
+                        classification.evidence_class if classification is not None else None
+                    ),
                 }
             )
         return prepared, corroborate_targets, rejected_count
