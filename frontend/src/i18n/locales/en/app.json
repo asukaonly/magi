@@ -2592,6 +2592,22 @@
             "label": "Sync mode",
             "description": "How the host should pull harvested bursts."
           }
+        },
+        "options": {
+          "capture_scope": {
+            "active_window": "Active window only",
+            "full_screen": "Primary display (full screen)",
+            "hybrid": "Active window + periodic full screen",
+            "all_displays": "All connected displays"
+          },
+          "ocr_level": {
+            "accurate": "Accurate",
+            "fast": "Fast"
+          },
+          "sync_mode": {
+            "manual": "Manual",
+            "interval": "Interval"
+          }
         }
       },
       "telegram": {
