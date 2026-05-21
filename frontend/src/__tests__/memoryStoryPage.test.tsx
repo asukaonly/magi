@@ -43,6 +43,7 @@ vi.mock('@/api/modules/memoryStories', () => ({
   memoryStoriesApi: {
     list: vi.fn(),
     review: vi.fn(),
+    evidence: vi.fn(),
   },
 }));
 
@@ -55,6 +56,10 @@ const renderPage = () =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(memoryStoriesApi.evidence).mockResolvedValue({
+    summary_id: 'x', summary_type: 'insight', summary_category: 'state_change',
+    mode: 'source_ids', items: [], total: 0,
+  });
 });
 
 describe('MemoryStoryPage', () => {

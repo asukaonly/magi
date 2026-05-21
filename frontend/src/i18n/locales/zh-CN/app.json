@@ -2652,7 +2652,9 @@
       "detailRail": {
         "evidenceTitle": "证据",
         "notePlaceholder": "你想给这个反思加个备注吗？",
-        "savedNote": "备注已保存"
+        "savedNote": "备注已保存",
+        "evidenceLoading": "加载中…",
+        "evidenceEmpty": "没有找到关联的事件。"
       }
     },
     "episodes": {

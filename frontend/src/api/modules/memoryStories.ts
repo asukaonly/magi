@@ -42,6 +42,24 @@ export interface StoryReviewResult {
   review_state: StoryReviewState;
 }
 
+export interface StoryEvidenceItem {
+  event_id: string;
+  timestamp: number | null;
+  source: string | null;
+  event_type: string | null;
+  memory_domain: string | null;
+  content: string;
+}
+
+export interface StoryEvidencePayload {
+  summary_id: string;
+  summary_type: string;
+  summary_category: string;
+  mode: 'source_ids' | 'time_window' | 'no_l1' | 'no_window';
+  items: StoryEvidenceItem[];
+  total: number;
+}
+
 export const memoryStoriesApi = {
   list: async (params?: { limit?: number; offset?: number }): Promise<StoryFeedPayload> => {
     const response = await api.get<StoryFeedPayload>('/memory/stories', { params });
@@ -49,6 +67,10 @@ export const memoryStoriesApi = {
   },
   review: async (summaryId: string, patch: StoryReviewPatch): Promise<StoryReviewResult> => {
     const response = await api.patch<StoryReviewResult>(`/memory/stories/${summaryId}/review`, patch);
+    return unwrapGatewayPayload(response);
+  },
+  evidence: async (summaryId: string, params?: { limit?: number }): Promise<StoryEvidencePayload> => {
+    const response = await api.get<StoryEvidencePayload>(`/memory/stories/${summaryId}/evidence`, { params });
     return unwrapGatewayPayload(response);
   },
 };

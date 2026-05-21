@@ -1,9 +1,16 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import StoryDetailRail from '@/components/memory/story/StoryDetailRail';
+import { memoryStoriesApi } from '@/api/modules/memoryStories';
 import type { StoryItem } from '@/api/modules/memoryStories';
+
+vi.mock('@/api/modules/memoryStories', () => ({
+  memoryStoriesApi: {
+    evidence: vi.fn(),
+  },
+}));
 
 vi.mock('react-i18next', () => {
   const labels: Record<string, string> = {
@@ -11,6 +18,8 @@ vi.mock('react-i18next', () => {
     'memory.stories.detailRail.evidenceTitle': '证据',
     'memory.stories.detailRail.notePlaceholder': '想加个备注吗？',
     'memory.stories.detailRail.savedNote': '备注已保存',
+    'memory.stories.detailRail.evidenceLoading': '加载中…',
+    'memory.stories.detailRail.evidenceEmpty': '没有找到关联的事件。',
     'memory.stories.actions.addNote': '备注',
     'memory.stories.evidenceChip': '{{count}} 条证据',
   };
@@ -41,6 +50,14 @@ const baseStory: StoryItem = {
   evidence_event_count: 3,
 };
 
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(memoryStoriesApi.evidence).mockResolvedValue({
+    summary_id: 'x', summary_type: 'insight', summary_category: 'state_change',
+    mode: 'source_ids', items: [], total: 0,
+  });
+});
+
 describe('StoryDetailRail', () => {
   it('renders nothing when story is null', () => {
     const { container } = render(
@@ -69,5 +86,34 @@ describe('StoryDetailRail', () => {
     expect(onSaveNote).toHaveBeenCalledWith('同意，最近确实如此');
     // saved hint appears after the promise resolves
     expect(await screen.findByText('备注已保存')).toBeInTheDocument();
+  });
+
+  it('fetches and renders evidence items', async () => {
+    vi.mocked(memoryStoriesApi.evidence).mockResolvedValue({
+      summary_id: 's1', summary_type: 'insight', summary_category: 'state_change',
+      mode: 'source_ids',
+      items: [
+        { event_id: 'e1', timestamp: 1700000000, source: 'chat', event_type: 'user_message', memory_domain: 'user_authored', content: '我昨晚睡得不好' },
+        { event_id: 'e2', timestamp: 1700001000, source: 'chat', event_type: 'user_message', memory_domain: 'user_authored', content: '蚊子一直在叫' },
+      ],
+      total: 2,
+    });
+    render(
+      <StoryDetailRail story={baseStory} onClose={() => {}} onSaveNote={() => {}} />
+    );
+    expect(await screen.findByText('我昨晚睡得不好')).toBeInTheDocument();
+    expect(screen.getByText('蚊子一直在叫')).toBeInTheDocument();
+    expect(memoryStoriesApi.evidence).toHaveBeenCalledWith('s1', { limit: 25 });
+  });
+
+  it('renders the empty hint when no evidence comes back', async () => {
+    vi.mocked(memoryStoriesApi.evidence).mockResolvedValue({
+      summary_id: 's1', summary_type: 'temporal', summary_category: 'day',
+      mode: 'time_window', items: [], total: 0,
+    });
+    render(
+      <StoryDetailRail story={baseStory} onClose={() => {}} onSaveNote={() => {}} />
+    );
+    expect(await screen.findByText('没有找到关联的事件。')).toBeInTheDocument();
   });
 });

@@ -183,7 +183,14 @@ class ExtractionProfileSpec(BaseModel):
 
 
 class PluginManifest(BaseModel):
-    """Parsed manifest for a plugin package."""
+    """Parsed manifest for a plugin package.
+
+    Plugins declare per-plugin default settings under ``[plugin.default_settings]``
+    in their ``plugin.toml``. When the host first creates
+    ``~/.magi/config/plugins/{plugin_id}.yaml`` it writes this manifest-provided
+    dict verbatim. This is the sole source of seed defaults — adding a new
+    plugin requires zero magi backend changes.
+    """
 
     plugin_id: str = Field(alias="id")
     name: str
@@ -202,6 +209,14 @@ class PluginManifest(BaseModel):
     plugin_dir: str = ""
     manifest_path: str = ""
     source: Literal["builtin", "external"] = "external"
+    default_settings: dict[str, Any] = Field(default_factory=dict)
+    """Optional nested dict of default settings written to
+    ``~/.magi/config/plugins/{id}.yaml`` if missing.
+
+    Typically shaped as ``{"sensors": {<sensor_key>: {...}}}`` but plugins may
+    place other keys here too. Read from the ``[plugin.default_settings]`` table
+    in ``plugin.toml``.
+    """
 
     model_config = {"populate_by_name": True}
 
