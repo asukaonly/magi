@@ -86,6 +86,13 @@ export interface PluginPermissionStatusItem {
   description_i18n_key?: string;
   status: PluginPermissionStatus;
   required?: boolean;
+  /**
+   * Optional deep link to the OS-level settings pane for this permission.
+   * Plugins may set this so the UI can render an "Open Settings" affordance
+   * when the permission is denied. On macOS this is typically a
+   * ``x-apple.systempreferences:`` URL.
+   */
+  settings_url?: string;
 }
 
 export interface PluginPermissionStatusData {

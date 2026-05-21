@@ -2034,6 +2034,7 @@
       "refresh": "Refresh",
       "empty": "No permissions reported.",
       "required": "Required",
+      "openSettings": "Open Settings",
       "statuses": {
         "granted": "granted",
         "denied": "denied",
