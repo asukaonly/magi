@@ -401,7 +401,8 @@
       "terminal_history": "终端历史",
       "git_activity": "Git 活动",
       "calendar": "日历",
-      "netease_music": "网易云音乐"
+      "netease_music": "网易云音乐",
+      "screenshot_timeline": "屏幕快照时间线"
     },
     "feed": {
       "showDetails": "查看详情",
@@ -1964,7 +1965,8 @@
         "screen_time": "基于前台应用激活事件记录使用情况，并按小时汇总成本地使用事件。",
         "system_media": "自动记录你在听什么歌、看什么视频，支持 Spotify、网易云、QQ 音乐、浏览器等所有播放器。",
         "terminal_history": "监控来自 zsh 和 bash 的终端命令历史记录。",
-        "git_activity": "追踪 Git 仓库活动记录，包括提交、检出、合并、变基等操作。"
+        "git_activity": "追踪 Git 仓库活动记录，包括提交、检出、合并、变基等操作。",
+        "screenshot_timeline": "持续截屏并本地 OCR，把你的屏幕活动接入 magi 记忆。"
       },
       "syncModes": {
         "manual": "手动",
@@ -2543,6 +2545,84 @@
           "activation": "激活"
         }
       },
+      "screenshot_timeline": {
+        "name": "屏幕快照时间线",
+        "description": "持续截屏并本地 OCR，把你的屏幕活动接入 magi 记忆。",
+        "fields": {
+          "sensors.timeline.enabled": {
+            "label": "启用",
+            "description": "屏幕快照传感器是否激活。"
+          },
+          "sensors.timeline.capture_scope": {
+            "label": "捕获范围",
+            "description": "每次捕获屏幕的哪个部分。"
+          },
+          "sensors.timeline.active_window_interval_sec": {
+            "label": "活动窗口间隔（秒）",
+            "description": "多久捕获一次活动窗口。推荐：10 秒。"
+          },
+          "sensors.timeline.full_screen_interval_min": {
+            "label": "全屏捕获间隔（分钟）",
+            "description": "周期性全屏捕获的间隔（仅在 hybrid 或 full_screen 模式下生效）。"
+          },
+          "sensors.timeline.ocr_languages": {
+            "label": "OCR 语言",
+            "description": "Apple Vision 识别语言代码（BCP-47），例如 en-US, zh-Hans, ja。"
+          },
+          "sensors.timeline.ocr_level": {
+            "label": "OCR 识别级别",
+            "description": "accurate 较慢但更准；fast 反之。"
+          },
+          "sensors.timeline.original_retention_days": {
+            "label": "原图保留天数",
+            "description": "超过这个天数的原图会被删除。缩略图永久保留。"
+          },
+          "sensors.timeline.keyboard_triggers_enabled": {
+            "label": "启用键盘触发",
+            "description": "滚动、方向键、空格或删除按下时也触发捕获。需要辅助功能权限。"
+          },
+          "sensors.timeline.keyboard_trigger_types": {
+            "label": "键盘触发按键",
+            "description": "哪些按键触发捕获。仅在键盘触发启用时生效。"
+          },
+          "sensors.timeline.app_blocklist": {
+            "label": "应用黑名单（bundle ID）",
+            "description": "永不捕获的 bundle ID。支持通配符（例如 com.example.*）。"
+          },
+          "sensors.timeline.window_title_blocklist": {
+            "label": "窗口标题黑名单（子串）",
+            "description": "标题包含其中任一字符串的窗口会被跳过。"
+          },
+          "sensors.timeline.panic_hotkey": {
+            "label": "紧急暂停快捷键",
+            "description": "按下后立即暂停捕获。格式：Modifier+Modifier+Key。"
+          },
+          "sensors.timeline.panic_pause_seconds": {
+            "label": "紧急暂停时长（秒）",
+            "description": "紧急快捷键按下后暂停的秒数。"
+          },
+          "sensors.timeline.sync_mode": {
+            "label": "同步模式",
+            "description": "host 如何拉取已封装的 burst。"
+          }
+        },
+        "options": {
+          "capture_scope": {
+            "active_window": "仅活动窗口",
+            "full_screen": "主显示器（全屏）",
+            "hybrid": "活动窗口 + 周期性全屏",
+            "all_displays": "所有连接的显示器"
+          },
+          "ocr_level": {
+            "accurate": "精确",
+            "fast": "快速"
+          },
+          "sync_mode": {
+            "manual": "手动",
+            "interval": "定时"
+          }
+        }
+      },
       "telegram": {
         "name": "Telegram",
         "description": "双向 Telegram Bot 消息渠道适配器",
@@ -2628,10 +2708,7 @@
         "neutral": ""
       },
       "actions": {
-        "confirm": "确认",
-        "reject": "拒绝",
         "archive": "收起",
-        "addNote": "备注",
         "viewEvidence": "查看证据"
       },
       "categories": {
@@ -2651,8 +2728,6 @@
       },
       "detailRail": {
         "evidenceTitle": "证据",
-        "notePlaceholder": "你想给这个反思加个备注吗？",
-        "savedNote": "备注已保存",
         "evidenceLoading": "加载中…",
         "evidenceEmpty": "没有找到关联的事件。"
       }
@@ -2711,12 +2786,10 @@
       "title": "整理",
       "subtitle": "可审阅、可纠正、可遗忘的记忆控制台。",
       "sections": {
-        "pendingReview": "待审阅",
         "forget": "遗忘",
         "privacy": "隐私范围",
         "developer": "开发者视图"
       },
-      "pendingReviewBody": "Magi 还没确认的反思会在这里等待你过一遍。",
       "developerBody": "原始事件、L2 结构化知识、L0 工作台和 L4 工具记忆都在这里。",
       "forgetBody": "从这里删除某个实体、某段时间或某个章节的记忆。",
       "forgetSuccess": "已遗忘",
