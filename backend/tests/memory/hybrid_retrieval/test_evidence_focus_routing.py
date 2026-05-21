@@ -211,3 +211,16 @@ def test_service_plan_augmentation_uses_evidence_focus_heuristic():
         "its injected L2 plan; got "
         f"{conditions.allowed_evidence_classes!r}"
     )
+
+
+def test_llm_prompt_documents_evidence_focus():
+    """The system prompt must instruct the LLM to produce evidence_focus and
+    explain the three valid values. Without this, the LLM will silently omit
+    the field and we'll always fall back to the heuristic."""
+    from magi.memory.hybrid_retrieval.llm_intent import _LLM_SYSTEM_PROMPT
+    assert "evidence_focus" in _LLM_SYSTEM_PROMPT
+    assert '"declared"' in _LLM_SYSTEM_PROMPT
+    assert '"observed"' in _LLM_SYSTEM_PROMPT
+    assert '"both"' in _LLM_SYSTEM_PROMPT
+    # Reference examples should make the contract concrete
+    assert "Chrome history" in _LLM_SYSTEM_PROMPT or "browsed" in _LLM_SYSTEM_PROMPT

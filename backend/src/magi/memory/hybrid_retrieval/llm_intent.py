@@ -51,7 +51,20 @@ You produce a single refinement object that is applied to every routed plan:
 - ``subject_hint`` (optional, L2): "self" when the user is asking about themselves,
   "explicit" when an entity is mentioned, "none" otherwise.
 - ``predicate_family`` (optional, L2): one of ``preference``, ``profile_fact``,
-  ``relationship``, ``activity``, ``unknown``.
+  ``relationship``, ``activity``, ``unknown``. This drives downstream predicate
+  expansion but is NOT load-bearing for evidence-class filtering.
+- ``evidence_focus`` (optional, L2): when the user is asking about themselves
+  (subject_hint="self"), classify what evidence tier the question wants:
+    * ``"declared"`` — user is asking about what they explicitly said/claimed
+      in conversation. Examples: "what music do I like", "what name did I tell
+      you", "what are my preferences".
+    * ``"observed"`` — user is asking about their own behavior captured from
+      external sources (Chrome history, app usage). Examples: "what companies
+      did I browse", "what sites did I visit most".
+    * ``"both"`` — both declared and observed legitimately apply. Example:
+      "what am I into right now".
+  Leave null when the query isn't self-referential or the tier is genuinely
+  unclear. This field is preferred over predicate_family for evidence filtering.
 - ``semantic_frame`` (optional, L2): structured query semantics with the schema:
     {
       "query_family": "affinity" | "relationship" | "profile" | "activity" | "lookup",
@@ -81,6 +94,7 @@ Return JSON only:
   "entities": ["string", ...],
   "subject_hint": "self" | "explicit" | "none",
   "predicate_family": "preference" | "profile_fact" | "relationship" | "activity" | "unknown",
+  "evidence_focus": "declared" | "observed" | "both" | null,
   "semantic_frame": { ... } | null,
   "reasoning": "string"
 }"""
